@@ -457,6 +457,9 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
                 "sessionDir": session_dir.to_string_lossy(),
                 "provider": "prime-inference",
                 "model": "mock-1",
+                // A chat-memory root starts every turn fresh and never
+                // threshold-compacts; a depth-1 session keeps its context.
+                "rlmDepth": 1,
             },
         }),
     );
@@ -785,6 +788,9 @@ fn wedged_worker_abort_acks_immediately_and_declares_terminal() {
                 "sessionDir": session_dir.to_string_lossy(),
                 "provider": "prime-inference",
                 "model": "mock-1",
+                // A chat-memory root starts every turn fresh and never
+                // threshold-compacts; a depth-1 session keeps its context.
+                "rlmDepth": 1,
             },
         }),
     );

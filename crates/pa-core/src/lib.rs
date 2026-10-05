@@ -75,6 +75,7 @@ pub mod export_html;
 pub mod goals;
 pub mod kernel;
 pub mod mcp;
+pub mod memory;
 pub mod models;
 pub mod packages;
 pub mod platform;

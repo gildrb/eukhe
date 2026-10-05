@@ -117,8 +117,13 @@ fn assistant_text(message: &AssistantMessage) -> String {
 /// (returning `false` aborts the run), honors `signal` for external
 /// aborts, and retries provider failures per `retry_policy`. It never
 /// mutates the parent agent or its history.
+// Each input is an independent seam (the parent loop, its view, the
+// pre-semantic stream, the conversation, the retry policy, the abort, the
+// sink); bundling them would only rename the list.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_side_question(
     parent: &Arc<Agent>,
+    context_prefix: Option<pa_agent::types::AgentMessage>,
     stream_fn: pa_agent::stream::StreamFn,
     question: &str,
     previous_turns: &[SideQuestionTurn],
@@ -135,8 +140,10 @@ pub async fn run_side_question(
     }
 
     // Each turn re-clones the live main conversation, so follow-ups always see
-    // the newest main-thread context; earlier side turns replay after it.
-    let mut messages = parent_state.messages.clone();
+    // the newest main-thread context; earlier side turns replay after it. A
+    // chat-memory session's view rides in front, as on the main thread.
+    let mut messages: Vec<pa_agent::types::AgentMessage> = context_prefix.into_iter().collect();
+    messages.extend(parent_state.messages.iter().cloned());
     for (index, turn) in previous_turns.iter().enumerate() {
         messages.push(pa_agent::types::AgentMessage::Standard(Message::User(
             UserMessage {
@@ -577,6 +584,7 @@ mod tests {
             .expect("the parent agent has a stream fn");
         run_side_question(
             parent,
+            None,
             stream_fn,
             question,
             previous_turns,

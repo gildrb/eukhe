@@ -1109,11 +1109,15 @@ impl SessionEngine for AgentSessionEngine {
         // and the ledger records nothing. The engine build always wires
         // it; no fallback to the agent's own fn, which would leak the
         // id-carrying wrapper into the side call.
-        let side_stream_fn = {
+        let (side_stream_fn, chat_memory) = {
             let guard = self.session.blocking_lock();
-            guard
-                .as_deref()
-                .and_then(|engine| engine.session.side_question_stream_fn())
+            match guard.as_deref() {
+                Some(engine) => (
+                    engine.session.side_question_stream_fn(),
+                    engine.session.chat_memory().cloned(),
+                ),
+                None => (None, None),
+            }
         };
         let Some(side_stream_fn) = side_stream_fn else {
             return SideQuestionOutcome::Failed {
@@ -1121,10 +1125,24 @@ impl SessionEngine for AgentSessionEngine {
                 error: "Select a model before asking a side question".to_string(),
             };
         };
+        // The main thread's view rides in front of the cloned context.
+        let context_prefix = match chat_memory {
+            Some(chat_memory) => match self.runtime.block_on(chat_memory.view_message()) {
+                Ok(message) => Some(message),
+                Err(error) => {
+                    return SideQuestionOutcome::Failed {
+                        answer: String::new(),
+                        error: format!("the chat memory view is unavailable: {error:#}"),
+                    }
+                }
+            },
+            None => None,
+        };
         let result =
             self.runtime
                 .block_on(pa_core::session_engine::side_question::run_side_question(
                     &agent,
+                    context_prefix,
                     side_stream_fn,
                     &question,
                     &previous_turns,

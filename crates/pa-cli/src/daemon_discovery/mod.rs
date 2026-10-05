@@ -158,6 +158,11 @@ fn state_root_matches(root: &DaemonStateRoot, socket_path: &Path) -> bool {
     if is_never_touch(socket_path) {
         return false;
     }
+    // The chat memory's lock socket is not a daemon: its owner (usually the
+    // supervisor itself) answers only chat requests.
+    if socket_path == pa_core::memory::chat_dir(&root.agent_dir).join("lock") {
+        return false;
+    }
     #[cfg(windows)]
     {
         // Windows daemons share one named pipe per machine, so there is

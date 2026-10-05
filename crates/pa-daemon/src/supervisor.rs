@@ -266,6 +266,12 @@ pub struct Supervisor {
     /// create replay, cleared by a `compaction_end` that did land.
     pub(crate) compaction_journal:
         std::sync::Mutex<crate::compaction_supervision::TerminalCompactionJournal>,
+    /// The chat memory, claimed at boot: the always-on supervisor owns
+    /// `<agent-dir>/chat/lock` and runs the compactor, so the summaries
+    /// keep up while no session is open; workers are its clients. `None`
+    /// before boot, or when another live process owned the chat first
+    /// (then this supervisor is a client that takes over when it exits).
+    chat_memory: std::sync::Mutex<Option<pa_core::memory::Memory>>,
 }
 
 impl Supervisor {
@@ -336,6 +342,7 @@ impl Supervisor {
             passive_scan_pending: std::sync::atomic::AtomicBool::new(false),
             passive_catalog_epoch: std::sync::atomic::AtomicU64::new(0),
             compaction_journal: std::sync::Mutex::new(compaction_journal),
+            chat_memory: std::sync::Mutex::new(None),
         })
     }
 
@@ -427,6 +434,30 @@ impl Supervisor {
         socket::restrict_socket_path(&self.options.socket_path);
         self.log
             .append(&format!("supervisor started pid {}", std::process::id()));
+        // Claim the chat memory only once this process owns the daemon
+        // socket: a second supervisor that lost the bind never gets here.
+        // A failure is logged; sessions report their own when they open it.
+        match pa_core::memory::Memory::open(
+            pa_core::memory::chat_dir(&self.options.agent_dir),
+            Arc::new(pa_core::memory::SettingsSummarizer::new(
+                self.options.agent_dir.clone(),
+            )),
+        )
+        .await
+        {
+            Ok(memory) => {
+                let owner = if memory.owns().await {
+                    "owner"
+                } else {
+                    "client"
+                };
+                self.log.append(&format!("chat memory open ({owner})"));
+                *self.chat_memory.lock().unwrap() = Some(memory);
+            }
+            Err(error) => self
+                .log
+                .append(&format!("chat memory unavailable: {error:#}")),
+        }
         match open_file_limit {
             Ok(Some(limit)) => self.log.append(&format!("open file limit {limit}")),
             Ok(None) => {}

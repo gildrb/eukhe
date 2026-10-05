@@ -438,6 +438,9 @@ fn threshold_compaction_streams_summary_deltas_to_attached_clients() {
                 "sessionDir": session_dir.to_string_lossy(),
                 "provider": "prime-inference",
                 "model": "mock-1",
+                // A chat-memory root starts every turn fresh and never
+                // threshold-compacts; a depth-1 session keeps its context.
+                "rlmDepth": 1,
             },
         }),
     );

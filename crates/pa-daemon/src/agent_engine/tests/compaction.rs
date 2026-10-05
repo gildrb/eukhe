@@ -219,8 +219,11 @@ fn threshold_compaction_stays_on_the_session_provider_after_a_resolution_drift()
         )
         .unwrap();
     };
+    // A chat-memory root starts every turn fresh from the chat view, so it
+    // never threshold-compacts; a subagent keeps its context, and the
+    // threshold arm runs there.
     let new_engine = || {
-        AgentSessionEngine::new(AgentEngineConfig {
+        let engine = AgentSessionEngine::new(AgentEngineConfig {
             cwd: dir.path().to_path_buf(),
             agent_dir: agent_dir.clone(),
             provider: None,
@@ -235,7 +238,14 @@ fn threshold_compaction_stays_on_the_session_provider_after_a_resolution_drift()
             cron_store: None,
             queued_steering_probe: None,
         })
-        .unwrap()
+        .unwrap();
+        engine
+            .configure_rlm_identity(crate::engine::RlmSessionIdentity {
+                rlm_depth: 1,
+                ..crate::engine::RlmSessionIdentity::default()
+            })
+            .unwrap();
+        engine
     };
     // Probe: the baseline turn's total usage (the faux provider
     // estimates usage from the serialized context, system prompt

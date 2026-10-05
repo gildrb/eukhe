@@ -176,6 +176,7 @@ impl AgentSessionEngine {
             effective_thinking: std::sync::RwLock::new(None),
             service_tier: std::sync::RwLock::new(None),
             session: tokio::sync::Mutex::new(None),
+            chat_memory: tokio::sync::OnceCell::new(),
             session_build: tokio::sync::Mutex::new(()),
             pending_branch: std::sync::Mutex::new(None),
             provider_target: std::sync::Arc::new(std::sync::RwLock::new(None)),
@@ -397,6 +398,7 @@ impl AgentSessionEngine {
                 turn_boundary: std::sync::Arc::clone(&built.turn_boundary),
                 agent: std::sync::Arc::clone(built.session.agent()),
                 compaction: built.session.compaction_settings(),
+                chat_memory: built.session.chat_memory().cloned(),
             });
         // The background-bash liveness probe (TS `_hasLiveBackgroundBashHandles`
         // reads the provisioner's kernel manager): the same deadlock-free
@@ -1144,8 +1146,29 @@ impl AgentSessionEngine {
             .lock()
             .expect("semantic identity lock")
             .clone();
+        // The chat memory is the product's memory model; the faux
+        // verification harness keeps the classic conversation (its scripts
+        // assert carried context, and no compactor model exists offline).
+        let memory = if self.config.faux_script.is_some() {
+            None
+        } else {
+            let agent_dir = self.config.agent_dir.clone();
+            let memory = self
+                .chat_memory
+                .get_or_try_init(|| {
+                    pa_core::memory::Memory::open(
+                        pa_core::memory::chat_dir(&agent_dir),
+                        std::sync::Arc::new(pa_core::memory::SettingsSummarizer::new(
+                            agent_dir.clone(),
+                        )),
+                    )
+                })
+                .await?;
+            Some(memory.clone())
+        };
         pa_core::session_engine::engine::create_session(SessionEngineConfig {
             semantic_edges,
+            memory,
             telemetry,
             cwd,
             // TS settings.imageModel routing: the daemon owns the routing

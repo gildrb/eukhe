@@ -645,6 +645,31 @@ impl SettingsManager {
         self.merged.auxiliary_model.as_deref()
     }
 
+    /// `memory.model`: the chat memory compactor's `provider/model-id`
+    /// (whitespace-only reads as unset).
+    #[must_use]
+    pub fn get_memory_model(&self) -> Option<String> {
+        self.merged
+            .memory
+            .as_ref()
+            .and_then(|memory| memory.model.as_deref())
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(str::to_string)
+    }
+
+    /// `memory.thinking`: the compactor's reasoning effort; unset is
+    /// medium (the reference compactor's effort; low overshoots the line
+    /// size much more often).
+    #[must_use]
+    pub fn get_memory_thinking(&self) -> super::types::ThinkingLevelSetting {
+        self.merged
+            .memory
+            .as_ref()
+            .and_then(|memory| memory.thinking)
+            .unwrap_or(super::types::ThinkingLevelSetting::Medium)
+    }
+
     /// TS `getImageModel`: the "provider/model-id" (or bare id) reference
     /// that serves turns attaching images on session models without image
     /// input. Same shape as `providerBackupModel`: malformed values behave

@@ -31,6 +31,12 @@ impl AgentSession {
     /// combined input+output ceiling, whichever comes first). Usage
     /// from before the latest compaction never re-triggers.
     pub async fn auto_compaction_due(&self, model: &pa_types::ai::Model) -> bool {
+        // A chat-memory root's next turn starts a fresh call: the context a
+        // compaction would summarize is dropped anyway, and the history
+        // lives in the chat.
+        if self.next_turn_is_fresh().await {
+            return false;
+        }
         let state = self.agent.state().await;
         // The live loop context is the agent's message list (the same JSON
         // round-trip `compact` uses for its rebuilt context).

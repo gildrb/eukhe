@@ -109,6 +109,18 @@ pub struct BranchSummarySettings {
     pub skip_prompt: Option<bool>,
 }
 
+/// The chat memory's compactor (`memory`): the cheap model that builds the
+/// summary tree, and its reasoning effort.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySettings {
+    /// `provider/model-id`; unset falls back to `auxiliaryModel`, then to
+    /// the default model.
+    pub model: Option<String>,
+    /// Reasoning effort of compactor calls; unset means medium.
+    pub thinking: Option<ThinkingLevelSetting>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoRefineSettings {
@@ -323,6 +335,7 @@ pub struct Settings {
     pub follow_up_mode: Option<QueueModeSetting>,
     pub theme: Option<String>,
     pub compaction: Option<CompactionSettings>,
+    pub memory: Option<MemorySettings>,
     pub auto_refine: Option<AutoRefineSettings>,
     pub agent_traces: Option<AgentTracesSettings>,
     pub factory: Option<FactorySettings>,
