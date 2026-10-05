@@ -51,6 +51,69 @@ pub(crate) mod tests;
 #[cfg(test)]
 pub(crate) static WRITER_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// The writer's test-only gate: while a [`WriterHold`] is alive the
+/// writer takes no further job off the queue (it waits on the gate before
+/// each `recv`), so a saturated queue stays saturated however the test's
+/// threads are scheduled. A writer already parked in `recv` when the hold
+/// begins takes at most that one job before stopping at the gate.
+#[cfg(all(test, unix))]
+pub(crate) static WRITER_GATE: WriterGate = WriterGate {
+    held: std::sync::Mutex::new(false),
+    opened: std::sync::Condvar::new(),
+};
+
+/// See [`WRITER_GATE`].
+#[cfg(all(test, unix))]
+pub(crate) struct WriterGate {
+    held: std::sync::Mutex<bool>,
+    opened: std::sync::Condvar,
+}
+
+#[cfg(all(test, unix))]
+impl WriterGate {
+    /// Close the gate until the returned hold drops (a failing test
+    /// still reopens it on unwind, so the shared writer never wedges).
+    pub(crate) fn hold(&'static self) -> WriterHold {
+        *self
+            .held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        WriterHold { gate: self }
+    }
+
+    /// Block the writer while the gate is held.
+    fn pass(&self) {
+        let mut held = self
+            .held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *held {
+            held = self
+                .opened
+                .wait(held)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+/// A closed [`WRITER_GATE`]; dropping it lets the writer drain again.
+#[cfg(all(test, unix))]
+pub(crate) struct WriterHold {
+    gate: &'static WriterGate,
+}
+
+#[cfg(all(test, unix))]
+impl Drop for WriterHold {
+    fn drop(&mut self) {
+        *self
+            .gate
+            .held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+        self.gate.opened.notify_all();
+    }
+}
+
 /// The newest-body ring the capture keeps: one file per request, so
 /// long-context payloads never grow without bound in an always-on
 /// daemon's diagnostics dir.
@@ -275,7 +338,12 @@ impl RequestPayloadCapture {
 /// The body's retained bytes release once its write settles (the job's
 /// payload is dropped right after).
 fn drain_writer(queued: &Arc<AtomicUsize>, retained: &Arc<AtomicU64>, jobs: &Receiver<CaptureJob>) {
-    while let Ok(job) = jobs.recv() {
+    loop {
+        #[cfg(all(test, unix))]
+        WRITER_GATE.pass();
+        let Ok(job) = jobs.recv() else {
+            return;
+        };
         queued.fetch_sub(1, Ordering::Relaxed);
         let result = write_capture(&job.root, &job.dir, job.keep, &job);
         retained.fetch_sub(job.estimate, Ordering::Relaxed);

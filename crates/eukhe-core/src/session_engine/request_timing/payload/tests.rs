@@ -610,9 +610,11 @@ fn a_saturated_queue_drops_without_cloning() {
 /// The concurrent-producers pin: a barrier of producers racing a
 /// pre-saturated queue — every one of them drops at the reserve check,
 /// without paying a payload copy (the queue is saturated against the
-/// reserve counter itself, not a serialization-time assumption), the
-/// counter never exceeds the capacity, and a fresh handoff still
-/// reserves after the storm (no reservation leak).
+/// reserve counter itself, and the writer is held at its gate for the
+/// whole storm, so no slot can free mid-storm however late the
+/// producers are scheduled), the counter never exceeds the capacity,
+/// and a fresh handoff still reserves after the storm (no reservation
+/// leak).
 #[test]
 fn concurrent_producers_drop_at_the_reserve_when_the_queue_is_full() {
     let _writer_lock = super::WRITER_TEST_LOCK.blocking_lock();
@@ -620,14 +622,17 @@ fn concurrent_producers_drop_at_the_reserve_when_the_queue_is_full() {
     let dir_path = dir.path().join("request-payloads");
     // The ring keeps every body: the count assertions need no eviction.
     let capture = RequestPayloadCapture::at(&dir_path, 4 * REQUEST_PAYLOAD_CAPTURE_KEEP);
-    // The stall body: a many-node body the writer serializes for far
-    // longer than the whole storm window, so no queue slot frees mid
-    // storm.
-    let stall = json!({
-        "marker": "stall",
-        "messages": (0..100_000_u32).map(|seq| json!({ "seq": seq })).collect::<Vec<_>>()
-    });
-    capture.record(&stall, &agent_model(), Some("sess-timing"), 1);
+    // Hold the writer before the first handoff: from here it takes at
+    // most the one job it may already be waiting for, then stops at the
+    // gate until the storm is over.
+    let writer_hold = super::WRITER_GATE.hold();
+    // The first handoff arms the writer (the fill reads its counter).
+    capture.record(
+        &json!({ "marker": "first" }),
+        &agent_model(),
+        Some("sess-timing"),
+        1,
+    );
     let fills = fill_until_saturated(&capture, "fill");
     // The storm: many concurrent producers, each with its own marker,
     // racing the full queue. Every one drops at the reserve check —
@@ -653,7 +658,8 @@ fn concurrent_producers_drop_at_the_reserve_when_the_queue_is_full() {
     for handle in handles {
         handle.join().expect("the producer finishes");
     }
-    // The counter never exceeded the capacity and leaked nothing.
+    // The counter sits exactly at the capacity: the held writer freed
+    // no slot, no storm producer reserved one, and none leaked.
     let queued_after = super::CAPTURE_WRITER
         .get()
         .and_then(|writer| {
@@ -662,13 +668,14 @@ fn concurrent_producers_drop_at_the_reserve_when_the_queue_is_full() {
                 .map(|writer| writer.queued.load(Ordering::Relaxed))
         })
         .expect("the writer is armed");
-    assert!(
-        queued_after <= REQUEST_PAYLOAD_CAPTURE_KEEP,
-        "the reserve counter stays within the capacity: {queued_after}"
+    assert_eq!(
+        queued_after, WRITE_QUEUE_CAPACITY,
+        "the reserve counter stays at the capacity through the storm"
     );
-    // The drain lands the stall body and every fill, and a fresh
-    // handoff still reserves after the storm — a leaked reservation
-    // would report saturation forever.
+    // Release the writer: the drain lands the first body and every
+    // fill, and a fresh handoff still reserves after the storm — a
+    // leaked reservation would report saturation forever.
+    drop(writer_hold);
     wait_for_drained_queue();
     capture.record(
         &json!({ "marker": "recovered" }),
@@ -688,6 +695,6 @@ fn concurrent_producers_drop_at_the_reserve_when_the_queue_is_full() {
     assert_eq!(
         landed.len(),
         fills + 2,
-        "the stall body, every fill, and the recovery body: the queue bound held"
+        "the first body, every fill, and the recovery body: the queue bound held"
     );
 }
