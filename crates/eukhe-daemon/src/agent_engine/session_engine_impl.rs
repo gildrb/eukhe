@@ -392,6 +392,7 @@ impl SessionEngine for AgentSessionEngine {
     fn configure_model(&self, selection: EngineModelSelection) {
         // Merge like the TS runtime config: explicit wire flags replace the
         // current selection; absent fields keep it.
+        let selection_changes_model = selection.provider.is_some() || selection.model.is_some();
         {
             let mut current = self.selection.write().expect("model selection lock");
             if selection.provider.is_some() {
@@ -406,6 +407,12 @@ impl SessionEngine for AgentSessionEngine {
             if selection.thinking.is_some() {
                 current.thinking = selection.thinking;
             }
+        }
+        // An explicit provider/model changes the startup chain's inputs
+        // (or replaces the chain with the flagged arm): the pinned
+        // startup decision no longer describes this selection.
+        if selection_changes_model {
+            self.clear_startup_model();
         }
         // Resolve the effective thinking level now (create time, before any
         // turn): the merge above may have changed the selection, so drop the
@@ -597,10 +604,11 @@ impl SessionEngine for AgentSessionEngine {
             is_continuing,
         });
         // The scope changes the startup decisions (the picked model, the
-        // entry's `:thinking` link in `effective_thinking`), so the level
-        // the create-model seam resolved a moment ago — before the scope
-        // registered — is stale: drop it the same way `configure_model`
+        // entry's `:thinking` link in `effective_thinking`), so the model
+        // pinned and the level resolved a moment ago — before the scope
+        // registered — are stale: drop both the same way `configure_model`
         // does; the next read re-resolves against the scope.
+        self.clear_startup_model();
         *self
             .effective_thinking
             .write()

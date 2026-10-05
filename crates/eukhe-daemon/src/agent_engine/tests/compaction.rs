@@ -289,10 +289,19 @@ fn threshold_compaction_stays_on_the_session_provider_after_a_resolution_drift()
     );
 
     // The mid-session resolution drift (the live R8 shape): the
-    // settings default changes under the built session, so a fresh
-    // startup-chain resolution lands on the dead provider while the
-    // session's live model stays the provider target.
+    // settings default changes under the built session. The pinned
+    // startup decision keeps every resolution on the session's model
+    // (TS `createAgentSession` resolves once) ...
     write_settings("drift", "drift-1", reserve);
+    let pinned = engine.resolve_model().expect("the pinned model resolves");
+    assert_eq!(
+        (pinned.provider.as_str(), pinned.id.as_str()),
+        ("faux", "faux-1")
+    );
+    // ... so force the drift the R8 seam guards against: with the pin
+    // dropped, a fresh startup-chain resolution lands on the dead
+    // provider while the session's live model stays the provider target.
+    engine.clear_startup_model();
     let drifted = engine.resolve_model().expect("the drift model resolves");
     assert_eq!(
         (drifted.provider.as_str(), drifted.id.as_str()),
@@ -442,11 +451,17 @@ fn retire_clears_the_provider_target_for_the_replacement_build() {
 
     // The replacement teardown retires the session while the settings
     // default moves under it (the cwd/settings change the
-    // replacement carries).
+    // replacement carries); the replacement's session restore resets the
+    // runtime config, dropping the retired session's startup decision.
     write_settings("drift", "drift-1");
     engine
         .runtime
         .block_on(async { engine.retire_session_runtime().await });
+    engine.runtime.block_on(async {
+        engine
+            .restore_session_model(&dir.path().join("replacement.jsonl"), None)
+            .await;
+    });
     assert!(engine
         .runtime
         .block_on(async { engine.session.lock().await.is_none() }));

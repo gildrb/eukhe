@@ -53,6 +53,53 @@ impl AgentSessionEngine {
             .ok_or_else(|| eukhe_core::models::initial_model_unavailable_message(&options))
     }
 
+    /// Record `model` as the session's startup decision (see the
+    /// `startup_model` field): the first pin since the last clear wins, so
+    /// a concurrent resolution that pinned first keeps its identity and
+    /// this call returns that model instead.
+    fn pin_startup_model(
+        &self,
+        model: Model,
+        registry: &eukhe_core::models::ModelRegistry,
+    ) -> Model {
+        {
+            let mut pinned = self
+                .startup_model
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if pinned.is_none() {
+                *pinned = Some((model.provider.clone(), model.id.clone()));
+                return model;
+            }
+        }
+        self.startup_model_resolution(registry).unwrap_or(model)
+    }
+
+    /// The pinned startup decision resolved through the exact-match path
+    /// a flagged selection takes (the restored pin's path): the identity
+    /// stays, the metadata follows the registry's current view.
+    fn startup_model_resolution(
+        &self,
+        registry: &eukhe_core::models::ModelRegistry,
+    ) -> Option<Model> {
+        let (provider, model_id) = self
+            .startup_model
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()?;
+        eukhe_core::models::resolve_cli_model(Some(&provider), &model_id, registry.get_all()).model
+    }
+
+    /// Drop the pinned startup decision: the chain's inputs changed (an
+    /// explicit selection, the create scope, a session restore), so the
+    /// next unflagged resolution decides afresh.
+    pub(super) fn clear_startup_model(&self) {
+        *self
+            .startup_model
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
     /// The runtime-config reset at every session restore (TS
     /// `switchSession` -> `createRuntime` -> `createAgentSession`): the
     /// session's model selection returns to the session runtime config
@@ -70,6 +117,9 @@ impl AgentSessionEngine {
     /// first read after a flagged reset (an explicit selection the
     /// restore returns early for) resolves lazily against that selection.
     fn reset_selection_to_spawn_fallback(&self) {
+        // The moved-to session runs its own startup decision (TS
+        // `createAgentSession` per runtime).
+        self.clear_startup_model();
         *self
             .effective_thinking
             .write()
@@ -177,7 +227,9 @@ impl AgentSessionEngine {
             // The TS `modelFallbackMessage`: the restore miss is on the
             // record — the startup chain owns the session, and the
             // summary publishes what happened (never silent).
-            let fallback = self.startup_chain_model(&registry);
+            let fallback = self
+                .startup_chain_model(&registry)
+                .map(|fallback| self.pin_startup_model(fallback, &registry));
             let message = match &fallback {
                 Ok(fallback) => format!(
                     "Could not restore model {provider}/{model_id}. Using {}/{}",
@@ -287,15 +339,20 @@ impl AgentSessionEngine {
         let selection = self.current_selection();
         let Some(model_name) = selection.model.as_deref() else {
             // No flagged model: the restored-from-session decision comes
-            // first (TS `createAgentSession`), then the startup chain —
-            // the `--provider` flag, the saved settings default, the
-            // featured default, then the first available model.
+            // first (TS `createAgentSession`), then the session's pinned
+            // startup decision, then the startup chain — the `--provider`
+            // flag, the saved settings default, the featured default, then
+            // the first available model — whose pick becomes the pin.
             if let Some(model) = self.restored_model_resolution(&registry) {
                 return Ok(model);
             }
-            return self
+            if let Some(model) = self.startup_model_resolution(&registry) {
+                return Ok(model);
+            }
+            let model = self
                 .startup_chain_model(&registry)
-                .map_err(anyhow::Error::msg);
+                .map_err(anyhow::Error::msg)?;
+            return Ok(self.pin_startup_model(model, &registry));
         };
         // TS `resolveCliModel` resolves against `modelRegistry.getAll()`
         // — the full catalog, not the auth-configured list ("use *all*

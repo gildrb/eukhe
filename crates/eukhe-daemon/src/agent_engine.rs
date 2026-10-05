@@ -278,6 +278,20 @@ pub struct AgentSessionEngine {
     /// re-restores at every session boot), and an explicit create flag
     /// wins end-to-end (the decision is never consulted).
     restored_model: std::sync::Mutex<Option<RestoredSessionModel>>,
+    /// The startup chain's decision for the current session (TS
+    /// `createAgentSession` resolves the model ONCE and the session then
+    /// holds it as `session.model`): the `(provider, id)` the first
+    /// unflagged, unrestored resolution picked. Later resolutions keep
+    /// that identity (re-resolved exactly, so a catalog refresh updates
+    /// the metadata, TS `_refreshCurrentModelFromRegistry`) instead of
+    /// re-running the chain against a catalog that may have changed —
+    /// a background catalog fetch landing the provider's featured
+    /// default must never silently move a live session (or its
+    /// list/summary row) off the model it runs on. Dropped wherever the
+    /// chain's inputs legitimately change: an explicit provider/model
+    /// selection, the create's `--models` scope, and the per-session
+    /// runtime-config reset of a restore.
+    startup_model: std::sync::Mutex<Option<(String, String)>>,
     /// The create-time `--models` scope (see [`config::StartupScope`]):
     /// resolved once per create by the worker and consulted by the
     /// startup chain (TS main.ts:548-568); `None` keeps the unscoped
