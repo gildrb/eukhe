@@ -779,24 +779,32 @@ impl<'a> ResponsesStreamProcessor<'a> {
                     self.output.response_id = Some(id.to_string());
                 }
                 if let Some(usage) = response.get("usage") {
-                    let cached_tokens = usage
-                        .get("input_tokens_details")
+                    let input_details = usage.get("input_tokens_details");
+                    let cached_tokens = input_details
                         .and_then(|details| details.get("cached_tokens"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    // GPT-5.6 and later report their cache writes apart.
+                    let cache_write_tokens = input_details
+                        .and_then(|details| details.get("cache_write_tokens"))
                         .and_then(serde_json::Value::as_u64)
                         .unwrap_or(0);
                     let input_tokens = usage
                         .get("input_tokens")
                         .and_then(serde_json::Value::as_u64)
                         .unwrap_or(0);
-                    // OpenAI includes cached tokens in input_tokens; subtract them.
+                    // OpenAI includes cached and cache-write tokens in
+                    // input_tokens; subtract them.
                     self.output.usage = Usage {
-                        input: input_tokens.saturating_sub(cached_tokens),
+                        input: input_tokens
+                            .saturating_sub(cached_tokens)
+                            .saturating_sub(cache_write_tokens),
                         output: usage
                             .get("output_tokens")
                             .and_then(serde_json::Value::as_u64)
                             .unwrap_or(0),
                         cache_read: cached_tokens,
-                        cache_write: 0,
+                        cache_write: cache_write_tokens,
                         total_tokens: usage
                             .get("total_tokens")
                             .and_then(serde_json::Value::as_u64)
@@ -951,5 +959,97 @@ fn map_responses_stop_reason(status: Option<&str>) -> StopReason {
         None | Some("completed" | "in_progress" | "queued") => StopReason::Stop,
         Some("incomplete") => StopReason::Length,
         Some(_) => StopReason::Error,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, Map, Value};
+
+    use super::ResponsesStreamProcessor;
+    use crate::event_stream::AssistantMessageEventStream;
+    use crate::providers::openai_responses_hooks::ResponsesStreamHooks;
+    use crate::types::{AssistantMessage, Model, StopReason, Usage, UsageCost};
+
+    /// The usage of a turn whose `response.completed` event reports `usage`
+    /// (zero model cost: only the token split is under test).
+    fn completed_usage(usage: &Value) -> Usage {
+        let model: Model = serde_json::from_value(json!({
+            "id": "gpt-5.6-sol", "name": "GPT-5.6 Sol", "api": "openai-responses",
+            "provider": "openai", "baseUrl": "https://api.openai.com/v1", "reasoning": true,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 400_000, "maxTokens": 128_000
+        }))
+        .expect("model json");
+        let mut output = AssistantMessage {
+            content: Vec::new(),
+            api: model.api.clone(),
+            provider: model.provider.clone(),
+            model: model.id.clone(),
+            response_model: None,
+            response_id: None,
+            diagnostics: None,
+            usage: Usage::default(),
+            stop_reason: StopReason::Stop,
+            stop_reason_raw: None,
+            error_message: None,
+            timestamp: 0,
+            rest: Map::default(),
+        };
+        let (writer, _stream) = AssistantMessageEventStream::new();
+        let mut processor = ResponsesStreamProcessor::new(
+            &model,
+            &mut output,
+            &writer,
+            ResponsesStreamHooks::default(),
+        );
+        processor
+            .handle_event(&json!({
+                "type": "response.completed",
+                "response": { "id": "resp_1", "status": "completed", "usage": usage }
+            }))
+            .expect("completed event");
+        output.usage
+    }
+
+    /// GPT-5.6 and later report cache writes in
+    /// `input_tokens_details.cache_write_tokens`: they become the cache write,
+    /// and the input keeps only the tokens neither read nor written (never
+    /// below zero). Without the field the cache write stays zero.
+    #[test]
+    fn usage_splits_cache_reads_and_writes_out_of_the_input() {
+        let usage = |input, cached, written, output| {
+            let mut details = json!({ "cached_tokens": cached });
+            if let Some(written) = written {
+                details["cache_write_tokens"] = json!(written);
+            }
+            completed_usage(&json!({
+                "input_tokens": input,
+                "input_tokens_details": details,
+                "output_tokens": output,
+                "total_tokens": input + output
+            }))
+        };
+        let expected = |input, cache_read, cache_write, output, total_tokens| Usage {
+            input,
+            output,
+            cache_read,
+            cache_write,
+            total_tokens,
+            cost: UsageCost::default(),
+        };
+        assert_eq!(
+            [
+                usage(1_000, 600, Some(300), 50),
+                usage(1_000, 600, None, 50),
+                usage(100, 80, Some(50), 10),
+            ],
+            [
+                expected(100, 600, 300, 50, 1_050),
+                expected(400, 600, 0, 50, 1_050),
+                expected(0, 80, 50, 10, 110),
+            ]
+        );
     }
 }

@@ -4,7 +4,10 @@
 use serde_json::{json, Map, Value};
 
 use crate::models::{calculate_cost, CostOverrides};
-use crate::providers::openai_completions::{decode_reasoning_details, ResolvedCompat};
+use crate::providers::cache_breakpoints::has_cache_breakpoint;
+use crate::providers::openai_completions::{
+    decode_reasoning_details, OpenAICompatCacheControl, ResolvedCompat,
+};
 use crate::providers::transform_messages::transform_messages_with_normalizer;
 use crate::types::{
     AssistantContent, Context, MessageExt, Model, ModelInput, StopReason, TextContent,
@@ -14,9 +17,16 @@ use crate::utils_inner::sanitize_unicode::sanitize_surrogates;
 
 /// Convert a conversation into Chat Completions `messages` params.
 /// Port of `convertMessages` including tool-result bridging and image replay.
+/// With Anthropic-format cache control, each marked user text block carries
+/// its `cache_control` mark.
 // Long by design (a 1:1 port of the upstream provider shape); refactoring is out of scope for the zero-behavior pedantic sweep.
 #[allow(clippy::too_many_lines)]
-pub fn convert_messages(model: &Model, context: &Context, compat: &ResolvedCompat) -> Vec<Value> {
+pub fn convert_messages(
+    model: &Model,
+    context: &Context,
+    compat: &ResolvedCompat,
+    cache_control: Option<&OpenAICompatCacheControl>,
+) -> Vec<Value> {
     use crate::types::Message;
     let mut params: Vec<Value> = Vec::new();
 
@@ -62,19 +72,33 @@ pub fn convert_messages(model: &Model, context: &Context, compat: &ResolvedCompa
                 UserMessageContent::Blocks(blocks) => {
                     let content_blocks: Vec<Value> = blocks
                         .iter()
-                        .map(|item| match crate::types::user_block_payload(item) {
-                            crate::types::UserBlockPayload::Text(text) => json!({
-                                "type": "text",
-                                "text": sanitize_surrogates(text),
-                            }),
-                            crate::types::UserBlockPayload::Image { data, mime_type } => json!({
-                                "type": "image_url",
-                                "image_url": { "url": format!("data:{mime_type};base64,{data}") },
-                            }),
-                            crate::types::UserBlockPayload::Opaque(json) => json!({
-                                "type": "text",
-                                "text": sanitize_surrogates(&json),
-                            }),
+                        .map(|item| {
+                            let mut part = match crate::types::user_block_payload(item) {
+                                crate::types::UserBlockPayload::Text(text) => json!({
+                                    "type": "text",
+                                    "text": sanitize_surrogates(text),
+                                }),
+                                crate::types::UserBlockPayload::Image { data, mime_type } => {
+                                    json!({
+                                        "type": "image_url",
+                                        "image_url": { "url": format!("data:{mime_type};base64,{data}") },
+                                    })
+                                }
+                                crate::types::UserBlockPayload::Opaque(json) => json!({
+                                    "type": "text",
+                                    "text": sanitize_surrogates(&json),
+                                }),
+                            };
+                            // A marked block ends a cacheable prefix (the chat
+                            // memory marks the pieces of its view).
+                            if let Some(cache_control) =
+                                cache_control.filter(|_| has_cache_breakpoint(item))
+                            {
+                                part.as_object_mut()
+                                    .expect("content parts are objects")
+                                    .insert("cache_control".into(), cache_control.to_json());
+                            }
+                            part
                         })
                         .collect();
                     if content_blocks.is_empty() {
