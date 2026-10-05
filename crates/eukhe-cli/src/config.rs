@@ -27,9 +27,12 @@ pub const ENV_SESSION_DIR: &str = "EUKHE_SESSION_DIR";
 pub const ENV_DAEMON_SOCKET: &str = "EUKHE_DAEMON_SOCKET";
 
 /// The daemon socket path: an explicit `--daemon-socket` flag wins, then
-/// [`ENV_DAEMON_SOCKET`], then the per-user default.
+/// [`ENV_DAEMON_SOCKET`], then the per-user default. A relative path resolves
+/// against the current directory (TS `normalizeSocketPath`), so the daemon
+/// binds, and the OS listener census reports, the same absolute path every
+/// client and `shutdown` resolve.
 pub fn resolve_daemon_socket_path(daemon_socket: Option<&str>) -> PathBuf {
-    daemon_socket
+    let socket_path = daemon_socket
         .map(expand_tilde_path)
         .or_else(|| {
             std::env::var_os(ENV_DAEMON_SOCKET)
@@ -37,7 +40,14 @@ pub fn resolve_daemon_socket_path(daemon_socket: Option<&str>) -> PathBuf {
                 .as_deref()
                 .map(expand_tilde_path_os)
         })
-        .unwrap_or_else(eukhe_daemon::socket::default_daemon_socket_path)
+        .unwrap_or_else(eukhe_daemon::socket::default_daemon_socket_path);
+    if socket_path.is_relative() {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(socket_path)
+    } else {
+        socket_path
+    }
 }
 
 /// [`expand_tilde_path`] over a raw environment value: a tilde-prefixed

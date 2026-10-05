@@ -10,13 +10,15 @@
 //! so a supervisor whose own listener vanished is still reachable for
 //! `shutdown --force`.
 //!
-//! Scope: one *state root* — the agent dir plus the default socket dir. A
-//! daemon started under a different HOME or agent dir is another root's
-//! business; stopping it from here would kill unrelated live sessions.
-//! (TS also keeps a supervisor-ownership registry rule for custom socket
-//! paths outside both directories; that registry is not ported yet, so such
-//! paths are invisible to discovery from another invocation until the
-//! registry lane lands.)
+//! Scope: one *state root* — the agent dir, the default socket dir, and the
+//! invocation's own daemon socket (`--daemon-socket`, else
+//! `EUKHE_DAEMON_SOCKET`, else the per-user default). A daemon started under
+//! a different HOME or agent dir is another root's business; stopping it
+//! from here would kill unrelated live sessions. (TS keeps custom socket
+//! paths outside both directories in scope through its supervisor-ownership
+//! registry, which records every supervisor's socket under the agent dir
+//! that started it. That registry is not ported: a daemon on a custom socket
+//! is in scope only for invocations configured with that same socket.)
 //!
 //! Containment (operator-mandated): every scan, probe,
 //! and stop is scoped to an explicit [`DaemonStateRoot`] handed in by the
@@ -155,10 +157,10 @@ pub(crate) fn current_state_root(daemon_socket: Option<&str>) -> DaemonStateRoot
     }
 }
 
-/// A socket belongs to the root when it is the default path, sits in the
-/// socket dir, or anywhere inside the agent dir (TS
+/// A socket belongs to the root when it is the root's default socket, sits
+/// in the socket dir, or anywhere inside the agent dir (TS
 /// `createDaemonStateRootMatcher` minus the not-yet-ported ownership
-/// registry rule).
+/// registry rule; the configured default socket stands in for it).
 fn state_root_matches(root: &DaemonStateRoot, socket_path: &Path) -> bool {
     if is_never_touch(socket_path) {
         return false;
