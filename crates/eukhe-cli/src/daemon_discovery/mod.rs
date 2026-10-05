@@ -54,13 +54,17 @@ pub(crate) struct DiscoveredDaemonProcess {
     pub uptime_seconds: Option<u64>,
 }
 
-/// The state root an invocation reads: the agent dir and the default socket
-/// dir (TS `DaemonStateRoot`). Both follow HOME/TMPDIR/agent-dir overrides,
-/// so an isolated root resolves to isolated paths.
+/// The state root an invocation reads: the agent dir, the default socket
+/// dir, and the daemon socket this invocation targets (TS
+/// `DaemonStateRoot`). All follow HOME/TMPDIR/agent-dir/daemon-socket
+/// overrides, so an isolated root resolves to isolated paths.
 #[derive(Debug, Clone)]
 pub(crate) struct DaemonStateRoot {
     pub agent_dir: PathBuf,
     pub socket_dir: PathBuf,
+    /// The invocation's own daemon socket: `--daemon-socket`, then
+    /// `EUKHE_DAEMON_SOCKET`, then the per-user default - the socket every
+    /// mode starts its daemon on, so it may sit outside `socket_dir`.
     pub default_socket_path: PathBuf,
 }
 
@@ -141,12 +145,13 @@ pub(crate) struct DaemonInfo {
     pub has_tracked_workers: Option<bool>,
 }
 
-/// The current invocation's state root (TS `currentDaemonStateRoot`).
-pub(crate) fn current_state_root() -> DaemonStateRoot {
+/// The current invocation's state root (TS `currentDaemonStateRoot`), for
+/// the `--daemon-socket` value the command was given.
+pub(crate) fn current_state_root(daemon_socket: Option<&str>) -> DaemonStateRoot {
     DaemonStateRoot {
         agent_dir: config::get_agent_dir(),
         socket_dir: eukhe_daemon::platform::socket_dir(),
-        default_socket_path: eukhe_daemon::platform::default_daemon_socket_path(),
+        default_socket_path: config::resolve_daemon_socket_path(daemon_socket),
     }
 }
 
@@ -265,6 +270,12 @@ fn scan_socket_dir(_socket_dir: &Path) -> Vec<PathBuf> {
 fn is_socket_file(path: &Path) -> bool {
     use std::os::unix::fs::FileTypeExt;
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_socket())
+}
+
+/// Windows endpoints are named pipes, never socket files.
+#[cfg(not(unix))]
+fn is_socket_file(_path: &Path) -> bool {
+    false
 }
 
 /// One tracked worker from a supervisor descriptor (TS `TrackedWorker`).
@@ -502,7 +513,14 @@ fn discover_daemons_with(root: &DaemonStateRoot, named_pipes: bool) -> Vec<Daemo
                 .filter(|path| !is_worker_socket_path(path, &root.socket_dir)),
         )
         .chain(worker_sockets.iter().cloned())
-        .chain(named_pipes.then(|| root.default_socket_path.clone()))
+        // The invocation's own socket is always a candidate: a custom
+        // `--daemon-socket`/`EUKHE_DAEMON_SOCKET` path outside the socket
+        // dir is otherwise found only by the listener census (never as an
+        // orphan file, and not at all where the census tools are missing).
+        .chain(
+            (named_pipes || is_socket_file(&root.default_socket_path))
+                .then(|| root.default_socket_path.clone()),
+        )
         .collect();
     sockets.retain(|path| state_root_matches(root, path));
 
@@ -727,16 +745,61 @@ mod tests {
                 drop(stream);
             }
         });
-        assert!(
-            discover_daemons_with(&root, false).is_empty(),
-            "the unix arm only sees socket-dir files and listeners"
-        );
         let infos = discover_daemons_with(&root, true);
         assert_eq!(infos.len(), 1);
         assert_eq!(infos[0].socket_path, root.default_socket_path);
         assert!(infos[0].is_default);
         assert_eq!(infos[0].has_tracked_workers, None);
         assert_eq!(infos[0].status, DaemonStatus::Stale);
+    }
+
+    /// The regression: a daemon started on `EUKHE_DAEMON_SOCKET` (or
+    /// `--daemon-socket`) outside the socket dir and the agent dir was out
+    /// of the invocation's root, so `shutdown --force` reported "No
+    /// background services found." while it ran. The invocation's socket
+    /// (flag, then env) is its root's own socket, and discovery finds a
+    /// daemon there wherever it sits.
+    #[cfg(unix)]
+    #[test]
+    fn the_invocations_daemon_socket_is_discovered_outside_the_socket_dir() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let env_socket = tmp.path().join("env-daemon.sock");
+        let flag_socket = tmp.path().join("flag-daemon.sock");
+        let (from_env, from_flag) = {
+            let _env = config::env_lock();
+            let saved = std::env::var_os(config::ENV_DAEMON_SOCKET);
+            std::env::set_var(config::ENV_DAEMON_SOCKET, &env_socket);
+            let roots = (
+                current_state_root(None),
+                current_state_root(flag_socket.to_str()),
+            );
+            match saved {
+                Some(value) => std::env::set_var(config::ENV_DAEMON_SOCKET, value),
+                None => std::env::remove_var(config::ENV_DAEMON_SOCKET),
+            }
+            roots
+        };
+        assert_eq!(from_env.default_socket_path, env_socket);
+        assert_eq!(from_flag.default_socket_path, flag_socket);
+
+        // Accepted connections drop at once: the probe is reachable
+        // without the hello wait.
+        let listener = std::os::unix::net::UnixListener::bind(&env_socket).expect("bind");
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                drop(stream);
+            }
+        });
+        let root = DaemonStateRoot {
+            agent_dir: tmp.path().join("agent"),
+            socket_dir: tmp.path().join("sockets"),
+            default_socket_path: env_socket.clone(),
+        };
+        let found: Vec<(PathBuf, bool, DaemonStatus)> = discover_daemons(&root)
+            .into_iter()
+            .map(|info| (info.socket_path, info.is_default, info.status))
+            .collect();
+        assert_eq!(found, vec![(env_socket, true, DaemonStatus::Stale)]);
     }
 
     #[test]

@@ -113,9 +113,13 @@ pub const COMMAND_SPECS: &[CommandSpec] = &[
     ),
     CommandSpec::new(
         &["status"],
-        "status [--json]",
+        "status [--daemon-socket <path>] [--json]",
         "Show background service status",
-    ),
+    )
+    .options(&[
+        "--daemon-socket <path>  Include the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
+        "--json                  Print JSON",
+    ]),
     CommandSpec::new(
         &["telemetry"],
         "telemetry [status|on|off]",
@@ -126,12 +130,13 @@ pub const COMMAND_SPECS: &[CommandSpec] = &[
     ),
     CommandSpec::new(
         &["doctor"],
-        "doctor [--fix] [--json]",
+        "doctor [--fix] [--daemon-socket <path>] [--json]",
         "Inspect and safely clean up background services",
     )
     .options(&[
-        "--fix   Remove stale sockets and stop idle orphaned services",
-        "--json  Print JSON",
+        "--fix                   Remove stale sockets and stop idle orphaned services",
+        "--daemon-socket <path>  Include the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
+        "--json                  Print JSON",
     ]),
     CommandSpec::new(
         &["incident"],
@@ -152,15 +157,16 @@ pub const COMMAND_SPECS: &[CommandSpec] = &[
     ]),
     CommandSpec::new(
         &["shutdown"],
-        "shutdown [--force] [--json]",
+        "shutdown [--force] [--daemon-socket <path>] [--json]",
         "Stop every agent and background service",
     )
     .description(
         "Without --force, an interactive confirmation is required. --force also kills unresponsive workers.",
     )
     .options(&[
-        "--force  Skip confirmation and kill unresponsive processes",
-        "--json   Print JSON",
+        "--force                 Skip confirmation and kill unresponsive processes",
+        "--daemon-socket <path>  Include the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
+        "--json                  Print JSON",
     ]),
     CommandSpec::new(
         &["mcp"],

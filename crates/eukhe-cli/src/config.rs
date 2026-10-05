@@ -168,6 +168,7 @@ mod tests {
     /// an explicit flag still overrides what any launcher installed.
     #[test]
     fn daemon_socket_resolution_prefers_flag_then_env_then_default() {
+        let _env = env_lock();
         let default = eukhe_daemon::socket::default_daemon_socket_path();
         std::env::set_var(ENV_DAEMON_SOCKET, "/tmp/rust-launcher.sock");
         assert_eq!(

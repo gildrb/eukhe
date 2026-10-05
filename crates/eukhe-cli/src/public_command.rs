@@ -334,33 +334,69 @@ fn parse_boolean_options(
     Some(options)
 }
 
+/// The options of a daemon-discovery command (`status`, `doctor`,
+/// `shutdown`): its boolean flags plus the `--daemon-socket <path>` the
+/// invocation targets (flag, then `EUKHE_DAEMON_SOCKET`, then the
+/// default - the same precedence every mode uses to start its daemon).
+struct DiscoveryOptions {
+    flags: HashSet<String>,
+    daemon_socket: Option<String>,
+}
+
+impl DiscoveryOptions {
+    fn state_root(&self) -> daemon_discovery::DaemonStateRoot {
+        daemon_discovery::current_state_root(self.daemon_socket.as_deref())
+    }
+}
+
+fn parse_discovery_options(
+    args: &[String],
+    allowed: &[&str],
+    command: &str,
+) -> Option<DiscoveryOptions> {
+    let mut flags = Vec::new();
+    let mut daemon_socket = None;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if arg == "--daemon-socket" || arg == "--socket" {
+            let Some(value) = args.get(index + 1) else {
+                fail(format!("{arg} requires a value"), None);
+                return None;
+            };
+            daemon_socket = Some(value.clone());
+            index += 2;
+            continue;
+        }
+        flags.push(arg.clone());
+        index += 1;
+    }
+    let flags = parse_boolean_options(&flags, allowed, command)?;
+    Some(DiscoveryOptions {
+        flags,
+        daemon_socket,
+    })
+}
+
 fn run_status(args: &[String]) -> PublicCommandResult {
-    let Some(options) = parse_boolean_options(args, &["--json"], "status") else {
+    let Some(options) = parse_discovery_options(args, &["--json"], "status") else {
         return handled_failed();
     };
-    daemon_discovery::run_ps(
-        options.contains("--json"),
-        &daemon_discovery::current_state_root(),
-    );
+    daemon_discovery::run_ps(options.flags.contains("--json"), &options.state_root());
     handled()
 }
 
 fn run_doctor(args: &[String]) -> PublicCommandResult {
-    let Some(options) = parse_boolean_options(args, &["--fix", "--json"], "doctor") else {
+    let Some(options) = parse_discovery_options(args, &["--fix", "--json"], "doctor") else {
         return handled_failed();
     };
     // `doctor` inspects; `doctor --fix` reaps clearly-safe services (TS
     // runDoctor: runReap with force=false, else runPs).
-    if options.contains("--fix") {
-        daemon_discovery::run_reap(
-            options.contains("--json"),
-            &daemon_discovery::current_state_root(),
-        );
+    let json = options.flags.contains("--json");
+    if options.flags.contains("--fix") {
+        daemon_discovery::run_reap(json, &options.state_root());
     } else {
-        daemon_discovery::run_ps(
-            options.contains("--json"),
-            &daemon_discovery::current_state_root(),
-        );
+        daemon_discovery::run_ps(json, &options.state_root());
     }
     handled()
 }
@@ -432,16 +468,15 @@ fn run_incident_command(args: &[String]) -> PublicCommandResult {
 }
 
 fn run_shutdown(args: &[String]) -> PublicCommandResult {
-    let Some(options) = parse_boolean_options(args, &["--force", "--json"], "shutdown") else {
+    let Some(options) = parse_discovery_options(args, &["--force", "--json"], "shutdown") else {
         return handled_failed();
     };
-    let force = options.contains("--force");
-    let json = options.contains("--json");
+    let force = options.flags.contains("--force");
+    let json = options.flags.contains("--json");
     // The confirmation decision (including the non-TTY failure, which TS
     // only raises once there are daemons to stop) lives with the discovery
     // driver, which knows the daemon count.
-    let exit_code =
-        daemon_discovery::run_shutdown_all(json, force, &daemon_discovery::current_state_root());
+    let exit_code = daemon_discovery::run_shutdown_all(json, force, &options.state_root());
     handled_with_exit(exit_code)
 }
 
