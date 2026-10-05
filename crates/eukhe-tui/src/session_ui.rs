@@ -6,6 +6,7 @@
 mod apply;
 mod auth;
 mod bash;
+mod chat_view;
 mod commands;
 mod factory;
 mod heartbeats;
@@ -25,6 +26,7 @@ pub(crate) use apply::CompactionAbortNote;
 use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome};
 pub(crate) use bash::BashActivityUpdate;
 use bash::{ResyncBash, SideBashRun};
+pub(crate) use chat_view::ChatViewUpdate;
 pub(crate) use factory::FactoryUpdate;
 use heartbeats::paused_heartbeat_count;
 pub(crate) use heartbeats::HeartbeatsUpdate;
@@ -400,6 +402,12 @@ pub(crate) struct SessionUi {
     /// The session's fetched skill commands (the `enableSkillCommands`
     /// toggle re-applies them without a daemon round trip).
     skill_commands_cache: Vec<crate::autocomplete::SlashCommandEntry>,
+    /// Where the open-time `get_chat_view` fetch delivers the chat
+    /// memory's view (the run loop folds it into the transcript).
+    chat_view_updates: mpsc::UnboundedSender<ChatViewUpdate>,
+    /// Monotonic epoch of the newest chat-view fetch; an older response
+    /// (a rebind raced the fetch) never lands in the new transcript.
+    chat_view_epoch: u64,
     /// The current Python `bash()` registry snapshot from the owning kernel.
     bash_activities: Value,
     /// Monotonic id of the latest issued kernel-bash list request; a late

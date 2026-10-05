@@ -306,6 +306,9 @@ pub struct ApplyOptions {
     /// same gate the kernel-side factory writers raise
     /// (`rlm.factory.require_factory_enabled`).
     pub factory_enabled: bool,
+    /// Where the session's memory lives: in a chat-memory session, memory
+    /// and prompt-note edits refuse with [`super::CHAT_MEMORY_MESSAGE`].
+    pub memory: super::HarnessMemory,
 }
 
 /// Apply a proposal to the state (mutating entries and recording the event).
@@ -392,6 +395,16 @@ pub fn apply_refinement_proposal(
             let mut row = AppliedRefinementEdit::planned(edit, action, kind, id.clone());
             row.before = before;
             row.error = Some(super::FACTORY_DISABLED_MESSAGE.to_string());
+            applied_edits.push(row);
+            continue;
+        }
+        // A chat-memory session's harness holds tools only: every memory
+        // or prompt-note edit refuses, deletes included (the session has no
+        // such entries to manage).
+        if !options.memory.holds(kind) {
+            let mut row = AppliedRefinementEdit::planned(edit, action, kind, id.clone());
+            row.before = before;
+            row.error = Some(super::CHAT_MEMORY_MESSAGE.to_string());
             applied_edits.push(row);
             continue;
         }
@@ -825,6 +838,7 @@ mod tests {
                 scope: Some(HarnessScope::Local),
                 baseline_state: None,
                 factory_enabled: false,
+                memory: crate::refinement::HarnessMemory::Harness,
             },
         );
         assert_eq!(result.applied_edits.len(), 1);
@@ -848,6 +862,7 @@ mod tests {
                 scope: None,
                 baseline_state: None,
                 factory_enabled: false,
+                memory: crate::refinement::HarnessMemory::Harness,
             },
         );
         assert!(!duplicate.applied_edits[0].applied);
@@ -872,6 +887,7 @@ mod tests {
                 scope: None,
                 baseline_state: None,
                 factory_enabled: false,
+                memory: crate::refinement::HarnessMemory::Harness,
             },
         );
         assert_eq!(state.entries[&RefinementKind::Memory]["m1"].version, 2);
@@ -886,6 +902,7 @@ mod tests {
                 scope: None,
                 baseline_state: None,
                 factory_enabled: false,
+                memory: crate::refinement::HarnessMemory::Harness,
             },
         );
         assert!(rolled.applied_edits[0].applied);
@@ -930,6 +947,7 @@ mod tests {
                 scope: Some(HarnessScope::Local),
                 baseline_state: None,
                 factory_enabled: false,
+                memory: crate::refinement::HarnessMemory::Harness,
             },
         );
         assert!(!disabled.applied_edits[0].applied);
@@ -971,6 +989,7 @@ mod tests {
                 scope: None,
                 baseline_state: None,
                 factory_enabled: false,
+                memory: crate::refinement::HarnessMemory::Harness,
             },
         );
         assert!(!refused_update.applied_edits[0].applied);
@@ -993,6 +1012,7 @@ mod tests {
                 scope: None,
                 baseline_state: None,
                 factory_enabled: false,
+                memory: crate::refinement::HarnessMemory::Harness,
             },
         );
         assert!(cleanup.applied_edits[0].applied);
@@ -1030,10 +1050,75 @@ mod tests {
                 scope: Some(HarnessScope::Local),
                 baseline_state: None,
                 factory_enabled: true,
+                memory: crate::refinement::HarnessMemory::Harness,
             },
         );
         assert!(result.applied_edits[0].applied);
         assert!(result.applied_edits[0].error.is_none());
         assert!(state.entries[&RefinementKind::Factory].contains_key("sweep"));
+    }
+
+    #[test]
+    fn chat_memory_refinements_author_tools_only() {
+        let mut state = empty_harness_state();
+        let result = apply_refinement_proposal(
+            &mut state,
+            &RefinementProposal {
+                summary: "remember and reuse".to_string(),
+                rationale: String::new(),
+                expected_outcome: String::new(),
+                edits: vec![
+                    create_memory_edit("m1", "Fact", "the favorite prime is 104729"),
+                    RefinementEdit {
+                        action: Some(RefinementAction::Create),
+                        kind: Some(RefinementKind::Prompt),
+                        id: Some("p1".to_string()),
+                        title: Some("Policy".into()),
+                        content: Some("Answer tersely.".into()),
+                        ..Default::default()
+                    },
+                    RefinementEdit {
+                        action: Some(RefinementAction::Create),
+                        kind: Some(RefinementKind::Subagent),
+                        id: Some("reviewer".to_string()),
+                        title: Some("Reviewer".into()),
+                        content: Some("Review the diff for bugs.".into()),
+                        ..Default::default()
+                    },
+                ],
+            },
+            ApplyOptions {
+                id: "r1".to_string(),
+                rollback_of: None,
+                scope: Some(HarnessScope::Local),
+                baseline_state: None,
+                factory_enabled: false,
+                memory: crate::refinement::HarnessMemory::Chat,
+            },
+        );
+        let outcomes: Vec<(RefinementKind, bool, Option<&str>)> = result
+            .applied_edits
+            .iter()
+            .map(|edit| (edit.kind, edit.applied, edit.error.as_deref()))
+            .collect();
+        assert_eq!(
+            outcomes,
+            vec![
+                (
+                    RefinementKind::Memory,
+                    false,
+                    Some(crate::refinement::CHAT_MEMORY_MESSAGE)
+                ),
+                (
+                    RefinementKind::Prompt,
+                    false,
+                    Some(crate::refinement::CHAT_MEMORY_MESSAGE)
+                ),
+                (RefinementKind::Subagent, true, None),
+            ]
+        );
+        assert!(state.entries[&RefinementKind::Memory].is_empty());
+        assert!(state.entries[&RefinementKind::Prompt].is_empty());
+        assert!(state.entries[&RefinementKind::Subagent].contains_key("reviewer"));
     }
 }

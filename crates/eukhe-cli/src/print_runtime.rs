@@ -18,6 +18,8 @@ use eukhe_core::session_engine::provider_adapter::{
 };
 use eukhe_core::session_engine::session_events::agent_event_json;
 
+mod model_selection;
+
 /// The runtime: implements the print (text) mode against the merged session
 /// engine. Modes not wired here still report their typed missing subsystem.
 pub struct PrintRuntime;
@@ -521,11 +523,7 @@ async fn build_headless_engine_with(
     let mut registry =
         eukhe_core::models::ModelRegistry::create(auth, config.agent_dir.join("models.json"));
     registry.load_private_authorization_from_cache();
-    let model = select_model(
-        &mut registry,
-        config.provider.as_deref(),
-        config.model.as_deref(),
-    )?;
+    let model = model_selection::select_model(&registry, config, &options.session)?;
 
     // Resolve request auth once (single-shot mode): the merged headers
     // ship on the request (the TS `getApiKeyAndHeaders` single-owner path;
@@ -999,31 +997,6 @@ async fn session_header_json(
     Some(serde_json::Value::Object(object).to_string())
 }
 
-fn select_model(
-    registry: &mut eukhe_core::models::ModelRegistry,
-    provider: Option<&str>,
-    model: Option<&str>,
-) -> Result<Model, String> {
-    let available: Vec<Model> = registry.get_available().into_iter().cloned().collect();
-    let Some(model_name) = model else {
-        // No model selection: prefer the registry's featured default.
-        let all: Vec<Model> = registry.get_all().to_vec();
-        if let Some(default) = eukhe_core::models::find_preferred_default_model(&available) {
-            return Ok(default.clone());
-        }
-        return all.first().cloned().ok_or_else(|| {
-            "No models available. Check your installation or add models to models.json.".to_string()
-        });
-    };
-    let resolved = eukhe_core::models::resolve_cli_model(provider, model_name, &available);
-    if let Some(error) = resolved.error {
-        return Err(error);
-    }
-    resolved
-        .model
-        .ok_or_else(|| "No matching model found.".to_string())
-}
-
 /// Resolve the session thinking level with the sdk.ts `createAgentSession`
 /// order: the CLI flag, then the settings default, then "medium" — always
 /// clamped to what the model supports.
@@ -1414,6 +1387,16 @@ async fn run_prompts_and_emit(
                 .await,
         );
     }
+    // A prompt queued behind another window's turn on the shared chat
+    // says so on stderr (stdout stays the answer or the JSON stream).
+    if let Some(chat_memory) = engine.session.chat_memory() {
+        chat_memory.set_turn_wait_sink(std::sync::Arc::new(|wait| match wait {
+            eukhe_core::session_engine::chat_memory::TurnWait::Waiting => {
+                eprintln!("{}", eukhe_types::daemon::CHAT_TURN_WAIT_NOTICE);
+            }
+            eukhe_core::session_engine::chat_memory::TurnWait::Cleared => {}
+        }));
+    }
     // The goal continuation surface (the #252 residue): the usage
     // accounting publishes `goal_update` frames, the in-loop hook runs an
     // active goal's continuations inside the same agent run (the TS
@@ -1510,6 +1493,12 @@ async fn run_prompts_and_emit(
             .await?;
             continue;
         }
+        // The chat's turn stays this prompt's through its overflow retry
+        // and boundary turns (dropped at the end of the iteration).
+        let _turn_hold = engine
+            .session
+            .chat_memory()
+            .map(eukhe_core::session_engine::chat_memory::ChatMemory::hold_turn);
         // The pre-turn boundary (TS `_runPreTurnCompaction`, the full
         // `_checkCompaction` pass): an aborted trailing turn drops pending
         // requests, a stale overflow error from a previous run gets its

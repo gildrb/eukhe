@@ -85,6 +85,24 @@ pub type GetContinuationMessagesFn = Arc<
         + Sync,
 >;
 
+/// What a run does when the model's call has ended (its last response asked
+/// for no tools) and queued messages start another call in the same run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NextCall {
+    /// Carry the conversation: the new messages extend the ended call.
+    Carry,
+    /// Start a fresh call: the ended call's messages leave the context, and
+    /// every message still queued joins the new ones at once.
+    Fresh,
+}
+
+/// Decides [`NextCall`] when queued steering, follow-up, or continuation
+/// messages arrive after the model's call has ended. Called once per such
+/// boundary; the embedding may do its own bookkeeping for the call that
+/// ended (the loop drops the ended call's messages itself on `Fresh`).
+pub type BeginNextCallFn =
+    Arc<dyn Fn() -> crate::BoxFut<'static, anyhow::Result<NextCall>> + Send + Sync>;
+
 /// `beforeToolCall`: return `{ block: true }` to prevent execution.
 pub type BeforeToolCallFn = Arc<
     dyn Fn(
@@ -128,6 +146,9 @@ pub struct AgentLoopConfig {
     pub get_steering_messages: Option<PollMessagesFn>,
     pub get_follow_up_messages: Option<PollMessagesFn>,
     pub get_continuation_messages: Option<GetContinuationMessagesFn>,
+    /// The call boundary after the model's call ended (see [`NextCall`]).
+    /// `None` carries the conversation.
+    pub begin_next_call: Option<BeginNextCallFn>,
     /// Tool execution mode. Defaults to parallel (TS default).
     pub tool_execution: ToolExecutionMode,
     pub before_tool_call: Option<BeforeToolCallFn>,
@@ -156,6 +177,7 @@ impl AgentLoopConfig {
             get_steering_messages: None,
             get_follow_up_messages: None,
             get_continuation_messages: None,
+            begin_next_call: None,
             tool_execution: ToolExecutionMode::Parallel,
             before_tool_call: None,
             after_tool_call: None,

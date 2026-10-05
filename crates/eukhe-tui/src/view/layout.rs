@@ -270,7 +270,8 @@ impl AgentView {
             | ChatEntry::ShellCompletion(_)
             | ChatEntry::InjectedPrompt(_)
             | ChatEntry::RefinementOutcome(_)
-            | ChatEntry::CustomPanel(_) => true,
+            | ChatEntry::CustomPanel(_)
+            | ChatEntry::ChatView(_) => true,
             ChatEntry::Assistant(message) => !message.streaming,
             ChatEntry::Tool(card) => {
                 !matches!(
@@ -319,7 +320,8 @@ impl AgentView {
             }
             ChatEntry::SkillInvocation(_)
             | ChatEntry::SlashCommand { .. }
-            | ChatEntry::CompactionSummary { .. } => !first,
+            | ChatEntry::CompactionSummary { .. }
+            | ChatEntry::ChatView(_) => !first,
             ChatEntry::AgentMessage(_) | ChatEntry::ShellCompletion(_) | ChatEntry::Tool(_) => {
                 self.conversation_leading(index, self.entry_detail(index).tool_output_expanded())
             }

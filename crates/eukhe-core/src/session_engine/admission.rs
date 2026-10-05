@@ -46,8 +46,7 @@ impl AgentSession {
                 "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message."
             );
         }
-        self.begin_turn().await;
-        let mut prompt_messages = Vec::new();
+        let mut prompt_messages = self.begin_turn().await;
         if let Some(digest_row) = self.pending_digest_prompt_row().await? {
             prompt_messages.push(digest_row);
         }
@@ -153,12 +152,13 @@ impl AgentSession {
             // images to placeholders.
             self.apply_image_model_routing(&images, &options.batch)
                 .await?;
-            self.begin_turn().await;
+            // A fresh chat-memory call takes every queued message at once,
+            // ahead of this prompt (§7).
+            let mut prompt_messages = self.begin_turn().await;
             // The turn's prompt messages (TS preparedMessages): the deferred
             // first-turn harness digest rides first when one is due, so the
             // loop streams its message pair ahead of the user prompt and
             // carries it on `agent_end` (TS commit-time injection).
-            let mut prompt_messages = Vec::new();
             if let Some(digest_row) = self.pending_digest_prompt_row().await? {
                 prompt_messages.push(digest_row);
             }

@@ -15,6 +15,7 @@ use eukhe_core::session_engine::engine::SessionEngine;
 use eukhe_core::session_engine::provider_adapter::ProviderTarget;
 use eukhe_core::session_engine::session_events::agent_event_json;
 use eukhe_types::ai::Model;
+use eukhe_types::daemon::ChatTurnWaitEvent;
 
 use super::LineWriter;
 
@@ -219,12 +220,31 @@ impl RpcSession {
     }
 
     /// Create the loop-event subscription for one engine (the frames
-    /// forward through the shared prompt-response buffer and writer).
+    /// forward through the shared prompt-response buffer and writer), and
+    /// forward its chat turn waits (`chat_turn_wait`) the same way.
     async fn engine_subscription(
         engine: &Arc<SessionEngine>,
         pending_outputs: &Arc<tokio::sync::Mutex<Option<Vec<serde_json::Value>>>>,
         writer: &LineWriter,
     ) -> Subscription {
+        if let Some(chat_memory) = engine.session.chat_memory() {
+            let pending_outputs = Arc::clone(pending_outputs);
+            let writer = writer.clone();
+            chat_memory.set_turn_wait_sink(Arc::new(move |wait| {
+                let event = serde_json::json!(ChatTurnWaitEvent::from(wait));
+                // The sink is synchronous; the shared buffer is async.
+                let pending_outputs = Arc::clone(&pending_outputs);
+                let writer = writer.clone();
+                tokio::spawn(async move {
+                    let mut pending_outputs = pending_outputs.lock().await;
+                    if let Some(buffer) = pending_outputs.as_mut() {
+                        buffer.push(event);
+                    } else {
+                        writer.write(event);
+                    }
+                });
+            }));
+        }
         let pending_outputs = Arc::clone(pending_outputs);
         let writer = writer.clone();
         engine

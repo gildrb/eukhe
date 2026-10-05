@@ -15,6 +15,9 @@ use super::{
 pub enum CompactSkip {
     AlreadyCompacted,
     TooShort,
+    /// A chat-memory root between calls: its next turn starts fresh from
+    /// the view, so there is no carried context to compact.
+    ChatMemory,
 }
 
 impl CompactSkip {
@@ -24,6 +27,9 @@ impl CompactSkip {
         match self {
             CompactSkip::AlreadyCompacted => "Already compacted",
             CompactSkip::TooShort => "Session is too short to compact — try again once it grows",
+            CompactSkip::ChatMemory => {
+                "Nothing to compact: the chat memory keeps this chat, and every turn starts fresh from its view"
+            }
         }
     }
 
@@ -33,6 +39,7 @@ impl CompactSkip {
         match self {
             CompactSkip::AlreadyCompacted => "already compacted",
             CompactSkip::TooShort => "session is too short to compact",
+            CompactSkip::ChatMemory => "the chat memory keeps this chat; nothing to compact",
         }
     }
 }

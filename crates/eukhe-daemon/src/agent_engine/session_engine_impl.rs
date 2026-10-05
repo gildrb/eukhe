@@ -3,6 +3,10 @@
 //! the turn state machine, and the export/telemetry reads - as one
 //! impl block (a trait impl is one block per type; it moved whole).
 
+use std::future::Future;
+
+use eukhe_types::daemon::ChatViewSnapshot;
+
 use super::{
     artifact_reference, json, map_thinking_level, now_millis, persisted_rlm_max_depth,
     AgentSessionEngine, Arc, BranchSummaryOutcome, BranchSummaryRequest, BranchSummaryRun,
@@ -689,7 +693,7 @@ impl SessionEngine for AgentSessionEngine {
             };
             engine
                 .session
-                .compact(
+                .compact_on_request(
                     custom_instructions.as_deref(),
                     &model,
                     api_key,
@@ -1345,6 +1349,30 @@ impl SessionEngine for AgentSessionEngine {
         })
     }
 
+    fn chat_view(
+        &self,
+    ) -> std::pin::Pin<Box<dyn Future<Output = anyhow::Result<Option<ChatViewSnapshot>>> + Send + '_>>
+    {
+        Box::pin(async move {
+            // A subagent's view rides its own first message; only the
+            // root session shows the chat's view on open.
+            if self.rlm_depth.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+                return Ok(None);
+            }
+            let Some(memory) = self.chat_memory_handle().await? else {
+                return Ok(None);
+            };
+            let view = memory.render().await?;
+            Ok(Some(ChatViewSnapshot {
+                // Every line but the `<chat>`/`</chat>` frame is one part.
+                lines: view.text.lines().count().saturating_sub(2) as u64,
+                bytes: view.text.len() as u64,
+                messages: view.messages,
+                text: view.text,
+            }))
+        })
+    }
+
     fn tool_definition(
         &self,
         name: &str,
@@ -1685,6 +1713,19 @@ impl SessionEngine for AgentSessionEngine {
             if let Some(mode) = follow_up.and_then(Self::queue_mode) {
                 agent.set_follow_up_mode(mode);
             }
+        }
+    }
+
+    /// A chat-memory root (every depth-0 session the build gives the chat
+    /// memory: all but the faux verification harness) takes every queued
+    /// plain user message into its fresh call at once (`OptChat` §7).
+    fn queued_input_batching(&self) -> crate::engine::QueuedInputBatching {
+        if self.config.faux_script.is_none()
+            && self.rlm_depth.load(std::sync::atomic::Ordering::Relaxed) == 0
+        {
+            crate::engine::QueuedInputBatching::All
+        } else {
+            crate::engine::QueuedInputBatching::PerMode
         }
     }
 }

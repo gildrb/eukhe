@@ -130,3 +130,228 @@ fn reply_text(reply: &AssistantMessage) -> String {
         })
         .collect()
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+    use eukhe_types::ai::Usage;
+
+    use super::*;
+
+    /// A scripted summarizer: replies in order and records every request
+    /// with the (tokio) time it came.
+    #[derive(Default)]
+    pub(crate) struct Scripted {
+        replies: Mutex<VecDeque<anyhow::Result<AssistantMessage>>>,
+        requests: Mutex<Vec<Context>>,
+        times: Mutex<Vec<tokio::time::Instant>>,
+        asked: tokio::sync::Notify,
+    }
+
+    impl Scripted {
+        pub(crate) fn with(replies: Vec<anyhow::Result<AssistantMessage>>) -> Arc<Scripted> {
+            Arc::new(Scripted {
+                replies: Mutex::new(replies.into()),
+                ..Scripted::default()
+            })
+        }
+
+        /// Every request so far, in order.
+        pub(crate) fn requests(&self) -> Vec<Context> {
+            locked(&self.requests).clone()
+        }
+
+        /// When each request came.
+        pub(crate) fn times(&self) -> Vec<tokio::time::Instant> {
+            locked(&self.times).clone()
+        }
+
+        /// Wait until `count` requests have come; returns them.
+        pub(crate) async fn requested(&self, count: usize) -> Vec<Context> {
+            loop {
+                let asked = self.asked.notified();
+                let requests = self.requests();
+                if requests.len() >= count {
+                    return requests;
+                }
+                asked.await;
+            }
+        }
+    }
+
+    impl Summarizer for Scripted {
+        fn complete(&self, context: Context) -> SummarizerFuture {
+            locked(&self.requests).push(context);
+            locked(&self.times).push(tokio::time::Instant::now());
+            self.asked.notify_waiters();
+            let reply = locked(&self.replies)
+                .pop_front()
+                .unwrap_or_else(|| Err(anyhow::anyhow!("no scripted reply left")));
+            Box::pin(async move { reply })
+        }
+    }
+
+    fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        mutex.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn reply(text: &str) -> AssistantMessage {
+        AssistantMessage {
+            content: vec![AssistantContentBlock::Text(TextContent {
+                text: text.to_string(),
+                text_signature: None,
+                cache_breakpoint: None,
+                rest: serde_json::Map::default(),
+            })],
+            api: "faux".to_string(),
+            provider: "faux".to_string(),
+            model: "faux".to_string(),
+            response_model: None,
+            response_id: None,
+            diagnostics: None,
+            usage: Usage::default(),
+            stop_reason: StopReason::Stop,
+            stop_reason_raw: None,
+            error_message: None,
+            timestamp: 0,
+            rest: serde_json::Map::default(),
+        }
+    }
+
+    const CONTEXT: &str = "<chat>\nuser: hi\n</chat>";
+    const STEP: &str = "Compress this message";
+
+    fn request() -> NodeRequest {
+        NodeRequest {
+            context: CONTEXT.to_string(),
+            step: STEP.to_string(),
+        }
+    }
+
+    fn user(blocks: Vec<UserContentBlock>) -> Message {
+        Message::User(UserMessage {
+            content: UserContent::Blocks(blocks),
+            timestamp: 7,
+            rest: serde_json::Map::default(),
+        })
+    }
+
+    /// The first request: COMPACT, then ONE user message with the context
+    /// and the step as two text blocks, no tools.
+    fn first_request() -> Context {
+        Context {
+            system_prompt: Some(COMPACT.to_string()),
+            messages: vec![user(vec![
+                text_block(CONTEXT.to_string(), None),
+                text_block(STEP.to_string(), None),
+            ])],
+            tools: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_line_within_the_limit_is_taken_at_once() {
+        let summarizer = Scripted::with(vec![Ok(reply("  user: hi  "))]);
+        let line = build_line(summarizer.as_ref(), &request(), 7)
+            .await
+            .unwrap();
+        assert_eq!(
+            (line, summarizer.requests()),
+            ("user: hi".to_string(), vec![first_request()])
+        );
+    }
+
+    /// An over-long line gets the cut-at-limit feedback in the SAME
+    /// conversation; after [`TRIES`] lines the shortest wins.
+    #[tokio::test]
+    async fn over_long_lines_get_feedback_and_the_shortest_wins() {
+        let long = |n: usize| "x".repeat(n);
+        let summarizer = Scripted::with(vec![
+            Ok(reply(&long(530))),
+            Ok(reply(&long(520))),
+            Ok(reply(&long(525))),
+            Ok(reply(&long(519))),
+            Ok(reply(&long(521))),
+        ]);
+        let line = build_line(summarizer.as_ref(), &request(), 7)
+            .await
+            .unwrap();
+        assert_eq!(line, long(519));
+        let requests = summarizer.requests();
+        assert_eq!(requests.len(), TRIES);
+        let mut second = first_request();
+        second.messages.extend([
+            Message::Assistant(reply(&long(530))),
+            user(vec![text_block(
+                format!(
+                    "That line is 530 bytes; the limit is 512. It must end where it is cut here:\n{}| \u{2190} LIMIT",
+                    long(512)
+                ),
+                None,
+            )]),
+        ]);
+        assert_eq!(requests[1], second);
+        // The last request replays every earlier reply and its feedback.
+        assert_eq!(requests[TRIES - 1].messages.len(), 2 * TRIES - 1);
+    }
+
+    /// A line within [`NODE`] ends the retries.
+    #[tokio::test]
+    async fn a_line_at_the_limit_ends_the_retries() {
+        let summarizer = Scripted::with(vec![
+            Ok(reply(&"x".repeat(NODE + 1))),
+            Ok(reply(&"y".repeat(NODE))),
+        ]);
+        let line = build_line(summarizer.as_ref(), &request(), 7)
+            .await
+            .unwrap();
+        assert_eq!((line, summarizer.requests().len()), ("y".repeat(NODE), 2));
+    }
+
+    #[tokio::test]
+    async fn empty_and_failed_replies_fail_the_node() {
+        let mut failed = reply("partial");
+        failed.stop_reason = StopReason::Error;
+        for scripted in [
+            Ok(reply("   ")),
+            Ok(failed),
+            Err(anyhow::anyhow!("overloaded")),
+        ] {
+            let summarizer = Scripted::with(vec![scripted]);
+            assert!(build_line(summarizer.as_ref(), &request(), 7)
+                .await
+                .is_err());
+        }
+    }
+
+    /// The context is cut like the agent's view: at the last line end
+    /// before each mark inside it, every piece but the last cache-marked.
+    #[tokio::test]
+    async fn long_contexts_are_cut_into_marked_pieces() {
+        let line = format!("{}\n", "a".repeat(999));
+        let context = format!("<chat>\n{}</chat>", line.repeat(60));
+        let summarizer = Scripted::with(vec![Ok(reply("done"))]);
+        build_line(
+            summarizer.as_ref(),
+            &NodeRequest {
+                context: context.clone(),
+                step: "step".to_string(),
+            },
+            7,
+        )
+        .await
+        .unwrap();
+        // The 50,000 mark falls in line 50; the later marks lie past the end.
+        let cut = "<chat>\n".len() + 49 * line.len();
+        assert_eq!(
+            summarizer.requests()[0].messages,
+            vec![user(vec![
+                text_block(context[..cut].to_string(), Some(CacheBreakpoint::Ephemeral)),
+                text_block(context[cut..].to_string(), None),
+                text_block("step".to_string(), None),
+            ])]
+        );
+    }
+}

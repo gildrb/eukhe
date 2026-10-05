@@ -112,6 +112,7 @@ impl Worker {
             "get_resource_snapshot" => self.handle_get_resource_snapshot().await,
             "get_session_context" => self.handle_get_session_context(),
             "get_system_prompt" => self.handle_get_system_prompt().await,
+            "get_chat_view" => self.handle_get_chat_view().await,
             "get_tool_definition" => self.handle_get_tool_definition(payload).await,
             "get_rlm_max_depth_status" => self.handle_get_rlm_max_depth_status(),
             "get_available_models" => self.handle_get_available_models(),

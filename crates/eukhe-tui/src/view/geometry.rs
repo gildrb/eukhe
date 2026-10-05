@@ -65,6 +65,9 @@ impl AgentView {
             ChatEntry::CustomPanel(row) => {
                 crate::custom_message::geometry::custom_panel_row_count(row, &self.theme, width)
             }
+            ChatEntry::ChatView(view) => {
+                crate::chat_view_block::chat_view_row_count(view, detail, width, spacing)
+            }
             ChatEntry::Tool(card) => {
                 usize::from(spacing)
                     + crate::tool_card::count_tool_card(
@@ -372,6 +375,14 @@ mod tests {
                 ChatEntry::CustomPanel(Box::new(CustomPanelRow {
                     custom_type: "notice".to_string(),
                     content,
+                }))
+            }),
+            1 => (markdown_text(), any::<u64>(), any::<u64>()).prop_map(|(text, messages, lines)| {
+                ChatEntry::ChatView(Box::new(eukhe_types::daemon::ChatViewSnapshot {
+                    bytes: text.len() as u64,
+                    text,
+                    messages,
+                    lines,
                 }))
             }),
         ]

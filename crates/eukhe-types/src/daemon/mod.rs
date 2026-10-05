@@ -108,6 +108,8 @@ pub struct DaemonEventMeta {
 }
 
 pub mod agent_roster;
+mod chat_turn_wait;
+mod chat_view;
 mod command;
 pub mod framing;
 pub mod herdr_env;
@@ -115,6 +117,8 @@ mod outbound;
 mod plane;
 mod worker;
 
+pub use chat_turn_wait::{ChatTurnWaitEvent, CHAT_TURN_WAIT_NOTICE};
+pub use chat_view::{ChatViewReply, ChatViewSnapshot, CHAT_VIEW_CAPABILITY};
 pub use command::{
     CycleDirection, DaemonCommand, DaemonCommandEnvelope, DaemonCommandFrameType,
     DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput, StreamingBehavior,

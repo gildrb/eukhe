@@ -225,7 +225,11 @@ mod tests {
     fn assembles_the_layered_prompt_for_a_directory() {
         let dir = tempfile::tempdir().unwrap();
         let breakdown = assemble_breakdown(dir.path(), Some("mock/mock-1")).unwrap();
-        assert!(breakdown.assembled.starts_with("# eukhe harness"));
+        // The chat memory layer leads (`OptChat` §7.2), then the harness.
+        assert!(breakdown
+            .assembled
+            .starts_with(&eukhe_core::memory::memory_system_layer()));
+        assert!(breakdown.assembled.contains("\n\n# eukhe harness\n"));
         assert!(breakdown
             .assembled
             .contains("Recursive agent depth: 0 (root)"));

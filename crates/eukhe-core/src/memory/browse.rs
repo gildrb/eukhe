@@ -236,3 +236,68 @@ fn escape(text: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::compactor::tests::Scripted;
+    use crate::memory::{Kind, Memory};
+
+    /// A reader gets the live owner's view when one answers, else the fold
+    /// of the files; the page holds the view, ROOT and each tree level.
+    #[tokio::test]
+    async fn readers_see_the_live_view_or_the_fold() {
+        let dir = tempfile::tempdir().unwrap();
+        let pages = tempfile::tempdir().unwrap();
+        let memory = Memory::open(dir.path(), Scripted::with(Vec::new()))
+            .await
+            .unwrap();
+        memory.append(Kind::User, "hello <you>").await.unwrap();
+        memory.append(Kind::Talk, "hi").await.unwrap();
+        let rendered = memory.settled_render().await.unwrap();
+        let live = read_view(dir.path()).await.unwrap();
+        assert_eq!(
+            live,
+            ReadView {
+                text: rendered.text,
+                messages: 2,
+                summaries: 3,
+                view_lines: 2,
+                view_bytes: ("user: hello <you>".len() + "talk: hi".len()) as u64,
+                unsummarized: 0,
+                live: true,
+            }
+        );
+        drop(memory);
+        let folded = read_view(dir.path()).await.unwrap();
+        assert_eq!(
+            folded,
+            ReadView {
+                live: false,
+                ..live
+            }
+        );
+        let out = pages.path().join("memory.html");
+        let summary = write_browse_page(dir.path(), &out).await.unwrap();
+        assert_eq!(
+            summary,
+            BrowseSummary {
+                messages: 2,
+                nodes: 3,
+                view_lines: 2,
+                live_view: false,
+            }
+        );
+        let html = std::fs::read_to_string(&out).unwrap();
+        for expected in [
+            "<h2>View</h2>",
+            "<h2>ROOT</h2>",
+            "<h2>Level 0 (1 messages per line)</h2>",
+            "<h2>Level 1 (2 messages per line)</h2>",
+            "<td class=m>0+2</td>",
+            "<pre>user: hello &lt;you&gt;\ntalk: hi</pre>",
+        ] {
+            assert!(html.contains(expected), "{expected} in {html}");
+        }
+    }
+}

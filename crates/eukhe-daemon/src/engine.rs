@@ -6,6 +6,7 @@
 //! used by the integration harness and headless checks; the agent-loop crate
 //! plugs into the same trait without touching any daemon mechanics.
 
+use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -13,6 +14,7 @@ use eukhe_agent::abort::AbortSignal;
 use eukhe_core::session_engine::provider_adapter::json_round_trip;
 use eukhe_core::session_engine::provider_retry::{ProviderRetryPolicy, UNBOUNDED_BACKOFF_MS};
 use eukhe_core::session_engine::side_question::{SideQuestionSink, SideQuestionTurn};
+use eukhe_types::daemon::ChatViewSnapshot;
 use serde_json::{json, Value};
 
 // The wire types (the prompt/event records, the goal + bash notice plumbing,
@@ -39,6 +41,17 @@ mod scripted;
 
 // The trait-side test battery moved to the child module at the same tree
 // position (engine::tests); the #[cfg(test)] decl rides at the facade tail.
+
+/// How a turn takes the queued user messages behind its lane's front
+/// item (see [`SessionEngine::queued_input_batching`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueuedInputBatching {
+    /// The lane's queue mode decides ("all" joins, "one-at-a-time" does
+    /// not).
+    PerMode,
+    /// Every queued plain user message of the front's class joins.
+    All,
+}
 
 /// The turn behavior a worker session runs.
 pub trait SessionEngine: Send + Sync {
@@ -167,6 +180,14 @@ pub trait SessionEngine: Send + Sync {
     /// default no-op.
     fn set_queue_modes(&self, steering: Option<&str>, follow_up: Option<&str>) {
         let _ = (steering, follow_up);
+    }
+
+    /// How a delivery takes queued user messages. A chat-memory root
+    /// session takes every queued plain user message at once into its
+    /// fresh call (`OptChat` §7 `take_all`), whatever the queue modes;
+    /// engines without the chat memory deliver per their modes.
+    fn queued_input_batching(&self) -> QueuedInputBatching {
+        QueuedInputBatching::PerMode
     }
 
     /// Run one side question: a second LLM turn over a clone of the
@@ -579,6 +600,18 @@ pub trait SessionEngine: Send + Sync {
         &self,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String>> + Send + '_>> {
         Box::pin(async { Ok(String::new()) })
+    }
+
+    /// The chat memory's current view (`get_chat_view`): what the
+    /// session's next fresh turn starts from, for the interactive
+    /// client's startup block. A plain render — it never waits for the
+    /// compactor, so unbuilt parts show their placeholder. Engines without
+    /// the chat memory, and every subagent (its view rides its own first
+    /// message), report none.
+    fn chat_view(
+        &self,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<Option<ChatViewSnapshot>>> + Send + '_>> {
+        Box::pin(async { Ok(None) })
     }
 
     /// One tool definition by name (TS `session.getToolDefinition`), when

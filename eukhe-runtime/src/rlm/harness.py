@@ -5,6 +5,12 @@ skills, subagent specs, and refinement events in the session-local harness
 store by default; pass ``global_=True`` for the cross-session global store.
 Execution still belongs to Eukhe's TypeScript host and the existing
 ``rlm.spawn`` recursion bridge.
+
+In a chat-memory session (the host sets ``EUKHE_CHAT_MEMORY=1``) the chat is
+the only memory: the harness holds tools only (skills, subagent specs,
+factories). Memory and prompt-note writes raise ``CHAT_MEMORY_MESSAGE``,
+reads skip those kinds, and ``rlm.harness`` exposes no memory or
+prompt-note method.
 """
 
 from __future__ import annotations
@@ -31,6 +37,43 @@ _DEFAULT_FILE_NAME = "harness_state.json"
 _DEFAULT_HARNESS_DIR_NAME = "harness"
 _KINDS: tuple[HarnessKind, ...] = ("prompt", "memory", "skill", "subagent", "factory")
 _state_cache: dict[tuple[Path, HarnessScope], "HarnessState"] = {}
+
+#: The refusal for a memory or prompt-note write in a chat-memory session.
+#: Byte-identical to the host's ``CHAT_MEMORY_MESSAGE`` (eukhe-core
+#: ``refinement``).
+CHAT_MEMORY_MESSAGE = "eukhe's memory is the chat: say it in your reply"
+#: The kinds a chat-memory session's harness does not hold.
+_CHAT_MEMORY_EXCLUDED_KINDS: frozenset[str] = frozenset({"prompt", "memory"})
+#: The named memory and prompt-note methods ``rlm.harness`` does not expose
+#: in a chat-memory session.
+CHAT_MEMORY_ABSENT_METHODS: frozenset[str] = frozenset(
+    {
+        "create_memory",
+        "update_memory",
+        "delete_memory",
+        "create_prompt_note",
+        "update_prompt_note",
+        "delete_prompt_note",
+    }
+)
+
+
+def chat_memory_session() -> bool:
+    """Whether this kernel serves a chat-memory session, whose memory is the chat."""
+    return os.environ.get("EUKHE_CHAT_MEMORY") == "1"
+
+
+def _held_kinds() -> tuple[HarnessKind, ...]:
+    """The kinds this session's harness holds."""
+    if chat_memory_session():
+        return tuple(kind for kind in _KINDS if kind not in _CHAT_MEMORY_EXCLUDED_KINDS)
+    return _KINDS
+
+
+def _require_held_kind(kind: Any) -> None:
+    """Refuse a memory or prompt-note access in a chat-memory session."""
+    if chat_memory_session() and kind in _CHAT_MEMORY_EXCLUDED_KINDS:
+        raise RuntimeError(CHAT_MEMORY_MESSAGE)
 
 
 def _now() -> str:
@@ -563,6 +606,7 @@ class HarnessState:
         global_: bool = False,
         **kwargs: Any,
     ) -> HarnessEntry:
+        _require_held_kind(kind)
         id, global_ = _strip_scope_prefix(id, global_)
         if target := self._global_target(global_, kwargs):
             return target.upsert(
@@ -671,6 +715,7 @@ class HarnessState:
         return entry
 
     def get(self, kind: HarnessKind, id: str, *, global_: bool = False, **kwargs: Any) -> HarnessEntry | None:
+        _require_held_kind(kind)
         id, global_ = _strip_scope_prefix(id, global_)
         if target := self._global_target(global_, kwargs):
             return target.get(kind, id)
@@ -680,6 +725,7 @@ class HarnessState:
         return self.entries[kind].get(id)
 
     def delete(self, kind: HarnessKind, id: str, *, global_: bool = False, **kwargs: Any) -> bool:
+        _require_held_kind(kind)
         id, global_ = _strip_scope_prefix(id, global_)
         if target := self._global_target(global_, kwargs):
             return target.delete(kind, id)
@@ -694,10 +740,11 @@ class HarnessState:
         return True
 
     def list(self, kind: HarnessKind | None = None, *, global_: bool = False, **kwargs: Any) -> list[HarnessEntry]:
+        _require_held_kind(kind)
         if target := self._global_target(global_, kwargs):
             return target.list(kind)
         self._sync_from_disk()
-        kinds = [kind] if kind else list(_KINDS)
+        kinds = [kind] if kind else list(_held_kinds())
         records: list[HarnessEntry] = []
         for current_kind in kinds:
             if current_kind not in self.entries:
@@ -720,6 +767,7 @@ class HarnessState:
         global_: bool = False,
         **kwargs: Any,
     ) -> HarnessEntry:
+        _require_held_kind(kind)
         id, global_ = _strip_scope_prefix(id, global_)
         if target := self._global_target(global_, kwargs):
             return target.create(
@@ -770,6 +818,7 @@ class HarnessState:
         global_: bool = False,
         **kwargs: Any,
     ) -> HarnessEntry:
+        _require_held_kind(kind)
         id, global_ = _strip_scope_prefix(id, global_)
         if target := self._global_target(global_, kwargs):
             return target.update(
@@ -1100,7 +1149,7 @@ class HarnessState:
             "await rlm.factory.stop(run_id), and resume an escalate-paused run with "
             "await rlm.factory.resume(run_id).",
         ]
-        for kind in _KINDS:
+        for kind in _held_kinds():
             records = self.list(kind)[:max_entries_per_kind]
             lines.append(f"{kind}: {len(self.entries[kind])}")
             for entry in records:
@@ -1211,6 +1260,7 @@ class HarnessState:
             "entries": {
                 kind: {entry_id: asdict(entry) for entry_id, entry in records.items()}
                 for kind, records in self.entries.items()
+                if kind in _held_kinds()
             },
             "refinements": [asdict(event) for event in self.refinements],
         }

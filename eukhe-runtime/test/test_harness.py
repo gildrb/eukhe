@@ -10,7 +10,12 @@ from pathlib import Path
 
 from rlm import harness as package_harness
 from rlm import rlm as callable_rlm
-from rlm.harness import HarnessState, get_harness_state
+from rlm.harness import (
+    CHAT_MEMORY_ABSENT_METHODS,
+    CHAT_MEMORY_MESSAGE,
+    HarnessState,
+    get_harness_state,
+)
 
 # The agent-dir override setUpModule installs: an isolated dir whose
 # settings.json carries the factory opt-in setting.
@@ -1502,3 +1507,65 @@ class HarnessSearchTest(unittest.TestCase):
             state.entries["memory"]["rare"].updated_at = "2026-07-01T00:00:00+00:00"
             self.assertEqual([entry.id for entry in state.search("session quantum")], ["rare", "zz_newer", "aa_older", "solo"])
 
+
+
+class ChatMemoryHarnessTest(unittest.TestCase):
+    """A chat-memory session's harness holds tools only: the chat is its memory."""
+
+    def setUp(self) -> None:
+        self._previous = os.environ.get("EUKHE_CHAT_MEMORY")
+        self._temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._temp_dir.cleanup)
+        self.state = HarnessState(Path(self._temp_dir.name) / "harness_state.json")
+        # Entries an earlier harness-memory session left behind.
+        self.state.create_memory("Prime", "The favorite prime is 104729.", id="prime")
+        self.state.create_prompt_note("Tone", "Answer tersely, prime facts first.", id="tone")
+        os.environ["EUKHE_CHAT_MEMORY"] = "1"
+
+    def tearDown(self) -> None:
+        if self._previous is None:
+            os.environ.pop("EUKHE_CHAT_MEMORY", None)
+        else:
+            os.environ["EUKHE_CHAT_MEMORY"] = self._previous
+
+    def test_memory_and_prompt_note_writes_refuse(self) -> None:
+        writes = [
+            lambda: self.state.create_memory("Fact", "x"),
+            lambda: self.state.update_memory("prime", "Prime", "y"),
+            lambda: self.state.delete_memory("prime"),
+            lambda: self.state.create_prompt_note("Policy", "x"),
+            lambda: self.state.update_prompt_note("tone", "Tone", "y"),
+            lambda: self.state.delete_prompt_note("tone"),
+            lambda: self.state.create("memory", "Fact", "x"),
+            lambda: self.state.upsert("prompt", "Policy", "x"),
+            lambda: self.state.get("memory", "prime"),
+            lambda: self.state.list("prompt"),
+        ]
+        for write in writes:
+            with self.assertRaises(RuntimeError) as raised:
+                write()
+            self.assertEqual(str(raised.exception), CHAT_MEMORY_MESSAGE)
+
+    def test_reads_skip_memories_and_prompt_notes(self) -> None:
+        spec = self.state.create_subagent("Prime checker", "Check whether a number is prime.", id="checker")
+
+        self.assertEqual(self.state.list(), [spec])
+        self.assertEqual([entry.id for entry in self.state.search("prime")], ["checker"])
+        overview = self.state.overview()
+        self.assertNotIn("104729", overview)
+        self.assertNotIn("memory:", overview)
+        self.assertIn("subagent: 1", overview)
+        self.assertEqual(sorted(self.state.snapshot()["entries"]), ["factory", "skill", "subagent"])
+
+    def test_rlm_harness_exposes_no_memory_method(self) -> None:
+        for name in CHAT_MEMORY_ABSENT_METHODS:
+            self.assertFalse(hasattr(callable_rlm.harness, name), name)
+        with self.assertRaises(AttributeError) as raised:
+            callable_rlm.harness.create_memory("Fact", "x")
+        self.assertIn(CHAT_MEMORY_MESSAGE, str(raised.exception))
+        self.assertTrue(callable_rlm.harness.create_skill)
+
+    def test_harness_memory_sessions_keep_the_memory_api(self) -> None:
+        os.environ.pop("EUKHE_CHAT_MEMORY")
+        self.assertEqual([entry.id for entry in self.state.list("memory")], ["prime"])
+        self.assertTrue(callable_rlm.harness.create_memory)

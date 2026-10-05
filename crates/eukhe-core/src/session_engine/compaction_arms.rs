@@ -180,6 +180,30 @@ impl AgentSession {
         })
     }
 
+    /// A user-requested compaction (`/compact`, the RPC and daemon
+    /// `compact` commands): refused on a chat-memory root between calls,
+    /// whose next turn starts fresh from the view and drops the context a
+    /// summary would replace; otherwise [`AgentSession::compact`].
+    ///
+    /// # Errors
+    ///
+    /// See [`AgentSession::compact`].
+    pub async fn compact_on_request(
+        &self,
+        custom_instructions: Option<&str>,
+        model: &eukhe_types::ai::Model,
+        api_key: Option<String>,
+        abort: Option<&eukhe_agent::abort::AbortSignal>,
+    ) -> anyhow::Result<CompactOutcome> {
+        if self.next_turn_is_fresh().await {
+            return Ok(CompactOutcome::Skipped(
+                super::compact_session::CompactSkip::ChatMemory.user_message(),
+            ));
+        }
+        self.compact(custom_instructions, model, api_key, abort)
+            .await
+    }
+
     /// Execute `/compact`: summarize the pre-cut prefix, persist the
     /// compaction entry, and rebuild the loop context summary-first. A skip
     /// (already compacted, or nothing to summarize) leaves the session
@@ -426,6 +450,12 @@ impl AgentSession {
                 source,
                 refine_call,
                 self.agent_dir.as_deref(),
+                // A chat-memory session's memory is the chat: its
+                // refinements author tools only.
+                match self.chat_memory {
+                    Some(_) => crate::refinement::HarnessMemory::Chat,
+                    None => crate::refinement::HarnessMemory::Harness,
+                },
             )
             .await?
         };

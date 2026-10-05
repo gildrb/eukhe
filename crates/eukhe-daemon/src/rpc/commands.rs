@@ -205,12 +205,14 @@ pub fn kick_queue_pump(
             {
                 break;
             }
-            // Deliver the next queued batch (`continue_run` drains the
-            // steering lane first, then follow-ups); a delivery failure
-            // ends the pump run (the error surfaced to the client through
-            // the aborting command's own channel in TS; here the queue
-            // stays and the next kick retries).
-            if agent.continue_run().await.is_err() {
+            // Deliver the queued batches through the session's admission
+            // (a chat-memory root takes them all at once as a fresh call;
+            // otherwise `continue_run` drains the steering lane first, then
+            // follow-ups); a delivery failure ends the pump run (the error
+            // surfaced to the client through the aborting command's own
+            // channel in TS; here the queue stays and the next kick
+            // retries).
+            if engine.session.deliver_queued().await.is_err() {
                 break;
             }
         }
@@ -447,7 +449,7 @@ async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData,
     state.writer.drain_within(COMPACT_FRAME_FLUSH_BUDGET).await;
     let outcome = engine
         .session
-        .compact(instructions.as_deref(), &model, api_key, None)
+        .compact_on_request(instructions.as_deref(), &model, api_key, None)
         .await;
     state.compacting.fetch_sub(1, Ordering::SeqCst);
     // TS compact's finally re-schedules the session-input pump

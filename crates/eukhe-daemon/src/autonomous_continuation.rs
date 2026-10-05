@@ -257,9 +257,11 @@ impl AgentSessionEngine {
         // the mirrored agent state and settings: never through the session
         // mutex (see [`AutonomousBoundaryMirror`]).
         let state = mirror.agent.state().await;
-        if mirror.chat_memory.as_ref().is_some_and(|chat_memory| {
-            !state.is_streaming && chat_memory.next_turn_is_fresh(state.messages.last())
-        }) {
+        if mirror
+            .chat_memory
+            .as_ref()
+            .is_some_and(|chat_memory| !state.is_streaming && chat_memory.next_turn_is_fresh())
+        {
             return false;
         }
         let messages: Vec<eukhe_types::session::AgentMessage> = state

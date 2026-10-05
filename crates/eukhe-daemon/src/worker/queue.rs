@@ -386,11 +386,21 @@ pub(crate) fn queue_lanes(core: &SessionCore) -> QueueLanes {
 /// user row); not a queued session command (TS batches only `turn`-kind
 /// actions); and membership of the armed set while the forced batch
 /// governs this delivery. The front item anchors regardless — a
-/// non-batchable front delivers solo, exactly like TS's `first`.
-pub(crate) fn gather_delivery_batch(core: &mut SessionCore, lane: Lane) -> Vec<QueuedItem> {
+/// non-batchable front delivers solo, exactly like TS's `first`. A
+/// chat-memory root ([`crate::engine::QueuedInputBatching::All`]) joins every same-class
+/// plain user row whatever the mode: its fresh call takes them all at once.
+pub(crate) fn gather_delivery_batch(
+    core: &mut SessionCore,
+    lane: Lane,
+    batching: crate::engine::QueuedInputBatching,
+) -> Vec<QueuedItem> {
     let (items, mode) = match lane {
         Lane::Steering => (&mut core.steering, core.steering_mode.as_str()),
         Lane::FollowUp => (&mut core.follow_up, core.follow_up_mode.as_str()),
+    };
+    let take_all = match batching {
+        crate::engine::QueuedInputBatching::PerMode => mode == "all",
+        crate::engine::QueuedInputBatching::All => true,
     };
     let Some(first) = items.front() else {
         return Vec::new();
@@ -424,7 +434,7 @@ pub(crate) fn gather_delivery_batch(core: &mut SessionCore, lane: Lane) -> Vec<Q
     }
     let first_policy = first.policy;
     batch.push(items.pop_front().expect("front checked"));
-    if forced || mode == "all" {
+    if forced || take_all {
         while let Some(next) = items.front() {
             if next.policy != first_policy
                 || next.custom_message.is_some()

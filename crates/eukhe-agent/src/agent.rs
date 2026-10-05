@@ -12,9 +12,9 @@ use tokio::sync::watch;
 
 use crate::abort::{AbortController, AbortSignal};
 use crate::agent_loop::{
-    AfterToolCallFn, AgentEventSink, AgentLoopConfig, BeforeToolCallFn, ConvertToLlmFn,
-    GetContinuationMessagesFn, PollMessagesFn, ShouldStopAfterTurnFn, ShouldStopBeforeTurnFn,
-    TransformContextFn,
+    AfterToolCallFn, AgentEventSink, AgentLoopConfig, BeforeToolCallFn, BeginNextCallFn,
+    ConvertToLlmFn, GetContinuationMessagesFn, NextCall, PollMessagesFn, ShouldStopAfterTurnFn,
+    ShouldStopBeforeTurnFn, TransformContextFn,
 };
 use crate::stream::StreamFn;
 use crate::types::{
@@ -113,6 +113,10 @@ pub struct AgentOptions {
     pub should_stop_after_turn: Option<ShouldStopAfterTurnFn>,
     pub should_stop_before_turn: Option<ShouldStopBeforeTurnFn>,
     pub get_continuation_messages: Option<GetContinuationMessagesFn>,
+    /// The call boundary after the model's call ended (see
+    /// [`crate::agent_loop::NextCall`]); on `Fresh` the agent's transcript
+    /// drops the ended call's messages too.
+    pub begin_next_call: Option<BeginNextCallFn>,
     pub steering_mode: Option<QueueMode>,
     pub follow_up_mode: Option<QueueMode>,
     pub session_id: Option<String>,
@@ -351,6 +355,7 @@ struct AgentInner {
     /// own state exists. A plain mutex: cloned at run-config build, never
     /// held across an await.
     get_continuation_messages: Mutex<Option<GetContinuationMessagesFn>>,
+    begin_next_call: Option<BeginNextCallFn>,
     /// Per-run model override (TS `Agent.modelOverride`): when set, the
     /// loop config serves every LLM request of the run on this model with
     /// its own thinking level, while the agent state keeps identifying the
@@ -583,6 +588,22 @@ impl AgentInner {
         config.get_steering_messages = Some(steering);
         config.get_follow_up_messages = Some(follow_up);
         config.get_continuation_messages = continuation;
+        config.begin_next_call = self.begin_next_call.as_ref().map(|hook| {
+            let hook = Arc::clone(hook);
+            let inner = Arc::clone(self);
+            Arc::new(move || {
+                let hook = Arc::clone(&hook);
+                let inner = Arc::clone(&inner);
+                Box::pin(async move {
+                    let next = hook().await?;
+                    match next {
+                        NextCall::Fresh => inner.shared.lock().await.state.messages.clear(),
+                        NextCall::Carry => {}
+                    }
+                    Ok(next)
+                }) as crate::BoxFut<'static, anyhow::Result<NextCall>>
+            }) as BeginNextCallFn
+        });
         config.tool_execution = self.tool_execution;
         config.before_tool_call.clone_from(&self.before_tool_call);
         config.after_tool_call.clone_from(&self.after_tool_call);
@@ -818,6 +839,7 @@ impl Agent {
             should_stop_after_turn: options.should_stop_after_turn,
             should_stop_before_turn: options.should_stop_before_turn,
             get_continuation_messages: Mutex::new(options.get_continuation_messages),
+            begin_next_call: options.begin_next_call,
             model_override: Mutex::new(None),
             session_id: options.session_id,
             tool_execution: options
@@ -1066,6 +1088,36 @@ impl Agent {
     /// panicked while holding it).
     pub fn clear_follow_up_queue(&self) {
         self.inner.follow_up_queue.lock().unwrap().clear();
+    }
+
+    /// Take every queued steering message, then every queued follow-up,
+    /// whatever the queue modes: the messages a fresh call takes at once.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `steering_queue` or `follow_up_queue` mutex is poisoned
+    /// (another thread panicked while holding one of them).
+    #[must_use]
+    pub fn take_all_queued(&self) -> Vec<AgentMessage> {
+        let mut taken: Vec<AgentMessage> = self
+            .inner
+            .steering_queue
+            .lock()
+            .unwrap()
+            .batches
+            .drain(..)
+            .flatten()
+            .collect();
+        taken.extend(
+            self.inner
+                .follow_up_queue
+                .lock()
+                .unwrap()
+                .batches
+                .drain(..)
+                .flatten(),
+        );
+        taken
     }
 
     /// Previews of the queued steering batches (TS

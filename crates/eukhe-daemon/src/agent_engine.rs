@@ -351,6 +351,10 @@ pub struct AgentSessionEngine {
     /// pump (tests, headless embeds): no streaming, no deltas.
     compaction_summary_sink:
         std::sync::Mutex<Option<eukhe_core::session_engine::compaction_exec::SummaryDeltaSink>>,
+    /// The chat turn-wait sink the worker installs (the `chat_turn_wait`
+    /// broadcast seam): adopted onto every built session's chat memory at
+    /// [`Self::adopt_built_session`]. `None` without a worker pump.
+    turn_wait_sink: std::sync::Mutex<Option<eukhe_core::session_engine::chat_memory::TurnWaitSink>>,
     /// The attribution producer the children registry's sink last got:
     /// the session's live children outlive an engine rebuild, and their
     /// spawn registrations live on the producer of the build that

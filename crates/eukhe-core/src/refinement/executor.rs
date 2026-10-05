@@ -8,8 +8,8 @@ use super::planner::{
     REFINEMENT_MAX_OUTPUT_TOKENS, REFINEMENT_SYSTEM_PROMPT,
 };
 use super::{
-    infer_refinement_result_scope, merge_refinement_history, HarnessScope, HarnessState,
-    RefinementKind, RefinementResult, REFINEMENT_KINDS,
+    infer_refinement_result_scope, merge_refinement_history, HarnessMemory, HarnessScope,
+    HarnessState, RefinementKind, RefinementResult, REFINEMENT_KINDS,
 };
 use eukhe_types::ai::AssistantMessage;
 use eukhe_types::session::AgentMessage;
@@ -20,6 +20,9 @@ pub struct RefineOptions {
     pub global: bool,
     pub instructions: Option<String>,
     pub rollback_id: Option<String>,
+    /// Where the session's memory lives: a chat-memory session's
+    /// refinement authors skills, subagent specs, and factories only.
+    pub memory: HarnessMemory,
 }
 
 /// A planned refinement awaiting application.
@@ -38,11 +41,14 @@ pub fn generate_refinement_id() -> String {
 }
 
 /// Harness overview section for the refine prompt (per-kind, 40-entry cap,
-/// 240-char content/ref/args snippets).
+/// 240-char content/ref/args snippets), over the kinds `memory` holds.
 #[must_use]
-pub fn overview_for_prompt(state: &HarnessState) -> String {
+pub fn overview_for_prompt(state: &HarnessState, memory: HarnessMemory) -> String {
     let mut lines: Vec<String> = Vec::new();
     for kind in REFINEMENT_KINDS {
+        if !memory.holds(kind_value(kind)) {
+            continue;
+        }
         let entries: Vec<&super::HarnessEntry> = state
             .entries
             .get(&kind_value(kind))
@@ -237,7 +243,7 @@ pub async fn plan_refinement(
         let mut sections = vec![
             format!(
                 "<current_harness_state>\n{}\n</current_harness_state>",
-                overview_for_prompt(state)
+                overview_for_prompt(state, options.memory)
             ),
             format!(
                 "<refinement_history>\n{}\n</refinement_history>",
@@ -246,6 +252,13 @@ pub async fn plan_refinement(
             format!("<conversation>\n{conversation}\n</conversation>"),
             format!("<scope_policy>\n{scope_instruction}\n</scope_policy>"),
         ];
+        match options.memory {
+            HarnessMemory::Harness => {}
+            HarnessMemory::Chat => sections.push(
+                "<memory_policy>\nThis session's memory is the chat itself. Propose only skill, subagent, or factory edits; never memory or prompt edits: facts, preferences, and decisions stay in the chat.\n</memory_policy>"
+                    .to_string(),
+            ),
+        }
         if let Some(instructions) = &options.instructions {
             sections.push(format!(
                 "<user_refine_instructions>\n{instructions}\n</user_refine_instructions>"
@@ -317,6 +330,7 @@ pub fn apply_refinement_plan(
             scope: Some(scope),
             baseline_state,
             factory_enabled,
+            memory: options.memory,
         },
     )
 }
@@ -375,7 +389,7 @@ pub async fn review_auto_refine(
             ),
             format!(
                 "<current_harness_state>\n{}\n</current_harness_state>",
-                overview_for_prompt(state)
+                overview_for_prompt(state, HarnessMemory::Harness)
             ),
             format!(
                 "<refinement_history>\n{}\n</refinement_history>",
@@ -532,9 +546,15 @@ mod tests {
                     version: 0,
                 },
             );
-        let overview = overview_for_prompt(&state);
+        let overview = overview_for_prompt(&state, HarnessMemory::Harness);
         assert!(overview.contains("memory: 1"));
         assert!(overview.contains("- [local:m1] Fact (/m/m1, v0): builds are green"));
+        // A chat-memory session's refiner never sees memories or prompt
+        // notes: they are not part of its harness.
+        let chat_overview = overview_for_prompt(&state, HarnessMemory::Chat);
+        assert!(!chat_overview.contains("builds are green"));
+        assert!(!chat_overview.contains("memory: "));
+        assert!(chat_overview.contains("skill: 0"));
         assert_eq!(history_for_prompt(&[]), "No prior refinement history.");
     }
 
@@ -568,6 +588,7 @@ mod tests {
                 scope: Some(HarnessScope::Local),
                 baseline_state: None,
                 factory_enabled: false,
+                memory: HarnessMemory::Harness,
             },
         );
         let rollback = plan_refinement(

@@ -4,9 +4,9 @@
 
 use super::{
     key_event_to_id, mpsc, paused_heartbeat_count, picker_viewport_rows, tray_goal_label,
-    AgentView, BashActivityUpdate, CommandCatalogUpdate, DaemonCommand, DockFocusSource,
-    FactoryUpdate, GoalPanel, HeartbeatsUpdate, InfoContent, InfoPanelAction, KeyEvent, Map,
-    Result, SessionUi, Value,
+    AgentView, BashActivityUpdate, ChatViewUpdate, CommandCatalogUpdate, DaemonCommand,
+    DockFocusSource, FactoryUpdate, GoalPanel, HeartbeatsUpdate, InfoContent, InfoPanelAction,
+    KeyEvent, Map, Result, SessionUi, Value,
 };
 
 pub(crate) struct ActivityUpdates {
@@ -14,6 +14,7 @@ pub(crate) struct ActivityUpdates {
     pub bash: mpsc::UnboundedSender<BashActivityUpdate>,
     pub factory: mpsc::UnboundedSender<FactoryUpdate>,
     pub commands: mpsc::UnboundedSender<CommandCatalogUpdate>,
+    pub chat_view: mpsc::UnboundedSender<ChatViewUpdate>,
 }
 
 impl SessionUi {

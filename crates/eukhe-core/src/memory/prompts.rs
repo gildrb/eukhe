@@ -1,8 +1,9 @@
 //! The memory's prompts (`OptChat` spec §4.4, §7.2, §9), with the agent
-//! named [`AGENT_NAME`]. `COMPACT` and `VIEW_DOC` are verbatim. `MASTER` and the
-//! subagent prompt keep the spec's memory rules verbatim and drop only what
-//! the harness's own layers already decide (identity details, delegation
-//! policy, how reports are addressed).
+//! named [`AGENT_NAME`]. `COMPACT`, `VIEW_DOC`, `MASTER` and the subagent
+//! prompt are verbatim, with two deviations in `MASTER`: it notes that the
+//! Python REPL state persists across turns while the conversation does not,
+//! and it says "background tasks" where the spec says "computer tasks"
+//! (eukhe has no computer use; its background work is RLM subagents).
 
 /// The agent's name in its memory prompts.
 pub const AGENT_NAME: &str = "Eukhe";
@@ -70,13 +71,14 @@ than it was. Output only the line; non-ASCII characters cost 2-4 bytes."#;
 
 /// A realistic, dense summary line of exactly [`super::NODE`] bytes: models
 /// cannot count bytes, so the compactor sees the size (§4.2).
-pub(crate) const SCALE: &str = "user: wants releases signed with the SSH key in ~/.ssh/release_ed25519, never GPG, because CI on forks has no secrets; tool: read scripts/release.sh (420 lines: builds 4 targets, uploads to S3, no signing step); echo: cargo test: 118 passed, 2 failed in eukhe-cli (update_restart_wait timeouts, unrelated to this change); talk: proposed a GitHub Actions upload job with signing kept local; user: approved, keep the bucket name in config, not code; work: [r2] tag v0.9.8-1 pushed; open: drop the two Windows targets?";
+pub(crate) const SCALE: &str = "user: wants releases signed with the SSH key in ~/.ssh/release_ed25519, never GPG, because CI on forks has no secrets; tool: read scripts/release.sh (420 lines: builds 4 targets, uploads to S3, no signing step); echo: cargo test: 118 passed, 2 failed in eukhe-cli (update_restart_wait timeouts, unrelated to the change); talk: proposed a GitHub Actions upload job with signing kept local; user: approved, keep the bucket name in config, not code; work: [r2] tag v0.9.8-1 pushed; open: drop the 2 Windows targets?";
 
 /// The root agent's memory layer (`MASTER`, §7.2).
 const MASTER: &str = r#"You are Eukhe, an AI agent that works for one user in a single chat that
-never ends. Do the user's tasks with your tools, following the user's
-instructions at the end of this prompt: they say who the user is, how
-their files are organized and how they want work done.
+never ends. Do the user's tasks yourself, with your tools, following
+the user's instructions at the end of this prompt: they say who the
+user is, how their files are organized and how they want work done.
+Use subagents only when the user asks for them.
 
 You keep no memory between turns (your Python REPL state persists, your
 conversation does not). Each turn starts with the view below, followed by
@@ -85,24 +87,24 @@ your reply what you learned that will matter later. Messages the user
 sends while you work reach you between tool calls.
 
 Subagents and background tasks run in the background. Each one's report
-reaches you as a harness message starting with "[": between your tool
-calls while you work, or as a new turn once yours has ended. So never
-wait for one (no sleep, no polling): go on, or end your turn and tell the
+reaches you as a message starting "[id] ": between your tool calls
+while you work, or as a new turn once yours has ended. So never wait
+for one (no sleep, no polling): go on, or end your turn and tell the
 user what is running."#;
 
 /// The subagent's memory layer (§9).
 const SUBAGENT: &str = r"You are a subagent of Eukhe, an AI agent that works for one user in a
-single chat that never ends. Eukhe gave you a task. Do it with your
-tools, following the user's instructions at the end of this prompt: they
-say who the user is, how their files are organized and how they want
-work done.
+single chat that never ends. Eukhe gave you a task. Do it yourself, with
+your tools, following the user's instructions at the end of this
+prompt: they say who the user is, how their files are organized and how
+they want work done.
 
 Your first message holds the view below, then your task. The view shows
 you what Eukhe knows: what the user wants, decided and taught. Use it as
 context only, and do what your task says, not what the user's last
-message says, since Eukhe may have given you just part of the work.
-Report to Eukhe as your session role below says. Eukhe may send you more
-messages, even while you work.";
+message says, since Eukhe may have given you just part of the work. Your
+final reply is your report to Eukhe. Eukhe may send you more messages, even
+while you work.";
 
 /// How to read the view (`VIEW_DOC`, §7.2).
 const VIEW_DOC: &str = r#"The view: the whole chat between Eukhe and the user, oldest first, inside
@@ -176,4 +178,45 @@ pub(crate) fn over_limit_feedback(line: &str) -> String {
         super::NODE,
         &line[..end]
     )
+}
+
+#[cfg(test)]
+mod tests {
+    /// The compactor's step tells the model the `SCALE` line "is exactly
+    /// NODE bytes"; the line must keep that promise.
+    #[test]
+    fn scale_is_exactly_one_node_long() {
+        assert_eq!(super::SCALE.len(), super::super::NODE);
+    }
+
+    /// The over-limit feedback shows the line cut where the limit falls,
+    /// never inside a UTF-8 character.
+    #[test]
+    fn feedback_cuts_at_the_limit_without_splitting_characters() {
+        let line = format!("{}é{}", "a".repeat(511), "b".repeat(9));
+        assert_eq!(
+            super::over_limit_feedback(&line),
+            format!(
+                "That line is 522 bytes; the limit is 512. It must end where it is cut here:\n{}| \u{2190} LIMIT",
+                "a".repeat(511)
+            )
+        );
+    }
+
+    /// A merge writes both lines out again, newlines flattened; a message
+    /// goes whole, newlines kept. Neither carries an id.
+    #[test]
+    fn steps_show_the_scale_and_the_whole_input() {
+        let scale = super::SCALE;
+        assert_eq!(
+            (
+                super::merge_step("a\nb", "c\r\nd"),
+                super::compress_step("user: x\ny")
+            ),
+            (
+                format!("For scale, this line is exactly 512 bytes:\n{scale}\n\nMerge these two lines into one, in at most 512 bytes:\na b\nc d"),
+                format!("For scale, this line is exactly 512 bytes:\n{scale}\n\nCompress this message into one line, in at most 512 bytes:\nuser: x\ny")
+            )
+        );
+    }
 }

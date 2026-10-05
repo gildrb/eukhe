@@ -334,3 +334,137 @@ fn read_lines(
     }
     Ok(lines)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(i: u64, text: &str) -> MessageRecord {
+        MessageRecord {
+            i,
+            kind: Kind::User,
+            text: text.to_string(),
+            size: super::super::labeled(Kind::User, text).len(),
+            date: "2026-10-05T09:00:00.000+02:00".to_string(),
+        }
+    }
+
+    fn node(l: u32, i: u64, text: &str) -> NodeRecord {
+        NodeRecord {
+            l,
+            i,
+            text: text.to_string(),
+            size: text.len(),
+        }
+    }
+
+    /// Each line goes to the file of its day, as `{i, kind, text, size,
+    /// date}` (messages) and `{l, i, text, size}` (nodes); the ids are
+    /// global across the files.
+    #[test]
+    fn appends_go_to_their_day_file_and_read_back_after_a_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, loaded) = Store::open(dir.path(), LoadMode::Repair).unwrap();
+        assert!(loaded.messages.is_empty());
+        let first = store
+            .append_message(&record(0, "hello"), "2026-10-04")
+            .unwrap();
+        let second = store
+            .append_message(&record(1, "two\nlines"), "2026-10-05")
+            .unwrap();
+        store
+            .append_node(&node(0, 0, "user: hello"), "2026-10-05")
+            .unwrap();
+        assert_eq!(
+            [
+                "main/2026-10-04.jsonl",
+                "main/2026-10-05.jsonl",
+                "tree/2026-10-05.jsonl"
+            ]
+            .map(|file| fs::read_to_string(dir.path().join(file)).unwrap()),
+            [
+                "{\"i\":0,\"kind\":\"user\",\"text\":\"hello\",\"size\":11,\"date\":\"2026-10-05T09:00:00.000+02:00\"}\n",
+                "{\"i\":1,\"kind\":\"user\",\"text\":\"two\\nlines\",\"size\":15,\"date\":\"2026-10-05T09:00:00.000+02:00\"}\n",
+                "{\"l\":0,\"i\":0,\"text\":\"user: hello\",\"size\":11}\n",
+            ]
+        );
+        assert_eq!(
+            store.read_message(&second).unwrap(),
+            record(1, "two\nlines")
+        );
+        let (reloaded, loaded) = Store::open(dir.path(), LoadMode::Repair).unwrap();
+        assert_eq!(
+            (&loaded.messages, &loaded.nodes, &loaded.problems),
+            (
+                &vec![first, second],
+                &vec![node(0, 0, "user: hello")],
+                &Vec::new()
+            )
+        );
+        assert_eq!(
+            reloaded.read_message(&loaded.messages[0]).unwrap(),
+            record(0, "hello")
+        );
+    }
+
+    /// A crash mid-write leaves a torn last line: it is reported and
+    /// skipped, and the file gets its newline back, so the next write
+    /// starts on its own line.
+    #[test]
+    fn a_torn_last_line_is_skipped_and_terminated() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, _) = Store::open(dir.path(), LoadMode::Repair).unwrap();
+        store
+            .append_message(&record(0, "kept"), "2026-10-05")
+            .unwrap();
+        let path = dir.path().join("main").join("2026-10-05.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(b"{\"i\":1,\"kind\":\"us").unwrap();
+        drop(file);
+        let (mut store, loaded) = Store::open(dir.path(), LoadMode::Repair).unwrap();
+        assert_eq!(loaded.messages.len(), 1);
+        assert_eq!(loaded.problems.len(), 2, "{:?}", loaded.problems);
+        assert!(fs::read(&path).unwrap().ends_with(b"us\n"));
+        let meta = store
+            .append_message(&record(1, "next"), "2026-10-05")
+            .unwrap();
+        let (store, loaded) = Store::open(dir.path(), LoadMode::Repair).unwrap();
+        assert_eq!(loaded.messages.len(), 2);
+        assert_eq!(loaded.messages[1], meta);
+        assert_eq!(
+            store.read_message(&loaded.messages[1]).unwrap(),
+            record(1, "next")
+        );
+    }
+
+    /// A reader beside a live owner never writes: the torn line stays as
+    /// it is.
+    #[test]
+    fn a_read_only_load_leaves_a_torn_line_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, _) = Store::open(dir.path(), LoadMode::Repair).unwrap();
+        store
+            .append_message(&record(0, "kept"), "2026-10-05")
+            .unwrap();
+        let path = dir.path().join("main").join("2026-10-05.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(b"{\"i\":1").unwrap();
+        drop(file);
+        let before = fs::read(&path).unwrap();
+        let (_, loaded) = Store::open(dir.path(), LoadMode::ReadOnly).unwrap();
+        assert_eq!(
+            (loaded.messages.len(), fs::read(&path).unwrap()),
+            (1, before)
+        );
+    }
+
+    #[test]
+    fn a_gap_in_message_ids_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, _) = Store::open(dir.path(), LoadMode::Repair).unwrap();
+        store.append_message(&record(0, "a"), "2026-10-05").unwrap();
+        store.append_message(&record(2, "c"), "2026-10-05").unwrap();
+        let error = Store::open(dir.path(), LoadMode::Repair).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+}

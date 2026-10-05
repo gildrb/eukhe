@@ -120,7 +120,10 @@ fn cached_prefix_is_stable_across_sessions() {
     );
     assert_eq!(
         &first.assembled[..first.cached_prefix_len],
-        layers::static_prefix(Some("mock/mock-1"))
+        layers::static_prefix(
+            Some("mock/mock-1"),
+            eukhe_core::refinement::HarnessMemory::Harness
+        )
     );
 
     // The tails carry each session's own values.

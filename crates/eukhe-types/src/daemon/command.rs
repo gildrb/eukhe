@@ -1143,6 +1143,16 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native extension, advertised by the `chat_view` capability:
+    /// the chat memory's current view, for the interactive client's
+    /// startup block (reply: [`super::ChatViewReply`]).
+    GetChatView {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetToolDefinition {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -1262,5 +1272,10 @@ mod tests {
     #[test]
     fn mark_anthropic_warning_shown_roundtrip() {
         rt::<DaemonCommand>(r#"{"type":"mark_anthropic_warning_shown","activeSessionId":"s1"}"#);
+    }
+
+    #[test]
+    fn get_chat_view_roundtrip() {
+        rt::<DaemonCommand>(r#"{"type":"get_chat_view","activeSessionId":"s1"}"#);
     }
 }

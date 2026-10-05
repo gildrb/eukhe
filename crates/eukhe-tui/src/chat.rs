@@ -140,6 +140,10 @@ pub enum ChatEntry {
     RefinementOutcome(Box<crate::custom_message::RefinementOutcomeRow>),
     /// One generic custom row (TS `CustomMessageComponent` box).
     CustomPanel(Box<crate::custom_message::CustomPanelRow>),
+    /// The chat memory's view at session open (`OptChat` spec §10's startup
+    /// print; rendered by the `chat_view_block` module): one collapsed
+    /// summary row, the full `<chat>` text when expanded.
+    ChatView(Box<eukhe_types::daemon::ChatViewSnapshot>),
 }
 
 // The card types live in `tool_card`; re-exported here because the

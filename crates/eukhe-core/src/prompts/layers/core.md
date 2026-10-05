@@ -71,9 +71,16 @@ The following programmatic tools are available in the REPL for a2a communication
 
 ## Continual Harness
 
+<!-- eukhe:harness-memory -->
 eukhe is a continual harness. During a session, persistent memories can be written and read. These stay available even after multiple compactions.
 
 Memories are created by two mechanisms:
+<!-- /eukhe:harness-memory -->
+<!-- eukhe:chat-memory -->
+eukhe is a continual harness: reusable skills and subagent specs persist across sessions. They are tools, not memory; the chat is the only memory.
+
+Skills and subagent specs are created by two mechanisms:
+<!-- /eukhe:chat-memory -->
 
 - Refinement
   - Mechanism:
@@ -86,16 +93,28 @@ Memories are created by two mechanisms:
   - Effect:
     - The refinement event is always saved in the harness state's refinement history
     - A harness message is sent to the agent with the refinement result
+<!-- eukhe:harness-memory -->
 - Active memory management by the agent
+<!-- /eukhe:harness-memory -->
+<!-- eukhe:chat-memory -->
+- Active management by the agent
+<!-- /eukhe:chat-memory -->
   - `refine.run(instructions: str | None = None, global_: bool = False) -> dict`: agent-triggered refinement (see above); returns immediately and runs when the current turn ends
 - `refine.status() -> dict`: whether a refinement is already pending for this turn or currently in flight
+<!-- eukhe:harness-memory -->
   - `rlm.harness.create_memory(title: str, content: str, *, id: str | None = None, path: str = "general", metadata: dict | None = None, global_: bool = False) -> HarnessEntry`: creates a memory; use `global_=True` for cross-session entries (Python reserves `global`, so the parameter is spelled `global_`)
   - `rlm.harness.update_memory(id: str, title: str, content: str, *, path: str | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
   - `rlm.harness.delete_memory(id: str, *, global_: bool = False) -> bool`
   - `rlm.harness.create_prompt_note(title: str, content: str, *, id: str | None = None, path: str = "policy", metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
   - `rlm.harness.update_prompt_note(id: str, title: str, content: str, *, path: str | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
   - `rlm.harness.delete_prompt_note(id: str, *, global_: bool = False) -> bool`
+<!-- /eukhe:harness-memory -->
+<!-- eukhe:harness-memory -->
   - `rlm.harness.create_skill(title: str, content: str, *, id: str | None = None, path: str = "general", reference: dict | None = None, arguments: dict | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`: `reference`/`arguments` describe the Python callable (`reference` requires `{"type": "python"}`, a Python import, and a callable or call pattern)
+<!-- /eukhe:harness-memory -->
+<!-- eukhe:chat-memory -->
+  - `rlm.harness.create_skill(title: str, content: str, *, id: str | None = None, path: str = "general", reference: dict | None = None, arguments: dict | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`: `reference`/`arguments` describe the Python callable (`reference` requires `{"type": "python"}`, a Python import, and a callable or call pattern); use `global_=True` for cross-session entries (Python reserves `global`, so the parameter is spelled `global_`)
+<!-- /eukhe:chat-memory -->
   - `rlm.harness.update_skill(id: str, title: str, content: str, *, path: str | None = None, reference: dict | None = None, arguments: dict | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
   - `rlm.harness.delete_skill(id: str, *, global_: bool = False) -> bool`
   - `rlm.harness.create_subagent(title: str, content: str, *, id: str | None = None, path: str = "general", metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
@@ -103,15 +122,31 @@ Memories are created by two mechanisms:
   - `rlm.harness.delete_subagent(id: str, *, global_: bool = False) -> bool`
   - `rlm.harness.record_refinement(trigger: str, changes: list[str], *, evidence: str = "", outcome: str = "", id: str | None = None, global_: bool = False) -> RefinementEvent`
   - `rlm.harness.plan_refinement(observation: str, *, failing_component: str = "", next_step: str = "") -> list[str]`: a suggested diagnose -> update -> validate plan
+<!-- eukhe:harness-memory -->
   - `rlm.harness.overview(*, max_entries_per_kind: int = 20, global_: bool = False) -> str`: memory overview
   - `rlm.harness.search(query: str, kind: str | None = None, limit: int = 10, *, global_: bool = False) -> list[HarnessEntry]`: ranked term search over entries
   - `rlm.get_harness_state(state_dir: str | Path | None = None, *, global_: bool = False) -> HarnessState`: full memory details for the selected scope. Can read another agent's `HarnessState` by passing the path to it in `state_dir`
+<!-- /eukhe:harness-memory -->
+<!-- eukhe:chat-memory -->
+  - `rlm.harness.overview(*, max_entries_per_kind: int = 20, global_: bool = False) -> str`: overview of the stored skills and subagent specs
+  - `rlm.harness.search(query: str, kind: str | None = None, limit: int = 10, *, global_: bool = False) -> list[HarnessEntry]`: ranked term search over the skills and subagent specs
+<!-- /eukhe:chat-memory -->
   - `HarnessEntry`
     - `id: str`
+<!-- eukhe:harness-memory -->
     - `kind: Literal["prompt", "memory", "skill", "subagent"]`
+<!-- /eukhe:harness-memory -->
+<!-- eukhe:chat-memory -->
+    - `kind: Literal["skill", "subagent"]`
+<!-- /eukhe:chat-memory -->
     - `title: str`
     - `content: str`
+<!-- eukhe:harness-memory -->
     - `path: str`: category path ("general" for memories, "policy" for prompt notes)
+<!-- /eukhe:harness-memory -->
+<!-- eukhe:chat-memory -->
+    - `path: str`: category path
+<!-- /eukhe:chat-memory -->
     - `scope: Literal["local", "global"]`
     - `reference: dict[str, Any]`: for skills
     - `arguments: dict[str, Any]`: for skills
@@ -120,11 +155,13 @@ Memories are created by two mechanisms:
     - `created_at: str`: ISO timestamp of creation
     - `updated_at: str`: ISO timestamp of latest update
     - `version: int`: increments with every update, starting at 1
+<!-- eukhe:harness-memory -->
   - `HarnessState`
     - `scope: Literal["global", "local"]`
     - `file_path: Path`
     - `entries: dict[kind, dict[id, HarnessEntry]]`
     - `refinements: list[RefinementEvent]`
+<!-- /eukhe:harness-memory -->
   - `RefinementEvent`
     - `id: str`
     - `trigger: str`: what caused the refinement

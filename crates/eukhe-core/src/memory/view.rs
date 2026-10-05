@@ -218,3 +218,233 @@ pub(crate) fn pieces(text: &str) -> Vec<String> {
     out.push(text[from..].to_string());
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Tree(HashMap<Part, String>);
+
+    impl NodeTexts for Tree {
+        fn node_text(&self, part: Part) -> Option<&str> {
+            self.0.get(&part).map(String::as_str)
+        }
+    }
+
+    impl Tree {
+        fn build(&mut self, l: u32, i: u64, text: String) {
+            self.0.insert(Part { l, i }, text);
+        }
+    }
+
+    /// The parts as `(l, i)` pairs.
+    fn coordinates(view: &View) -> Vec<(u32, u64)> {
+        view.parts().iter().map(|part| (part.l, part.i)).collect()
+    }
+
+    #[test]
+    fn small_views_hold_one_line_per_message() {
+        let mut tree = Tree::default();
+        let mut view = View::default();
+        for i in 0..4 {
+            tree.build(0, i, format!("user: m{i}"));
+            view.append(i, &tree);
+            assert!(!view.fit(i + 1, &tree));
+        }
+        tree.build(1, 0, "merged".to_string());
+        assert!(!view.fit(4, &tree));
+        assert_eq!(
+            view.render(&tree),
+            "<chat>\n0+1|user: m0\n1+1|user: m1\n2+1|user: m2\n3+1|user: m3\n</chat>"
+        );
+        // The compactor's context: bare lines, no ids.
+        assert_eq!(
+            view.render_context(2, &tree),
+            "<chat>\nuser: m0\nuser: m1\n</chat>"
+        );
+    }
+
+    #[test]
+    fn render_flattens_newlines_and_names_lines_by_id_and_count() {
+        let mut tree = Tree::default();
+        let mut view = View::default();
+        for i in 0..2 {
+            tree.build(0, i, format!("talk: a\r\nb{i}"));
+            view.append(i, &tree);
+        }
+        view.append(2, &tree);
+        assert_eq!(
+            (view.render(&tree), view.render_context(2, &tree)),
+            (
+                format!("<chat>\n0+1|talk: a b0\n1+1|talk: a b1\n2+1|{PLACEHOLDER}\n</chat>"),
+                "<chat>\ntalk: a b0\ntalk: a b1\n</chat>".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn over_budget_views_merge_the_oldest_pair_first() {
+        let mut tree = Tree::default();
+        let mut view = View::default();
+        let line = "x".repeat(500);
+        let total = (VIEW / 500 + 2) as u64;
+        for i in 0..total {
+            tree.build(0, i, line.clone());
+            view.append(i, &tree);
+        }
+        for i in 0..total / 2 {
+            tree.build(1, i, "y".repeat(500));
+        }
+        assert!(view.fit(total, &tree));
+        // 258 lines of 500 bytes need two merges; at equal levels the
+        // oldest pair is the most due.
+        assert_eq!(view.size(), VIEW);
+        assert_eq!(coordinates(&view)[..3], [(1, 0), (1, 1), (0, 4)]);
+    }
+
+    /// Most due is oldest relative to size: a younger level-0 pair goes
+    /// before an older level-1 pair whose parent is built too.
+    #[test]
+    fn the_most_due_pair_weighs_age_against_level() {
+        let mut tree = Tree::default();
+        let mut view = View::default();
+        let line = || "x".repeat(500);
+        let first = (VIEW / 500 + 2) as u64;
+        for i in 0..first {
+            tree.build(0, i, line());
+            view.append(i, &tree);
+        }
+        tree.build(1, 0, line());
+        tree.build(1, 1, line());
+        assert!(view.fit(first, &tree));
+        assert_eq!(coordinates(&view)[..3], [(1, 0), (1, 1), (0, 4)]);
+        // One more message: one merge fits the view again. (2,0) covers
+        // 0..4 at weight 8 (age 259/8); (1,2) covers 4..6 at weight 4
+        // (age 255/4): the younger pair is more due.
+        tree.build(0, first, line());
+        view.append(first, &tree);
+        tree.build(2, 0, line());
+        tree.build(1, 2, line());
+        assert!(view.fit(first + 1, &tree));
+        assert_eq!(
+            (view.size(), coordinates(&view)[..4].to_vec()),
+            (VIEW, vec![(1, 0), (1, 1), (1, 2), (0, 6)])
+        );
+    }
+
+    /// The view only appends at its end and coarsens: every part of an
+    /// earlier view lies inside one part of every later view, and the
+    /// parts tile `[0, T)`.
+    #[test]
+    fn merged_parts_are_never_split() {
+        let mut tree = Tree::default();
+        let mut view = View::default();
+        let mut before: Vec<Part> = Vec::new();
+        for i in 0..600u64 {
+            tree.build(0, i, "x".repeat(500));
+            // Every parent is built once both its children are.
+            let mut part = Part { l: 0, i };
+            while part.i % 2 == 1 {
+                part = Part {
+                    l: part.l + 1,
+                    i: part.i / 2,
+                };
+                tree.build(part.l, part.i, "y".repeat(400));
+            }
+            view.append(i, &tree);
+            view.fit(i + 1, &tree);
+            let parts = view.parts();
+            assert!(view.size() <= VIEW);
+            assert_eq!((parts[0].start(), parts[parts.len() - 1].end()), (0, i + 1));
+            assert!(parts
+                .windows(2)
+                .all(|pair| pair[0].end() == pair[1].start()));
+            let mut at = 0;
+            for old in &before {
+                while parts[at].end() < old.end() {
+                    at += 1;
+                }
+                let new = parts[at];
+                assert!(
+                    new.l >= old.l && new.start() <= old.start() && old.end() <= new.end(),
+                    "{old:?} was split at message {i}"
+                );
+            }
+            before = parts.to_vec();
+        }
+    }
+
+    #[test]
+    fn unbuilt_parents_block_merging() {
+        let mut tree = Tree::default();
+        let mut view = View::default();
+        let total = (VIEW / 500 + 2) as u64;
+        for i in 0..total {
+            tree.build(0, i, "x".repeat(500));
+            view.append(i, &tree);
+        }
+        assert!(!view.fit(total, &tree));
+        assert!(view.size() > VIEW);
+    }
+
+    #[test]
+    fn placeholders_count_until_built() {
+        let mut tree = Tree::default();
+        let mut view = View::default();
+        view.append(0, &tree);
+        assert_eq!(
+            (
+                view.size(),
+                view.settled(&tree),
+                view.first_unbuilt(1, &tree),
+                view.render(&tree)
+            ),
+            (
+                PLACEHOLDER.len(),
+                false,
+                0,
+                format!("<chat>\n0+1|{PLACEHOLDER}\n</chat>")
+            )
+        );
+        tree.build(0, 0, "user: hi".to_string());
+        view.part_built(Part { l: 0, i: 0 }, &tree);
+        assert_eq!(
+            (
+                view.size(),
+                view.settled(&tree),
+                view.first_unbuilt(1, &tree)
+            ),
+            ("user: hi".len(), true, 1)
+        );
+    }
+
+    #[test]
+    fn due_weighs_age_against_level() {
+        // Age 6 at level 0 (6/4 = 1.5) beats age 8 at level 1 (8/8 = 1).
+        assert!(!more_due(8, 1, 6, 0));
+        assert!(more_due(6, 0, 8, 1));
+        // Ties keep the earlier (older) pair: strict comparison.
+        assert!(!more_due(8, 1, 4, 0));
+    }
+
+    #[test]
+    fn pieces_cut_at_line_ends_before_each_mark() {
+        let line = format!("{}\n", "a".repeat(999));
+        let text = line.repeat(120);
+        let pieces = pieces(&text);
+        assert_eq!(pieces.concat(), text);
+        assert_eq!(
+            pieces.iter().map(String::len).collect::<Vec<_>>(),
+            vec![50_000, 30_000, 20_000, 20_000]
+        );
+        assert_eq!(super::pieces("short\n"), vec!["short\n".to_string()]);
+    }
+
+    #[test]
+    fn flatten_turns_every_newline_into_one_space() {
+        assert_eq!(flatten("a\r\nb\nc\rd"), "a b c d");
+    }
+}

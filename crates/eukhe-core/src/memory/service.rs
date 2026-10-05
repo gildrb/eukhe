@@ -6,6 +6,20 @@
 //! only writer. Every other process connects to the same socket and sends
 //! JSON-line requests. When the owner dies, its socket refuses connections:
 //! the next request deletes the stale socket and takes ownership over.
+//!
+//! A turn's view comes from one owner step: the owner answers
+//! [`Memory::settled_render`] in the same step that sees every view line
+//! built, so no append can slip a placeholder in between (§6). Many
+//! windows are one chat, and its root turns run one at a time: the owner
+//! hands out the root-turn lease ([`turn`]).
+//!
+//! The owner handles one connection's requests in the order they arrive.
+//! A client that stops waiting for a reply says so, and the owner drops
+//! the wait.
+
+#[cfg(test)]
+mod tests;
+mod turn;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -25,6 +39,9 @@ use super::prompts::{compress_step, merge_step};
 use super::store::{LoadMode, MessageRecord, NodeRecord, Store};
 use super::view::{pieces, Part};
 use super::{labeled, Kind, RETRY};
+use turn::{Origin, Turns};
+
+pub use turn::TurnLease;
 
 /// Consecutive failures of the node a turn waits on before the wait fails
 /// with the compactor's error (the compactor itself retries forever).
@@ -98,7 +115,10 @@ enum Request {
         expect_start: Option<u64>,
         items: Vec<ImportItem>,
     },
-    Settle,
+    /// Wait until every line of the view is a summary, then render it in
+    /// the same owner step.
+    SettledRender,
+    /// The view as it is now, placeholders included.
     Render,
     Zoom {
         id: u64,
@@ -110,6 +130,14 @@ enum Request {
     Status,
     Persist,
     Parts,
+    /// Wait for the root-turn lease; `lease` names it on this connection.
+    AcquireTurn {
+        lease: u64,
+    },
+    /// End lease `lease` of this connection, held or still waited for.
+    Release {
+        lease: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -121,18 +149,28 @@ enum Request {
 enum Reply {
     Appended { id: u64 },
     Imported { first: u64, count: u64 },
-    Settled,
     Rendered { view: RenderedView },
     Text { text: String },
     Status { status: MemoryStatus },
     Persisting,
     Parts { parts: Vec<(u32, u64)> },
+    Granted,
+    Released,
 }
 
+/// One line a client sends.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct RequestFrame {
-    id: u64,
-    request: Request,
+#[serde(tag = "frame", rename_all = "snake_case")]
+enum ClientFrame {
+    Request {
+        id: u64,
+        request: Request,
+    },
+    /// The client stopped waiting for request `id`: the owner drops the
+    /// wait.
+    Cancel {
+        id: u64,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -168,6 +206,8 @@ struct Inner {
     dir: PathBuf,
     summarizer: Arc<dyn Summarizer>,
     link: Mutex<Option<Link>>,
+    /// Names this handle's turn leases (see [`Memory::acquire_turn`]).
+    next_lease: AtomicU64,
 }
 
 #[derive(Clone)]
@@ -195,6 +235,7 @@ impl Memory {
                 dir: dir.into(),
                 summarizer,
                 link: Mutex::new(None),
+                next_lease: AtomicU64::new(1),
             }),
         };
         memory.link().await?;
@@ -234,21 +275,24 @@ impl Memory {
         }
     }
 
-    /// Wait until every line of the view is a summary. Dropping the future
-    /// cancels the wait.
+    /// The view once every line of it is a summary (§6), rendered in the
+    /// same owner step that sees it so, so no append slips a placeholder in
+    /// between. Dropping the future cancels the wait, across processes too.
     ///
     /// # Errors
     ///
     /// Returns the compactor's error when the node the view waits on keeps
     /// failing, or when the owner cannot be reached.
-    pub async fn settle(&self) -> anyhow::Result<()> {
-        match self.request(Request::Settle).await? {
-            Reply::Settled => Ok(()),
+    #[tracing::instrument(name = "chat_memory.settled_render", skip_all)]
+    pub async fn settled_render(&self) -> anyhow::Result<RenderedView> {
+        match self.request(Request::SettledRender).await? {
+            Reply::Rendered { view } => Ok(view),
             other => Err(unexpected(&other)),
         }
     }
 
-    /// The view as it is now.
+    /// The view as it is now: a line not summarized yet shows the
+    /// placeholder. A turn reads [`Memory::settled_render`] instead.
     ///
     /// # Errors
     ///
@@ -345,7 +389,11 @@ impl Memory {
                                 "the chat owner went away during an import; nothing after the last \
                                  reply is certain: check `chat status` before importing again"
                             ),
-                            Request::Settle
+                            // A lease belongs to its connection: it ended with it.
+                            Request::AcquireTurn { .. } | Request::Release { .. } => anyhow::bail!(
+                                "the chat owner went away during a turn lease request"
+                            ),
+                            Request::SettledRender
                             | Request::Render
                             | Request::Zoom { .. }
                             | Request::Date { .. }
@@ -522,16 +570,19 @@ struct Disconnected;
 type Pending = std::sync::Mutex<HashMap<u64, oneshot::Sender<Outcome>>>;
 
 struct Client {
-    writer: Mutex<Box<dyn AsyncWriteHalf>>,
+    /// Lines for the writer task, which sends each whole and in order.
+    outgoing: tokio::sync::mpsc::UnboundedSender<String>,
     pending: Arc<Pending>,
     closed: Arc<AtomicBool>,
     next_id: AtomicU64,
     reader: tokio::task::JoinHandle<()>,
+    writer: tokio::task::JoinHandle<()>,
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
         self.reader.abort();
+        self.writer.abort();
     }
 }
 
@@ -561,9 +612,10 @@ impl Client {
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .remove(&frame.id);
+                    // A reply with no waiter answers a posted release or a
+                    // request whose requester stopped waiting.
                     if let Some(waiter) = waiter {
-                        // The requester may have stopped waiting (a
-                        // cancelled settle); its reply has no reader.
+                        // The requester may be stopping right now.
                         let _ = waiter.send(frame.outcome);
                     }
                 }
@@ -574,15 +626,26 @@ impl Client {
                     .clear();
             }
         });
+        let (outgoing, lines) = tokio::sync::mpsc::unbounded_channel();
         Arc::new(Client {
-            writer: Mutex::new(write_half),
+            outgoing,
             pending,
             closed,
             next_id: AtomicU64::new(1),
             reader,
+            writer: tokio::spawn(write_lines(write_half, lines)),
         })
     }
 
+    /// Queue one frame for the writer task.
+    fn send(&self, frame: &ClientFrame) -> Result<(), Disconnected> {
+        let mut line = serde_json::to_string(frame).map_err(|_| Disconnected)?;
+        line.push('\n');
+        self.outgoing.send(line).map_err(|_| Disconnected)
+    }
+
+    /// Send `request` and wait for its outcome. Dropping the future tells
+    /// the owner to drop the wait.
     async fn request(&self, request: &Request) -> Result<Outcome, Disconnected> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (sender, receiver) = oneshot::channel();
@@ -590,34 +653,70 @@ impl Client {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(id, sender);
-        if self.closed.load(Ordering::SeqCst) {
+        let sent = if self.closed.load(Ordering::SeqCst) {
+            Err(Disconnected)
+        } else {
+            self.send(&ClientFrame::Request {
+                id,
+                request: request.clone(),
+            })
+        };
+        if let Err(error) = sent {
             self.pending
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&id);
-            return Err(Disconnected);
+            return Err(error);
         }
-        let mut line = serde_json::to_string(&RequestFrame {
-            id,
-            request: request.clone(),
-        })
-        .map_err(|_| Disconnected)?;
-        line.push('\n');
-        let written = {
-            let mut writer = self.writer.lock().await;
-            match writer.write_all(line.as_bytes()).await {
-                Ok(()) => writer.flush().await,
-                Err(error) => Err(error),
-            }
+        let mut cancel = CancelOnDrop {
+            client: self,
+            id: Some(id),
+        };
+        let outcome = receiver.await.map_err(|_| Disconnected);
+        cancel.id = None;
+        outcome
+    }
+}
+
+/// A request's waiter on the client side: when its future is dropped
+/// before the reply, the owner is told to drop the wait.
+struct CancelOnDrop<'a> {
+    client: &'a Client,
+    /// `None` once the reply came (or the connection died).
+    id: Option<u64>,
+}
+
+impl Drop for CancelOnDrop<'_> {
+    fn drop(&mut self) {
+        let Some(id) = self.id else {
+            return;
+        };
+        self.client
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&id);
+        // A closed connection has no waits left at the owner.
+        let _ = self.client.send(&ClientFrame::Cancel { id });
+    }
+}
+
+/// Write queued lines in order until the queue closes or the peer goes
+/// away. One task owns the write half, so a sender that is cancelled never
+/// leaves half a line on the socket.
+async fn write_lines(
+    mut writer: Box<dyn AsyncWriteHalf>,
+    mut lines: tokio::sync::mpsc::UnboundedReceiver<String>,
+) {
+    while let Some(line) = lines.recv().await {
+        let written = match writer.write_all(line.as_bytes()).await {
+            Ok(()) => writer.flush().await,
+            Err(error) => Err(error),
         };
         if written.is_err() {
-            self.pending
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&id);
-            return Err(Disconnected);
+            // The peer went away; the reading side sees the connection end.
+            return;
         }
-        receiver.await.map_err(|_| Disconnected)
     }
 }
 
@@ -659,8 +758,13 @@ impl Drop for OwnerHandle {
 
 enum Command {
     Request {
+        origin: Origin,
         request: Request,
         reply: oneshot::Sender<Outcome>,
+    },
+    /// A client connection closed: its leases end.
+    Closed {
+        connection: u64,
     },
     Built {
         part: Part,
@@ -718,31 +822,29 @@ impl OwnerHandle {
     }
 
     async fn request(&self, request: Request) -> anyhow::Result<Reply> {
-        match send_to_actor(&self.commands, request).await? {
+        let (reply, receiver) = oneshot::channel();
+        self.commands
+            .send(Command::Request {
+                origin: Origin::Local,
+                request,
+                reply,
+            })
+            .map_err(|_| anyhow::anyhow!("the chat memory actor has stopped"))?;
+        match receiver
+            .await
+            .map_err(|_| anyhow::anyhow!("the chat memory actor stopped before replying"))?
+        {
             Outcome::Ok(reply) => Ok(reply),
             Outcome::Error(error) => Err(anyhow::anyhow!(error)),
         }
     }
 }
 
-async fn send_to_actor(
-    commands: &mpsc::Sender<Command>,
-    request: Request,
-) -> anyhow::Result<Outcome> {
-    let (reply, receiver) = oneshot::channel();
-    commands
-        .send(Command::Request { request, reply })
-        .map_err(|_| anyhow::anyhow!("the chat memory actor has stopped"))?;
-    receiver
-        .await
-        .map_err(|_| anyhow::anyhow!("the chat memory actor stopped before replying"))
-}
-
-/// Accept clients until the owner goes away; each request runs as its own
-/// task, so a waiting settle never blocks the connection. Every task lives
+/// Accept clients until the owner goes away. Every connection task lives
 /// in a `JoinSet` owned by this one: aborting the server closes them all.
 async fn serve(listener: Box<dyn TransportListener>, commands: mpsc::Sender<Command>) {
     let mut connections = tokio::task::JoinSet::new();
+    let mut next_connection: u64 = 0;
     loop {
         // Reap finished connections so the set does not grow forever.
         while connections.try_join_next().is_some() {}
@@ -752,55 +854,80 @@ async fn serve(listener: Box<dyn TransportListener>, commands: mpsc::Sender<Comm
             tokio::time::sleep(Duration::from_millis(100)).await;
             continue;
         };
-        let commands = commands.clone();
-        connections.spawn(serve_connection(stream, commands));
+        next_connection += 1;
+        connections.spawn(serve_connection(stream, commands.clone(), next_connection));
     }
 }
 
-/// One client connection: JSON-line requests in, replies out by id.
-async fn serve_connection(stream: Box<dyn TransportStream>, commands: mpsc::Sender<Command>) {
+/// One client connection: JSON-line frames in, replies out by id. Its
+/// requests reach the actor in the order they arrive (a lease's release
+/// never overtakes its request); each reply is awaited on its own task, so
+/// a waiting request never blocks the connection, and a cancelled one
+/// drops its wait. When the client hangs up, the actor ends its leases.
+async fn serve_connection(
+    stream: Box<dyn TransportStream>,
+    commands: mpsc::Sender<Command>,
+    connection: u64,
+) {
     let (read_half, write_half) = stream.split();
-    let writer = Arc::new(Mutex::new(write_half));
+    let (replies, lines) = tokio::sync::mpsc::unbounded_channel();
+    let mut tasks = tokio::task::JoinSet::new();
+    tasks.spawn(write_lines(write_half, lines));
+    let mut waits: HashMap<u64, tokio::task::AbortHandle> = HashMap::new();
     let mut reader = BufReader::new(read_half);
     let mut line = String::new();
-    let mut requests = tokio::task::JoinSet::new();
     loop {
-        while requests.try_join_next().is_some() {}
+        while tasks.try_join_next().is_some() {}
+        waits.retain(|_, wait| !wait.is_finished());
         line.clear();
         match reader.read_line(&mut line).await {
             Ok(0) | Err(_) => break,
             Ok(read) if read > MAX_LINE_BYTES => break,
             Ok(_) => {}
         }
-        let Ok(frame) = serde_json::from_str::<RequestFrame>(line.trim_end()) else {
+        let Ok(frame) = serde_json::from_str::<ClientFrame>(line.trim_end()) else {
             // Not a chat client: close the connection at once so a foreign
             // prober never waits on it.
             break;
         };
-        let commands = commands.clone();
-        let writer = Arc::clone(&writer);
-        requests.spawn(async move {
-            let outcome = match send_to_actor(&commands, frame.request).await {
-                Ok(outcome) => outcome,
-                Err(error) => Outcome::Error(format!("{error:#}")),
-            };
-            let Ok(mut reply) = serde_json::to_string(&ReplyFrame {
-                id: frame.id,
-                outcome,
-            }) else {
-                return;
-            };
-            reply.push('\n');
-            let mut writer = writer.lock().await;
-            // A client that went away loses only its own reply.
-            if writer.write_all(reply.as_bytes()).await.is_ok() {
-                let _ = writer.flush().await;
+        match frame {
+            ClientFrame::Cancel { id } => {
+                // Dropping the reply's receiver drops the actor's waiter.
+                if let Some(wait) = waits.remove(&id) {
+                    wait.abort();
+                }
             }
-        });
+            ClientFrame::Request { id, request } => {
+                let (reply, receiver) = oneshot::channel();
+                let sent = commands.send(Command::Request {
+                    origin: Origin::Connection(connection),
+                    request,
+                    reply,
+                });
+                if sent.is_err() {
+                    // The actor stopped: hang up so the client fails over.
+                    break;
+                }
+                let replies = replies.clone();
+                let wait = tasks.spawn(async move {
+                    let outcome = receiver.await.unwrap_or_else(|_| {
+                        Outcome::Error("the chat memory actor stopped before replying".to_string())
+                    });
+                    let Ok(mut reply) = serde_json::to_string(&ReplyFrame { id, outcome }) else {
+                        return;
+                    };
+                    reply.push('\n');
+                    // A client that went away loses only its own reply.
+                    let _ = replies.send(reply);
+                });
+                waits.insert(id, wait);
+            }
+        }
     }
-    // The client hung up: its pending replies have no reader. Waiting
-    // requests (a settle) end with the connection.
-    requests.abort_all();
+    // The client hung up: its leases end (a stopped actor holds none), and
+    // its pending replies have no reader.
+    let _ = commands.send(Command::Closed { connection });
+    tasks.abort_all();
 }
 
 /// The owner's state, on its own thread: every read and write of the chat
@@ -812,7 +939,10 @@ struct Actor {
     summarizer: Arc<dyn Summarizer>,
     runtime: tokio::runtime::Handle,
     commands: mpsc::Sender<Command>,
-    settle_waiters: Vec<oneshot::Sender<Outcome>>,
+    /// Turns waiting for the view to settle (§6).
+    view_waiters: Vec<oneshot::Sender<Outcome>>,
+    /// The root-turn lease.
+    turns: Turns,
     failures: HashMap<Part, Failure>,
     /// Nodes that failed and wait out their retry delay (a subset of the
     /// chat's busy set).
@@ -849,7 +979,8 @@ impl Actor {
             summarizer,
             runtime,
             commands,
-            settle_waiters: Vec::new(),
+            view_waiters: Vec::new(),
+            turns: Turns::default(),
             failures: HashMap::new(),
             waiting: HashSet::new(),
             persisting: false,
@@ -863,7 +994,12 @@ impl Actor {
     fn run(mut self, receiver: &mpsc::Receiver<Command>) {
         while let Ok(command) = receiver.recv() {
             match command {
-                Command::Request { request, reply } => self.handle(request, reply),
+                Command::Request {
+                    origin,
+                    request,
+                    reply,
+                } => self.handle(origin, request, reply),
+                Command::Closed { connection } => self.turns.closed(connection),
                 Command::Built { part, result } => self.built(part, result),
                 Command::Retry { part, generation } => {
                     let current = self
@@ -881,11 +1017,19 @@ impl Actor {
         }
     }
 
-    fn handle(&mut self, request: Request, reply: oneshot::Sender<Outcome>) {
+    fn handle(&mut self, origin: Origin, request: Request, reply: oneshot::Sender<Outcome>) {
         let outcome = match request {
-            Request::Settle => {
-                self.add_settle_waiter(reply);
+            Request::SettledRender => {
+                self.add_view_waiter(reply);
                 return;
+            }
+            Request::AcquireTurn { lease } => {
+                self.turns.acquire(origin, lease, reply);
+                return;
+            }
+            Request::Release { lease } => {
+                self.turns.release(origin, lease);
+                Ok(Reply::Released)
             }
             Request::Append {
                 kind,
@@ -900,10 +1044,7 @@ impl Actor {
                 items,
             } => self.import(expect_start, items),
             Request::Render => Ok(Reply::Rendered {
-                view: RenderedView {
-                    messages: self.chat.total(),
-                    text: self.chat.render(),
-                },
+                view: self.rendered(),
             }),
             Request::Zoom { id, count } => self.zoom(id, count).map(|text| Reply::Text { text }),
             Request::Date { id } => Ok(Reply::Text {
@@ -1060,7 +1201,7 @@ impl Actor {
                 break;
             }
         }
-        self.wake_settled();
+        self.wake_view_waiters();
     }
 
     fn prepare(&self, part: Part) -> anyhow::Result<Prepared> {
@@ -1145,15 +1286,20 @@ impl Actor {
         self.fail_waiters_if_stuck();
     }
 
-    /// A turn waits for the view: answer at once when it is settled; when
-    /// the node it waits on is in its retry delay, try it again now.
-    fn add_settle_waiter(&mut self, reply: oneshot::Sender<Outcome>) {
+    /// A turn waits for the view: rendered at once when every line is a
+    /// summary, else by [`Actor::wake_view_waiters`] in the step that builds
+    /// the last one (§6). When the node it waits on is in its retry delay,
+    /// try it again now.
+    fn add_view_waiter(&mut self, reply: oneshot::Sender<Outcome>) {
         if self.chat.settled() {
-            let _ = reply.send(Outcome::Ok(Reply::Settled));
+            // The requester may have stopped waiting.
+            let _ = reply.send(Outcome::Ok(Reply::Rendered {
+                view: self.rendered(),
+            }));
             return;
         }
-        self.settle_waiters.retain(|waiter| !waiter.is_closed());
-        self.settle_waiters.push(reply);
+        self.view_waiters.retain(|waiter| !waiter.is_closed());
+        self.view_waiters.push(reply);
         let blocking = Part {
             l: 0,
             i: self.chat.first(),
@@ -1168,12 +1314,25 @@ impl Actor {
         }
     }
 
-    fn wake_settled(&mut self) {
-        if self.settle_waiters.is_empty() || !self.chat.settled() {
+    /// Answer the waiting turns when every view line is a summary: the
+    /// check and the render are one step, so the view they get is the one
+    /// that was checked (an append can only come after).
+    fn wake_view_waiters(&mut self) {
+        self.view_waiters.retain(|waiter| !waiter.is_closed());
+        if self.view_waiters.is_empty() || !self.chat.settled() {
             return;
         }
-        for waiter in self.settle_waiters.drain(..) {
-            let _ = waiter.send(Outcome::Ok(Reply::Settled));
+        let view = self.rendered();
+        for waiter in self.view_waiters.drain(..) {
+            // A waiter that went away just now loses only its own view.
+            let _ = waiter.send(Outcome::Ok(Reply::Rendered { view: view.clone() }));
+        }
+    }
+
+    fn rendered(&self) -> RenderedView {
+        RenderedView {
+            messages: self.chat.total(),
+            text: self.chat.render(),
         }
     }
 
@@ -1195,7 +1354,7 @@ impl Actor {
             failure.error,
             RETRY.as_secs()
         );
-        for waiter in self.settle_waiters.drain(..) {
+        for waiter in self.view_waiters.drain(..) {
             let _ = waiter.send(Outcome::Error(error.clone()));
         }
     }
@@ -1239,8 +1398,13 @@ enum Prepared {
     Model(NodeRequest),
 }
 
+/// The chat directory's runtime files, never committed: the lock socket,
+/// the takeover lock, and the turn file.
+const IGNORED: [&str; 3] = ["lock", "lock.lock/", turn::TURN_FILE];
+
 /// `git add` + `git commit` of the chat directory, initializing the repo on
-/// first use. The lock socket is ignored; hooks and signing are off so a
+/// first use. The runtime files are ignored (an ignore file from before a
+/// runtime file existed gets its line); hooks and signing are off so a
 /// global configuration cannot block or prompt in the background.
 fn commit(dir: &Path, git_dir: &Path) -> Result<(), String> {
     let git = |args: &[&str]| -> Result<std::process::Output, String> {
@@ -1271,7 +1435,26 @@ fn commit(dir: &Path, git_dir: &Path) -> Result<(), String> {
         };
     if !git_dir.exists() {
         check(git(&["init", "-q"])?, "init")?;
-        std::fs::write(dir.join(".gitignore"), "lock\nlock.lock/\n")
+    }
+    let ignore = dir.join(".gitignore");
+    let mut ignored = match std::fs::read_to_string(&ignore) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("cannot read .gitignore: {error}")),
+    };
+    let missing: Vec<&str> = IGNORED
+        .into_iter()
+        .filter(|entry| !ignored.lines().any(|line| line == *entry))
+        .collect();
+    if !missing.is_empty() {
+        if !ignored.is_empty() && !ignored.ends_with('\n') {
+            ignored.push('\n');
+        }
+        for entry in missing {
+            ignored.push_str(entry);
+            ignored.push('\n');
+        }
+        std::fs::write(&ignore, ignored)
             .map_err(|error| format!("cannot write .gitignore: {error}"))?;
     }
     check(git(&["add", "-A"])?, "add")?;

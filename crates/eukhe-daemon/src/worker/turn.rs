@@ -52,6 +52,7 @@ impl TurnRunner {
     pub(super) async fn run(self) {
         loop {
             let engine = self.engine.clone();
+            let batching = engine.queued_input_batching();
             let item: Option<Vec<QueuedItem>> = {
                 let mut core = self.core.lock().unwrap();
                 if core.shutdown_requested {
@@ -90,7 +91,7 @@ impl TurnRunner {
                     core.busy = false;
                     None
                 } else if core.steering.front().is_some() {
-                    let items = gather_delivery_batch(&mut core, Lane::Steering);
+                    let items = gather_delivery_batch(&mut core, Lane::Steering, batching);
                     core.running_admission_ids = items
                         .iter()
                         .filter_map(|item| item.admission_id.clone())
@@ -103,7 +104,7 @@ impl TurnRunner {
                     core.running_tool_calls.clear();
                     Some(items)
                 } else if core.follow_up.front().is_some() {
-                    let items = gather_delivery_batch(&mut core, Lane::FollowUp);
+                    let items = gather_delivery_batch(&mut core, Lane::FollowUp, batching);
                     core.running_admission_ids = items
                         .iter()
                         .filter_map(|item| item.admission_id.clone())

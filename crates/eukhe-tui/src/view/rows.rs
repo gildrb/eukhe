@@ -310,6 +310,9 @@ impl AgentView {
             ChatEntry::CustomPanel(row) => {
                 crate::custom_message::render::render_custom_panel(row, &self.theme, width)
             }
+            ChatEntry::ChatView(view) => {
+                crate::chat_view_block::render_chat_view(view, detail, &self.theme, width, !first)
+            }
         }
     }
 }

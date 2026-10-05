@@ -18,7 +18,16 @@ from .factory import (
     stop_factory,
     watch_factory,
 )
-from .harness import HarnessEntry, HarnessScope, HarnessState, RefinementEvent, get_harness_state
+from .harness import (
+    CHAT_MEMORY_ABSENT_METHODS,
+    CHAT_MEMORY_MESSAGE,
+    HarnessEntry,
+    HarnessScope,
+    HarnessState,
+    RefinementEvent,
+    chat_memory_session,
+    get_harness_state,
+)
 
 _NOT_CALLABLE_MESSAGE = "'rlm' is not callable; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
 _RENAMED_RUN_MESSAGE = "rlm.run was renamed; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
@@ -527,6 +536,10 @@ class _HarnessProxy:
         return _HarnessProxy._fallback
 
     def __getattr__(self, name: str) -> Any:
+        # A chat-memory session's memory is the chat: its harness exposes
+        # no memory or prompt-note method.
+        if name in CHAT_MEMORY_ABSENT_METHODS and chat_memory_session():
+            raise AttributeError(f"rlm.harness has no {name}: {CHAT_MEMORY_MESSAGE}")
         return getattr(self._resolve(), name)
 
     def __repr__(self) -> str:

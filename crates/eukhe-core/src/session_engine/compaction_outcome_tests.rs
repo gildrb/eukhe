@@ -474,6 +474,43 @@ async fn refine_with_an_empty_plan_pushes_only_the_outcome_row() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_memory_session_refines_tools_only() {
+    let (mut session, tmp) = refine_test_session().await;
+    let memory = crate::memory::Memory::open(
+        tmp.path().join("chat"),
+        Arc::new(crate::memory::SettingsSummarizer::new(
+            tmp.path().to_path_buf(),
+        )),
+    )
+    .await
+    .unwrap();
+    session.set_chat_memory(super::chat_memory::ChatMemory::new(
+        memory,
+        crate::memory::MemoryRole::Root,
+    ));
+    let result = session
+        .refine_with_refiner(
+            &refine::RefineOptions::default(),
+            refine::RefinementSource::User,
+            &session_ai_model(),
+            refine_plan_call(APPLIED_PLAN),
+            tmp.path().join("harness"),
+        )
+        .await
+        .unwrap();
+    // The plan's memory edit refuses: the chat is the session's memory.
+    let outcomes: Vec<(bool, Option<&str>)> = result
+        .applied_edits
+        .iter()
+        .map(|edit| (edit.applied, edit.error.as_deref()))
+        .collect();
+    assert_eq!(
+        outcomes,
+        vec![(false, Some(crate::refinement::CHAT_MEMORY_MESSAGE))]
+    );
+}
+
 #[tokio::test]
 async fn sequential_refines_push_exactly_their_own_rows() {
     // Two runs back-to-back: the second must select exactly its own

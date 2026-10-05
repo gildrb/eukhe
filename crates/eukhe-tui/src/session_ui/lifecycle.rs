@@ -140,6 +140,8 @@ impl SessionUi {
             command_updates: activity_updates.commands,
             command_refresh_epoch: 0,
             skill_commands_cache: Vec::new(),
+            chat_view_updates: activity_updates.chat_view,
+            chat_view_epoch: 0,
             bash_activities: serde_json::json!({"activities": []}),
             bash_list_epoch: 0,
             bash_updates: activity_updates.bash,
@@ -495,6 +497,11 @@ impl SessionUi {
         // every fold (the poll's serialization makes an immediate
         // request safe — the in-flight slot frees on its own cycle).
         self.spawn_factory_refresh();
+        // The chat memory's view (`OptChat` spec §10's startup print) lands as a
+        // transcript block after the rebuild that follows this attach;
+        // the fetch runs in the background, after the first-frame fetches
+        // above, so neither the attach nor the first paint waits on it.
+        self.spawn_chat_view_fetch();
         self.pending_model = reconstructed.model_id;
         self.pending_model_provider = reconstructed.model_provider;
         self.pending_thinking_suffix = reconstructed.thinking_suffix;

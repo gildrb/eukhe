@@ -332,10 +332,10 @@ impl AgentView {
 
     /// The click action for one transcript window row: a row inside a
     /// visible activity entry (a tool card, a bash card, an
-    /// agent-message notice, a shell-completion row) toggles that
-    /// card's own expansion. Plain text rows (user, assistant, status,
-    /// panels) are not clickable — the TS components register no
-    /// regions there either.
+    /// agent-message notice, a shell-completion row) or the startup chat
+    /// view block toggles that entry's own expansion. Plain text rows
+    /// (user, assistant, status, panels) are not clickable — the TS
+    /// components register no regions there either.
     fn transcript_click_target(&self, window_row: usize) -> Option<ClickAction> {
         let section = self
             .click
@@ -349,6 +349,7 @@ impl AgentView {
                 | ChatEntry::BashExecution(_)
                 | ChatEntry::AgentMessage(_)
                 | ChatEntry::ShellCompletion(_)
+                | ChatEntry::ChatView(_)
         ))
         .then_some(ClickAction::ToggleCardExpansion(section.entry))
     }

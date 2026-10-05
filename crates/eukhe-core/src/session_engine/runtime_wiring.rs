@@ -254,6 +254,10 @@ pub fn kernel_python_skills(skills: &[Skill], trust: TrustLevel) -> KernelPython
 /// the kernel-resident tools (bash/edit) run there, and a runtime whose
 /// session cwd differs from the process cwd (a daemon worker switched onto
 /// another session file) must spawn the kernel in the session's cwd.
+///
+/// A chat-memory session (`harness_memory` is `Chat`) sets
+/// `EUKHE_CHAT_MEMORY=1`: the kernel's `rlm.harness` then holds tools only
+/// (no memory or prompt-note API), since the chat is the session's memory.
 #[allow(clippy::too_many_arguments)] // one wiring funnel, same style as AgentSession::from_session_arc
 #[must_use]
 pub fn kernel_provisioner(
@@ -267,12 +271,19 @@ pub fn kernel_provisioner(
     on_background_work_settled: Option<crate::kernel::shared::BackgroundWorkSettledCallback>,
     on_unavailable_skills: Option<crate::kernel::provisioner::UnavailableSkillsCallback>,
     on_bootstrap_result: Option<crate::kernel::provisioner::KernelBootstrapResultHandler>,
+    harness_memory: crate::refinement::HarnessMemory,
 ) -> Arc<KernelProvisioner> {
-    let mut env = HashMap::with_capacity(1);
+    let mut env = HashMap::with_capacity(2);
     env.insert(
         "EUKHE_CODING_AGENT_DIR".to_string(),
         agent_dir.to_string_lossy().to_string(),
     );
+    match harness_memory {
+        crate::refinement::HarnessMemory::Harness => {}
+        crate::refinement::HarnessMemory::Chat => {
+            env.insert("EUKHE_CHAT_MEMORY".to_string(), "1".to_string());
+        }
+    }
     Arc::new(KernelProvisioner::new(
         cwd,
         IpythonKernelProvisionerOptions {

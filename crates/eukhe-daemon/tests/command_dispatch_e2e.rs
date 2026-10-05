@@ -344,6 +344,7 @@ const MATRIX: &[(&str, &str)] = &[
     ("get_context_tree", "/context, /usage"),
     ("get_session_context", "wire: get_session_context"),
     ("get_system_prompt", "/system-prompt"),
+    ("get_chat_view", "the startup chat view block"),
     ("get_tool_definition", "wire: get_tool_definition"),
     ("get_resource_snapshot", "wire: get_resource_snapshot"),
 ];
@@ -378,8 +379,18 @@ fn print_table(phase: &str, measurements: &[Measurement]) {
     }
 }
 
-#[test]
-fn client_commands_answer_fast_while_a_turn_streams() {
+/// One supervisor with one created, attached session over the mock
+/// provider. Fields drop in order: the supervisor dies before its
+/// directory goes.
+struct OpenSession {
+    _supervisor: Supervisor,
+    client: Client,
+    session_id: String,
+    mock: SlowMock,
+    _dir: tempfile::TempDir,
+}
+
+fn open_session() -> OpenSession {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
@@ -414,7 +425,7 @@ fn client_commands_answer_fast_while_a_turn_streams() {
     )
     .expect("write settings.json");
     let socket = dir.path().join("cmd-dispatch.sock");
-    let _supervisor = spawn_supervisor(&socket, &agent_dir);
+    let supervisor = spawn_supervisor(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
     client.send_command(
         "c1",
@@ -441,6 +452,54 @@ fn client_commands_answer_fast_while_a_turn_streams() {
     );
     let attached = client.request("a1");
     assert_eq!(attached["success"], true, "attach failed: {attached}");
+    OpenSession {
+        _supervisor: supervisor,
+        client,
+        session_id,
+        mock,
+        _dir: dir,
+    }
+}
+
+/// `get_chat_view` answers the root session's chat view — the block the
+/// interactive client prints on open (`OptChat` spec §10) — read from the chat
+/// memory without waiting on any turn. A fresh agent dir's chat is empty.
+#[test]
+fn get_chat_view_answers_the_root_sessions_view() {
+    let mut session = open_session();
+    let (response, _) = session
+        .client
+        .timed_request("v1", &info_command("get_chat_view", &session.session_id));
+    assert_eq!(
+        response["success"], true,
+        "get_chat_view failed: {response}"
+    );
+    let reply: eukhe_types::daemon::ChatViewReply =
+        serde_json::from_value(response["data"].clone()).expect("the reply decodes");
+    assert_eq!(
+        reply,
+        eukhe_types::daemon::ChatViewReply {
+            view: Some(eukhe_types::daemon::ChatViewSnapshot {
+                text: "<chat>\n</chat>".to_string(),
+                messages: 0,
+                lines: 0,
+                bytes: 14,
+            }),
+        }
+    );
+}
+
+#[test]
+fn client_commands_answer_fast_while_a_turn_streams() {
+    // Bound by name (not `..`), so the supervisor and its directory live
+    // until the test ends.
+    let OpenSession {
+        _supervisor,
+        mut client,
+        session_id,
+        mock,
+        _dir,
+    } = open_session();
 
     // Phase 1: idle measurements (the baseline every command must beat).
     let idle = run_matrix(&mut client, &session_id, "idle");

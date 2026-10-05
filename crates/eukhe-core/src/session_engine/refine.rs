@@ -16,7 +16,8 @@ use crate::refinement::executor::{
 };
 use crate::refinement::{
     append_global_refinement, format_refinement_notice_body, load_global_refinement_history,
-    load_harness_state, merge_harness_states, save_harness_state, HarnessScope, RefinementResult,
+    load_harness_state, merge_harness_states, save_harness_state, HarnessMemory, HarnessScope,
+    RefinementResult,
 };
 use crate::session::manager::SessionManager;
 
@@ -266,9 +267,10 @@ pub struct RefinementTranscript<'a> {
     pub refinement_history: &'a [crate::refinement::RefinementResult],
 }
 
-/// Run the full refinement flow: plan (LLM or rollback), re-read the target
-/// store, apply, persist state + history, and append the audit, outcome, and
-/// notice entries to the session. `refine_call` performs the model request.
+/// Run the full refinement flow for a session whose memory is the harness:
+/// plan (LLM or rollback), re-read the target store, apply, persist state +
+/// history, and append the audit, outcome, and notice entries to the
+/// session. `refine_call` performs the model request.
 ///
 /// # Errors
 ///
@@ -299,6 +301,7 @@ pub async fn execute_refinement(
         source,
         refine_call,
         agent_dir,
+        HarnessMemory::Harness,
     )
     .await?
     .0)
@@ -322,6 +325,9 @@ pub async fn execute_refinement(
 /// (`rlm.factory.require_factory_enabled`), so a refinement cannot
 /// author factories the user has not opted into. `None` (a session
 /// without a wired agent dir) keeps the fail-closed disabled default.
+///
+/// `memory` is where the session's memory lives: a chat-memory session's
+/// refinement authors skills, subagent specs, and factories only.
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_refinement_with_rows(
     session: &mut SessionManager,
@@ -332,6 +338,7 @@ pub async fn execute_refinement_with_rows(
     source: RefinementSource,
     refine_call: crate::refinement::executor::RefinerFn,
     agent_dir: Option<&Path>,
+    memory: HarnessMemory,
 ) -> anyhow::Result<(RefinementResult, Vec<String>)> {
     let RefinementTranscript {
         messages,
@@ -342,6 +349,7 @@ pub async fn execute_refinement_with_rows(
         global: options.global,
         instructions: options.instructions.clone(),
         rollback_id: options.rollback_id.clone(),
+        memory,
     };
     let requested_scope = if options.global {
         HarnessScope::Global

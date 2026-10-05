@@ -1,5 +1,6 @@
 //! Queue lane priority, snapshot, and arming tests (moved with their concerns).
 use super::*;
+use crate::engine::QueuedInputBatching;
 
 fn priority_test_item(message: &str, policy: TurnPolicy) -> QueuedItem {
     QueuedItem {
@@ -104,16 +105,16 @@ fn queue_priority_interleaves_lanes_fifo_and_preserves_explicit_order() {
         ]
     );
     assert_eq!(
-        gather_delivery_batch(&mut core, Lane::Steering)[0].message,
+        gather_delivery_batch(&mut core, Lane::Steering, QueuedInputBatching::PerMode)[0].message,
         "machine steer 1"
     );
     assert_eq!(
-        gather_delivery_batch(&mut core, Lane::Steering)[0].message,
+        gather_delivery_batch(&mut core, Lane::Steering, QueuedInputBatching::PerMode)[0].message,
         "human steer 2"
     );
     core.steering.clear();
     assert_eq!(
-        gather_delivery_batch(&mut core, Lane::FollowUp)[0].message,
+        gather_delivery_batch(&mut core, Lane::FollowUp, QueuedInputBatching::PerMode)[0].message,
         "human follow 1"
     );
 }
@@ -144,7 +145,11 @@ fn queue_priority_drains_four_tiers_and_pinned_front() {
         } else {
             Lane::Steering
         };
-        delivered.push(gather_delivery_batch(&mut core, lane).remove(0).message);
+        delivered.push(
+            gather_delivery_batch(&mut core, lane, QueuedInputBatching::PerMode)
+                .remove(0)
+                .message,
+        );
     }
     assert_eq!(
         delivered,
@@ -155,6 +160,46 @@ fn queue_priority_drains_four_tiers_and_pinned_front() {
             "human follow",
             "machine follow"
         ]
+    );
+}
+
+/// A chat-memory root's fresh call takes every queued follow-up at once
+/// (`OptChat` §7), even under "one-at-a-time"; a custom row still delivers
+/// solo behind them.
+#[test]
+fn a_chat_memory_root_takes_every_queued_follow_up_at_once() {
+    let mut core = SessionCore::test_core(None, "/tmp".to_string());
+    core.follow_up_mode = "one-at-a-time".to_string();
+    for text in ["a", "b"] {
+        enqueue_priority(
+            &mut core.follow_up,
+            priority_test_item(text, TurnPolicy::Queued),
+        );
+    }
+    let mut custom = priority_test_item("report", TurnPolicy::Queued);
+    custom.custom_message = Some(serde_json::json!({ "customType": "agent_message" }));
+    core.follow_up.push_back(custom);
+    let messages = |batch: Vec<QueuedItem>| {
+        batch
+            .into_iter()
+            .map(|item| item.message)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        messages(gather_delivery_batch(
+            &mut core,
+            Lane::FollowUp,
+            QueuedInputBatching::All
+        )),
+        ["a", "b"]
+    );
+    assert_eq!(
+        messages(gather_delivery_batch(
+            &mut core,
+            Lane::FollowUp,
+            QueuedInputBatching::All
+        )),
+        ["report"]
     );
 }
 

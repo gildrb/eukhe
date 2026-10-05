@@ -283,3 +283,233 @@ pub(crate) fn free_text(kind_and_text: Option<(Kind, &str)>, step: &Step) -> Opt
     };
     (text.len() <= NODE).then_some(text)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta(kind: Kind) -> MessageMeta {
+        MessageMeta {
+            kind,
+            size: 0,
+            date: String::new(),
+            file: 0,
+            offset: 0,
+            len: 0,
+        }
+    }
+
+    fn chat_with(total: u64) -> Chat {
+        let mut chat = Chat::default();
+        for _ in 0..total {
+            chat.push_message(meta(Kind::User));
+        }
+        chat
+    }
+
+    fn part(l: u32, i: u64) -> Part {
+        Part { l, i }
+    }
+
+    /// Rule 3: messages are compressed one at a time, in order, while the
+    /// merges of finished parts run alongside.
+    #[test]
+    fn messages_compress_one_at_a_time_in_order() {
+        let mut chat = chat_with(3);
+        assert_eq!(chat.candidates(), vec![part(0, 0)]);
+        chat.mark_busy(part(0, 0));
+        assert!(chat.candidates().is_empty());
+        chat.insert_node(part(0, 0), "user: a");
+        assert_eq!(chat.candidates(), vec![part(0, 1)]);
+        chat.insert_node(part(0, 1), "user: b");
+        assert_eq!(chat.candidates(), vec![part(0, 2), part(1, 0)]);
+    }
+
+    #[test]
+    fn merges_wait_for_their_whole_context() {
+        let mut chat = chat_with(4);
+        chat.insert_node(part(0, 0), "a");
+        chat.insert_node(part(0, 1), "b");
+        chat.insert_node(part(0, 3), "d");
+        // 2 is unbuilt: the merge (1,1) covering 2..4 is not ready, and
+        // (1,0) ends at 2 <= first = 2.
+        assert_eq!(chat.candidates(), vec![part(0, 2), part(1, 0)]);
+        chat.insert_node(part(0, 2), "c");
+        assert_eq!(chat.candidates(), vec![part(1, 0), part(1, 1)]);
+    }
+
+    /// At most [`JOBS`] nodes run at once.
+    #[test]
+    fn the_pump_starts_at_most_jobs_nodes() {
+        let pairs = JOBS as u64 + 2;
+        let mut chat = chat_with(2 * pairs);
+        for i in 0..2 * pairs {
+            chat.insert_node(part(0, i), "x");
+        }
+        let all: Vec<Part> = (0..JOBS as u64).map(|i| part(1, i)).collect();
+        assert_eq!(chat.candidates(), all);
+        for running in &all[..3] {
+            chat.mark_busy(*running);
+        }
+        assert_eq!(chat.candidates(), all[3..]);
+        chat.release(all[0]);
+        assert_eq!(
+            chat.candidates(),
+            [all[0]]
+                .into_iter()
+                .chain(all[3..].iter().copied())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// The compactor's input: the bare view lines before a message (the
+    /// message itself comes whole in the step), or up to a merge's last
+    /// message; the merge's own lines come in its step.
+    #[test]
+    fn the_compactor_sees_the_view_up_to_the_node() {
+        let mut chat = chat_with(3);
+        chat.insert_node(part(0, 0), "a");
+        chat.insert_node(part(0, 1), "b\nc");
+        assert_eq!(
+            (
+                chat.step(part(0, 2)),
+                chat.context(part(0, 2)),
+                chat.step(part(1, 0)),
+                chat.context(part(1, 0)),
+            ),
+            (
+                Some(Step::Compress { message: 2 }),
+                "<chat>\na\nb c\n</chat>".to_string(),
+                Some(Step::Merge {
+                    left: Arc::from("a"),
+                    right: Arc::from("b\nc"),
+                }),
+                "<chat>\na\nb c\n</chat>".to_string(),
+            )
+        );
+    }
+
+    #[test]
+    fn zoom_opens_lines_and_messages() {
+        let mut chat = chat_with(4);
+        for (i, text) in ["a", "b", "c\nd", "e"].iter().enumerate() {
+            chat.insert_node(part(0, i as u64), text);
+        }
+        chat.insert_node(part(1, 0), "ab");
+        assert_eq!(
+            chat.zoom(0, 4),
+            Zoom::Lines("0+2|ab\n2+2|(not summarized yet: zoom it)".to_string())
+        );
+        assert_eq!(chat.zoom(2, 2), Zoom::Lines("2+1|c d\n3+1|e".to_string()));
+        assert_eq!(chat.zoom(3, 1), Zoom::Message(3));
+        // `n` a power of 2, `id % n == 0`, `id + n <= T`.
+        assert_eq!(chat.zoom(1, 2), Zoom::NoLine);
+        assert_eq!(chat.zoom(0, 3), Zoom::NoLine);
+        assert_eq!(chat.zoom(4, 1), Zoom::NoLine);
+        assert_eq!(chat.zoom(0, 8), Zoom::NoLine);
+        assert_eq!(chat.zoom(u64::MAX - 1, 2), Zoom::NoLine);
+    }
+
+    /// A source that fits in [`NODE`] bytes is its own node: a short
+    /// message verbatim at level 0, two short children joined by a newline
+    /// above.
+    #[test]
+    fn free_nodes_need_no_model() {
+        let compress = Step::Compress { message: 0 };
+        let merge = |left: &str, right: &str| Step::Merge {
+            left: Arc::from(left),
+            right: Arc::from(right),
+        };
+        let half = "y".repeat(NODE / 2);
+        assert_eq!(
+            [
+                free_text(Some((Kind::User, "hi")), &compress),
+                free_text(Some((Kind::Echo, &"x".repeat(NODE - 6))), &compress),
+                free_text(Some((Kind::Echo, &"x".repeat(NODE - 5))), &compress),
+                free_text(None, &merge("a", "b")),
+                free_text(None, &merge(&half, &half[1..])),
+                free_text(None, &merge(&half, &half)),
+            ],
+            [
+                Some("user: hi".to_string()),
+                Some(format!("echo: {}", "x".repeat(NODE - 6))),
+                None,
+                Some("a\nb".to_string()),
+                Some(format!("{half}\n{}", &half[1..])),
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_reload_folds_the_same_view() {
+        let mut chat = chat_with(2);
+        chat.insert_node(part(0, 0), "a");
+        let loaded = Loaded {
+            messages: vec![meta(Kind::User), meta(Kind::Talk)],
+            nodes: vec![
+                NodeRecord {
+                    l: 0,
+                    i: 0,
+                    text: "a".to_string(),
+                    size: 1,
+                },
+                NodeRecord {
+                    l: 3,
+                    i: 0,
+                    text: "foreign".to_string(),
+                    size: 7,
+                },
+            ],
+            problems: Vec::new(),
+        };
+        let mut problems = Vec::new();
+        let reloaded = Chat::from_loaded(loaded, &mut problems);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert_eq!(reloaded.render(), chat.render());
+        assert_eq!(reloaded.first(), 1);
+    }
+
+    /// The view is not saved: the fold at load (append + fit for every
+    /// message in order) gives the view the live chat kept, merges
+    /// included, when the compactor kept up.
+    #[test]
+    fn the_load_fold_equals_the_live_fold() {
+        let total = 600;
+        let mut live = Chat::default();
+        let mut nodes = Vec::new();
+        for _ in 0..total {
+            live.push_message(meta(Kind::User));
+            loop {
+                let started = live.candidates();
+                if started.is_empty() {
+                    break;
+                }
+                for built in started {
+                    let text = "x".repeat(if built.l == 0 { 500 } else { 400 });
+                    live.insert_node(built, &text);
+                    nodes.push(NodeRecord {
+                        l: built.l,
+                        i: built.i,
+                        size: text.len(),
+                        text,
+                    });
+                }
+            }
+        }
+        assert!(
+            live.view().parts().iter().any(|part| part.l > 1),
+            "the view merged"
+        );
+        let mut problems = Vec::new();
+        let reloaded = Chat::from_loaded(
+            Loaded {
+                messages: (0..total).map(|_| meta(Kind::User)).collect(),
+                nodes,
+                problems: Vec::new(),
+            },
+            &mut problems,
+        );
+        assert_eq!((reloaded.view(), problems), (live.view(), Vec::new()));
+    }
+}

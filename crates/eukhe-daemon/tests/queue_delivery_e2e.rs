@@ -714,22 +714,27 @@ fn multi_item_queue_delivers_every_item_in_lane_order() {
     // answer; release it so the boundary drains deterministically.
     mock.release_busy_turn();
 
-    // Five turns run: the starter, the three steers' ONE batched turn
-    // (the product default co-delivers the parked steering prefix,
-    // Kevin's batch spec), then the follow-ups one per turn behind it.
+    // Three calls run (chat memory, OptChat spec §7: queued texts are
+    // taken all at once and joined with a blank line): the starter, ONE
+    // fresh call for the parked steering lane, then ONE fresh call for the
+    // follow-up lane behind it.
+    let expected_requests = [
+        "#1: turn zero",
+        "#2: steer one\n\nsteer two\n\nsteer three",
+        "#3: follow one\n\nfollow two\n\nfollow three",
+    ];
     let deadline = Instant::now() + Duration::from_secs(90);
     while Instant::now() < deadline {
-        if mock.count() >= 5 {
+        if mock.count() >= expected_requests.len() {
             break;
         }
         std::thread::sleep(Duration::from_millis(200));
     }
     client.drain_events(Duration::from_secs(2));
     assert_eq!(
-        mock.count(),
-        5,
-        "the starter, the steers' one batched turn, three follow-ups: {:?}",
-        mock.request_log()
+        mock.request_log(),
+        expected_requests,
+        "the starter, the steers' one call, the follow-ups' one call"
     );
     let user_messages: Vec<String> = client
         .events

@@ -108,44 +108,14 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> String {
 /// Build the system prompt with its per-layer breakdown.
 pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemPromptBreakdown {
     let mut segments: Vec<PromptSegment> = Vec::new();
+    let harness_memory = match options.memory {
+        Some(_) => crate::refinement::HarnessMemory::Chat,
+        None => crate::refinement::HarnessMemory::Harness,
+    };
 
-    // The static prefix: the user's replacement prompt, or the layered files.
-    match options.custom_prompt.as_deref() {
-        Some(custom) if !custom.is_empty() => {
-            segments.push(PromptSegment::static_segment(
-                "custom",
-                "--system-prompt",
-                custom.to_string(),
-            ));
-        }
-        _ => {
-            segments.push(PromptSegment::static_segment(
-                "core",
-                layers::layer_source("core").unwrap_or_default(),
-                layers::CORE_LAYER.trim().to_string(),
-            ));
-            segments.push(PromptSegment::static_segment(
-                "usage",
-                layers::layer_source("usage").unwrap_or_default(),
-                layers::USAGE_LAYER.trim().to_string(),
-            ));
-            segments.push(PromptSegment::static_segment(
-                "opinionated",
-                layers::layer_source("opinionated").unwrap_or_default(),
-                layers::OPINIONATED_LAYER.trim().to_string(),
-            ));
-            let per_model = layers::per_model_text(options.model);
-            if !per_model.is_empty() {
-                segments.push(PromptSegment::static_segment(
-                    "per-model",
-                    layers::layer_source("per-model").unwrap_or_default(),
-                    per_model.join("\n\n"),
-                ));
-            }
-        }
-    }
-    // The chat memory layer is static and survives a replaced prompt: the
-    // model must know how to read the view either way.
+    // The chat memory layer leads (`OptChat` §7.2: `MASTER`, then
+    // `VIEW_DOC`). It is static and survives a replaced prompt: the model
+    // must know how to read the view either way.
     if let Some(role) = options.memory {
         segments.push(PromptSegment::static_segment(
             "memory",
@@ -156,6 +126,34 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
             },
         ));
     }
+    // The static prefix: the user's replacement prompt, or the layered
+    // files rendered for the session's memory.
+    match options.custom_prompt.as_deref() {
+        Some(custom) if !custom.is_empty() => {
+            segments.push(PromptSegment::static_segment(
+                "custom",
+                "--system-prompt",
+                custom.to_string(),
+            ));
+        }
+        _ => {
+            for (name, text) in layers::constant_layers(harness_memory) {
+                segments.push(PromptSegment::static_segment(
+                    name,
+                    layers::layer_source(name).unwrap_or_default(),
+                    text,
+                ));
+            }
+            let per_model = layers::per_model_text(options.model);
+            if !per_model.is_empty() {
+                segments.push(PromptSegment::static_segment(
+                    "per-model",
+                    layers::layer_source("per-model").unwrap_or_default(),
+                    per_model.join("\n\n"),
+                ));
+            }
+        }
+    }
     let cached_prefix_len = segments
         .iter()
         .map(|segment| segment.text.len())
@@ -164,7 +162,10 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
 
     // The dynamic tail, in fixed order: packages -> project context ->
     // skills inventory -> MCP servers -> environment -> session role ->
-    // additional guidance -> appended prompt.
+    // additional guidance -> appended prompt. A chat-memory session moves
+    // the project context (the user's instructions files) to the very end:
+    // its memory layer points the model at "the user's instructions at the
+    // end of this prompt".
     let tools: Vec<&str> = options
         .selected_tools
         .clone()
@@ -179,13 +180,13 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     ));
 
     let context = context_files_section(&options.context_files);
-    if !context.is_empty() {
-        segments.push(PromptSegment::dynamic_segment(
-            "project-context",
-            "AGENTS.md discovery",
-            context,
-        ));
-    }
+    let context_segment = (!context.is_empty())
+        .then(|| PromptSegment::dynamic_segment("project-context", "AGENTS.md discovery", context));
+    let (context_in_order, context_last) = match harness_memory {
+        crate::refinement::HarnessMemory::Harness => (context_segment, None),
+        crate::refinement::HarnessMemory::Chat => (None, context_segment),
+    };
+    segments.extend(context_in_order);
 
     let visible_skills: Vec<&Skill> = options
         .skills
@@ -249,6 +250,7 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
             ));
         }
     }
+    segments.extend(context_last);
 
     let assembled = segments
         .iter()
@@ -483,7 +485,10 @@ mod tests {
         // The cached prefix is exactly the static segments.
         assert_eq!(
             &prompt[..breakdown.cached_prefix_len],
-            layers::static_prefix(Some("mock/mock-1"))
+            layers::static_prefix(
+                Some("mock/mock-1"),
+                crate::refinement::HarnessMemory::Harness
+            )
         );
         // Dynamic values live strictly after the prefix.
         let tail = &prompt[breakdown.cached_prefix_len..];
@@ -492,6 +497,52 @@ mod tests {
         assert!(tail.contains("<available_skills>"));
         assert!(tail.contains("Recursive agent depth: 0 (root)"));
         assert!(tail.contains("Pre-installed Python packages: requests, httpx,"));
+    }
+
+    /// A chat-memory session's prompt (`OptChat` §7.2): the memory layer
+    /// first, then the harness layers rendered for chat memory, then the
+    /// dynamic tail, and the user's instructions files last; no date, so
+    /// every call of the session sends the same bytes.
+    #[test]
+    fn chat_memory_prompt_leads_with_memory_and_ends_with_the_user_instructions() {
+        let mut options = base_options();
+        options.memory = Some(crate::memory::MemoryRole::Root);
+        options.context_files = vec![("AGENTS.md".to_string(), "Rule one.".to_string())];
+        options.append_system_prompt = Some("Appended.".to_string());
+        let breakdown = system_prompt_breakdown(&options);
+        let names: Vec<&str> = breakdown
+            .segments
+            .iter()
+            .map(|segment| segment.name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "memory",
+                "core",
+                "usage",
+                "opinionated",
+                "packages",
+                "skills-inventory",
+                "environment",
+                "session-role",
+                "appended-prompt",
+                "project-context",
+            ]
+        );
+        let prompt = &breakdown.assembled;
+        assert!(prompt.starts_with(&crate::memory::memory_system_layer()));
+        assert!(prompt.ends_with("## AGENTS.md\n\nRule one."));
+        assert_eq!(
+            &prompt[..breakdown.cached_prefix_len],
+            format!(
+                "{}\n\n{}",
+                crate::memory::memory_system_layer(),
+                layers::static_prefix(Some("mock/mock-1"), crate::refinement::HarnessMemory::Chat)
+            )
+        );
+        assert!(!prompt.contains("Current date:"));
+        assert_eq!(build_system_prompt(&options), *prompt);
     }
 
     #[test]

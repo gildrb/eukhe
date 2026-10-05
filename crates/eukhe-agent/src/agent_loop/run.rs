@@ -14,7 +14,7 @@ use super::abort::{
 };
 use super::response::stream_assistant_response;
 use super::tools::execute_tool_calls;
-use super::{AgentEventSink, AgentLoopConfig};
+use super::{AgentEventSink, AgentLoopConfig, NextCall};
 
 // ---------------------------------------------------------------------------
 // The loop
@@ -181,6 +181,12 @@ pub(crate) async fn run_loop(
                 }
                 PostTurnResult::Completed(messages) => {
                     pending_messages = messages;
+                    // Steering that arrives after the model's call ended
+                    // (no tool calls left) starts the next call.
+                    if !has_more_tool_calls && !pending_messages.is_empty() {
+                        begin_next_call(current_context, &mut pending_messages, config, signal)
+                            .await?;
+                    }
                     // Steering drained by this poll owns the turn boundary;
                     // stop only when it was empty.
                     if pending_messages.is_empty() && should_stop_before_turn!() {
@@ -214,6 +220,7 @@ pub(crate) async fn run_loop(
         };
         if !follow_up_messages.is_empty() {
             pending_messages = follow_up_messages;
+            begin_next_call(current_context, &mut pending_messages, config, signal).await?;
             continue;
         }
 
@@ -243,6 +250,7 @@ pub(crate) async fn run_loop(
         };
         if !continuation_messages.is_empty() {
             pending_messages = continuation_messages;
+            begin_next_call(current_context, &mut pending_messages, config, signal).await?;
             continue;
         }
 
@@ -253,6 +261,39 @@ pub(crate) async fn run_loop(
         messages: new_messages.clone(),
     })
     .await?;
+    Ok(())
+}
+
+/// The model's call ended and `pending` messages start another call (see
+/// [`NextCall`]): a fresh call drops the ended call's messages from the
+/// context and takes every message still queued along with `pending`.
+async fn begin_next_call(
+    current_context: &mut AgentContext,
+    pending: &mut Vec<AgentMessage>,
+    config: &AgentLoopConfig,
+    signal: Option<&AbortSignal>,
+) -> anyhow::Result<()> {
+    let Some(hook) = config.begin_next_call.as_ref() else {
+        return Ok(());
+    };
+    match hook().await? {
+        NextCall::Carry => {}
+        NextCall::Fresh => {
+            current_context.messages.clear();
+            for poll in [
+                config.get_steering_messages.as_ref(),
+                config.get_follow_up_messages.as_ref(),
+            ] {
+                loop {
+                    let queued = poll_messages_unless_aborted(poll, signal).await?;
+                    if queued.is_empty() {
+                        break;
+                    }
+                    pending.extend(queued);
+                }
+            }
+        }
+    }
     Ok(())
 }
 

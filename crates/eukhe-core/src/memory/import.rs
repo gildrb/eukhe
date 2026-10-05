@@ -278,3 +278,183 @@ fn local_date(timestamp: &str) -> anyhow::Result<String> {
         None => Ok(timestamp.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::compactor::tests::Scripted;
+
+    /// Every message of the chat, as `id+0|kind: text`.
+    async fn log(memory: &Memory) -> Vec<String> {
+        let total = memory.status().await.unwrap().messages;
+        let mut lines = Vec::new();
+        for id in 0..total {
+            lines.push(memory.zoom(id, 1).await.unwrap());
+        }
+        lines
+    }
+
+    fn session(start: &str, depth: u32, messages: &[(&str, &str)]) -> String {
+        let mut lines = vec![serde_json::json!({
+            "type": "session",
+            "timestamp": start,
+            "rlmDepth": depth
+        })
+        .to_string()];
+        for (role, text) in messages {
+            lines.push(
+                serde_json::json!({
+                    "type": "message",
+                    "timestamp": start,
+                    "message": { "role": role, "content": [{ "type": "text", "text": text }] }
+                })
+                .to_string(),
+            );
+        }
+        lines.join("\n")
+    }
+
+    #[test]
+    fn sessions_keep_user_words_and_final_replies() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.jsonl");
+        let lines = [
+            r#"{"type":"session","timestamp":"2026-10-01T10:00:00.000Z","rlmDepth":0}"#,
+            r#"{"type":"message","timestamp":"2026-10-01T10:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"fix the bug"}]}}"#,
+            r#"{"type":"message","timestamp":"2026-10-01T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"looking"},{"type":"toolCall","id":"1","name":"ipython","arguments":{}}]}}"#,
+            r#"{"type":"message","timestamp":"2026-10-01T10:00:03.000Z","message":{"role":"toolResult","content":[{"type":"text","text":"noise"}]}}"#,
+            r#"{"type":"message","timestamp":"2026-10-01T10:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"fixed in a.rs"}]}}"#,
+            r#"{"type":"agent_status","timestamp":"2026-10-01T10:00:05.000Z"}"#,
+            "{torn",
+        ];
+        std::fs::write(&path, lines.join("\n")).unwrap();
+        let session = parse_session(&path).unwrap().unwrap();
+        let summary: Vec<(Kind, &str)> = session
+            .items
+            .iter()
+            .map(|item| (item.kind, item.text.as_str()))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![(Kind::User, "fix the bug"), (Kind::Talk, "fixed in a.rs")]
+        );
+    }
+
+    #[test]
+    fn subagent_sessions_are_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("child.jsonl");
+        std::fs::write(&path, session("2026-10-01T10:00:00.000Z", 1, &[])).unwrap();
+        assert!(parse_session(&path).unwrap().is_none());
+    }
+
+    /// Sessions go in oldest first, as plain text: the user's words and the
+    /// final replies, without repeated pastes or subagent sessions.
+    #[tokio::test]
+    async fn sessions_import_oldest_first_without_repeated_pastes() {
+        let chat = tempfile::tempdir().unwrap();
+        let sessions = tempfile::tempdir().unwrap();
+        let paste = "p".repeat(PASTE_CHARS + 1);
+        std::fs::write(
+            sessions.path().join("a-later.jsonl"),
+            session(
+                "2026-10-02T10:00:00.000Z",
+                0,
+                &[
+                    ("user", &paste),
+                    ("user", "thanks"),
+                    ("assistant", "welcome"),
+                ],
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            sessions.path().join("b-earlier.jsonl"),
+            session(
+                "2026-10-01T10:00:00.000Z",
+                0,
+                &[
+                    ("user", "fix the bug"),
+                    ("assistant", "fixed in a.rs"),
+                    ("user", &paste),
+                    ("assistant", "ok"),
+                ],
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir(sessions.path().join("children")).unwrap();
+        std::fs::write(
+            sessions.path().join("children").join("c.jsonl"),
+            session("2026-10-01T11:00:00.000Z", 1, &[("user", "subtask")]),
+        )
+        .unwrap();
+        let memory = Memory::open(chat.path(), Scripted::with(Vec::new()))
+            .await
+            .unwrap();
+        memory.append(Kind::User, "already here").await.unwrap();
+        let report = import_sessions(&memory, &[sessions.path().to_path_buf()])
+            .await
+            .unwrap();
+        assert_eq!(
+            (report, log(&memory).await),
+            (
+                ImportReport {
+                    first: Some(1),
+                    count: 6,
+                    sessions: 2,
+                    skipped: 2,
+                },
+                vec![
+                    "0+0|user: already here".to_string(),
+                    "1+0|user: fix the bug".to_string(),
+                    "2+0|talk: fixed in a.rs".to_string(),
+                    format!("3+0|user: {paste}"),
+                    "4+0|talk: ok".to_string(),
+                    "5+0|user: thanks".to_string(),
+                    "6+0|talk: welcome".to_string(),
+                ]
+            )
+        );
+    }
+
+    /// `OptMem` notes keep their ids, as kind `note`, with their own dates;
+    /// only an empty chat takes them.
+    #[tokio::test]
+    async fn optmem_notes_keep_their_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let optmem = tempfile::tempdir().unwrap();
+        std::fs::write(
+            optmem.path().join("LOG.txt"),
+            "#0 2026-08-03 first note      \n#1 2026-08-04 second note\n",
+        )
+        .unwrap();
+        let memory = Memory::open(dir.path().join("chat"), Scripted::with(Vec::new()))
+            .await
+            .unwrap();
+        let report = import_optmem(&memory, optmem.path()).await.unwrap();
+        assert_eq!(
+            (
+                report,
+                log(&memory).await,
+                memory.date(0).await.unwrap(),
+                memory.date(1).await.unwrap()
+            ),
+            (
+                ImportReport {
+                    first: Some(0),
+                    count: 2,
+                    sessions: 0,
+                    skipped: 0,
+                },
+                vec![
+                    "0+0|note: first note".to_string(),
+                    "1+0|note: second note".to_string()
+                ],
+                "2026-08-03".to_string(),
+                "2026-08-04".to_string()
+            )
+        );
+        // A second import would shift the ids: refused.
+        assert!(import_optmem(&memory, optmem.path()).await.is_err());
+    }
+}

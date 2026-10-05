@@ -209,6 +209,7 @@ impl AgentSessionEngine {
             overflow_recovery: std::sync::Mutex::new(OverflowRecovery::default()),
             auto_compaction_abort: std::sync::Mutex::new(None),
             compaction_summary_sink: std::sync::Mutex::new(None),
+            turn_wait_sink: std::sync::Mutex::new(None),
             model_refusal_telemetry,
             semantic_identity: std::sync::Mutex::new(None),
         })
@@ -307,6 +308,32 @@ impl AgentSessionEngine {
         Ok(())
     }
 
+    /// The chat memory handle every session this engine builds shares
+    /// (owner or client of `<agent-dir>/chat/lock`), opened once. The chat
+    /// memory is the product's memory model; the faux verification harness
+    /// keeps the classic conversation (its scripts assert carried context,
+    /// and no compactor model exists offline), so it has none.
+    pub(crate) async fn chat_memory_handle(
+        &self,
+    ) -> anyhow::Result<Option<eukhe_core::memory::Memory>> {
+        if self.config.faux_script.is_some() {
+            return Ok(None);
+        }
+        let agent_dir = &self.config.agent_dir;
+        let memory = self
+            .chat_memory
+            .get_or_try_init(|| {
+                eukhe_core::memory::Memory::open(
+                    eukhe_core::memory::chat_dir(agent_dir),
+                    std::sync::Arc::new(eukhe_core::memory::SettingsSummarizer::new(
+                        agent_dir.clone(),
+                    )),
+                )
+            })
+            .await?;
+        Ok(Some(memory.clone()))
+    }
+
     /// Install the worker's live compaction summary-delta sink (the
     /// `compaction_summary_delta` broadcast seam): the worker calls this
     /// once after the engine is built, capturing its event pump; every
@@ -327,6 +354,18 @@ impl AgentSessionEngine {
             .compaction_summary_sink
             .lock()
             .expect("compaction summary sink lock") = Some(sink);
+    }
+
+    /// Install the worker's chat turn-wait sink (the `chat_turn_wait`
+    /// broadcast seam): every built root session's chat memory adopts it
+    /// at [`Self::adopt_built_session`], so a turn queued behind another
+    /// window's shows its wait to the attached clients.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the sink slot's mutex is poisoned.
+    pub fn set_turn_wait_sink(&self, sink: eukhe_core::session_engine::chat_memory::TurnWaitSink) {
+        *self.turn_wait_sink.lock().expect("turn wait sink lock") = Some(sink);
     }
 
     /// Post-build adoption, shared by every build path (the async funnel
@@ -391,6 +430,16 @@ impl AgentSessionEngine {
             .clone()
         {
             built.session.set_compaction_summary_sink(sink);
+        }
+        // The chat turn-wait sink (the worker's `chat_turn_wait`
+        // broadcast), adopted the same way.
+        let turn_wait_sink = self
+            .turn_wait_sink
+            .lock()
+            .expect("turn wait sink lock")
+            .clone();
+        if let (Some(sink), Some(chat_memory)) = (turn_wait_sink, built.session.chat_memory()) {
+            chat_memory.set_turn_wait_sink(sink);
         }
         // The in-run consult's mirror (deadlock-free reads: the session
         // mutex is held across compaction model turns, and the consult
@@ -1155,26 +1204,7 @@ impl AgentSessionEngine {
             .lock()
             .expect("semantic identity lock")
             .clone();
-        // The chat memory is the product's memory model; the faux
-        // verification harness keeps the classic conversation (its scripts
-        // assert carried context, and no compactor model exists offline).
-        let memory = if self.config.faux_script.is_some() {
-            None
-        } else {
-            let agent_dir = self.config.agent_dir.clone();
-            let memory = self
-                .chat_memory
-                .get_or_try_init(|| {
-                    eukhe_core::memory::Memory::open(
-                        eukhe_core::memory::chat_dir(&agent_dir),
-                        std::sync::Arc::new(eukhe_core::memory::SettingsSummarizer::new(
-                            agent_dir.clone(),
-                        )),
-                    )
-                })
-                .await?;
-            Some(memory.clone())
-        };
+        let memory = self.chat_memory_handle().await?;
         eukhe_core::session_engine::engine::create_session(SessionEngineConfig {
             semantic_edges,
             memory,

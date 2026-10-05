@@ -332,28 +332,51 @@ impl AgentSession {
         let Some(chat_memory) = &self.chat_memory else {
             return false;
         };
-        let state = self.agent.state().await;
-        !state.is_streaming && chat_memory.next_turn_is_fresh(state.messages.last())
+        !self.agent.state().await.is_streaming && chat_memory.next_turn_is_fresh()
     }
 
-    /// Admission of a turn on an idle agent: a root chat-memory session
-    /// starts a fresh call (no carried context; the view and the harness
-    /// digest are delivered again), unless the turn continues a call cut at
-    /// a tool boundary.
-    async fn begin_turn(&self) {
+    /// Admission of a turn on an idle agent. A root chat-memory session
+    /// starts a fresh call (no carried context; the view is delivered
+    /// again) that takes every queued message at once, returned here to
+    /// ride ahead of the turn's own messages; only the delivery of mid-run
+    /// steering into a call cut at a tool boundary continues that call.
+    async fn begin_turn(&self) -> Vec<eukhe_agent::types::AgentMessage> {
         let Some(chat_memory) = &self.chat_memory else {
-            return;
+            return Vec::new();
         };
-        let messages = self.agent.state().await.messages;
-        if !chat_memory.next_turn_is_fresh(messages.last()) {
-            return;
+        if !chat_memory.next_turn_is_fresh() {
+            chat_memory.continue_call();
+            return Vec::new();
         }
         self.agent.set_messages(Vec::new()).await;
         chat_memory.begin_fresh_call();
-        if self.harness_digest.is_some() {
-            self.digest_pending
-                .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.agent.take_all_queued()
+    }
+
+    /// Deliver the queued steering and follow-up messages on an idle
+    /// agent (the host queue pumps): through the same admission as a
+    /// prompt, so a root chat-memory session starts a fresh call with all
+    /// of them at once. Without chat memory this is [`Agent::continue_run`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the agent's refusal (busy, nothing to continue) or the
+    /// run's failure.
+    pub async fn deliver_queued(&self) -> anyhow::Result<()> {
+        if !self.next_turn_is_fresh().await {
+            if let Some(chat_memory) = &self.chat_memory {
+                chat_memory.continue_call();
+            }
+            return self.agent.continue_run().await;
         }
+        let queued = self.begin_turn().await;
+        if queued.is_empty() {
+            // Nothing queued: the agent's own refusal answers.
+            return self.agent.continue_run().await;
+        }
+        self.agent
+            .prompt(eukhe_agent::agent::AgentPromptInput::Messages(queued))
+            .await
     }
 
     /// The shared persistence handle: the kernel host handlers and the

@@ -10,6 +10,8 @@
 //! - `tree/YYYY-MM-DD.jsonl`: one node per line, `{l, i, text, size}`.
 //! - `lock`: the owner's Unix socket. One process owns the chat for its whole
 //!   life and is the only writer; every other process is its client.
+//! - `turn`: locked by the process whose root turn holds the chat's
+//!   root-turn lease (one root turn at a time across every process).
 //!
 //! Node `(l, i)` covers messages `[i·2^l, (i+1)·2^l)` and is named `id+n`
 //! with `id = i·2^l` and `n = 2^l`. Level 0 summarizes one message; level
@@ -35,7 +37,7 @@ pub use prompts::{
     memory_system_layer, subagent_system_layer, AGENT_NAME, DATE_TOOL_DESCRIPTION,
     ZOOM_TOOL_DESCRIPTION,
 };
-pub use service::{Memory, MemoryStatus, RenderedView};
+pub use service::{Memory, MemoryStatus, RenderedView, TurnLease};
 pub use summarizer::SettingsSummarizer;
 
 /// Target size of one summary line, in UTF-8 bytes.
@@ -136,4 +138,43 @@ pub fn cap_text(text: &str) -> String {
         &text[..head_end],
         &text[tail_start..]
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cap_keeps_head_and_tail() {
+        let text = format!("{}{}{}", "a".repeat(CAP), "b".repeat(10), "c".repeat(CAP));
+        let cut = CAP + 10;
+        assert_eq!(
+            (cap_text(&text), cap_text("short")),
+            (
+                format!(
+                    "{}\n[... {cut} characters cut ...]\n{}",
+                    "a".repeat(CAP / 2),
+                    "c".repeat(CAP / 2)
+                ),
+                "short".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn cap_counts_characters_not_bytes() {
+        let within = "é".repeat(CAP);
+        let over = "é".repeat(CAP + 2);
+        assert_eq!(
+            (cap_text(&within), cap_text(&over)),
+            (
+                within,
+                format!(
+                    "{}\n[... 2 characters cut ...]\n{}",
+                    "é".repeat(CAP / 2),
+                    "é".repeat(CAP / 2)
+                )
+            )
+        );
+    }
 }

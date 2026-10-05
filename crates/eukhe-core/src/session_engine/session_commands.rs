@@ -257,7 +257,7 @@ async fn execute_compact(
     let instructions = (!command.args.is_empty()).then_some(command.args.as_str());
     let outcome = engine
         .session
-        .compact(instructions, params.model, params.api_key.clone(), None)
+        .compact_on_request(instructions, params.model, params.api_key.clone(), None)
         .await
         .map_err(|error| format!("{error:#}"))?;
     match outcome {

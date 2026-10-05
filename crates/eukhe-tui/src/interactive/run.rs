@@ -227,6 +227,10 @@ async fn run_interactive_surface(
     // autocomplete provider.
     let (commands_tx, mut commands_rx) =
         mpsc::unbounded_channel::<crate::session_ui::CommandCatalogUpdate>();
+    // The open-time chat-view fetch (`get_chat_view`) reports here; the
+    // loop folds the view into the transcript as its startup block.
+    let (chat_view_tx, mut chat_view_rx) =
+        mpsc::unbounded_channel::<crate::session_ui::ChatViewUpdate>();
     // The double-Ctrl+C force-quit guard: the terminal reader observes the
     // pair even while this loop is wedged in a daemon request, and a plain
     // std-thread watchdog enforces the exit deadline without the runtime.
@@ -345,6 +349,7 @@ async fn run_interactive_surface(
         let bash_tx = bash_tx.clone();
         let factory_tx = factory_tx.clone();
         let commands_tx = commands_tx.clone();
+        let chat_view_tx = chat_view_tx.clone();
         tokio::spawn(async move {
             let session = SessionUi::open(
                 client,
@@ -362,6 +367,7 @@ async fn run_interactive_surface(
                     bash: bash_tx,
                     factory: factory_tx,
                     commands: commands_tx,
+                    chat_view: chat_view_tx,
                 },
             )
             .await?;
@@ -1735,6 +1741,11 @@ async fn run_interactive_surface(
             maybe_commands = commands_rx.recv() => {
                 if let Some(update) = maybe_commands {
                     session.apply_command_catalog(update, &mut view);
+                }
+            }
+            maybe_chat_view = chat_view_rx.recv() => {
+                if let Some(update) = maybe_chat_view {
+                    session.apply_chat_view(update, &mut view);
                 }
             }
             maybe_prompt = prompt_rx.recv() => {

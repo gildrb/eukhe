@@ -100,6 +100,7 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "get_user_messages_for_forking"
         | "get_last_assistant_text"
         | "get_system_prompt"
+        | "get_chat_view"
         | "get_tool_definition"
         | "set_session_entry_label" => Session,
         _ => Control,

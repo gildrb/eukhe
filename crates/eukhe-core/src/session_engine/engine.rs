@@ -502,6 +502,13 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         )
             as crate::kernel::provisioner::UnavailableSkillsCallback)
     };
+    // A chat-memory session remembers through the chat alone: no harness
+    // memories or prompt notes in its kernel, no harness digest, and no
+    // automatic refinement.
+    let harness_memory = match config.memory {
+        Some(_) => crate::refinement::HarnessMemory::Chat,
+        None => crate::refinement::HarnessMemory::Harness,
+    };
     let provisioner = super::runtime_wiring::kernel_provisioner(
         session_id,
         handlers,
@@ -513,6 +520,7 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         config.on_background_work_settled.clone(),
         on_unavailable_skills,
         on_bootstrap_result,
+        harness_memory,
     );
     let mut tools = config.tools.clone();
     if !tools.iter().any(|tool| tool.name() == "ipython") {
@@ -736,6 +744,18 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         }
         None => timing_stream_fn,
     };
+    // TS `_steeringStopPending`: both the after-turn and the before-turn
+    // hooks consult the same probe (a queued steer stops the run at the
+    // boundary; the pump delivers it next). In a chat-memory session the
+    // stop marks the call that steering continues.
+    let queued_steering_probe =
+        config
+            .queued_steering_probe
+            .take()
+            .map(|probe| match &chat_memory {
+                Some(chat_memory) => chat_memory.steering_probe(probe),
+                None => probe,
+            });
     let agent = Agent::new(AgentOptions {
         initial_state: AgentInitialState {
             system_prompt: Some(system_prompt.clone()),
@@ -770,10 +790,7 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         after_tool_call: chat_memory
             .as_ref()
             .map(|_| super::chat_memory::cap_tool_results()),
-        // TS `_steeringStopPending`: both the after-turn and the
-        // before-turn hooks consult the same probe (a queued steer stops
-        // the run at the boundary; the pump delivers it next).
-        should_stop_after_turn: config.queued_steering_probe.take().map(|probe| {
+        should_stop_after_turn: queued_steering_probe.clone().map(|probe| {
             let probe: eukhe_agent::agent_loop::ShouldStopAfterTurnFn =
                 std::sync::Arc::new(move |_context| {
                     let probe = std::sync::Arc::clone(&probe);
@@ -781,7 +798,11 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
                 });
             probe
         }),
-        should_stop_before_turn: config.queued_steering_probe.clone(),
+        should_stop_before_turn: queued_steering_probe,
+        // A call that ended starts a fresh one for the messages after it.
+        begin_next_call: chat_memory
+            .as_ref()
+            .map(super::chat_memory::ChatMemory::begin_next_call),
         // TS `sdk.ts`: the Agent's steering/follow-up queues drain per
         // the session's configured modes (default "one-at-a-time").
         steering_mode: config.steering_mode,
@@ -808,10 +829,16 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         agent.clone(),
         wiring.session.clone(),
         resources.prompts.clone(),
-        Some(digest_context),
+        match harness_memory {
+            crate::refinement::HarnessMemory::Harness => Some(digest_context),
+            crate::refinement::HarnessMemory::Chat => None,
+        },
     )
     .await?;
-    session.set_auto_refine(auto_refine_allowed, auto_refine_gates);
+    session.set_auto_refine(
+        auto_refine_allowed && harness_memory == crate::refinement::HarnessMemory::Harness,
+        auto_refine_gates,
+    );
     session.set_agent_dir(config.agent_dir.clone());
     if let Some(chat_memory) = chat_memory {
         // The root logs every finished message as it happens; a weak
@@ -819,11 +846,11 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         let listener = Arc::downgrade(&chat_memory);
         session
             .agent()
-            .subscribe(move |event, _signal| {
+            .subscribe(move |event, signal| {
                 let listener = listener.clone();
                 Box::pin(async move {
                     match listener.upgrade() {
-                        Some(chat_memory) => chat_memory.on_event(&event).await,
+                        Some(chat_memory) => chat_memory.on_event(&event, &signal).await,
                         None => Ok(()),
                     }
                 })

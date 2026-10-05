@@ -669,6 +669,20 @@ impl Worker {
                         );
                     });
                 concrete.set_compaction_summary_sink(summary_sink);
+                // The chat turn-wait status (the `chat_turn_wait`
+                // broadcast): a root turn queued behind another window's
+                // turn on the shared chat shows its wait to the attached
+                // clients as ephemeral session events, like the summary
+                // deltas above.
+                let wait_core = Arc::clone(&core);
+                let wait_events = events.clone();
+                concrete.set_turn_wait_sink(Arc::new(move |wait| {
+                    emit_worker_event_with(
+                        &wait_core,
+                        &wait_events,
+                        json!(eukhe_types::daemon::ChatTurnWaitEvent::from(wait)),
+                    );
+                }));
                 // The bash-completion wake seam (TS
                 // `_promptInjectedMessage` for `bash.completed` and
                 // `_withdrawAsyncBashCompletionNotice` for

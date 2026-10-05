@@ -201,6 +201,60 @@ async fn spawned_child_prompt_stamps_its_depth() {
     assert!(!engine.system_prompt.contains("depth: 0 (root)"));
 }
 
+/// A chat-memory session remembers through the chat alone: the same
+/// persisted root session that gets the harness digest and automatic
+/// refinement without the chat memory gets neither with it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_memory_session_turns_the_harness_memory_off() {
+    /// (digest delivered, automatic refinement allowed)
+    async fn harness_memory(engine: &SessionEngine) -> (bool, bool) {
+        (
+            engine.session.harness_digest_inputs().await.is_some(),
+            engine.session.auto_refine_allowed(),
+        )
+    }
+
+    let model = eukhe_agent::types::Model {
+        id: "m".into(),
+        name: "m".into(),
+        api: "test".into(),
+        provider: "test".into(),
+        base_url: "http://localhost".into(),
+        reasoning: false,
+        cost: eukhe_agent::types::UsageCost::default(),
+        context_window: 1_000,
+        max_tokens: 100,
+    };
+    let provider = Arc::new(ScriptedProvider::new(model.clone()));
+    let tmp = tempfile::tempdir().unwrap();
+    let cwd = tmp.path().join("project");
+    let agent_dir = tmp.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let config = |memory: Option<crate::memory::Memory>, log: &str| SessionEngineConfig {
+        memory,
+        cwd: cwd.clone(),
+        agent_dir: agent_dir.clone(),
+        model: Some(model.clone()),
+        stream_fn: Some(provider.stream_fn()),
+        tools: vec![],
+        conversation_log_path: Some(tmp.path().join("sessions").join(log)),
+        ..Default::default()
+    };
+    let harness_session = create_session(config(None, "harness.jsonl")).await.unwrap();
+    assert_eq!(harness_memory(&harness_session).await, (true, true));
+
+    let memory = crate::memory::Memory::open(
+        agent_dir.join("chat"),
+        Arc::new(crate::memory::SettingsSummarizer::new(agent_dir.clone())),
+    )
+    .await
+    .unwrap();
+    let chat_session = create_session(config(Some(memory), "chat.jsonl"))
+        .await
+        .unwrap();
+    assert_eq!(harness_memory(&chat_session).await, (false, false));
+}
+
 /// The login chain's prompt-gating end to end at the engine level: a
 /// settings-declared OAuth server stays gated, an endpoint-bound
 /// credential (exactly what `mcp.begin_login` persists) unlocks it in

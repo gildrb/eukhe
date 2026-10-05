@@ -50,6 +50,15 @@ impl AgentSessionEngine {
         // it (the settle arms read and clear it).
         self.quota_parked_this_run
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        // The chat's turn stays this runner item's through its retries and
+        // overflow re-issues: no other window's turn slips between a failed
+        // run and its retry (the hold drops when the item settles).
+        let _turn_hold = self.session.blocking_lock().as_deref().and_then(|engine| {
+            engine
+                .session
+                .chat_memory()
+                .map(eukhe_core::session_engine::chat_memory::ChatMemory::hold_turn)
+        });
         loop {
             // TS `_runPreTurnCompaction` (`beforeModelSelection` for queued
             // prompts): a stale overflow error from the previous run gets

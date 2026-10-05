@@ -270,6 +270,25 @@ impl Worker {
         }
     }
 
+    /// `get_chat_view` (Rust-native, advertised by the `chat_view`
+    /// capability): the chat memory's current view for the interactive
+    /// client's startup block, `{ "view": null }` when the session keeps
+    /// no chat memory.
+    pub(crate) async fn handle_get_chat_view(&self) -> DaemonResponse {
+        const NAME: &str = "get_chat_view";
+        if let Err(response) = self.require_created(NAME) {
+            return response;
+        }
+        let reply = match self.engine.chat_view().await {
+            Ok(view) => serde_json::to_value(eukhe_types::daemon::ChatViewReply { view }),
+            Err(error) => return response_failure(None, NAME, &format!("{error:#}"), None),
+        };
+        match reply {
+            Ok(data) => response_success(None, NAME, Some(data)),
+            Err(error) => response_failure(None, NAME, &format!("{error:#}"), None),
+        }
+    }
+
     /// `get_tool_definition { name }` (TS
     /// `createAgentConnectionToolDefinition`): the definition of one
     /// active tool; an unknown name answers success with the key omitted,

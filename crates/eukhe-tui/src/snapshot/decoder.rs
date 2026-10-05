@@ -105,6 +105,10 @@ pub enum TurnUpdate {
         /// `warning` or `error`.
         error_severity: Option<String>,
     },
+    /// `chat_turn_wait`: this session's turn waits for another window's
+    /// turn on the shared chat (`waiting`), or that wait ended. The loader
+    /// note shows the wait; nothing lands in the transcript.
+    ChatTurnWait { waiting: bool },
     /// `goal_update`: the session goal state changed (raw wire `goal`
     /// payload; the session view owns announcement and tray rendering).
     GoalUpdate(Value),
@@ -179,6 +183,12 @@ pub fn event_to_update(event: &Value) -> Option<TurnUpdate> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
+        }),
+        "chat_turn_wait" => Some(TurnUpdate::ChatTurnWait {
+            waiting: <eukhe_types::daemon::ChatTurnWaitEvent as serde::Deserialize>::deserialize(
+                event,
+            )
+            .is_ok_and(|wait| wait.waiting),
         }),
         "compaction_end" => Some(TurnUpdate::CompactionEnd {
             reason: event

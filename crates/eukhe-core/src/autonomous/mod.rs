@@ -437,6 +437,13 @@ pub fn autonomous_continuation_text(state: &AutonomousRuntimeState) -> String {
     format!("[autonomous-continuation]\n\n{}", state.continuation_prompt)
 }
 
+/// Whether `text` is an autonomous continuation (plain, gate-failed, or
+/// subagent keep-alive): a harness nudge, not the user's words.
+#[must_use]
+pub fn is_autonomous_continuation(text: &str) -> bool {
+    text.starts_with("[autonomous-continuation]") || text.starts_with("[autonomous-continuation: ")
+}
+
 /// The continuation row an in-run continuation hook returns to the agent
 /// loop (TS `createAutonomousContinuationMessage`: `{ role: "user", content:
 /// [{ type: "text", text }], timestamp }`): the loop emits and persists the

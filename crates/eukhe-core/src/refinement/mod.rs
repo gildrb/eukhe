@@ -154,6 +154,38 @@ pub const FACTORY_SETTINGS_FILE_NAME: &str = "settings.json";
 /// both sides of the gate.
 pub const FACTORY_DISABLED_MESSAGE: &str = "the factory is disabled; run /factory on to enable it";
 
+/// Where a session's memory lives. A chat-memory session (`OptChat`)
+/// remembers through the chat alone: its continual harness keeps only tools
+/// (skills, subagent specs, factories), never memories or prompt notes, and
+/// nothing refines it automatically.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum HarnessMemory {
+    /// Memories and prompt notes are continual-harness entries.
+    #[default]
+    Harness,
+    /// The chat is the only memory.
+    Chat,
+}
+
+impl HarnessMemory {
+    /// Whether this memory lets the harness hold entries of `kind`.
+    #[must_use]
+    pub fn holds(self, kind: RefinementKind) -> bool {
+        match kind {
+            RefinementKind::Prompt | RefinementKind::Memory => match self {
+                HarnessMemory::Harness => true,
+                HarnessMemory::Chat => false,
+            },
+            RefinementKind::Skill | RefinementKind::Subagent | RefinementKind::Factory => true,
+        }
+    }
+}
+
+/// The refusal for a memory or prompt-note write in a chat-memory session.
+/// Byte-identical to the kernel's `CHAT_MEMORY_MESSAGE`
+/// (`eukhe-runtime/src/rlm/harness.py`).
+pub const CHAT_MEMORY_MESSAGE: &str = "eukhe's memory is the chat: say it in your reply";
+
 /// The `factory.enabled` opt-in setting (default off), read leniently from
 /// the agent dir's settings.json exactly like the kernel-side
 /// `rlm.factory.factory_enabled()`: a missing file or key, a wrong-typed
