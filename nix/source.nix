@@ -1,6 +1,7 @@
 # eukhe built from source, in the same layout as the prebuilt release (see
 # package.nix): the binary, its Python runtime, the bundled skills, and the
-# offline catalog fixture.
+# catalog snapshot kept in the repository (the build has no network; the
+# binary refreshes the catalog at runtime).
 {
   lib,
   rustPlatform,
@@ -38,7 +39,12 @@ rustPlatform.buildRustPackage {
     cp -R eukhe-runtime/pyproject.toml eukhe-runtime/src "$payload/eukhe-runtime/"
     cp -R skills "$payload/skills"
     cp LICENSE "$payload/"
-    python3 scripts/release/bundle_catalog.py generate --fixture --out "$payload"
+    catalog="$(mktemp -d)"
+    mkdir -p "$catalog/models" "$catalog/plugins"
+    cp crates/eukhe-models/tests/fixtures/catalog.v1.json "$catalog/models/catalog.v1.json"
+    cp crates/eukhe-core/tests/fixtures/mcp/plugins-catalog.v2.json "$catalog/plugins/catalog.v2.json"
+    python3 scripts/release/bundle_catalog.py generate --catalog-dir "$catalog" --out "$payload"
+    rm -r "$catalog"
     makeWrapper "$payload/eukhe" "$out/bin/eukhe" \
       --suffix PATH : ${
         lib.makeBinPath [

@@ -17,8 +17,9 @@ Usage:
 assets (`models.bundled.json` + `mcp-services.bundled.json`); the packer
 hard-fails without VALIDATED assets (version gates + >= 42 transport tuples +
 >= 68 services — see scripts/release/bundle_catalog.py, the catalog spec §3.2
-no-cold-start layer 2). The release workflow and offline builds generate them
-with `bundle_catalog.py generate --fixture`.
+no-cold-start layer 2). The release workflow fetches the live catalog
+(`bundle_catalog.py generate --network`); the Nix source build copies the
+repository's catalog snapshot (`--catalog-dir`).
 
 `--binary` defaults to `<repo>/target/<target>/release/eukhe` (cross builds)
 and falls back to `<repo>/target/release/eukhe` (host builds).
@@ -257,15 +258,15 @@ def stage_tree(staging: Path, args: argparse.Namespace) -> dict:
     # the mode in the archive).
     os.chmod(staging / BINARY_NAME, 0o755)
     # The bundled catalog assets gate (spec §3.9): the release packer FAILS
-    # without validated assets — generate them first (the live catalog repo,
-    # a local catalog checkout, or the offline --fixture snapshot the release
-    # workflow uses) via scripts/release/bundle_catalog.py.
+    # without validated assets — generate them first (the live catalog repo
+    # the release workflow uses, or a local catalog checkout) via
+    # scripts/release/bundle_catalog.py.
     if args.catalog_assets is None:
         fail(
             "missing bundled catalog assets: run "
             "`python3 scripts/release/bundle_catalog.py generate "
-            "--catalog-dir <prime-agent-catalog>` (live repo: --network; "
-            "release workflow and offline builds: --fixture) and pass "
+            "--catalog-dir <prime-agent-catalog>` (live repo: --network) "
+            "and pass "
             "--catalog-assets <dir>"
         )
     catalog_assets = Path(args.catalog_assets)
