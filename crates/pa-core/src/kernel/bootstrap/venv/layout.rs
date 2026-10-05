@@ -25,7 +25,11 @@ pub fn kernel_venv_dir() -> PathBuf {
             return expand_home(&override_dir);
         }
     }
-    home_dir().join(".prime").join("agent").join("kernel-venv")
+    // Under the agent state dir: a venv shared with another product would
+    // be rebuilt (removed) by each one in turn.
+    pa_types::platform::agent_dir()
+        .unwrap_or_else(|| home_dir().join(pa_types::platform::dirs::AGENT_DIR_NAME))
+        .join("kernel-venv")
 }
 
 fn xdg_kernel_venv_dir() -> PathBuf {
@@ -33,7 +37,7 @@ fn xdg_kernel_venv_dir() -> PathBuf {
         Ok(value) if !value.is_empty() => expand_home(&value),
         _ => home_dir().join(".local").join("share"),
     };
-    data_home.join("prime").join("agent").join("kernel-venv")
+    data_home.join("eukhe").join("kernel-venv")
 }
 
 pub(crate) fn resolve_writable_kernel_venv_dir() -> anyhow::Result<PathBuf> {

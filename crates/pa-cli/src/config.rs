@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 /// The user-facing application name (`piConfig.name` in package.json).
 pub const APP_NAME: &str = "prime-agent";
 
-/// The agent state directory name (`piConfig.configDir` in package.json).
+/// The project-local configuration directory name (`piConfig.configDir` in
+/// package.json); the user's state directory is
+/// [`pa_types::platform::dirs::AGENT_DIR_NAME`].
 pub const CONFIG_DIR_NAME: &str = ".prime/agent";
 
 /// `PRIME_AGENT_CODING_AGENT_DIR`: overrides the agent state directory.
@@ -123,7 +125,7 @@ pub fn get_agent_dir() -> PathBuf {
         Ok(dir) if !dir.is_empty() => expand_tilde_path(&dir),
         _ => pa_types::platform::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(CONFIG_DIR_NAME),
+            .join(pa_types::platform::dirs::AGENT_DIR_NAME),
     }
 }
 

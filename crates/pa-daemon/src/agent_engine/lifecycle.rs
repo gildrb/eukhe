@@ -398,6 +398,7 @@ impl AgentSessionEngine {
                 turn_boundary: std::sync::Arc::clone(&built.turn_boundary),
                 agent: std::sync::Arc::clone(built.session.agent()),
                 compaction: built.session.compaction_settings(),
+                chat_memory: built.session.chat_memory().cloned(),
             });
         // The background-bash liveness probe (TS `_hasLiveBackgroundBashHandles`
         // reads the provisioner's kernel manager): the same deadlock-free

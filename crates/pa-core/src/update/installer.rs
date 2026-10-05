@@ -30,9 +30,16 @@ pub const ENV_RELEASE_CHANNEL: &str = "PRIME_AGENT_RELEASE_CHANNEL";
 /// The installer's download-base knob (the bucket holding the channel
 /// manifests and release archives).
 pub const ENV_DOWNLOAD_BASE_URL: &str = "PRIME_AGENT_DOWNLOAD_BASE_URL";
-/// `install-rust.sh`'s `DOWNLOAD_BASE_URL_DEFAULT`: where the channel
-/// manifests (`latest.json`, `beta.json`) are published.
-pub const DEFAULT_DOWNLOAD_BASE_URL: &str = "https://pub-728493de92a943e2a9b2d17b4719f318.r2.dev";
+/// Where eukhe's releases are published. They carry no channel manifests
+/// (`latest.json`, `beta.json`), so a version check finds nothing to
+/// install: eukhe updates through its package manager (see
+/// [`EXTERNAL_UPDATES`]).
+pub const DEFAULT_DOWNLOAD_BASE_URL: &str =
+    "https://github.com/gildrb/eukhe/releases/latest/download";
+
+/// Why `update` installs nothing: the upstream installer would replace eukhe
+/// with upstream Prime Agent, so eukhe updates through its package manager.
+pub const EXTERNAL_UPDATES: &str = "eukhe updates through its package manager: update the eukhe flake input (Nix), or install a release from https://github.com/gildrb/eukhe/releases";
 
 /// The official domain's install endpoint — the stable channel's installer
 /// source; never a GitHub raw or workflow URL (the override env var stays
@@ -182,12 +189,14 @@ pub struct UpdateFailure {
 /// Returns the failure message for every non-installing outcome (see
 /// [`run_installer_from`]).
 pub async fn run_installer(
-    channel: Option<&'static str>,
-    output: InstallerOutput,
+    _channel: Option<&'static str>,
+    _output: InstallerOutput,
 ) -> std::result::Result<Installed, UpdateFailure> {
-    let prefix = install_prefix();
-    let channel = channel.or_else(|| installed_channel(&prefix));
-    run_installer_from(&installer_script_url(channel), &prefix, channel, output).await
+    // The installer-takeover funnel installs upstream Prime Agent over this
+    // build: eukhe never runs it.
+    Err(UpdateFailure {
+        message: EXTERNAL_UPDATES.to_string(),
+    })
 }
 
 /// Run the takeover update from one explicit script URL and install

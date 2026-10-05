@@ -43,11 +43,14 @@ pub fn home_dir() -> Option<PathBuf> {
 /// wire-internal identifier kept byte-compatible with the TS product).
 pub const ENV_AGENT_DIR: &str = "PRIME_AGENT_CODING_AGENT_DIR";
 
-/// The agent state directory name (TS `CONFIG_DIR_NAME`, `.prime/agent`).
-pub const CONFIG_DIR_NAME: &str = ".prime/agent";
+/// The user's agent state directory under the home directory. eukhe keeps
+/// its state apart from an installed Prime Agent (`.prime/agent`): its own
+/// settings, sessions, daemon, kernel venv, and chat memory. Project-local
+/// configuration stays `<project>/.prime/agent`.
+pub const AGENT_DIR_NAME: &str = ".eukhe";
 
 /// The agent state directory (TS `getAgentDir`): the env override with a
-/// leading `~`/`~/` expanded against [`home_dir`], else `<home>/.prime/agent`.
+/// leading `~`/`~/` expanded against [`home_dir`], else `<home>/.eukhe`.
 /// `None` when no override is set and the home directory does not resolve
 /// (each caller owns its fallback).
 #[must_use]
@@ -55,7 +58,7 @@ pub fn agent_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os(ENV_AGENT_DIR).filter(|dir| !dir.is_empty()) {
         return Some(expand_tilde(&dir.to_string_lossy()));
     }
-    home_dir().map(|home| home.join(CONFIG_DIR_NAME))
+    home_dir().map(|home| home.join(AGENT_DIR_NAME))
 }
 
 /// Expand a leading `~`/`~/` - and on Windows `~\` - against

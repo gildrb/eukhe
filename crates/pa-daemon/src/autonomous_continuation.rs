@@ -50,6 +50,11 @@ pub(crate) struct AutonomousBoundaryMirror {
         std::sync::Arc<pa_core::session_engine::turn_boundary::TurnBoundaryRequests>,
     pub(crate) agent: std::sync::Arc<pa_agent::agent::Agent>,
     pub(crate) compaction: pa_core::session_engine::compaction::CompactionSettings,
+    /// The session's side of the chat memory: a root's next turn starts a
+    /// fresh call, so no threshold compaction is due between turns (the
+    /// same rule as the core session's `auto_compaction_due`).
+    pub(crate) chat_memory:
+        Option<std::sync::Arc<pa_core::session_engine::chat_memory::ChatMemory>>,
 }
 
 impl AgentSessionEngine {
@@ -249,6 +254,11 @@ impl AgentSessionEngine {
         // the mirrored agent state and settings: never through the session
         // mutex (see [`AutonomousBoundaryMirror`]).
         let state = mirror.agent.state().await;
+        if mirror.chat_memory.as_ref().is_some_and(|chat_memory| {
+            !state.is_streaming && chat_memory.next_turn_is_fresh(state.messages.last())
+        }) {
+            return false;
+        }
         let messages: Vec<pa_types::session::AgentMessage> = state
             .messages
             .iter()
