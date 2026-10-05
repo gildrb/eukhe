@@ -459,6 +459,7 @@ impl AgentInner {
                     crate::types::TextContent {
                         text: String::new(),
                         text_signature: None,
+                        cache_breakpoint: None,
                     },
                 )],
                 api: model.api.clone(),
@@ -761,6 +762,7 @@ impl AgentInner {
                 let mut content = vec![crate::types::UserPart::Text(crate::types::TextContent {
                     text,
                     text_signature: None,
+                    cache_breakpoint: None,
                 })];
                 for image in images {
                     content.push(crate::types::UserPart::Image(image));
@@ -1443,6 +1445,7 @@ mod tests {
                             crate::types::TextContent {
                                 text: "ok".to_string(),
                                 text_signature: None,
+                                cache_breakpoint: None,
                             },
                         )],
                         api: requested.api,

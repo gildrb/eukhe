@@ -28,13 +28,14 @@ use crate::event_stream::{
 use crate::providers::bedrock::auth::{resolve_credentials, resolve_endpoint, sigv4_headers};
 use crate::providers::bedrock::convert::{
     convert_messages, convert_tool_config, map_stop_reason, map_thinking_level_to_effort,
-    supports_always_on_adaptive_thinking, BedrockToolChoice,
+    supports_always_on_adaptive_thinking, supports_prompt_caching, BedrockToolChoice,
 };
 pub(crate) use crate::providers::bedrock::convert::{
     is_anthropic_claude_model, supports_adaptive_thinking,
 };
 use crate::providers::bedrock::events::{handle_event, BedrockStreamState};
 use crate::providers::bedrock::eventstream::EventStreamDecoder;
+use crate::providers::cache_breakpoints::{excess_breakpoints_error, CacheMarkBudget};
 use crate::providers::simple_options::{build_base_options, clamp_reasoning};
 use crate::registry::Provider;
 use crate::types::{
@@ -250,12 +251,19 @@ fn bedrock_proxy_configured() -> bool {
     .any(|key| std::env::var(key).is_ok_and(|value| !value.is_empty()))
 }
 
-/// Port of `streamBedrock`.
+/// Port of `streamBedrock`. For a model with prompt caching, a context with
+/// more marked cache-breakpoint blocks than the mark budget allows fails
+/// before the request is built.
 pub fn stream_bedrock(
     model: &Model,
     context: &Context,
     options: Option<&BedrockOptions>,
 ) -> AssistantMessageEventStream {
+    if supports_prompt_caching(model) {
+        if let Some(error) = excess_breakpoints_error(model, context) {
+            return error;
+        }
+    }
     let options = options.cloned();
     let model = model.clone();
     let context = context.clone();
@@ -472,13 +480,17 @@ async fn run_stream(
 
     let mut command_input = Map::new();
     command_input.insert("modelId".into(), json!(model.id));
-    command_input.insert(
-        "messages".into(),
-        json!(convert_messages(context, model, cache_retention)),
-    );
-    if let Some(system) =
-        build_system_prompt_blocks(context.system_prompt.as_deref(), model, cache_retention)
-    {
+    let messages = convert_messages(context, model, cache_retention);
+    // The message cache points (the marked blocks and the end mark) are
+    // fixed; the system cache point takes a slot only when one is left.
+    let mut budget = CacheMarkBudget::after_message_marks(&messages, "cachePoint");
+    command_input.insert("messages".into(), json!(messages));
+    if let Some(system) = build_system_prompt_blocks(
+        context.system_prompt.as_deref(),
+        model,
+        cache_retention,
+        &mut budget,
+    ) {
         command_input.insert("system".into(), json!(system));
     }
     if !inference_config.is_empty() {

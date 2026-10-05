@@ -216,6 +216,19 @@ pub struct ProviderResponse {
 // Content blocks
 // ---------------------------------------------------------------------------
 
+/// An explicit prompt-cache breakpoint on a content block: a cacheable
+/// prefix of the request may end right after the marked block. Providers
+/// with explicit cache marks (Anthropic `cache_control`, Bedrock
+/// `cachePoint`, `OpenAI` Responses `prompt_cache_breakpoint`) emit one mark
+/// per marked block within their per-request mark budget; providers without
+/// explicit marks ignore it. The chat memory marks the pieces of its view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CacheBreakpoint {
+    /// The provider's default (shortest) cache lifetime.
+    Ephemeral,
+}
+
 /// Text content block (`type: "text"`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -228,6 +241,10 @@ pub struct TextContent {
     /// catch-all field to carry a dropped key through).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_signature: Option<String>,
+    /// An explicit prompt-cache breakpoint after this block (wire key
+    /// `cacheBreakpoint`; absent on every unmarked block).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_breakpoint: Option<CacheBreakpoint>,
     #[serde(flatten)]
     pub rest: JsonMap,
 }
@@ -860,6 +877,28 @@ pub fn clamp_service_tier(model: Option<&Model>, tier: Option<ServiceTier>) -> O
 #[must_use]
 pub fn supports_fast_mode(model: &Model) -> bool {
     supports_service_tier(model, ServiceTier::Priority)
+}
+
+/// Whether an `OpenAI` Responses model id has the explicit prompt-cache
+/// controls: GPT-5.6 and every later GPT-5 minor version (`gpt-5.6`,
+/// `gpt-5.6-sol`, ...) and every GPT-6 model (`gpt-6-astra`, `gpt-6.1-sol`,
+/// ...). These models accept `prompt_cache_breakpoint: {"mode": "explicit"}`
+/// on `input_text` items and `reasoning.context: "all_turns"`; the requests
+/// of every other model carry neither field.
+#[must_use]
+pub fn supports_explicit_cache_breakpoints(model_id: &str) -> bool {
+    if let Some(rest) = model_id.strip_prefix("gpt-6") {
+        return rest.is_empty() || rest.starts_with(['-', '.']);
+    }
+    let Some(rest) = model_id.strip_prefix("gpt-5.") else {
+        return false;
+    };
+    let minor_end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    let (minor, suffix) = rest.split_at(minor_end);
+    (suffix.is_empty() || suffix.starts_with('-'))
+        && minor.parse::<u32>().is_ok_and(|minor| minor >= 6)
 }
 
 // The unit battery lives in the child module (ai::tests); its use-super

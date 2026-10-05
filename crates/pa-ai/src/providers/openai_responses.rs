@@ -12,9 +12,9 @@ use crate::event_stream::{
 };
 use crate::models::{clamp_thinking_level, supports_thinking};
 use crate::providers::openai_responses_shared::{
-    apply_service_tier_pricing, convert_responses_messages, convert_responses_tools,
-    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, ReasoningSummary,
-    ResponsesStreamHooks, OPENAI_TOOL_CALL_PROVIDERS,
+    apply_reasoning_context, apply_service_tier_pricing, convert_responses_messages,
+    convert_responses_tools, ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions,
+    ReasoningSummary, ResponsesStreamHooks, OPENAI_TOOL_CALL_PROVIDERS,
 };
 use crate::providers::simple_options::build_base_options;
 use crate::registry::Provider;
@@ -272,6 +272,7 @@ fn build_params(model: &Model, context: &Context, options: &OpenAIResponsesOptio
             params.insert("include".into(), json!(["reasoning.encrypted_content"]));
         }
     }
+    apply_reasoning_context(model, &mut params);
 
     Value::Object(params)
 }

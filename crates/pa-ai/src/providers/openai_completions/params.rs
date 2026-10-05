@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use serde_json::{json, Map, Value};
 
 use crate::models::supports_thinking;
+use crate::providers::cache_breakpoints::CacheMarkBudget;
 use crate::providers::openai_completions::convert::{convert_messages, convert_tools};
 use crate::providers::openai_completions::has_tool_history;
 use crate::providers::openai_completions::{
@@ -24,7 +25,7 @@ pub(crate) fn build_params(
     cache_control: Option<&OpenAICompatCacheControl>,
 ) -> Value {
     let options = options.cloned().unwrap_or_default();
-    let messages = convert_messages(model, context, compat);
+    let messages = convert_messages(model, context, compat, cache_control);
     let mut params = Map::new();
     params.insert("model".into(), json!(model.id));
     params.insert("messages".into(), json!(messages));
@@ -242,36 +243,20 @@ pub(crate) fn build_params(
     Value::Object(params)
 }
 
+/// Anthropic-format `cache_control` marks: the end mark on the last
+/// conversation message, then the optional marks while the request's mark
+/// budget lasts (system prompt first, then the last tool). The marked user
+/// blocks already carry their marks from the conversion.
 fn apply_anthropic_cache_control(
     params: &mut Map<String, Value>,
     cache_control: &OpenAICompatCacheControl,
 ) {
-    // Last tool.
-    if let Some(tools) = params
-        .get_mut("tools")
-        .and_then(|value| value.as_array_mut())
-    {
-        if let Some(last_tool) = tools.last_mut() {
-            last_tool
-                .as_object_mut()
-                .expect("tools entries are objects")
-                .insert("cache_control".into(), cache_control.to_json());
-        }
-    }
     let Some(messages) = params
         .get_mut("messages")
         .and_then(|value| value.as_array_mut())
     else {
         return;
     };
-    // System prompt.
-    for message in messages.iter_mut() {
-        let role = message.get("role").and_then(|value| value.as_str());
-        if role == Some("system") || role == Some("developer") {
-            add_cache_control_to_message(message, cache_control);
-            break;
-        }
-    }
     // Last conversation message (user/assistant/tool), from the end.
     for message in messages.iter_mut().rev() {
         let role = message
@@ -282,6 +267,32 @@ fn apply_anthropic_cache_control(
             && add_cache_control_to_message(message, cache_control)
         {
             break;
+        }
+    }
+    // The marked blocks and the end mark are fixed; without a marked block
+    // both optional marks fit, as before.
+    let mut budget = CacheMarkBudget::after_message_marks(messages, "cache_control");
+    // System prompt.
+    let system = messages.iter_mut().find(|message| {
+        let role = message.get("role").and_then(|value| value.as_str());
+        role == Some("system") || role == Some("developer")
+    });
+    if let Some(system) = system {
+        if budget.take() {
+            add_cache_control_to_message(system, cache_control);
+        }
+    }
+    // Last tool.
+    if let Some(last_tool) = params
+        .get_mut("tools")
+        .and_then(|value| value.as_array_mut())
+        .and_then(|tools| tools.last_mut())
+    {
+        if budget.take() {
+            last_tool
+                .as_object_mut()
+                .expect("tools entries are objects")
+                .insert("cache_control".into(), cache_control.to_json());
         }
     }
 }
@@ -364,7 +375,6 @@ mod tests {
     use crate::models::clamp_thinking_level;
     use crate::models_generated;
     use crate::types::{Message, StreamOptions, UserMessage, UserMessageContent};
-
     /// Port of the TS #2497 pin: the provider layer owns no Prime
     /// Inference team lookup — a prime-inference request with
     /// `PRIME_TEAM_ID` set and no caller header carries no

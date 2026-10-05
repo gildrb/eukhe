@@ -509,6 +509,7 @@ async fn estimates_prompt_and_output_tokens_from_serialized_context() {
                         text: "hello".into(),
                         text_signature: None,
                         rest: Map::default(),
+                        cache_breakpoint: None,
                     }),
                     UserOrToolContent::Image(ImageContent {
                         mime_type: "image/png".into(),
@@ -530,6 +531,7 @@ async fn estimates_prompt_and_output_tokens_from_serialized_context() {
                     text: "tool out".into(),
                     text_signature: None,
                     rest: Map::default(),
+                    cache_breakpoint: None,
                 })],
                 details: None,
                 is_error: false,

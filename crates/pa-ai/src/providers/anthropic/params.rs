@@ -8,6 +8,7 @@ use crate::providers::anthropic::{
     get_anthropic_compat, is_always_on_adaptive_thinking_model, supports_adaptive_thinking,
     AnthropicOptions, AnthropicThinkingDisplay, CacheControl,
 };
+use crate::providers::cache_breakpoints::CacheMarkBudget;
 use crate::types::{Context, Model};
 use crate::utils_inner::sanitize_unicode::sanitize_surrogates;
 
@@ -23,17 +24,22 @@ pub(crate) fn build_params(
     let base = options
         .map(|options| options.base.clone())
         .unwrap_or_default();
+    let messages = convert_messages(context, model, is_oauth_token, cache_control);
+    // The message marks (the marked blocks and the end mark) are fixed. The
+    // optional marks take the slots left, in priority order: system prompt,
+    // last tool, OAuth identity block; only a mark the request carries spends
+    // a slot. Without a marked block all of them fit, as before.
+    let mut budget = CacheMarkBudget::after_message_marks(&messages, "cache_control");
+    let has_tools = context
+        .tools
+        .as_ref()
+        .is_some_and(|tools| !tools.is_empty());
+    let system_mark = context.system_prompt.is_some() && budget.take();
+    let tools_mark = has_tools && budget.take();
+    let identity_mark = is_oauth_token && budget.take();
     let mut params = Map::new();
     params.insert("model".into(), json!(model.id));
-    params.insert(
-        "messages".into(),
-        json!(convert_messages(
-            context,
-            model,
-            is_oauth_token,
-            cache_control
-        )),
-    );
+    params.insert("messages".into(), json!(messages));
     params.insert(
         "max_tokens".into(),
         json!(base.max_tokens.unwrap_or(model.max_tokens / 3)),
@@ -46,7 +52,7 @@ pub(crate) fn build_params(
             "type": "text",
             "text": "You are Claude Code, Anthropic's official CLI for Claude.",
         })];
-        if let Some(cache_control) = cache_control {
+        if let Some(cache_control) = cache_control.filter(|_| identity_mark) {
             system[0]
                 .as_object_mut()
                 .expect("system entry is an object")
@@ -57,7 +63,7 @@ pub(crate) fn build_params(
                 "type": "text",
                 "text": sanitize_surrogates(system_prompt),
             });
-            if let Some(cache_control) = cache_control {
+            if let Some(cache_control) = cache_control.filter(|_| system_mark) {
                 entry
                     .as_object_mut()
                     .expect("system entry is an object")
@@ -71,7 +77,7 @@ pub(crate) fn build_params(
             "type": "text",
             "text": sanitize_surrogates(system_prompt),
         });
-        if let Some(cache_control) = cache_control {
+        if let Some(cache_control) = cache_control.filter(|_| system_mark) {
             entry
                 .as_object_mut()
                 .expect("system entry is an object")
@@ -98,7 +104,7 @@ pub(crate) fn build_params(
                     tools,
                     is_oauth_token,
                     get_anthropic_compat(model).supports_eager_tool_input_streaming,
-                    cache_control,
+                    cache_control.filter(|_| tools_mark),
                 )),
             );
         }

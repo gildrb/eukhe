@@ -529,6 +529,8 @@ async fn run_websocket_attempt(
                     &OPENAI_TOOL_CALL_PROVIDERS,
                     ConvertResponsesMessagesOptions {
                         include_system_prompt: false,
+                        // See `build_request_body`.
+                        explicit_cache_breakpoints: false,
                     },
                 )
                 .into_iter()
@@ -653,6 +655,10 @@ fn build_request_body(
         &OPENAI_TOOL_CALL_PROVIDERS,
         ConvertResponsesMessagesOptions {
             include_system_prompt: false,
+            // The ChatGPT backend's acceptance of `prompt_cache_breakpoint`
+            // and `reasoning.context` is unverified: a rejected field would
+            // fail every request, so neither is sent here.
+            explicit_cache_breakpoints: false,
         },
     );
 
@@ -720,7 +726,6 @@ fn build_request_body(
             );
         }
     }
-
     Value::Object(body)
 }
 
@@ -1038,6 +1043,7 @@ mod tests {
                         text: "ok".into(),
                         text_signature: None,
                         rest: Map::default(),
+                        cache_breakpoint: None,
                     })],
                     details: None,
                     is_error: false,

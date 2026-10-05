@@ -219,6 +219,7 @@ pub fn text_block(text: impl Into<String>) -> ContentBlock {
         text: text.into(),
         text_signature: None,
         rest: serde_json::Map::default(),
+        cache_breakpoint: None,
     })
 }
 

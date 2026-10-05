@@ -232,6 +232,7 @@ mod tests {
         let message = partial(vec![AssistantContent::Text(TextContent {
             text: "first reply".to_string(),
             text_signature: None,
+            cache_breakpoint: None,
         })]);
         let event = AgentEvent::MessageUpdate {
             message: std::sync::Arc::new(AgentMessage::Standard(
@@ -315,6 +316,7 @@ mod tests {
                         AssistantContent::Text(TextContent {
                             text: "answer".to_string(),
                             text_signature: None,
+                            cache_breakpoint: None,
                         }),
                         AssistantContent::Thinking(pa_agent::types::ThinkingContent {
                             thinking: "the reasoning".to_string(),

@@ -7,6 +7,7 @@ use base64::Engine as _;
 use serde_json::{json, Map, Value};
 
 use crate::models::clamp_thinking_level;
+use crate::providers::cache_breakpoints::{has_cache_breakpoint, CacheMarkBudget};
 use crate::providers::transform_messages::transform_messages_with_normalizer;
 use crate::types::{
     AssistantContent, CacheRetention, Context, Message, Model, ModelThinkingLevel, Tool,
@@ -136,28 +137,38 @@ fn create_image_block(mime_type: &str, data: &str) -> Value {
     })
 }
 
-/// Port of `buildSystemPrompt`.
+/// The request's cache point block: the default TTL, or one hour for long
+/// retention.
+fn cache_point(cache_retention: CacheRetention) -> Value {
+    let mut point = Map::new();
+    point.insert("type".into(), json!("default"));
+    if cache_retention == CacheRetention::Long {
+        point.insert("ttl".into(), json!("1h"));
+    }
+    json!({ "cachePoint": Value::Object(point) })
+}
+
+/// Port of `buildSystemPrompt`. The system cache point is the request's one
+/// optional mark: it is kept only while `budget` has a slot left after the
+/// message marks (the marked blocks and the end mark).
 pub fn build_system_prompt(
     system_prompt: Option<&str>,
     model: &Model,
     cache_retention: CacheRetention,
+    budget: &mut CacheMarkBudget,
 ) -> Option<Vec<Value>> {
     let system_prompt = system_prompt?;
     let mut blocks = vec![json!({ "text": sanitize_surrogates(system_prompt) })];
 
-    if cache_retention != CacheRetention::None && supports_prompt_caching(model) {
-        let mut cache_point = Map::new();
-        cache_point.insert("type".into(), json!("default"));
-        if cache_retention == CacheRetention::Long {
-            cache_point.insert("ttl".into(), json!("1h"));
-        }
-        blocks.push(json!({ "cachePoint": Value::Object(cache_point) }));
+    if cache_retention != CacheRetention::None && supports_prompt_caching(model) && budget.take() {
+        blocks.push(cache_point(cache_retention));
     }
 
     Some(blocks)
 }
 
-/// Port of `convertMessages`.
+/// Port of `convertMessages`. When prompt caching is on, a cache point
+/// follows each marked user text block.
 // Long by design (a 1:1 port of the upstream provider shape); refactoring is out of scope for the zero-behavior pedantic sweep.
 #[allow(clippy::too_many_lines)]
 pub fn convert_messages(
@@ -169,6 +180,7 @@ pub fn convert_messages(
     let transformed = transform_messages_with_normalizer(&context.messages, model, &|id, _, _| {
         Some(normalize_tool_call_id(id))
     });
+    let caching = cache_retention != CacheRetention::None && supports_prompt_caching(model);
 
     let mut i = 0usize;
     while i < transformed.len() {
@@ -178,20 +190,28 @@ pub fn convert_messages(
                     UserMessageContent::Text(text) => {
                         vec![json!({ "text": sanitize_surrogates(text) })]
                     }
-                    UserMessageContent::Blocks(blocks) => blocks
-                        .iter()
-                        .map(|c| match crate::types::user_block_payload(c) {
-                            crate::types::UserBlockPayload::Text(text) => {
-                                json!({ "text": sanitize_surrogates(text) })
+                    UserMessageContent::Blocks(blocks) => {
+                        let mut converted = Vec::with_capacity(blocks.len());
+                        for c in blocks {
+                            converted.push(match crate::types::user_block_payload(c) {
+                                crate::types::UserBlockPayload::Text(text) => {
+                                    json!({ "text": sanitize_surrogates(text) })
+                                }
+                                crate::types::UserBlockPayload::Image { data, mime_type } => {
+                                    json!({ "image": create_image_block(mime_type, data) })
+                                }
+                                crate::types::UserBlockPayload::Opaque(json) => {
+                                    json!({ "text": sanitize_surrogates(&json) })
+                                }
+                            });
+                            // A marked block ends a cacheable prefix (the chat
+                            // memory marks the pieces of its view).
+                            if caching && has_cache_breakpoint(c) {
+                                converted.push(cache_point(cache_retention));
                             }
-                            crate::types::UserBlockPayload::Image { data, mime_type } => {
-                                json!({ "image": create_image_block(mime_type, data) })
-                            }
-                            crate::types::UserBlockPayload::Opaque(json) => {
-                                json!({ "text": sanitize_surrogates(&json) })
-                            }
-                        })
-                        .collect(),
+                        }
+                        converted
+                    }
                 };
                 result.push(json!({ "role": "user", "content": content_blocks }));
                 i += 1;
@@ -305,22 +325,21 @@ pub fn convert_messages(
     }
 
     // Add a cache point to the last user message for supported Claude models
-    // when caching is enabled.
-    if cache_retention != CacheRetention::None
-        && supports_prompt_caching(model)
-        && !result.is_empty()
-    {
+    // when caching is enabled. A marked last block already ends with one.
+    if caching && !result.is_empty() {
         let last = result.last_mut().expect("checked non-empty");
         if last.get("role").and_then(Value::as_str) == Some("user") {
-            let mut cache_point = Map::new();
-            cache_point.insert("type".into(), json!("default"));
-            if cache_retention == CacheRetention::Long {
-                cache_point.insert("ttl".into(), json!("1h"));
-            }
-            last.get_mut("content")
+            let last_blocks = last
+                .get_mut("content")
                 .and_then(Value::as_array_mut)
-                .expect("user messages always carry content")
-                .push(json!({ "cachePoint": Value::Object(cache_point) }));
+                .expect("user messages always carry content");
+            if last_blocks
+                .last()
+                .and_then(|block| block.get("cachePoint"))
+                .is_none()
+            {
+                last_blocks.push(cache_point(cache_retention));
+            }
         }
     }
 

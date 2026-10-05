@@ -151,6 +151,7 @@ impl<'a> ResponsesStreamProcessor<'a> {
                                 text: String::new(),
                                 text_signature: None,
                                 rest: Map::default(),
+                                cache_breakpoint: None,
                             }));
                         self.writer.push(AssistantMessageEvent::TextStart {
                             content_index: content_index as u64,
@@ -778,24 +779,32 @@ impl<'a> ResponsesStreamProcessor<'a> {
                     self.output.response_id = Some(id.to_string());
                 }
                 if let Some(usage) = response.get("usage") {
-                    let cached_tokens = usage
-                        .get("input_tokens_details")
+                    let input_details = usage.get("input_tokens_details");
+                    let cached_tokens = input_details
                         .and_then(|details| details.get("cached_tokens"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    // GPT-5.6 and later report their cache writes apart.
+                    let cache_write_tokens = input_details
+                        .and_then(|details| details.get("cache_write_tokens"))
                         .and_then(serde_json::Value::as_u64)
                         .unwrap_or(0);
                     let input_tokens = usage
                         .get("input_tokens")
                         .and_then(serde_json::Value::as_u64)
                         .unwrap_or(0);
-                    // OpenAI includes cached tokens in input_tokens; subtract them.
+                    // OpenAI includes cached and cache-write tokens in
+                    // input_tokens; subtract them.
                     self.output.usage = Usage {
-                        input: input_tokens.saturating_sub(cached_tokens),
+                        input: input_tokens
+                            .saturating_sub(cached_tokens)
+                            .saturating_sub(cache_write_tokens),
                         output: usage
                             .get("output_tokens")
                             .and_then(serde_json::Value::as_u64)
                             .unwrap_or(0),
                         cache_read: cached_tokens,
-                        cache_write: 0,
+                        cache_write: cache_write_tokens,
                         total_tokens: usage
                             .get("total_tokens")
                             .and_then(serde_json::Value::as_u64)

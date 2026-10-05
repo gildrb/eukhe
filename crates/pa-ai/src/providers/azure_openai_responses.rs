@@ -15,8 +15,9 @@ use crate::event_stream::{
 };
 use crate::models::{clamp_thinking_level, supports_thinking};
 use crate::providers::openai_responses_shared::{
-    convert_responses_messages, convert_responses_tools, ConvertResponsesMessagesOptions,
-    ConvertResponsesToolsOptions, ResponsesStreamHooks, AZURE_TOOL_CALL_PROVIDERS,
+    apply_reasoning_context, convert_responses_messages, convert_responses_tools,
+    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, ResponsesStreamHooks,
+    AZURE_TOOL_CALL_PROVIDERS,
 };
 use crate::providers::simple_options::build_base_options;
 use crate::registry::Provider;
@@ -241,6 +242,7 @@ fn build_params(
             }
         }
     }
+    apply_reasoning_context(model, &mut params);
     Value::Object(params)
 }
 

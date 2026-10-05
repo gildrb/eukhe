@@ -464,6 +464,7 @@ mod tests {
                     pa_agent::types::UserPart::Text(pa_agent::types::TextContent {
                         text: "reply with ok".into(),
                         text_signature: None,
+                        cache_breakpoint: None,
                     }),
                 ]),
                 timestamp: 1,
@@ -478,6 +479,7 @@ mod tests {
                         text: "reply with ok".into(),
                         text_signature: None,
                         rest: serde_json::Map::default(),
+                        cache_breakpoint: None,
                     }),
                 ]),
                 timestamp: 1,

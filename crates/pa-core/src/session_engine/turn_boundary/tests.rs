@@ -56,6 +56,7 @@ fn assistant_entry(text: &str) -> SessionMessage {
             text: text.to_string(),
             text_signature: None,
             rest: serde_json::Map::default(),
+            cache_breakpoint: None,
         })],
         api: "test".to_string(),
         provider: "faux".to_string(),

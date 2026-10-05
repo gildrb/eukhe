@@ -20,6 +20,7 @@ fn error_message(
         content: vec![AssistantContent::Text(TextContent {
             text: String::new(),
             text_signature: None,
+            cache_breakpoint: None,
         })],
         api: String::new(),
         provider: "test".to_string(),
@@ -45,6 +46,7 @@ fn ok_message() -> AssistantMessage {
         content: vec![AssistantContent::Text(TextContent {
             text: "done".to_string(),
             text_signature: None,
+            cache_breakpoint: None,
         })],
         api: String::new(),
         provider: "test".to_string(),
@@ -348,6 +350,7 @@ fn stream_drop_message() -> AssistantMessage {
         content: vec![AssistantContent::Text(TextContent {
             text: String::new(),
             text_signature: None,
+            cache_breakpoint: None,
         })],
         api: String::new(),
         provider: "test".to_string(),

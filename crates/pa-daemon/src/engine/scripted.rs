@@ -750,6 +750,7 @@ fn scripted_side_question_turn(
         content: vec![AssistantContent::Text(TextContent {
             text: String::new(),
             text_signature: None,
+            cache_breakpoint: None,
         })],
         api: String::new(),
         provider: "scripted".to_string(),

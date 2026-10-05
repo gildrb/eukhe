@@ -76,6 +76,7 @@ fn tokens_before_anchors_on_last_valid_usage_plus_trailing() {
                     text: "seed reply".to_string(),
                     text_signature: None,
                     rest: serde_json::Map::default(),
+                    cache_breakpoint: None,
                 },
             )]
         };

@@ -138,6 +138,7 @@ fn wire_assistant_message(text: String) -> Value {
                     text,
                     text_signature: None,
                     rest: Map::default(),
+                    cache_breakpoint: None,
                 },
             )],
             api: "faux".to_string(),

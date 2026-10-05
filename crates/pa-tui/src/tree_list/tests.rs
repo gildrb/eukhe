@@ -69,6 +69,7 @@ fn assistant_text_node(
                 text: text.to_string(),
                 text_signature: None,
                 rest: Map::default(),
+                cache_breakpoint: None,
             },
         )];
     }

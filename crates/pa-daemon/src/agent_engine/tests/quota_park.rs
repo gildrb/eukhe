@@ -116,6 +116,7 @@ async fn a_failed_park_entry_write_propagates_to_the_caller() {
                         text: "seed".to_string(),
                         text_signature: None,
                         rest: Map::default(),
+                        cache_breakpoint: None,
                     },
                 )],
                 api: "faux".to_string(),

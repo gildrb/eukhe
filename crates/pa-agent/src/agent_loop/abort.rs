@@ -90,6 +90,7 @@ pub(crate) fn create_aborted_assistant_message(
                 vec![AssistantContent::Text(crate::types::TextContent {
                     text: String::new(),
                     text_signature: None,
+                    cache_breakpoint: None,
                 })]
             },
             |partial| clone_assistant_content(&partial.content),

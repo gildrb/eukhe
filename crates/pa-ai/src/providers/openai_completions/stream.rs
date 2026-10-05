@@ -13,6 +13,7 @@ use crate::event_stream::{
     create_assistant_message_event_stream, AssistantMessageEvent, AssistantMessageEventStream,
     AssistantMessageEventWriter,
 };
+use crate::providers::cache_breakpoints::excess_breakpoints_error;
 use crate::providers::openai_completions::convert::{map_stop_reason, parse_chunk_usage};
 use crate::providers::openai_completions::errors::{openai_http_error, openrouter_raw_metadata};
 use crate::providers::openai_completions::get_compat_cache_control;
@@ -23,8 +24,8 @@ use crate::providers::openai_completions::{
 };
 use crate::providers::openai_responses_hooks::apply_service_tier_pricing;
 use crate::types::{
-    done_reason, error_reason, AssistantContent, AssistantMessage, CacheRetention, Context, Model,
-    StopReason, TextContent, ThinkingContent, ToolCall, Usage,
+    done_reason, error_reason, AssistantContent, AssistantMessage, CacheControlFormat,
+    CacheRetention, Context, Model, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
 };
 use crate::utils_inner::http::{send, HttpResponse, RequestOptions};
 use crate::utils_inner::json_parse::{
@@ -80,6 +81,7 @@ impl StreamingState {
                 text: String::new(),
                 text_signature: None,
                 rest: Map::default(),
+                cache_breakpoint: None,
             }));
         let index = self.output.content.len() - 1;
         self.text_block = Some(index);
@@ -473,12 +475,19 @@ fn error_to_message(error: &ProviderError) -> String {
     message
 }
 
-/// Port of `streamOpenAICompletions`.
+/// Port of `streamOpenAICompletions`. With Anthropic-format cache control, a
+/// context with more marked cache-breakpoint blocks than the mark budget
+/// allows fails before the request is built.
 pub fn stream_openai_completions(
     model: &Model,
     context: &Context,
     options: Option<&OpenAICompletionsOptions>,
 ) -> AssistantMessageEventStream {
+    if get_compat(model).cache_control_format == Some(CacheControlFormat::Anthropic) {
+        if let Some(error) = excess_breakpoints_error(model, context) {
+            return error;
+        }
+    }
     let options = options.cloned();
     let model = model.clone();
     let context = context.clone();

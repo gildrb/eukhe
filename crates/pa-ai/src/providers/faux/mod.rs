@@ -51,6 +51,7 @@ pub fn faux_text(text: &str) -> AssistantContent {
         text: text.to_string(),
         text_signature: None,
         rest: Map::default(),
+        cache_breakpoint: None,
     })
 }
 
@@ -621,6 +622,7 @@ async fn stream_with_deltas(
                     text: String::new(),
                     text_signature: None,
                     rest: Map::default(),
+                    cache_breakpoint: None,
                 }));
                 writer.push(AssistantMessageEvent::TextStart {
                     content_index: index as u64,

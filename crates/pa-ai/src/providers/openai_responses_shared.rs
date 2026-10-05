@@ -6,8 +6,10 @@
 //! normalization. The stream event processor lives in
 //! [`crate::providers::openai_responses_stream`].
 
+use pa_types::ai::supports_explicit_cache_breakpoints;
 use serde_json::{json, Map, Value};
 
+use crate::providers::cache_breakpoints::has_cache_breakpoint;
 use crate::providers::transform_messages::transform_messages_with_normalizer;
 use crate::types::{
     AssistantContent, AssistantMessage, Context, Model, ModelExt, TextSignaturePhase, Tool,
@@ -79,12 +81,17 @@ pub const AZURE_TOOL_CALL_PROVIDERS: [&str; 4] = [
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ConvertResponsesMessagesOptions {
     pub include_system_prompt: bool,
+    /// Whether marked blocks may carry `prompt_cache_breakpoint` (on the
+    /// model family that supports it): the provider decides, since not
+    /// every Responses backend is known to accept the field.
+    pub explicit_cache_breakpoints: bool,
 }
 
 impl ConvertResponsesMessagesOptions {
     pub fn include_system_prompt() -> Self {
         Self {
             include_system_prompt: true,
+            explicit_cache_breakpoints: true,
         }
     }
 }
@@ -116,7 +123,9 @@ fn build_foreign_responses_item_id(item_id: &str) -> String {
     }
 }
 
-/// Convert a conversation to Responses API `input` items.
+/// Convert a conversation to Responses API `input` items. On the models with
+/// explicit prompt-cache breakpoints, each marked user text block carries
+/// `prompt_cache_breakpoint`.
 // Long by design (a 1:1 port of the upstream provider shape); refactoring is out of scope for the zero-behavior pedantic sweep.
 #[allow(clippy::too_many_lines)]
 pub fn convert_responses_messages(
@@ -155,6 +164,8 @@ pub fn convert_responses_messages(
             Some(normalize_tool_call_id(id, source))
         });
 
+    let explicit_breakpoints =
+        options.explicit_cache_breakpoints && supports_explicit_cache_breakpoints(&model.id);
     let include_system_prompt = options.include_system_prompt;
     if include_system_prompt {
         if let Some(system_prompt) = &context.system_prompt {
@@ -180,20 +191,37 @@ pub fn convert_responses_messages(
                 UserMessageContent::Blocks(blocks) => {
                     let content_items: Vec<Value> = blocks
                         .iter()
-                        .map(|item| match crate::types::user_block_payload(item) {
-                            crate::types::UserBlockPayload::Text(text) => json!({
-                                "type": "input_text",
-                                "text": sanitize_surrogates(text),
-                            }),
-                            crate::types::UserBlockPayload::Image { data, mime_type } => json!({
-                                "type": "input_image",
-                                "detail": "auto",
-                                "image_url": format!("data:{mime_type};base64,{data}"),
-                            }),
-                            crate::types::UserBlockPayload::Opaque(json) => json!({
-                                "type": "input_text",
-                                "text": sanitize_surrogates(&json),
-                            }),
+                        .map(|item| {
+                            let mut content_item = match crate::types::user_block_payload(item) {
+                                crate::types::UserBlockPayload::Text(text) => json!({
+                                    "type": "input_text",
+                                    "text": sanitize_surrogates(text),
+                                }),
+                                crate::types::UserBlockPayload::Image { data, mime_type } => {
+                                    json!({
+                                        "type": "input_image",
+                                        "detail": "auto",
+                                        "image_url": format!("data:{mime_type};base64,{data}"),
+                                    })
+                                }
+                                crate::types::UserBlockPayload::Opaque(json) => json!({
+                                    "type": "input_text",
+                                    "text": sanitize_surrogates(&json),
+                                }),
+                            };
+                            // A marked block ends a cacheable prefix (the chat
+                            // memory marks the pieces of its view). The implicit
+                            // breakpoint at the end of the latest message stays.
+                            if explicit_breakpoints && has_cache_breakpoint(item) {
+                                content_item
+                                    .as_object_mut()
+                                    .expect("content items are objects")
+                                    .insert(
+                                        "prompt_cache_breakpoint".into(),
+                                        json!({ "mode": "explicit" }),
+                                    );
+                            }
+                            content_item
                         })
                         .collect();
                     if content_items.is_empty() {
@@ -366,6 +394,23 @@ pub fn convert_responses_messages(
     messages
 }
 
+/// Pin `reasoning.context: "all_turns"` in the request's reasoning object,
+/// when it sends one, on the models with explicit prompt-cache controls: the
+/// reasoning of earlier turns stays in the prompt, so a user message sent
+/// mid-run keeps the cached prefix (with `current_turn` it drops the earlier
+/// reasoning and the cache misses). Other models' requests stay unchanged.
+pub(crate) fn apply_reasoning_context(model: &Model, params: &mut Map<String, Value>) {
+    if !supports_explicit_cache_breakpoints(&model.id) {
+        return;
+    }
+    if let Some(reasoning) = params
+        .get_mut("reasoning")
+        .and_then(|value| value.as_object_mut())
+    {
+        reasoning.insert("context".into(), json!("all_turns"));
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ConvertResponsesToolsOptions {
     pub strict: Option<bool>,
@@ -459,6 +504,7 @@ mod tests {
             text: text.into(),
             text_signature: signature.map(str::to_string),
             rest: Map::default(),
+            cache_breakpoint: None,
         })
     }
 
@@ -470,6 +516,7 @@ mod tests {
                 text: "ok".into(),
                 text_signature: None,
                 rest: Map::default(),
+                cache_breakpoint: None,
             })],
             details: None,
             is_error: false,
@@ -489,6 +536,7 @@ mod tests {
             &OPENAI_TOOL_CALL_PROVIDERS,
             ConvertResponsesMessagesOptions {
                 include_system_prompt: false,
+                explicit_cache_breakpoints: true,
             },
         )
     }

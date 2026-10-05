@@ -61,6 +61,16 @@ pub enum StopReason {
     Aborted,
 }
 
+/// An explicit prompt-cache breakpoint on a text block (the pa-types
+/// `CacheBreakpoint` wire shape): a cacheable request prefix may end right
+/// after the marked block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CacheBreakpoint {
+    /// The provider's default (shortest) cache lifetime.
+    Ephemeral,
+}
+
 /// Text content block.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextContent {
@@ -72,6 +82,13 @@ pub struct TextContent {
         skip_serializing_if = "Option::is_none"
     )]
     pub text_signature: Option<String>,
+    /// An explicit prompt-cache breakpoint after this block.
+    #[serde(
+        rename = "cacheBreakpoint",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cache_breakpoint: Option<CacheBreakpoint>,
 }
 
 /// Thinking/reasoning content block.
@@ -317,6 +334,7 @@ impl ToolResultContent {
         ToolResultContent::Text(TextContent {
             text: s.into(),
             text_signature: None,
+            cache_breakpoint: None,
         })
     }
 }

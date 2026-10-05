@@ -123,6 +123,7 @@ impl GoogleStreamState {
                                     text: String::new(),
                                     text_signature: None,
                                     rest: Map::default(),
+                                    cache_breakpoint: None,
                                 }));
                                 self.current_kind = Some("text");
                                 writer.push(AssistantMessageEvent::TextStart {
