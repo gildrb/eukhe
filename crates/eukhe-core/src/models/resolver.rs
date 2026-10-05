@@ -575,12 +575,20 @@ pub struct InitialModelOptions<'a> {
 /// The startup model, in the TS priority order:
 /// 1. CLI flags (`--provider` + `--model`, resolved against the full catalog;
 ///    an unresolved flagged model resolves to `None`, the caller's error)
-/// 2. The `--models` scope: the saved default when it is in scope, else the
+/// 2. `--provider` alone: that provider's saved default, else its featured
+///    default, else its first model — authenticated models first, then the
+///    full catalog (an `--api-key` run); an unknown provider resolves to
+///    `None`
+/// 3. The `--models` scope: the saved default when it is in scope, else the
 ///    first scoped model (skipped for a continued session)
-/// 3. The saved settings default, rebuilt from the provider template when the
+/// 4. The saved settings default, rebuilt from the provider template when the
 ///    saved id is missing from the catalog
-/// 4. The featured default (prime-inference glm-5.3, then per-provider ids)
-/// 5. The first available model.
+/// 5. The featured default (prime-inference glm-5.3, then per-provider ids)
+/// 6. The first available model.
+///
+/// `None` past step 2 means no model has credentials; it never falls back
+/// to an unauthenticated catalog model.
+/// [`initial_model_unavailable_message`] phrases the miss for the caller.
 #[must_use]
 pub fn find_initial_model(options: &InitialModelOptions<'_>) -> Option<Model> {
     if let (Some(provider), Some(pattern)) = (options.cli_provider, options.cli_model) {
@@ -588,6 +596,33 @@ pub fn find_initial_model(options: &InitialModelOptions<'_>) -> Option<Model> {
         // A flagged model that cannot resolve fails the whole lookup; the
         // caller surfaces the error (TS exits the process at this point).
         return resolved.model;
+    }
+    if let Some(provider) = options.cli_provider {
+        let saved_id = options
+            .default_provider
+            .filter(|saved| saved.eq_ignore_ascii_case(provider))
+            .and(options.default_model_id);
+        let provider_model = |models: &[Model]| -> Option<Model> {
+            let of_provider: Vec<&Model> = models
+                .iter()
+                .filter(|model| model.provider.eq_ignore_ascii_case(provider))
+                .collect();
+            let featured_id = of_provider
+                .first()
+                .and_then(|model| default_model_per_provider(&model.provider));
+            of_provider
+                .iter()
+                .find(|model| Some(model.id.as_str()) == saved_id)
+                .or_else(|| {
+                    of_provider
+                        .iter()
+                        .find(|model| Some(model.id.as_str()) == featured_id)
+                })
+                .or_else(|| of_provider.first())
+                .map(|model| (*model).clone())
+        };
+        return provider_model(options.available_models)
+            .or_else(|| provider_model(options.all_models));
     }
     if !options.scoped_models.is_empty() && !options.is_continuing {
         let saved_in_scope = options
@@ -623,6 +658,28 @@ pub fn find_initial_model(options: &InitialModelOptions<'_>) -> Option<Model> {
     find_preferred_default_model(options.available_models)
         .cloned()
         .or_else(|| options.available_models.first().cloned())
+}
+
+/// Why [`find_initial_model`] resolved nothing for `options`, naming the
+/// fix: an empty catalog, the flagged model's resolution error, an unknown
+/// `--provider`, or no model with credentials.
+#[must_use]
+pub fn initial_model_unavailable_message(options: &InitialModelOptions<'_>) -> String {
+    if options.all_models.is_empty() {
+        return "No models available. Check your installation or add models to models.json."
+            .to_string();
+    }
+    match (options.cli_provider, options.cli_model) {
+        (Some(provider), Some(pattern)) => {
+            resolve_cli_model(Some(provider), pattern, options.all_models)
+                .error
+                .unwrap_or_else(|| format!("Model \"{provider}/{pattern}\" not found. Use \"eukhe model list\" to see available models."))
+        }
+        (Some(provider), None) => format!(
+            "Unknown provider \"{provider}\". Use \"eukhe model list\" to see available providers/models."
+        ),
+        (None, Some(_) | None) => "No model has credentials. Run \"eukhe\" and use /login, set the provider's API key environment variable, or pass --model <provider>/<id> with --api-key.".to_string(),
+    }
 }
 
 /// The private-model predicate without a full `Model` value (TS

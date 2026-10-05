@@ -1,7 +1,9 @@
 //! The headless (print/json/RPC) startup model: a flagged `--model`, else
-//! the TS `findInitialModel` chain every other mode runs - the `--models`
-//! scope, the saved settings default, the featured default, the first
-//! authenticated model.
+//! the TS `findInitialModel` chain every other mode runs - `--provider`
+//! alone, the `--models` scope, the saved settings default, the featured
+//! default, the first authenticated model. Nothing with credentials is an
+//! error naming the fix, never a silent pick of a model whose provider
+//! cannot authenticate.
 
 use eukhe_types::ai::Model;
 
@@ -12,7 +14,8 @@ use crate::mode::{RuntimeConfig, SessionOptions};
 /// # Errors
 ///
 /// Returns the resolver's message when a flagged model does not resolve,
-/// or when the catalog holds no model at all.
+/// when `--provider` names no known provider, or when no model has
+/// credentials.
 pub(super) fn select_model(
     registry: &eukhe_core::models::ModelRegistry,
     config: &RuntimeConfig,
@@ -30,24 +33,21 @@ pub(super) fn select_model(
                 eukhe_core::models::resolve_model_scope_from_models(patterns, &available)
             })
             .unwrap_or_default();
-        return eukhe_core::models::find_initial_model(&eukhe_core::models::InitialModelOptions {
-            cli_provider: None,
+        let initial = eukhe_core::models::InitialModelOptions {
+            cli_provider: config.provider.as_deref(),
             cli_model: None,
             scoped_models: &scoped,
             is_continuing: session.resume.is_some()
+                || session.resume_bare
                 || session.continue_recent
                 || session.fork.is_some(),
             default_provider: settings.get_default_provider(),
             default_model_id: settings.get_default_model(),
             all_models: &all,
             available_models: &available,
-        })
-        // No authenticated model: the run-start auth check names the
-        // missing credential for the catalog's first model.
-        .or_else(|| all.first().cloned())
-        .ok_or_else(|| {
-            "No models available. Check your installation or add models to models.json.".to_string()
-        });
+        };
+        return eukhe_core::models::find_initial_model(&initial)
+            .ok_or_else(|| eukhe_core::models::initial_model_unavailable_message(&initial));
     };
     let resolved =
         eukhe_core::models::resolve_cli_model(config.provider.as_deref(), model_name, &available);

@@ -9,10 +9,16 @@ use super::{
 
 impl AgentSessionEngine {
     /// The TS `createAgentSession` startup chain (the no-flagged-model
-    /// arm of [`Self::resolve_registry_model`]): the saved settings
-    /// default, then the featured default, then the first available
-    /// model — resolved against `registry`'s current view.
-    fn startup_chain_model(&self, registry: &eukhe_core::models::ModelRegistry) -> Option<Model> {
+    /// arm of [`Self::resolve_registry_model`]): the `--provider` flag
+    /// alone, then the saved settings default, then the featured default,
+    /// then the first available model — resolved against `registry`'s
+    /// current view. `Err` names why nothing resolved (no credentials, an
+    /// unknown provider); it never falls back to a model whose provider
+    /// has no credentials.
+    fn startup_chain_model(
+        &self,
+        registry: &eukhe_core::models::ModelRegistry,
+    ) -> Result<Model, String> {
         let available: Vec<Model> = registry.get_available().into_iter().cloned().collect();
         let all: Vec<Model> = registry.get_all().to_vec();
         let settings =
@@ -32,8 +38,9 @@ impl AgentSessionEngine {
             Some(scope) => (scope.scoped_models, scope.is_continuing),
             None => (Vec::new(), false),
         };
-        eukhe_core::models::find_initial_model(&eukhe_core::models::InitialModelOptions {
-            cli_provider: None,
+        let selection = self.current_selection();
+        let options = eukhe_core::models::InitialModelOptions {
+            cli_provider: selection.provider.as_deref(),
             cli_model: None,
             scoped_models: &scoped_models,
             is_continuing,
@@ -41,8 +48,9 @@ impl AgentSessionEngine {
             default_model_id: settings.get_default_model(),
             all_models: &all,
             available_models: &available,
-        })
-        .or_else(|| all.first().cloned())
+        };
+        eukhe_core::models::find_initial_model(&options)
+            .ok_or_else(|| eukhe_core::models::initial_model_unavailable_message(&options))
     }
 
     /// The runtime-config reset at every session restore (TS
@@ -171,11 +179,11 @@ impl AgentSessionEngine {
             // summary publishes what happened (never silent).
             let fallback = self.startup_chain_model(&registry);
             let message = match &fallback {
-                Some(fallback) => format!(
+                Ok(fallback) => format!(
                     "Could not restore model {provider}/{model_id}. Using {}/{}",
                     fallback.provider, fallback.id
                 ),
-                None => format!("Could not restore model {provider}/{model_id}"),
+                Err(reason) => format!("Could not restore model {provider}/{model_id}. {reason}"),
             };
             eprintln!("{message}");
             (None, Some(message))
@@ -280,17 +288,14 @@ impl AgentSessionEngine {
         let Some(model_name) = selection.model.as_deref() else {
             // No flagged model: the restored-from-session decision comes
             // first (TS `createAgentSession`), then the startup chain —
-            // the saved settings default, then the featured default, then
-            // the first available model.
+            // the `--provider` flag, the saved settings default, the
+            // featured default, then the first available model.
             if let Some(model) = self.restored_model_resolution(&registry) {
                 return Ok(model);
             }
-            let Some(model) = self.startup_chain_model(&registry) else {
-                anyhow::bail!(
-                    "No models available. Check your installation or add models to models.json."
-                );
-            };
-            return Ok(model);
+            return self
+                .startup_chain_model(&registry)
+                .map_err(anyhow::Error::msg);
         };
         // TS `resolveCliModel` resolves against `modelRegistry.getAll()`
         // — the full catalog, not the auth-configured list ("use *all*
