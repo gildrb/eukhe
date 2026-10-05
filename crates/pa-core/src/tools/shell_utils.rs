@@ -8,7 +8,7 @@
 
 pub use crate::platform::shell::get_shell_config;
 
-/// The agent config directory (`~/.prime/agent` unless overridden).
+/// The agent config directory (`~/.eukhe` unless overridden).
 pub fn get_agent_dir() -> String {
     if let Ok(dir) = std::env::var("PI_CODING_AGENT_DIR") {
         if dir.starts_with('~') {
@@ -18,7 +18,11 @@ pub fn get_agent_dir() -> String {
         }
         return dir;
     }
-    format!("{}/.prime/agent", home_dir())
+    format!(
+        "{}/{}",
+        home_dir(),
+        pa_types::platform::dirs::AGENT_DIR_NAME
+    )
 }
 
 fn home_dir() -> String {

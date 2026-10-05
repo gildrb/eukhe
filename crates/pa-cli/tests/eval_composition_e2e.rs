@@ -109,7 +109,7 @@ fn always_failing_verifier(home: &Path) -> PathBuf {
 }
 
 fn session_files(home: &Path) -> Vec<PathBuf> {
-    let dir = home.join(".prime/agent/sessions");
+    let dir = home.join(".eukhe/sessions");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .map(|entries| {
             entries

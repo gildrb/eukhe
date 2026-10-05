@@ -51,8 +51,8 @@ use serde_json::{json, Value};
 /// note) on machines without a live install.
 fn kernel_python() -> Option<PathBuf> {
     let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.prime/agent/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.prime/agent/kernel-venv/bin/python"),
+        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
+        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
     ));
     if candidate.exists() {
         return Some(candidate);

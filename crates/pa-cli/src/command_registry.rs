@@ -207,7 +207,7 @@ pub const COMMAND_SPECS: &[CommandSpec] = &[
     CommandSpec::new(
         &["update"],
         "update [--check] [--nightly|--stable]",
-        "Update to the latest Rust build (uninstalls the TypeScript version)",
+        "Show how to update eukhe (through its package manager)",
     )
     .options(&[
         "--check  Print the update channel's latest release vs the running version, without installing",
@@ -219,16 +219,11 @@ pub const COMMAND_SPECS: &[CommandSpec] = &[
         "--source <url>     The https:// origin recorded as the release's install source (required with --archive)",
     ])
     .description(
-        "Move from the TypeScript version to the Rust port in one step: `prime-agent update` \
-         fetches the update channel's installer (stable: \
-         https://app.primeintellect.ai/prime-agent/install.sh; nightly: install-beta.sh from the \
-         release download base — never a GitHub raw or workflow URL) and runs it, which \
-         uninstalls the TypeScript version and installs the latest Rust build; your sessions and \
-         configuration (~/.prime/agent) are never touched. Restart prime-agent after the update \
-         to run the new build. This command exists only in the Rust binary — the TypeScript \
-         version does not have it; the move happens when you run the installer's curl|sh URL (the \
-         README's Install section) or `prime-agent update` (after the Rust install exists).",
-    ),
+        "eukhe updates through its package manager: update the eukhe flake input (Nix), or \
+         install a release from https://github.com/gildrb/eukhe/releases. `update` prints that \
+         route and exits 1, because the upstream installer would put upstream Prime Agent in \
+         place of eukhe; `--check` prints the running version. `--rollback` and `--archive` keep \
+         the managed-install flow, which serves only binaries the Prime Agent installer owns."),
     CommandSpec::new(&["model"], "model list [search]", "Inspect available models"),
     CommandSpec::new(&["model", "list"], "model list [search]", "List available models"),
     CommandSpec::new(

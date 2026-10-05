@@ -3984,7 +3984,7 @@ def user_machines_dir() -> Path:
     raw = (
         _machine_env_dir("PRIME_AGENT_CODING_AGENT_DIR")
         or _machine_env_dir("PI_CODING_AGENT_DIR")
-        or str(Path.home() / ".prime" / "agent")
+        or str(Path.home() / ".eukhe")
     )
     return Path(raw).expanduser().resolve() / MACHINES_DIR_NAME
 

@@ -69,7 +69,7 @@ fn group_label(metadata: &PathMetadata) -> String {
             if metadata.scope == SourceScope::Project {
                 format!("Project ({})", crate::settings::CONFIG_DIR_NAME)
             } else {
-                format!("User (~/{}/)", crate::settings::CONFIG_DIR_NAME)
+                format!("User (~/{}/)", pa_types::platform::dirs::AGENT_DIR_NAME)
             }
         }
         _ => {
@@ -503,7 +503,7 @@ mod tests {
             labels,
             vec![
                 "npm:foo/bar (user)",
-                "User (~/.prime/agent/)",
+                "User (~/.eukhe/)",
                 "Built-in",
                 "Project settings"
             ]

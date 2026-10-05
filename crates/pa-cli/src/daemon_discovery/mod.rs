@@ -212,7 +212,7 @@ pub(crate) fn is_worker_socket_path(socket_path: &Path, socket_dir: &Path) -> bo
 /// uptime lookup touches a pid: a scan run from one root can never see —
 /// let alone stop — a daemon in another root.
 pub(crate) fn scan_listening_daemons(root: &DaemonStateRoot) -> Vec<DiscoveredDaemonProcess> {
-    scan::scan_all_listening_daemons(config::APP_NAME, root)
+    scan::scan_all_listening_daemons(config::PROCESS_NAME, root)
 }
 
 /// True when the pid still listens on exactly this socket (TS

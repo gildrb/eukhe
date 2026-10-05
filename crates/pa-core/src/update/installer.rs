@@ -34,6 +34,10 @@ pub const ENV_DOWNLOAD_BASE_URL: &str = "PRIME_AGENT_DOWNLOAD_BASE_URL";
 /// manifests (`latest.json`, `beta.json`) are published.
 pub const DEFAULT_DOWNLOAD_BASE_URL: &str = "https://pub-728493de92a943e2a9b2d17b4719f318.r2.dev";
 
+/// Why `update` installs nothing: the upstream installer would replace eukhe
+/// with upstream Prime Agent, so eukhe updates through its package manager.
+pub const EXTERNAL_UPDATES: &str = "eukhe updates through its package manager: update the eukhe flake input (Nix), or install a release from https://github.com/gildrb/eukhe/releases";
+
 /// The official domain's install endpoint — the stable channel's installer
 /// source; never a GitHub raw or workflow URL (the override env var stays
 /// for tests and pinned installs).
@@ -173,21 +177,24 @@ pub struct UpdateFailure {
     pub message: String,
 }
 
-/// Run the takeover update with the environment's knobs (the install
-/// prefix and the channel's script URL): the composition root's entry.
-/// `channel` is the requested release channel (`stable` | `beta`); `None`
-/// keeps the installed one.
+/// The composition root's update entry (the CLI `update` and the TUI's
+/// `/update`). Upstream runs the takeover installer here; eukhe never does,
+/// because that installer puts upstream Prime Agent in place of this build.
 ///
 /// # Errors
-/// Returns the failure message for every non-installing outcome (see
-/// [`run_installer_from`]).
+/// Always returns [`EXTERNAL_UPDATES`]: eukhe updates through its package
+/// manager.
+// The funnel's callers await it; eukhe answers at once, without I/O.
+#[allow(clippy::unused_async)]
 pub async fn run_installer(
-    channel: Option<&'static str>,
-    output: InstallerOutput,
+    _channel: Option<&'static str>,
+    _output: InstallerOutput,
 ) -> std::result::Result<Installed, UpdateFailure> {
-    let prefix = install_prefix();
-    let channel = channel.or_else(|| installed_channel(&prefix));
-    run_installer_from(&installer_script_url(channel), &prefix, channel, output).await
+    // The installer-takeover funnel installs upstream Prime Agent over this
+    // build: eukhe never runs it.
+    Err(UpdateFailure {
+        message: EXTERNAL_UPDATES.to_string(),
+    })
 }
 
 /// Run the takeover update from one explicit script URL and install

@@ -8,7 +8,9 @@ use sha2::{Digest, Sha256};
 
 pub const AGENT_DIR_ENV: &str = "PRIME_AGENT_CODING_AGENT_DIR";
 pub const SESSION_DIR_ENV: &str = "PRIME_AGENT_SESSION_DIR";
-pub const CONFIG_DIR_NAME: &str = ".prime/agent";
+/// The user's agent state directory name (shared with every crate through
+/// pa-types).
+pub const CONFIG_DIR_NAME: &str = pa_types::platform::dirs::AGENT_DIR_NAME;
 
 /// The home directory for state layout. Unresolvable home is an explicit
 /// error, not a degraded `/tmp` default: the daemon owns durable state and
@@ -42,7 +44,7 @@ pub fn expand_tilde(path: &str) -> Result<PathBuf> {
 }
 
 /// The agent state root: the `PRIME_AGENT_CODING_AGENT_DIR` override
-/// when set (tilde expanded), else `.prime/agent` under the home
+/// when set (tilde expanded), else [`CONFIG_DIR_NAME`] under the home
 /// directory.
 ///
 /// # Errors

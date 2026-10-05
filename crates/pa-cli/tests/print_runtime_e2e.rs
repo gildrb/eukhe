@@ -146,7 +146,7 @@ fn run_in_home(
 }
 
 fn session_files(home: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let dir = home.join(".prime/agent/sessions");
+    let dir = home.join(".eukhe/sessions");
     let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
         .map(|entries| {
             entries
@@ -345,7 +345,7 @@ fn print_mode_thinking_clamps_to_off_for_non_reasoning_models() {
 /// Compaction settings into the isolated home's agent dir, resolved by the
 /// session engine at assembly time.
 fn write_compaction_settings(home: &std::path::Path, settings: &serde_json::Value) {
-    let agent = home.join(".prime/agent");
+    let agent = home.join(".eukhe");
     std::fs::create_dir_all(&agent).unwrap();
     std::fs::write(agent.join("settings.json"), settings.to_string()).unwrap();
 }
@@ -1041,7 +1041,7 @@ fn print_mode_fork_rejects_empty_sources_and_conflicting_flags() {
     let home = isolated_home();
     // An empty session file, addressed by path (TS forkFrom's empty
     // source error).
-    let sessions = home.path().join(".prime/agent/sessions");
+    let sessions = home.path().join(".eukhe/sessions");
     std::fs::create_dir_all(&sessions).expect("sessions dir");
     let empty = sessions.join("empty-session.jsonl");
     std::fs::write(&empty, "").expect("empty session");
