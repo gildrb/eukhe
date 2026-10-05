@@ -3,8 +3,8 @@
 eukhe is a coding agent with one endless chat as its memory.
 
 eukhe is a fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
-by Prime Intellect. It is not affiliated with Prime Intellect. Upstream
-remote: `upstream`.
+by Prime Intellect. It is not affiliated with Prime Intellect or Victor Taelin.
+Upstream remote: `upstream`. See [Attribution](#attribution).
 
 ## Changes from Prime Agent
 
@@ -85,6 +85,18 @@ test daemons at real state:
 ```sh
 env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspace
 ```
+
+## Attribution
+
+- [Prime Intellect](https://www.primeintellect.ai): Prime Agent, the code
+  base of eukhe. Copyright (c) 2025-2026 Prime Intellect Ltd., MIT.
+- [Mario Zechner](https://github.com/badlogic): the original code of the
+  Prime Agent TypeScript product, which eukhe ports. Copyright (c) 2025 Mario
+  Zechner, MIT.
+- [Victor Taelin](https://github.com/VictorTaelin): the chat memory design,
+  [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449),
+  and its predecessor [OptMem](https://github.com/VictorTaelin/OptMem). The
+  memory prompts come from the OptChat specification.
 
 ## License
 

@@ -1,4 +1,4 @@
-//! The chat memory, after the `OptChat` spec
+//! The chat memory, after Victor Taelin's `OptChat` spec
 //! (<https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449>):
 //! one endless, append-only chat log,
 //! a binary tree of one-line summaries over it, the fixed-budget view every

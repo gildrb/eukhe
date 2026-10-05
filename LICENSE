@@ -24,3 +24,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 This software is a port of the Prime Agent TypeScript product, originally
 Copyright (c) 2025 Mario Zechner, used under the MIT License.
+
+---
+
+The chat memory implements OptChat, a design by Victor Taelin
+(https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449), which
+grew out of his OptMem (https://github.com/VictorTaelin/OptMem). The memory's
+prompts (COMPACT, MASTER, VIEW_DOC, the subagent prompt, and the zoom and date
+tool descriptions) are taken from that specification, with the agent renamed.
