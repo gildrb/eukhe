@@ -1,7 +1,7 @@
 [project]
 name = "agent-message"
 version = "0.1.0"
-description = "Prime Agent session-to-session messaging skill"
+description = "Eukhe session-to-session messaging skill"
 requires-python = ">=3.10"
 dependencies = []
 

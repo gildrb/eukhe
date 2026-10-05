@@ -1,15 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/pa-telemetry",
-    "crates/pa-types",
-    "crates/pa-ai",
-    "crates/pa-models",
-    "crates/pa-agent",
-    "crates/pa-core",
-    "crates/pa-daemon",
-    "crates/pa-tui",
-    "crates/pa-cli",
+    "crates/eukhe-telemetry",
+    "crates/eukhe-types",
+    "crates/eukhe-ai",
+    "crates/eukhe-models",
+    "crates/eukhe-agent",
+    "crates/eukhe-core",
+    "crates/eukhe-daemon",
+    "crates/eukhe-tui",
+    "crates/eukhe-cli",
 ]
 
 # Crossterm 0.28.1's kitty support check holds the process-wide event reader
@@ -35,10 +35,10 @@ anyhow = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tracing = { version = "0.1", features = ["attributes"] }
-pa-telemetry = { path = "crates/pa-telemetry" }
-pa-types = { path = "crates/pa-types" }
-pa-ai = { path = "crates/pa-ai" }
-pa-agent = { path = "crates/pa-agent" }
+eukhe-telemetry = { path = "crates/eukhe-telemetry" }
+eukhe-types = { path = "crates/eukhe-types" }
+eukhe-ai = { path = "crates/eukhe-ai" }
+eukhe-agent = { path = "crates/eukhe-agent" }
 thiserror = "2"
 futures = "0.3"
 # Dev-only; the default fork/timeout features are unused.
@@ -48,8 +48,8 @@ proptest = { version = "1.11", default-features = false, features = ["std"] }
 unsafe_code = "forbid"
 
 [workspace.lints.clippy]
-# The pedantic gate the five clippy campaigns earned (pa-daemon #3029,
-# pa-cli #3050, pa-core #3093, the small crates #3110, pa-tui #3134):
+# The pedantic gate the five clippy campaigns earned (eukhe-daemon #3029,
+# eukhe-cli #3050, eukhe-core #3093, the small crates #3110, eukhe-tui #3134):
 # every workspace member is pedantic-clean; CI's -D warnings bar turns
 # this warn class into errors, and the per-crate #![allow] exceptions
 # (the design-choice classes, each with its in-code justification) keep

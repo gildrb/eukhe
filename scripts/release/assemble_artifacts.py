@@ -1,46 +1,37 @@
 #!/usr/bin/env python3
-"""Assemble prime-agent release tarballs (Rust rewrite).
+"""Assemble eukhe release tarballs.
 
-Mirrors the TS release pipeline (`~/prime-agent/scripts/assemble-release-archives.mjs`)
-for the Rust workspace: stage the release binary plus the bundled kernel runtime,
-skills, docs, and license metadata into a scratch tree, pack a deterministic
-tarball with files at the tarball root, and emit `SHA256SUMS` plus a
-TS-installer-compatible `manifest.json` (archive sha256, executable sha256,
-platform alias).
+The per-target packaging step of `.github/workflows/eukhe-release.yml`: stage
+the release binary plus the bundled kernel runtime, skills, and license
+metadata into a scratch tree, pack a deterministic tarball with files at the
+tarball root, and emit `SHA256SUMS` plus a `manifest.json` (archive sha256,
+executable sha256, platform alias, target triple, Linux decoder facts).
 
 Usage:
     python3 scripts/release/assemble_artifacts.py \
         --repo-root <repo> --version <x.y.z> --target <triple> \
-        [--binary <path>] [--runtime-dir <dir>] [--out-dir <dir>] [--sha <commit>] \
-        [--catalog-assets <dir>]
+        [--binary <path>] [--decoder <path>] [--runtime-dir <dir>] \
+        [--out-dir <dir>] [--catalog-assets <dir>]
 
 `--catalog-assets` is the directory holding the generated bundled catalog
 assets (`models.bundled.json` + `mcp-services.bundled.json`); the packer
 hard-fails without VALIDATED assets (version gates + >= 42 transport tuples +
 >= 68 services — see scripts/release/bundle_catalog.py, the catalog spec §3.2
-no-cold-start layer 2). CI generates them from the live catalog repo; offline
-builds use `bundle_catalog.py generate --fixture`.
+no-cold-start layer 2). The release workflow and offline builds generate them
+with `bundle_catalog.py generate --fixture`.
 
-`--binary` defaults to `<repo>/target/<target>/release/<binary-name>` (cross
-builds) and falls back to `<repo>/target/release/<binary-name>` (host builds),
-where the binary name is `prime-agent.exe` for the Windows MSVC target and
-`prime-agent` everywhere else (`binary_name_for_target`).
-`--runtime-dir` defaults to `<repo>/prime-agent-runtime` (the vendored sidecar
+`--binary` defaults to `<repo>/target/<target>/release/eukhe` (cross builds)
+and falls back to `<repo>/target/release/eukhe` (host builds).
+`--decoder` is the split-debug sidecar from split_debug.py, required (with an
+explicit `--binary`) on Linux targets and rejected elsewhere.
+`--runtime-dir` defaults to `<repo>/eukhe-runtime` (the vendored sidecar
 from the kernel-packaging lane).
-`--sha` (the continuous-build stamp): a full 40-char git commit SHA. When
-given, a `package.json` version manifest is staged beside the binary (TS
-installer parity: it is one of NATIVE_RELEASE_ASSETS) whose `version` is
-`<version>-continuous.<sha>`, so the shipped binary reports the exact commit it
-was built from via `--version`; the manifest records the commit too. The
-archive name keeps the bare `<version>` so rolling releases overwrite assets.
 
-Archive naming: `prime-agent-<version>-<platform-alias>.tar.gz` (TS
-`assemble-release-archives.mjs` parity, e.g.
-`prime-agent-0.1.0-linux-x64.tar.gz`) — the name the update flow's channel
-manifest requires: `pa-core::update::release` keeps a row only when its `file`
-is exactly `prime-agent-<version>-<platform>.tar.gz`, and the promoted
-latest.json/beta.json reference these assets verbatim. The target triple stays
-in the manifest entry's `target` field (provenance, SBOM keying).
+Archive naming: `eukhe-<version>-<platform-alias>.tar.gz` (e.g.
+`eukhe-0.1.0-linux-x64.tar.gz`) — the asset name the release workflow
+publishes and records per Nix system in `nix/release.json`, whose tarball
+layout `nix/package.nix` installs. The target triple stays in the manifest
+entry's `target` field (provenance, SBOM keying).
 """
 
 from __future__ import annotations
@@ -61,39 +52,26 @@ from pathlib import Path
 # The bundled-catalog validation gate (same release-scripts directory).
 from bundle_catalog import BUNDLED_CATALOG_FILES, validate_bundled_catalog_dir
 
-# Tarball-root payload order mirrors the TS `binaryAssets` list so the
-# installer lane can extract both distributions identically. The binary
-# entry name is platform-dependent (`binary_name_for_target`: the MSVC
-# build ships `prime-agent.exe`), so the list names the binary slot via
-# the placeholder resolved in `main`/`stage_tree`.
-BINARY_PLACEHOLDER = "prime-agent"
+# Tarball-root payload: the exe-adjacent layout the binary resolves at
+# runtime, and the one `nix/package.nix` copies into its payload directory.
+BINARY_NAME = "eukhe"
 STAGED_ENTRIES = [
-    BINARY_PLACEHOLDER,
-    "prime-agent-runtime",
+    BINARY_NAME,
+    "eukhe-runtime",
     "skills",
     "LICENSE",
     "README.md",
     # The bundled catalog assets (spec §3.2 layer 2): staged at the tarball
-    # root beside the binary — the runtime resolves <packageDir>/<name> (the
-    # TS binaryAssets ship them the same way).
+    # root beside the binary — the runtime resolves <packageDir>/<name>.
     "models.bundled.json",
     "mcp-services.bundled.json",
 ]
 
 
-def binary_name_for_target(target: str) -> str:
-    """The staged binary name for `target`: `prime-agent.exe` on the MSVC
-    Windows target (the name Cargo's linker emits and the installer's
-    `.exe`-aware layout expects), `prime-agent` everywhere else.
-    """
-    if "-windows-" in target:
-        return "prime-agent.exe"
-    return "prime-agent"
-
 # Shipped-content policy: what the installed tree carries beyond the binary.
 #
 # The runtime sidecar ships only what the kernel consumes. The venv
-# bootstrap installs it with `uv pip install <payload>/prime-agent-runtime`
+# bootstrap installs it with `uv pip install <payload>/eukhe-runtime`
 # (uv's pip interface builds the hatchling wheel, whose target packages
 # only `src/rlm`), and the venv cache identity hashes `src/rlm/*.py` + the
 # packaged machine library under `src/rlm/machines` + `pyproject.toml` — so
@@ -117,24 +95,25 @@ RUNTIME_EXCLUDED_NAMES = frozenset({
 })
 RUNTIME_EXCLUDED_SUFFIXES = (".pyc", ".egg-info")
 
-# Rust target triple -> TS release-platform alias (the v1 installer schema).
+# Rust target triple -> release platform alias (the archive-name suffix and
+# the manifest's `platform` field). Exactly the eukhe-release.yml matrix.
 TARGET_ALIASES = {
     "x86_64-unknown-linux-gnu": "linux-x64",
     "aarch64-unknown-linux-gnu": "linux-arm64",
     "aarch64-apple-darwin": "darwin-arm64",
     "x86_64-apple-darwin": "darwin-x64",
-    "x86_64-pc-windows-msvc": "win32-x64",
 }
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 
-# Split-debug decoder sidecars (prime-agent-*.debug / *.debug.gz) are release
-# assets for offline symbolication, NEVER install payload: the installer and
-# the update channel extract the tarball verbatim, so a decoder inside it
-# would ship DWARF bytes to every install. release.yml uploads the decoder
-# as a separate release asset; this assembly hard-fails if one appears in
-# the staging tree or the packed archive (guards the future, not just today:
-# a later staging mistake must fail the release step, not ride the tarball).
+# Split-debug decoder sidecars (eukhe-*.debug / *.debug.gz) are release
+# assets for offline symbolication, NEVER install payload: consumers (the
+# Nix flake's package.nix) extract the tarball verbatim, so a decoder inside
+# it would ship DWARF bytes to every install. eukhe-release.yml uploads the
+# decoder as a separate release asset; this assembly hard-fails if one
+# appears in the staging tree or the packed archive (guards the future, not
+# just today: a later staging mistake must fail the release step, not ride
+# the tarball).
 DECODER_SUFFIXES = (".debug", ".debug.gz")
 
 
@@ -169,15 +148,6 @@ def fail_if_decoder_in_archive(archive_path: Path) -> None:
             f"payload): {', '.join(offenders)}"
         )
 
-# A git commit SHA as carried by `${GITHUB_SHA}` (full 40 hex chars, either
-# case accepted).
-SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
-
-# The continuous-build version stamp suffix
-# (the trailing SHA keeps the string inside semver prerelease syntax, which
-# both VERSION_RE and the TS installer's release-directory pattern accept).
-CONTINUOUS_SUFFIX = "continuous"
-
 
 def fail(message: str) -> None:
     print(f"error: {message}", file=sys.stderr)
@@ -202,9 +172,6 @@ def parse_args() -> argparse.Namespace:
                         help="separate Linux .debug.gz sidecar from split_debug.py")
     parser.add_argument("--runtime-dir", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, default=None)
-    parser.add_argument("--sha", default=None,
-                        help="full commit SHA to stamp into the binary's "
-                             "version manifest (continuous builds)")
     parser.add_argument("--catalog-assets", type=Path, default=None,
                         help="directory with models.bundled.json + "
                              "mcp-services.bundled.json (see "
@@ -213,42 +180,22 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_binary(args: argparse.Namespace) -> Path:
-    name = binary_name_for_target(args.target)
     candidates = []
     if args.binary is not None:
         candidates.append(args.binary)
     else:
-        candidates.append(args.repo_root / "target" / args.target / "release" / name)
-        candidates.append(args.repo_root / "target" / "release" / name)
+        candidates.append(args.repo_root / "target" / args.target / "release" / BINARY_NAME)
+        candidates.append(args.repo_root / "target" / "release" / BINARY_NAME)
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate
     listed = ", ".join(str(candidate) for candidate in candidates)
-    fail(f"no executable {name} binary found (looked at: {listed}); build first")
+    fail(f"no executable {BINARY_NAME} binary found (looked at: {listed}); build first")
 
 
 def validate_version(version: str) -> None:
     if not VERSION_RE.match(version):
         fail(f"invalid version {version!r} (expected semver like 0.1.0)")
-
-
-def continuous_version(version: str, sha: str) -> str:
-    """The stamped runtime version for a continuous build of `sha`.
-
-    The bare `--version` keeps the archive/asset names stable (the rolling
-    release overwrites same-named assets); only the binary's runtime version
-    manifest carries the commit, so `prime-agent --version` reports exactly
-    what was built.
-    """
-    stamped = f"{version}-{CONTINUOUS_SUFFIX}.{sha.lower()}"
-    if not VERSION_RE.match(stamped):
-        fail(f"stamped version {stamped!r} is not valid semver")
-    return stamped
-
-
-def validate_sha(sha: str) -> None:
-    if not SHA_RE.match(sha):
-        fail(f"invalid commit SHA {sha!r} (expected 40 hex chars)")
 
 
 def copy_runtime_tree(source: Path, target: Path) -> None:
@@ -267,25 +214,18 @@ def copy_runtime_tree(source: Path, target: Path) -> None:
     shutil.copytree(source, target, ignore=ignore)
 
 
-
-def stage_tree(staging: Path, args: argparse.Namespace, stamped_version: str | None) -> dict:
+def stage_tree(staging: Path, args: argparse.Namespace) -> dict:
     """Copy the tarball payload into the staging dir; return per-entry facts.
-
-    `stamped_version` is the continuous-build version stamp (None for plain
-    releases); when set, a `package.json` manifest is staged beside the binary
-    so `--version` reports it at runtime (the same exe-adjacent manifest the
-    TS binaryAssets carry — the Rust binary resolves it from `current_exe()`).
 
     The runtime entry ships the curated content (see
     RUNTIME_EXCLUDED_*); every other entry is a
     verbatim copy.
     """
-    binary_name = binary_name_for_target(args.target)
     binary = resolve_binary(args)
-    runtime_dir = args.runtime_dir or (args.repo_root / "prime-agent-runtime")
+    runtime_dir = args.runtime_dir or (args.repo_root / "eukhe-runtime")
     sources = {
-        binary_name: binary,
-        "prime-agent-runtime": runtime_dir,
+        BINARY_NAME: binary,
+        "eukhe-runtime": runtime_dir,
         "skills": args.repo_root / "skills",
         "LICENSE": args.repo_root / "LICENSE",
         "README.md": args.repo_root / "README.md",
@@ -293,7 +233,7 @@ def stage_tree(staging: Path, args: argparse.Namespace, stamped_version: str | N
     if not runtime_dir.joinpath("pyproject.toml").is_file():
         fail(
             "kernel runtime sidecar not found at "
-            f"{runtime_dir} (expected prime-agent-runtime with pyproject.toml); "
+            f"{runtime_dir} (expected eukhe-runtime with pyproject.toml); "
             "pass --runtime-dir or merge the kernel-packaging lane"
         )
     for name, source in sources.items():
@@ -301,7 +241,7 @@ def stage_tree(staging: Path, args: argparse.Namespace, stamped_version: str | N
         if not source.exists():
             fail(f"release payload entry {name!r} missing at {source}")
         if source.is_dir():
-            if name == "prime-agent-runtime":
+            if name == "eukhe-runtime":
                 copy_runtime_tree(source, target_path)
             elif name == "skills":
                 shutil.copytree(source, target_path, ignore=lambda _directory, names: {
@@ -313,44 +253,31 @@ def stage_tree(staging: Path, args: argparse.Namespace, stamped_version: str | N
                 shutil.copytree(source, target_path)
         else:
             shutil.copy2(source, target_path)
-    # `chmod` is a no-op beyond the read-only bit on Windows hosts (the
-    # exec bit the tar member filter re-pins below); on POSIX it makes the
-    # staged binary executable for the `--version` probes.
-    os.chmod(staging / binary_name, 0o755)
+    # Executable for the `--version` probes (the tar member filter re-pins
+    # the mode in the archive).
+    os.chmod(staging / BINARY_NAME, 0o755)
     # The bundled catalog assets gate (spec §3.9): the release packer FAILS
-    # without validated assets — generate them first (network for CI, a local
-    # catalog checkout, or the offline --fixture snapshot) via
-    # scripts/release/bundle_catalog.py.
+    # without validated assets — generate them first (the live catalog repo,
+    # a local catalog checkout, or the offline --fixture snapshot the release
+    # workflow uses) via scripts/release/bundle_catalog.py.
     if args.catalog_assets is None:
         fail(
             "missing bundled catalog assets: run "
             "`python3 scripts/release/bundle_catalog.py generate "
-            "--catalog-dir <prime-agent-catalog>` (CI: --network; offline "
-            "builds: --fixture) and pass --catalog-assets <dir>"
+            "--catalog-dir <prime-agent-catalog>` (live repo: --network; "
+            "release workflow and offline builds: --fixture) and pass "
+            "--catalog-assets <dir>"
         )
     catalog_assets = Path(args.catalog_assets)
     catalog_facts = validate_bundled_catalog_dir(catalog_assets)
     for name in BUNDLED_CATALOG_FILES:
         shutil.copyfile(catalog_assets / name, staging / name)
-    payload = [binary_name if entry == BINARY_PLACEHOLDER else entry
-               for entry in STAGED_ENTRIES]
-    if stamped_version is not None:
-        manifest = {
-            "name": "prime-agent",
-            "version": stamped_version,
-            "description": "Prime Agent: the RLM coding agent (Rust build)",
-            "bin": {"prime-agent": binary_name},
-            "piConfig": {"name": "prime-agent", "configDir": ".prime/agent"},
-            "commit": args.sha,
-        }
-        (staging / "package.json").write_text(json.dumps(manifest, indent=2) + "\n")
-        payload.append("package.json")
+    payload = list(STAGED_ENTRIES)
     # The payload guard runs on the staged tree BEFORE packing: a decoder
     # sidecar staged by a later change fails here, not in the field.
     fail_if_decoder_in_tree(staging)
     return {
-        "binary_name": binary_name,
-        "executable_sha256": sha256_file(staging / binary_name),
+        "executable_sha256": sha256_file(staging / BINARY_NAME),
         "payload": payload,
         "catalog_assets": catalog_facts,
     }
@@ -374,7 +301,7 @@ def _deterministic_member(member: tarfile.TarInfo) -> tarfile.TarInfo:
     member.mtime = 0
     if member.isdir():
         member.mode = 0o755
-    elif member.name == "prime-agent" or member.name == "prime-agent.exe":
+    elif member.name == BINARY_NAME:
         member.mode = 0o755
     else:
         member.mode = 0o644
@@ -435,13 +362,13 @@ def decoder_facts(args: argparse.Namespace) -> dict | None:
                  "--decoder from split_debug.py")
         if debug_sections(resolve_binary(args)):
             fail(f"Linux shipped ELF still has DWARF: {args.binary}")
-        expected = f"prime-agent-{args.version}-{TARGET_ALIASES[args.target]}.debug.gz"
+        expected = f"eukhe-{args.version}-{TARGET_ALIASES[args.target]}.debug.gz"
         decoder = args.decoder
         if decoder.name != expected or not decoder.is_file():
             fail(f"missing required Linux decoder {expected}")
         binary = resolve_binary(args)
-        with tempfile.TemporaryDirectory(prefix="prime-agent-decoder-") as tmp:
-            uncompressed = Path(tmp) / "prime-agent.debug"
+        with tempfile.TemporaryDirectory(prefix="eukhe-decoder-") as tmp:
+            uncompressed = Path(tmp) / "eukhe.debug"
             try:
                 with gzip.open(decoder, "rb") as src, uncompressed.open("wb") as dst:
                     shutil.copyfileobj(src, dst)
@@ -461,33 +388,29 @@ def decoder_facts(args: argparse.Namespace) -> dict | None:
 def main() -> int:
     args = parse_args()
     validate_version(args.version)
-    stamped_version = None
-    if args.sha is not None:
-        validate_sha(args.sha)
-        stamped_version = continuous_version(args.version, args.sha)
     if args.target not in TARGET_ALIASES:
         fail(f"unknown release target {args.target!r} (known: {', '.join(TARGET_ALIASES)})")
 
     decoder = decoder_facts(args)
     out_dir = (args.out_dir or args.repo_root / "target" / "release" / "dist").resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix="prime-agent-archive-"))
+    staging = Path(tempfile.mkdtemp(prefix="eukhe-archive-"))
     try:
-        facts = stage_tree(staging, args, stamped_version)
+        facts = stage_tree(staging, args)
         archive_name = (
-            f"prime-agent-{args.version}-{TARGET_ALIASES[args.target]}.tar.gz"
+            f"eukhe-{args.version}-{TARGET_ALIASES[args.target]}.tar.gz"
         )
         archive_path = out_dir / archive_name
         pack_tarball(staging, archive_path, facts["payload"])
-        # The packed archive is the artifact the channel serves: assert it
-        # carries no decoder sidecar before anything records its hash.
+        # The packed archive is the published artifact: assert it carries
+        # no decoder sidecar before anything records its hash.
         fail_if_decoder_in_archive(archive_path)
         archive_sha256 = sha256_file(archive_path)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
     # The validated asset counts (models / transport tuples / services) ride
-    # the build log; the manifest entry below stays the installer schema.
+    # the build log, not the manifest entry.
     print(f"bundled catalog assets: {json.dumps(facts['catalog_assets'])}")
 
     entry = {
@@ -499,16 +422,14 @@ def main() -> int:
         "executableSha256": facts["executable_sha256"],
     }
 
-    # Merge-or-write semantics so a per-target run in each CI build job can be
-    # combined: the promotion job collects every per-target entry instead.
+    # Merge-or-write semantics: several per-target runs into one out-dir
+    # combine their entries (eukhe-release.yml's publish job reads each
+    # build job's manifest.json).
     manifest_path = out_dir / "manifest.json"
     manifest = {"version": f"v{args.version}", "binaries": []}
-    if args.sha is not None:
-        manifest["commit"] = args.sha
     if manifest_path.exists():
         existing = json.loads(manifest_path.read_text())
-        if existing.get("version") == manifest["version"] \
-                and existing.get("commit") == manifest.get("commit"):
+        if existing.get("version") == manifest["version"]:
             manifest["binaries"] = existing["binaries"]
             previous = existing.get("decoders", [])
             targets = [d["target"] for d in previous]

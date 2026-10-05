@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate and validate the bundled catalog assets for prime-agent releases.
+"""Generate and validate the bundled catalog assets for eukhe releases.
 
 Port of the TS catalog asset tool (packages/coding-agent/scripts/catalog-assets.mjs
 on the TS client's `feat/catalog-client` line) for the Rust release pipeline.
@@ -398,7 +398,7 @@ def validate_bundled_catalog_dir(directory, allow_small_fixture: bool = False) -
 # The compiled transport tuples of the shipped registry (43 distinct
 # (provider, api, baseUrl) triples across 32 providers, from the compiled
 # model catalog, now the hand-maintained fallback table
-# crates/pa-ai/src/models_generated.rs). Fixture models use real tuples so
+# crates/eukhe-ai/src/models_generated.rs). Fixture models use real tuples so
 # they survive runtime transport pinning; nothing here can introduce a
 # transport the client does not implement.
 FIXTURE_TRANSPORT_TUPLES = [

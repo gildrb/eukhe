@@ -1,0 +1,131 @@
+//! Session supervisor, worker processes, and wire protocol for Eukhe.
+//!
+//! Ported from the TypeScript daemon: `modes/daemon/*`, `modes/session-worker/*`,
+//! `core/session-manager.ts`, and `core/session-lease.ts`. The supervisor hosts
+//! no sessions: it spawns one worker process per active session, supervises
+//! restarts with backoff, and routes clients. Sessions persist as append-only
+//! JSONL under `<agent-dir>/sessions/` using the same layout as the TS product.
+// Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
+// the full rationale).
+// Stack-resident futures by design on the daemon's hot paths; boxing the
+// call sites for a lint tick is a perf regression with zero correctness gain.
+#![allow(clippy::large_futures)]
+// 64-bit-only targets; the narrowing casts sit at OS boundaries
+// (pid/fd/time/size) where the values are bounded by the kernel - the
+// dead-guard expect()s would add panic paths where silent wrap was
+// deliberate.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+// The fn-length threshold is a style gate, not correctness; the structure
+// campaign owns the god-fn splits as a follow-up.
+#![allow(clippy::too_many_lines)]
+// API-shape opinions, not defects; the surfaces are deliberate.
+#![allow(
+    clippy::unnecessary_wraps,
+    clippy::zero_sized_map_values,
+    clippy::struct_excessive_bools,
+    clippy::struct_field_names
+)]
+pub mod acp;
+pub mod agent_engine;
+pub mod agent_message_broadcast;
+pub mod agent_message_ingest;
+pub mod agent_messaging;
+pub(crate) mod agent_roster;
+mod async_safe_runtime;
+mod auto_compaction;
+mod autonomous_continuation;
+pub(crate) mod backpressure;
+pub(crate) mod bash_notices;
+pub(crate) mod boot_reap;
+pub mod branch_navigation;
+pub(crate) mod child_status_notices;
+mod compact_autorefine;
+pub mod compaction;
+mod compaction_outcome;
+pub(crate) mod compaction_supervision;
+pub(crate) mod context_tree_cache;
+pub(crate) mod context_tree_children;
+pub(crate) mod create_reuse;
+pub mod descriptor;
+pub mod engine;
+pub(crate) mod factory_activity;
+pub mod framing;
+mod goal_continuation;
+pub(crate) mod goal_state_persist;
+pub(crate) mod herdr;
+pub mod hold_refusal;
+pub(crate) mod image_route;
+pub mod input_pause_lease;
+pub mod journal;
+pub mod lease;
+pub mod mcp_connections;
+pub mod mcp_login;
+pub(crate) mod messaging;
+pub mod model_allowlist;
+pub(crate) mod model_catalog;
+pub(crate) mod model_switch;
+mod overflow_compaction;
+pub mod ownership;
+pub mod paths;
+pub(crate) mod peer;
+pub(crate) mod peer_client;
+pub(crate) mod peer_tickets;
+pub mod platform;
+pub mod prompt_admission;
+pub mod protocol;
+pub(crate) mod queue_commands;
+pub(crate) mod recovery_pacing;
+pub mod registration;
+pub(crate) mod registry;
+mod revival_gate;
+pub mod rlm_child_model;
+pub mod rlm_child_usage;
+pub mod rlm_children;
+pub mod rlm_ledger;
+pub(crate) mod rlm_roster;
+pub mod rlm_surface;
+pub(crate) mod roster_activity;
+pub mod rpc;
+pub(crate) mod saved_session_commands;
+pub(crate) mod scheduled_jobs;
+pub(crate) mod scheduling_catalog;
+pub(crate) mod session_archive;
+pub(crate) mod session_bindings;
+pub(crate) mod session_catalog;
+pub(crate) mod session_commands;
+pub(crate) mod session_custom;
+pub mod session_export;
+pub mod session_input_pause;
+pub mod session_navigation;
+pub(crate) mod session_scan;
+pub mod session_stats;
+pub mod session_store;
+pub mod session_tree;
+pub mod session_usage;
+pub(crate) mod setting_switches;
+pub mod side_question;
+mod signal_drain;
+pub mod snapshot_stream;
+pub mod socket;
+pub(crate) mod state_getters;
+mod stop_cleanup;
+pub(crate) mod streaming;
+pub mod supervisor;
+pub mod supervisor_link;
+pub(crate) mod supervisor_lost;
+pub(crate) mod supervisor_parent_death;
+pub(crate) mod supervisor_roster;
+pub(crate) mod supervisor_roster_seed;
+pub mod types;
+pub(crate) mod user_bash;
+pub mod util;
+pub mod worker;
+pub(crate) mod worker_stderr;
+
+#[cfg(test)]
+pub(crate) mod test_support;

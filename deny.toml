@@ -1,4 +1,4 @@
-# cargo-deny configuration for the prime-agent Rust workspace.
+# cargo-deny configuration for the eukhe Rust workspace.
 # Runs in CI (ci.yml) and locally via `make deny`.
 
 [graph]
@@ -13,10 +13,10 @@ yanked = "deny"
 ignore = [
   # Marvin Attack timing sidechannel in rsa; no patch exists upstream
   # (RustCrypto/RSA#626 tracks it). `rsa` is currently a dead dependency in
-  # pa-ai (declared, never referenced); no signing path executes it, so no
-  # timing oracle exists. Reviewed 2026-09-17; drop rsa (pa-ai lane) or
+  # eukhe-ai (declared, never referenced); no signing path executes it, so no
+  # timing oracle exists. Reviewed 2026-09-17; drop rsa (eukhe-ai lane) or
   # re-triage when rsa publishes a fix.
-  { id = "RUSTSEC-2023-0071", reason = "unpatched upstream; rsa is an unused pa-ai dep, no signing path executes it (reviewed 2026-09-17)" },
+  { id = "RUSTSEC-2023-0071", reason = "unpatched upstream; rsa is an unused eukhe-ai dep, no signing path executes it (reviewed 2026-09-17)" },
   # `paste` proc-macro is unmaintained; pulled by ratatui (build-time only,
   # no vulnerable code path). Reviewed 2026-09-17; revisit when ratatui
   # drops the dep.

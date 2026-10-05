@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """Verify an assembled release tarball (host build) end to end.
 
-The local mirror of the CI build-job gates:
+The local mirror of the eukhe-release.yml build-job gates:
 the archive must contain exactly the designed payload at the tarball root,
 checksums must match SHA256SUMS and manifest.json, and the staged binary must
-report the release version from a scratch cwd with `PI_PACKAGE_DIR` unset
+report the release version from a scratch cwd with `EUKHE_PACKAGE_DIR` unset
 (the shipped artifact never depends on it).
 
 Usage:
     python3 scripts/release/verify_release.py \
-        --dist-dir <dir> --version <x.y.z> --target <triple> [--sha <commit>]
-
-`--sha` verifies the continuous-build stamping: the archive must also carry a
-`package.json` manifest, the binary must report `<version>-continuous.<sha>`,
-and manifest.json must record the commit.
+        --dist-dir <dir> --version <x.y.z> --target <triple>
 """
 
 from __future__ import annotations
@@ -31,37 +27,20 @@ from pathlib import Path
 
 # The bundled-catalog gate (same release-scripts directory).
 from bundle_catalog import validate_bundled_catalog_dir
-# The release platform alias the archive name carries (TS parity; the update
-# flow's channel manifest requires alias-named archives).
+# The payload layout, target aliases, and shipped-content policy live with
+# the assembler (same release-scripts directory).
 from assemble_artifacts import (
+    BINARY_NAME,
     TARGET_ALIASES,
     RUNTIME_EXCLUDED_NAMES,
     RUNTIME_EXCLUDED_SUFFIXES,
-    binary_name_for_target,
+    STAGED_ENTRIES,
 )
 
-# Must mirror STAGED_ENTRIES in assemble_artifacts.py and §5 of the design doc.
-# Never add a root-level install.sh: it is what lets a TypeScript 0.9.8
-# updater install the archive (release.yml's promote job refuses it).
-# Continuous builds additionally stage the package.json version manifest.
-# The binary entry is the target's name (`prime-agent.exe` on the MSVC
-# Windows target), resolved in `main` via `binary_name_for_target`.
-EXPECTED_TOP_LEVEL = {
-    "prime-agent",
-    "prime-agent-runtime",
-    "skills",
-    "LICENSE",
-    "README.md",
-    # The bundled catalog assets (spec §3.2): the installed artifact must
-    # contain both, and they must pass the same validation gates the packer
-    # enforced at assembly time.
-    "models.bundled.json",
-    "mcp-services.bundled.json",
-}
-CONTINUOUS_EXTRA_TOP_LEVEL = {"package.json"}
-
-# Same shape as `continuous_version` in assemble_artifacts.py.
-CONTINUOUS_SUFFIX = "continuous"
+# The designed tarball-root payload (STAGED_ENTRIES in assemble_artifacts.py).
+# The bundled catalog assets among them must also pass the same validation
+# gates the packer enforced at assembly time.
+EXPECTED_TOP_LEVEL = set(STAGED_ENTRIES)
 
 
 def sha256_file(path: Path) -> str:
@@ -89,27 +68,12 @@ def main() -> int:
     parser.add_argument("--dist-dir", required=True, type=Path)
     parser.add_argument("--version", required=True)
     parser.add_argument("--target", required=True)
-    parser.add_argument("--sha", default=None,
-                         help="commit SHA the tarball must be stamped with")
-    parser.add_argument("--expect-package-json", default=None, metavar="VERSION",
-                        help="the consume-route restamp shape: a package.json "
-                             "carrying exactly this release version")
     args = parser.parse_args()
-    if args.sha is not None:
-        args.sha = args.sha.lower()
-    if args.expect_package_json and args.sha:
-        fail("--sha (the continuous stamp) and --expect-package-json "
-             "(the restamped release shape) are mutually exclusive")
-
-    binary_name = binary_name_for_target(args.target)
-    expected_top_level = (EXPECTED_TOP_LEVEL - {"prime-agent"}) | {binary_name}
-    expected_top_level |= (
-        CONTINUOUS_EXTRA_TOP_LEVEL if (args.sha or args.expect_package_json)
-        else set()
-    )
+    if args.target not in TARGET_ALIASES:
+        fail(f"unknown release target {args.target!r} (known: {', '.join(TARGET_ALIASES)})")
 
     archive_name = (
-        f"prime-agent-{args.version}-{TARGET_ALIASES[args.target]}.tar.gz"
+        f"eukhe-{args.version}-{TARGET_ALIASES[args.target]}.tar.gz"
     )
     archive = args.dist_dir / archive_name
     if not archive.is_file():
@@ -118,13 +82,13 @@ def main() -> int:
     # 1. Deterministic tarball shape: exact top-level payload, no link entries.
     with tarfile.open(archive) as tar:
         members = tar.getmembers()
-        if top_level_members(tar) != expected_top_level:
+        if top_level_members(tar) != EXPECTED_TOP_LEVEL:
             fail(
                 f"tarball top-level entries {sorted(top_level_members(tar))} "
-                f"!= designed payload {sorted(expected_top_level)}"
+                f"!= designed payload {sorted(EXPECTED_TOP_LEVEL)}"
             )
         for member in members:
-            if member.name.startswith(("skills/", "prime-agent-runtime/")) and any(
+            if member.name.startswith(("skills/", "eukhe-runtime/")) and any(
                 part in RUNTIME_EXCLUDED_NAMES or part.endswith(RUNTIME_EXCLUDED_SUFFIXES)
                 for part in Path(member.name).parts
             ):
@@ -151,12 +115,10 @@ def main() -> int:
         fail(f"manifest.json has no entry for {archive_name}")
     if entries[archive_name]["sha256"] != archive_sha:
         fail(f"manifest.json sha256 mismatch for {archive_name}")
-    if args.sha is not None and manifest.get("commit") != args.sha:
-        fail(f"manifest.json commit is {manifest.get('commit')!r}, expected {args.sha!r}")
 
     # 3. The staged binary reports the release version from a scratch cwd with
-    #    PI_PACKAGE_DIR unset: shipped artifacts never depend on it.
-    scratch = Path(tempfile.mkdtemp(prefix="prime-agent-verify-"))
+    #    EUKHE_PACKAGE_DIR unset: shipped artifacts never depend on it.
+    scratch = Path(tempfile.mkdtemp(prefix="eukhe-verify-"))
     try:
         # Manual extraction: the deterministic-shape checks above already
         # rejected link entries, and staying on explicit member writes keeps
@@ -176,36 +138,23 @@ def main() -> int:
         # The bundled catalog assets must be present and valid in the
         # installed layout (the full packer gates: no small-fixture waiver).
         catalog_facts = validate_bundled_catalog_dir(scratch)
-        if args.expect_package_json is not None:
-            stamped = json.loads((scratch / "package.json").read_text(encoding="utf-8"))
-            if stamped.get("version") != args.expect_package_json:
-                fail(f"package.json version is {stamped.get('version')!r}, "
-                     f"expected the restamped release version "
-                     f"{args.expect_package_json!r}")
-            if not str(stamped.get("commit", "")).strip():
-                fail("the restamped package.json lost its commit provenance")
-        binary = scratch / binary_name
+        binary = scratch / BINARY_NAME
         if not os.access(binary, os.X_OK):
-            fail(f"staged {binary_name} is not executable")
+            fail(f"staged {BINARY_NAME} is not executable")
         if entries[archive_name]["executableSha256"] != sha256_file(binary):
             fail("executableSha256 in manifest.json does not match the staged binary")
-        env = {k: v for k, v in os.environ.items() if k != "PI_PACKAGE_DIR"}
+        env = {k: v for k, v in os.environ.items() if k != "EUKHE_PACKAGE_DIR"}
         run = subprocess.run(
             [str(binary), "--version"],
             capture_output=True, text=True, env=env, cwd=scratch, check=False,
         )
         if run.returncode != 0:
-            fail(f"staged prime-agent --version failed: {run.stderr.strip()}")
+            fail(f"staged eukhe --version failed: {run.stderr.strip()}")
         version_out = run.stdout.strip()
-        expected_version = (
-            f"{args.version}-{CONTINUOUS_SUFFIX}.{args.sha}" if args.sha else args.version
-        )
-        if args.expect_package_json is not None:
-            expected_version = args.expect_package_json
-        if version_out != expected_version:
+        if version_out != args.version:
             fail(
-                f"staged prime-agent reports {version_out!r}, "
-                f"expected {expected_version!r}"
+                f"staged eukhe reports {version_out!r}, "
+                f"expected {args.version!r}"
             )
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

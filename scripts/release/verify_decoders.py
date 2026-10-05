@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Fail-closed promotion check for optional Linux decoder assets.
+"""Fail-closed check for the Linux split-debug decoder release assets.
 
-Usage: python3 scripts/release/verify_decoders.py incoming
+Takes one assembled dist directory (`make release-dry-run`) or a directory
+of per-target artifact directories (the `incoming/artifacts-<target>` layout
+eukhe-release.yml's publish job downloads).
+
+Usage: python3 scripts/release/verify_decoders.py <dist-or-incoming-dir>
 """
 import gzip
 import hashlib
@@ -48,7 +52,7 @@ def verify(incoming):
             check(len(decoders) == len(files) == 1,
                   f"{directory}: Linux requires exactly one decoder")
             decoder = decoders[0]
-            expected = f"prime-agent-{manifest['version'].removeprefix('v')}-{binary['platform']}.debug.gz"
+            expected = f"eukhe-{manifest['version'].removeprefix('v')}-{binary['platform']}.debug.gz"
             check(decoder["target"] == target and decoder["file"] == expected
                   and files[0].name == expected,
                   f"{directory}: decoder name/target mismatch")
@@ -59,7 +63,7 @@ def verify(incoming):
             check(sums.count(f"{decoder['sha256']}  {expected}") == 1,
                   f"{directory}: decoder missing from SHA256SUMS")
             with tarfile.open(directory / binary["file"], "r:gz") as tar:
-                members = [m for m in tar.getmembers() if m.name == "prime-agent"]
+                members = [m for m in tar.getmembers() if m.name == "eukhe"]
                 check(len(members) == 1 and members[0].isfile(),
                       f"{directory}: no unique installed ELF")
                 installed = tar.extractfile(members[0]).read()
@@ -71,9 +75,9 @@ def verify(incoming):
             except (OSError, EOFError) as error:
                 raise ValueError(f"{directory}: corrupt decoder: {error}") from error
             with tempfile.TemporaryDirectory(prefix="verify-decoder-") as tmp:
-                folder = Path(tmp)
-                installed_id = build_id(installed, folder / "installed")
-                decoder_id = build_id(debug_bytes, folder / "decoder")
+                scratch = Path(tmp)
+                installed_id = build_id(installed, scratch / "installed")
+                decoder_id = build_id(debug_bytes, scratch / "decoder")
             check(installed_id == decoder_id == decoder["buildId"],
                   f"{directory}: installed ELF/decoder build ID mismatch")
             print(f"{target}: installed ELF {digest(installed)}, "
@@ -87,4 +91,4 @@ if __name__ == "__main__":
     try:
         verify(Path(sys.argv[1]))
     except (ValueError, OSError, KeyError, IndexError) as error:
-        sys.exit(f"decoder promotion verification failed: {error}")
+        sys.exit(f"decoder verification failed: {error}")

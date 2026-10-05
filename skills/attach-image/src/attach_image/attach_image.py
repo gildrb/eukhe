@@ -7,7 +7,7 @@ import io
 from pathlib import Path
 
 # Keep in sync with ATTACHMENT_DISPLAY_MIME in src/core/kernel/index.ts.
-_ATTACHMENT_DISPLAY_MIME = "application/vnd.prime-agent.attachment+json"
+_ATTACHMENT_DISPLAY_MIME = "application/vnd.eukhe.attachment+json"
 
 # Keep emitted attachments small enough that daemon clients can render and replay
 # image-heavy sessions without compressing megabytes of base64 on every update.

@@ -1,0 +1,1064 @@
+// The Tier-C/D ruling (fleet-uniform, 2026-09-28): stack-resident futures
+// by design on hot paths (boxing 130 fns is allocation-churn with zero
+// correctness gain); the fn-length threshold is a style gate, not
+// correctness (the harness fns are intentionally linear); 64-bit targets -
+// the narrowing sits at OS/protocol boundaries where the values are
+// bounded (pid syscalls, epoch/elapsed milliseconds, calendar math,
+// guarded parses), and checked conversions would add panic paths where
+// silent wrap was deliberate (the one genuinely-suspect family, args.rs's
+// parse_positive_u32 lacking its u32::MAX bound, is flagged in the lane
+// dossier for the conductor).
+#![allow(
+    clippy::large_futures,
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+
+//! Kernel-packaging e2e: the packaged (exe-adjacent) release layout boots a
+//! session with NO `EUKHE_PACKAGE_DIR`, and the packaging script produces the
+//! release artifact.
+//!
+//! The staged layout is the release tarball's: the binary plus
+//! `package.json` (the version manifest), the `eukhe-runtime/` sidecar, and
+//! `skills/` beside it, all resolved at runtime from the executable's
+//! directory.
+
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// The repo root (crates/eukhe-cli -> crates -> root): the vendored
+/// eukhe-runtime sidecar and skills live there.
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .map(Path::to_path_buf)
+        .expect("worktree root")
+}
+
+/// The interpreter the release scripts run under: `python3`, or `python`
+/// where only that spelling exists (the Windows runner images; the release
+/// workflow resolves it the same way).
+fn python_interpreter() -> Option<&'static str> {
+    ["python3", "python"].into_iter().find(|name| {
+        Command::new(name)
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    })
+}
+
+/// These tests stage full packaged layouts and boot the kernel; they are
+/// heavy and contend on a small box, so each one holds this lock for its
+/// whole body.
+static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial_lock() -> std::sync::MutexGuard<'static, ()> {
+    match TEST_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// The staged binary name: Cargo's MSVC linker emits `eukhe.exe` on
+/// Windows (`std::env::consts::EXE_SUFFIX`), and the packaged layout - the
+/// installer's extract target and the binary's own exe-adjacent resolution
+/// - names the platform's spelling.
+fn packaged_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "eukhe.exe"
+    } else {
+        "eukhe"
+    }
+}
+
+/// Stage the packaged layout into `dir`: the binary, the version manifest,
+/// and the shipped assets. `with_runtime` controls whether the
+/// eukhe-runtime sidecar is present (the failure-UX scenario removes
+/// it).
+fn stage_packaged_layout(dir: &Path, with_runtime: bool) {
+    std::fs::create_dir_all(dir).expect("stage dir");
+    let binary = dir.join(packaged_binary_name());
+    std::fs::copy(env!("CARGO_BIN_EXE_eukhe"), &binary).expect("copy binary");
+    set_executable(&binary);
+    std::fs::write(
+        dir.join("package.json"),
+        format!(
+            r#"{{"name":"eukhe","version":"{}"}}"#,
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .expect("version manifest");
+    for asset in ["skills", "README.md"] {
+        let source = repo_root().join(asset);
+        let target = dir.join(asset);
+        if source.is_dir() {
+            copy_dir(&source, &target);
+        } else {
+            std::fs::copy(&source, &target).expect("copy asset");
+        }
+    }
+    if with_runtime {
+        copy_dir(
+            &repo_root().join("eukhe-runtime"),
+            &dir.join("eukhe-runtime"),
+        );
+    }
+}
+
+fn copy_dir(source: &Path, target: &Path) {
+    std::fs::create_dir_all(target).expect("asset target dir");
+    for entry in std::fs::read_dir(source).expect("read asset dir") {
+        let entry = entry.expect("asset entry");
+        let path = entry.path();
+        let destination = target.join(entry.file_name());
+        if path.is_dir() {
+            std::fs::create_dir_all(&destination).expect("asset dir");
+            copy_dir(&path, &destination);
+        } else {
+            std::fs::copy(&path, &destination).unwrap_or_else(|error| {
+                panic!(
+                    "copy asset file {} -> {}: {error}",
+                    path.display(),
+                    destination.display()
+                )
+            });
+        }
+    }
+}
+
+#[cfg(unix)]
+fn set_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)
+        .expect("staged binary metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).expect("staged binary permissions");
+}
+
+#[cfg(not(unix))]
+fn set_executable(path: &Path) {
+    let _ = path;
+}
+
+/// The kernel Python with eukhe-runtime installed (the interpreter the
+/// TS product's kernel venv bootstraps). Skipped (with a note) on machines
+/// without a live install; `EUKHE_E2E_KERNEL_PYTHON` points at an explicit one.
+fn kernel_python() -> Option<PathBuf> {
+    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
+        let explicit = PathBuf::from(explicit);
+        assert!(
+            explicit.exists(),
+            "EUKHE_E2E_KERNEL_PYTHON {} not found",
+            explicit.display()
+        );
+        return Some(explicit);
+    }
+    // The kernel venv's interpreter spelling is platform-shaped (the venv
+    // layout the product's own bootstrap creates: `bin/python` on unix,
+    // `Scripts\python.exe` on Windows).
+    let venv_python = if cfg!(windows) {
+        "kernel-venv/Scripts/python.exe"
+    } else {
+        "kernel-venv/bin/python"
+    };
+    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
+        |_| format!("/home/ubuntu/.eukhe/{venv_python}"),
+        |home| format!("{home}/.eukhe/{venv_python}"),
+    ));
+    if candidate.exists() {
+        return Some(candidate);
+    }
+    eprintln!(
+        "kernel python {} not found; skipping live kernel e2e",
+        candidate.display()
+    );
+    None
+}
+
+struct Sandbox {
+    home: tempfile::TempDir,
+    agent_dir: PathBuf,
+    cwd: PathBuf,
+}
+
+fn sandbox() -> Sandbox {
+    let home = tempfile::TempDir::new().expect("sandbox home");
+    let agent_dir = home.path().join("agent");
+    let cwd = home.path().join("work");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    std::fs::create_dir_all(&cwd).expect("cwd");
+    Sandbox {
+        home,
+        agent_dir,
+        cwd,
+    }
+}
+
+impl Sandbox {
+    /// The packaged binary with a hermetic environment: sandboxed HOME and
+    /// agent dir, no ambient `EUKHE_PACKAGE_DIR`, no ambient kernel-override
+    /// env (`EUKHE_KERNEL_PYTHON` / `EUKHE_KERNEL_VENV` — the
+    /// gate kernel-env recipe exports them for the live-kernel suites, and
+    /// they must not steer the packaged layout's own resolution), no
+    /// ambient API keys. A test that wants an override sets it after this
+    /// call: a later `Command::env` wins over the scrub.
+    fn command(&self, staged: &Path) -> Command {
+        let mut command = Command::new(staged.join(packaged_binary_name()));
+        command
+            .env("HOME", self.home.path())
+            .env("EUKHE_CODING_AGENT_DIR", &self.agent_dir)
+            .env_remove("EUKHE_PACKAGE_DIR")
+            .env_remove("EUKHE_KERNEL_PYTHON")
+            .env_remove("EUKHE_KERNEL_VENV")
+            .env_remove("EUKHE_SESSION_DIR")
+            .env_remove("EUKHE_CODING_AGENT_SESSION_DIR")
+            .env_remove("PRIME_API_KEY")
+            .current_dir(&self.cwd);
+        command
+    }
+}
+
+/// The turn script: one ipython cell that proves the kernel runs, then the
+/// closing text turn.
+fn kernel_boot_script(receipt: &Path) -> serde_json::Value {
+    let cell = format!(
+        "import json\nfrom rlm import rlm as _r\npayload = {{\n  \"kernel_boot\": True,\n  \"rlm_available\": _r is not None,\n  \"spawn\": callable(_r.spawn),\n}}\nopen({receipt:?}, \"w\").write(json.dumps(payload))\nprint(\"KERNEL_BOOT_OK\")",
+        receipt = receipt.display().to_string(),
+    );
+    serde_json::json!({
+        "responses": [
+            { "content": [ { "type": "toolCall", "name": "ipython", "arguments": {
+                "code": cell,
+            } } ] },
+            // The next assistant message echoes the request's system prompt:
+            // binary-level proof that the staged skills dir reached the
+            // session's skill inventory.
+            { "systemPrompt": true },
+            { "text": "kernel boot verified" },
+        ],
+    })
+}
+
+fn run_json_turn(
+    command: &mut Command,
+    script: &serde_json::Value,
+) -> (String, String, Option<i32>) {
+    let output = command
+        .arg("--mode")
+        .arg("json")
+        .arg("-p")
+        .arg("use the kernel")
+        .env("EUKHE_FAUX_SCRIPT", script.to_string())
+        .output()
+        .expect("run packaged binary");
+    (
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        output.status.code(),
+    )
+}
+
+/// A packaged session boots the kernel with the exe-adjacent layout and no
+/// `EUKHE_PACKAGE_DIR`: the ipython cell runs through the staged binary, the
+/// bundled skills resolve from the staged `skills/` directory, and the
+/// staged version manifest reports the pinned version.
+#[test]
+fn packaged_session_boots_kernel_without_eukhe_package_dir() {
+    let _guard = serial_lock();
+    let Some(kernel_python) = kernel_python() else {
+        return;
+    };
+    let dir = tempfile::TempDir::new().expect("stage dir");
+    let staged = dir.path();
+    stage_packaged_layout(staged, true);
+    // A marker skill that exists ONLY in the staged layout: proves the
+    // bundled skills resolved exe-adjacent (not from the source checkout).
+    let marker = staged.join("skills").join("staged-packaging-marker");
+    std::fs::create_dir_all(&marker).expect("marker skill dir");
+    std::fs::write(
+        marker.join("SKILL.md"),
+        "---\nname: staged-packaging-marker\ndescription: Only in the staged layout\n---\nMarker.",
+    )
+    .expect("marker skill");
+
+    let box_ = sandbox();
+    let receipt = box_.home.path().join("kernel-receipt.json");
+    let script = kernel_boot_script(&receipt);
+
+    let mut command = box_.command(staged);
+    command.env("EUKHE_KERNEL_PYTHON", &kernel_python);
+    let (stdout, stderr, code) = run_json_turn(&mut command, &script);
+    assert_eq!(code, Some(0), "stdout: {stdout}\nstderr: {stderr}");
+    // The ipython tool result carried the cell output.
+    assert!(
+        stdout.contains("KERNEL_BOOT_OK"),
+        "kernel cell output missing; stdout: {stdout}\nstderr: {stderr}"
+    );
+    // The receipt proves the cell executed with a live rlm surface.
+    let payload: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&receipt).unwrap_or_default())
+            .unwrap_or(serde_json::Value::Null);
+    assert_eq!(
+        payload["kernel_boot"],
+        serde_json::Value::Bool(true),
+        "receipt: {payload}"
+    );
+    assert_eq!(
+        payload["rlm_available"],
+        serde_json::Value::Bool(true),
+        "receipt: {payload}"
+    );
+    assert_eq!(
+        payload["spawn"],
+        serde_json::Value::Bool(true),
+        "receipt: {payload}"
+    );
+    // The staged marker skill reached the session's skill inventory.
+    assert!(
+        stdout.contains("staged-packaging-marker"),
+        "staged skill missing from the session output; stdout: {stdout}"
+    );
+}
+
+/// The staged version manifest reports the pinned version (TS `--version`
+/// reads the packaged package.json at runtime).
+#[test]
+fn packaged_binary_reports_manifest_version() {
+    let _guard = serial_lock();
+    let dir = tempfile::TempDir::new().expect("stage dir");
+    let staged = dir.path();
+    stage_packaged_layout(staged, false);
+    // A re-pinned manifest: the binary must report it, not the compiled-in
+    // fallback.
+    std::fs::write(
+        staged.join("package.json"),
+        r#"{"name":"eukhe","version":"9.8.7-test"}"#,
+    )
+    .expect("version manifest");
+    let box_ = sandbox();
+    let output = box_
+        .command(staged)
+        .arg("--version")
+        .output()
+        .expect("run packaged binary");
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "9.8.7-test",
+        "the packaged manifest version must win"
+    );
+}
+
+/// A missing sidecar (broken install) surfaces the actionable bootstrap
+/// failure: the TS-matching base text plus the missing
+/// eukhe-runtime hint, not a raw uv/pip error.
+#[test]
+fn missing_sidecar_reports_actionable_bootstrap_error() {
+    let _guard = serial_lock();
+    let dir = tempfile::TempDir::new().expect("stage dir");
+    let staged = dir.path();
+    stage_packaged_layout(staged, false);
+    let box_ = sandbox();
+    let output = box_
+        .command(staged)
+        .arg("--eukhe-bootstrap")
+        // No uv anywhere the bootstrap looks (PATH and ~/.local/bin under
+        // the sandboxed HOME), so the failure is the resolution error, not
+        // an install attempt against the network.
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("run packaged binary");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Failed to set up the Python kernel runtime"),
+        "TS bootstrap failure text missing: {stderr}"
+    );
+    assert!(
+        stderr.contains("eukhe-runtime directory was not found"),
+        "missing-sidecar hint missing: {stderr}"
+    );
+    assert!(
+        stderr.contains(staged.to_string_lossy().as_ref()),
+        "the hint must name the executable directory: {stderr}"
+    );
+}
+
+/// A `EUKHE_KERNEL_PYTHON` that lacks the runtime reports the
+/// TS-matching override error (the existing UX path, asserted end to end
+/// through the packaged binary).
+#[test]
+fn invalid_kernel_python_override_reports_ts_error() {
+    let _guard = serial_lock();
+    let dir = tempfile::TempDir::new().expect("stage dir");
+    let staged = dir.path();
+    stage_packaged_layout(staged, false);
+    let box_ = sandbox();
+    let bogus = box_.home.path().join("not-a-kernel-python");
+    let output = box_
+        .command(staged)
+        .arg("--eukhe-bootstrap")
+        .env("EUKHE_KERNEL_PYTHON", &bogus)
+        .output()
+        .expect("run packaged binary");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("EUKHE_KERNEL_PYTHON points to a Python missing"),
+        "TS override error missing: {stderr}"
+    );
+}
+
+/// The staged manifest version the hostile-env regression pins (the parent
+/// writes it; the child asserts `--version` reports it, so the decoy
+/// `EUKHE_PACKAGE_DIR` manifest can never win).
+const HOSTILE_STAGED_VERSION: &str = "9.8.7-hostile";
+
+/// Re-exec marker: the child mode of the hostile-host-env regression test
+/// below. The parent sets it (plus the hostile host env) on a re-exec of
+/// this test binary; the child then exercises the staged layout through
+/// the normal hermetic sandbox harness.
+const HOSTILE_CHILD_STAGE: &str = "EUKHE_PACKAGED_E2E_HOSTILE_STAGE";
+
+/// The child half of the hostile-host-env regression: the whole test
+/// process carries the hostile env — a `EUKHE_KERNEL_PYTHON` that
+/// would satisfy the bootstrap if it leaked, a `EUKHE_PACKAGE_DIR` package
+/// dir with its own manifest, a decoy `EUKHE_KERNEL_VENV` — and the
+/// packaged layout must still behave exactly as on a clean host.
+fn hostile_child_assertions(staged: &Path) {
+    let _guard = serial_lock();
+    let box_ = sandbox();
+
+    // The staged version manifest wins over the hostile EUKHE_PACKAGE_DIR
+    // decoy: --version reads the exe-adjacent package.json.
+    let output = box_
+        .command(staged)
+        .arg("--version")
+        .output()
+        .expect("run packaged binary");
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        HOSTILE_STAGED_VERSION,
+        "the hostile EUKHE_PACKAGE_DIR must not win: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The missing-sidecar bootstrap failure stays the actionable one:
+    // exit 1 with the hint naming the STAGED dir — never the hostile
+    // kernel-python override error and never the decoy package dir.
+    let output = box_
+        .command(staged)
+        .arg("--eukhe-bootstrap")
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("run packaged binary");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Failed to set up the Python kernel runtime"),
+        "TS bootstrap failure text missing: {stderr}"
+    );
+    assert!(
+        stderr.contains("eukhe-runtime directory was not found"),
+        "missing-sidecar hint missing: {stderr}"
+    );
+    assert!(
+        stderr.contains(staged.to_string_lossy().as_ref()),
+        "the hint must name the staged dir: {stderr}"
+    );
+    assert!(
+        !stderr.contains("EUKHE_KERNEL_PYTHON points to"),
+        "the hostile kernel-python override leaked into the packaged layout: {stderr}"
+    );
+    if let Some(package_decoy) = std::env::var_os("EUKHE_PACKAGE_DIR") {
+        assert!(
+            !stderr.contains(Path::new(&package_decoy).to_string_lossy().as_ref()),
+            "the hostile EUKHE_PACKAGE_DIR leaked into the packaged layout: {stderr}"
+        );
+    }
+}
+
+/// Regression for the recurring battery finding: a gate/battery host that
+/// exports the kernel-env recipe (`EUKHE_KERNEL_PYTHON` for the
+/// live-kernel suites, `EUKHE_PACKAGE_DIR` for the sidecar) leaks it into the
+/// packaged layout's test env, and `missing_sidecar_reports_actionable_bootstrap_error`
+/// flips (the bootstrap honors the override and exits 0 instead of 1).
+/// The leak vector is env inheritance into the test process itself, so
+/// this test re-execs this test binary with a hostile host env set and
+/// asserts, in the child, that the staged layout behaves exactly as on a
+/// clean host.
+#[test]
+fn packaged_layout_stays_hermetic_under_hostile_host_env() {
+    if let Some(stage) = std::env::var_os(HOSTILE_CHILD_STAGE) {
+        hostile_child_assertions(&PathBuf::from(stage));
+        return;
+    }
+    let _guard = serial_lock();
+    let dir = tempfile::TempDir::new().expect("stage dir");
+    let staged = dir.path();
+    stage_packaged_layout(staged, false);
+    std::fs::write(
+        staged.join("package.json"),
+        format!(r#"{{"name":"eukhe","version":"{HOSTILE_STAGED_VERSION}"}}"#),
+    )
+    .expect("version manifest");
+
+    // Decoys that would win if the hostile env leaked into the packaged
+    // binary: a package dir with its own manifest and a decoy kernel venv.
+    let decoys = tempfile::TempDir::new().expect("decoys dir");
+    let package_decoy = decoys.path().join("package");
+    std::fs::create_dir_all(&package_decoy).expect("package decoy dir");
+    std::fs::write(
+        package_decoy.join("package.json"),
+        r#"{"name":"eukhe","version":"0.0.0-decoy"}"#,
+    )
+    .expect("decoy manifest");
+    let venv_decoy = decoys.path().join("kernel-venv");
+    std::fs::create_dir_all(venv_decoy.join("bin")).expect("venv decoy dir");
+    std::fs::write(venv_decoy.join("bin").join("python"), "#!/bin/sh\nexit 0\n")
+        .expect("decoy python");
+
+    // The most hostile EUKHE_KERNEL_PYTHON is a python that would
+    // satisfy the bootstrap (exit 0) if it leaked: the live kernel venv on
+    // this machine when present, else a plausible bogus path (which would
+    // flip the failure to the override error instead).
+    let hostile_python =
+        kernel_python().unwrap_or_else(|| decoys.path().join("hostile-kernel-python"));
+
+    let child = Command::new(std::env::current_exe().expect("test binary"))
+        .arg("--exact")
+        .arg("packaged_layout_stays_hermetic_under_hostile_host_env")
+        .env(HOSTILE_CHILD_STAGE, staged)
+        .env("EUKHE_KERNEL_PYTHON", &hostile_python)
+        .env("EUKHE_PACKAGE_DIR", &package_decoy)
+        .env("EUKHE_KERNEL_VENV", &venv_decoy)
+        .output()
+        .expect("re-exec the test binary with the hostile host env");
+    assert!(
+        child.status.success(),
+        "the packaged layout must stay hermetic under a hostile host env; child: {}{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+}
+
+/// A tiny real ELF split into the paired shipped image + decoder that the
+/// fail-closed Linux packer/assembler require (`scripts/release/`
+/// `test_catalog_assets.py` stages the same fixture shape). The directory
+/// must outlive the invocation; the caller keeps it.
+struct PairedFixture {
+    dir: tempfile::TempDir,
+    shipped: std::path::PathBuf,
+    decoder: std::path::PathBuf,
+}
+
+fn split_paired_fixture(python: &str, version: &str, target: &str, alias: &str) -> PairedFixture {
+    let dir = tempfile::TempDir::new().expect("split fixture dir");
+    let source = dir.path().join("eukhe.c");
+    // The packer's version pin runs `--version` and compares the output:
+    // the fixture answers like a real build at the pinned version.
+    let program = format!(
+        "#include <stdio.h>\nint main(int argc, char **argv) {{ (void)argc; (void)argv; puts(\"{version}\"); return 0; }}\n"
+    );
+    std::fs::write(&source, program).expect("fixture source");
+    let raw = dir.path().join("cargo-eukhe");
+    let compiled = Command::new("gcc")
+        .arg("-g")
+        .arg("-Wl,--build-id")
+        .arg("-o")
+        .arg(&raw)
+        .arg(&source)
+        .output()
+        .expect("compile the fixture");
+    assert_eq!(
+        compiled.status.code(),
+        Some(0),
+        "fixture gcc failed: {}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let shipped = dir.path().join("eukhe");
+    let split = Command::new(python)
+        .arg(
+            repo_root()
+                .join("scripts")
+                .join("release")
+                .join("split_debug.py"),
+        )
+        .arg("--binary")
+        .arg(&raw)
+        .arg("--shipped")
+        .arg(&shipped)
+        .arg("--out")
+        .arg(dir.path())
+        .arg("--version")
+        .arg(version)
+        .arg("--target")
+        .arg(target)
+        .output()
+        .expect("split the fixture");
+    assert_eq!(
+        split.status.code(),
+        Some(0),
+        "fixture split failed: {}",
+        String::from_utf8_lossy(&split.stderr)
+    );
+    let decoder = dir.path().join(format!("eukhe-{version}-{alias}.debug.gz"));
+    assert!(shipped.is_file(), "shipped fixture missing");
+    assert!(decoder.is_file(), "decoder fixture missing");
+    PairedFixture {
+        dir,
+        shipped,
+        decoder,
+    }
+}
+
+/// The packaging dry-run produces the release artifact: staged layout,
+/// tarball, manifest, integrity sums — and no dev caches (a stale `.venv`
+/// must not ride the artifact).
+#[test]
+fn packaging_dry_run_produces_artifact() {
+    let _guard = serial_lock();
+    let Some(python) = python_interpreter() else {
+        eprintln!("python3/python not available; skipping the packaging dry-run e2e");
+        return;
+    };
+    // A synthetic tree: the packaging must ship the sidecar without its
+    // .venv or bytecode caches.
+    let tree = tempfile::TempDir::new().expect("packaging tree");
+    let runtime = tree.path().join("eukhe-runtime");
+    std::fs::create_dir_all(runtime.join("src").join("rlm")).expect("runtime tree");
+    std::fs::write(runtime.join("pyproject.toml"), "[project]\nname = \"x\"\n").unwrap();
+    std::fs::write(
+        runtime.join("src").join("rlm").join("repl.py"),
+        "def main():\n    pass\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(runtime.join(".venv").join("lib")).expect("venv");
+    std::fs::write(runtime.join(".venv").join("lib").join("stale.so"), "cache").unwrap();
+    std::fs::create_dir_all(runtime.join("src").join("rlm").join("__pycache__")).expect("pycache");
+    std::fs::write(
+        runtime
+            .join("src")
+            .join("rlm")
+            .join("__pycache__")
+            .join("repl.pyc"),
+        "cache",
+    )
+    .unwrap();
+    let skills = tree.path().join("skills").join("greet");
+    std::fs::create_dir_all(&skills).expect("skills tree");
+    std::fs::write(
+        skills.join("SKILL.md"),
+        "---\nname: greet\ndescription: hi\n---\nHi.",
+    )
+    .unwrap();
+    std::fs::write(tree.path().join("README.md"), "# readme\n").unwrap();
+    std::fs::write(tree.path().join("LICENSE"), "Apache-2.0\n").unwrap();
+    // The fixture repo's version must be the workspace version: the packer
+    // derives the decoder name and runs the two-sided version pin against
+    // the fixture tree, while the staged decoder answers with the compiled-in
+    // version - a hardcoded version here breaks on every workspace bump.
+    std::fs::write(
+        tree.path().join("Cargo.toml"),
+        format!(
+            "[workspace.package]\nversion = \"{ver}\"\n",
+            ver = env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+
+    // The bundled catalog assets (catalog port C): the packer hard-fails
+    // without validated assets, so the dry-run generates the offline
+    // fixture snapshot first (deterministic, stdlib-only — the same mode
+    // the CI build jobs use) and passes it through.
+    let assets = tempfile::TempDir::new().expect("catalog assets dir");
+    let bundle = Command::new(python)
+        .arg(
+            repo_root()
+                .join("scripts")
+                .join("release")
+                .join("bundle_catalog.py"),
+        )
+        .arg("generate")
+        .arg("--fixture")
+        .arg("--out")
+        .arg(assets.path())
+        .output()
+        .expect("generate the bundled catalog fixture");
+    assert_eq!(
+        bundle.status.code(),
+        Some(0),
+        "fixture generation failed: {}",
+        String::from_utf8_lossy(&bundle.stderr)
+    );
+
+    let out = tempfile::TempDir::new().expect("packaging out dir");
+    // Linux fail-closed: the packer accepts only a paired shipped ELF +
+    // decoder from split_debug.py, so the dry run first splits a tiny real
+    // ELF fixture — the same artifact shape the CI channel ships. The
+    // Windows arm stages the MSVC exe (the packer carries no split-debug
+    // there). The split fixture dir must outlive the invocation (_split_dir
+    // below).
+    let (staged_binary, staged_decoder, _split_dir): (
+        std::ffi::OsString,
+        Option<std::ffi::OsString>,
+        Option<tempfile::TempDir>,
+    ) = if std::env::consts::OS == "linux" {
+        let fixture = split_paired_fixture(
+            python,
+            env!("CARGO_PKG_VERSION"),
+            "x86_64-unknown-linux-gnu",
+            "linux-x64",
+        );
+        (
+            fixture.shipped.into(),
+            Some(fixture.decoder.into_os_string()),
+            Some(fixture.dir),
+        )
+    } else {
+        (env!("CARGO_BIN_EXE_eukhe").into(), None, None)
+    };
+    // The platform tag the packer derives on this host: linux-x64 on the
+    // linux CI host, win32-x64 on the windows-latest battery (the channel
+    // alias, never a bare `windows-x64` — the naming the update reader's
+    // manifest contract requires).
+    let host_platform = if cfg!(windows) {
+        "win32-x64"
+    } else {
+        "linux-x64"
+    };
+    let staged_binary_name = if cfg!(windows) { "eukhe.exe" } else { "eukhe" };
+    let mut command = Command::new(python);
+    command
+        .arg(repo_root().join("scripts").join("package_release.py"))
+        .arg("--root")
+        .arg(tree.path())
+        .arg("--binary")
+        .arg(&staged_binary)
+        .arg("--catalog-assets")
+        .arg(assets.path())
+        .arg("--out-dir")
+        .arg(out.path());
+    if let Some(decoder) = staged_decoder {
+        command.arg("--decoder").arg(decoder);
+    }
+    let result = command.output().expect("run the packaging script");
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "packaging failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let version = env!("CARGO_PKG_VERSION");
+    let stage = out.path().join(format!("eukhe-{version}-{host_platform}"));
+    assert!(
+        stage.join(staged_binary_name).is_file(),
+        "staged binary missing"
+    );
+    let manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(stage.join("package.json")).expect("version manifest"),
+    )
+    .expect("manifest json");
+    assert_eq!(manifest["version"], version, "version pin: {manifest}");
+    assert!(
+        stage.join("eukhe-runtime").join("pyproject.toml").is_file(),
+        "sidecar manifest missing"
+    );
+    assert!(
+        stage
+            .join("eukhe-runtime")
+            .join("src")
+            .join("rlm")
+            .join("repl.py")
+            .is_file(),
+        "sidecar REPL entry point missing"
+    );
+    assert!(
+        stage
+            .join("skills")
+            .join("greet")
+            .join("SKILL.md")
+            .is_file(),
+        "skills missing"
+    );
+    assert!(stage.join("LICENSE").is_file(), "license missing");
+    // The bundled catalog assets ride beside the executable (spec §3.2
+    // layer 2: the runtime resolves <packageDir>/models.bundled.json).
+    assert!(
+        stage.join("models.bundled.json").is_file(),
+        "bundled model catalog missing from the staged layout"
+    );
+    assert!(
+        stage.join("mcp-services.bundled.json").is_file(),
+        "bundled MCP service catalog missing from the staged layout"
+    );
+    // .venv handling (the TS installer exclusion set): dev caches never ship.
+    assert!(
+        !stage.join("eukhe-runtime").join(".venv").exists(),
+        ".venv rode the artifact"
+    );
+    assert!(
+        !stage
+            .join("eukhe-runtime")
+            .join("src")
+            .join("rlm")
+            .join("__pycache__")
+            .exists(),
+        "__pycache__ rode the artifact"
+    );
+
+    // Integrity: SHA256SUMS covers the tarball, binaries.json pins the
+    // version and hashes, and the tarball lists the staged layout exactly.
+    let archive = out
+        .path()
+        .join(format!("eukhe-{version}-{host_platform}.tar.gz"));
+    assert!(archive.is_file(), "tarball missing");
+    let sums = std::fs::read_to_string(out.path().join("SHA256SUMS")).expect("SHA256SUMS");
+    let sha256 = sha256_file(&archive);
+    assert!(
+        sums.contains(&sha256),
+        "SHA256SUMS does not cover the tarball"
+    );
+    let manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(out.path().join("binaries.json")).expect("binaries.json"),
+    )
+    .expect("binaries.json");
+    assert_eq!(manifest["version"], format!("v{version}"));
+    let binaries = manifest["binaries"].as_array().expect("binaries array");
+    assert_eq!(binaries.len(), 1);
+    assert_eq!(binaries[0]["sha256"], sha256.as_str());
+    assert_eq!(binaries[0]["platform"], host_platform);
+    let executable_sha = sha256_file(&stage.join(staged_binary_name));
+    assert_eq!(binaries[0]["executableSha256"], executable_sha.as_str());
+}
+
+fn sha256_file(path: &Path) -> String {
+    // A tiny pure-std sha256 (the test dependency set stays minimal).
+    let bytes = std::fs::read(path).expect("hash input");
+    let digest = sha256(&bytes);
+    digest.iter().fold(String::new(), |mut output, byte| {
+        let _ = write!(output, "{byte:02x}");
+        output
+    })
+}
+
+/// SHA-256 (FIPS 180-4), pure std so the e2e needs no extra dev-dependency.
+#[allow(clippy::many_single_char_names)] // the RFC 6234 SHA-256 reference names (h, w, a..g)
+fn sha256(data: &[u8]) -> [u8; 32] {
+    const K: [u32; 64] = [
+        0x428a_2f98,
+        0x7137_4491,
+        0xb5c0_fbcf,
+        0xe9b5_dba5,
+        0x3956_c25b,
+        0x59f1_11f1,
+        0x923f_82a4,
+        0xab1c_5ed5,
+        0xd807_aa98,
+        0x1283_5b01,
+        0x2431_85be,
+        0x550c_7dc3,
+        0x72be_5d74,
+        0x80de_b1fe,
+        0x9bdc_06a7,
+        0xc19b_f174,
+        0xe49b_69c1,
+        0xefbe_4786,
+        0x0fc1_9dc6,
+        0x240c_a1cc,
+        0x2de9_2c6f,
+        0x4a74_84aa,
+        0x5cb0_a9dc,
+        0x76f9_88da,
+        0x983e_5152,
+        0xa831_c66d,
+        0xb003_27c8,
+        0xbf59_7fc7,
+        0xc6e0_0bf3,
+        0xd5a7_9147,
+        0x06ca_6351,
+        0x1429_2967,
+        0x27b7_0a85,
+        0x2e1b_2138,
+        0x4d2c_6dfc,
+        0x5338_0d13,
+        0x650a_7354,
+        0x766a_0abb,
+        0x81c2_c92e,
+        0x9272_2c85,
+        0xa2bf_e8a1,
+        0xa81a_664b,
+        0xc24b_8b70,
+        0xc76c_51a3,
+        0xd192_e819,
+        0xd699_0624,
+        0xf40e_3585,
+        0x106a_a070,
+        0x19a4_c116,
+        0x1e37_6c08,
+        0x2748_774c,
+        0x34b0_bcb5,
+        0x391c_0cb3,
+        0x4ed8_aa4a,
+        0x5b9c_ca4f,
+        0x682e_6ff3,
+        0x748f_82ee,
+        0x78a5_636f,
+        0x84c8_7814,
+        0x8cc7_0208,
+        0x90be_fffa,
+        0xa450_6ceb,
+        0xbef9_a3f7,
+        0xc671_78f2,
+    ];
+    let mut hash_words: [u32; 8] = [
+        0x6a09_e667,
+        0xbb67_ae85,
+        0x3c6e_f372,
+        0xa54f_f53a,
+        0x510e_527f,
+        0x9b05_688c,
+        0x1f83_d9ab,
+        0x5be0_cd19,
+    ];
+    let mut message = data.to_vec();
+    let bit_length = (data.len() as u64).wrapping_mul(8);
+    message.push(0x80);
+    while message.len() % 64 != 56 {
+        message.push(0);
+    }
+    message.extend_from_slice(&bit_length.to_be_bytes());
+    for chunk in message.chunks(64) {
+        let mut w = [0u32; 64];
+        for (index, word) in chunk.chunks(4).enumerate() {
+            w[index] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        }
+        for index in 16..64 {
+            let s0 = w[index - 15].rotate_right(7)
+                ^ w[index - 15].rotate_right(18)
+                ^ (w[index - 15] >> 3);
+            let s1 = w[index - 2].rotate_right(17)
+                ^ w[index - 2].rotate_right(19)
+                ^ (w[index - 2] >> 10);
+            w[index] = w[index - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[index - 7])
+                .wrapping_add(s1);
+        }
+        let (mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh) = (
+            hash_words[0],
+            hash_words[1],
+            hash_words[2],
+            hash_words[3],
+            hash_words[4],
+            hash_words[5],
+            hash_words[6],
+            hash_words[7],
+        );
+        for index in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[index])
+                .wrapping_add(w[index]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+        hash_words[0] = hash_words[0].wrapping_add(a);
+        hash_words[1] = hash_words[1].wrapping_add(b);
+        hash_words[2] = hash_words[2].wrapping_add(c);
+        hash_words[3] = hash_words[3].wrapping_add(d);
+        hash_words[4] = hash_words[4].wrapping_add(e);
+        hash_words[5] = hash_words[5].wrapping_add(f);
+        hash_words[6] = hash_words[6].wrapping_add(g);
+        hash_words[7] = hash_words[7].wrapping_add(hh);
+    }
+    let mut digest = [0u8; 32];
+    for (index, word) in hash_words.iter().enumerate() {
+        digest[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    digest
+}
+
+/// Heavy (network + uv): the packaged sidecar bootstraps a fresh kernel venv
+/// with no `EUKHE_KERNEL_PYTHON` and no `EUKHE_PACKAGE_DIR` (both scrubbed
+/// by the hermetic sandbox command, so a gate host exporting them cannot
+/// steer this run), then boots a session on it. Run explicitly:
+/// `cargo test -p eukhe-cli --test packaged_layout_e2e -- --ignored`
+#[test]
+#[ignore = "network + uv bootstrap (~minutes); the lane verifier runs it explicitly"]
+fn bootstrap_kernel_venv_from_packaged_sidecar() {
+    let dir = tempfile::TempDir::new().expect("stage dir");
+    let staged = dir.path();
+    stage_packaged_layout(staged, true);
+    let box_ = sandbox();
+    let venv = box_.home.path().join("kernel-venv");
+
+    // --eukhe-bootstrap (the installer handoff) builds the venv from
+    // the exe-adjacent sidecar.
+    let output = box_
+        .command(staged)
+        .arg("--eukhe-bootstrap")
+        .env("EUKHE_KERNEL_VENV", &venv)
+        .output()
+        .expect("run packaged binary");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "bootstrap failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("kernel python:"),
+        "bootstrap stdout: {stdout}"
+    );
+    // The venv layout the product's bootstrap creates: `bin/python` on
+    // unix, `Scripts\python.exe` on Windows.
+    let venv_python = if cfg!(windows) {
+        venv.join("Scripts").join("python.exe")
+    } else {
+        venv.join("bin").join("python")
+    };
+    assert!(venv_python.exists(), "kernel venv python missing");
+
+    // A session boots on the fresh venv: the same kernel-cell proof as the
+    // ambient-venv test, this time without any kernel python override.
+    let receipt = box_.home.path().join("kernel-receipt.json");
+    let script = kernel_boot_script(&receipt);
+    let mut command = box_.command(staged);
+    command.env("EUKHE_KERNEL_VENV", &venv);
+    let (stdout, stderr, code) = run_json_turn(&mut command, &script);
+    assert_eq!(code, Some(0), "stdout: {stdout}\nstderr: {stderr}");
+    assert!(
+        stdout.contains("KERNEL_BOOT_OK"),
+        "kernel cell output missing; stdout: {stdout}\nstderr: {stderr}"
+    );
+    let payload: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&receipt).unwrap_or_default())
+            .unwrap_or(serde_json::Value::Null);
+    assert_eq!(
+        payload["kernel_boot"],
+        serde_json::Value::Bool(true),
+        "receipt: {payload}"
+    );
+}

@@ -1,9 +1,9 @@
 [project]
-name = "prime-agent-skill-attach-image"
+name = "eukhe-skill-attach-image"
 version = "0.1.0"
 description = "Load on-disk images into the model's context as viewable attachments."
 requires-python = ">=3.10"
-dependencies = ["pillow>=10.0.0", "prime-agent-runtime"]
+dependencies = ["pillow>=10.0.0", "eukhe-runtime"]
 
 [project.scripts]
 attach_image = "rlm.skill:cli"

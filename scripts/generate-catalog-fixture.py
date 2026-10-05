@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-FIXTURE = REPO / "crates/pa-models/tests/fixtures/catalog.v1.json"
+FIXTURE = REPO / "crates/eukhe-models/tests/fixtures/catalog.v1.json"
 
 sys.path.insert(0, str(REPO / "scripts" / "release"))
 from bundle_catalog import DEFAULT_MODEL_CATALOG_URL, fail, fetch_catalog  # noqa: E402

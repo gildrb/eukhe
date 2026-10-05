@@ -1,22 +1,5 @@
 {
   "version": "0.9.9-eukhe.1",
-  "tag": "eukhe-v0.9.9-eukhe.1",
-  "assets": {
-    "aarch64-darwin": {
-      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.9.9-eukhe.1/prime-agent-0.9.9-eukhe.1-darwin-arm64.tar.gz",
-      "hash": "sha256-yujHfb+zr+7qpC5Zl4Kxa81n/yQGmYZssNFmPZcgyIg="
-    },
-    "aarch64-linux": {
-      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.9.9-eukhe.1/prime-agent-0.9.9-eukhe.1-linux-arm64.tar.gz",
-      "hash": "sha256-ry3O4LaAqG2vRW5Rn3HUj0aWFfhiw9NM4xrEpAmUm/Y="
-    },
-    "x86_64-darwin": {
-      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.9.9-eukhe.1/prime-agent-0.9.9-eukhe.1-darwin-x64.tar.gz",
-      "hash": "sha256-EQprawhJmfPigoh3fxDFyp3Z9TTj+hoWnqD4OwjxIjo="
-    },
-    "x86_64-linux": {
-      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.9.9-eukhe.1/prime-agent-0.9.9-eukhe.1-linux-x64.tar.gz",
-      "hash": "sha256-RtMufoI72CLclf3eAdvcNRCNN5h/lAdo3C8kore7qoo="
-    }
-  }
+  "tag": "",
+  "assets": {}
 }

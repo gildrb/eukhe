@@ -4,9 +4,9 @@
 Offline: the fixture mode must produce assets that pass the FULL validation
 gates, the packer must hard-fail on missing/invalid assets (negative tests),
 network mode is verified against a local HTTP server (byte parity, auth
-header, redirect refusal, size cap), and the assets must land in the package
-layout the installer expects (assemble + verify against a synthetic repo
-tree, including the commit-stamped continuous flow).
+header, redirect refusal, size cap), and the assets must land in the release
+tarball layout (assemble + verify against a synthetic repo tree, the
+eukhe-release.yml pipeline shape).
 
 Run: python3 scripts/release/test_catalog_assets.py  (or: make catalog-assets-gates)
 """
@@ -42,8 +42,8 @@ VERIFIER = SCRIPTS_DIR / "verify_release.py"
 PACKER = REPO / "scripts" / "package_release.py"
 
 HOST_TARGET = "x86_64-unknown-linux-gnu"
-# Archives carry the TS platform alias (the name the update flow's channel
-# manifest requires): prime-agent-<version>-<platform>.tar.gz.
+# Archives carry the platform alias (eukhe-<version>-<platform>.tar.gz, the
+# asset name eukhe-release.yml publishes and nix/release.json records).
 HOST_ARCHIVE_PLATFORM = TARGET_ALIASES[HOST_TARGET]
 
 
@@ -149,7 +149,7 @@ class DripServer:
 class SyntheticRepo:
     """A minimal repo tree the assembler/verifier/packer accept."""
 
-    def __init__(self, root: Path, version: str = "9.9.9", sha: str | None = None):
+    def __init__(self, root: Path, version: str = "9.9.9"):
         self.root = root
         self.version = version
         (root / "skills").mkdir(parents=True)
@@ -161,27 +161,26 @@ class SyntheticRepo:
         (runtime / "pyproject.toml").write_text("[project]\nname='rlm'\n")
         (runtime / "src").mkdir()
         # The exe-adjacent kernel runtime tree package_release.py stages.
-        kernel = root / "prime-agent-runtime"
+        kernel = root / "eukhe-runtime"
         (kernel / "src" / "rlm").mkdir(parents=True)
         (kernel / "pyproject.toml").write_text("[project]\nname='rlm'\n")
         (kernel / "src" / "rlm" / "repl.py").write_text("# repl\n")
-        printed = version if sha is None else f"{version}-continuous.{sha}"
         (runtime / "src" / "repl.py").write_text("# repl\n")
-        source = root / "prime-agent.c"
-        source.write_text(f'#include <stdio.h>\nint main(void) {{ puts("{printed}"); return 0; }}\n')
-        self.raw_binary = root / "bin" / "cargo-prime-agent"
+        source = root / "eukhe.c"
+        source.write_text(f'#include <stdio.h>\nint main(void) {{ puts("{version}"); return 0; }}\n')
+        self.raw_binary = root / "bin" / "cargo-eukhe"
         self.raw_binary.parent.mkdir()
         subprocess.run(["gcc", "-g", "-Wl,--build-id", "-o",
                         str(self.raw_binary), str(source)], check=True)
-        self.binary = root / "bin" / "prime-agent"
-        self.decoder = root / "bin" / f"prime-agent-{version}-{HOST_ARCHIVE_PLATFORM}.debug.gz"
+        self.binary = root / "bin" / "eukhe"
+        self.decoder = root / "bin" / f"eukhe-{version}-{HOST_ARCHIVE_PLATFORM}.debug.gz"
         split = run_cli(SCRIPTS_DIR / "split_debug.py", [
             "--binary", str(self.raw_binary), "--shipped", str(self.binary),
             "--out", str(self.binary.parent), "--version", version, "--target", HOST_TARGET])
         if split.returncode:
             raise AssertionError(split.stderr)
 
-    def assemble(self, out_dir, catalog_assets=None, sha=None, target=HOST_TARGET):
+    def assemble(self, out_dir, catalog_assets=None, target=HOST_TARGET):
         args = [
             "--repo-root", str(self.root), "--version", self.version,
             "--target", target, "--binary", str(self.binary),
@@ -189,8 +188,6 @@ class SyntheticRepo:
             "--runtime-dir", str(self.root / "runtime"),
             "--out-dir", str(out_dir),
         ]
-        if sha:
-            args += ["--sha", sha]
         if catalog_assets is not None:
             args += ["--catalog-assets", str(catalog_assets)]
         return run_cli(ASSEMBLER, args)
@@ -579,7 +576,7 @@ class NetworkMode(unittest.TestCase):
 
 class PackerGates(unittest.TestCase):
     """The release packer must hard-fail without validated assets, and valid
-    assets must land in the tarball layout the installer expects."""
+    assets must land in the release tarball layout."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -600,7 +597,7 @@ class PackerGates(unittest.TestCase):
         self.assertIn("missing bundled catalog assets", result.stderr)
         # Nothing was packed: no archive, no manifest.
         self.assertFalse(
-            (out / f"prime-agent-9.9.9-{HOST_ARCHIVE_PLATFORM}.tar.gz").exists())
+            (out / f"eukhe-9.9.9-{HOST_ARCHIVE_PLATFORM}.tar.gz").exists())
         self.assertFalse((out / "manifest.json").exists())
 
     def test_packers_never_ship_generated_skill_caches(self):
@@ -610,7 +607,7 @@ class PackerGates(unittest.TestCase):
         (self.repo.root / "skills" / "stale.pyc").write_bytes(b"generated bytecode")
         assembled = self.repo.assemble(self.tmp / "assemble-caches", catalog_assets=self.assets)
         self.assertEqual(assembled.returncode, 0, assembled.stderr)
-        archive = self.tmp / "assemble-caches" / f"prime-agent-9.9.9-{HOST_ARCHIVE_PLATFORM}.tar.gz"
+        archive = self.tmp / "assemble-caches" / f"eukhe-9.9.9-{HOST_ARCHIVE_PLATFORM}.tar.gz"
         with tarfile.open(archive) as tar:
             self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in tar.getnames()))
         poisoned = self.tmp / "poisoned"
@@ -636,7 +633,7 @@ class PackerGates(unittest.TestCase):
                 "--out-dir", str(self.tmp / "package-caches")]
         packaged = run_cli(PACKER, args)
         self.assertEqual(packaged.returncode, 0, packaged.stderr)
-        staged = self.tmp / "package-caches" / "prime-agent-9.9.9-linux-x64" / "skills"
+        staged = self.tmp / "package-caches" / "eukhe-9.9.9-linux-x64" / "skills"
         self.assertFalse(any("__pycache__" in str(path) or path.suffix == ".pyc"
                              for path in staged.rglob("*")))
 
@@ -675,12 +672,12 @@ class PackerGates(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Missing bundled catalog asset", result.stderr)
 
-    def test_assets_land_in_the_tarball_the_installer_expects(self):
+    def test_assets_land_in_the_release_tarball(self):
         out = self.tmp / "dist"
         result = self.repo.assemble(out, catalog_assets=self.assets)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("bundled catalog assets", result.stdout)
-        archive = out / f"prime-agent-9.9.9-{HOST_ARCHIVE_PLATFORM}.tar.gz"
+        archive = out / f"eukhe-9.9.9-{HOST_ARCHIVE_PLATFORM}.tar.gz"
         self.assertTrue(archive.is_file())
         with tarfile.open(archive) as tar:
             names = tar.getnames()
@@ -698,19 +695,6 @@ class PackerGates(unittest.TestCase):
         self.assertEqual(verify.returncode, 0, verify.stderr)
         self.assertIn("catalog assets", verify.stdout)
 
-    def test_continuous_flow_stamps_and_verifies(self):
-        # The #274 pipeline: commit-stamped continuous builds carry the assets
-        # the same way, and verify enforces the stamp end to end.
-        sha = "0123456789abcdef0123456789abcdef01234567"
-        repo = SyntheticRepo(self.tmp / "synrepo-continuous",
-                             version="9.9.9", sha=sha)
-        out = self.tmp / "dist-continuous"
-        result = repo.assemble(out, catalog_assets=self.assets, sha=sha)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        verify = run_cli(VERIFIER, ["--dist-dir", str(out), "--version", "9.9.9",
-                                   "--target", HOST_TARGET, "--sha", sha])
-        self.assertEqual(verify.returncode, 0, verify.stderr)
-
     def test_kernel_packer_gates_the_same_assets(self):
         # package_release.py (the exe-adjacent kernel packaging) fails without
         # assets and ships them beside the binary when they are valid.
@@ -722,12 +706,12 @@ class PackerGates(unittest.TestCase):
         self.assertIn("missing bundled catalog assets", without.stderr)
         with_assets = run_cli(PACKER, [*args, "--catalog-assets", str(self.assets)])
         self.assertEqual(with_assets.returncode, 0, with_assets.stderr)
-        staged = self.tmp / "release-package" / "prime-agent-9.9.9-linux-x64"
+        staged = self.tmp / "release-package" / "eukhe-9.9.9-linux-x64"
         self.assertTrue((staged / "models.bundled.json").is_file())
         self.assertTrue((staged / "mcp-services.bundled.json").is_file())
 
     def test_kernel_packer_rejects_decoder_leak(self):
-        leaked = self.repo.root / "prime-agent-runtime" / "leak.debug.gz"
+        leaked = self.repo.root / "eukhe-runtime" / "leak.debug.gz"
         leaked.write_bytes(b"decoder-like payload")
         out = self.tmp / "release-package-leak"
         result = run_cli(PACKER, ["--root", str(self.repo.root), "--version", "9.9.9",
@@ -754,11 +738,11 @@ class PackerGates(unittest.TestCase):
         wrong_dir.mkdir()
         wrong_source = wrong_dir / "wrong.c"
         wrong_source.write_text('int main(void) { return 17; }\n')
-        wrong_raw = wrong_dir / "cargo-prime-agent"
+        wrong_raw = wrong_dir / "cargo-eukhe"
         subprocess.run(["gcc", "-g", "-Wl,--build-id", "-o", str(wrong_raw),
                         str(wrong_source)], check=True)
         split = run_cli(SCRIPTS_DIR / "split_debug.py", [
-            "--binary", str(wrong_raw), "--shipped", str(wrong_dir / "prime-agent"),
+            "--binary", str(wrong_raw), "--shipped", str(wrong_dir / "eukhe"),
             "--out", str(wrong_dir), "--version", "9.9.9", "--target", HOST_TARGET])
         self.assertEqual(split.returncode, 0, split.stderr)
         wrong_decoder = wrong_dir / self.repo.decoder.name

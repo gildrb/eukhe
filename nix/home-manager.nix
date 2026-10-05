@@ -13,13 +13,13 @@ let
 in
 {
   options.programs.eukhe = {
-    enable = lib.mkEnableOption "eukhe, Prime Agent with one endless chat as its memory";
+    enable = lib.mkEnableOption "eukhe, a coding agent with one endless chat as its memory";
 
     package = lib.mkOption {
       type = lib.types.package;
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
       defaultText = lib.literalExpression "eukhe.packages.\${system}.default";
-      description = "The eukhe package (the prebuilt release by default).";
+      description = "The eukhe package (the pinned prebuilt release when one exists for the system, else built from source).";
     };
 
     settings = lib.mkOption {

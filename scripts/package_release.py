@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
-"""Assemble the prime-agent release artifact (kernel packaging).
+"""Assemble the eukhe release artifact (kernel packaging).
 
-Ports the TS release packaging (scripts/assemble-release-archives.mjs +
-packages/coding-agent/scripts/copy-binary-assets.mjs) to this repo's layout:
+The local packaging dry-run (`make package`); the published per-target
+tarballs come from scripts/release/assemble_artifacts.py in
+.github/workflows/eukhe-release.yml. Output:
 
-  <out-dir>/prime-agent-<version>-<platform>/     staged exe-adjacent layout
-  <out-dir>/prime-agent-<version>-<platform>.tar.gz
+  <out-dir>/eukhe-<version>-<platform>/     staged exe-adjacent layout
+  <out-dir>/eukhe-<version>-<platform>.tar.gz
   <out-dir>/binaries.json                          release manifest (version pin)
   <out-dir>/SHA256SUMS                             integrity sums for the artifacts
 
 The staged layout is the exe-adjacent packaging the binary resolves at
-runtime (PI_PACKAGE_DIR override, else the directory of the executable):
+runtime (EUKHE_PACKAGE_DIR override, else the directory of the executable):
 
-  prime-agent            the binary (mode 755; prime-agent.exe on win32-x64)
-  package.json           version manifest ({"version": <version>, piConfig})
+  eukhe                  the binary (mode 755; eukhe.exe on a Windows host)
+  package.json           version manifest ({"version": <version>})
   README.md
   LICENSE
   models.bundled.json       bundled catalog assets (spec §3.2 layer 2),
   mcp-services.bundled.json staged beside the executable
-  prime-agent-runtime/   the kernel runtime sidecar (dev caches excluded)
+  eukhe-runtime/   the kernel runtime sidecar (dev caches excluded)
   skills/                built-in skills
-  docs/                  user-facing docs
 
 Run it as the packaging dry-run: it builds (or takes) the binary, stages,
 validates, version-pins, hashes, and tars the artifact locally. On Linux the
@@ -66,8 +66,8 @@ from assemble_artifacts import (  # noqa: E402
     fail_if_decoder_in_archive,
     fail_if_decoder_in_tree,
 )
-# `--root` re-anchors asset discovery (workspace version, prime-agent-runtime,
-# skills, docs, README) so integration tests can package synthetic trees.
+# `--root` re-anchors asset discovery (workspace version, eukhe-runtime,
+# skills, README, LICENSE) so integration tests can package synthetic trees.
 
 
 # The TS copy-binary-assets exclusion set: development caches never ship and
@@ -89,19 +89,19 @@ EXCLUDED_SUFFIXES = (".pyc", ".egg-info")
 # must carry its manifest and the REPL entry point, and the bundled catalog
 # assets must sit beside the executable.
 REQUIRED_FILES = (
-    "prime-agent",
+    "eukhe",
     "package.json",
     "README.md",
     "LICENSE",
     "models.bundled.json",
     "mcp-services.bundled.json",
-    "prime-agent-runtime/pyproject.toml",
-    "prime-agent-runtime/src/rlm/repl.py",
+    "eukhe-runtime/pyproject.toml",
+    "eukhe-runtime/src/rlm/repl.py",
 )
-REQUIRED_DIRS = ("prime-agent-runtime/src/rlm", "skills")
+REQUIRED_DIRS = ("eukhe-runtime/src/rlm", "skills")
 
 # Tree assets copied with the exclusion filter; everything else is a single file.
-TREE_ASSETS = ("prime-agent-runtime", "skills")
+TREE_ASSETS = ("eukhe-runtime", "skills")
 
 
 def parse_args(argv):
@@ -110,8 +110,8 @@ def parse_args(argv):
     parser.add_argument("--binary", type=Path, help="stage this binary instead of building")
     parser.add_argument("--decoder", type=Path, help="separate Linux decoder for --binary")
     parser.add_argument("--skip-build", action="store_true",
-                        help="reuse target/release/prime-agent (prime-agent.exe on"
-                             " win32-x64) without building")
+                        help="reuse target/release/eukhe (eukhe.exe on"
+                             " a Windows host) without building")
     parser.add_argument("--out-dir", type=Path, help="output directory (default: target/release-package)")
     parser.add_argument("--platform", help="platform tag (default: derived from this machine)")
     parser.add_argument("--root", type=Path, default=ROOT,
@@ -142,22 +142,18 @@ def release_platform():
     system = platform.system().lower()
     if system not in ("linux", "darwin", "windows"):
         raise SystemExit(f"error: unsupported release platform: {system}")
-    # Windows carries the TS `NATIVE_PLATFORMS` alias (`win32-x64`, the
-    # channel manifest's platform row), not the bare `windows-x64` spelling,
-    # so the local dry-run names its artifact exactly like the release
-    # pipeline's channel tarball.
+    # Windows hosts (the packaged-layout e2e test's cfg(windows) arm) use
+    # the `win32-x64` tag, not a bare `windows-x64` spelling.
     if system == "windows":
         return f"win32-{arch}"
     return f"{system}-{arch}"
 
 
 def binary_name_for_platform(tag):
-    """The staged binary name for one platform tag: `prime-agent.exe` on
-    win32-x64 (the name Cargo's MSVC linker emits and the installer's
-    `.exe`-aware layout expects), `prime-agent` everywhere else — the same
-    naming rule the release pipeline applies
-    (`scripts/release/assemble_artifacts.py` `binary_name_for_target`)."""
-    return "prime-agent.exe" if tag == "win32-x64" else "prime-agent"
+    """The staged binary name for one platform tag: `eukhe.exe` on
+    win32-x64 (the name Cargo emits for Windows targets), `eukhe`
+    everywhere else."""
+    return "eukhe.exe" if tag == "win32-x64" else "eukhe"
 
 
 def include_path(relative, extra_excluded_names=frozenset(), extra_excluded_suffixes=()):
@@ -227,7 +223,7 @@ def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
     for name in BUNDLED_CATALOG_FILES:
         shutil.copy2(catalog_assets / name, stage_dir / name)
     for name in TREE_ASSETS:
-        if name == "prime-agent-runtime":
+        if name == "eukhe-runtime":
             copy_tree(root / name, stage_dir / name,
                       extra_excluded_names=RUNTIME_EXCLUDED_NAMES,
                       extra_excluded_suffixes=RUNTIME_EXCLUDED_SUFFIXES)
@@ -237,17 +233,16 @@ def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
     # The license ships with the binary (TS binaryAssets keeps LICENSE beside
     # it; the release pipeline packages it the same way).
     shutil.copy2(root / "LICENSE", stage_dir / "LICENSE")
-    # The version manifest: the binary's runtime package.json (TS
-    # setBinaryVersion stamps the version here; cargo embeds it, so the
-    # manifest records the pin and the staged binary must agree with it).
+    # The version manifest: the binary reads the exe-adjacent package.json
+    # for `--version` (cargo embeds the same version, so the manifest
+    # records the pin and the staged binary must agree with it).
     (stage_dir / "package.json").write_text(
         json.dumps(
             {
-                "name": "prime-agent",
+                "name": "eukhe",
                 "version": version,
-                "description": "Prime Agent: the RLM coding agent (Rust build)",
-                "bin": {"prime-agent": binary_name},
-                "piConfig": {"name": "prime-agent", "configDir": ".prime/agent"},
+                "description": "eukhe: a coding agent with one endless chat as its memory",
+                "bin": {"eukhe": binary_name},
             },
             indent=2,
         )
@@ -260,7 +255,7 @@ def validate(stage_dir, version, binary_name):
         if not (stage_dir / name).is_dir():
             raise SystemExit(f"error: missing binary asset directory: {name}")
     for name in REQUIRED_FILES:
-        path = stage_dir / (binary_name if name == "prime-agent" else name)
+        path = stage_dir / (binary_name if name == "eukhe" else name)
         if not path.is_file():
             raise SystemExit(f"error: missing binary asset: {path.name}")
     if not os.access(stage_dir / binary_name, os.X_OK):
@@ -281,10 +276,10 @@ def pin_version(binary, stage_dir, version, binary_name):
             [str(binary), "--version"],
             capture_output=True,
             text=True,
-            env={**os.environ, "PI_PACKAGE_DIR": empty},
+            env={**os.environ, "EUKHE_PACKAGE_DIR": empty},
         )
     if probe.returncode != 0:
-        raise SystemExit(f"error: prime-agent --version failed: {probe.stderr.strip()}")
+        raise SystemExit(f"error: eukhe --version failed: {probe.stderr.strip()}")
     compiled = probe.stdout.strip()
     if compiled != version:
         raise SystemExit(
@@ -297,7 +292,7 @@ def pin_version(binary, stage_dir, version, binary_name):
         [str(stage_dir / binary_name), "--version"],
         capture_output=True,
         text=True,
-        env={**os.environ, "PI_PACKAGE_DIR": str(stage_dir)},
+        env={**os.environ, "EUKHE_PACKAGE_DIR": str(stage_dir)},
     )
     if probe.returncode != 0:
         raise SystemExit(f"error: staged {binary_name} --version failed: {probe.stderr.strip()}")
@@ -345,7 +340,7 @@ def main(argv=None):
     binary_name = binary_name_for_platform(tag)
     out_dir = (args.out_dir or root / "target" / "release-package").resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    stage_dir = out_dir / f"prime-agent-{version}-{tag}"
+    stage_dir = out_dir / f"eukhe-{version}-{tag}"
 
     if args.binary:
         binary = args.binary.resolve()
@@ -356,8 +351,8 @@ def main(argv=None):
         if not binary.is_file():
             raise SystemExit(f"error: no prebuilt binary at {binary}; drop --skip-build")
     else:
-        print("building the release binary (cargo build --release -p pa-cli)…")
-        subprocess.run(["cargo", "build", "--release", "-p", "pa-cli"], cwd=ROOT, check=True)
+        print("building the release binary (cargo build --release -p eukhe-cli)…")
+        subprocess.run(["cargo", "build", "--release", "-p", "eukhe-cli"], cwd=ROOT, check=True)
         binary = root / "target" / "release" / binary_name
 
     if tag.startswith("linux-"):
@@ -369,14 +364,14 @@ def main(argv=None):
             raise SystemExit(f"error: unsupported Linux platform: {tag}")
         if not args.binary:
             shipped_dir = root / "target" / "release" / "dist"
-            shipped = shipped_dir / "prime-agent"
+            shipped = shipped_dir / "eukhe"
             target = targets[tag]
             subprocess.run([sys.executable, str(ROOT / "scripts/release/split_debug.py"),
                             "--binary", str(binary), "--shipped", str(shipped),
                             "--out", str(shipped_dir), "--version", version,
                             "--target", target], cwd=ROOT, check=True)
             binary = shipped
-            args.decoder = shipped_dir / f"prime-agent-{version}-{tag}.debug.gz"
+            args.decoder = shipped_dir / f"eukhe-{version}-{tag}.debug.gz"
         if args.decoder is None:
             raise SystemExit("error: Linux --binary requires --decoder from split_debug.py")
         if debug_sections(binary):

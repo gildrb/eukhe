@@ -1,5 +1,5 @@
 {
-  description = "eukhe: Prime Agent with one endless chat as its memory";
+  description = "eukhe: a coding agent with one endless chat as its memory";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -16,7 +16,8 @@
       ];
       forAllSystems = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
       # Written by .github/workflows/eukhe-release.yml: the newest release's
-      # archive URL and SRI hash per system.
+      # archive URL and SRI hash per system. Empty `assets` (no release in
+      # the current layout yet) builds every system from source.
       release = lib.importJSON ./nix/release.json;
     in
     {

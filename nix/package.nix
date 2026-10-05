@@ -42,27 +42,22 @@ stdenv.mkDerivation {
     runHook preInstall
     payload="$out/libexec/eukhe"
     mkdir -p "$payload" "$out/bin"
-    cp -R prime-agent prime-agent-runtime skills LICENSE "$payload/"
-    for file in models.bundled.json mcp-services.bundled.json package.json; do
-      if [ -e "$file" ]; then
-        cp "$file" "$payload/"
-      fi
-    done
+    cp -R eukhe eukhe-runtime skills LICENSE models.bundled.json mcp-services.bundled.json "$payload/"
     # uv builds the Python kernel's venv; git commits the chat memory after
     # every turn. A user's own uv or git earlier on PATH wins.
-    makeWrapper "$payload/prime-agent" "$out/bin/eukhe" \
+    makeWrapper "$payload/eukhe" "$out/bin/eukhe" \
       --suffix PATH : ${
         lib.makeBinPath [
           uv
           git
         ]
       } \
-      --set-default PRIME_AGENT_TELEMETRY 0
+      --set-default EUKHE_TELEMETRY 0
     runHook postInstall
   '';
 
   meta = {
-    description = "Prime Agent with one endless chat as its memory (prebuilt)";
+    description = "A coding agent with one endless chat as its memory (prebuilt)";
     homepage = "https://github.com/gildrb/eukhe";
     license = lib.licenses.mit;
     mainProgram = "eukhe";

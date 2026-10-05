@@ -19,9 +19,9 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = src + "/Cargo.lock";
   cargoBuildFlags = [
     "-p"
-    "pa-cli"
+    "eukhe-cli"
     "--bin"
-    "prime-agent"
+    "eukhe"
   ];
   # The suites need network, sockets, Python, and uv.
   doCheck = false;
@@ -33,24 +33,24 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     payload="$out/libexec/eukhe"
-    mkdir -p "$payload/prime-agent-runtime"
-    mv "$out/bin/prime-agent" "$payload/"
-    cp -R prime-agent-runtime/pyproject.toml prime-agent-runtime/src "$payload/prime-agent-runtime/"
+    mkdir -p "$payload/eukhe-runtime"
+    mv "$out/bin/eukhe" "$payload/"
+    cp -R eukhe-runtime/pyproject.toml eukhe-runtime/src "$payload/eukhe-runtime/"
     cp -R skills "$payload/skills"
     cp LICENSE "$payload/"
     python3 scripts/release/bundle_catalog.py generate --fixture --out "$payload"
-    makeWrapper "$payload/prime-agent" "$out/bin/eukhe" \
+    makeWrapper "$payload/eukhe" "$out/bin/eukhe" \
       --suffix PATH : ${
         lib.makeBinPath [
           uv
           git
         ]
       } \
-      --set-default PRIME_AGENT_TELEMETRY 0
+      --set-default EUKHE_TELEMETRY 0
   '';
 
   meta = {
-    description = "Prime Agent with one endless chat as its memory (from source)";
+    description = "A coding agent with one endless chat as its memory (from source)";
     homepage = "https://github.com/gildrb/eukhe";
     license = lib.licenses.mit;
     mainProgram = "eukhe";

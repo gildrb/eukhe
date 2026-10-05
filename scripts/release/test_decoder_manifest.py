@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check same-out-dir multi-target decoder metadata and promotion identity."""
+"""Check same-out-dir multi-target decoder metadata and per-artifact identity."""
 from __future__ import annotations
 
 import json
@@ -27,14 +27,14 @@ def run(*args: str, success: bool = True) -> subprocess.CompletedProcess:
 
 
 class DecoderManifest(unittest.TestCase):
-    def test_two_targets_reassemble_and_promote(self) -> None:
+    def test_two_targets_reassemble_and_verify_per_artifact(self) -> None:
         with tempfile.TemporaryDirectory(prefix="decoder-manifest-") as tmp:
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
-            for directory in ("prime-agent-runtime", "skills"):
+            for directory in ("eukhe-runtime", "skills"):
                 (repo / directory).mkdir()
-            (repo / "prime-agent-runtime/pyproject.toml").write_text("[project]\nname = 'fixture'\nversion = '0.1.0'\n")
+            (repo / "eukhe-runtime/pyproject.toml").write_text("[project]\nname = 'fixture'\nversion = '0.1.0'\n")
             (repo / "LICENSE").write_text("fixture\n")
             (repo / "README.md").write_text("fixture\n")
             catalog = root / "catalog"
@@ -45,8 +45,8 @@ class DecoderManifest(unittest.TestCase):
                 source = root / f"{alias}.c"
                 source.write_text(f"int main(void) {{ return {len(alias)}; }}\n")
                 run("gcc", "-g", "-Wl,--build-id", "-o", str(binary), str(source))
-                shipped = root / alias / "prime-agent"
-                decoder = dist / f"prime-agent-0.1.0-{alias}.debug.gz"
+                shipped = root / alias / "eukhe"
+                decoder = dist / f"eukhe-0.1.0-{alias}.debug.gz"
                 run(sys.executable, str(SPLITTER), "--binary", str(binary),
                     "--shipped", str(shipped), "--out", str(dist),
                     "--version", "0.1.0", "--target", target)
@@ -74,7 +74,7 @@ class DecoderManifest(unittest.TestCase):
             incoming.mkdir(parents=True)
             for path in (dist / "manifest.json", dist / "SHA256SUMS", *dist.glob("*.tar.gz"), *dist.glob("*.debug.gz")):
                 shutil.copy2(path, incoming / path.name)
-            # Actual promotion uses one target per artifact. Test that each
+            # The publish job receives one target per artifact. Test that each
             # merged row is independently valid after a shared-out-dir build.
             for target, _ in TARGETS:
                 single = root / f"single-{target}" / f"artifacts-{target}"

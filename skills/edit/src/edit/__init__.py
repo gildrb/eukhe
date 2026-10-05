@@ -46,7 +46,7 @@ async def run(path: str, old_str: str, new_str: str) -> str:
 
 
 # Keep in sync with DIFF_DISPLAY_MIME in src/core/kernel/index.ts.
-_DIFF_DISPLAY_MIME = "application/vnd.prime-agent.diff+json"
+_DIFF_DISPLAY_MIME = "application/vnd.eukhe.diff+json"
 
 
 def _emit_diff(path: str, old_str: str, new_str: str, start_line: int) -> None:

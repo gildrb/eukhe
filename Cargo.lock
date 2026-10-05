@@ -481,6 +481,207 @@ dependencies = [
 ]
 
 [[package]]
+name = "eukhe-agent"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "eukhe-ai"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "eukhe-types",
+ "futures",
+ "h2",
+ "hex",
+ "hmac",
+ "http",
+ "rand 0.8.8",
+ "regex",
+ "reqwest",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
+name = "eukhe-cli"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "crossterm",
+ "eukhe-agent",
+ "eukhe-ai",
+ "eukhe-core",
+ "eukhe-daemon",
+ "eukhe-telemetry",
+ "eukhe-tui",
+ "eukhe-types",
+ "futures",
+ "libc",
+ "nix",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "eukhe-core"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "eukhe-agent",
+ "eukhe-ai",
+ "eukhe-models",
+ "eukhe-telemetry",
+ "eukhe-types",
+ "fancy-regex",
+ "futures",
+ "getrandom 0.3.4",
+ "globset",
+ "hmac",
+ "ignore",
+ "libc",
+ "nix",
+ "proptest",
+ "reqwest",
+ "rsa",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha1",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "unicode-normalization",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "eukhe-daemon"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "eukhe-agent",
+ "eukhe-ai",
+ "eukhe-core",
+ "eukhe-models",
+ "eukhe-telemetry",
+ "eukhe-types",
+ "filetime",
+ "futures",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "eukhe-models"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "eukhe-ai",
+ "eukhe-types",
+ "hex",
+ "hmac",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "eukhe-telemetry"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "rustix 1.1.4",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "eukhe-tui"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "crossterm",
+ "eukhe-types",
+ "fancy-regex",
+ "ignore",
+ "proptest",
+ "ratatui",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "unicode-properties",
+ "unicode-segmentation",
+ "unicode-width 0.2.0",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "eukhe-types"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "fancy-regex"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1212,212 +1413,6 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
-
-[[package]]
-name = "pa-agent"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "futures",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "pa-ai"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "base64",
- "bytes",
- "futures",
- "h2",
- "hex",
- "hmac",
- "http",
- "pa-types",
- "rand 0.8.8",
- "regex",
- "reqwest",
- "rsa",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "thiserror",
- "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "url",
-]
-
-[[package]]
-name = "pa-cli"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "base64",
- "crossterm",
- "flate2",
- "futures",
- "libc",
- "nix",
- "pa-agent",
- "pa-ai",
- "pa-core",
- "pa-daemon",
- "pa-telemetry",
- "pa-tui",
- "pa-types",
- "rsa",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tar",
- "tempfile",
- "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "pa-core"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "base64",
- "fancy-regex",
- "flate2",
- "futures",
- "getrandom 0.3.4",
- "globset",
- "hmac",
- "ignore",
- "libc",
- "nix",
- "pa-agent",
- "pa-ai",
- "pa-models",
- "pa-telemetry",
- "pa-types",
- "proptest",
- "reqwest",
- "rsa",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha1",
- "sha2",
- "tar",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
- "unicode-normalization",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "pa-daemon"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "filetime",
- "futures",
- "pa-agent",
- "pa-ai",
- "pa-core",
- "pa-models",
- "pa-telemetry",
- "pa-types",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "pa-models"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "hex",
- "hmac",
- "pa-ai",
- "pa-types",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "pa-telemetry"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "reqwest",
- "rustix 1.1.4",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "pa-tui"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "base64",
- "clap",
- "crossterm",
- "fancy-regex",
- "ignore",
- "pa-types",
- "proptest",
- "ratatui",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "unicode-properties",
- "unicode-segmentation",
- "unicode-width 0.2.0",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "pa-types"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "libc",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
-]
 
 [[package]]
 name = "parking_lot"
@@ -2204,17 +2199,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tar"
-version = "0.4.46"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
-dependencies = [
- "filetime",
- "libc",
- "xattr",
-]
-
-[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2829,16 +2813,6 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
-
-[[package]]
-name = "xattr"
-version = "1.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
-dependencies = [
- "libc",
- "rustix 1.1.4",
-]
 
 [[package]]
 name = "yoke"

@@ -9,22 +9,22 @@ Search the web via the Serper Google Search API.
 
 ## Setup
 
-Get a free API key at https://serper.dev, then run `/mcp` in Prime Agent and
+Get a free API key at https://serper.dev, then run `/mcp` in Eukhe and
 choose **Serper (web search)** to paste it.
-The key is stored in Prime Agent and made available to this skill automatically.
+The key is stored in Eukhe and made available to this skill automatically.
 
 If web search reports a missing key, walk the user through those two steps;
 don't ask them to set environment variables.
 
 Optional overrides (environment variables):
 
-- `PRIME_AGENT_WEBSEARCH_TIMEOUT` - HTTP timeout in seconds (default 45).
-- `PRIME_AGENT_WEBSEARCH_NUM_RESULTS` - number of organic results to return (default 5).
+- `EUKHE_WEBSEARCH_TIMEOUT` - HTTP timeout in seconds (default 45).
+- `EUKHE_WEBSEARCH_NUM_RESULTS` - number of organic results to return (default 5).
 
 ## Usage
 
 Call the prepared `websearch` import directly in the Python kernel:
 
 ```python
-print(await websearch("latest Prime Agent release"))
+print(await websearch("latest Eukhe release"))
 ```

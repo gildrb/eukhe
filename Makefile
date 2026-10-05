@@ -23,28 +23,13 @@ windows-cross:
 	cargo check --workspace --target x86_64-pc-windows-gnu --all-targets
 	cargo clippy --workspace --target x86_64-pc-windows-gnu --all-targets -- -D warnings
 
-# Windows MSVC cross-check: the release target's own triple (release.yml's
-# build-windows job builds x86_64-pc-windows-msvc natively on windows-2022;
-# this gate type-checks the same target from a linux host). The check form
-# needs MSVC-side C tooling for the native build scripts (ring): cargo-xwin
-# wraps the build with the MSVC CRT + clang-cl/llvm-lib, so the gate fails
-# loudly when cargo-xwin (or the llvm tools) is missing instead of silently
-# skipping. The gnu gate above stays the cheap cfg-hygiene mirror; the
-# authoritative msvc build runs on the windows runner.
-windows-msvc-cross:
-	@rustup target list --installed | grep -q x86_64-pc-windows-msvc || { echo "x86_64-pc-windows-msvc target not installed (rustup target add x86_64-pc-windows-msvc)"; exit 1; }
-	@command -v cargo-xwin >/dev/null 2>&1 || { echo "cargo-xwin not installed (cargo install cargo-xwin --locked; it provisions the MSVC CRT + expects clang-cl/llvm-lib on PATH)"; exit 1; }
-	cargo xwin check --workspace --target x86_64-pc-windows-msvc --all-targets
-
 # Lints every workflow file (.github/workflows/ is the one home for
 # workflow files).
 actionlint:
 	@command -v actionlint >/dev/null 2>&1 || { echo "actionlint not installed (see rhysd/actionlint releases)"; exit 1; }
-	actionlint .github/workflows/ci.yml .github/workflows/codebase-health.yml .github/workflows/contribution-gate.yml \
-		.github/workflows/continuous.yml .github/workflows/release.yml .github/workflows/windows-runtime-triage.yml \
-		.github/workflows/release-prepare.yml .github/workflows/nightly.yml
+	actionlint .github/workflows/ci.yml .github/workflows/eukhe-release.yml
 
-# GLIBC baseline gate (the continuous.yml/release.yml build-gnu jobs): a
+# GLIBC baseline gate (eukhe-release.yml's build-linux job): a
 # GNU/Linux artifact must not require symbols above GLIBC_2.35, the Ubuntu
 # 22.04 release baseline. No-op on non-GNU hosts; the authoritative gate runs
 # in CI inside the ubuntu:22.04 build container. POSIX sh throughout: make
@@ -66,10 +51,10 @@ glibc-gate:
 		fi \
 		;; esac
 
-# Local mirror of the release build-job gates:
+# Local mirror of eukhe-release.yml's build-job gates:
 # release build against the committed lockfile, deterministic tarball assembly,
 # then end-to-end verification of the host-target artifact. The vendored
-# prime-agent-runtime/ at the repo root is the default runtime sidecar
+# eukhe-runtime/ at the repo root is the default runtime sidecar
 # (kernel-packaging lane); pass RUNTIME_DIR to re-anchor it.
 VERSION := $(shell sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
 TARGET := $(shell rustc -vV | sed -n 's/^host: //p')
@@ -88,10 +73,10 @@ CATALOG_ASSETS_FLAG = --catalog-assets $(CATALOG_ASSETS_DIR)
 # Mirror the Linux CI split: Cargo's executable remains unstripped and the
 # archive receives a separate shipped ELF plus its detached decoder.
 ifneq ($(filter %-unknown-linux-gnu,$(TARGET)),)
-RELEASE_BINARY = target/release/dist/prime-agent
-RELEASE_DECODER = target/release/dist/prime-agent-$(VERSION)-$(if $(filter aarch64-%,$(TARGET)),linux-arm64,linux-x64).debug.gz
+RELEASE_BINARY = target/release/dist/eukhe
+RELEASE_DECODER = target/release/dist/eukhe-$(VERSION)-$(if $(filter aarch64-%,$(TARGET)),linux-arm64,linux-x64).debug.gz
 RELEASE_ASSEMBLE_FLAGS = --binary $(RELEASE_BINARY) --decoder $(RELEASE_DECODER)
-RELEASE_SPLIT = python3 scripts/release/split_debug.py --binary target/release/prime-agent --shipped $(RELEASE_BINARY) --out target/release/dist --version "$(VERSION)" --target "$(TARGET)"
+RELEASE_SPLIT = python3 scripts/release/split_debug.py --binary target/release/eukhe --shipped $(RELEASE_BINARY) --out target/release/dist --version "$(VERSION)" --target "$(TARGET)"
 RELEASE_VERIFY_DECODER = python3 scripts/release/verify_decoders.py target/release/dist
 RELEASE_PACKAGE_BUILD = cargo build --release --locked --workspace
 RELEASE_PACKAGE_FLAGS = --binary $(RELEASE_BINARY) --decoder $(RELEASE_DECODER) --skip-build
@@ -125,24 +110,6 @@ release-dry-run:
 	python3 scripts/release/verify_release.py \
 		--dist-dir target/release/dist --version "$(VERSION)" --target "$(TARGET)"
 
-# Local mirror of the continuous.yml build job:
-# same release build, but commit-stamped: the tarball carries a package.json
-# version manifest and the binary must report "<version>-continuous.<sha>".
-GIT_SHA := $(shell git rev-parse HEAD)
-
-continuous-dry-run:
-	cargo build --release --locked --workspace
-	$(RELEASE_SPLIT)
-	$(MAKE) glibc-gate
-	python3 scripts/release/bundle_catalog.py generate --$(CATALOG_ASSETS_MODE) --out $(CATALOG_ASSETS_DIR)
-	python3 scripts/release/assemble_artifacts.py \
-		--repo-root . --version "$(VERSION)" --target "$(TARGET)" $(RUNTIME_FLAG) \
-		--sha "$(GIT_SHA)" $(RELEASE_ASSEMBLE_FLAGS) $(CATALOG_ASSETS_FLAG) --out-dir target/release/dist
-	$(RELEASE_VERIFY_DECODER)
-	python3 scripts/release/verify_release.py \
-		--dist-dir target/release/dist --version "$(VERSION)" --target "$(TARGET)" \
-		--sha "$(GIT_SHA)"
-
 # Optional hardening: embed the dependency list in the binary for incident
 # response.
 audit-build:
@@ -161,23 +128,9 @@ package:
 # Bundled-catalog gates (scripts/release/test_catalog_assets.py): the
 # offline fixture passes the full packer validation, the packer hard-fails
 # on missing/invalid assets, network mode is verified against a local HTTP
-# server, and the assets land in the tarball layout the installer expects.
+# server, and the assets land in the tarball layout the binary expects.
 catalog-assets-gates:
 	python3 scripts/release/test_catalog_assets.py
-
-# The changelog fold's contract battery (RELEASE-FLOW-PROPOSAL.md §8): the
-# fold is the release-PR's changelog half, and the pathspec security case is
-# first - a fragment NAME is data, never a git pathspec, so no root-level
-# markdown file can ever become a fold deletion candidate.
-fold-gates:
-	python3 scripts/release/test_fold_changelog.py
-
-# The consume route's restamp battery (release.yml's beta channel): the
-# continuous artifacts restamped to the beta version keep the built bytes
-# and carry the release shape - the provenance case is first (a foreign
-# commit's artifacts are refused).
-restamp-gates:
-	python3 scripts/release/test_restamp.py
 
 # The CI shard tooling's contract battery (ci.yml's PR smoke): the stable
 # crc32 assignment under the narrowed selection, the scope-aware summary
@@ -187,4 +140,4 @@ shard-gates:
 	python3 scripts/test_ci_test_shard.py
 	python3 scripts/test_ci_pr_crates.py
 
-.PHONY: check deny windows-cross actionlint glibc-gate release-dry-run continuous-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-assets-gates fold-gates restamp-gates shard-gates
+.PHONY: check deny windows-cross actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-assets-gates shard-gates

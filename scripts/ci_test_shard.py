@@ -48,7 +48,7 @@ Usage (from the repo root, e.g. in ci.yml):
   python3 scripts/ci_test_shard.py --shard 2 --total 4 \
       --manifest shard-manifest.json
   python3 scripts/ci_test_shard.py --list   # enumerate + shard assignment
-  python3 scripts/ci_test_shard.py --shard 2 --total 8 --crates pa-tui \
+  python3 scripts/ci_test_shard.py --shard 2 --total 8 --crates eukhe-tui \
       --print-selection   # resolve + report the selection, run nothing
 """
 

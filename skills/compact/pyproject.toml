@@ -1,11 +1,11 @@
 # Kernel-side package for the bundled compact skill. It only talks to the host
-# through rlm.host_request; prime-agent-runtime is always installed in the
+# through rlm.host_request; eukhe-runtime is always installed in the
 # kernel venv before skills, so it is intentionally not declared as a
 # dependency (it is not published on PyPI).
 [project]
 name = "compact"
 version = "0.1.0"
-description = "Prime Agent compact skill: context compaction control over the host bridge"
+description = "Eukhe compact skill: context compaction control over the host bridge"
 requires-python = ">=3.10"
 dependencies = []
 
