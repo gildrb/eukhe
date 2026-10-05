@@ -252,6 +252,7 @@ async fn split_turn_compaction_streams_in_final_order_and_converges() {
                     text: text.to_string(),
                     text_signature: None,
                     rest: Map::default(),
+                    cache_breakpoint: None,
                 },
             )],
             api: "faux".to_string(),

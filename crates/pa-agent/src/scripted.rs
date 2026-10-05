@@ -317,6 +317,7 @@ fn text_delta_steps(base: &AssistantMessage, content_index: usize, text: &str) -
     partial.content.push(AssistantContent::Text(TextContent {
         text: String::new(),
         text_signature: None,
+        cache_breakpoint: None,
     }));
     steps.push(ScriptStep::Event(Box::new(
         AssistantMessageEvent::TextStart {
@@ -378,6 +379,7 @@ pub fn text_turn_steps(model: &Model, text: &str) -> Vec<ScriptStep> {
             partial.content.push(AssistantContent::Text(TextContent {
                 text: text.to_string(),
                 text_signature: None,
+                cache_breakpoint: None,
             }));
             partial
         });
@@ -467,6 +469,7 @@ pub fn stream_failure_steps(
         .push(AssistantContent::Text(TextContent {
             text: partial_text.to_string(),
             text_signature: None,
+            cache_breakpoint: None,
         }));
     error_message_partial.stop_reason = StopReason::Error;
     error_message_partial.error_message = Some(error_message.to_string());

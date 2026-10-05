@@ -349,6 +349,7 @@ async fn run_stream(
                                     text: String::new(),
                                     text_signature: None,
                                     rest: Map::default(),
+                                    cache_breakpoint: None,
                                 }));
                                 blocks.indices.push(index);
                                 blocks

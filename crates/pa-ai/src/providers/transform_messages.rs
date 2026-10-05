@@ -27,6 +27,7 @@ fn replace_images_with_placeholder(
                     text: placeholder.to_string(),
                     text_signature: None,
                     rest: Map::default(),
+                    cache_breakpoint: None,
                 }));
             }
             previous_was_placeholder = true;
@@ -131,6 +132,7 @@ pub fn transform_messages_with_normalizer(
                                 text: thinking.thinking.clone(),
                                 text_signature: None,
                                 rest: Map::default(),
+                                cache_breakpoint: None,
                             })]
                         }
                         AssistantContent::Text(_) => vec![block.clone()],
@@ -184,6 +186,7 @@ pub fn transform_messages_with_normalizer(
                             text: "No result provided".to_string(),
                             text_signature: None,
                             rest: Map::default(),
+                            cache_breakpoint: None,
                         })],
                         details: None,
                         is_error: true,

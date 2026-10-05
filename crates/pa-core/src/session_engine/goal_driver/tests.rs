@@ -94,6 +94,7 @@ fn test_progress_turn(timestamp: i64) -> pa_agent::types::AssistantMessage {
             pa_agent::types::TextContent {
                 text: "made progress".to_string(),
                 text_signature: None,
+                cache_breakpoint: None,
             },
         )],
         api: String::new(),
@@ -638,6 +639,7 @@ fn rate_limit_and_empty_text_corpses_and_the_examined_gate() {
         pa_agent::types::TextContent {
             text: String::new(),
             text_signature: None,
+            cache_breakpoint: None,
         },
     )];
     assert!(driver

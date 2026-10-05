@@ -216,6 +216,19 @@ pub struct ProviderResponse {
 // Content blocks
 // ---------------------------------------------------------------------------
 
+/// An explicit prompt-cache breakpoint on a content block: a cacheable
+/// prefix of the request may end right after the marked block. Providers
+/// with explicit cache marks (Anthropic `cache_control`, Bedrock
+/// `cachePoint`, `OpenAI` Responses `prompt_cache_breakpoint`) emit one mark
+/// per marked block within their per-request mark budget; providers without
+/// explicit marks ignore it. The chat memory marks the pieces of its view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CacheBreakpoint {
+    /// The provider's default (shortest) cache lifetime.
+    Ephemeral,
+}
+
 /// Text content block (`type: "text"`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -228,6 +241,10 @@ pub struct TextContent {
     /// catch-all field to carry a dropped key through).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_signature: Option<String>,
+    /// An explicit prompt-cache breakpoint after this block (wire key
+    /// `cacheBreakpoint`; absent on every unmarked block).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_breakpoint: Option<CacheBreakpoint>,
     #[serde(flatten)]
     pub rest: JsonMap,
 }

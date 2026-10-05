@@ -80,6 +80,7 @@ impl StreamingState {
                 text: String::new(),
                 text_signature: None,
                 rest: Map::default(),
+                cache_breakpoint: None,
             }));
         let index = self.output.content.len() - 1;
         self.text_block = Some(index);

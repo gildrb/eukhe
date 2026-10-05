@@ -453,6 +453,7 @@ pub fn autonomous_continuation_loop_row(
                 pa_agent::types::TextContent {
                     text: text.to_string(),
                     text_signature: None,
+                    cache_breakpoint: None,
                 },
             )]),
             timestamp: timestamp as i64,

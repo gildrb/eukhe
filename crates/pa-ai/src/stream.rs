@@ -383,6 +383,7 @@ mod tests {
                             text: "12345678".to_string(), // 2 tokens
                             text_signature: None,
                             rest: Map::default(),
+                            cache_breakpoint: None,
                         }),
                         UserOrToolContent::Image(ImageContent {
                             data: "QQ==".to_string(),
@@ -430,6 +431,7 @@ mod tests {
                         text: "12345678".to_string(), // 2 tokens
                         text_signature: None,
                         rest: Map::default(),
+                        cache_breakpoint: None,
                     })],
                     details: None,
                     is_error: false,

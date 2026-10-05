@@ -184,6 +184,7 @@ mod tests {
                 text: "working".to_string(),
                 text_signature: None,
                 rest: serde_json::Map::default(),
+                cache_breakpoint: None,
             })],
             api: "faux".to_string(),
             provider: "faux".to_string(),

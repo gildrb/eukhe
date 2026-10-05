@@ -326,6 +326,7 @@ fn text_block(text: String) -> UserContentBlock {
         text,
         text_signature: None,
         rest: serde_json::Map::default(),
+        cache_breakpoint: None,
     })
 }
 

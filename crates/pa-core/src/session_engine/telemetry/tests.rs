@@ -128,6 +128,7 @@ fn assistant_message() -> AssistantMessage {
         content: vec![AssistantContent::Text(TextContent {
             text: "private assistant text".to_string(),
             text_signature: None,
+            cache_breakpoint: None,
         })],
         api: "test".to_string(),
         provider: "openai".to_string(),

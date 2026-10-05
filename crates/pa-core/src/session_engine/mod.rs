@@ -501,6 +501,7 @@ fn user_prompt_message(text: &str, images: &[pa_agent::types::ImageContent]) -> 
         pa_agent::types::TextContent {
             text: text.to_string(),
             text_signature: None,
+            cache_breakpoint: None,
         },
     )];
     for image in images {

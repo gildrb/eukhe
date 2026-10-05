@@ -357,6 +357,7 @@ mod tests {
                 text: text.to_string(),
                 text_signature: None,
                 rest: Map::default(),
+                cache_breakpoint: None,
             })],
             api: "test".into(),
             provider: "test".into(),

@@ -143,6 +143,7 @@ pub async fn run_side_question(
                 content: UserContent::Parts(vec![UserPart::Text(TextContent {
                     text: side_question_prompt(&turn.question, index == 0),
                     text_signature: None,
+                    cache_breakpoint: None,
                 })]),
                 timestamp: pa_agent::now_ms(),
             },
@@ -152,6 +153,7 @@ pub async fn run_side_question(
                 content: vec![AssistantContent::Text(TextContent {
                     text: turn.answer.clone(),
                     text_signature: None,
+                    cache_breakpoint: None,
                 })],
                 api: parent_state.model.api.clone(),
                 provider: parent_state.model.provider.clone(),
@@ -518,6 +520,7 @@ mod tests {
                         content: vec![AssistantContent::Text(TextContent {
                             text: "main thread reply".to_string(),
                             text_signature: None,
+                            cache_breakpoint: None,
                         })],
                         api: "openai-completions".to_string(),
                         provider: "test".to_string(),

@@ -380,6 +380,7 @@ fn process_proxy_event(
                 AssistantContent::Text(TextContent {
                     text: String::new(),
                     text_signature: None,
+                    cache_breakpoint: None,
                 }),
             );
         }
@@ -396,6 +397,7 @@ fn process_proxy_event(
             partial.content[content_index] = AssistantContent::Text(TextContent {
                 text: String::new(),
                 text_signature: None,
+                cache_breakpoint: None,
             });
             Ok(Some(AssistantMessageEvent::TextStart {
                 content_index,

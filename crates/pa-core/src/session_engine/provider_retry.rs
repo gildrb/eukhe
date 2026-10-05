@@ -333,6 +333,7 @@ mod tests {
             content: vec![AssistantContent::Text(TextContent {
                 text: String::new(),
                 text_signature: None,
+                cache_breakpoint: None,
             })],
             api: String::new(),
             provider: "test".to_string(),
@@ -358,6 +359,7 @@ mod tests {
             content: vec![AssistantContent::Text(TextContent {
                 text: "done".to_string(),
                 text_signature: None,
+                cache_breakpoint: None,
             })],
             api: String::new(),
             provider: "test".to_string(),

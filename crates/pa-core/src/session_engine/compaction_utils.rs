@@ -354,6 +354,7 @@ mod tests {
                     text: "doing it".to_string(),
                     text_signature: None,
                     rest: serde_json::Map::default(),
+                    cache_breakpoint: None,
                 }),
                 pa_types::ai::AssistantContentBlock::ToolCall(pa_types::ai::ToolCall {
                     id: "tc1".to_string(),
@@ -435,6 +436,7 @@ mod tests {
                     text: text.to_string(),
                     text_signature: None,
                     rest: serde_json::Map::default(),
+                    cache_breakpoint: None,
                 },
             )],
             details: None,
@@ -651,6 +653,7 @@ mod tests {
                     text: long,
                     text_signature: None,
                     rest: serde_json::Map::default(),
+                    cache_breakpoint: None,
                 },
             )],
             details: None,

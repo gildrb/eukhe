@@ -706,6 +706,7 @@ fn scripted_event_shapes_round_trip_through_the_event_enum() {
     partial.content.push(AssistantContent::Text(TextContent {
         text: "hi".into(),
         text_signature: None,
+        cache_breakpoint: None,
     }));
     let done = AssistantMessageEvent::Done {
         reason: StopReason::Stop,

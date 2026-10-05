@@ -27,6 +27,7 @@ fn wire_assistant(text: &str) -> pa_types::session::AgentMessage {
             text: text.to_string(),
             text_signature: None,
             rest: serde_json::Map::default(),
+            cache_breakpoint: None,
         })],
         api: "openai-completions".to_string(),
         provider: "test".to_string(),

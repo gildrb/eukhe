@@ -222,6 +222,7 @@ fn handle_content_block_delta(
                 text: String::new(),
                 text_signature: None,
                 rest: Map::default(),
+                cache_breakpoint: None,
             }));
             let index = output.content.len() - 1;
             state

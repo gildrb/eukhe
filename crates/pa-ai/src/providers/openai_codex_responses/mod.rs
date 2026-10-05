@@ -1038,6 +1038,7 @@ mod tests {
                         text: "ok".into(),
                         text_signature: None,
                         rest: Map::default(),
+                        cache_breakpoint: None,
                     })],
                     details: None,
                     is_error: false,

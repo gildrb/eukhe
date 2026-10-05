@@ -459,6 +459,7 @@ mod tests {
             text: text.into(),
             text_signature: signature.map(str::to_string),
             rest: Map::default(),
+            cache_breakpoint: None,
         })
     }
 
@@ -470,6 +471,7 @@ mod tests {
                 text: "ok".into(),
                 text_signature: None,
                 rest: Map::default(),
+                cache_breakpoint: None,
             })],
             details: None,
             is_error: false,

@@ -19,6 +19,7 @@ fn session_with_turns(cwd: &std::path::Path, turns: usize) -> SessionManager {
                         text: format!("reply {i}"),
                         text_signature: None,
                         rest: serde_json::Map::default(),
+                        cache_breakpoint: None,
                     },
                 )],
                 api: "openai-completions".to_string(),

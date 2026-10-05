@@ -591,6 +591,7 @@ async fn reports_terminal_error_events() {
                 error.content = vec![AssistantContent::Text(TextContent {
                     text: String::new(),
                     text_signature: None,
+                    cache_breakpoint: None,
                 })];
                 error.stop_reason = stop_reason;
                 error.error_message = Some("provider exploded".to_string());

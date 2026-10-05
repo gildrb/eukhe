@@ -424,6 +424,7 @@ mod tests {
             content: vec![AssistantContent::Text(TextContent {
                 text: String::new(),
                 text_signature: None,
+                cache_breakpoint: None,
             })],
             api: String::new(),
             provider: "primary".to_string(),
@@ -449,6 +450,7 @@ mod tests {
             content: vec![AssistantContent::Text(TextContent {
                 text: text.to_string(),
                 text_signature: None,
+                cache_breakpoint: None,
             })],
             api: String::new(),
             provider: "primary".to_string(),

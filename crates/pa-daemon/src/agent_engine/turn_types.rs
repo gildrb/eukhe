@@ -101,6 +101,7 @@ pub(crate) fn aborted_message(model: &Model) -> pa_agent::types::AssistantMessag
             pa_agent::types::TextContent {
                 text: String::new(),
                 text_signature: None,
+                cache_breakpoint: None,
             },
         )],
         api: model.api.clone(),

@@ -151,6 +151,7 @@ impl<'a> ResponsesStreamProcessor<'a> {
                                 text: String::new(),
                                 text_signature: None,
                                 rest: Map::default(),
+                                cache_breakpoint: None,
                             }));
                         self.writer.push(AssistantMessageEvent::TextStart {
                             content_index: content_index as u64,
