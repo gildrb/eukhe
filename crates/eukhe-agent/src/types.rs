@@ -206,7 +206,9 @@ pub struct AssistantMessageDiagnostic {
     pub details: Option<serde_json::Value>,
 }
 
-/// Mirrors the TS `createAssistantMessageDiagnostic`.
+/// Mirrors the TS `createAssistantMessageDiagnostic`: the error rides as
+/// the TS `DiagnosticErrorInfo` object (`extractDiagnosticError`), the
+/// shape the session wire (`eukhe-types`) parses.
 pub fn assistant_message_diagnostic(
     kind: impl Into<String>,
     error: &anyhow::Error,
@@ -215,7 +217,10 @@ pub fn assistant_message_diagnostic(
     AssistantMessageDiagnostic {
         kind: kind.into(),
         timestamp: crate::now_ms(),
-        error: Some(serde_json::Value::String(format!("{error:#}"))),
+        error: Some(serde_json::json!({
+            "name": "Error",
+            "message": format!("{error:#}"),
+        })),
         details,
     }
 }
