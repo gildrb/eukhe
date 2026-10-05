@@ -29,6 +29,10 @@ fn init_repo(dir: &Path) {
     git(dir, &["init", "-q"]);
     git(dir, &["config", "user.email", "t@example.com"]);
     git(dir, &["config", "user.name", "t"]);
+    // The snapshot's own git calls read the host's global config: a
+    // global excludes file (often listing `.env`) would hide fixture files
+    // from `git status`. The repo-local value overrides it.
+    git(dir, &["config", "core.excludesFile", "/dev/null"]);
 }
 
 fn write(dir: &Path, rel: &str, content: &str) {

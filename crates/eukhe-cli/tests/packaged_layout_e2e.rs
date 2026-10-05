@@ -540,7 +540,24 @@ struct PairedFixture {
     decoder: std::path::PathBuf,
 }
 
-fn split_paired_fixture(python: &str, version: &str, target: &str, alias: &str) -> PairedFixture {
+/// Compile and split the fixture; `None` when the host has no C compiler.
+fn split_paired_fixture(
+    python: &str,
+    version: &str,
+    target: &str,
+    alias: &str,
+) -> Option<PairedFixture> {
+    // `CC` when set, else `cc`, else `gcc`: the first that answers
+    // `--version` builds the fixture.
+    let c_compiler = std::env::var_os("CC")
+        .into_iter()
+        .chain(["cc", "gcc"].map(std::ffi::OsString::from))
+        .find(|candidate| {
+            Command::new(candidate)
+                .arg("--version")
+                .output()
+                .is_ok_and(|output| output.status.success())
+        })?;
     let dir = tempfile::TempDir::new().expect("split fixture dir");
     let source = dir.path().join("eukhe.c");
     // The packer's version pin runs `--version` and compares the output:
@@ -550,7 +567,7 @@ fn split_paired_fixture(python: &str, version: &str, target: &str, alias: &str) 
     );
     std::fs::write(&source, program).expect("fixture source");
     let raw = dir.path().join("cargo-eukhe");
-    let compiled = Command::new("gcc")
+    let compiled = Command::new(&c_compiler)
         .arg("-g")
         .arg("-Wl,--build-id")
         .arg("-o")
@@ -561,7 +578,8 @@ fn split_paired_fixture(python: &str, version: &str, target: &str, alias: &str) 
     assert_eq!(
         compiled.status.code(),
         Some(0),
-        "fixture gcc failed: {}",
+        "fixture {} failed: {}",
+        c_compiler.to_string_lossy(),
         String::from_utf8_lossy(&compiled.stderr)
     );
     let shipped = dir.path().join("eukhe");
@@ -593,11 +611,11 @@ fn split_paired_fixture(python: &str, version: &str, target: &str, alias: &str) 
     let decoder = dir.path().join(format!("eukhe-{version}-{alias}.debug.gz"));
     assert!(shipped.is_file(), "shipped fixture missing");
     assert!(decoder.is_file(), "decoder fixture missing");
-    PairedFixture {
+    Some(PairedFixture {
         dir,
         shipped,
         decoder,
-    }
+    })
 }
 
 /// The packaging dry-run produces the release artifact: staged layout,
@@ -696,12 +714,15 @@ fn packaging_dry_run_produces_artifact() {
         Option<std::ffi::OsString>,
         Option<tempfile::TempDir>,
     ) = if std::env::consts::OS == "linux" {
-        let fixture = split_paired_fixture(
+        let Some(fixture) = split_paired_fixture(
             python,
             env!("CARGO_PKG_VERSION"),
             "x86_64-unknown-linux-gnu",
             "linux-x64",
-        );
+        ) else {
+            eprintln!("no C compiler (CC, cc, gcc); skipping the packaging dry-run e2e");
+            return;
+        };
         (
             fixture.shipped.into(),
             Some(fixture.decoder.into_os_string()),

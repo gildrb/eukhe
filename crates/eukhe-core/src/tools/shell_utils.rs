@@ -115,11 +115,28 @@ pub fn kill_process_tree(pid: i32) -> bool {
 mod tests {
     use super::*;
 
+    /// `/bin/bash` when the host has one; otherwise (NixOS keeps no
+    /// `/bin/bash`) the first `bash` on PATH.
     #[test]
     fn shell_config_prefers_bin_bash() {
-        let cfg = get_shell_config(None).unwrap();
-        assert_eq!(cfg.shell, "/bin/bash");
-        assert_eq!(cfg.args, vec!["-c".to_string()]);
+        let expected = if std::path::Path::new("/bin/bash").exists() {
+            "/bin/bash".to_string()
+        } else {
+            let path = std::env::var_os("PATH").expect("PATH is set");
+            std::env::split_paths(&path)
+                .map(|dir| dir.join("bash"))
+                .find(|candidate| candidate.is_file())
+                .expect("a bash on PATH")
+                .to_string_lossy()
+                .into_owned()
+        };
+        assert_eq!(
+            get_shell_config(None).unwrap(),
+            crate::platform::shell::ShellConfig {
+                shell: expected,
+                args: vec!["-c".to_string()],
+            }
+        );
     }
 
     #[test]

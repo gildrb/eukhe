@@ -45,13 +45,15 @@ fn ts_binary() -> Option<PathBuf> {
     std::env::var_os("EUKHE_TS_BINARY").map(PathBuf::from)
 }
 
-fn sandbox(prefix: &str) -> PathBuf {
-    let base = std::env::temp_dir().join(format!(
-        "eukhe-cli-lock-compat-{prefix}-{}",
-        std::process::id()
-    ));
+/// A per-test sandbox under the temp dir, removed when the returned
+/// handle drops (a pid-named fixed path outlived every run).
+fn sandbox(prefix: &str) -> tempfile::TempDir {
+    let base = tempfile::Builder::new()
+        .prefix(&format!("eukhe-cli-lock-compat-{prefix}-"))
+        .tempdir()
+        .expect("create sandbox");
     for dir in ["home", "cwd", "agent", "tmp"] {
-        std::fs::create_dir_all(base.join(dir)).expect("create sandbox directory");
+        std::fs::create_dir_all(base.path().join(dir)).expect("create sandbox directory");
     }
     base
 }
@@ -142,7 +144,7 @@ fn ts_binary_fails_on_stale_lock_file_artifact() {
         return;
     };
     let sandbox = sandbox("ts-stale-file");
-    seed_stale_lock_file(&sandbox);
+    seed_stale_lock_file(sandbox.path());
     let (exit, stdout, stderr) = run(
         &ts,
         &[
@@ -152,7 +154,7 @@ fn ts_binary_fails_on_stale_lock_file_artifact() {
             "--url",
             "https://example.invalid/mcp",
         ],
-        &sandbox,
+        sandbox.path(),
     );
     assert_eq!(exit, Some(1), "stdout: {stdout:?}, stderr: {stderr:?}");
     assert!(
@@ -160,11 +162,11 @@ fn ts_binary_fails_on_stale_lock_file_artifact() {
         "the TS binary must surface the ENOTDIR lock failure: {stderr:?}"
     );
     assert!(
-        lock_path(&sandbox).is_file(),
+        lock_path(sandbox.path()).is_file(),
         "the TS binary must leave the foreign file artifact untouched"
     );
     assert!(
-        !settings_path(&sandbox).exists(),
+        !settings_path(sandbox.path()).exists(),
         "a refused lock must mean a refused write"
     );
 }
@@ -178,7 +180,7 @@ fn ts_binary_reclaims_stale_lock_directory_artifact() {
         return;
     };
     let sandbox = sandbox("ts-stale-dir");
-    seed_stale_lock_dir(&sandbox);
+    seed_stale_lock_dir(sandbox.path());
     let (exit, stdout, stderr) = run(
         &ts,
         &[
@@ -188,13 +190,13 @@ fn ts_binary_reclaims_stale_lock_directory_artifact() {
             "--url",
             "https://example.invalid/mcp",
         ],
-        &sandbox,
+        sandbox.path(),
     );
     assert_eq!(exit, Some(0), "stdout: {stdout:?}, stderr: {stderr:?}");
     assert_server_added(&stdout, "http-two");
-    assert_settings_has_server(&sandbox, "http-two");
+    assert_settings_has_server(sandbox.path(), "http-two");
     assert!(
-        !lock_path(&sandbox).exists(),
+        !lock_path(sandbox.path()).exists(),
         "the released lock directory must be gone"
     );
 }
@@ -210,10 +212,13 @@ fn ts_binary_sees_a_rust_held_lock_as_contention() {
     };
     let sandbox = sandbox("interop");
     // Hold the lock the way the Rust production code does.
-    let guard = LockDir::acquire(&settings_path(&sandbox), std::time::Duration::from_secs(10))
-        .expect("Rust acquires the lock");
+    let guard = LockDir::acquire(
+        &settings_path(sandbox.path()),
+        std::time::Duration::from_secs(10),
+    )
+    .expect("Rust acquires the lock");
     assert!(
-        lock_path(&sandbox).is_dir(),
+        lock_path(sandbox.path()).is_dir(),
         "the Rust lock artifact is a directory"
     );
     let (exit, stdout, stderr) = run(
@@ -225,7 +230,7 @@ fn ts_binary_sees_a_rust_held_lock_as_contention() {
             "--url",
             "https://example.invalid/mcp",
         ],
-        &sandbox,
+        sandbox.path(),
     );
     assert_eq!(exit, Some(1), "stdout: {stdout:?}, stderr: {stderr:?}");
     assert!(
@@ -233,7 +238,7 @@ fn ts_binary_sees_a_rust_held_lock_as_contention() {
         "the TS binary must report contention, not ENOTDIR: {stderr:?}"
     );
     assert!(
-        lock_path(&sandbox).is_dir(),
+        lock_path(sandbox.path()).is_dir(),
         "the TS failure must not clobber the live Rust lock"
     );
     drop(guard);
@@ -246,18 +251,18 @@ fn ts_binary_sees_a_rust_held_lock_as_contention() {
             "--url",
             "https://example.invalid/mcp",
         ],
-        &sandbox,
+        sandbox.path(),
     );
     assert_eq!(exit, Some(0), "stdout: {stdout:?}, stderr: {stderr:?}");
     assert_server_added(&stdout, "http-three");
-    assert_settings_has_server(&sandbox, "http-three");
+    assert_settings_has_server(sandbox.path(), "http-three");
 }
 
 #[test]
 fn rust_binary_reclaims_stale_lock_directory_artifact() {
     let rust = PathBuf::from(env!("CARGO_BIN_EXE_eukhe"));
     let sandbox = sandbox("rs-stale-dir");
-    seed_stale_lock_dir(&sandbox);
+    seed_stale_lock_dir(sandbox.path());
     let (exit, stdout, stderr) = run(
         &rust,
         &[
@@ -267,13 +272,13 @@ fn rust_binary_reclaims_stale_lock_directory_artifact() {
             "--url",
             "https://example.invalid/mcp",
         ],
-        &sandbox,
+        sandbox.path(),
     );
     assert_eq!(exit, Some(0), "stdout: {stdout:?}, stderr: {stderr:?}");
     assert_server_added(&stdout, "http-four");
-    assert_settings_has_server(&sandbox, "http-four");
+    assert_settings_has_server(sandbox.path(), "http-four");
     assert!(
-        !lock_path(&sandbox).exists(),
+        !lock_path(sandbox.path()).exists(),
         "the released lock directory must be gone"
     );
 }
@@ -284,7 +289,7 @@ fn rust_binary_heals_stale_lock_file_artifact() {
     // binary removes the foreign artifact and proceeds; the TS binary cannot.
     let rust = PathBuf::from(env!("CARGO_BIN_EXE_eukhe"));
     let sandbox = sandbox("rs-stale-file");
-    seed_stale_lock_file(&sandbox);
+    seed_stale_lock_file(sandbox.path());
     let (exit, stdout, stderr) = run(
         &rust,
         &[
@@ -294,13 +299,13 @@ fn rust_binary_heals_stale_lock_file_artifact() {
             "--url",
             "https://example.invalid/mcp",
         ],
-        &sandbox,
+        sandbox.path(),
     );
     assert_eq!(exit, Some(0), "stdout: {stdout:?}, stderr: {stderr:?}");
     assert_server_added(&stdout, "http-five");
-    assert_settings_has_server(&sandbox, "http-five");
+    assert_settings_has_server(sandbox.path(), "http-five");
     assert!(
-        !lock_path(&sandbox).exists(),
+        !lock_path(sandbox.path()).exists(),
         "the healed artifact must be gone; release removes the lock directory"
     );
 }
