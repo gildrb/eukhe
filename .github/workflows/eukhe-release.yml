@@ -1,18 +1,22 @@
 # eukhe releases: the four Unix targets built and packaged with the
-# repository's own release scripts, published as a GitHub release, and
-# pinned for the Nix flake (nix/release.json: url + SRI hash per system).
-# Tags are `eukhe-v<workspace version>`.
+# repository's own release scripts, published as a GitHub release.
+# - A tag `eukhe-v<workspace version>` publishes that version and pins it for
+#   the Nix flake (nix/release.json: url + SRI hash per system).
+# - Every push to main publishes a rolling release
+#   `eukhe-v<workspace version>-main.<run number>` (mise installs the newest
+#   one). A newer push cancels an older main build that has not finished.
 name: eukhe-release
 
 on:
   push:
+    branches: [main]
     tags: ["eukhe-v[0-9]+.[0-9]+.[0-9]+*"]
 
 permissions: {}
 
 concurrency:
   group: eukhe-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,21 +29,30 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - id: version
-        name: The tag names the workspace version
+        name: The release version (tag = workspace version; main = rolling)
         run: |
           set -euo pipefail
-          tag_version="${GITHUB_REF_NAME#eukhe-v}"
           cargo_version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)"
-          if [[ "${tag_version}" != "${cargo_version}" ]]; then
-            echo "::error::tag ${GITHUB_REF_NAME} does not match Cargo.toml ${cargo_version}"
-            exit 1
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag_version="${GITHUB_REF_NAME#eukhe-v}"
+            if [[ "${tag_version}" != "${cargo_version}" ]]; then
+              echo "::error::tag ${GITHUB_REF_NAME} does not match Cargo.toml ${cargo_version}"
+              exit 1
+            fi
+            version="${cargo_version}"
+          else
+            # 0.9.9-eukhe.1 -> 0.9.9-main.<run>: sorts after the tagged
+            # prereleases of the same base, and grows with every run.
+            version="${cargo_version%%-*}-main.${GITHUB_RUN_NUMBER}"
           fi
-          echo "version=${cargo_version}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=eukhe-v${version}" >> "${GITHUB_OUTPUT}"
 
   build-linux:
     needs: tag-check
@@ -85,6 +98,12 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: ${{ matrix.target }}-glibc235
+      - name: Stamp the rolling version (main)
+        if: github.ref_type == 'branch'
+        run: |
+          set -euo pipefail
+          python3 scripts/release/stamp_version.py "${VERSION}"
+          cargo update --workspace
       - name: Build (release, locked)
         run: cargo build --release --locked --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: Split the shipped binary and its debug decoder
@@ -109,8 +128,8 @@ jobs:
           max_glibc="$(printf '%s\n' "${syms}" | sort -Vu | tail -1)"
           top="$(printf '%s\nGLIBC_2.35\n' "${max_glibc}" | sort -Vu | tail -1)"
           [[ "${top}" == "GLIBC_2.35" ]] || { echo "::error::binary requires ${max_glibc}"; exit 1; }
-      - name: Generate bundled catalog assets (fixture, offline-safe)
-        run: python3 scripts/release/bundle_catalog.py generate --fixture --out "target/${TARGET}/catalog-assets"
+      - name: Generate bundled catalog assets (the live catalog)
+        run: python3 scripts/release/bundle_catalog.py generate --network --out "target/${TARGET}/catalog-assets"
       - name: Assemble tarball, checksums, manifest
         run: |
           set -euo pipefail
@@ -163,6 +182,12 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: ${{ matrix.target }}
+      - name: Stamp the rolling version (main)
+        if: github.ref_type == 'branch'
+        run: |
+          set -euo pipefail
+          python3 scripts/release/stamp_version.py "${VERSION}"
+          cargo update --workspace
       - name: Build (release, locked)
         run: cargo build --release --locked --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: "Livecheck: --version prints the tag version"
@@ -170,8 +195,8 @@ jobs:
           set -euo pipefail
           out="$("target/${TARGET}/release/eukhe" --version)"
           [[ "${out}" == "${VERSION}" ]] || { echo "::error::binary reports '${out}', expected '${VERSION}'"; exit 1; }
-      - name: Generate bundled catalog assets (fixture, offline-safe)
-        run: python3 scripts/release/bundle_catalog.py generate --fixture --out "target/${TARGET}/catalog-assets"
+      - name: Generate bundled catalog assets (the live catalog)
+        run: python3 scripts/release/bundle_catalog.py generate --network --out "target/${TARGET}/catalog-assets"
       - name: Assemble tarball, checksums, manifest
         run: |
           set -euo pipefail
@@ -200,7 +225,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ needs.tag-check.outputs.tag }}
       VERSION: ${{ needs.tag-check.outputs.version }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -241,9 +266,14 @@ jobs:
           (out / "SHA256SUMS").write_text("\n".join(sorted(sums, key=lambda line: line.split()[1])) + "\n")
           release = {"version": version, "tag": tag, "assets": dict(sorted(assets.items()))}
           pathlib.Path("release.json").write_text(json.dumps(release, indent=2) + "\n")
-      - name: Create the GitHub release
+      - name: Create the GitHub release (tag)
+        if: github.ref_type == 'tag'
         run: gh release create "${TAG}" release-out/* release.json --verify-tag --title "${TAG}" --notes "eukhe ${VERSION}"
+      - name: Create the rolling GitHub release (main)
+        if: github.ref_type == 'branch'
+        run: gh release create "${TAG}" release-out/* release.json --target "${GITHUB_SHA}" --latest --title "${TAG}" --notes "eukhe ${VERSION} (main ${GITHUB_SHA})"
       - name: Pin the release for the Nix flake (nix/release.json on main)
+        if: github.ref_type == 'tag'
         run: |
           set -euo pipefail
           # main always has nix/release.json (the stub before the first

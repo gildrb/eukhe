@@ -16,10 +16,14 @@ in
     enable = lib.mkEnableOption "eukhe, a coding agent with one endless chat as its memory";
 
     package = lib.mkOption {
-      type = lib.types.package;
+      type = lib.types.nullOr lib.types.package;
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
       defaultText = lib.literalExpression "eukhe.packages.\${system}.default";
-      description = "The eukhe package (the pinned prebuilt release when one exists for the system, else built from source).";
+      description = ''
+        The eukhe package (the pinned prebuilt release when one exists for the
+        system, else built from source). `null` installs no package: another
+        tool (mise, for example) provides `eukhe` on PATH.
+      '';
     };
 
     settings = lib.mkOption {
@@ -53,7 +57,14 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = [ cfg.package ];
+    assertions = [
+      {
+        assertion = !cfg.daemon.enable || cfg.package != null;
+        message = "programs.eukhe.daemon.enable needs programs.eukhe.package.";
+      }
+    ];
+
+    home.packages = lib.optional (cfg.package != null) cfg.package;
 
     home.file = lib.mapAttrs' (
       name: source: lib.nameValuePair ".eukhe/${name}" { inherit source; }
