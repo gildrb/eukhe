@@ -637,8 +637,19 @@ async fn build_headless_engine_with(
             spawned_by_request_id: None,
         },
     );
+    // The chat memory: this process owns it when no daemon (or other
+    // process) does, else it is the owner's client.
+    let memory = pa_core::memory::Memory::open(
+        pa_core::memory::chat_dir(&config.agent_dir),
+        std::sync::Arc::new(pa_core::memory::SettingsSummarizer::new(
+            config.agent_dir.clone(),
+        )),
+    )
+    .await
+    .map_err(|error| format!("cannot open the chat memory: {error:#}"))?;
     let engine = pa_core::session_engine::engine::create_session(
         pa_core::session_engine::engine::SessionEngineConfig {
+            memory: Some(memory),
             cron_store: None,
             semantic_edges,
             telemetry,
@@ -1730,6 +1741,9 @@ async fn build_faux_engine_with(
     // tests can verify persistence without the network.
     let engine = pa_core::session_engine::engine::create_session(
         pa_core::session_engine::engine::SessionEngineConfig {
+            // Faux verification harness: the classic conversation (its
+            // scripts assert carried context; no compactor model offline).
+            memory: None,
             cron_store: None,
             // Faux verification harness: no product telemetry.
             semantic_edges: None,

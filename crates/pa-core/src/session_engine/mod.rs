@@ -12,6 +12,7 @@ pub mod auto_refine_trigger;
 pub mod auto_retry;
 pub mod auxiliary_model;
 pub mod branch_summarization;
+pub mod chat_memory;
 pub mod compact_session;
 pub mod compaction;
 pub mod compaction_exec;
@@ -225,6 +226,11 @@ pub struct AgentSession {
     /// resolves it (verification harnesses building the session directly
     /// keep `None`, which reads as the fail-closed disabled default).
     agent_dir: Option<std::path::PathBuf>,
+    /// The session's side of the chat memory (`docs/optchat.md`): `None`
+    /// keeps the classic continuing conversation (verification harnesses
+    /// building the session directly); every product composition root
+    /// installs it.
+    chat_memory: Option<Arc<chat_memory::ChatMemory>>,
 }
 
 impl AgentSession {
@@ -293,6 +299,7 @@ impl AgentSession {
             semantic_edges: std::sync::Mutex::new(None),
             side_question_stream_fn: std::sync::Mutex::new(None),
             agent_dir: None,
+            chat_memory: None,
         };
         this.ensure_harness_digest_context().await?;
         Ok(this)
@@ -301,6 +308,49 @@ impl AgentSession {
     /// The underlying agent loop (steering, state, subscriptions).
     pub fn agent(&self) -> &Arc<Agent> {
         &self.agent
+    }
+
+    /// Install the session's side of the chat memory (the engine wiring).
+    pub fn set_chat_memory(&mut self, chat_memory: Arc<chat_memory::ChatMemory>) {
+        self.chat_memory = Some(chat_memory);
+    }
+
+    /// The session's side of the chat memory, when installed.
+    #[must_use]
+    pub fn chat_memory(&self) -> Option<&Arc<chat_memory::ChatMemory>> {
+        self.chat_memory.as_ref()
+    }
+
+    /// Whether the next admitted turn starts a fresh call from the view
+    /// (a root chat-memory session whose last call ended). Host compaction
+    /// arms skip their pre-turn and settled-turn compactions then: the
+    /// fresh call drops the context they would compact.
+    pub async fn next_turn_is_fresh(&self) -> bool {
+        let Some(chat_memory) = &self.chat_memory else {
+            return false;
+        };
+        let state = self.agent.state().await;
+        !state.is_streaming && chat_memory.next_turn_is_fresh(state.messages.last())
+    }
+
+    /// Admission of a turn on an idle agent: a root chat-memory session
+    /// starts a fresh call (no carried context; the view and the harness
+    /// digest are delivered again), unless the turn continues a call cut at
+    /// a tool boundary.
+    async fn begin_turn(&self) {
+        let Some(chat_memory) = &self.chat_memory else {
+            return;
+        };
+        let messages = self.agent.state().await.messages;
+        if !chat_memory.next_turn_is_fresh(messages.last()) {
+            return;
+        }
+        self.agent.set_messages(Vec::new()).await;
+        chat_memory.begin_fresh_call();
+        if self.harness_digest.is_some() {
+            self.digest_pending
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     /// The shared persistence handle: the kernel host handlers and the

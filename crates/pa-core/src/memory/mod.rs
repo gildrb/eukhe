@@ -16,7 +16,7 @@
 
 mod browse;
 mod chat;
-mod compactor;
+pub(crate) mod compactor;
 mod import;
 mod prompts;
 mod service;
@@ -52,6 +52,15 @@ pub const CAP: usize = 30_000;
 pub const MARKS: [usize; 3] = [50_000, 80_000, 100_000];
 /// The text of a view line whose message is not summarized yet.
 pub const PLACEHOLDER: &str = "(not summarized yet: zoom it)";
+
+/// Which side of the chat a session is: the root logs to the chat and
+/// starts every fresh turn from the view; a subagent starts from the view
+/// at its spawn and logs nothing (§9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryRole {
+    Root,
+    Subagent,
+}
 
 /// The directory of the chat memory under an agent directory.
 #[must_use]

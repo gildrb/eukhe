@@ -129,6 +129,13 @@ pub struct SessionEngineConfig {
     /// spawn provenance. `None` keeps the session off the ledger (no
     /// request ids on the wire).
     pub semantic_edges: Option<super::semantic_edges::SemanticEdgeIdentity>,
+    /// The chat memory (`docs/optchat.md`): a depth-0 session is its root
+    /// (every fresh turn starts from the view; everything is logged), a
+    /// deeper one a subagent (the view at its first request, nothing
+    /// logged). Both get the `zoom`/`date` tools and the tool-result cap.
+    /// `None` keeps the classic continuing conversation (verification
+    /// harnesses); every product composition root sets it.
+    pub memory: Option<crate::memory::Memory>,
 }
 
 /// An assembled, running session.
@@ -501,6 +508,22 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
             crate::session_engine::tool_bridge::ToolDefinitionBridge::new(definition),
         ));
     }
+    // The chat memory's side for this session, and its tools after
+    // `ipython` in a fixed order (the tool list heads every cached prefix).
+    let memory_role = if config.rlm_depth.unwrap_or(0) == 0 {
+        crate::memory::MemoryRole::Root
+    } else {
+        crate::memory::MemoryRole::Subagent
+    };
+    let chat_memory = config
+        .memory
+        .clone()
+        .map(|memory| super::chat_memory::ChatMemory::new(memory, memory_role));
+    if let Some(chat_memory) = &chat_memory {
+        for definition in super::chat_memory::memory_tools(chat_memory.memory()) {
+            tools.push(super::tool_bridge::bridge_tool(definition));
+        }
+    }
     let active_tool_names: Vec<String> = tools.iter().map(|tool| tool.name().to_string()).collect();
 
     // The TS prewarm (agent-session.ts `_buildRuntime`, behind
@@ -579,6 +602,7 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
             rlm_depth: config.rlm_depth,
             generic_mcp_servers,
             prompt_guidelines: Some(prompt_guidelines),
+            memory: chat_memory.as_ref().map(|chat_memory| chat_memory.role()),
             ..Default::default()
         },
     );
@@ -629,7 +653,12 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
     }
     // The loop consumes agent-side messages; session entries cross through
     // the shared wire shape (same conversion the compaction rebuild uses).
-    let initial_messages = if existing_messages.is_empty() {
+    // A chat-memory root resumes with no carried context: its next turn
+    // starts fresh from the view, which covers the whole history.
+    let memory_root = chat_memory
+        .as_ref()
+        .is_some_and(|chat_memory| chat_memory.role() == crate::memory::MemoryRole::Root);
+    let initial_messages = if existing_messages.is_empty() || memory_root {
         None
     } else {
         Some(
@@ -707,8 +736,15 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         // gets its dispatch timestamp.
         transform_context: Some(super::request_timing::instrument_transform_context(
             std::sync::Arc::clone(&request_timing_wiring),
-            super::request_timing::pass_through_transform(),
+            match &chat_memory {
+                // The view rides in front of the loop's messages.
+                Some(chat_memory) => chat_memory.transform(),
+                None => super::request_timing::pass_through_transform(),
+            },
         )),
+        after_tool_call: chat_memory
+            .as_ref()
+            .map(|_| super::chat_memory::cap_tool_results()),
         // TS `_steeringStopPending`: both the after-turn and the
         // before-turn hooks consult the same probe (a queued steer stops
         // the run at the boundary; the pump delivers it next).
@@ -752,6 +788,24 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
     .await?;
     session.set_auto_refine(auto_refine_allowed, auto_refine_gates);
     session.set_agent_dir(config.agent_dir.clone());
+    if let Some(chat_memory) = chat_memory {
+        // The root logs every finished message as it happens; a weak
+        // reference, since the listener lives on the agent.
+        let listener = Arc::downgrade(&chat_memory);
+        session
+            .agent()
+            .subscribe(move |event, _signal| {
+                let listener = listener.clone();
+                Box::pin(async move {
+                    match listener.upgrade() {
+                        Some(chat_memory) => chat_memory.on_event(&event).await,
+                        None => Ok(()),
+                    }
+                })
+            })
+            .await;
+        session.set_chat_memory(chat_memory);
+    }
     // Every compaction path reads the session's resolved compaction
     // settings (TS `getCompactionSettings`): `/compact` matches the
     // `compact.*` turn-boundary tool's `keepRecentTokens`/`reserveTokens`.

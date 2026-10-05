@@ -353,6 +353,7 @@ mod tests {
         let engine = Arc::new(
             pa_core::session_engine::engine::create_session(
                 pa_core::session_engine::engine::SessionEngineConfig {
+                    memory: None,
                     semantic_edges: None,
                     cron_store: None,
                     telemetry: None,

@@ -93,6 +93,10 @@ pub struct BuildSystemPromptOptions<'a> {
     pub rlm_parent_agent: Option<&'a str>,
     /// Enabled user-configured generic MCP servers.
     pub generic_mcp_servers: Vec<String>,
+    /// The session's side of the chat memory: adds its static layer (how
+    /// to read and navigate the view) and keeps volatile dates out of the
+    /// prompt. A static input like `model`, never derived from the depth.
+    pub memory: Option<crate::memory::MemoryRole>,
 }
 
 /// Build the system prompt (assembled text only).
@@ -139,6 +143,18 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
                 ));
             }
         }
+    }
+    // The chat memory layer is static and survives a replaced prompt: the
+    // model must know how to read the view either way.
+    if let Some(role) = options.memory {
+        segments.push(PromptSegment::static_segment(
+            "memory",
+            "chat memory (docs/optchat.md)",
+            match role {
+                crate::memory::MemoryRole::Root => crate::memory::memory_system_layer(),
+                crate::memory::MemoryRole::Subagent => crate::memory::subagent_system_layer(),
+            },
+        ));
     }
     let cached_prefix_len = segments
         .iter()
@@ -282,11 +298,14 @@ fn environment_section(options: &BuildSystemPromptOptions) -> String {
         .clone()
         .unwrap_or_else(|| "not persisted".to_string())
         .replace('\\', "/");
-    let mut lines = vec![
-        format!("Current date: {}", today()),
-        format!("Working directory: {cwd}"),
-        format!("Conversation log: {messages_path}"),
-    ];
+    // A chat-memory session keeps volatile content out of the cached prompt
+    // (the date changes daily); `date(id)` gives the time of any message.
+    let mut lines = Vec::new();
+    if options.memory.is_none() {
+        lines.push(format!("Current date: {}", today()));
+    }
+    lines.push(format!("Working directory: {cwd}"));
+    lines.push(format!("Conversation log: {messages_path}"));
     match options.vision_capable {
         Some(true) => lines.push(
             "Image input: this model can see images; `attach_image` loads them into context."
