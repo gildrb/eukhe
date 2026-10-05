@@ -247,7 +247,7 @@ impl Chat {
     /// Resolve `zoom(id, n)`.
     pub(crate) fn zoom(&self, id: u64, count: u64) -> Zoom {
         let valid = count.is_power_of_two()
-            && id % count == 0
+            && id.is_multiple_of(count)
             && id.checked_add(count).is_some_and(|end| end <= self.total());
         if !valid {
             return Zoom::NoLine;

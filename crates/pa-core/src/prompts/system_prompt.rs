@@ -149,7 +149,7 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     if let Some(role) = options.memory {
         segments.push(PromptSegment::static_segment(
             "memory",
-            "chat memory (docs/optchat.md)",
+            "chat memory (OptChat)",
             match role {
                 crate::memory::MemoryRole::Root => crate::memory::memory_system_layer(),
                 crate::memory::MemoryRole::Subagent => crate::memory::subagent_system_layer(),

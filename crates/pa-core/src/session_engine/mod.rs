@@ -226,7 +226,7 @@ pub struct AgentSession {
     /// resolves it (verification harnesses building the session directly
     /// keep `None`, which reads as the fail-closed disabled default).
     agent_dir: Option<std::path::PathBuf>,
-    /// The session's side of the chat memory (`docs/optchat.md`): `None`
+    /// The session's side of the chat memory (`OptChat`, see the `memory` module): `None`
     /// keeps the classic continuing conversation (verification harnesses
     /// building the session directly); every product composition root
     /// installs it.

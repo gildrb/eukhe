@@ -309,7 +309,7 @@ pub struct AgentSessionEngine {
     /// it. Short critical sections only: no model call may hold this
     /// mutex.
     pub(crate) session: tokio::sync::Mutex<Option<Arc<CoreSessionEngine>>>,
-    /// The chat memory (`docs/optchat.md`), opened on the first session
+    /// The chat memory (`OptChat`, see the `memory` module), opened on the first session
     /// build and shared by every later build of this worker: one handle per
     /// process, owner or client of `<agent-dir>/chat/lock`.
     pub(crate) chat_memory: tokio::sync::OnceCell<pa_core::memory::Memory>,

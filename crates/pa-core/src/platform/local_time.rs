@@ -87,6 +87,9 @@ struct Fields {
 }
 
 #[cfg(unix)]
+// `time_t` is `i64` on 64-bit targets (a no-op conversion there) and
+// narrower on some 32-bit ones, where the conversion is checked.
+#[allow(clippy::useless_conversion)]
 fn broken_down(seconds: i64) -> io::Result<Fields> {
     let time: libc::time_t = seconds
         .try_into()

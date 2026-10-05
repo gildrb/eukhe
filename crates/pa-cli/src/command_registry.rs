@@ -288,6 +288,44 @@ refused, never overwritten.",
     ])
     .examples(&["factory export review-sweep --out shared-review-sweep.MACHINE.md"]),
     CommandSpec::new(
+        &["chat"],
+        "chat <view|status|browse|import>",
+        "Read, browse, or import into the chat memory",
+    )
+    .description(
+        "The chat memory is the endless log of every message, the binary tree of one-line \
+summaries over it, and the view each turn starts from. It lives under the agent dir.",
+    ),
+    CommandSpec::new(&["chat", "view"], "chat view", "Print the view the agent sees"),
+    CommandSpec::new(
+        &["chat", "status"],
+        "chat status [--json]",
+        "Show the chat's size and its compactor's progress",
+    )
+    .options(&["--json  Print JSON"]),
+    CommandSpec::new(
+        &["chat", "browse"],
+        "chat browse [--out <path>]",
+        "Write the whole memory as one HTML page",
+    )
+    .description(
+        "The page shows the current view, every message, and each level of the tree, each \
+entry with its range, time span, and size. The default output is browse.html in the chat dir.",
+    )
+    .options(&["--out <path>  Destination HTML path"]),
+    CommandSpec::new(
+        &["chat", "import"],
+        "chat import optmem [<memory-dir>] | chat import sessions <path>...",
+        "Import older memories or sessions as chat messages",
+    )
+    .description(
+        "optmem imports an OptMem memory (default ~/.optmem/memory) as note messages that keep \
+their ids, into an empty chat. sessions imports the user's messages and the final replies of \
+saved root sessions (session .jsonl files or directories), oldest first, without tool noise or \
+repeated pastes. The compactor then summarizes them like any other messages.",
+    )
+    .examples(&["chat import optmem", "chat import sessions ~/.prime/agent/sessions"]),
+    CommandSpec::new(
         &["prompt"],
         "prompt [--model <selector>] [--cwd <dir>] [--json]",
         "Print the assembled system prompt with its layer breakdown",

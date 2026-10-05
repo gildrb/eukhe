@@ -1,4 +1,4 @@
-//! The chat's single owner and its clients (`docs/optchat.md` §2 "One
+//! The chat's single owner and its clients (`OptChat` spec §2 "One
 //! writer", §4.1 the pump, §6 settle).
 //!
 //! The first process that binds `chat/lock` owns the chat for its whole

@@ -1,4 +1,4 @@
-//! The chat memory in a session (`docs/optchat.md` §6-§9). A root session
+//! The chat memory in a session (`OptChat` spec §6-§9). A root session
 //! logs everything it says and does to the endless chat and starts every
 //! fresh turn from the view; a subagent starts from the view at its spawn
 //! and logs nothing. The view rides in front of the loop's messages at the
@@ -87,6 +87,17 @@ impl ChatMemory {
                 Ok(out)
             })
         })
+    }
+
+    /// The view message of the current call, rendered (after the view
+    /// settles) when no call has rendered one yet: side questions read the
+    /// main thread's context through it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the view cannot settle or render.
+    pub async fn view_message(&self) -> anyhow::Result<AgentMessage> {
+        self.prefix().await
     }
 
     async fn prefix(&self) -> anyhow::Result<AgentMessage> {

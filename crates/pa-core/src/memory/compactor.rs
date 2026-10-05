@@ -1,4 +1,4 @@
-//! Building one node with the model (`docs/optchat.md` §4.2-4.3): the
+//! Building one node with the model (`OptChat` spec §4.2-4.3): the
 //! COMPACT system prompt, the context block (the bare view lines up to the
 //! node, cut into cache-marked pieces like the agent's view), then the
 //! step; an over-long line gets the cut-at-limit feedback in the SAME

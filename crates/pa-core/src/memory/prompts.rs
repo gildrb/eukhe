@@ -1,5 +1,5 @@
-//! The memory's prompts (`docs/optchat.md` §4.4, §7.2, §9), with the agent
-//! named [`AGENT_NAME`]. COMPACT and VIEW_DOC are verbatim. MASTER and the
+//! The memory's prompts (`OptChat` spec §4.4, §7.2, §9), with the agent
+//! named [`AGENT_NAME`]. `COMPACT` and `VIEW_DOC` are verbatim. `MASTER` and the
 //! subagent prompt keep the spec's memory rules verbatim and drop only what
 //! the harness's own layers already decide (identity details, delegation
 //! policy, how reports are addressed).
@@ -72,7 +72,7 @@ than it was. Output only the line; non-ASCII characters cost 2-4 bytes."#;
 /// cannot count bytes, so the compactor sees the size (§4.2).
 pub(crate) const SCALE: &str = "user: wants releases signed with the SSH key in ~/.ssh/release_ed25519, never GPG, because CI on forks has no secrets; tool: read scripts/release.sh (420 lines: builds 4 targets, uploads to S3, no signing step); echo: cargo test: 118 passed, 2 failed in pa-cli (update_restart_wait timeouts, unrelated to this change); talk: proposed a GitHub Actions upload job with signing kept local; user: approved, keep the bucket name in config, not code; work: [r2] tag v0.9.8-1 pushed; open: drop the two Windows targets?";
 
-/// The root agent's memory layer (MASTER, §7.2).
+/// The root agent's memory layer (`MASTER`, §7.2).
 const MASTER: &str = r#"You are Eukhe, an AI agent that works for one user in a single chat that
 never ends. Do the user's tasks with your tools, following the user's
 instructions at the end of this prompt: they say who the user is, how
@@ -91,7 +91,7 @@ wait for one (no sleep, no polling): go on, or end your turn and tell the
 user what is running."#;
 
 /// The subagent's memory layer (§9).
-const SUBAGENT: &str = r#"You are a subagent of Eukhe, an AI agent that works for one user in a
+const SUBAGENT: &str = r"You are a subagent of Eukhe, an AI agent that works for one user in a
 single chat that never ends. Eukhe gave you a task. Do it with your
 tools, following the user's instructions at the end of this prompt: they
 say who the user is, how their files are organized and how they want
@@ -102,9 +102,9 @@ you what Eukhe knows: what the user wants, decided and taught. Use it as
 context only, and do what your task says, not what the user's last
 message says, since Eukhe may have given you just part of the work.
 Report to Eukhe as your session role below says. Eukhe may send you more
-messages, even while you work."#;
+messages, even while you work.";
 
-/// How to read the view (VIEW_DOC, §7.2).
+/// How to read the view (`VIEW_DOC`, §7.2).
 const VIEW_DOC: &str = r#"The view: the whole chat between Eukhe and the user, oldest first, inside
 <chat> tags, as one-line summaries. Each line is
 
@@ -132,19 +132,19 @@ pub const ZOOM_TOOL_DESCRIPTION: &str =
 /// The `date` tool's description (§7.1, verbatim).
 pub const DATE_TOOL_DESCRIPTION: &str = "The date and time of message id.";
 
-/// The root session's static memory layer: MASTER, then VIEW_DOC.
+/// The root session's static memory layer: `MASTER`, then `VIEW_DOC`.
 #[must_use]
 pub fn memory_system_layer() -> String {
     format!("{MASTER}\n\n{VIEW_DOC}")
 }
 
-/// A subagent's static memory layer: the subagent prompt, then VIEW_DOC.
+/// A subagent's static memory layer: the subagent prompt, then `VIEW_DOC`.
 #[must_use]
 pub fn subagent_system_layer() -> String {
     format!("{SUBAGENT}\n\n{VIEW_DOC}")
 }
 
-/// The compactor's step for one message: SCALE, then the message whole.
+/// The compactor's step for one message: `SCALE`, then the message whole.
 pub(crate) fn compress_step(kind_and_text: &str) -> String {
     format!(
         "For scale, this line is exactly {node} bytes:\n{SCALE}\n\nCompress this message into one line, in at most {node} bytes:\n{kind_and_text}",
@@ -152,7 +152,7 @@ pub(crate) fn compress_step(kind_and_text: &str) -> String {
     )
 }
 
-/// The compactor's step for one merge: SCALE, then both lines written
+/// The compactor's step for one merge: `SCALE`, then both lines written
 /// out again, newlines flattened.
 pub(crate) fn merge_step(left: &str, right: &str) -> String {
     format!(

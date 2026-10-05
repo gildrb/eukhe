@@ -184,21 +184,19 @@ impl Store {
             .open
             .as_mut()
             .ok_or_else(|| io::Error::other("day file is not open"))?;
-        let file = match open.index {
-            Some(index) => index,
-            None => {
-                let path = self.main.dir.join(format!("{day}.jsonl"));
-                // A reopened day keeps the index its file got at load.
-                let index = match self.files.iter().position(|known| *known == path) {
-                    Some(index) => index,
-                    None => {
-                        self.files.push(path);
-                        self.files.len() - 1
-                    }
-                };
-                open.index = Some(index);
+        let file = if let Some(index) = open.index {
+            index
+        } else {
+            let path = self.main.dir.join(format!("{day}.jsonl"));
+            // A reopened day keeps the index its file got at load.
+            let index = if let Some(index) = self.files.iter().position(|known| *known == path) {
                 index
-            }
+            } else {
+                self.files.push(path);
+                self.files.len() - 1
+            };
+            open.index = Some(index);
+            index
         };
         Ok(MessageMeta {
             kind: record.kind,

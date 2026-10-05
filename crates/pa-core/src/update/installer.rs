@@ -188,6 +188,9 @@ pub struct UpdateFailure {
 /// # Errors
 /// Returns the failure message for every non-installing outcome (see
 /// [`run_installer_from`]).
+// The funnel's callers (the CLI and the TUI's `/update`) await it; eukhe
+// answers at once, without I/O.
+#[allow(clippy::unused_async)]
 pub async fn run_installer(
     _channel: Option<&'static str>,
     _output: InstallerOutput,

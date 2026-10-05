@@ -129,7 +129,7 @@ pub struct SessionEngineConfig {
     /// spawn provenance. `None` keeps the session off the ledger (no
     /// request ids on the wire).
     pub semantic_edges: Option<super::semantic_edges::SemanticEdgeIdentity>,
-    /// The chat memory (`docs/optchat.md`): a depth-0 session is its root
+    /// The chat memory (`OptChat`, see the `memory` module): a depth-0 session is its root
     /// (every fresh turn starts from the view; everything is logged), a
     /// deeper one a subagent (the view at its first request, nothing
     /// logged). Both get the `zoom`/`date` tools and the tool-result cap.

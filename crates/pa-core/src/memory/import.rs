@@ -1,4 +1,4 @@
-//! Importing history (`docs/optchat.md` §10): OptMem notes as kind `note`,
+//! Importing history (`OptChat` spec §10): `OptMem` notes as kind `note`,
 //! keeping their ids, and older agent sessions as plain text (the user's
 //! messages and the agent's final replies, without repeated pastes and
 //! tool noise). The compactor then builds the tree over them like any other
@@ -30,7 +30,7 @@ pub struct ImportReport {
     pub skipped: u64,
 }
 
-/// Import the OptMem memory in `memory_dir` (its `LOG.txt`) as `note`
+/// Import the `OptMem` memory in `memory_dir` (its `LOG.txt`) as `note`
 /// messages with their own ids: the chat must still be empty.
 ///
 /// # Errors
@@ -238,14 +238,12 @@ fn parse_session(path: &Path) -> anyhow::Result<Option<Session>> {
                     });
                 }
             }
-            Some("assistant") => {
-                if !text.trim().is_empty() {
-                    reply = Some(ImportItem {
-                        kind: Kind::Talk,
-                        text,
-                        date,
-                    });
-                }
+            Some("assistant") if !text.trim().is_empty() => {
+                reply = Some(ImportItem {
+                    kind: Kind::Talk,
+                    text,
+                    date,
+                });
             }
             _ => {}
         }

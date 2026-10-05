@@ -1,4 +1,6 @@
-//! The chat memory (`docs/optchat.md`): one endless, append-only chat log,
+//! The chat memory, after the `OptChat` spec
+//! (<https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449>):
+//! one endless, append-only chat log,
 //! a binary tree of one-line summaries over it, the fixed-budget view every
 //! root turn starts from, and the background compactor that builds the tree.
 //!
@@ -26,7 +28,7 @@ mod view;
 
 use std::time::Duration;
 
-pub use browse::{write_browse_page, BrowseSummary};
+pub use browse::{read_view, write_browse_page, BrowseSummary, ReadView};
 pub use compactor::{Summarizer, SummarizerFuture};
 pub use import::{import_optmem, import_sessions, ImportReport};
 pub use prompts::{

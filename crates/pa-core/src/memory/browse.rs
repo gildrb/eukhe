@@ -1,4 +1,4 @@
-//! The browse page (`docs/optchat.md` §10): the whole memory as one HTML
+//! The browse page (`OptChat` spec §10): the whole memory as one HTML
 //! file. It shows the current view, ROOT (every message), and each level of
 //! the tree, every entry with its range, time span and size. It reads the
 //! files without taking ownership; the view is the live owner's when one
@@ -158,6 +158,66 @@ pub async fn write_browse_page(dir: &Path, out: &Path) -> anyhow::Result<BrowseS
         nodes: chat.nodes().len() as u64,
         view_lines: parts.len() as u64,
         live_view: live.is_some(),
+    })
+}
+
+/// The chat as a reader sees it, without taking ownership.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadView {
+    /// The agent's rendering of the view.
+    pub text: String,
+    pub messages: u64,
+    pub summaries: u64,
+    pub view_lines: u64,
+    pub view_bytes: u64,
+    /// Messages whose view line is not summarized yet.
+    pub unsummarized: u64,
+    /// Whether a live owner answered (its view), or the view is the fold a
+    /// new owner would compute from the files.
+    pub live: bool,
+}
+
+/// Read the chat in `dir`: the live owner's view when one answers, else
+/// the fold of the files. Never claims ownership.
+///
+/// # Errors
+///
+/// Returns an error when the chat files cannot be read.
+pub async fn read_view(dir: &Path) -> anyhow::Result<ReadView> {
+    let live = super::service::live_parts(dir).await;
+    let (_store, loaded) = Store::open(dir, LoadMode::ReadOnly)?;
+    let mut problems = loaded.problems.clone();
+    let chat = Chat::from_loaded(loaded, &mut problems);
+    let parts: Vec<Part> = match &live {
+        Some(parts) => parts.iter().map(|(l, i)| Part { l: *l, i: *i }).collect(),
+        None => chat.view().parts().to_vec(),
+    };
+    let mut text = String::from("<chat>\n");
+    let mut view_bytes = 0;
+    let mut first_unbuilt = chat.total();
+    for part in &parts {
+        let summary = line_text(*part, chat.nodes());
+        if chat.nodes().node_text(*part).is_none() {
+            first_unbuilt = first_unbuilt.min(part.start());
+        }
+        view_bytes += summary.len();
+        let _ = writeln!(
+            text,
+            "{}+{}|{}",
+            part.start(),
+            part.count(),
+            super::view::flatten(summary)
+        );
+    }
+    text.push_str("</chat>");
+    Ok(ReadView {
+        text,
+        messages: chat.total(),
+        summaries: chat.nodes().len() as u64,
+        view_lines: parts.len() as u64,
+        view_bytes: view_bytes as u64,
+        unsummarized: chat.total() - first_unbuilt,
+        live: live.is_some(),
     })
 }
 

@@ -3,8 +3,13 @@
 
 use std::path::{Path, PathBuf};
 
-/// The user-facing application name (`piConfig.name` in package.json).
-pub const APP_NAME: &str = "prime-agent";
+/// The user-facing application name: help, usage, and hints name the
+/// command users type (the `eukhe` launcher).
+pub const APP_NAME: &str = "eukhe";
+
+/// The executable's file name, the process name daemon discovery matches
+/// (`comm` on Linux comes from the executable, never from the launcher).
+pub const PROCESS_NAME: &str = "prime-agent";
 
 /// The project-local configuration directory name (`piConfig.configDir` in
 /// package.json); the user's state directory is
