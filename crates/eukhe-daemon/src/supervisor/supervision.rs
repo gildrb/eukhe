@@ -3,11 +3,10 @@
 use super::routing::{fail_unsent_request, WORKER_REQUEST_TIMEOUT_MS};
 use super::{
     anyhow, connect_transport, create_command_payload, json, mpsc, persist_worker,
-    persist_worker_at, probe_worker_socket, util, write_frame, Arc, Child, ClientRouting, Command,
-    Context, DaemonWorkerLifecycle, Duration, Ordering, PathBuf, PrivateFrameReader,
-    ResidentWorker, Result, RouteAdmission, Supervisor, TempSync, TypedCreateRejection, Value,
-    WorkerReply, WorkerRequest, DEFAULT_PRIVATE_FRAME_LIMITS, ROUTE_TIMEOUT_MS,
-    WORKER_AUTH_FLOOR_MS,
+    persist_worker_at, probe_worker_socket, util, write_frame, Arc, Child, ClientRouting, Context,
+    DaemonWorkerLifecycle, Duration, Ordering, PathBuf, PrivateFrameReader, ResidentWorker, Result,
+    RouteAdmission, Supervisor, TempSync, TypedCreateRejection, Value, WorkerReply, WorkerRequest,
+    DEFAULT_PRIVATE_FRAME_LIMITS, ROUTE_TIMEOUT_MS, WORKER_AUTH_FLOOR_MS,
 };
 use crate::lease::is_process_alive;
 use crate::registry::WorkerRelay;
@@ -446,11 +445,11 @@ impl Supervisor {
             )
         };
 
-        let executable = std::env::current_exe().context("resolve eukhe-daemon executable")?;
+        let image = crate::platform::worker_image()?;
         let stderr_log_path =
             crate::worker_stderr::log_path(&self.options.agent_dir, &resident.worker_id);
         let stderr_log = crate::worker_stderr::open_for_spawn(&stderr_log_path)?;
-        let mut command = Command::new(&executable);
+        let mut command = image.command();
         command
             .arg("worker")
             .envs(launch_env)
@@ -467,9 +466,13 @@ impl Supervisor {
         // (`spawnHidden(..., { detached: true })`): the worker leaves the
         // supervisor's console group and shows no fresh console.
         eukhe_core::platform::process::set_new_process_group(command.as_std_mut());
-        let child = command
-            .spawn()
-            .with_context(|| format!("spawn session worker {}", resident.worker_id))?;
+        let child = command.spawn().with_context(|| {
+            format!(
+                "spawn session worker {} from {}",
+                resident.worker_id,
+                image.program.display()
+            )
+        })?;
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_millis() as u64);

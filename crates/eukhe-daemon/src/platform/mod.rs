@@ -3,7 +3,10 @@
 //! sockets bind/connect through it, so named pipes slot in without touching
 //! the supervisor or worker loops).
 
+mod executable;
 mod paths;
+
+pub(crate) use executable::worker_image;
 
 pub use paths::{
     default_daemon_socket_path, socket_dir, socket_identity, worker_socket_path, SocketIdentity,

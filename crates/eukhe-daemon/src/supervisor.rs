@@ -75,7 +75,7 @@ use eukhe_types::daemon::{
 use eukhe_types::platform::transport::{bind_transport, connect_transport, TransportStream};
 use serde_json::{json, Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::backpressure::RouteAdmission;

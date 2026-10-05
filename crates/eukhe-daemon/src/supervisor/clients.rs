@@ -681,7 +681,7 @@ impl Supervisor {
                                     rejection.message.clone(),
                                     Some(rejection.error_info.clone()),
                                 ),
-                                None => (error.to_string(), None),
+                                None => (format!("{error:#}"), None),
                             };
                         (
                             vec![response_line(&response_failure(
