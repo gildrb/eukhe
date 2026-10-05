@@ -19,7 +19,6 @@
 //! The cell writes a `started` marker before sleeping, so the test aborts
 //! strictly mid-cell, and a `finished` marker after the sleep, so the test
 //! proves the cell actually died (the interrupted cell never completes).
-#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 

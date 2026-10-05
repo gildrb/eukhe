@@ -22,7 +22,6 @@
 //! worker already hosts, with the exact TS `SessionAlreadyActiveError`
 //! message. The real binary, a real daemon, and the scripted faux provider
 //! drive the full path.
-#![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;

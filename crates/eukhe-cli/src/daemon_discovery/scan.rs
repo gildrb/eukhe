@@ -1,9 +1,7 @@
 //! OS-level daemon discovery scans (TS `cli/daemon-ps.ts` scan half): the
 //! listening-socket census (`ss` on Linux, `lsof` on macOS), the pid census,
 //! and uptime enrichment. Parsing is pure and unit-tested against the exact
-//! tool output shapes; the process spawning is Unix-only behind this module
-//! (Windows daemons live on one named pipe per machine, so there is nothing
-//! to sweep - TS returns [] there too).
+//! tool output shapes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -338,7 +336,7 @@ fn scan_proc_listeners(app_name: &str) -> Vec<DiscoveredDaemonProcess> {
     daemons
 }
 
-/// Non-Linux platforms have no `/proc`; the fallback census finds nothing.
+/// macOS has no `/proc`; the fallback census finds nothing.
 #[cfg(not(target_os = "linux"))]
 fn scan_proc_listeners(_app_name: &str) -> Vec<DiscoveredDaemonProcess> {
     Vec::new()

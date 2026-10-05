@@ -6,8 +6,6 @@
 //! the abandoned branch restores its own goal rows, and each reload\'s
 //! change announces as a `goal_update` at the moment it happens.
 
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};

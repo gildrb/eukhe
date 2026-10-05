@@ -86,7 +86,6 @@ struct Fields {
     second: u32,
 }
 
-#[cfg(unix)]
 // `time_t` is `i64` on 64-bit targets (a no-op conversion there) and
 // narrower on some 32-bit ones, where the conversion is checked.
 #[allow(clippy::useless_conversion)]
@@ -114,14 +113,6 @@ fn broken_down(seconds: i64) -> io::Result<Fields> {
         minute: field(tm.tm_min)?,
         second: field(tm.tm_sec)?,
     })
-}
-
-#[cfg(not(unix))]
-fn broken_down(_seconds: i64) -> io::Result<Fields> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "local time conversion is implemented for Unix platforms only",
-    ))
 }
 
 /// Parse a UTC ISO-8601 instant, `YYYY-MM-DDTHH:MM:SS[.fff]Z` (the form

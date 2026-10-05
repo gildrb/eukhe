@@ -684,10 +684,7 @@ impl SessionUi {
                     return Ok(());
                 }
                 let Some(agent_dir) = eukhe_types::platform::agent_dir() else {
-                    self.error_row(
-                        "home directory not found: set HOME (or USERPROFILE on Windows)",
-                        view,
-                    );
+                    self.error_row("home directory not found: set HOME", view);
                     return Ok(());
                 };
                 // The content's own `Logs` header row is the panel's

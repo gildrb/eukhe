@@ -8125,8 +8125,6 @@ class InstalledRuntimeLibraryTest(unittest.TestCase):
         return staged
 
     def test_kernel_venv_runs_review_sweep_from_the_installed_wheel(self) -> None:
-        if os.name != "posix":
-            self.skipTest("the staged kernel-venv path is POSIX-shaped")
         uv = shutil.which("uv")
         if uv is None:
             self.skipTest("uv is not available to build the kernel venv")

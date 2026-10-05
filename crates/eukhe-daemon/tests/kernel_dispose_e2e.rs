@@ -20,8 +20,6 @@
 //! note) on machines without a live install. The process-table scans
 //! diff against a baseline snapshot, so ambient kernels (other agent
 //! sessions on the same box) never interfere.
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};

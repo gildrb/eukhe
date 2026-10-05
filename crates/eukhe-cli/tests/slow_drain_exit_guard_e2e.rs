@@ -40,7 +40,6 @@
 //! this binary re-executed against a mock supervisor socket, the
 //! kitty-release e2e's pattern) and paces its own reads of the pty
 //! master — the terminal's drain rate is the test's knob.
-#![cfg(unix)]
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};

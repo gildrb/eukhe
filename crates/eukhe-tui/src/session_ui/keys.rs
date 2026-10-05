@@ -758,14 +758,8 @@ impl SessionUi {
         // performs the cycle right after dispatch, and the SIGCONT
         // continuation re-applies raw mode, the alt screen, and SGR
         // mouse tracking (TS `ui.start()` + `applyFullscreen(true)`).
-        // Platforms without a stoppable process group show the TS win32
-        // status instead of suspending.
         if view.editor.keybindings().matches(&id, "app.suspend") {
-            if crate::suspend::supported() {
-                self.suspend_requested = true;
-            } else {
-                self.note("Suspend to background is not supported on Windows", view);
-            }
+            self.suspend_requested = true;
             return Ok(());
         }
         // TS `app.model.select` (default ctrl+l, `showModelSelector`):

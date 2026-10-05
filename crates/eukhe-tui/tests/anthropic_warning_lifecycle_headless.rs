@@ -10,7 +10,6 @@
 //! is its own event. The daemon half (the marker row, the hydration, the
 //! idempotent handler) is covered by the eukhe-daemon suites; these runs
 //! verify the client gate over a scripted daemon socket.
-#![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};

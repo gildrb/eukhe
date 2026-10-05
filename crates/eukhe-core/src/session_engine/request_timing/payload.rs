@@ -22,16 +22,12 @@
 //! # The confidentiality boundary
 //!
 //! The captured bodies are complete request transcripts, so the capture
-//! refuses rather than leak: on Unix the ring's directory and files are
+//! refuses rather than leak: the ring's directory and files are
 //! owner-only through the platform wall (re-applied on every write, even
 //! onto a pre-existing permissive directory), and every path component
 //! from the agent dir down must be a real directory — a symlinked
 //! component would redirect the private-mode writes, so the capture
-//! disables itself instead of following it. On Windows the platform
-//! wall's restriction helpers are inherited-ACL no-ops: rather than
-//! write complete bodies through a possibly permissive inherited ACL,
-//! the capture is disabled there (a documented limitation until the
-//! platform wall gains a restrictive DACL).
+//! disables itself instead of following it.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -43,10 +39,8 @@ use serde_json::{json, Map, Value};
 use crate::platform::perms;
 use crate::session::manager::format_iso;
 
-/// The capture's own battery: the capture is Unix-only (the
-/// confidentiality boundary is not enforceable elsewhere), so its tests
-/// are too.
-#[cfg(all(test, unix))]
+/// The capture's own battery.
+#[cfg(test)]
 pub(crate) mod tests;
 
 /// Serializes the tests that record through the process's one writer:
@@ -54,7 +48,7 @@ pub(crate) mod tests;
 /// saturate each other's queues and drop each other's expected bodies.
 /// A tokio mutex so the async integration tests hold it across awaits
 /// (`lock().await`) while the sync unit tests take `blocking_lock()`.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 pub(crate) static WRITER_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The newest-body ring the capture keeps: one file per request, so
@@ -80,10 +74,7 @@ pub(crate) const REQUEST_PAYLOAD_BUDGET_BYTES: u64 = 64 * 1024 * 1024;
 /// agent dir).
 static CAPTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// One queued capture, as the dispatch path hands it off. Unix-only at
-/// the readers (the writer machinery below); the capture is disabled on
-/// non-Unix by the confidentiality design, so the fields read only there.
-#[cfg_attr(not(unix), allow(dead_code))]
+/// One queued capture, as the dispatch path hands it off.
 struct CaptureJob {
     root: PathBuf,
     dir: PathBuf,
@@ -129,44 +120,28 @@ static CAPTURE_WRITER: OnceLock<Option<CaptureWriter>> = OnceLock::new();
 fn capture_writer() -> Option<&'static CaptureWriter> {
     CAPTURE_WRITER
         .get_or_init(|| {
-            // The confidentiality boundary is only enforceable where the
-            // platform wall can enforce owner-only modes: the wall's
-            // Windows arms are inherited-ACL no-ops, so rather than write
-            // complete request bodies through a possibly permissive
-            // inherited ACL, the capture stays disabled there (see the
-            // module doc).
-            #[cfg(not(unix))]
-            {
-                tracing::debug!(
-                    "payload capture disabled: owner-only modes are not enforceable on this platform"
-                );
-                None
-            }
-            #[cfg(unix)]
-            {
-                let (sender, receiver) = std::sync::mpsc::sync_channel(WRITE_QUEUE_CAPACITY.max(1));
-                let queued = Arc::new(AtomicUsize::new(0));
-                let retained = Arc::new(AtomicU64::new(0));
-                let writer_queued = Arc::clone(&queued);
-                let writer_retained = Arc::clone(&retained);
-                std::thread::Builder::new()
-                    .name("request-payload-capture".to_string())
-                    .spawn(move || {
-                        let writer_queued = writer_queued;
-                        let writer_retained = writer_retained;
-                        let receiver = receiver;
-                        drain_writer(&writer_queued, &writer_retained, &receiver);
-                    })
-                    .map(|_| CaptureWriter {
-                        sender,
-                        queued,
-                        retained,
-                    })
-                    .map_err(|error| {
-                        tracing::debug!(%error, "payload capture writer thread failed to spawn");
-                    })
-                    .ok()
-            }
+            let (sender, receiver) = std::sync::mpsc::sync_channel(WRITE_QUEUE_CAPACITY.max(1));
+            let queued = Arc::new(AtomicUsize::new(0));
+            let retained = Arc::new(AtomicU64::new(0));
+            let writer_queued = Arc::clone(&queued);
+            let writer_retained = Arc::clone(&retained);
+            std::thread::Builder::new()
+                .name("request-payload-capture".to_string())
+                .spawn(move || {
+                    let writer_queued = writer_queued;
+                    let writer_retained = writer_retained;
+                    let receiver = receiver;
+                    drain_writer(&writer_queued, &writer_retained, &receiver);
+                })
+                .map(|_| CaptureWriter {
+                    sender,
+                    queued,
+                    retained,
+                })
+                .map_err(|error| {
+                    tracing::debug!(%error, "payload capture writer thread failed to spawn");
+                })
+                .ok()
         })
         .as_ref()
 }
@@ -200,7 +175,7 @@ impl RequestPayloadCapture {
 
     /// The capture at an explicit directory and ring size (tests): the
     /// directory's parent is the trust root.
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn at(dir: impl Into<PathBuf>, keep: usize) -> Self {
         let dir: PathBuf = dir.into();
@@ -299,7 +274,6 @@ impl RequestPayloadCapture {
 /// into place (a reader never sees a partial body), and prune the ring.
 /// The body's retained bytes release once its write settles (the job's
 /// payload is dropped right after).
-#[cfg_attr(not(unix), allow(dead_code))]
 fn drain_writer(queued: &Arc<AtomicUsize>, retained: &Arc<AtomicU64>, jobs: &Receiver<CaptureJob>) {
     while let Ok(job) = jobs.recv() {
         queued.fetch_sub(1, Ordering::Relaxed);
@@ -343,7 +317,6 @@ pub(crate) fn payload_bytes(value: &Value) -> u64 {
 /// The capture file's correlation envelope: the same identity fields the
 /// request-timing entries carry, so a capture correlates with its
 /// timeline by sequence number; empty or absent fields stay omitted.
-#[cfg_attr(not(unix), allow(dead_code))]
 fn capture_envelope(job: &CaptureJob) -> Value {
     let mut envelope = Map::new();
     envelope.insert("ts".to_string(), json!(format_iso(job.now_ms as i64)));
@@ -372,7 +345,6 @@ fn capture_envelope(job: &CaptureJob) -> Value {
 /// other local users), the durable rename through the platform wall,
 /// then the ring prune. Best-effort: every failure is the caller's to
 /// swallow — and a failed write takes its temp file with it.
-#[cfg_attr(not(unix), allow(dead_code))]
 fn write_capture(root: &Path, dir: &Path, keep: usize, job: &CaptureJob) -> std::io::Result<()> {
     use std::io::Write;
     refuse_symlinked_components(root, dir)?;
@@ -406,7 +378,7 @@ fn write_capture(root: &Path, dir: &Path, keep: usize, job: &CaptureJob) -> std:
             file.flush()?;
         }
         perms::restrict_file(&temp)?;
-        crate::platform::rename_onto(&temp, &target)
+        std::fs::rename(&temp, &target)
     })();
     if write.is_err() {
         // The ring ages crash-leftover temps; a failed write cleans up
@@ -425,7 +397,6 @@ fn write_capture(root: &Path, dir: &Path, keep: usize, job: &CaptureJob) -> std:
 /// attacker-owned tree. `symlink_metadata` inspects each component
 /// without following it; a missing component is fine (the create below
 /// makes it, privately), but a symlink ends the capture.
-#[cfg_attr(not(unix), allow(dead_code))]
 fn refuse_symlinked_components(root: &Path, dir: &Path) -> std::io::Result<()> {
     // Only the components below the trust root are walked: the root
     // itself is the user's configured agent dir (its own symlinks are
@@ -467,7 +438,6 @@ fn refuse_symlinked_components(root: &Path, dir: &Path) -> std::io::Result<()> {
 /// crashed write's leftover) counts as one of the ring's files and ages
 /// out the same way; a mid-write temp file carries the newest name and
 /// never evicts.
-#[cfg_attr(not(unix), allow(dead_code))]
 fn prune(dir: &Path, keep: usize) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;

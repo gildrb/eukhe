@@ -425,8 +425,7 @@ impl Supervisor {
                 .append(&format!("chat memory unavailable: {error:#}")),
         }
         match open_file_limit {
-            Ok(Some(limit)) => self.log.append(&format!("open file limit {limit}")),
-            Ok(None) => {}
+            Ok(limit) => self.log.append(&format!("open file limit {limit}")),
             Err(error) => self
                 .log
                 .append(&format!("open file limit raise failed: {error}")),

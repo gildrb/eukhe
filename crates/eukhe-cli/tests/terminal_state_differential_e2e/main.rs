@@ -58,7 +58,6 @@
 //! the error returns, the suspend cycle's mid-run release (the shell
 //! gets the terminal while the process is stopped), and the pre-mount
 //! daemon refusal (which must restore NOTHING — nothing was armed).
-#![cfg(unix)]
 
 mod harness;
 mod ledger;

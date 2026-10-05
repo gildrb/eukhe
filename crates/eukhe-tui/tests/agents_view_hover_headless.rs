@@ -10,7 +10,6 @@
 //! is the toggle, not an open), and the expanded child rows open the
 //! subagent — and the hover motions ride the same path without
 //! disturbing the click grammar.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

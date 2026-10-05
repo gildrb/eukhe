@@ -11,7 +11,6 @@
 //! the pane to the agents view (the hinted left-arrow action), and the
 //! `?1003` hover motions ride the same path without disturbing the
 //! click grammar.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

@@ -7,8 +7,7 @@
 //! list answers would land only after the whole pass, past the latency
 //! bound, with every relaunched worker already up.
 //!
-//! Linux-only e2e (`AF_UNIX` sockets, `kill -9` semantics): compiles to
-//! nothing elsewhere, like the other eukhe-daemon e2e verifiers.
+//! Exercises `AF_UNIX` sockets and `kill -9` semantics.
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -34,8 +33,6 @@
     clippy::struct_excessive_bools,
     clippy::struct_field_names
 )]
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;

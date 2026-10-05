@@ -2,7 +2,6 @@
 //! a bash "npm" shim (no network) and a bare git repo cloned over the
 //! filesystem. These exercise the real child-process sequences the CLI runs.
 
-#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -65,7 +64,6 @@ esac
     );
     let shim = dir.join("npm-shim.sh");
     std::fs::write(&shim, script).unwrap();
-    #[cfg(unix)]
     std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
     shim
 }

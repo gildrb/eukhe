@@ -32,7 +32,6 @@
 //! test is skipped (not failed) when it is not installed. Each binary runs in
 //! its own sandbox HOME + cwd so stateful cases (mcp add) behave identically.
 //! Version numbers are normalized before comparison.
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};

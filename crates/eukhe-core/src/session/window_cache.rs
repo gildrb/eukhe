@@ -18,7 +18,6 @@ pub(super) struct Generation {
     ctime_ns: i64,
 }
 impl Generation {
-    #[cfg(unix)]
     pub(super) fn of(meta: &Metadata) -> Self {
         use std::os::unix::fs::MetadataExt;
         Self {
@@ -31,22 +30,8 @@ impl Generation {
             ctime_ns: meta.ctime_nsec(),
         }
     }
-    #[cfg(not(unix))]
-    pub(super) fn of(meta: &Metadata) -> Self {
-        Self {
-            len: meta.len(),
-            dev: 0,
-            ino: 0,
-            mtime: 0,
-            mtime_ns: 0,
-            ctime: 0,
-            ctime_ns: 0,
-        }
-    }
     pub(super) fn valid(&self, file: &File, path: &Path) -> io::Result<bool> {
-        Ok(cfg!(unix)
-            && *self == Self::of(&file.metadata()?)
-            && *self == Self::of(&std::fs::metadata(path)?))
+        Ok(*self == Self::of(&file.metadata()?) && *self == Self::of(&std::fs::metadata(path)?))
     }
 }
 /// The snapshot format version: a sidecar serves only at exactly this

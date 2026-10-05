@@ -10,8 +10,7 @@
 //!    lifecycle stays reachable via its resume selector, TS parity) and
 //!    the woken worker runs the turn against the mock provider.
 //!
-//! Unix-only e2e (`AF_UNIX` sockets): compiles to nothing elsewhere, like the
-//! other eukhe-daemon e2e verifiers.
+//! Exercises `AF_UNIX` sockets.
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -37,8 +36,6 @@
     clippy::struct_excessive_bools,
     clippy::struct_field_names
 )]
-#![cfg(unix)]
-
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};

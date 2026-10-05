@@ -25,7 +25,6 @@
 //! (`subagents::count_descendants`, TS `countRosterSubagentStatuses` over
 //! `collectSubagentDescendantSummaries`) counts the whole subtree at any
 //! depth, and the agents dock's `N subagents` row aggregates the tree.
-#![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;

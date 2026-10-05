@@ -25,7 +25,6 @@
 //!   (red on a lane-less tree: nothing else opens it) — and the FIRST
 //!   use, issued while the settle's open is still in flight, waits for
 //!   that open and succeeds instead of erroring.
-#![cfg(unix)]
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

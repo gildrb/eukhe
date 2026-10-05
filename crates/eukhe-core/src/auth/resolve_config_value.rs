@@ -57,9 +57,6 @@ fn execute_command(cache_key: &str, command: &str) -> Option<String> {
 fn run_command(command: &str) -> Result<Option<String>> {
     // Hidden spawn: stdin closed, stdout captured, stderr suppressed.
     let output = hidden_spawn(command)?;
-    let Some(output) = output else {
-        return Ok(None);
-    };
     if !output.status.success() {
         return Ok(None);
     }
@@ -67,57 +64,17 @@ fn run_command(command: &str) -> Result<Option<String>> {
     Ok((!value.is_empty()).then_some(value))
 }
 
-/// Hidden command execution for `!command` config values.
-///
-/// TS `resolve-config-value`: Unix runs the default shell; Windows tries
-/// the configured shell first (`getShellConfig`) and falls back to
-/// `ComSpec` (Node `execSync`'s shell) when the configured shell is missing.
-#[cfg(unix)]
-fn hidden_spawn(command: &str) -> Result<Option<std::process::Output>> {
+/// Hidden command execution for `!command` config values (TS
+/// `resolve-config-value`: the default shell).
+fn hidden_spawn(command: &str) -> std::io::Result<std::process::Output> {
     use std::process::{Command, Stdio};
-    let output = Command::new("bash")
+    Command::new("bash")
         .arg("-c")
         .arg(command)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()?;
-    Ok(Some(output))
-}
-
-#[cfg(windows)]
-fn hidden_spawn(command: &str) -> Result<Option<std::process::Output>> {
-    use std::process::{Command, Stdio};
-    if let Ok(config) = crate::platform::get_shell_config(None) {
-        match Command::new(&config.shell)
-            .args(&config.args)
-            .arg(command)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-        {
-            Ok(output) => return Ok(Some(output)),
-            // ENOENT: the configured shell is missing; other spawn errors
-            // are `executed` with no value (TS `executeWithConfiguredShell`).
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Ok(None),
-        }
-    }
-    let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
-    let output = Command::new(comspec)
-        .args(["/d", "/s", "/c"])
-        .arg(command)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()?;
-    Ok(Some(output))
-}
-
-#[cfg(not(any(unix, windows)))]
-fn hidden_spawn(_command: &str) -> Result<Option<std::process::Output>> {
-    anyhow::bail!("config value command execution is not implemented on this platform")
+        .output()
 }
 
 #[cfg(test)]

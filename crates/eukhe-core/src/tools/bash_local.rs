@@ -59,15 +59,9 @@ impl BashOperations for LocalBashOperations {
             for (key, value) in env.unwrap_or_else(get_shell_env) {
                 process.env(key, value);
             }
-            // Detached process group on POSIX only, so kill_process_tree
-            // can reach descendants (TS: `detached:
-            // process.platform !== "win32"`) - on Windows the child stays
-            // in the parent's console group and tree kills go through
-            // `taskkill /T` instead. Hidden window everywhere (TS
-            // `spawnHidden`).
-            #[cfg(unix)]
+            // Detached process group so kill_process_tree can reach
+            // descendants (TS: `detached: true`).
             crate::platform::process::set_new_process_group(&mut process);
-            crate::platform::process::set_no_window(&mut process);
 
             let mut child = process.spawn()?;
 

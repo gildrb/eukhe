@@ -17,7 +17,6 @@
 //! stale, and a contender judges for staleness before reclaiming. A regular
 //! FILE at the lock path is a pre-compat Rust artifact; this side heals it
 //! instead of dying on it (`ENOTDIR`, the TS failure mode).
-#![cfg(unix)]
 
 use std::path::Path;
 use std::time::Duration;

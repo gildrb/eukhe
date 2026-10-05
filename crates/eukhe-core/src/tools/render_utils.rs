@@ -317,8 +317,7 @@ mod tests {
     }
 
     // The home read goes through the platform wall exactly like the
-    // product's shortening (USERPROFILE on win32), so the test runs
-    // everywhere the home resolves.
+    // product's shortening, so the test runs wherever the home resolves.
     #[test]
     fn shorten_path_replaces_home() {
         let Some(home) = eukhe_types::platform::home_dir() else {

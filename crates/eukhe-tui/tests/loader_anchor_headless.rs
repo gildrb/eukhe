@@ -16,7 +16,6 @@
 //! trip. The TS fork's loader tracker starts at its own mount (TS
 //! `agent_start` resets `speedStats` per attach) — the
 //! prompt-anchored rebuild is this port's own contract.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

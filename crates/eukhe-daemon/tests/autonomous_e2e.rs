@@ -4,8 +4,6 @@
 //! continuation as a durable user row, and stop the run (durable
 //! `autonomous_status` stop row + wire events) when the gates pass or a
 //! configured limit is reached. Limits must stop the run the same way.
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};

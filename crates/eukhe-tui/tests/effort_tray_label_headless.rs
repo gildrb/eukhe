@@ -8,7 +8,6 @@
 //! `model:effort` while the session's model supports reasoning, keeps the
 //! bare model id when it does not, and the label follows a `/effort`
 //! switch live.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

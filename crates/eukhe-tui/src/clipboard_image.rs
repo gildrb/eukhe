@@ -3,9 +3,8 @@
 //! The contract is the TS `utils/clipboard-image.ts`: enumerate the
 //! clipboard's available types, prefer a supported image type (PNG, JPEG,
 //! GIF, WebP), read its bytes, and hand back the payload plus its mime
-//! type. On WSL the Windows clipboard is reached through PowerShell and a
-//! temp PNG file (the temp-file write); on macOS the pasteboard is read
-//! through a JavaScript-for-Automation script.
+//! type. On macOS the pasteboard is read through a
+//! JavaScript-for-Automation script and a temp PNG file.
 //!
 //! Every reader is best-effort: a missing tool, an empty clipboard, or an
 //! unsupported type returns `None` and the paste is a no-op (the TS
@@ -20,7 +19,6 @@ use crate::image_load::{LoadedImage, SUPPORTED_IMAGE_MIME_TYPES};
 
 const DEFAULT_LIST_TIMEOUT: Duration = Duration::from_secs(1);
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(3);
-const DEFAULT_POWERSHELL_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_MAX_BUFFER_BYTES: usize = 50 * 1024 * 1024;
 
 /// One clipboard image: the base64 payload plus its sniffed mime type
@@ -79,16 +77,6 @@ async fn run_command(program: &str, args: &[&str], timeout: Duration) -> Option<
         return None;
     }
     Some(output.stdout)
-}
-
-/// Whether this is a WSL session (TS `isWSL`).
-fn is_wsl() -> bool {
-    if std::env::var_os("WSL_DISTRO_NAME").is_some() || std::env::var_os("WSLENV").is_some() {
-        return true;
-    }
-    std::fs::read_to_string("/proc/version").is_ok_and(|version| {
-        version.contains("microsoft") || version.contains("Microsoft") || version.contains("WSL")
-    })
 }
 
 /// Whether this is a Wayland session (TS `isWaylandSession`).
@@ -171,51 +159,6 @@ fn clipboard_image_from_bytes(bytes: Vec<u8>) -> Option<ClipboardImage> {
     })
 }
 
-/// WSL (TS `readClipboardImageViaPowerShell`): PowerShell reads the
-/// Windows clipboard and saves it as a PNG next to a temp path, which
-/// WSL reads back and removes.
-async fn read_via_powershell() -> Option<ClipboardImage> {
-    let temp_dir = std::env::temp_dir();
-    std::fs::create_dir_all(&temp_dir).ok()?;
-    let temp_path = temp_dir.join(format!("eukhe-clip-{}.png", unique_suffix()));
-    let windows_path = String::from_utf8_lossy(
-        &run_command(
-            "wslpath",
-            &["-w", temp_path.to_str()?],
-            DEFAULT_LIST_TIMEOUT,
-        )
-        .await?,
-    )
-    .trim()
-    .to_string();
-    if windows_path.is_empty() {
-        return None;
-    }
-    let escaped_path = windows_path.replace('\'', "''");
-    let script = [
-        "Add-Type -AssemblyName System.Windows.Forms",
-        "Add-Type -AssemblyName System.Drawing",
-        format!("$path = '{escaped_path}'").as_str(),
-        "$img = [System.Windows.Forms.Clipboard]::GetImage()",
-        "if ($img) { $img.Save($path, [System.Drawing.Imaging.ImageFormat]::Png); Write-Output 'ok' } else { Write-Output 'empty' }",
-    ]
-    .join("; ");
-    let output = run_command(
-        "powershell.exe",
-        &["-NoProfile", "-Command", &script],
-        DEFAULT_POWERSHELL_TIMEOUT,
-    )
-    .await?;
-    if String::from_utf8_lossy(&output).trim() != "ok" {
-        return None;
-    }
-    let image = crate::image_load::load_image_from_path(&temp_path)
-        .ok()
-        .flatten();
-    let _ = std::fs::remove_file(&temp_path);
-    image
-}
-
 /// A unique temp-file suffix: the per-process random hasher seeded by the
 /// OS plus the current nanosecond clock.
 fn unique_suffix() -> String {
@@ -272,9 +215,8 @@ if (!types.containsObject($.NSPasteboardTypePNG)) {{
 /// Read an image from the system clipboard, if one of the supported types
 /// is present. Termux exposes no clipboard image path (TS guard). The
 /// reader order matches the TS `readClipboardImage`: Wayland sessions
-/// try `wl-paste` then `xclip`; WSL additionally falls through to
-/// PowerShell (which sees the Windows clipboard directly); X11 sessions
-/// use `xclip`; macOS reads the pasteboard through osascript. The TS
+/// try `wl-paste` then `xclip`; X11 sessions use `xclip`; macOS reads
+/// the pasteboard through osascript. The TS
 /// native-module readers that need a bundled binary are replaced by the
 /// command-line equivalents.
 pub async fn read_clipboard_image() -> Option<ClipboardImage> {
@@ -293,22 +235,12 @@ pub async fn read_clipboard_image() -> Option<ClipboardImage> {
     }
     match std::env::consts::OS {
         "linux" => {
-            let wsl = is_wsl();
-            let wayland = is_wayland_session();
-            let mut image = None;
-            if wayland || wsl {
-                image = read_via_wl_paste().await;
-                if image.is_none() {
-                    image = read_via_xclip().await;
+            if is_wayland_session() {
+                if let Some(image) = read_via_wl_paste().await {
+                    return Some(image);
                 }
             }
-            if image.is_none() && wsl {
-                image = read_via_powershell().await;
-            }
-            if image.is_none() && !wayland {
-                image = read_via_xclip().await;
-            }
-            image
+            read_via_xclip().await
         }
         "macos" => read_via_osascript().await,
         _ => None,

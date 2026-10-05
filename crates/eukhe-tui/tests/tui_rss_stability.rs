@@ -13,10 +13,9 @@
 //! is a plateau: resident memory in the last quarter of the run must sit
 //! within a bounded delta of the warm-up state.
 //!
-//! Linux-only by construction (`/proc/self/statm`, `AF_UNIX` mock sockets);
-//! the whole file compiles to nothing elsewhere (Windows RSS regression
-//! needs its own counter path).
-#![cfg(unix)]
+//! Linux-only by construction (`/proc/self/statm`): the whole file compiles
+//! to nothing on macOS.
+#![cfg(target_os = "linux")]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

@@ -25,7 +25,6 @@
 //! kernel-scheduled refinement end to end) is the documented follow-up;
 //! this test proves the wire contract with a
 //! real kernel without the daemon turn choreography.
-#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 

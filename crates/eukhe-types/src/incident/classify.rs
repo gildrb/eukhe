@@ -15,17 +15,10 @@ use super::{
 use std::collections::HashMap;
 
 /// The worker id a socket path names, if any (TS
-/// `workerIdFromSocketPath`).
-///
-/// Splitting on both separators so Windows named-pipe paths
-/// (`\\.\pipe\...`) resolve to their last segment on any platform, not
-/// only on win32.
+/// `workerIdFromSocketPath`): the last `/` segment of the path.
 pub fn worker_id_from_socket_path(socket_path: Option<&str>) -> Option<&str> {
     let socket_path = socket_path?;
-    let name = socket_path
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(socket_path);
+    let name = socket_path.rsplit('/').next().unwrap_or(socket_path);
     WORKER_SOCKET
         .captures(name)
         .and_then(|captures| captures.get(1))

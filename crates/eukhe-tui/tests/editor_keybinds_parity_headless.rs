@@ -7,7 +7,6 @@
 //! SANCTIONED DIVERGENCE from TS (documented per the #289 precedent): the
 //! TS editor has no redo, no selection, and no doc/paragraph jumps; these
 //! assertions pin the forward feature, not TS parity.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

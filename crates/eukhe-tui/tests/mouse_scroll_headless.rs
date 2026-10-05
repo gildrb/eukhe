@@ -8,7 +8,6 @@
 //! per turn, the wheel is consumed without scrolling while a picker owns
 //! the frame, and no scroll happens when the `terminal.fullscreenMouse`
 //! setting disabled tracking (reports consumed either way).
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

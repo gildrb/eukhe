@@ -190,9 +190,8 @@ impl Inner {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
-        // Hidden window on Windows (TS `spawnHidden`); the kernel stays in
-        // this process's group - its lifecycle is supervised directly.
-        crate::platform::process::set_no_window(command.as_std_mut());
+        // The kernel stays in this process's group - its lifecycle is
+        // supervised directly.
         if let Some(cwd) = &cwd {
             command.current_dir(cwd);
         }
@@ -452,10 +451,7 @@ impl Inner {
             let exit = match child.wait().await {
                 Ok(status) => ExitInfo {
                     code: status.code(),
-                    #[cfg(unix)]
-                    signal: unix_signal_of(status),
-                    #[cfg(not(unix))]
-                    signal: None,
+                    signal: crate::platform::process::termination_signal(&status),
                 },
                 Err(_) => ExitInfo {
                     code: None,
@@ -556,11 +552,6 @@ impl Inner {
     }
 }
 
-#[cfg(unix)]
-fn unix_signal_of(status: std::process::ExitStatus) -> Option<i32> {
-    crate::platform::process::termination_signal(&status)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,19 +578,14 @@ mod tests {
             .open_stderr_log_at(&path)
             .expect("stderr log opens");
         drop(log);
-        #[cfg(unix)]
-        {
-            assert_eq!(
-                crate::platform::perms::file_mode(&path),
-                Some(crate::platform::perms::PRIVATE_FILE_MODE)
-            );
-            assert_eq!(
-                crate::platform::perms::file_mode(path.parent().expect("parent")),
-                Some(crate::platform::perms::PRIVATE_DIR_MODE)
-            );
-        }
-        #[cfg(not(unix))]
-        assert!(path.is_file());
+        assert_eq!(
+            crate::platform::perms::file_mode(&path),
+            Some(crate::platform::perms::PRIVATE_FILE_MODE)
+        );
+        assert_eq!(
+            crate::platform::perms::file_mode(path.parent().expect("parent")),
+            Some(crate::platform::perms::PRIVATE_DIR_MODE)
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -616,7 +602,6 @@ mod tests {
             .truncate(true)
             .open(&path)
             .expect("loose log");
-        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let _ = loose.set_permissions(std::fs::Permissions::from_mode(0o644));
@@ -630,22 +615,17 @@ mod tests {
             .open_stderr_log_at(&path)
             .expect("stderr log opens");
         drop(log);
-        #[cfg(unix)]
-        {
-            let old = path.with_extension("log.old");
-            assert_eq!(
-                crate::platform::perms::file_mode(&old),
-                Some(crate::platform::perms::PRIVATE_FILE_MODE),
-                "the rotated file holds the historical exception payloads"
-            );
-            assert_eq!(
-                crate::platform::perms::file_mode(&path),
-                Some(crate::platform::perms::PRIVATE_FILE_MODE),
-                "the fresh log is tightened despite a loose predecessor"
-            );
-        }
-        #[cfg(not(unix))]
-        assert!(path.with_extension("log.old").is_file());
+        let old = path.with_extension("log.old");
+        assert_eq!(
+            crate::platform::perms::file_mode(&old),
+            Some(crate::platform::perms::PRIVATE_FILE_MODE),
+            "the rotated file holds the historical exception payloads"
+        );
+        assert_eq!(
+            crate::platform::perms::file_mode(&path),
+            Some(crate::platform::perms::PRIVATE_FILE_MODE),
+            "the fresh log is tightened despite a loose predecessor"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

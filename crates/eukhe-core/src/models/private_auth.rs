@@ -147,33 +147,15 @@ struct CacheFileIdentity {
     len: u64,
 }
 
-// The fallible non-Unix twin pins the Option shape across
-// platforms - unwrapping only this arm would split the contract.
-#[allow(clippy::unnecessary_wraps)]
-#[cfg(unix)]
-fn cache_file_identity(metadata: &std::fs::Metadata) -> Option<CacheFileIdentity> {
+fn cache_file_identity(metadata: &std::fs::Metadata) -> CacheFileIdentity {
     use std::os::unix::fs::MetadataExt;
-    Some(CacheFileIdentity {
+    CacheFileIdentity {
         dev: metadata.dev(),
         ino: metadata.ino(),
         mtime_sec: metadata.mtime(),
         mtime_nsec: metadata.mtime_nsec(),
         len: metadata.len(),
-    })
-}
-
-#[cfg(not(unix))]
-fn cache_file_identity(metadata: &std::fs::Metadata) -> Option<CacheFileIdentity> {
-    use std::time::UNIX_EPOCH;
-    let modified = metadata.modified().ok()?;
-    let since = modified.duration_since(UNIX_EPOCH).ok()?;
-    Some(CacheFileIdentity {
-        dev: 0,
-        ino: 0,
-        mtime_sec: since.as_secs() as i64,
-        mtime_nsec: i64::from(since.subsec_nanos()),
-        len: metadata.len(),
-    })
+    }
 }
 
 /// One validated parse held in the process-wide read-through cache. The
@@ -206,7 +188,7 @@ pub fn read_private_prime_authorization_cache(
     let path = private_prime_authorization_cache_path(models_json_path);
     let before = std::fs::metadata(&path)
         .ok()
-        .and_then(|m| cache_file_identity(&m));
+        .map(|m| cache_file_identity(&m));
     if let Some(identity) = before {
         if let Some(entry) = parse_cache()
             .lock()
@@ -229,7 +211,7 @@ pub fn read_private_prime_authorization_cache(
     };
     let after = std::fs::metadata(&path)
         .ok()
-        .and_then(|m| cache_file_identity(&m));
+        .map(|m| cache_file_identity(&m));
     let mut entries = parse_cache()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -470,7 +452,6 @@ mod tests {
         write_private_prime_authorization_cache(&models_json, &cache("fingerprint-a"));
         // The TS cache write is a 0o600 atomic write; the rename carries
         // the temp's mode onto the destination.
-        #[cfg(unix)]
         assert_eq!(crate::platform::perms::file_mode(&cache_path), Some(0o600));
         assert_eq!(
             read_private_prime_authorization_cache(&models_json)

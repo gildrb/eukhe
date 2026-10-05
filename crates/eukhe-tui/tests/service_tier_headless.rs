@@ -8,7 +8,6 @@
 //! errors with the available list; a supported tier applies through the
 //! daemon `set_service_tier` switch and reports the applied tier; and the
 //! tray badge shows the non-default tier (`fast` for priority).
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

@@ -201,7 +201,6 @@ fn copy_with_env(text: &str, sink: &mut OscSink, env: &Env) -> Result<(), String
     if !copied {
         copied = match std::env::consts::OS {
             "macos" => pipe_to("pbcopy", &[], text),
-            "windows" => pipe_to("clip", &[], text),
             _ => copy_on_linux(text, env),
         };
     }

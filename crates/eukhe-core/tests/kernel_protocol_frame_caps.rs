@@ -19,8 +19,6 @@
 //! answers every other request normally — so the repair's replacement child
 //! serves the follow-up cell.
 
-#![cfg(unix)]
-
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};

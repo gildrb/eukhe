@@ -29,7 +29,6 @@
 //! seeded store: real transcript entries plus a seeded session-artifact
 //! tree, and asserts the round trip stays under the sub-second ceiling,
 //! an order of magnitude under the operator's 5-10s report.
-#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};

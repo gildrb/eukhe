@@ -24,7 +24,6 @@
 //! or stop it — nor any other live daemon on the machine (this sandbox runs
 //! next to the real mission daemon; its sockets must never surface in a
 //! report).
-#![cfg(unix)]
 
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};

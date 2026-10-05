@@ -9,7 +9,6 @@
 //! prime-inference row carries the `current` marker and the selection
 //! band), and the openrouter same-id row is NOT selected — the id-only
 //! catalog find previously adopted openrouter's row as the current model.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

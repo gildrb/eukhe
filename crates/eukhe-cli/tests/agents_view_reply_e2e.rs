@@ -21,7 +21,6 @@
 //! view never attaches — the supervisor must route the prompt), and a
 //! saved fixture row resumes into a fresh session whose file carries the
 //! reply — `create` with the session path, then the prompt.
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};

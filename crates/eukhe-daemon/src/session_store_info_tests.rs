@@ -480,10 +480,7 @@ fn a_failed_prefix_check_rescans_from_byte_zero() {
 /// whole-row equality against the full fold, including a prefix-targeted
 /// attribution (the resumed fold must find the prefix id in the persisted
 /// per-id map). A replacement file (a new inode) rejects the stale sidecar
-/// and rescans whole. Unix-only: a state is certified into the process
-/// cache (and so persistable) only on Unix - `read_session_info_from`'s
-/// store gate - so no sidecar exists to load elsewhere.
-#[cfg(unix)]
+/// and rescans whole.
 #[test]
 fn a_persisted_scan_state_resumes_like_the_full_fold() {
     let dir = test_dir();
@@ -569,8 +566,7 @@ fn a_persisted_scan_state_resumes_like_the_full_fold() {
 /// keys the file canonically. The next read then serves a valid sidecar
 /// (here a name the file does not carry - a cold scan cannot produce
 /// it), and scans cold past a corrupt one or one at another version.
-/// Unix-only like its sibling: only Unix certifies a state to persist.
-#[cfg(unix)]
+/// The persisted-sidecar twin of the test above.
 #[test]
 fn a_symlinked_lease_release_persists_a_sidecar_the_next_read_serves() {
     let dir = test_dir();

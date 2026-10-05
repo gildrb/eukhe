@@ -67,7 +67,6 @@
 //! (+100..+280ms — the effective answer window's tail), the raced-suspend
 //! restore curve per class at +30/+60/+120/+200ms, and the kitty control's
 //! push time. One JSON row per cell on stdout, chunk-timed by the ledger.
-#![cfg(unix)]
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};

@@ -65,9 +65,5 @@ pub(crate) fn resolve_writable_kernel_venv_dir() -> anyhow::Result<PathBuf> {
 /// Path of the venv's python interpreter.
 #[must_use]
 pub fn kernel_venv_python(venv: &Path) -> PathBuf {
-    if cfg!(windows) {
-        venv.join("Scripts").join("python.exe")
-    } else {
-        venv.join("bin").join("python")
-    }
+    venv.join("bin").join("python")
 }

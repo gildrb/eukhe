@@ -263,8 +263,7 @@ pub(super) struct ReplaySnapshot {
 pub(super) struct FileIdentity {
     size: u64,
     mtime: Option<std::time::SystemTime>,
-    #[cfg(unix)]
-    ino: Option<u64>,
+    ino: u64,
 }
 
 /// Resolve a path lexically (`.`/`..` folded) against the current dir.
@@ -320,11 +319,7 @@ pub(super) fn file_identity(path: &Path) -> Result<Option<FileIdentity>> {
     Ok(Some(FileIdentity {
         size: metadata.len(),
         mtime: metadata.modified().ok(),
-        #[cfg(unix)]
-        ino: {
-            use std::os::unix::fs::MetadataExt;
-            Some(metadata.ino())
-        },
+        ino: std::os::unix::fs::MetadataExt::ino(&metadata),
     }))
 }
 

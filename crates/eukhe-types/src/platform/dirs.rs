@@ -2,8 +2,7 @@
 //!
 //! The TS product resolves the home directory with Node's `os.homedir()`
 //! (or `process.env.HOME || homedir()` in the package manager, which keeps
-//! the same first step): `HOME` when set, then on Windows `USERPROFILE`,
-//! else `HOMEDRIVE` + `HOMEPATH`. When nothing resolves, `os.homedir()`
+//! the same first step): `HOME` when set. When nothing resolves it
 //! throws - this port returns `None` and each caller owns its fallback
 //! (an explicit error in the daemon, a documented degraded value elsewhere),
 //! so the decision stays visible at the point of use instead of a shared
@@ -12,31 +11,14 @@
 use std::path::PathBuf;
 
 /// The user's home directory, Node `os.homedir()` semantics.
-///
-/// `HOME` first (an explicit `HOME` always wins, matching the TS
-/// `process.env.HOME || homedir()` order), then on Windows the
-/// `USERPROFILE` / `HOMEDRIVE`+`HOMEPATH` chain. `None` means no
-/// environment source resolved a home; POSIX has no fallback here (the
-/// per-call-site fallback replaces the TS `os.homedir()` throw).
+/// `HOME` when set and non-empty (matching the TS
+/// `process.env.HOME || homedir()` order). `None` means no home resolved;
+/// the per-call-site fallback replaces the TS `os.homedir()` throw.
 #[must_use]
 pub fn home_dir() -> Option<PathBuf> {
-    if let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) {
-        return Some(PathBuf::from(home));
-    }
-    #[cfg(windows)]
-    {
-        if let Some(profile) = std::env::var_os("USERPROFILE").filter(|p| !p.is_empty()) {
-            return Some(PathBuf::from(profile));
-        }
-        if let (Some(drive), Some(path)) =
-            (std::env::var_os("HOMEDRIVE"), std::env::var_os("HOMEPATH"))
-        {
-            let mut home = PathBuf::from(drive);
-            home.push(path);
-            return Some(home);
-        }
-    }
-    None
+    std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
 }
 
 /// `EUKHE_CODING_AGENT_DIR`: the agent state directory override (a
@@ -61,16 +43,10 @@ pub fn agent_dir() -> Option<PathBuf> {
     home_dir().map(|home| home.join(AGENT_DIR_NAME))
 }
 
-/// Expand a leading `~`/`~/` - and on Windows `~\` - against
-/// [`home_dir`]; other values pass through (TS `expandTildePath`: `~foo`
-/// is not an expansion, and the backslash form is the win32 arm of the
-/// TS helper; the eukhe-cli `config.rs` twin carries the same arm).
+/// Expand a leading `~`/`~/` against [`home_dir`]; other values pass
+/// through (TS `expandTildePath`: `~foo` is not an expansion).
 fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
-        return home_dir().map_or_else(|| PathBuf::from(path), |home| home.join(rest));
-    }
-    #[cfg(windows)]
-    if let Some(rest) = path.strip_prefix("~\\") {
         return home_dir().map_or_else(|| PathBuf::from(path), |home| home.join(rest));
     }
     if path == "~" {
@@ -114,7 +90,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn agent_dir_env_override_expands_tilde() {
         with_env(
             &[
@@ -128,7 +103,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn agent_dir_env_override_passthrough() {
         with_env(
             &[
@@ -142,7 +116,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn agent_dir_default_under_home() {
         with_env(
             &[
@@ -156,7 +129,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn agent_dir_without_home_is_none() {
         with_env(&[("HOME", None), ("EUKHE_CODING_AGENT_DIR", None)], || {
             assert_eq!(agent_dir(), None);
@@ -164,7 +136,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn home_dir_follows_home() {
         with_env(&[("HOME", Some("/home/tester"))], || {
             assert_eq!(home_dir(), Some(PathBuf::from("/home/tester")));
@@ -172,7 +143,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn home_dir_unset_is_none() {
         with_env(&[("HOME", None)], || {
             assert_eq!(home_dir(), None);
@@ -180,87 +150,9 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn home_dir_empty_is_none() {
         with_env(&[("HOME", Some(""))], || {
             assert_eq!(home_dir(), None);
         });
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn agent_dir_env_override_expands_the_win32_backslash_tilde() {
-        // The TS `expandTildePath` win32 arm: a `~\`-prefixed
-        // `EUKHE_CODING_AGENT_DIR` expands against the home dir
-        // exactly like the `~/` form (the daemon, eukhe-core, and eukhe-tui all
-        // resolve through this path - a CLI-only expansion would split
-        // the state dir between the two processes).
-        with_env(
-            &[
-                ("HOME", None),
-                ("USERPROFILE", Some(r"C:\Users\tester")),
-                ("EUKHE_CODING_AGENT_DIR", Some(r"~\state")),
-            ],
-            || {
-                assert_eq!(agent_dir(), Some(PathBuf::from(r"C:\Users\tester\state")));
-            },
-        );
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn home_dir_prefers_home_over_userprofile() {
-        with_env(
-            &[
-                ("HOME", Some("/home/tester")),
-                ("USERPROFILE", Some(r"C:\Users\tester")),
-            ],
-            || {
-                assert_eq!(home_dir(), Some(PathBuf::from("/home/tester")));
-            },
-        );
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn home_dir_falls_back_to_userprofile() {
-        with_env(
-            &[("HOME", None), ("USERPROFILE", Some(r"C:\Users\tester"))],
-            || {
-                assert_eq!(home_dir(), Some(PathBuf::from(r"C:\Users\tester")));
-            },
-        );
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn home_dir_falls_back_to_homedrive_homepath() {
-        with_env(
-            &[
-                ("HOME", None),
-                ("USERPROFILE", None),
-                ("HOMEDRIVE", Some("C:")),
-                ("HOMEPATH", Some(r"\Users\tester")),
-            ],
-            || {
-                assert_eq!(home_dir(), Some(PathBuf::from(r"C:\Users\tester")));
-            },
-        );
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn home_dir_unset_is_none() {
-        with_env(
-            &[
-                ("HOME", None),
-                ("USERPROFILE", None),
-                ("HOMEDRIVE", None),
-                ("HOMEPATH", None),
-            ],
-            || {
-                assert_eq!(home_dir(), None);
-            },
-        );
     }
 }

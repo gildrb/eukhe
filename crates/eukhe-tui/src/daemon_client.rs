@@ -27,7 +27,7 @@ use crate::direct_transport::{
 };
 
 mod errors;
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests;
 
 use errors::{command_type_debug, response_data_or_error, DirectRequestError};

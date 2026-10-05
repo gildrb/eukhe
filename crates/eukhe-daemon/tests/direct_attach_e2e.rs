@@ -5,8 +5,7 @@
 //! same session. Also verifies the peer gate (single-use grants, session-plane
 //! command allowlist) at the socket level.
 //!
-//! Linux-only e2e (`AF_UNIX` sockets, `kill -9` semantics): compiles to
-//! nothing elsewhere, like the other eukhe-daemon e2e verifiers.
+//! Exercises `AF_UNIX` sockets and `kill -9` semantics.
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -32,8 +31,6 @@
     clippy::struct_excessive_bools,
     clippy::struct_field_names
 )]
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};

@@ -20,7 +20,7 @@ pub(super) const STABLE_LIFETIME_MS: u64 = 30_000;
 const BASE_BACKOFF_MS: u64 = 250;
 const MAX_BACKOFF_MS: u64 = 30_000;
 /// The adopted-worker liveness poll used only where the kernel exit watch
-/// cannot register (no pidfd, descriptor exhaustion, Windows).
+/// cannot register (no pidfd, descriptor exhaustion).
 const ADOPTED_EXIT_FALLBACK_POLL: Duration = Duration::from_secs(30);
 
 impl Supervisor {

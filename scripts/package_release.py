@@ -13,7 +13,7 @@ tarballs come from scripts/release/assemble_artifacts.py in
 The staged layout is the exe-adjacent packaging the binary resolves at
 runtime (EUKHE_PACKAGE_DIR override, else the directory of the executable):
 
-  eukhe                  the binary (mode 755; eukhe.exe on a Windows host)
+  eukhe                  the binary (mode 755)
   package.json           version manifest ({"version": <version>})
   README.md
   LICENSE
@@ -113,8 +113,7 @@ def parse_args(argv):
     parser.add_argument("--binary", type=Path, help="stage this binary instead of building")
     parser.add_argument("--decoder", type=Path, help="separate Linux decoder for --binary")
     parser.add_argument("--skip-build", action="store_true",
-                        help="reuse target/release/eukhe (eukhe.exe on"
-                             " a Windows host) without building")
+                        help="reuse target/release/eukhe without building")
     parser.add_argument("--out-dir", type=Path, help="output directory (default: target/release-package)")
     parser.add_argument("--platform", help="platform tag (default: derived from this machine)")
     parser.add_argument("--root", type=Path, default=ROOT,
@@ -143,20 +142,10 @@ def release_platform():
     machine = platform.machine().lower()
     arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(machine, machine)
     system = platform.system().lower()
-    if system not in ("linux", "darwin", "windows"):
-        raise SystemExit(f"error: unsupported release platform: {system}")
-    # Windows hosts (the packaged-layout e2e test's cfg(windows) arm) use
-    # the `win32-x64` tag, not a bare `windows-x64` spelling.
-    if system == "windows":
-        return f"win32-{arch}"
-    return f"{system}-{arch}"
-
-
-def binary_name_for_platform(tag):
-    """The staged binary name for one platform tag: `eukhe.exe` on
-    win32-x64 (the name Cargo emits for Windows targets), `eukhe`
-    everywhere else."""
-    return "eukhe.exe" if tag == "win32-x64" else "eukhe"
+    tag = f"{system}-{arch}"
+    if tag not in ("linux-x64", "linux-arm64", "darwin-arm64"):
+        raise SystemExit(f"error: unsupported release platform: {tag}")
+    return tag
 
 
 def include_path(relative, extra_excluded_names=frozenset(), extra_excluded_suffixes=()):
@@ -338,7 +327,7 @@ def main(argv=None):
     root = args.root.resolve()
     version = args.version or workspace_version(root)
     tag = args.platform or release_platform()
-    binary_name = binary_name_for_platform(tag)
+    binary_name = "eukhe"
     out_dir = (args.out_dir or root / "target" / "release-package").resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     stage_dir = out_dir / f"eukhe-{version}-{tag}"

@@ -26,11 +26,10 @@ pub(crate) use layout::{expand_home, resolve_writable_kernel_venv_dir};
 pub use layout::{kernel_venv_dir, kernel_venv_python};
 pub use probe::invalidate_runtime_probe_cache;
 #[cfg(test)]
-use probe::{installed_rlm_dir, lock_probe_memo, runtime_probe_key};
-// The memo-clear helper and the live-probe package-dir walk exist only behind
-// the unix tests (see their gates in probe.rs and tests.rs).
-#[cfg(all(test, unix))]
-use probe::{clear_in_process_probe_memo_for_tests, installed_package_dir};
+use probe::{
+    clear_in_process_probe_memo_for_tests, installed_package_dir, installed_rlm_dir,
+    lock_probe_memo, runtime_probe_key,
+};
 pub(crate) use probe::{
     has_eukhe_runtime, missing_python_skill_import_labels, missing_rlm_extra_import_labels,
 };
@@ -46,8 +45,6 @@ use skills::{
 };
 pub(crate) use skills::{normalize_python_skills, BootstrapPythonSkill};
 pub(crate) use uv::ensure_uv;
-#[cfg(test)]
-use uv::windows_executable_candidates;
 use version::{
     bootstrap_base_version_current, bootstrap_skill_key, bootstrap_version_current,
     read_bootstrap_version, read_bootstrap_version_raw, write_bootstrap_version,
@@ -90,8 +87,6 @@ async fn run_async(command: &str, args: &[String]) -> anyhow::Result<()> {
     tokio::task::spawn_blocking(move || {
         let mut child = std::process::Command::new(&command);
         child.args(&args).stdin(Stdio::null());
-        // Hidden window on Windows (TS `spawnHidden`).
-        crate::platform::process::set_no_window(&mut child);
         let status = child
             .status()
             .with_context(|| format!("failed to spawn {command}"))?;
@@ -119,8 +114,6 @@ async fn uv_pip_check(uv: &str, python: &str) -> anyhow::Result<Option<String>> 
     let output = tokio::task::spawn_blocking(move || {
         let mut child = std::process::Command::new(&command);
         child.args(&args).stdin(Stdio::null());
-        // Hidden window on Windows (TS `spawnHidden`).
-        crate::platform::process::set_no_window(&mut child);
         child
             .output()
             .with_context(|| format!("failed to spawn {command}"))

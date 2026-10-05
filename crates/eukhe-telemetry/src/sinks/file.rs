@@ -96,27 +96,13 @@ impl FileSink {
         self.set_private().await
     }
 
-    /// 0600 on unix; on other platforms the agent dir ACLs apply. The
-    /// signature stays async for the shared call site; the non-unix arm
-    /// is legitimately await-free (the ACLs carry the restriction).
-    #[cfg_attr(
-        not(unix),
-        allow(clippy::unused_async, clippy::unused_async_trait_impl)
-    )]
+    /// Restrict the mirror file to 0600.
     async fn set_private(&self) -> Result<()> {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            tokio::fs::set_permissions(&self.path, perms)
-                .await
-                .with_context(|| format!("chmod 600 {}", self.path.display()))?;
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = &self.path;
-        }
-        Ok(())
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        tokio::fs::set_permissions(&self.path, perms)
+            .await
+            .with_context(|| format!("chmod 600 {}", self.path.display()))
     }
 }
 
@@ -197,7 +183,6 @@ mod tests {
         assert!(!rotated.contains("after cap"));
     }
 
-    #[cfg(unix)]
     #[tokio::test]
     async fn mirror_is_private() {
         use std::os::unix::fs::PermissionsExt;

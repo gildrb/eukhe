@@ -5,7 +5,6 @@
 //! cleared the frame deadline and nothing re-armed the spinner's phase
 //! boundary, so the quiet select parked — the loader froze and the
 //! counter skipped whole seconds.
-#![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};

@@ -13,7 +13,6 @@ import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from types import FunctionType, SimpleNamespace
 from unittest import mock
 
 from rlm import bash
@@ -21,28 +20,6 @@ from rlm import bash
 # The package re-exports the bash() function under the same name, so reach the
 # module through sys.modules for internals.
 bash_module = sys.modules["rlm.bash"]
-
-
-def _win_spawn(procs=None, resume=True):
-    # POSIX stand-in for _winjob.spawn_in_job: a real Popen plus a resume() mock (Ubuntu CI).
-    def spawn_in_job(job, argv, cwd, env):
-        proc = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-        )
-        proc.resume = mock.Mock(return_value=resume)
-        proc.close = mock.Mock()
-        proc.spawn_job = job
-        proc.spawn_argv = argv
-        if procs is not None:
-            procs.append(proc)
-        return proc
-
-    return spawn_in_job
 
 
 class BashTest(unittest.IsolatedAsyncioTestCase):
@@ -120,38 +97,6 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
         handle = bash("echo again")
         awaited = await handle
         self.assertEqual(handle.poll(), awaited)
-
-    def test_construction_cleanup_uses_windows_signal_without_sigkill(self):
-        failure = RuntimeError("task construction failed")
-        loop = mock.Mock()
-        loop.create_task.side_effect = failure
-        bridge = SimpleNamespace(emit=mock.Mock())
-        namespace = dict(bash_module.BashHandle._schedule_background_completion_notice.__globals__)
-
-        def isolated_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if level == 1 and name == "" and fromlist == ("repl",):
-                return SimpleNamespace(repl=bridge)
-            return __import__(name, globals, locals, fromlist, level)
-
-        namespace.update(
-            _IS_POSIX=False,
-            signal=SimpleNamespace(SIGTERM=15),
-            asyncio=SimpleNamespace(get_running_loop=lambda: loop),
-            __builtins__={**vars(__import__("builtins")), "__import__": isolated_import},
-        )
-        schedule = FunctionType(
-            bash_module.BashHandle._schedule_background_completion_notice.__code__, namespace
-        )
-        handle = mock.Mock(_pid=42)
-        with self.assertRaises(RuntimeError) as caught:
-            schedule(handle)
-        self.assertIs(caught.exception, failure)
-        handle.kill.assert_called_once_with(15)
-        handle._notify_background_completion.return_value.close.assert_called_once_with()
-        activity = bridge.emit.call_args_list[0].args[0]
-        mime = "application/vnd.eukhe.bash-activity+json"
-        self.assertTrue(activity[mime]["active"])
-        bridge.emit.assert_called_with({mime: {**activity[mime], "active": False}})
 
     async def test_status_pipe_survives_high_fds_and_strict_posix_shell(self):
         # Regression: dash rejects multi-digit fds in redirections at parse
@@ -426,47 +371,9 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.05)
         self.assertFalse(handle.running)
 
-    async def test_windows_kill_terminates_tree(self):
-        # Pins the taskkill fallback when TerminateJobObject failed or raced.
-        handle = bash("sleep 30")
-        try:
-            handle._job = None
-            completed = mock.Mock(returncode=0)
-            with mock.patch.object(bash_module, "_IS_POSIX", False):
-                with mock.patch.object(handle._proc, "kill") as proc_kill:
-                    patched_run = mock.patch.object(
-                        bash_module.subprocess, "run", return_value=completed
-                    )
-                    with mock.patch.dict(os.environ, {"SystemRoot": r"C:\WinTest"}):
-                        with patched_run as run:
-                            handle.kill()
-                    taskkill = os.path.join(r"C:\WinTest", "System32", "taskkill.exe")
-                    self.assertEqual(
-                        run.call_args.args[0], [taskkill, "/PID", str(handle.pid), "/T", "/F"]
-                    )
-                    self.assertEqual(
-                        run.call_args.kwargs["env"]["NoDefaultCurrentDirectoryInExePath"], "1"
-                    )
-                    proc_kill.assert_not_called()
-                    # No SystemRoot in the env falls back to C:\Windows.
-                    with mock.patch.dict(os.environ):
-                        os.environ.pop("SystemRoot", None)
-                        with patched_run as run:
-                            handle.kill()
-                    self.assertTrue(run.call_args.args[0][0].startswith(r"C:\Windows"))
-                    # taskkill unavailable or failing must fall back to Popen.kill().
-                    with mock.patch.object(bash_module.subprocess, "run", side_effect=OSError):
-                        handle.kill()
-                    proc_kill.assert_called_once()
-        finally:
-            handle.kill(signal.SIGKILL)
-            await asyncio.wait_for(handle, timeout=5)
-
     def test_gate_eof_without_journal_prevents_command_execution(self):
         # A kernel SIGKILL between Popen and journaling closes the parent socket;
         # the child's gate read must then EOF and exit before running the command.
-        if not bash_module._IS_POSIX:
-            self.skipTest("POSIX-only gate")
         with tempfile.TemporaryDirectory() as tmp:
             marker = os.path.join(tmp, "ran")
             script = bash_module._status_script(f"touch {marker}", "a" * 32, "b" * 32)
@@ -485,8 +392,6 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(os.path.exists(marker))
 
     def test_status_socket_closed_when_wake_pipe_fails(self):
-        if not bash_module._IS_POSIX:
-            self.skipTest("POSIX-only fds")
         acquired: list[int] = []
         closed: list[int] = []
         real_socketpair = socket.socketpair
@@ -510,26 +415,6 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
         for fd in acquired:
             self.assertIn(fd, closed)
 
-    def test_windows_process_start_id(self):
-        completed = mock.Mock(stdout="638000000000000000\n")
-        with mock.patch.dict(os.environ, {"SystemRoot": r"C:\WinTest"}):
-            with mock.patch.object(bash_module.os, "name", "nt"):
-                with mock.patch.object(
-                    bash_module.subprocess, "run", return_value=completed
-                ) as run:
-                    self.assertEqual(bash_module._process_start_id(1234), "win:638000000000000000")
-        argv = run.call_args.args[0]
-        self.assertEqual(
-            argv[0],
-            os.path.join(r"C:\WinTest", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-        )
-        self.assertEqual(run.call_args.kwargs["env"]["NoDefaultCurrentDirectoryInExePath"], "1")
-        self.assertIn("GetProcessById(1234)", argv[-1])
-        garbage = mock.Mock(stdout="not a number\n")
-        with mock.patch.object(bash_module.os, "name", "nt"):
-            with mock.patch.object(bash_module.subprocess, "run", return_value=garbage):
-                self.assertIsNone(bash_module._process_start_id(1234))
-
     async def test_cancelled_direct_await_kills_group(self):
         with tempfile.TemporaryDirectory() as tmp:
             marker = os.path.join(tmp, "marker")
@@ -550,9 +435,8 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(asyncio.CancelledError):
                     await task
             # The cancel path awaits confirmed group death before propagating.
-            if bash_module._IS_POSIX:
-                with self.assertRaises(ProcessLookupError):
-                    os.killpg(pids[0], 0)
+            with self.assertRaises(ProcessLookupError):
+                os.killpg(pids[0], 0)
             await asyncio.sleep(1.0)
             self.assertFalse(os.path.exists(marker))
 
@@ -578,9 +462,8 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
                     task.cancel()
                     with self.assertRaises(asyncio.CancelledError):
                         await task
-            if bash_module._IS_POSIX:
-                with self.assertRaises(ProcessLookupError):
-                    os.killpg(pids[0], 0)
+            with self.assertRaises(ProcessLookupError):
+                os.killpg(pids[0], 0)
             await asyncio.sleep(1.2)
             self.assertFalse(os.path.exists(marker))
 
@@ -659,17 +542,6 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
                     await task
         with self.assertRaises(ProcessLookupError):
             os.killpg(pids[0], 0)
-
-    async def test_windows_without_bash_raises_teaching_error(self):
-        # Windows must raise without consulting PATH: a which() hit would be
-        # the same repo-controlled-PATH hole the host-side resolution closed.
-        with mock.patch.object(bash_module, "_IS_POSIX", False):
-            with mock.patch.object(
-                bash_module.shutil, "which", return_value=r"C:\evil\bash.exe"
-            ) as which:
-                with self.assertRaisesRegex(RuntimeError, "EUKHE_BASH_SHELL"):
-                    bash_module._shell()
-                which.assert_not_called()
 
     async def test_pump_delayed_past_old_quiescence_bound_captures_all_output(self):
         # The ordered sentinel must wait through a pump delay beyond the old 500 ms bound.
@@ -762,473 +634,6 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 bash("echo hi")
 
-    async def test_windows_journal_writes_only_enriched_record(self):
-        # No pid-only pre-record on Windows: the kill-on-close job replaces it
-        # (a kernel death reaps the tree via handle closure, so a bare-pid
-        # anchor would only ever justify killing a reused pid).
-        with tempfile.TemporaryDirectory() as tmp:
-            journal = os.path.join(tmp, "journal.jsonl")
-            with mock.patch.dict(
-                os.environ,
-                {
-                    "EUKHE_INTERNAL_ORPHAN_PROCESS_JOURNAL": journal,
-                    "EUKHE_KERNEL_OWNER_PID": str(os.getpid()),
-                    "EUKHE_BASH_SHELL": "/bin/sh",
-                },
-            ):
-                with mock.patch.object(bash_module, "_IS_POSIX", False):
-                    with mock.patch.object(bash_module._winjob, "spawn_in_job", _win_spawn()):
-                        with mock.patch.object(bash_module._winjob, "create_job", return_value=7):
-                            with mock.patch.object(
-                                bash_module._winjob, "terminate", return_value=True
-                            ):
-                                with mock.patch.object(bash_module._winjob, "close"):
-                                    handle = bash("echo hi")
-                                    await asyncio.wait_for(handle, timeout=5)
-                                    for _ in range(100):
-                                        if handle._reaped:
-                                            break
-                                        await asyncio.sleep(0.05)
-            active = [r for r in await _poll_journal(journal, count=1) if r["active"]]
-            self.assertEqual(len(active), 1)
-            self.assertIn("processStartId", active[0])
-
-    async def test_windows_spawn_creates_child_inside_job(self):
-        sentinel = 4242
-        spawned = []
-        order = []
-        real_journal = bash_module._record_journal
-        base_spawn = _win_spawn(spawned)
-
-        def journal(pid, active):
-            order.append("journal")
-            return real_journal(pid, active)
-
-        def spawn(job, argv, cwd, env):
-            order.append("spawn")
-            proc = base_spawn(job, argv, cwd, env)
-            proc.resume = mock.Mock(side_effect=lambda: order.append("resume") or True)
-            return proc
-
-        self.enterContext(mock.patch.dict(os.environ, {"EUKHE_BASH_SHELL": "/bin/sh"}))
-        with mock.patch.object(bash_module, "_IS_POSIX", False):
-            with mock.patch.object(bash_module._winjob, "spawn_in_job", spawn):
-                with mock.patch.object(bash_module, "_record_journal", journal):
-                    with mock.patch.object(
-                        bash_module._winjob,
-                        "create_job",
-                        side_effect=lambda: order.append("create_job") or sentinel,
-                    ):
-                        handle = bash("sleep 30")
-                try:
-                    # The journal write runs while the job-contained child is still suspended.
-                    self.assertEqual(spawned[-1].spawn_job, sentinel)
-                    self.assertEqual(
-                        spawned[-1].spawn_argv,
-                        ["/bin/sh", "-c", bash_module._with_prefix("sleep 30")],
-                    )
-                    spawned[-1].resume.assert_called_once_with()
-                    self.assertEqual(order, ["create_job", "spawn", "journal", "resume"])
-                    self.assertEqual(handle._job, sentinel)
-                finally:
-                    handle._job = None
-                    handle.kill(signal.SIGKILL)
-                    await asyncio.wait_for(handle, timeout=5)
-
-    async def test_windows_create_job_failure_fails_closed(self):
-        journal_calls = []
-
-        def journal(pid, active):
-            journal_calls.append((pid, active))
-            return True
-
-        self.enterContext(mock.patch.dict(os.environ, {"EUKHE_BASH_SHELL": "/bin/sh"}))
-        with mock.patch.object(bash_module, "_IS_POSIX", False):
-            with mock.patch.object(bash_module._winjob, "spawn_in_job") as spawn:
-                with mock.patch.object(bash_module, "_record_journal", journal):
-                    with mock.patch.object(bash_module._winjob, "create_job", return_value=None):
-                        with self.assertRaisesRegex(RuntimeError, "job containment"):
-                            bash("sleep 30")
-        # A create_job failure aborts before spawn_in_job: nothing spawned, nothing journaled.
-        spawn.assert_not_called()
-        self.assertEqual(journal_calls, [])
-
-    async def test_windows_resume_failure_fails_closed(self):
-        sentinel = 4343
-        spawned = []
-        journal_calls = []
-
-        def journal(pid, active):
-            journal_calls.append((pid, active))
-            return True
-
-        def terminate(job):
-            # The abort kills the suspended, job-contained child via the job.
-            spawned[0].kill()
-            return True
-
-        self.enterContext(mock.patch.dict(os.environ, {"EUKHE_BASH_SHELL": "/bin/sh"}))
-        with mock.patch.object(bash_module, "_IS_POSIX", False):
-            with mock.patch.object(
-                bash_module._winjob, "spawn_in_job", _win_spawn(spawned, resume=False)
-            ):
-                with mock.patch.object(bash_module, "_record_journal", journal):
-                    with mock.patch.object(
-                        bash_module._winjob, "create_job", return_value=sentinel
-                    ):
-                        with mock.patch.object(
-                            bash_module._winjob, "terminate", side_effect=terminate
-                        ) as term:
-                            with mock.patch.object(bash_module._winjob, "close") as close:
-                                with self.assertRaisesRegex(RuntimeError, "job containment"):
-                                    bash("sleep 30")
-        term.assert_called_once_with(sentinel)
-        close.assert_called_once_with(sentinel)
-        self.assertIsNotNone(spawned[0].poll())
-        spawned[0].close.assert_called_once()
-        self.assertEqual(journal_calls, [(spawned[0].pid, True), (spawned[0].pid, False)])
-
-    async def test_windows_journal_enrollment_failure_kills_suspended_leader(self):
-        # A journal failure must kill the suspended, job-contained leader and retire the record.
-        sentinel = 4545
-        spawned = []
-        journal_calls = []
-
-        def journal(pid, active):
-            journal_calls.append((pid, active))
-            return not active  # enrollment fails; the retirement write succeeds
-
-        def terminate(job):
-            spawned[0].kill()
-            return True
-
-        self.enterContext(mock.patch.dict(os.environ, {"EUKHE_BASH_SHELL": "/bin/sh"}))
-        with mock.patch.object(bash_module, "_IS_POSIX", False):
-            with mock.patch.object(bash_module._winjob, "spawn_in_job", _win_spawn(spawned)):
-                with mock.patch.object(bash_module, "_record_journal", journal):
-                    with mock.patch.object(
-                        bash_module._winjob, "create_job", return_value=sentinel
-                    ):
-                        with mock.patch.object(
-                            bash_module._winjob, "terminate", side_effect=terminate
-                        ) as term:
-                            with mock.patch.object(bash_module._winjob, "close") as close:
-                                with self.assertRaisesRegex(RuntimeError, "journal enrollment"):
-                                    bash("sleep 30")
-        term.assert_called_once_with(sentinel)
-        close.assert_called_once_with(sentinel)
-        spawned[0].resume.assert_not_called()
-        self.assertIsNotNone(spawned[0].poll())
-        self.assertEqual(journal_calls, [(spawned[0].pid, True), (spawned[0].pid, False)])
-
-    async def test_windows_spawn_failure_closes_precreated_job(self):
-        # A spawn_in_job failure must close the pre-created job and never touch the journal.
-        sentinel = 4646
-        journal_calls = []
-
-        def journal(pid, active):
-            journal_calls.append((pid, active))
-            return True
-
-        def spawn(job, argv, cwd, env):
-            raise OSError("spawn failed")
-
-        self.enterContext(mock.patch.dict(os.environ, {"EUKHE_BASH_SHELL": "/bin/sh"}))
-        with mock.patch.object(bash_module, "_IS_POSIX", False):
-            with mock.patch.object(bash_module._winjob, "spawn_in_job", spawn):
-                with mock.patch.object(bash_module, "_record_journal", journal):
-                    with mock.patch.object(
-                        bash_module._winjob, "create_job", return_value=sentinel
-                    ):
-                        with mock.patch.object(bash_module._winjob, "close") as close:
-                            with self.assertRaises(OSError):
-                                bash("sleep 30")
-        close.assert_called_once_with(sentinel)
-        self.assertEqual(journal_calls, [])
-
-    async def test_windows_watch_taskkill_fallback_runs_before_process_handle_close(self):
-        # PID-reuse guard: every taskkill-by-pid must run before the handle closes.
-        order = []
-        spawned = []
-        handle_box = []
-        ready, closed_done = threading.Event(), threading.Event()
-
-        def spawn(job, argv, cwd, env):
-            proc = _win_spawn(spawned)(job, argv, cwd, env)
-
-            def record_close():
-                order.append(("proc-close", handle_box[0]._reaped))
-                closed_done.set()
-
-            proc.close = mock.Mock(side_effect=record_close)
-            return proc
-
-        def terminate(job):
-            assert ready.wait(timeout=5)  # gate: handle_box is filled first
-            order.append("terminate")
-            return False
-
-        def taskkill(pid):
-            order.append(("taskkill", spawned[0].close.called))
-            return True
-
-        self.enterContext(mock.patch.dict(os.environ, {"EUKHE_BASH_SHELL": "/bin/sh"}))
-        with mock.patch.object(bash_module, "_IS_POSIX", False):
-            with mock.patch.object(bash_module._winjob, "spawn_in_job", spawn):
-                with mock.patch.object(bash_module._winjob, "create_job", return_value=777):
-                    with mock.patch.object(bash_module._winjob, "terminate", terminate):
-                        with mock.patch.object(
-                            bash_module._winjob, "close",
-                            side_effect=lambda job: order.append("job-close"),
-                        ):
-                            with mock.patch.object(bash_module, "_taskkill_tree", taskkill):
-                                handle = bash("echo hi")
-                                handle_box.append(handle)
-                                ready.set()
-                                await asyncio.wait_for(handle, timeout=5)
-                                self.assertTrue(await asyncio.to_thread(closed_done.wait, 5))
-        self.assertEqual(
-            order, ["terminate", "job-close", ("taskkill", False), ("proc-close", True)]
-        )
-
-    async def test_windows_kill_blocked_during_watch_reap_never_taskkills_after_close(self):
-        # kill() blocked on the reap lock must become a no-op, never a raw-pid taskkill.
-        spawned = []
-        entered, release = threading.Event(), threading.Event()
-
-        def spawn(job, argv, cwd, env):
-            return _win_spawn(spawned)(job, argv, cwd, env)
-
-        def terminate(job):
-            entered.set()
-            assert release.wait(timeout=10)
-            return True
-
-        self.enterContext(mock.patch.dict(os.environ, {"EUKHE_BASH_SHELL": "/bin/sh"}))
-        with mock.patch.object(bash_module, "_IS_POSIX", False):
-            with mock.patch.object(bash_module._winjob, "spawn_in_job", spawn):
-                with mock.patch.object(bash_module._winjob, "create_job", return_value=778):
-                    with mock.patch.object(
-                        bash_module._winjob, "terminate", side_effect=terminate
-                    ) as term:
-                        with mock.patch.object(bash_module._winjob, "close"):
-                            with mock.patch.object(bash_module, "_taskkill_tree") as taskkill:
-                                handle = bash("echo hi")
-                                await asyncio.wait_for(handle, timeout=5)
-                                self.assertTrue(await asyncio.to_thread(entered.wait, 5))
-                                fut = asyncio.get_running_loop().run_in_executor(
-                                    None, handle.kill
-                                )
-                                await asyncio.sleep(0.2)
-                                self.assertFalse(fut.done())  # blocked on the reap lock
-                                taskkill.assert_not_called()
-                                release.set()
-                                await asyncio.wait_for(fut, timeout=5)
-                                for _ in range(100):
-                                    if handle._reaped:
-                                        break
-                                    await asyncio.sleep(0.05)
-        taskkill.assert_not_called()
-        term.assert_called_once()
-        spawned[0].close.assert_called_once()
-        self.assertTrue(handle._reaped)
-
-    async def test_kill_live_handles_skips_reaped_windows_handle(self):
-        stale = mock.Mock(_kill_lock=threading.Lock(), _reaped=True, _job=5, _pid=999)
-        with bash_module._live_lock:
-            bash_module._live_handles.add(stale)
-        try:
-            with mock.patch.object(bash_module, "_IS_POSIX", False):
-                with mock.patch.object(bash_module._winjob, "terminate") as term:
-                    with mock.patch.object(bash_module, "_taskkill_tree") as taskkill:
-                        with mock.patch.object(bash_module, "_record_journal") as journal:
-                            bash_module._kill_live_handles()
-        finally:
-            with bash_module._live_lock:
-                bash_module._live_handles.discard(stale)
-        term.assert_not_called()
-        taskkill.assert_not_called()
-        stale._proc.kill.assert_not_called()
-        journal.assert_not_called()
-
-    async def test_kill_live_handles_blocked_on_abort_never_taskkills_after_close(self):
-        # PID-reuse guard on the abort path: abort's reaped+close section must block
-        # on _kill_lock while a raw-pid taskkill is in flight, so the handle can
-        # never close mid-taskkill.
-        order = []
-        spawned = []
-        journal_calls = []
-        entered, release_term = threading.Event(), threading.Event()
-        stdout_entered, stdout_release = threading.Event(), threading.Event()
-        tk_entered, tk_release = threading.Event(), threading.Event()
-
-        def spawn(job, argv, cwd, env):
-            proc = _win_spawn(spawned)(job, argv, cwd, env)
-            proc.kill = mock.Mock()
-            proc.close = mock.Mock(side_effect=lambda: order.append("proc-close"))
-            real_stdout = proc.stdout
-
-            def gated_close():
-                # Parks abort between its two locked sections (lock released).
-                stdout_entered.set()
-                assert stdout_release.wait(timeout=10)
-                real_stdout.close()
-
-            proc.stdout = mock.Mock(close=mock.Mock(side_effect=gated_close))
-            return proc
-
-        def journal(pid, active):
-            journal_calls.append((pid, active))
-            return not active  # enrollment fails -> _abort_spawn; retirement succeeds
-
-        def terminate(job):
-            order.append("abort-terminate")
-            entered.set()
-            assert release_term.wait(timeout=10)
-            return True
-
-        def taskkill(pid):
-            # Blocks INSIDE the killer's locked section: abort must wait on the lock.
-            order.append(("killer-taskkill", spawned[0].close.called))
-            tk_entered.set()
-            assert tk_release.wait(timeout=10)
-            return True
-
-        self.enterContext(mock.patch.dict(os.environ, {"EUKHE_BASH_SHELL": "/bin/sh"}))
-        loop = asyncio.get_running_loop()
-        with mock.patch.object(bash_module, "_IS_POSIX", False):
-            with mock.patch.object(bash_module._winjob, "spawn_in_job", spawn):
-                with mock.patch.object(bash_module._winjob, "create_job", return_value=900):
-                    with mock.patch.object(
-                        bash_module._winjob, "terminate", side_effect=terminate
-                    ) as term:
-                        with mock.patch.object(
-                            bash_module._winjob, "close",
-                            side_effect=lambda job: order.append("abort-jobclose"),
-                        ):
-                            with mock.patch.object(bash_module, "_record_journal", journal):
-                                with mock.patch.object(
-                                    bash_module, "_taskkill_tree", side_effect=taskkill
-                                ):
-                                    ctor = loop.run_in_executor(
-                                        None, lambda: bash("echo hi")
-                                    )
-                                    self.assertTrue(await asyncio.to_thread(entered.wait, 5))
-                                    # Phase 1: abort holds _kill_lock -> the killer blocks.
-                                    killer = loop.run_in_executor(
-                                        None, bash_module._kill_live_handles
-                                    )
-                                    await asyncio.sleep(0.2)
-                                    self.assertFalse(killer.done())
-                                    self.assertFalse(tk_entered.is_set())
-                                    # Phase 2: abort parks at stdout; the killer takes the
-                                    # lock and blocks inside taskkill while holding it.
-                                    release_term.set()
-                                    self.assertTrue(
-                                        await asyncio.to_thread(tk_entered.wait, 5)
-                                    )
-                                    stdout_release.set()
-                                    # Abort finishes stdout/wait but must block on the
-                                    # lock: close cannot run while taskkill is in flight.
-                                    await asyncio.sleep(0.3)
-                                    self.assertFalse(ctor.done())
-                                    self.assertFalse(spawned[0].close.called)
-                                    # Phase 3: taskkill returns, killer releases the lock,
-                                    # abort's reaped+close section finally runs.
-                                    tk_release.set()
-                                    with self.assertRaisesRegex(RuntimeError, "journal"):
-                                        await asyncio.wait_for(ctor, timeout=10)
-                                    await asyncio.wait_for(killer, timeout=10)
-        self.assertEqual(
-            order,
-            ["abort-terminate", "abort-jobclose", ("killer-taskkill", False), "proc-close"],
-        )
-        self.assertEqual(spawned[0].close.call_count, 1)  # once, only after taskkill returned
-        term.assert_called_once()  # the killer saw _job None; no second terminate
-        spawned[0].kill.assert_not_called()
-        pid = spawned[0].pid
-        self.assertEqual(journal_calls, [(pid, True), (pid, False), (pid, False)])
-
-    async def test_windows_job_reap_and_kill(self):
-        handle = bash("sleep 30")
-        job = 777
-        handle._job = job
-        try:
-            with mock.patch.object(bash_module, "_IS_POSIX", False):
-                with mock.patch.object(bash_module, "_taskkill_tree") as taskkill:
-                    with mock.patch.object(bash_module._winjob, "terminate", return_value=True) as term:
-                        with mock.patch.object(bash_module._winjob, "close") as close:
-                            with mock.patch.object(bash_module._winjob, "is_empty", return_value=False):
-                                self.assertTrue(handle._group_alive())
-                            with mock.patch.object(bash_module._winjob, "is_empty", return_value=True):
-                                self.assertFalse(handle._group_alive())
-                            handle.kill()
-                            term.assert_called_once_with(job)
-                            term.reset_mock()
-                            # Reap terminates, closes the last handle, and
-                            # retires the journal record (tree provably dead).
-                            self.assertTrue(handle._reap_group())
-                            term.assert_called_once_with(job)
-                            close.assert_called_once_with(job)
-                            self.assertIsNone(handle._job)
-                            handle._reaped = True
-                            handle.kill()  # job-reaped: no taskkill second chance
-                    taskkill.assert_not_called()
-        finally:
-            handle._reaped = False
-            handle._job = None
-            handle.kill(signal.SIGKILL)
-            await asyncio.wait_for(handle, timeout=5)
-
-    async def test_windows_failed_job_terminate_falls_back_to_taskkill(self):
-        handle = bash("sleep 30")
-        job = 888
-        handle._job = job
-        try:
-            with mock.patch.object(bash_module, "_IS_POSIX", False):
-                with mock.patch.object(bash_module._winjob, "terminate", return_value=False):
-                    with mock.patch.object(bash_module._winjob, "close") as close:
-                        with mock.patch.object(
-                            bash_module, "_taskkill_tree", return_value=True
-                        ) as taskkill:
-                            handle.kill()  # failed terminate must not strand the tree
-                            taskkill.assert_called_once_with(handle._pid)
-                            taskkill.reset_mock()
-                            # Reap closes the handle anyway (a kill attempt) but
-                            # only journals inactive via the taskkill result.
-                            self.assertTrue(handle._reap_group())
-                            close.assert_called_once_with(job)
-                            taskkill.assert_called_once_with(handle._pid)
-                            self.assertIsNone(handle._job)
-        finally:
-            handle._reaped = False
-            handle._job = None
-            handle.kill(signal.SIGKILL)
-            await asyncio.wait_for(handle, timeout=5)
-
-    async def test_windows_failed_terminate_and_taskkill_leaves_record_active(self):
-        # Failed terminate + failed taskkill on an exited leader: nothing
-        # proved the tree died, so the record stays active for the host reaper.
-        handle = bash("echo hi")
-        await asyncio.wait_for(handle, timeout=5)
-        for _ in range(100):
-            if handle._proc.poll() is not None:
-                break
-            await asyncio.sleep(0.05)
-        self.assertIsNotNone(handle._proc.poll())
-        handle._job = 999
-        try:
-            with mock.patch.object(bash_module, "_IS_POSIX", False):
-                with mock.patch.object(bash_module._winjob, "terminate", return_value=False):
-                    with mock.patch.object(bash_module._winjob, "close"):
-                        with mock.patch.object(
-                            bash_module, "_taskkill_tree", return_value=False
-                        ):
-                            self.assertFalse(handle._reap_group())
-                            self.assertIsNone(handle._job)
-        finally:
-            handle._job = None
-
     def test_darwin_start_id_uses_absolute_ps(self):
         completed = mock.Mock(stdout="Mon Jan  1 00:00:00 2026\n")
         with mock.patch.object(bash_module.sys, "platform", "darwin"):
@@ -1240,8 +645,6 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.call_args.args[0][0], "/bin/ps")
 
     async def test_undelivered_kill_leaves_journal_record_active(self):
-        if not bash_module._IS_POSIX:
-            self.skipTest("POSIX signal-delivery semantics")
         with tempfile.TemporaryDirectory() as tmp:
             journal = os.path.join(tmp, "journal.jsonl")
             with mock.patch.dict(
@@ -1266,8 +669,6 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
                     await asyncio.wait_for(handle, timeout=5)
 
     async def test_signal_group_reports_delivery(self):
-        if not bash_module._IS_POSIX:
-            self.skipTest("POSIX signal-delivery semantics")
         with mock.patch.object(bash_module.os, "killpg", side_effect=ProcessLookupError):
             self.assertTrue(bash_module._signal_group(1234567, signal.SIGKILL))
         with mock.patch.object(bash_module.os, "killpg", side_effect=PermissionError):

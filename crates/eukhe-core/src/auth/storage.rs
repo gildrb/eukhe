@@ -164,37 +164,15 @@ struct FileIdentity {
     len: u64,
 }
 
-// The fallible non-Unix twin pins the Option shape across
-// platforms - unwrapping only this arm would split the contract.
-#[allow(clippy::unnecessary_wraps)]
-#[cfg(unix)]
-fn stat_identity(metadata: &fs::Metadata) -> Option<FileIdentity> {
+fn stat_identity(metadata: &fs::Metadata) -> FileIdentity {
     use std::os::unix::fs::MetadataExt;
-    Some(FileIdentity {
+    FileIdentity {
         dev: metadata.dev(),
         ino: metadata.ino(),
         mtime_sec: metadata.mtime(),
         mtime_nsec: metadata.mtime_nsec(),
         len: metadata.len(),
-    })
-}
-
-#[cfg(windows)]
-fn stat_identity(metadata: &fs::Metadata) -> Option<FileIdentity> {
-    let modified = metadata.modified().ok()?;
-    let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
-    Some(FileIdentity {
-        dev: 0,
-        ino: 0,
-        mtime_sec: since.as_secs() as i64,
-        mtime_nsec: i64::from(since.subsec_nanos()),
-        len: metadata.len(),
-    })
-}
-
-#[cfg(not(any(unix, windows)))]
-fn stat_identity(_metadata: &fs::Metadata) -> Option<FileIdentity> {
-    None
+    }
 }
 
 /// One validated document read held in the process-wide read-through cache.
@@ -228,7 +206,7 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         let _process_guard = process_lock(&self.auth_path);
         let now_identity = fs::metadata(&self.auth_path)
             .ok()
-            .and_then(|metadata| stat_identity(&metadata));
+            .map(|metadata| stat_identity(&metadata));
         if let Some(identity) = now_identity {
             let cache = read_cache()
                 .lock()
@@ -247,7 +225,7 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         // with this read is the document as it now stands.
         let now_identity = fs::metadata(&self.auth_path)
             .ok()
-            .and_then(|metadata| stat_identity(&metadata));
+            .map(|metadata| stat_identity(&metadata));
         let guard = self.acquire_lock()?;
         let content = fs::read_to_string(&self.auth_path).ok();
         drop(guard);
@@ -343,8 +321,7 @@ mod tests {
             })
             .unwrap();
         let path = dir.path().join("auth.json");
-        // Owner-only mode is a Unix guarantee; Windows inherits ACLs.
-        #[cfg(unix)]
+        // Owner-only mode.
         assert_eq!(crate::platform::perms::file_mode(&path), Some(0o600));
         let data = parse_storage_data(Some(&fs::read_to_string(&path).unwrap())).unwrap();
         assert!(data.credential("prime-inference").is_some());

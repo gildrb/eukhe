@@ -1,9 +1,8 @@
 //! Shutdown and signal handling: the drain arms, the shutdown entry, and the
 //! daemon-closing shutdown event.
-use super::{json, Arc, Ordering, RouteAdmission, Supervisor, Value, ROUTE_TIMEOUT_MS};
-// The only use is the broadcast inside the unix begin_signal_drain arm.
-#[cfg(unix)]
-use super::ClientRouting;
+use super::{
+    json, Arc, ClientRouting, Ordering, RouteAdmission, Supervisor, Value, ROUTE_TIMEOUT_MS,
+};
 
 /// The `daemon_closing` frame (the shutdown command's and the OS-signal
 /// drain's shared spelling): every connected client learns the daemon is
@@ -85,7 +84,6 @@ impl Supervisor {
     /// Returns `true` when this call started the drain (the signal loop
     /// keeps waiting for the force signal); `false` when a drain or
     /// shutdown was already in flight (the caller is the forced exit).
-    #[cfg(unix)]
     pub(crate) fn begin_signal_drain(self: &Arc<Self>) -> bool {
         if self.shutting_down.swap(true, Ordering::SeqCst) {
             return false;

@@ -269,8 +269,6 @@ fn dispatch_via_kernel(python: &std::path::Path, payload: &Value) -> Result<Valu
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // Hidden window on Windows, matching the kernel probes.
-    eukhe_core::platform::process::set_no_window(&mut child);
     let mut child = child
         .spawn()
         .map_err(|error| format!("failed to run the kernel python: {error}"))?;

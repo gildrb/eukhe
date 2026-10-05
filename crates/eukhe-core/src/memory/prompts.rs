@@ -71,7 +71,7 @@ than it was. Output only the line; non-ASCII characters cost 2-4 bytes."#;
 
 /// A realistic, dense summary line of exactly [`super::NODE`] bytes: models
 /// cannot count bytes, so the compactor sees the size (§4.2).
-pub(crate) const SCALE: &str = "user: wants releases signed with the SSH key in ~/.ssh/release_ed25519, never GPG, because CI on forks has no secrets; tool: read scripts/release.sh (420 lines: builds 4 targets, uploads to S3, no signing step); echo: cargo test: 118 passed, 2 failed in eukhe-cli (update_restart_wait timeouts, unrelated to the change); talk: proposed a GitHub Actions upload job with signing kept local; user: approved, keep the bucket name in config, not code; work: [r2] tag v0.9.8-1 pushed; open: drop the 2 Windows targets?";
+pub(crate) const SCALE: &str = "user: wants releases signed with the SSH key in ~/.ssh/release_ed25519, never GPG, because CI on forks has no secrets; tool: read scripts/release.sh (420 lines: builds 4 targets, uploads to S3, no signing step); echo: cargo test: 118 passed, 2 failed in eukhe-cli (update_restart_wait timeouts, unrelated to the change); talk: proposed a GitHub Actions upload job with signing kept local; user: approved, keep the bucket name in config, not code; work: [r2] tag v0.9.8-1 pushed; open: drop the 2 nightly targets?";
 
 /// The root agent's memory layer (`MASTER`, §7.2).
 const MASTER: &str = r#"You are Eukhe, an AI agent that works for one user in a single chat that

@@ -646,15 +646,6 @@ fn osc8_gated_link_row_wraps_the_label_in_a_hyperlink_and_shows_the_url() {
     // The sequences are zero-width: the row measures like the plain
     // text plus the bracketed URL.
     assert_eq!(str_width(&joined), str_width("see docs [https://x.dev/a]"));
-    // Windows drive-letter targets classify as file paths; the label is
-    // the URL, so no bracket follows it.
-    let drive = render_inline("[c:\\src](c:\\src)", &style);
-    let joined: String = drive.iter().map(|s| s.content.as_str()).collect();
-    assert!(joined.contains("file:///c:/src"), "drive path: {joined}");
-    assert!(
-        !joined.contains(" ["),
-        "no bracket when the label is the url: {joined}"
-    );
     crate::hyperlinks::set_hyperlinks_override(None);
 }
 

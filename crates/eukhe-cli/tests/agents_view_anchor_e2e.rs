@@ -22,7 +22,6 @@
 //! `launchAgentsView`), and the entry selection lands on that session's row
 //! instead of the first row — proven by Enter opening the anchor's file,
 //! not the first-listed session's.
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};

@@ -30,8 +30,8 @@ const RETAINED_FILES: usize = 64;
 
 /// Logs younger than this are never prune targets: a launch's log must
 /// survive from its spawn until the launch settles (the probe and auth
-/// fit inside the platform launch budgets — the 30s Unix default, the
-/// 90s Windows default, and the e2e override), so one concurrent spawn's
+/// fit inside the launch budget — the 30s default and the e2e
+/// override), so one concurrent spawn's
 /// prune cannot unlink another's fresh log.
 const PRUNE_PROTECTION_SECS: u64 = 120;
 

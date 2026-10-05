@@ -5,8 +5,6 @@
 //! succeed there, and restore the primary (`restoredModel`). With every
 //! provider failing, the chain walks all candidates and surfaces the final
 //! failure like the single-provider loop does.
-#![cfg(unix)]
-
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};

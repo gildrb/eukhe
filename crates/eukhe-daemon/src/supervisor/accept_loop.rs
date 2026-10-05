@@ -191,7 +191,7 @@ mod tests {
     /// One end of an in-memory duplex as the accepted stream - the
     /// portable stand-in for the local socket pair (the connection
     /// dispatch takes any `TransportStream`; the loop's error policy is
-    /// platform-free, so the tests run on Windows too). The dropped peer
+    /// socket-free). The dropped peer
     /// half makes the accepted side read EOF, like a client that
     /// connected and vanished.
     fn accepted_stream() -> Box<dyn TransportStream> {

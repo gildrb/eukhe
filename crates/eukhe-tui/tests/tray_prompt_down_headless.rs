@@ -6,7 +6,6 @@
 //! when it is empty, and Up/Esc return to the prompt. Before the fix the
 //! Down only took the dock while subagents existed, so with zero
 //! subagents every group below the prompt was out of the arrows' reach.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

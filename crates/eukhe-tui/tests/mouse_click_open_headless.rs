@@ -11,7 +11,6 @@
 //! mouse reporting is active, so the TUI opens the clicks it consumes),
 //! a release after a drag ends the selection instead of opening, and a
 //! release over plain text opens nothing.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

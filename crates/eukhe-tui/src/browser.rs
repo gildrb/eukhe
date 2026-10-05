@@ -1,6 +1,5 @@
 //! Browser launch for clicked hyperlinks (TS `tui.ts` `openHyperlink`'s
-//! platform table — darwin `open`, Windows `rundll32
-//! url.dll,FileProtocolHandler`, otherwise `xdg-open`).
+//! platform table — darwin `open`, otherwise `xdg-open`).
 //!
 //! Terminals gate their native link handling while mouse reporting is
 //! active (Ghostty only refreshes link hover when reporting is off or
@@ -16,16 +15,13 @@
 //! platform tables pin the system tool locations instead (macOS's `open`
 //! is fixed, the xdg-utils slots cover the mainstream Linux layouts, and
 //! a tool that is not there is a failed launch — never a `PATH` hunt).
-//! Windows's `rundll32.exe` runs as the program itself with the protocol
-//! handler and the URL as its arguments: passing the executable's own
-//! path as an argument would have `rundll32` load it as a DLL.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 /// The xdg-utils locations a desktop Linux carries `xdg-open` in (the
 /// fixed tool slots — searched in order, the first that exists wins).
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 const XDG_OPEN_SLOTS: [&str; 3] = [
     "/usr/bin/xdg-open",
     "/usr/local/bin/xdg-open",
@@ -40,26 +36,13 @@ fn opener(url: &str) -> Option<(PathBuf, Vec<String>)> {
     {
         Some((PathBuf::from("/usr/bin/open"), vec![url.to_string()]))
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(not(target_os = "macos"))]
     {
         let path = XDG_OPEN_SLOTS
             .into_iter()
             .map(PathBuf::from)
             .find(|path| path.exists())?;
         Some((path, vec![url.to_string()]))
-    }
-    #[cfg(windows)]
-    {
-        // Absolute System32 path (the TS dialog resolves it from
-        // `SystemRoot`, defaulting to `C:\Windows`).
-        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-        let rundll32 = std::path::Path::new(&system_root)
-            .join("System32")
-            .join("rundll32.exe");
-        Some((
-            rundll32,
-            vec!["url.dll,FileProtocolHandler".to_string(), url.to_string()],
-        ))
     }
 }
 

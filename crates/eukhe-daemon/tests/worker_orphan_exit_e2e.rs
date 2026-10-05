@@ -5,8 +5,6 @@
 //! Leaked workers from earlier e2e suites starve later test binaries on
 //! the shared mission box, so the exit is load-bearing for test hygiene
 //! too (the eukhe-daemon/eukhe-cli spawn helpers arm it with a short window).
-#![cfg(unix)]
-
 use std::os::unix::net::UnixListener;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};

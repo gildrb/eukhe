@@ -69,12 +69,12 @@ pub enum GhAuthStatus {
 
 /// Probe the GitHub CLI (TS `spawnSyncHidden("gh", ["auth", "status"])`):
 /// a non-zero exit means not logged in, a spawn failure means not
-/// installed. The probe never opens a window (hidden spawn).
+/// installed.
 #[must_use]
 pub fn probe_gh_auth() -> GhAuthStatus {
     // No inherited fds: a probe must never hold the terminal the TUI owns
     // (the fd-set audit's rule — no child holds /dev/tty).
-    let mut command = gh_probe_command();
+    let mut command = std::process::Command::new("gh");
     command.stdin(std::process::Stdio::null());
     let Ok(output) = command.args(["auth", "status"]).output() else {
         return GhAuthStatus::NotInstalled;
@@ -130,15 +130,15 @@ pub async fn gist_outcome(child: tokio::process::Child) -> Result<GistOutcome, S
 }
 
 /// Spawn `gh gist create --public=false <file>` (TS `spawnHidden`): output
-/// is piped, no terminal window on Windows. The child is killed when
-/// dropped mid-wait, so aborting the upload task terminates `gh`.
+/// is piped. The child is killed when dropped mid-wait, so aborting the
+/// upload task terminates `gh`.
 ///
 /// # Errors
 ///
 /// Returns `Err` when the OS cannot spawn the `gh` process (not installed,
 /// not executable, or another spawn error).
 pub fn spawn_gist_create(file: &Path) -> std::io::Result<tokio::process::Child> {
-    gh_command()
+    tokio::process::Command::new("gh")
         .args(["gist", "create", "--public=false"])
         .arg(file)
         .stdin(std::process::Stdio::null())
@@ -146,37 +146,6 @@ pub fn spawn_gist_create(file: &Path) -> std::io::Result<tokio::process::Child> 
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-}
-
-/// The async `gh` command with Windows hidden-window creation flags applied
-/// (TS `spawnHidden`; a no-op on Unix).
-#[cfg(windows)]
-fn gh_command() -> tokio::process::Command {
-    // CREATE_NO_WINDOW: the loader surfaces the wait, not a console window.
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut command = tokio::process::Command::new("gh");
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
-}
-
-#[cfg(unix)]
-fn gh_command() -> tokio::process::Command {
-    tokio::process::Command::new("gh")
-}
-
-/// The blocking `gh` probe command, hidden on Windows the same way.
-#[cfg(windows)]
-fn gh_probe_command() -> std::process::Command {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut command = std::process::Command::new("gh");
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
-}
-
-#[cfg(unix)]
-fn gh_probe_command() -> std::process::Command {
-    std::process::Command::new("gh")
 }
 
 #[cfg(test)]
@@ -245,8 +214,7 @@ mod tests {
 
     /// The full gh spawn path against a stub `gh` (the e2e harness uses the
     /// same stub): the upload file must exist and the printed URL becomes
-    /// the gist + viewer pair. Unix-only (the stub is a shell script).
-    #[cfg(unix)]
+    /// the gist + viewer pair.
     #[tokio::test]
     async fn gist_spawn_against_stub_gh() {
         use std::os::unix::fs::PermissionsExt;

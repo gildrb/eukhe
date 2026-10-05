@@ -446,26 +446,6 @@ class ReplTest(unittest.TestCase):
         )
         self.assertIn("wrote 262144", tagged)
 
-    def test_interrupt_without_pthread_kill_cancels_awaited_cell(self):
-        # Windows fallback seam: with pthread_kill absent the reader cancels
-        # the active task on the loop; an await-suspended cell still interrupts.
-        code = "\n".join(
-            [
-                "import signal",
-                "if hasattr(signal, 'pthread_kill'):",
-                "    del signal.pthread_kill",
-                "import asyncio",
-                "await asyncio.sleep(30)",
-            ]
-        )
-        self.repl.send({"type": "execute", "id": "nokill", "code": code})
-        time.sleep(0.4)
-        self.repl.send({"type": "interrupt"})
-        events = self.repl.until_done("nokill")
-        error = one(events, "error")
-        self.assertEqual(error["ename"], "KeyboardInterrupt")
-        self.assertEqual(one(events, "done")["status"], "error")
-
     def test_stdout_buffer_write_works_and_surfaces_as_null(self):
         # Libraries write bytes via sys.stdout.buffer; the tagged writer must
         # expose a working buffer whose bytes surface (null-attributed) before done.
@@ -2641,7 +2621,7 @@ class SnapshotRestoreBoundsTest(unittest.TestCase):
 
 class SnapshotPairConsistencyTest(unittest.TestCase):
     # Direct fault injection into _snapshot_state: portable and deterministic
-    # (chmod-based injection breaks as root and has different Windows semantics).
+    # (chmod-based injection breaks as root).
     def setUp(self):
         sys.path.insert(0, SRC)
         self.addCleanup(sys.path.remove, SRC)
@@ -2979,57 +2959,6 @@ class OwnerWatchdogTest(unittest.TestCase):
                 if raw is None:
                     os.environ.pop("EUKHE_KERNEL_OWNER_PID", None)
                 self.assertEqual(repl_module._resolve_owner_pid(), os.getppid())
-
-    def test_owner_watchdog_windows_waits_on_process_handle(self):
-        sys.path.insert(0, SRC)
-        self.addCleanup(sys.path.remove, SRC)
-        import rlm.repl as repl_module
-
-        from ctypes import wintypes
-
-        calls: list[tuple] = []
-
-        class FakeFunction:
-            def __init__(self, name, result):
-                self.name = name
-                self.result = result
-                self.argtypes = None
-                self.restype = None
-
-            def __call__(self, *args):
-                calls.append((self.name, *args))
-                return self.result
-
-        class FakeKernel32:
-            def __init__(self, open_result=1234):
-                self.OpenProcess = FakeFunction("OpenProcess", open_result)
-                self.WaitForSingleObject = FakeFunction("WaitForSingleObject", 0)
-                self.CloseHandle = FakeFunction("CloseHandle", 1)
-
-        k32 = FakeKernel32()
-        with mock.patch.object(repl_module.ctypes, "WinDLL", create=True, return_value=k32):
-            repl_module._wait_owner_windows(777)
-        self.assertEqual(
-            calls,
-            [
-                ("OpenProcess", 0x00100000, False, 777),
-                ("WaitForSingleObject", 1234, 0xFFFFFFFF),
-                ("CloseHandle", 1234),
-            ],
-        )
-        self.assertEqual(k32.OpenProcess.argtypes, [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD])
-        self.assertIs(k32.OpenProcess.restype, wintypes.HANDLE)
-        self.assertEqual(k32.WaitForSingleObject.argtypes, [wintypes.HANDLE, wintypes.DWORD])
-        self.assertIs(k32.WaitForSingleObject.restype, wintypes.DWORD)
-        self.assertEqual(k32.CloseHandle.argtypes, [wintypes.HANDLE])
-        self.assertIs(k32.CloseHandle.restype, wintypes.BOOL)
-
-        calls.clear()
-        with mock.patch.object(
-            repl_module.ctypes, "WinDLL", create=True, return_value=FakeKernel32(open_result=0)
-        ):
-            repl_module._wait_owner_windows(778)
-        self.assertEqual(calls, [("OpenProcess", 0x00100000, False, 778)])
 
 
 class OwnerExitWaitTest(unittest.TestCase):

@@ -31,8 +31,6 @@
 //! straight back to a fresh bind, which the dev+ino gate cannot see, so
 //! keeping the original inode allocated guarantees the identities differ
 //! and the oracle is never vacuous on inode reuse.
-#![cfg(unix)]
-
 use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};

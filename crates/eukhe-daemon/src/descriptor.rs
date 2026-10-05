@@ -270,8 +270,7 @@ fn write_file_atomic_at(path: &Path, content: &str, sync: TempSync) -> Result<()
         }
     }
     let _ = eukhe_core::platform::perms::restrict_file(&temp);
-    eukhe_core::platform::rename_onto(&temp, path)
-        .with_context(|| format!("persist {}", path.display()))?;
+    std::fs::rename(&temp, path).with_context(|| format!("persist {}", path.display()))?;
     #[cfg(test)]
     atomic_write_probe::record(path, sync);
     Ok(())

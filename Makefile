@@ -14,15 +14,6 @@ deny:
 	@command -v cargo-deny >/dev/null 2>&1 || { echo "cargo-deny not installed (cargo install cargo-deny --locked)"; exit 1; }
 	cargo deny --all-features --workspace check advisories bans licenses sources
 
-# Windows cfg-hygiene gate: cross-target check +
-# clippy at -D warnings for every crate and test, the local mirror of the
-# ci.yml windows-cross job (.github/workflows/ci.yml). Fails loudly when the
-# target is missing instead of silently skipping the gate.
-windows-cross:
-	@rustup target list --installed | grep -q x86_64-pc-windows-gnu || { echo "x86_64-pc-windows-gnu target not installed (rustup target add x86_64-pc-windows-gnu)"; exit 1; }
-	cargo check --workspace --target x86_64-pc-windows-gnu --all-targets
-	cargo clippy --workspace --target x86_64-pc-windows-gnu --all-targets -- -D warnings
-
 # Lints every workflow file (.github/workflows/ is the one home for
 # workflow files).
 actionlint:
@@ -169,4 +160,4 @@ runtime-lock-check:
 	cd eukhe-runtime && $(RUNTIME_LOCK_EXPORT) | diff -u requirements-kernel.txt -
 	python3 scripts/release/test_runtime_lock.py
 
-.PHONY: check deny windows-cross actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates shard-gates runtime-lock runtime-lock-check
+.PHONY: check deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates shard-gates runtime-lock runtime-lock-check

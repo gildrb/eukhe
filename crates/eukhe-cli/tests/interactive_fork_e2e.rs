@@ -27,7 +27,6 @@
 //! path; the source is hosted by a live worker for the whole run, proving
 //! a session the daemon already owns forks fine (TS parity: no
 //! daemon-active guard on the fork arm).
-#![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};

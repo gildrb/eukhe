@@ -93,7 +93,6 @@ pub(super) struct SessionInfoGeneration {
 }
 
 impl SessionInfoGeneration {
-    #[cfg(unix)]
     pub(super) fn from_metadata(meta: &fs::Metadata) -> Self {
         use std::os::unix::fs::MetadataExt;
         Self {
@@ -104,19 +103,6 @@ impl SessionInfoGeneration {
             mtime_ns: meta.mtime_nsec(),
             ctime: meta.ctime(),
             ctime_ns: meta.ctime_nsec(),
-        }
-    }
-
-    #[cfg(not(unix))]
-    pub(super) fn from_metadata(meta: &fs::Metadata) -> Self {
-        Self {
-            len: meta.len(),
-            dev: 0,
-            ino: 0,
-            mtime: 0,
-            mtime_ns: 0,
-            ctime: 0,
-            ctime_ns: 0,
         }
     }
 }
@@ -317,27 +303,8 @@ impl SessionScanState {
     /// file (dev/ino) with a grown-or-equal length (the grown-or-equal
     /// length check itself lives at the call sites; this predicate is the
     /// same-file part only).
-    // The unix arm reads `self.generation`; the not-unix arm carries no
-    // dev/ino identity at all, so it always answers false (every grown
-    // file rescans whole - see the arm's own comment).
-    #[cfg_attr(not(unix), allow(clippy::unused_self))]
-    fn same_file_identity(
-        &self,
-        #[cfg_attr(not(unix), allow(unused_variables))] generation: &SessionInfoGeneration,
-    ) -> bool {
-        #[cfg(unix)]
-        {
-            self.generation.dev == generation.dev && self.generation.ino == generation.ino
-        }
-        // No dev/ino from std on this platform, so a grown file cannot be
-        // certified as the same inode: every grown file rescans whole (TS
-        // always has dev/ino from Node fs stats). An mtime-based identity
-        // would instead certify an in-place rewrite as a resume.
-        #[cfg(not(unix))]
-        {
-            let _ = generation;
-            false
-        }
+    fn same_file_identity(&self, generation: &SessionInfoGeneration) -> bool {
+        self.generation.dev == generation.dev && self.generation.ino == generation.ino
     }
 
     /// TS `advanceScanTail`: the consumed prefix's trailing window. A line at
@@ -551,8 +518,7 @@ pub(crate) fn read_session_info_from(file: &mut fs::File, path: &Path) -> Option
     // `modified` is a durable value now (header time, then mtime), but the
     // fold re-reads them instead of trusting a certified copy.
     let modified_ms = state.acc.last_activity_ms.unwrap_or(0);
-    if cfg!(unix)
-        && modified_ms > 0
+    if modified_ms > 0
         && file
             .metadata()
             .is_ok_and(|meta| SessionInfoGeneration::from_metadata(&meta) == generation)

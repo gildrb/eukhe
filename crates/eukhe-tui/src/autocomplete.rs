@@ -249,7 +249,7 @@ fn expand_home_path(path: &str) -> String {
     }
 }
 
-/// The home directory (`HOME`, else the Windows profile chain).
+/// The home directory (`HOME`).
 fn home_dir() -> std::path::PathBuf {
     eukhe_types::platform::home_dir().unwrap_or_default()
 }

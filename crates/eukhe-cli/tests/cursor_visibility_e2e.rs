@@ -40,8 +40,6 @@
 //! non-blocking pty master): the byte-level waits serialize through a
 //! static lock like the other pty harnesses.
 
-#![cfg(unix)]
-
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;

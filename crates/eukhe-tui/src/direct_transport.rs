@@ -430,7 +430,7 @@ pub(crate) fn direct_attach_capabilities() -> Vec<DaemonClientCapability> {
     ]
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

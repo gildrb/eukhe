@@ -1040,17 +1040,12 @@ impl Supervisor {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
-    #[cfg(unix)]
     use super::*;
-    #[cfg(unix)]
     use crate::supervisor::SupervisorOptions;
-    #[cfg(unix)]
     use eukhe_types::platform::transport::TransportStream;
-    #[cfg(unix)]
     use serde_json::json;
-    #[cfg(unix)]
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -1060,7 +1055,6 @@ mod tests {
     /// request's client id and command id land in the log the moment the
     /// drain commits. Drives a real connection loop (`handle_client`)
     /// with a protocol-7 command envelope.
-    #[cfg(unix)]
     #[tokio::test]
     async fn a_shutdown_request_logs_its_client() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -1126,7 +1120,6 @@ mod tests {
     /// (finding 4a): the loss becomes a durable daemon-log line naming the
     /// client and the dropped count. Drives a real connection loop
     /// (`handle_client`) over a real socket pair with a flooded ring.
-    #[cfg(unix)]
     #[tokio::test]
     async fn a_lagged_client_event_stream_is_logged() {
         use tokio::io::AsyncReadExt as _;

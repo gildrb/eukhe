@@ -5,8 +5,6 @@
 //! session returns to ready - instead of running the cell out or wedging
 //! with the loader spinning. Drives the exact worker stack (real kernel,
 //! real turn runner) over the daemon wire.
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};

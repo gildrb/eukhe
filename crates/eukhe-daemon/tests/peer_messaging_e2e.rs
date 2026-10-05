@@ -19,10 +19,7 @@
 //! (`engine: "faux"`), so the kernel host request, the supervisor link, the
 //! peer ticket, and the direct socket delivery are all exercised for real.
 //!
-//! Linux-only e2e (`AF_UNIX` sockets, process-group kills): compiles to
-//! nothing elsewhere, like the other eukhe-daemon e2e verifiers.
-#![cfg(unix)]
-
+//! Exercises `AF_UNIX` sockets and process-group kills.
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};

@@ -4,7 +4,6 @@
 //! environment variable forces telemetry off), and a bad argument gets the
 //! usage error. The report text and the settings round-trip are covered by
 //! the eukhe-core telemetry status tests over the real settings store.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

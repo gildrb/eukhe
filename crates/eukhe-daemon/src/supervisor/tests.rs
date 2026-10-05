@@ -846,7 +846,6 @@ async fn an_existing_tombstone_carries_the_stop_past_its_failed_re_write() {
 /// lingering) and lets the accept loop exit. The fake worker holds
 /// its `shutdown` reply on a test-controlled settle, so a pass that
 /// does not wait for the flush barrier fails the assertions below.
-#[cfg(unix)] // the signal-drain state machine: unix signal source
 #[tokio::test]
 async fn first_signal_drains_a_settling_turn_and_rejects_new_work() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -1084,7 +1083,6 @@ async fn a_prompt_and_wait_route_outlives_the_old_ten_minute_cap() {
 /// Every signal that finds a shutdown already in flight is the force
 /// request: the drain's own second signal, and a signal racing the
 /// shutdown command's gate.
-#[cfg(unix)] // the signal-drain state machine: unix signal source
 #[tokio::test]
 async fn a_signal_during_an_in_flight_shutdown_forces() {
     let dir = tempfile::TempDir::new().unwrap();

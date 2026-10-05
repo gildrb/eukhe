@@ -19,7 +19,6 @@
 //! The kernel Python is ambient product state like `kernel_restore_guards`:
 //! skipped with a note when absent; `EUKHE_CORE_KERNEL_PYTHON` points at an
 //! explicit interpreter.
-#![cfg(unix)]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

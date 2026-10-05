@@ -142,8 +142,8 @@ pub struct SnapshotManifest {
 }
 
 /// True for a repo-relative POSIX path that is safe to join onto a root:
-/// non-empty, backslash-free (a backslash is a Windows separator, so a
-/// portable manifest never records it inside a path either), with no
+/// non-empty, backslash-free (a manifest is untrusted input, and a
+/// backslash never appears in a path this capture records), with no
 /// absolute, parent, or current-directory components.
 pub(crate) fn is_safe_relative_path(path: &str) -> bool {
     !path.is_empty()
@@ -154,10 +154,9 @@ pub(crate) fn is_safe_relative_path(path: &str) -> bool {
 }
 
 /// True when the symlink `target` of the entry at `entry_path` resolves
-/// inside the worktree: relative, colon-free and backslash-free (portable
-/// across platforms: `\` is a Windows separator, so a UNC, drive-root, or
-/// `..\` climb has no faithful portable meaning here), and never climbing
-/// above the root via `..`.
+/// inside the worktree: relative, colon-free and backslash-free (separator
+/// and drive-like forms are rejected outright rather than interpreted), and
+/// never climbing above the root via `..`.
 pub(crate) fn symlink_target_stays_inside(entry_path: &str, target: &str) -> bool {
     if target.is_empty() || target.starts_with('/') || target.contains(':') || target.contains('\\')
     {

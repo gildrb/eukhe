@@ -419,6 +419,8 @@ fn display_entries_round_trip_and_tombstones_stick() {
 
 #[test]
 fn display_entry_file_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
     let dir = temp_dir("display-mode");
     let child_dir = dir.join("sub-1");
     fs::create_dir_all(&child_dir).unwrap();
@@ -438,16 +440,12 @@ fn display_entry_file_is_owner_only() {
     assert!(write_rlm_subagent_display(&entry).unwrap());
     // The TS display writer creates its temp 0o600; the rename carries
     // that mode onto the visible file.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = fs::metadata(child_dir.join("rlm-subagent.json"))
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(mode, 0o600);
-    }
+    let mode = fs::metadata(child_dir.join("rlm-subagent.json"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
 }
 
 fn usage_summary(cost: f64) -> crate::session_usage::SessionUsageSummary {

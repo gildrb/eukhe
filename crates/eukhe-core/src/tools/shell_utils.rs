@@ -45,15 +45,10 @@ pub fn get_shell_env() -> std::collections::HashMap<String, String> {
         .filter(|(_, v)| !v.contains('\0'))
         .collect();
     let bin_dir = get_bin_dir();
-    let path_key = env
-        .keys()
-        .find(|k| k.eq_ignore_ascii_case("path"))
-        .cloned()
-        .unwrap_or_else(|| "PATH".to_string());
-    let current_path = env.get(&path_key).cloned().unwrap_or_default();
-    // Node `path.delimiter` (`:` on Unix, `;` on Windows): the std
-    // split/join helpers carry the same per-platform delimiter, and empty
-    // entries drop exactly like the TS `.filter(Boolean)`.
+    let current_path = env.get("PATH").cloned().unwrap_or_default();
+    // Node `path.delimiter` (`:`): the std split/join helpers carry the
+    // same delimiter, and empty entries drop exactly like the TS
+    // `.filter(Boolean)`.
     let has_bin_dir = std::env::split_paths(&current_path)
         .filter(|dir| !dir.as_os_str().is_empty())
         .any(|dir| dir == std::path::Path::new(&bin_dir));
@@ -70,7 +65,7 @@ pub fn get_shell_env() -> std::collections::HashMap<String, String> {
                 .to_string_lossy()
                 .into_owned()
         };
-        env.insert(path_key, updated);
+        env.insert("PATH".into(), updated);
     }
     env.insert("GIT_EDITOR".into(), "true".into());
     env.insert("GIT_SEQUENCE_EDITOR".into(), "true".into());

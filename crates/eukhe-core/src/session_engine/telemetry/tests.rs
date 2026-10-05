@@ -1147,7 +1147,7 @@ async fn legacy_events_reach_the_analytics_endpoint_in_the_ts_shape() {
             );
         }
         assert_eq!(properties["execution_mode"], "interactive");
-        assert!(["linux", "darwin", "win32", "freebsd", "android"]
+        assert!(["linux", "darwin", "freebsd", "android"]
             .contains(&properties["os_family"].as_str().unwrap()));
         assert!(
             ["x64", "arm64", "ia32", "arm", "s390x", "ppc64", "riscv64", "loong64"]

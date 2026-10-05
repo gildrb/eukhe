@@ -25,7 +25,6 @@
 //! messages, transcript text, or file paths — and hits
 //! render as one flat, relevance-ranked list. `EUKHE_SEARCH_FRAMES_DIR`
 //! dumps every frame for before/after evidence captures.
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};

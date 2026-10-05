@@ -1,7 +1,7 @@
-//! eukhe-daemon platform wall: per-OS endpoint naming and identity. The
+//! eukhe-daemon platform wall: endpoint naming and identity. The
 //! transport itself is the shared trait in `eukhe_types::platform` (daemon
-//! sockets bind/connect through it, so named pipes slot in without touching
-//! the supervisor or worker loops).
+//! sockets bind/connect through it without touching the supervisor or
+//! worker loops).
 
 mod executable;
 mod paths;

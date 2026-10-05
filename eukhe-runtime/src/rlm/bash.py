@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import fcntl
 import functools
 import json
 import os
@@ -15,6 +16,7 @@ import socket
 import struct
 import subprocess
 import sys
+import termios
 import threading
 import time
 import uuid
@@ -22,15 +24,7 @@ from collections import deque
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, cast
-
-from . import _winjob
-
-_IS_POSIX = os.name == "posix"
-
-if _IS_POSIX:
-    import fcntl
-    import termios
+from typing import Any
 
 _HEAD_CAP = 512 * 1024
 _TAIL_CAP = 3 * 512 * 1024
@@ -272,81 +266,56 @@ class BashHandle:
         self._result_consumed = False
         self._consumed_notice: Callable[[], None] | None = None
         self._callback_lock = threading.Lock()
-        # Serializes kill/reap so a pid fallback can never outlive the process handle.
-        self._kill_lock = threading.Lock()
         self._started = time.monotonic()
         self._started_at = datetime.now(timezone.utc).isoformat()
-        # POSIX: own process group so kill() signals the whole pipeline; Windows
-        # contains the tree in a kill-on-close job object.
+        # Own process group so kill() signals the whole pipeline.
         self._status_read = -1
         self._wake_read = -1
         self._wake_write = -1
         # True only while the pump moves a chunk from the pipe into the buffer.
         self._pump_transfer = False
-        self._job: int | None = None
-        self._completion_marker: bytes | None = None
-        status_write = -1
-        if _IS_POSIX:
-            # Full-duplex status channel: the child end rides in as stdin (fd 0)
-            # and the script remaps it to _STATUS_FD before swapping in /dev/null
-            # (dash rejects multi-digit fds in redirections at parse time). The
-            # parent end doubles as the gate: the child blocks on it until the
-            # pid is journaled, so a kernel kill in that window cannot leak an
-            # unjournaled command (parent death closes the socket -> child exits).
-            parent_sock, child_sock = socket.socketpair()
-            self._status_read = parent_sock.detach()
-            status_write = child_sock.detach()
-            try:
-                self._wake_read, self._wake_write = os.pipe()
-            except BaseException:
-                os.close(self._status_read)
-                os.close(status_write)
-                raise
-            completion_token = secrets.token_hex(32)
-            # Halves stop passive echoes; a deliberate forgery freezes only this call while later bytes stay live.
-            token_midpoint = len(completion_token) // 2
-            self._completion_marker = (
-                _COMPLETION_PREFIX + completion_token.encode("ascii") + _COMPLETION_SUFFIX
-            )
-            script = _status_script(
-                _with_prefix(command),
-                completion_token[:token_midpoint],
-                completion_token[token_midpoint:],
-            )
-        else:
-            # Windows lacks a foreground-status channel, so its exit drain stays best-effort.
-            script = _with_prefix(command)
-            self._job = _winjob.create_job()
-            if self._job is None:
-                # Nothing spawned yet, so nothing can leak: refuse to start.
-                raise RuntimeError("bash(): Windows job containment could not be established")
+        # Full-duplex status channel: the child end rides in as stdin (fd 0)
+        # and the script remaps it to _STATUS_FD before swapping in /dev/null
+        # (dash rejects multi-digit fds in redirections at parse time). The
+        # parent end doubles as the gate: the child blocks on it until the
+        # pid is journaled, so a kernel kill in that window cannot leak an
+        # unjournaled command (parent death closes the socket -> child exits).
+        parent_sock, child_sock = socket.socketpair()
+        self._status_read = parent_sock.detach()
+        status_write = child_sock.detach()
         try:
-            self._proc: subprocess.Popen[bytes] | _winjob.JobProcess
-            if _IS_POSIX:
-                self._proc = subprocess.Popen(
-                    [_shell(), "-c", script],
-                    cwd=os.getcwd(),
-                    env=_child_env(),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                    stdin=status_write,
-                )
-            else:
-                self._proc = _winjob.spawn_in_job(
-                    self._job, [_shell(), "-c", script], cwd=os.getcwd(), env=_child_env()
-                )
+            self._wake_read, self._wake_write = os.pipe()
+        except BaseException:
+            os.close(self._status_read)
+            os.close(status_write)
+            raise
+        completion_token = secrets.token_hex(32)
+        # Halves stop passive echoes; a deliberate forgery freezes only this call while later bytes stay live.
+        token_midpoint = len(completion_token) // 2
+        self._completion_marker = (
+            _COMPLETION_PREFIX + completion_token.encode("ascii") + _COMPLETION_SUFFIX
+        )
+        script = _status_script(
+            _with_prefix(command),
+            completion_token[:token_midpoint],
+            completion_token[token_midpoint:],
+        )
+        try:
+            self._proc = subprocess.Popen(
+                [_shell(), "-c", script],
+                cwd=os.getcwd(),
+                env=_child_env(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                stdin=status_write,
+            )
         except BaseException:
             for fd in (self._status_read, self._wake_read, self._wake_write):
-                if fd >= 0:
-                    os.close(fd)
-            if self._job is not None:
-                job, self._job = self._job, None
-                _winjob.close(job)
+                os.close(fd)
             raise
         finally:
-            if status_write >= 0:
-                os.close(status_write)
+            os.close(status_write)
         self._pid: int = self._proc.pid
         self._released = False
         with _live_lock:
@@ -361,21 +330,13 @@ class BashHandle:
                 "bash(): orphan-journal enrollment failed (journal configured but the "
                 "pid could not be recorded); the spawned process was killed"
             )
-        if _IS_POSIX:
-            # Journal first, then open the gate: the child does not run the user
-            # command until this byte arrives. A failed write means the child
-            # already died; the status/EOF paths report that normally.
-            try:
-                os.write(self._status_read, b"\n")
-            except OSError:
-                pass
-        else:
-            # The child is already job-contained and journaled; resume is the
-            # last step. A failed resume would strand a permanently suspended
-            # child: fail closed via the assigned job.
-            if not cast("_winjob.JobProcess", self._proc).resume():
-                self._abort_spawn()
-                raise RuntimeError("bash(): Windows job containment could not be established")
+        # Journal first, then open the gate: the child does not run the user
+        # command until this byte arrives. A failed write means the child
+        # already died; the status/EOF paths report that normally.
+        try:
+            os.write(self._status_read, b"\n")
+        except OSError:
+            pass
         threading.Thread(target=self._pump, daemon=True).start()
         threading.Thread(target=self._report, daemon=True).start()
         threading.Thread(target=self._watch, daemon=True).start()
@@ -414,19 +375,6 @@ class BashHandle:
         self._released = True
         if self._reaped:
             return
-        if not _IS_POSIX:
-            with self._kill_lock:
-                if self._reaped:  # re-check: _watch may have reaped while we waited
-                    return
-                if self._job is not None and _winjob.terminate(self._job):
-                    return
-                # TerminateJobObject failed or reap raced: taskkill fallback.
-                if not _taskkill_tree(self._pid):
-                    try:
-                        self._proc.kill()
-                    except OSError:
-                        pass
-            return
         _signal_group(self._pid, sig)
         if sig == signal.SIGTERM:
             timer = threading.Timer(grace, self._force_kill)
@@ -440,15 +388,6 @@ class BashHandle:
     def _pump(self) -> None:
         stdout = self._proc.stdout
         assert stdout is not None
-        if not _IS_POSIX:
-            try:
-                while chunk := stdout.read1(_READ_CHUNK):
-                    self._buffer.write(chunk)
-            except (OSError, ValueError):
-                pass
-            stdout.close()
-            self._eof.set()
-            return
         fd = stdout.fileno()
         try:
             with selectors.DefaultSelector() as sel:
@@ -551,12 +490,8 @@ class BashHandle:
             self._abandon_completion()
             self._drain_grace()
             self._finalize(exit_code)
-        with self._kill_lock:
-            delivered = self._reap_group()
-            self._reaped = True
-            if not _IS_POSIX:
-                # Reaped: pid fallbacks are gone, so the handle may finally close.
-                cast("_winjob.JobProcess", self._proc).close()
+        delivered = self._reap_group()
+        self._reaped = True
         with self._callback_lock:
             callback, self._reap_callback = self._reap_callback, None
         if callback is not None:
@@ -572,16 +507,6 @@ class BashHandle:
     def _reap_group(self) -> bool:
         # Group liveness, not leader death, gates the inactive record: members
         # that outlive the leader would leak behind a stale journal anchor.
-        if not _IS_POSIX:
-            # Terminate then close the last handle: kill-on-close reaps
-            # stragglers. An unproven terminate falls back to taskkill; if
-            # that also fails the record stays active for the host reaper.
-            delivered = False
-            if self._job is not None:
-                delivered = _winjob.terminate(self._job)
-                job, self._job = self._job, None
-                _winjob.close(job)
-            return delivered or _taskkill_tree(self._pid)
         try:
             os.killpg(self._pid, 0)
         except ProcessLookupError:
@@ -635,9 +560,8 @@ class BashHandle:
             size = current
 
     def _pipe_pending(self) -> bool:
-        # POSIX only: FIONREAD on the capture pipe; Windows keeps the
-        # quiescence heuristic (best-effort parity).
-        if not _IS_POSIX or self._eof.is_set():
+        # FIONREAD on the capture pipe.
+        if self._eof.is_set():
             return False
         stdout = self._proc.stdout
         if stdout is None:
@@ -707,7 +631,7 @@ class BashHandle:
         try:
             task = loop.create_task(notice)
         except BaseException:
-            self.kill(signal.SIGKILL if _IS_POSIX else signal.SIGTERM)
+            self.kill(signal.SIGKILL)
             notice.close()
             repl.emit({"application/vnd.eukhe.bash-activity+json": {**activity, "active": False}})
             raise
@@ -848,22 +772,10 @@ class BashHandle:
 
     async def _confirm_group_exit(self) -> None:
         if not await self._await_group_death(_CANCEL_TERM_GRACE):
-            if _IS_POSIX:
-                _signal_group(self._pid, signal.SIGKILL)
-            else:
-                # kill() holds the escalation lock; to_thread keeps the loop free.
-                await asyncio.to_thread(self.kill)
+            _signal_group(self._pid, signal.SIGKILL)
             await self._await_group_death(_CANCEL_KILL_WAIT)
 
     def _group_alive(self) -> bool:
-        if not _IS_POSIX:
-            job = self._job  # snapshot: _watch may clear it concurrently
-            if job is not None:
-                # Job accounting sees detached descendants a dead leader hides.
-                empty = _winjob.is_empty(job)
-                if empty is not None:
-                    return not empty
-            return self._proc.poll() is None
         try:
             os.killpg(self._pid, 0)
         except ProcessLookupError:
@@ -881,46 +793,23 @@ class BashHandle:
         return True
 
     def _abort_spawn(self) -> None:
-        # Enrollment or containment failed before the gate opened (POSIX) or
-        # while the child is still suspended, before resume (Windows): kill
-        # the child and unwind the handle before threads start.
-        if _IS_POSIX:
-            for fd in (self._status_read, self._wake_read, self._wake_write):
-                if fd >= 0:
-                    try:
-                        os.close(fd)
-                    except OSError:
-                        pass
-            self._status_read = self._wake_read = self._wake_write = -1
-            delivered = _signal_group(self._pid, signal.SIGKILL)
-        else:
-            with self._kill_lock:
-                delivered = False
-                if self._job is not None:
-                    delivered = _winjob.terminate(self._job)
-                    job, self._job = self._job, None
-                    _winjob.close(job)
-                if not delivered:
-                    # Pre-resume abort: the never-run leader has no descendants, so a
-                    # delivered kill retires the journal record.
-                    try:
-                        self._proc.kill()
-                        delivered = True
-                    except OSError:
-                        pass
+        # Enrollment failed before the gate opened: kill the child and unwind
+        # the handle before threads start.
+        for fd in (self._status_read, self._wake_read, self._wake_write):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        self._status_read = self._wake_read = self._wake_write = -1
+        delivered = _signal_group(self._pid, signal.SIGKILL)
         if self._proc.stdout is not None:
             self._proc.stdout.close()
-        # The blocking wait stays outside the lock: hProcess is still open, so a
-        # concurrent raw-pid fallback stays pinned to the right process.
         try:
             self._proc.wait(timeout=5)
         except (OSError, subprocess.SubprocessError):
             pass
-        with self._kill_lock:
-            self._reaped = True
-            if not _IS_POSIX:
-                # Reaped commits before close: later lock holders skip raw-pid fallbacks.
-                cast("_winjob.JobProcess", self._proc).close()
+        self._reaped = True
         with _live_lock:
             _live_handles.discard(self)
             _activity_handles.pop(self._activity_id, None)
@@ -965,10 +854,7 @@ def bash(command: str) -> BashHandle:
     kills the command's process group. `h = bash(cmd)` used as a background
     handle (any .pid/.running/.output()/.tail()/.poll()/.kill() access before
     the first await) survives cancellation; awaiting it only waits. Leak
-    containment is per-platform: process groups plus the orphan journal on
-    POSIX; a kill-on-close job object on Windows entered while the child is
-    still suspended, so no descendant can escape it and kill()/crash cleanup
-    are unconditional -- bash() raises if containment cannot be established.
+    containment uses process groups plus the orphan journal.
     Output written after the completion fence (e.g. by an EXIT trap or a
     background job) is not in BashResult.output but stays visible via
     handle.output()/tail().
@@ -997,16 +883,8 @@ def _shell() -> str:
         if not os.path.isabs(override):
             raise ValueError("EUKHE_BASH_SHELL must be an absolute path")
         return override
-    if not _IS_POSIX:
-        # Never consult PATH on Windows: a repo-controlled PATH could supply
-        # the shell. The host injects EUKHE_BASH_SHELL when one exists.
-        raise RuntimeError(
-            "bash() needs EUKHE_BASH_SHELL set to the absolute path of a "
-            "POSIX shell on Windows (e.g. install Git Bash in its default "
-            "location so the host injects it)"
-        )
-    # PATH fallback only serves bare/standalone POSIX runtime use: the host
-    # always injects EUKHE_BASH_SHELL (an absolute path) when a shell exists.
+    # PATH fallback only serves bare/standalone runtime use: the host always
+    # injects EUKHE_BASH_SHELL (an absolute path) when a shell exists.
     shell = shutil.which("bash")
     return shell or "/bin/sh"
 
@@ -1089,55 +967,7 @@ def _signal_group(pid: int, sig: int) -> bool:
     return True
 
 
-def _system32(*parts: str) -> str:
-    # Absolute paths for Windows helper binaries: PATH (and CWD on Windows
-    # CPython) lookup could resolve a planted taskkill.exe/powershell.exe.
-    root = os.environ.get("SystemRoot", r"C:\Windows")
-    return os.path.join(root, "System32", *parts)
-
-
-def _helper_env() -> dict[str, str]:
-    return {**os.environ, "NoDefaultCurrentDirectoryInExePath": "1"}
-
-
-def _taskkill_tree(pid: int) -> bool:
-    # Windows has no process groups to signal; taskkill /T kills the whole tree.
-    try:
-        return (
-            subprocess.run(
-                [_system32("taskkill.exe"), "/PID", str(pid), "/T", "/F"],
-                capture_output=True,
-                timeout=10,
-                env=_helper_env(),
-            ).returncode
-            == 0
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
 def _process_start_id(pid: int) -> str | None:
-    if os.name == "nt":
-        # Mirrors getWindowsProcessStartId in session-lease.ts byte-for-byte so
-        # the host's identity comparison matches the journaled string.
-        try:
-            out = subprocess.run(
-                [
-                    _system32("WindowsPowerShell", "v1.0", "powershell.exe"),
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    f"([System.Diagnostics.Process]::GetProcessById({pid})).StartTime.ToUniversalTime().Ticks",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                env=_helper_env(),
-            ).stdout.strip()
-            return f"win:{out}" if out.isdigit() else None
-        except (OSError, subprocess.SubprocessError):
-            return None
     try:
         with open(f"/proc/{pid}/stat", "r") as f:
             stat = f.read()
@@ -1217,22 +1047,7 @@ def _kill_live_handles() -> None:
     with _live_lock:
         handles = list(_live_handles)
     for handle in handles:
-        if _IS_POSIX:
-            delivered = _signal_group(handle._pid, signal.SIGKILL)
-        else:
-            with handle._kill_lock:
-                if handle._reaped:
-                    continue
-                delivered = handle._job is not None and _winjob.terminate(handle._job)
-                if not delivered:
-                    delivered = _taskkill_tree(handle._pid)
-                if not delivered:
-                    # Leader-only fallback cannot prove the tree died: never
-                    # justifies an inactive record.
-                    try:
-                        handle._proc.kill()
-                    except OSError:
-                        pass
+        delivered = _signal_group(handle._pid, signal.SIGKILL)
         if delivered:
             _record_journal(handle._pid, active=False)
 

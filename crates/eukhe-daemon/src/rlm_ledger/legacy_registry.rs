@@ -126,7 +126,7 @@ pub fn write_rlm_subagent_display(entry: &RlmSubagentDisplayEntry) -> Result<boo
     // before the rename, so a crash mid-write leaves a stale temp and the
     // previous file intact - never a half-written display state.
     file.sync_all()?;
-    eukhe_core::platform::rename_onto(&temp, &dir.join("rlm-subagent.json"))
+    std::fs::rename(&temp, dir.join("rlm-subagent.json"))
         .with_context(|| format!("persist rlm-subagent display at {}", dir.display()))?;
     Ok(true)
 }

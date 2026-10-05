@@ -1,18 +1,14 @@
 //! Daemon socket lifecycle (port of daemon-socket.ts).
 //!
 //! Endpoint naming and identity live in [`crate::platform`]; the bind/connect
-//! calls go through the shared transport traits in `eukhe_types::platform`, so
-//! Unix socket files today and named pipes later differ only in the
-//! implementation module.
+//! calls go through the shared transport traits in `eukhe_types::platform`.
 
 use std::path::Path;
 use std::time::Duration;
 
-#[cfg(unix)]
 use anyhow::anyhow;
 use anyhow::Result;
 
-#[cfg(unix)]
 pub use crate::platform::socket_dir;
 pub use crate::platform::{
     default_daemon_socket_path, socket_identity, worker_socket_path, SocketIdentity,
@@ -31,15 +27,11 @@ pub async fn can_connect(path: &Path, timeout: Duration) -> bool {
 }
 
 /// Staleness after which the cleanup lock of a crashed holder is reclaimed
-/// (TS `DAEMON_SOCKET_LOCK_STALE_MS`). Unix only: every taker of the
-/// cleanup lock sits behind the unix stale-file wall.
-#[cfg(unix)]
+/// (TS `DAEMON_SOCKET_LOCK_STALE_MS`).
 const LOCK_STALE_AFTER: Duration = Duration::from_secs(5);
 /// Live-lock retry cadence (TS `DAEMON_SOCKET_RELEASE_POLL_MS`) and cap
 /// (TS `acquireDaemonSocketPathLease`'s 600 retries): ~15s total.
-#[cfg(unix)]
 const LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(25);
-#[cfg(unix)]
 const LOCK_RETRIES: u32 = 600;
 
 /// Acquire the cross-process cleanup lock (TS `acquireDaemonSocketPathLease`):
@@ -48,7 +40,6 @@ const LOCK_RETRIES: u32 = 600;
 /// a competing startup worker must queue here, so it cannot pass its own
 /// stale probe and bind a live listener between this process's identity
 /// check and its unlink.
-#[cfg(unix)]
 async fn acquire_cleanup_lock(path: &Path) -> Result<eukhe_core::platform::LockDir> {
     for attempt in 0..=LOCK_RETRIES {
         match eukhe_core::platform::LockDir::acquire(path, LOCK_STALE_AFTER) {
@@ -69,10 +60,7 @@ async fn acquire_cleanup_lock(path: &Path) -> Result<eukhe_core::platform::LockD
 
 /// Remove a stale socket file after verifying nothing is listening.
 ///
-/// Unix only: a stale socket file blocks `bind`. Named-pipe endpoints
-/// (Windows) have no filesystem residue - the first listener creates the
-/// pipe - so preparing the path is a no-op there (the TS `prepareDaemonSocketPath`
-/// returns early on win32 for the same reason).
+/// A stale socket file blocks `bind`.
 ///
 /// # Errors
 ///
@@ -80,7 +68,6 @@ async fn acquire_cleanup_lock(path: &Path) -> Result<eukhe_core::platform::LockD
 /// socket path cannot be stat'ed, a live listener already answers on the
 /// socket (in use), the cross-process cleanup lock cannot be acquired,
 /// or the locked cleanup itself fails.
-#[cfg(unix)]
 pub async fn prepare_socket_path(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         crate::paths::ensure_dir(parent)?;
@@ -105,7 +92,6 @@ pub async fn prepare_socket_path(path: &Path) -> Result<()> {
 
 /// Probe + grace wait + unlink for a probed-stale socket file (TS
 /// `prepareUnixDaemonSocketPath`); the caller owns the cleanup lock.
-#[cfg(unix)]
 async fn prepare_locked_socket_path(path: &Path) -> Result<()> {
     use std::os::unix::fs::FileTypeExt;
     let Ok(metadata) = std::fs::symlink_metadata(path) else {
@@ -153,9 +139,7 @@ async fn prepare_locked_socket_path(path: &Path) -> Result<()> {
 /// The caller holds the cleanup lock, so competing startup workers are
 /// serialized out of this check-then-act window; the identity gate covers
 /// processes that do not take the lock (non-eukhe-daemon), like the TS gate
-/// behind proper-lockfile's lease. Unix only: named-pipe endpoints leave
-/// no socket file to unlink, so the whole path stays unix.
-#[cfg(unix)]
+/// behind proper-lockfile's lease.
 async fn unlink_stale_socket(path: &Path, expected: SocketIdentity) -> Result<()> {
     if can_connect(path, Duration::from_millis(250)).await {
         return Err(anyhow!("Daemon socket already in use: {}", path.display()));
@@ -173,24 +157,8 @@ async fn unlink_stale_socket(path: &Path, expected: SocketIdentity) -> Result<()
     }
 }
 
-/// Windows arm of [`prepare_socket_path`]: named-pipe endpoints have
-/// no filesystem residue (the first listener creates the pipe), so
-/// preparing the path is a no-op (the TS `prepareDaemonSocketPath`
-/// returns early on win32 for the same reason).
-///
-/// # Errors
-///
-/// Does not error: there is no path to prepare for a named pipe.
-// The signature stays async for the shared unix callers (the await is
-// the unix arm's own; the pipe arm has no path to prepare).
-#[cfg(not(unix))]
-#[cfg_attr(not(unix), allow(clippy::unused_async))]
-pub async fn prepare_socket_path(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
 /// Remove the socket file when it still belongs to this supervisor
-/// incarnation. No-op for named pipes (no file to clean up).
+/// incarnation.
 ///
 /// The remove runs under the cleanup lock's best-effort twin (TS
 /// `cleanupDaemonSocketPath` takes proper-lockfile's sync lock with zero
@@ -200,7 +168,6 @@ pub fn cleanup_socket_path(path: &Path, expected_identity: Option<SocketIdentity
     if !path.exists() {
         return;
     }
-    #[cfg(unix)]
     let Ok(_cleanup_lock) = eukhe_core::platform::LockDir::acquire(path, LOCK_STALE_AFTER) else {
         return;
     };
@@ -213,13 +180,12 @@ pub fn cleanup_socket_path(path: &Path, expected_identity: Option<SocketIdentity
     let _ = std::fs::remove_file(path);
 }
 
-/// Restrict the bound socket file to its owner (Unix mode 0o600; Windows
-/// named pipes use ACLs on the pipe object instead).
+/// Restrict the bound socket file to its owner (mode 0o600).
 pub fn restrict_socket_path(path: &Path) {
     let _ = eukhe_core::platform::perms::restrict_file(path);
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use eukhe_types::platform::transport::bind_transport;

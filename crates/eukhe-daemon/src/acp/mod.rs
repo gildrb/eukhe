@@ -35,19 +35,16 @@ fn same_cwd(requested: &Path, actual: &Path) -> bool {
     if requested == actual {
         return true;
     }
-    #[cfg(unix)]
-    {
-        let identity = |path: &Path| -> Option<(u64, u64)> {
-            use std::os::unix::fs::MetadataExt;
-            let metadata = std::fs::metadata(path).ok()?;
-            if metadata.dev() == 0 || metadata.ino() == 0 {
-                return None;
-            }
-            Some((metadata.dev(), metadata.ino()))
-        };
-        if let (Some(left), Some(right)) = (identity(&requested), identity(&actual)) {
-            return left == right;
+    let identity = |path: &Path| -> Option<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(path).ok()?;
+        if metadata.dev() == 0 || metadata.ino() == 0 {
+            return None;
         }
+        Some((metadata.dev(), metadata.ino()))
+    };
+    if let (Some(left), Some(right)) = (identity(&requested), identity(&actual)) {
+        return left == right;
     }
     false
 }

@@ -219,13 +219,6 @@ impl WindowedSessionStore {
     /// `Ok(None)` first), and the header `expect` runs only after the
     /// deconstruction above proved it present.
     pub fn open(path: &Path) -> io::Result<Option<Self>> {
-        // The generation certificate anchors on unix inode identity; a
-        // same-length replace is indistinguishable under the weak non-unix
-        // metadata, so windows never serves a windowed open — and must not
-        // pay the reverse scan first either: bail out before any reads.
-        if !cfg!(unix) {
-            return Ok(None);
-        }
         let mut file = std::fs::File::open(path)?;
         let generation = Generation::of(&file.metadata()?);
         let size = file.metadata()?.len();

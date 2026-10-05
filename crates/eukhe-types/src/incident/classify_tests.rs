@@ -126,13 +126,9 @@ fn a_later_sighting_never_owns_an_earlier_failure() {
 }
 
 #[test]
-fn worker_ids_parse_from_unix_and_named_pipe_socket_paths() {
+fn worker_ids_parse_from_unix_socket_paths() {
     assert_eq!(
         worker_id_from_socket_path(Some("/tmp/eukhe-501/worker-98ed5cb228d2-5b1d3aeb91ee.sock")),
-        Some("5b1d3aeb91ee")
-    );
-    assert_eq!(
-        worker_id_from_socket_path(Some(r"\\.\pipe\eukhe-worker-98ed5cb228d2-5b1d3aeb91ee")),
         Some("5b1d3aeb91ee")
     );
     assert_eq!(
@@ -140,35 +136,6 @@ fn worker_ids_parse_from_unix_and_named_pipe_socket_paths() {
         None
     );
     assert_eq!(worker_id_from_socket_path(None), None);
-}
-
-#[test]
-fn classifies_worker_events_for_windows_named_pipe_sockets() {
-    let socket_path = r"\\.\pipe\eukhe-worker-98ed5cb228d2-5b1d3aeb91ee";
-    let entries = vec![
-        worker_start_line("2026-09-10T20:00:00.000Z", socket_path, 53615),
-        // The worker's own crash line (TS `daemonLine`): the daemon
-        // component with the named-pipe socket path.
-        log_line(&[
-            ("ts", serde_json::json!("2026-09-10T20:23:24.945Z")),
-            ("component", serde_json::json!("coding-agent.daemon")),
-            ("socketPath", serde_json::json!(socket_path)),
-            ("pid", serde_json::json!(53615)),
-            (
-                "msg",
-                serde_json::json!("uncaught exception: Error: write EPIPE"),
-            ),
-        ]),
-    ];
-    let events = collect_incident_events(&entries, &collect_worker_pid_map(&entries));
-    let classes: Vec<&str> = events
-        .iter()
-        .map(|event| event.event_class.as_str())
-        .collect();
-    assert_eq!(classes, vec!["worker-start", "worker-crash"]);
-    assert!(events
-        .iter()
-        .all(|event| event.subject == "worker 5b1d3aeb91ee"));
 }
 
 #[test]

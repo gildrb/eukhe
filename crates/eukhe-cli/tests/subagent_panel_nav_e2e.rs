@@ -24,7 +24,6 @@
 //! flips to `Enter/→ open`); Enter opens the scoped agents view listing the
 //! child; Enter drills into the child's transcript (the ancestor carry); and
 //! the agents-back key returns from the child to the agents view.
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};

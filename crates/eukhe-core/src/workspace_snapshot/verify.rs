@@ -63,7 +63,7 @@ fn read_manifest(path: &Path) -> Result<SnapshotManifest, SnapshotError> {
     };
     let metadata =
         std::fs::symlink_metadata(path).map_err(|error| reject(format!("unreadable: {error}")))?;
-    // A named pipe (or a device) named as the manifest would otherwise
+    // A FIFO (or a device) named as the manifest would otherwise
     // pass the length check — a FIFO reports length zero — and block
     // the open until a writer appears; anything but a regular file is
     // a malformed staging area.

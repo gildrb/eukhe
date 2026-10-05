@@ -262,8 +262,8 @@ fn newest_daemon_log_path(logs_dir: &Path) -> Option<PathBuf> {
 }
 
 /// `<socket basename>.<hash8>.log` (TS `DAEMON_LOG_FILE_PATTERN`): the
-/// socket basename itself may lack `.sock` for custom sockets and Windows
-/// named pipes, so the hash suffix carries the match.
+/// socket basename itself may lack `.sock` for custom sockets, so the hash
+/// suffix carries the match.
 fn is_daemon_log_file_name(name: &str) -> bool {
     let Some(stem) = name.strip_suffix(".log") else {
         return false;

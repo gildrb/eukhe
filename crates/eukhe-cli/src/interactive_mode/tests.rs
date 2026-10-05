@@ -770,7 +770,6 @@ fn fork_startup_selection_reports_the_ts_contracts() {
 }
 
 // The tilde selector expands a unix HOME path.
-#[cfg(unix)]
 #[test]
 fn fork_startup_selection_expands_a_tilde_selector() {
     // The resume selector's convention: a leading `~` resolves against
@@ -814,7 +813,6 @@ fn fork_startup_selection_expands_a_tilde_selector() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn fork_startup_selection_rejects_a_fifo_source_without_hanging() {
     // A FIFO with no writer blocks the copy's read forever; the guard

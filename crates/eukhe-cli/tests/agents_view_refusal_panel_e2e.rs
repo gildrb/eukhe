@@ -23,7 +23,6 @@
 //! refusal as its notice — and the view renders the panel with the full
 //! text, both ways out (the continue path and the take-over kill)
 //! visible and wrapped, never the one-line status truncation.
-#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};

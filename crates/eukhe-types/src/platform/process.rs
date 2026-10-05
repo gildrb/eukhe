@@ -18,7 +18,6 @@
 /// same process. `None` only when the platform exposes neither - owners
 /// then trust liveness checks alone, exactly like TS records with
 /// `processStartId: undefined`.
-#[cfg(unix)]
 #[must_use]
 pub fn process_start_id(pid: u32) -> Option<String> {
     if pid == 0 {
@@ -39,7 +38,7 @@ pub fn process_start_id(pid: u32) -> Option<String> {
 /// durable identity. Formatted `ps:<lstart>` - the exact value the TS
 /// product records on macOS and BSD. A pid that `kill(0)` reports gone
 /// answers `None` without spawning `ps`.
-#[cfg(all(unix, not(target_vendor = "apple")))]
+#[cfg(not(target_vendor = "apple"))]
 fn ps_process_start_id(pid: u32) -> Option<String> {
     if matches!(pid_exists(pid), Ok(false)) {
         return None;
@@ -88,29 +87,6 @@ fn ps_process_start_id(pid: u32) -> Option<String> {
     (written > 0).then(|| format!("ps:{lstart}"))
 }
 
-/// Windows: the process creation time in 100ns ticks since 1601-01-01 UTC
-/// (`GetProcessTimes`), formatted `win:<ticks>` - the same value the TS
-/// product records via PowerShell `StartTime.ToUniversalTime().Ticks`
-/// (TS `getWindowsProcessStartId`); a recycled pid has a different
-/// creation time, so the identity check is exact.
-#[cfg(windows)]
-#[must_use]
-pub fn process_start_id(pid: u32) -> Option<String> {
-    if pid == 0 {
-        return None;
-    }
-    let handle = winapi::open_process(winapi::PROCESS_QUERY_LIMITED_INFORMATION, pid)?;
-    let ticks = winapi::process_creation_ticks(handle);
-    winapi::close_handle(handle);
-    ticks.map(|ticks| format!("win:{ticks}"))
-}
-
-#[cfg(not(any(unix, windows)))]
-pub fn process_start_id(_pid: u32) -> Option<String> {
-    // No identity available on this platform; owners trust liveness alone.
-    None
-}
-
 /// The executable a live pid currently runs (best-effort, like the liveness
 /// probes: `None` when the platform cannot answer). Names the process
 /// holding a runtime session lease in the session-hold refusal - the TS and
@@ -130,7 +106,7 @@ pub fn process_executable_path(pid: u32) -> Option<std::path::PathBuf> {
 /// macOS: `proc_pidpath` (libproc). A process the caller may not inspect
 /// answers 0 and stays `None` - the same best-effort contract as the Linux
 /// `/proc` read.
-#[cfg(all(unix, target_vendor = "apple"))]
+#[cfg(target_vendor = "apple")]
 #[must_use]
 pub fn process_executable_path(pid: u32) -> Option<std::path::PathBuf> {
     if pid == 0 {
@@ -165,53 +141,6 @@ pub fn process_executable_path(pid: u32) -> Option<std::path::PathBuf> {
     ))
 }
 
-/// Other unixes expose neither `/proc/<pid>/exe` nor libproc's
-/// `proc_pidpath`: the holder hint stays anonymous there.
-#[cfg(all(unix, not(any(target_os = "linux", target_vendor = "apple"))))]
-pub fn process_executable_path(_pid: u32) -> Option<std::path::PathBuf> {
-    None
-}
-
-/// Windows: `QueryFullProcessImageNameW` under the same query access the
-/// identity ladder uses.
-#[cfg(windows)]
-#[must_use]
-pub fn process_executable_path(pid: u32) -> Option<std::path::PathBuf> {
-    if pid == 0 {
-        return None;
-    }
-    let handle = winapi::open_process(winapi::PROCESS_QUERY_LIMITED_INFORMATION, pid)?;
-    let mut buffer = [0u16; 1024];
-    // The buffer is a fixed [u16; 1024]: the length never exceeds u32.
-    #[allow(clippy::cast_possible_truncation)]
-    let mut size = buffer.len() as u32;
-    // Writes the process image path into `buffer` (at most `size` wide
-    // chars, NUL-terminated); a 0 return means the query failed. The
-    // hand-declared `winapi` wrappers are safe fns, so no `unsafe` here.
-    let written = winapi::query_full_process_image_name(
-        handle,
-        buffer.as_mut_ptr(),
-        std::ptr::from_mut(&mut size),
-    );
-    winapi::close_handle(handle);
-    if written == 0 {
-        return None;
-    }
-    let end = buffer[..(size as usize).min(buffer.len())]
-        .iter()
-        .position(|wide| *wide == 0)
-        .unwrap_or((size as usize).min(buffer.len()));
-    Some(std::path::PathBuf::from(String::from_utf16_lossy(
-        &buffer[..end],
-    )))
-}
-
-/// No executable path on platforms without a process-inspection surface.
-#[cfg(not(any(unix, windows)))]
-pub fn process_executable_path(_pid: u32) -> Option<std::path::PathBuf> {
-    None
-}
-
 // Suspend-to-background signal control (TS `handleCtrlZ`): the
 // interactive TUI stops its whole process group with SIGTSTP when the
 // user suspends it, with SIGINT ignored for the stopped window (a
@@ -229,7 +158,6 @@ pub fn process_executable_path(_pid: u32) -> Option<std::path::PathBuf> {
 ///
 /// Returns an error when delivering `SIGTSTP` to the process group fails;
 /// the error carries the last OS error.
-#[cfg(unix)]
 pub fn stop_own_process_group() -> anyhow::Result<()> {
     // SAFETY: delivers SIGTSTP to the caller's own process group; the
     // default disposition stops it, exactly like the terminal's own
@@ -250,7 +178,6 @@ pub fn stop_own_process_group() -> anyhow::Result<()> {
 /// pends, and it would then arrive after this cycle restored the default
 /// disposition and kill the process. A handler runs (and does nothing)
 /// at that delivery instead.
-#[cfg(unix)]
 extern "C" fn swallow_sigint(_signal: libc::c_int) {}
 
 /// Ignore SIGINT for the suspended window (TS installs a no-op `SIGINT`
@@ -261,7 +188,6 @@ extern "C" fn swallow_sigint(_signal: libc::c_int) {}
 ///
 /// Returns an error when setting the no-op `SIGINT` handler fails; the
 /// error carries the last OS error.
-#[cfg(unix)]
 pub fn ignore_sigint_for_suspend() -> anyhow::Result<()> {
     // SAFETY: swaps only the SIGINT disposition to the no-op handler.
     // The fn-item cast goes through the fn-pointer type so no
@@ -284,7 +210,6 @@ pub fn ignore_sigint_for_suspend() -> anyhow::Result<()> {
 ///
 /// Returns an error when restoring the default `SIGINT` disposition
 /// fails; the error carries the last OS error.
-#[cfg(unix)]
 pub fn restore_default_sigint() -> anyhow::Result<()> {
     // SAFETY: swaps only the SIGINT disposition back to SIG_DFL.
     if unsafe { libc::signal(libc::SIGINT, libc::SIG_DFL) } == libc::SIG_ERR {
@@ -296,47 +221,10 @@ pub fn restore_default_sigint() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Suspend-to-background is a POSIX process-group surface: the
-/// non-unix arm refuses (the TS `handleCtrlZ` has no win32 path either).
-///
-/// # Errors
-///
-/// Always errors on non-unix platforms: there is no POSIX process
-/// group to stop.
-#[cfg(not(unix))]
-pub fn stop_own_process_group() -> anyhow::Result<()> {
-    anyhow::bail!("suspend to background requires a POSIX process group")
-}
-
-/// The suspended-window SIGINT shield is POSIX-only (the unix arm swaps
-/// the disposition to a no-op handler).
-///
-/// # Errors
-///
-/// Always errors on non-unix platforms: there is no SIGINT disposition
-/// to set.
-#[cfg(not(unix))]
-pub fn ignore_sigint_for_suspend() -> anyhow::Result<()> {
-    anyhow::bail!("suspend to background requires a POSIX process group")
-}
-
-/// The resume-side SIGINT restore is POSIX-only (the unix arm returns
-/// the default disposition).
-///
-/// # Errors
-///
-/// Always errors on non-unix platforms: there is no SIGINT disposition
-/// to restore.
-#[cfg(not(unix))]
-pub fn restore_default_sigint() -> anyhow::Result<()> {
-    anyhow::bail!("suspend to background requires a POSIX process group")
-}
-
 /// TS `processIdExists`: `kill(pid, 0)` checks existence only. ESRCH and a
 /// pid beyond `pid_t`'s range (which must not wrap into kill's negative
 /// "every process" argument) do not exist; EPERM does - the pid is just
 /// not ours to signal.
-#[cfg(unix)]
 fn pid_exists(pid: u32) -> std::io::Result<bool> {
     let Ok(pid) = libc::pid_t::try_from(pid) else {
         return Ok(false);
@@ -368,7 +256,6 @@ fn pid_exists(pid: u32) -> std::io::Result<bool> {
 /// Returns an error when the `kill(pid, 0)` probe fails with an error
 /// other than `ESRCH` (dead) or `EPERM` (alive), or when the zombie
 /// demotion cannot run.
-#[cfg(unix)]
 pub fn is_process_alive(pid: u32) -> anyhow::Result<bool> {
     if pid == 0 {
         return Ok(false);
@@ -402,31 +289,6 @@ pub fn is_process_alive(pid: u32) -> anyhow::Result<bool> {
             .starts_with('Z')
     };
     Ok(!zombie)
-}
-
-/// Windows: a handle-existence probe with the `STILL_ACTIVE` exit-code check
-/// (TS `isProcessAlive` = `processIdExists` && !zombie; win32 has no zombie
-/// state, and Node's `kill(pid, 0)` is the same exit-code probe). A pid the
-/// caller may not query exists (TS counts EPERM as existing) and reads
-/// alive: lease owners must not treat an access-denied probe as a dead
-/// owner.
-///
-/// # Errors
-///
-/// This arm does not fail: every query outcome maps to alive or dead
-/// (the handle probe's own failure reads as dead, never as a stale-owner
-/// reclaim).
-#[cfg(windows)]
-pub fn is_process_alive(pid: u32) -> anyhow::Result<bool> {
-    if pid == 0 {
-        return Ok(false);
-    }
-    Ok(winapi::is_still_active(pid))
-}
-
-#[cfg(not(any(unix, windows)))]
-pub fn is_process_alive(_pid: u32) -> anyhow::Result<bool> {
-    anyhow::bail!("process liveness is not implemented on this platform")
 }
 
 /// XNU's process record (`struct kinfo_proc`, <sys/sysctl.h>), which the
@@ -487,145 +349,10 @@ mod darwin {
     }
 }
 
-/// The kernel32 surface the Windows identity/liveness queries need, as a
-/// hand-declared extern wall (repo policy: pinned constants and externs,
-/// no windows-sys dependency - same policy as the named-pipe transport).
-#[cfg(windows)]
-mod winapi {
-    #![allow(non_snake_case)]
-
-    use std::ffi::c_void;
-
-    /// `winnt.h`: query the process without operating on it.
-    pub(crate) const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
-    /// `winerror.h` `STILL_ACTIVE`: the exit code a running process reports.
-    pub(crate) const STILL_ACTIVE: u32 = 259;
-    /// `winerror.h` `ERROR_ACCESS_DENIED`: the pid exists but is not ours to
-    /// query.
-    const ERROR_ACCESS_DENIED: u32 = 5;
-
-    /// A Win32 `FILETIME`: 100ns ticks since 1601-01-01 UTC, split 32/32.
-    #[repr(C)]
-    #[derive(Clone, Copy, Default)]
-    struct FileTime {
-        dwLowDateTime: u32,
-        dwHighDateTime: u32,
-    }
-
-    impl FileTime {
-        fn ticks(self) -> u64 {
-            (u64::from(self.dwHighDateTime)) << 32 | u64::from(self.dwLowDateTime)
-        }
-    }
-
-    type Handle = *mut c_void;
-
-    extern "system" {
-        fn OpenProcess(access: u32, inherit_handle: i32, process_id: usize) -> Handle;
-        fn CloseHandle(handle: Handle) -> i32;
-        fn QueryFullProcessImageNameW(
-            handle: Handle,
-            flags: u32,
-            exe_name: *mut u16,
-            size: *mut u32,
-        ) -> i32;
-        fn GetExitCodeProcess(handle: Handle, exit_code: *mut u32) -> i32;
-        fn GetProcessTimes(
-            handle: Handle,
-            creation_time: *mut FileTime,
-            exit_time: *mut FileTime,
-            kernel_time: *mut FileTime,
-            user_time: *mut FileTime,
-        ) -> i32;
-        fn GetLastError() -> u32;
-    }
-
-    /// Open a query handle, `None` when the pid does not resolve.
-    pub(crate) fn open_process(access: u32, pid: u32) -> Option<Handle> {
-        let handle = unsafe { OpenProcess(access, 0, pid as usize) };
-        (!handle.is_null()).then_some(handle)
-    }
-
-    pub(crate) fn close_handle(handle: Handle) {
-        unsafe { CloseHandle(handle) };
-    }
-
-    /// The full path of the process image (`QueryFullProcessImageNameW`,
-    /// win32 format), `0` when the query fails.
-    pub(crate) fn query_full_process_image_name(
-        handle: Handle,
-        buffer: *mut u16,
-        size: *mut u32,
-    ) -> i32 {
-        // SAFETY: the caller owns `buffer`/`size` for the call's duration.
-        unsafe { QueryFullProcessImageNameW(handle, 0, buffer, size) }
-    }
-
-    /// The creation-time ticks of the process, `None` when the query fails.
-    pub(crate) fn process_creation_ticks(handle: Handle) -> Option<u64> {
-        let mut creation = FileTime::default();
-        let mut exit = FileTime::default();
-        let mut kernel = FileTime::default();
-        let mut user = FileTime::default();
-        let ok = unsafe {
-            GetProcessTimes(
-                handle,
-                std::ptr::from_mut(&mut creation),
-                std::ptr::from_mut(&mut exit),
-                std::ptr::from_mut(&mut kernel),
-                std::ptr::from_mut(&mut user),
-            )
-        };
-        (ok != 0).then(|| creation.ticks())
-    }
-
-    /// True when the pid names a running process. A queryable pid is alive
-    /// while its exit code is `STILL_ACTIVE`; an access-denied probe means
-    /// the process exists but is not ours to inspect (the EPERM case TS
-    /// counts as existing), and reads alive: a lease owner must never look
-    /// dead just because the probe was denied.
-    pub(crate) fn is_still_active(pid: u32) -> bool {
-        let Some(handle) = open_process(PROCESS_QUERY_LIMITED_INFORMATION, pid) else {
-            return unsafe { GetLastError() } == ERROR_ACCESS_DENIED;
-        };
-        let mut exit_code = 0;
-        let ok = unsafe { GetExitCodeProcess(handle, std::ptr::from_mut(&mut exit_code)) };
-        close_handle(handle);
-        ok != 0 && exit_code == STILL_ACTIVE
-    }
-}
-
-#[cfg(all(test, windows))]
-mod windows_tests {
-    use super::*;
-
-    /// Round-trip identity + liveness on this very process; the identity
-    /// must be stable while the process runs (it is the creation time).
-    #[test]
-    fn self_process_identity_and_liveness() {
-        let id = process_start_id(std::process::id());
-        let Some(id) = id else {
-            panic!("a live process must expose its creation-time identity");
-        };
-        assert!(id.starts_with("win:") && id[4..].chars().all(|c| c.is_ascii_digit()));
-        assert_eq!(process_start_id(std::process::id()), Some(id));
-        assert!(is_process_alive(std::process::id()).unwrap_or(false));
-    }
-
-    /// A pid that cannot exist is dead and carries no identity.
-    #[test]
-    fn invalid_pid_is_dead() {
-        assert_eq!(process_start_id(0), None);
-        assert_eq!(process_start_id(u32::MAX), None);
-        assert!(!is_process_alive(0).unwrap_or(true));
-        assert!(!is_process_alive(u32::MAX).unwrap_or(true));
-    }
-}
-
 /// Liveness answers on every unix, /proc or not: the probe families are
 /// both reachable on Linux (a pid without a /proc entry takes the
 /// kill(0) fallback), so the fallback is testable without /proc.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod liveness_tests {
     use super::*;
 
@@ -786,7 +513,7 @@ mod darwin_process_record_tests {
 /// installed (a caught handler while suspended — the kernel evaluates
 /// the disposition at delivery, so a shield must be a handler, not
 /// `SIG_IGN` — and the default restored on resume).
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod suspend_shield_tests {
     use super::*;
 

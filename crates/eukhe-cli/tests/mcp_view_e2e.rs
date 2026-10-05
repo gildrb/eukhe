@@ -25,7 +25,6 @@
 //! driving `/mcp` must render the inline view — the connected card with
 //! its status, one fixed detail line, the key hint — while the
 //! login/logout argument arms keep their notes.
-#![cfg(unix)]
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};

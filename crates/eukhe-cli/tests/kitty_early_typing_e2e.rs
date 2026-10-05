@@ -37,7 +37,6 @@
 //! renders at 241.8/201.6/131.8/51.8ms p50 — the settle-coupled signature)
 //! so the 150ms bound is the red/green line, not a flake: a regression to
 //! the single-hold window fails it on every trial.
-#![cfg(unix)]
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};

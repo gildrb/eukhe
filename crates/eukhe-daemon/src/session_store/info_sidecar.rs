@@ -82,7 +82,7 @@ pub(crate) fn persist_info_sidecar(path: &Path) {
             },
         )?;
         file.flush()?;
-        eukhe_core::platform::rename_onto(&temp, &sidecar_path(path))
+        std::fs::rename(&temp, sidecar_path(path))
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);

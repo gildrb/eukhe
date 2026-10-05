@@ -22,7 +22,6 @@ pub const SCHEMA_REVISION: u64 = 3;
 /// The `cpu_baseline` values.
 const CPU_AVX2: &str = "avx2";
 const CPU_NO_AVX2: &str = "no_avx2";
-const CPU_AVX2_ASSUMED: &str = "avx2_assumed";
 const CPU_NOT_APPLICABLE: &str = "not_applicable";
 
 /// The platform-fidelity set (memoised: probes run at most once per process).
@@ -71,7 +70,6 @@ pub fn base_properties(execution_mode: &str) -> Properties {
 fn os_family() -> &'static str {
     match std::env::consts::OS {
         "macos" => "darwin",
-        "windows" => "win32",
         other => other,
     }
 }
@@ -81,9 +79,6 @@ fn architecture() -> &'static str {
     match std::env::consts::ARCH {
         "x86_64" => "x64",
         "aarch64" => "arm64",
-        "x86" => "ia32",
-        "powerpc64" => "ppc64",
-        "loongarch64" => "loong64",
         other => other,
     }
 }
@@ -189,50 +184,31 @@ fn glibc_banner_version(library: &[u8]) -> Option<String> {
     (!version.is_empty()).then(|| version.to_string())
 }
 
-/// AVX2 availability on `x86_64` via /proc/cpuinfo (Linux); not applicable off
-/// `x86_64`; `unknown` where there is no probe.
+/// AVX2 availability on Linux `x86_64` via /proc/cpuinfo; not applicable
+/// off `x86_64` (Apple Silicon included).
 fn detect_cpu_baseline() -> &'static str {
-    if cfg!(target_arch = "x86_64") {
-        if cfg!(target_os = "linux") {
-            let Some(cpuinfo) = read_text_prefix("/proc/cpuinfo", 16_384) else {
-                return UNKNOWN;
-            };
-            let Some(flags_line) = cpuinfo.split('\n').find(|line| line.starts_with("flags"))
-            else {
-                return UNKNOWN;
-            };
-            let flags = flags_line.split_once(':').map(|(_, rest)| rest);
-            match flags {
-                Some(flags) if flags.split_whitespace().any(|flag| flag == "avx2") => CPU_AVX2,
-                Some(_) => CPU_NO_AVX2,
-                None => UNKNOWN,
-            }
-        } else if cfg!(target_os = "macos") {
-            // TS parity: every Intel Mac that runs a supported macOS has
-            // AVX2; the distinct value keeps the inference visible.
-            CPU_AVX2_ASSUMED
-        } else {
-            UNKNOWN
-        }
-    } else {
-        CPU_NOT_APPLICABLE
+    if !cfg!(target_arch = "x86_64") {
+        return CPU_NOT_APPLICABLE;
+    }
+    let Some(cpuinfo) = read_text_prefix("/proc/cpuinfo", 16_384) else {
+        return UNKNOWN;
+    };
+    let Some(flags_line) = cpuinfo.split('\n').find(|line| line.starts_with("flags")) else {
+        return UNKNOWN;
+    };
+    match flags_line.split_once(':').map(|(_, rest)| rest) {
+        Some(flags) if flags.split_whitespace().any(|flag| flag == "avx2") => CPU_AVX2,
+        Some(_) => CPU_NO_AVX2,
+        None => UNKNOWN,
     }
 }
 
-/// The kernel release (TS `os.release()`: `uname -r` on Linux and macOS);
-/// `unknown` on Windows, where this build has no probe.
+/// The kernel release (TS `os.release()`: `uname -r` on Linux and macOS).
 fn detect_os_release() -> String {
-    #[cfg(unix)]
-    {
-        rustix::system::uname()
-            .release()
-            .to_string_lossy()
-            .into_owned()
-    }
-    #[cfg(not(unix))]
-    {
-        UNKNOWN.into()
-    }
+    rustix::system::uname()
+        .release()
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// macOS product version from SystemVersion.plist; `unknown` elsewhere.
@@ -348,9 +324,8 @@ mod tests {
     #[test]
     fn platform_names_use_the_ts_vocabulary() {
         let os = os_family();
-        assert!(["linux", "darwin", "win32", "freebsd", "android"].contains(&os) || !os.is_empty());
+        assert!(["linux", "darwin"].contains(&os));
         assert_ne!(os, "macos");
-        assert_ne!(os, "windows");
         let arch = architecture();
         assert_ne!(arch, "x86_64");
         assert_ne!(arch, "aarch64");

@@ -1249,7 +1249,6 @@ fn acp_daemon_attached_failed_turn_publishes_only_the_error_boundary() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn acp_daemon_attached_supervisor_loss_fails_the_prompt() {
     // The supervisor dies while a prompt is in flight: the pending

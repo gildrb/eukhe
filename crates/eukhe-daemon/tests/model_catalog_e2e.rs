@@ -4,8 +4,6 @@
 //! daemon (no network, no live catalog) must fall back to the bundled
 //! catalog with the disk cache untouched — the offline fallback the picker
 //! renders when the refresh cannot land.
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};

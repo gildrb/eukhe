@@ -168,28 +168,13 @@ fn state_root_matches(root: &DaemonStateRoot, socket_path: &Path) -> bool {
     if socket_path == eukhe_core::memory::chat_dir(&root.agent_dir).join("lock") {
         return false;
     }
-    #[cfg(windows)]
-    {
-        // Windows daemons share one named pipe per machine, so there is
-        // nothing to scope beyond the containment guard (TS
-        // `createDaemonStateRootMatcher` returns an always-true predicate on
-        // win32).
-        let _ = (root, socket_path);
-        true
+    if socket_path == root.default_socket_path || socket_path.parent() == Some(&root.socket_dir) {
+        return true;
     }
-    #[cfg(not(windows))]
-    {
-        if socket_path == root.default_socket_path || socket_path.parent() == Some(&root.socket_dir)
-        {
-            return true;
-        }
-        inside(socket_path.parent(), &root.agent_dir)
-    }
+    inside(socket_path.parent(), &root.agent_dir)
 }
 
-/// True when `directory` is `parent` or sits below it (TS `isInside`). Only
-/// the non-Windows root matcher scopes; the Windows arm accepts any path.
-#[cfg(not(windows))]
+/// True when `directory` is `parent` or sits below it (TS `isInside`).
 fn inside(directory: Option<&Path>, parent: &Path) -> bool {
     let Some(directory) = directory else {
         return false;
@@ -241,7 +226,6 @@ pub(crate) fn is_daemon_process_listening(
 /// Socket files in the given socket dir (TS `scanSocketDir`): live daemons
 /// and orphaned files alike. Never-touch paths are filtered out here too,
 /// so even a root handed in on purpose cannot sweep them.
-#[cfg(unix)]
 fn scan_socket_dir(socket_dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(socket_dir) else {
         return Vec::new();
@@ -256,17 +240,7 @@ fn scan_socket_dir(socket_dir: &Path) -> Vec<PathBuf> {
     sockets
 }
 
-/// Windows daemon endpoints are named pipes: there is no socket directory to
-/// sweep, and discovery comes from tracked worker descriptors and the
-/// default pipe (see [`discover_daemons_with`]; TS `scanSocketDir` returns
-/// [] on win32).
-#[cfg(not(unix))]
-fn scan_socket_dir(_socket_dir: &Path) -> Vec<PathBuf> {
-    Vec::new()
-}
-
 /// True when the path is a unix socket file.
-#[cfg(unix)]
 fn is_socket_file(path: &Path) -> bool {
     use std::os::unix::fs::FileTypeExt;
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_socket())
@@ -481,17 +455,6 @@ pub(crate) fn verify_hello_supervisor_pid(
 /// current root, tests pass their own fixture dirs. A daemon outside the
 /// root is never discovered, probed, or stopped.
 pub(crate) fn discover_daemons(root: &DaemonStateRoot) -> Vec<DaemonInfo> {
-    discover_daemons_with(root, cfg!(windows))
-}
-
-/// [`discover_daemons`] with the endpoint model explicit. With
-/// `named_pipes` (Windows) there is no listener census and no socket dir to
-/// sweep, so the fixed daemon pipe is always probed: an idle daemon with no
-/// tracked workers is otherwise invisible and `shutdown` would report
-/// success without stopping it. A pipe exists only while its server holds
-/// it, so an unanswered one with no listener or tracked worker is simply
-/// absent - there is no orphan file to report or remove.
-fn discover_daemons_with(root: &DaemonStateRoot, named_pipes: bool) -> Vec<DaemonInfo> {
     let mut process_by_socket = std::collections::HashMap::new();
     for daemon in scan_listening_daemons(root) {
         if is_worker_socket_path(&daemon.socket_path, &root.socket_dir) {
@@ -517,16 +480,13 @@ fn discover_daemons_with(root: &DaemonStateRoot, named_pipes: bool) -> Vec<Daemo
         // `--daemon-socket`/`EUKHE_DAEMON_SOCKET` path outside the socket
         // dir is otherwise found only by the listener census (never as an
         // orphan file, and not at all where the census tools are missing).
-        .chain(
-            (named_pipes || is_socket_file(&root.default_socket_path))
-                .then(|| root.default_socket_path.clone()),
-        )
+        .chain(is_socket_file(&root.default_socket_path).then(|| root.default_socket_path.clone()))
         .collect();
     sockets.retain(|path| state_root_matches(root, path));
 
     let mut infos: Vec<DaemonInfo> = sockets
         .into_iter()
-        .filter_map(|socket_path| {
+        .map(|socket_path| {
             let proc = process_by_socket.get(&socket_path);
             let probe = probe_daemon(&socket_path);
             let pid = proc.map(|daemon| daemon.pid).or_else(|| {
@@ -540,12 +500,10 @@ fn discover_daemons_with(root: &DaemonStateRoot, named_pipes: bool) -> Vec<Daemo
                 classify_reachable(&probe)
             } else if proc.is_some() || has_tracked_workers {
                 DaemonStatus::Unreachable
-            } else if named_pipes {
-                return None;
             } else {
                 DaemonStatus::OrphanFile
             };
-            Some(DaemonInfo {
+            DaemonInfo {
                 pid_source: pid.map(|_| {
                     if proc.is_some() {
                         PidSource::Listener
@@ -565,7 +523,7 @@ fn discover_daemons_with(root: &DaemonStateRoot, named_pipes: bool) -> Vec<Daemo
                 session_count: probe.session_count,
                 status,
                 has_tracked_workers: has_tracked_workers.then_some(true),
-            })
+            }
         })
         .collect();
     sort_daemons(&mut infos);
@@ -602,7 +560,6 @@ mod tests {
 
     /// A synthetic state root inside a fixture directory: unit tests never
     /// touch the ambient environment's real agent dir or socket dir.
-    #[cfg(not(windows))]
     fn fixture_root(dir: &Path) -> DaemonStateRoot {
         DaemonStateRoot {
             agent_dir: dir.join("agent"),
@@ -626,9 +583,6 @@ mod tests {
         ));
     }
 
-    /// Unix scoping semantics; the Windows matcher is deliberately
-    /// always-true after the containment guard (one pipe per machine).
-    #[cfg(not(windows))]
     #[test]
     fn state_root_matches_own_paths_only() {
         let root = fixture_root(Path::new("/fixture"));
@@ -702,7 +656,6 @@ mod tests {
         assert!(!probe.reachable);
     }
 
-    #[cfg(unix)]
     #[test]
     fn discovery_reports_orphan_files_inside_the_given_root_only() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -722,44 +675,12 @@ mod tests {
         assert!(!infos[0].is_default);
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn named_pipe_discovery_probes_the_default_endpoint_without_tracked_workers() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let mut root = fixture_root(tmp.path());
-        // Outside the socket dir, so the socket-dir sweep cannot find it:
-        // only the named-pipe arm's fixed endpoint does, like the Windows
-        // daemon pipe.
-        root.default_socket_path = root.agent_dir.join("daemon-pipe.sock");
-        std::fs::create_dir_all(&root.socket_dir).expect("socket dir");
-
-        // No daemon on the pipe: nothing is reported, not a fake orphan.
-        assert!(discover_daemons_with(&root, true).is_empty());
-
-        // An idle daemon with no tracked workers. Accepted connections are
-        // dropped at once, so the probe is reachable without the hello wait.
-        let listener =
-            std::os::unix::net::UnixListener::bind(&root.default_socket_path).expect("bind");
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                drop(stream);
-            }
-        });
-        let infos = discover_daemons_with(&root, true);
-        assert_eq!(infos.len(), 1);
-        assert_eq!(infos[0].socket_path, root.default_socket_path);
-        assert!(infos[0].is_default);
-        assert_eq!(infos[0].has_tracked_workers, None);
-        assert_eq!(infos[0].status, DaemonStatus::Stale);
-    }
-
     /// The regression: a daemon started on `EUKHE_DAEMON_SOCKET` (or
     /// `--daemon-socket`) outside the socket dir and the agent dir was out
     /// of the invocation's root, so `shutdown --force` reported "No
     /// background services found." while it ran. The invocation's socket
     /// (flag, then env) is its root's own socket, and discovery finds a
     /// daemon there wherever it sits.
-    #[cfg(unix)]
     #[test]
     fn the_invocations_daemon_socket_is_discovered_outside_the_socket_dir() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -801,7 +722,6 @@ mod tests {
             .collect();
         assert_eq!(found, vec![(env_socket, true, DaemonStatus::Stale)]);
     }
-
     #[test]
     fn quiet_period_completes_after_the_threshold() {
         assert!(evaluate_shutdown_quiet_period(1_500, Some(500)));

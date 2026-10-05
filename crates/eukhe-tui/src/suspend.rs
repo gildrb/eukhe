@@ -17,12 +17,6 @@
 
 use anyhow::Result;
 
-/// Whether this platform can suspend to the background at all. TS gates
-/// `handleCtrlZ` on win32 and shows a status message instead.
-pub(crate) fn supported() -> bool {
-    cfg!(unix)
-}
-
 /// The signal operations of one suspend cycle.
 pub(crate) trait SuspendSignals {
     /// Ignore SIGINT for the suspended window: a Ctrl+C at the shell

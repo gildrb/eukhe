@@ -11,7 +11,6 @@
 //! repaint contract (the input loop paints every dispatched input — the
 //! moved selection lands on the arrow's own repaint, never waiting for
 //! the refresh poll).
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

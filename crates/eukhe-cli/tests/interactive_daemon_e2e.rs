@@ -27,7 +27,6 @@
 //! The scripted engine seam (`create` config `script`) is the same faux
 //! provider contract `eukhe-daemon/tests/supervisor_e2e/main.rs` uses; the product
 //! never sets it.
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::os::unix::process::CommandExt;

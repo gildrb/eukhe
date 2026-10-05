@@ -27,9 +27,7 @@ enum DaemonProbe {
     /// A supervisor answered whose protocol/schema matches this build.
     Current,
     /// A supervisor answered with a different protocol/schema. The client
-    /// rides boxed: its size is platform-dependent (the win32 transport
-    /// carries the pipe handles), and the box keeps the enum's other
-    /// arms paying nothing for the largest one.
+    /// rides boxed so the enum's other arms pay nothing for the largest one.
     Stale(Box<eukhe_tui::daemon_client::DaemonClient>),
 }
 
@@ -203,11 +201,8 @@ fn spawn_supervisor_detached(socket_path: &Path, spawn_cwd: &Path, exe: &Path) -
         .env_remove(eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV);
     // A daemon must not share the launching TUI's terminal session: a
     // session-wide terminal cleanup could hang it up after the TUI exits.
-    // On Unix, setsid also creates its own process group.
-    #[cfg(unix)]
+    // setsid also creates its own process group.
     eukhe_core::platform::process::set_new_session(&mut command);
-    #[cfg(not(unix))]
-    eukhe_core::platform::process::set_new_process_group(&mut command);
     command
         .spawn()
         .with_context(|| format!("spawn the Eukhe daemon on {}", socket_path.display()))?;

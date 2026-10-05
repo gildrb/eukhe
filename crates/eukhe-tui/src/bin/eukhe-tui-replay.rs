@@ -64,7 +64,7 @@ struct Args {
 
 fn newest_session() -> Result<std::path::PathBuf> {
     let dir = eukhe_types::platform::home_dir()
-        .context("home directory not found (HOME, or USERPROFILE on Windows)")?
+        .context("home directory not found (HOME)")?
         .join(".eukhe/sessions");
     let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
     for entry in std::fs::read_dir(&dir)? {

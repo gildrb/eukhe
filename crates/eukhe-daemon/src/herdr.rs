@@ -35,10 +35,7 @@
 //! lower-seq reports per source, which would stick a pane at working).
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-// AtomicBool feeds the unix-gated SOCKET_REFUSAL_LOGGED static only.
-#[cfg(unix)]
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde_json::{json, Map, Value};
@@ -67,21 +64,6 @@ const SEND_TIMEOUT_MS: u64 = 500;
 /// `herdr integration install pi` reports under the same pair).
 pub(crate) const HERDR_SOURCE: &str = "herdr:pi";
 pub(crate) const HERDR_AGENT: &str = "eukhe";
-
-/// The Herdr socket target (TS `herdrSocketTarget`): Herdr exports a
-/// Unix-style socket path; on Windows that dials the local named-pipe
-/// namespace, so map it into `\\.\pipe\` (an already-namespaced path
-/// passes through unchanged).
-pub fn herdr_socket_target(socket_path: &str, windows: bool) -> String {
-    if !windows {
-        return socket_path.to_string();
-    }
-    let lowered = socket_path.to_lowercase();
-    if lowered.starts_with("\\\\.\\pipe\\") || lowered.starts_with("\\\\?\\pipe\\") {
-        return socket_path.to_string();
-    }
-    format!("\\\\.\\pipe\\{socket_path}")
-}
 
 /// Parse a non-negative millisecond duration env (invalid or negative
 /// values fall back to the default, exactly like the TS).
@@ -358,16 +340,16 @@ async fn release_pane(
     // write on the wire — exactly the TS ordering contract. The same
     // fence gates it: a target that never accepted reports (or a
     // check that hung) releases nothing, and the ack still fires.
-    let target = herdr_socket_target(&config.socket_path, cfg!(windows));
+    let target = config.socket_path.as_str();
     let reached = if *fence_hung {
         false
     } else {
-        let verdict = pane_socket_acceptable(&target).await;
+        let verdict = pane_socket_acceptable(target).await;
         if matches!(verdict, FenceVerdict::TimedOut) {
             *fence_hung = true;
         }
         matches!(verdict, FenceVerdict::Accepted)
-            && send_request(&target, release_request(&config.pane_id, next_report_seq())).await
+            && send_request(target, release_request(&config.pane_id, next_report_seq())).await
     };
     let _ = reached;
     let _ = done.send(());
@@ -479,7 +461,7 @@ async fn run_reporter(
             let Some(report) = state.pending.take() else {
                 break;
             };
-            let target = herdr_socket_target(&config.socket_path, cfg!(windows));
+            let target = config.socket_path.as_str();
             let request = report_request(
                 &config.pane_id,
                 report.state,
@@ -490,11 +472,11 @@ async fn run_reporter(
             let reached_wire = if fence_hung {
                 false
             } else {
-                let verdict = pane_socket_acceptable(&target).await;
+                let verdict = pane_socket_acceptable(target).await;
                 if matches!(verdict, FenceVerdict::TimedOut) {
                     fence_hung = true;
                 }
-                matches!(verdict, FenceVerdict::Accepted) && send_request(&target, request).await
+                matches!(verdict, FenceVerdict::Accepted) && send_request(target, request).await
             };
             if reached_wire {
                 // The state reached the wire (best-effort): the
@@ -726,14 +708,11 @@ fn rand_suffix() -> String {
 /// pointing at a legitimate socket), or a socket another user owns
 /// never reports — the session simply stays unreported. The normal case
 /// passes unchanged: Herdr's own socket under the user's runtime
-/// directory is that user's own socket (TS parity). Named pipes on
-/// Windows keep their connect-time ACL model (no lstat to check).
-#[cfg(unix)]
+/// directory is that user's own socket (TS parity).
 static SOCKET_REFUSAL_LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// The fence's pure decision (unit-testable without `chown`): the
 /// metadata must be a socket owned by `own_uid`.
-#[cfg(unix)]
 fn pane_socket_is_ownable(metadata: &std::fs::Metadata, own_uid: u32) -> bool {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     metadata.file_type().is_socket() && metadata.uid() == own_uid
@@ -744,7 +723,6 @@ fn pane_socket_is_ownable(metadata: &std::fs::Metadata, own_uid: u32) -> bool {
 /// its effective uid — the temp file's owner is exactly the uid the
 /// fence compares against, which is also the uid a socket this process
 /// would bind would carry. Cached once per process.
-#[cfg(unix)]
 fn effective_uid() -> Option<u32> {
     static UID: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
     *UID.get_or_init(|| probe_effective_uid(&std::env::temp_dir()))
@@ -753,7 +731,6 @@ fn effective_uid() -> Option<u32> {
 /// The uid probe itself: `None` when the probe file cannot be created or
 /// read — the fence FAILS CLOSED on `None` (it must never fall back to
 /// uid 0, which would accept a root-owned socket).
-#[cfg(unix)]
 fn probe_effective_uid(dir: &std::path::Path) -> Option<u32> {
     use std::os::unix::fs::MetadataExt;
     let probe = dir.join(format!("pa-herdr-uid-probe-{}", uuid::Uuid::new_v4()));
@@ -766,9 +743,6 @@ fn probe_effective_uid(dir: &std::path::Path) -> Option<u32> {
 }
 
 /// The fence's verdict for one send.
-// Only `Accepted` is constructed on Windows (named pipes keep their
-// connect-time ACL model; the fence is unix-only).
-#[cfg_attr(windows, allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FenceVerdict {
     /// The target is this process's own socket: the send may connect.
@@ -782,7 +756,6 @@ enum FenceVerdict {
     TimedOut,
 }
 
-#[cfg(unix)]
 async fn pane_socket_acceptable(socket_target: &str) -> FenceVerdict {
     // The lstat is a blocking syscall on a CLIENT-SUPPLIED path — it
     // moves off the async runtime (spawn_blocking) under the same
@@ -802,18 +775,8 @@ async fn pane_socket_acceptable(socket_target: &str) -> FenceVerdict {
     }
 }
 
-#[cfg(windows)]
-// The async stays for the shared call site (the unix arm awaits); the
-// windows pipe arm needs no await for its connect-time ACL verdict.
-#[allow(clippy::unused_async)]
-async fn pane_socket_acceptable(_socket_target: &str) -> FenceVerdict {
-    // Named pipes carry their own ACL model at connect time.
-    FenceVerdict::Accepted
-}
-
 /// The fence's blocking decision (runs on the blocking pool): lstat the
 /// target, and accept only a socket this process's own uid owns.
-#[cfg(unix)]
 fn pane_socket_acceptable_blocking(socket_target: &str) -> bool {
     let Ok(metadata) = std::fs::symlink_metadata(socket_target) else {
         // A target that does not exist (yet) NEVER connects: passing it
@@ -923,10 +886,7 @@ pub(crate) fn error_hold_message(messages: &[Value]) -> Option<String> {
     Some(message.to_string())
 }
 
-// Unix-only tests: the fake server binds a unix socket and the fence
-// cases use unix symlink identity (the windows pipe arm's connect-time ACL
-// model has no lstat equivalent to exercise here).
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -935,32 +895,6 @@ mod tests {
             .iter()
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect()
-    }
-
-    #[test]
-    fn the_socket_target_maps_windows_and_passes_unix_through() {
-        // Unix paths pass through unchanged on both platforms.
-        assert_eq!(
-            herdr_socket_target("/tmp/herdr.sock", false),
-            "/tmp/herdr.sock"
-        );
-        assert_eq!(herdr_socket_target("herdr.sock", false), "herdr.sock");
-        // A Unix-style path maps into the named-pipe namespace on
-        // Windows (the TS mapping).
-        assert_eq!(
-            herdr_socket_target("/tmp/herdr.sock", true),
-            "\\\\.\\pipe\\herdr.sock".replace("herdr.sock", "/tmp/herdr.sock")
-        );
-        // Already-namespaced paths pass through (the case-insensitive
-        // prefix check).
-        assert_eq!(
-            herdr_socket_target("\\\\.\\PIPE\\herdr", true),
-            "\\\\.\\PIPE\\herdr"
-        );
-        assert_eq!(
-            herdr_socket_target("\\\\?\\pipe\\herdr", true),
-            "\\\\?\\pipe\\herdr"
-        );
     }
 
     #[test]
@@ -1503,7 +1437,6 @@ mod tests {
     /// (even one pointing at the legitimate socket) never do, and the
     /// pure decision rejects a foreign owner (the `chown`-free mock: a
     /// uid that is not ours).
-    #[cfg(unix)]
     #[tokio::test]
     async fn the_pane_socket_fence_decides_by_type_and_owner() {
         let socket_path = temp_socket("fence");
@@ -1590,7 +1523,6 @@ mod tests {
     /// A uid probe that cannot create its file yields `None`, and the
     /// fence treats `None` as reject (fail closed — the probe must never
     /// fall back to uid 0, which would accept a root-owned socket).
-    #[cfg(unix)]
     #[test]
     fn a_failed_uid_probe_fails_closed() {
         assert!(

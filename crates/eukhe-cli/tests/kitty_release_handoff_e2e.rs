@@ -30,7 +30,6 @@
 //! (no `>7u` push after the final `<u` pop, no echoed release bytes).
 //! The harness answers the probe over the raw pty and audits the child's
 //! whole byte stream, like the cursor-visibility e2e.
-#![cfg(unix)]
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};

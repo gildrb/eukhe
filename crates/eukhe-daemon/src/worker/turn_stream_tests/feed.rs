@@ -60,7 +60,6 @@ async fn the_waiting_prompt_resolves_only_after_the_turn_settles() {
 
 /// A fake supervisor link endpoint: every `worker_roster_delta`
 /// command's summary is recorded in arrival order.
-#[cfg(unix)]
 fn fake_supervisor(
     socket: &std::path::Path,
 ) -> (Arc<Mutex<Vec<Value>>>, tokio::task::JoinHandle<()>) {
@@ -114,9 +113,7 @@ fn fake_supervisor(
 }
 
 /// A turn runner whose roster pushes and activity watcher ship to a
-/// live supervisor link (the burst runner keeps them disabled). Unix
-/// only: its one caller is the unix socket-harness test below.
-#[cfg(unix)]
+/// live supervisor link (the burst runner keeps them disabled).
 fn live_feed_runner(engine: Arc<dyn SessionEngine>, socket: std::path::PathBuf) -> TurnRunner {
     let core = Arc::new(Mutex::new(SessionCore::test_core(None, "/tmp".to_string())));
     let user_bash = Arc::new(crate::user_bash::UserBash::new());
@@ -161,7 +158,6 @@ fn live_feed_runner(engine: Arc<dyn SessionEngine>, socket: std::path::PathBuf) 
 /// tool executes (mid-turn pushes, not a static turn-start snapshot)
 /// and end idle once the turn settles (TS `observeRosterEvent` +
 /// `ROSTER_SESSION_EVENT_TRIGGERS` + `scheduleRosterFlush`).
-#[cfg(unix)]
 #[tokio::test]
 async fn roster_feed_publishes_live_tool_activity() {
     let dir = tempfile::TempDir::new().unwrap();

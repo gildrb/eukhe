@@ -33,7 +33,6 @@
 //! Note the deliberate asymmetry: when a stale FILE artifact blocks it, the
 //! Rust binary heals the artifact and proceeds (self-healing its own legacy
 //! output), while the TS binary fails. Both behaviors are asserted as-is.
-#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

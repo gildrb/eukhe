@@ -26,7 +26,6 @@
 //! bar submits nothing), and the scoped view's outcome carries
 //! `scope_back` (the flag the agents-view flow wires into the reopened
 //! run's options).
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};

@@ -98,8 +98,8 @@ pub const ENV_OFFLINE: &str = "EUKHE_OFFLINE";
 /// `EUKHE_STARTUP_BENCHMARK`: truthy values enable startup benchmarking.
 pub const ENV_STARTUP_BENCHMARK: &str = "EUKHE_STARTUP_BENCHMARK";
 
-/// Expand a leading `~`, `~/`, or (Windows) `~\` segment against the home
-/// directory (TS `expandTildePath`, including the win32 backslash arm).
+/// Expand a leading `~` or `~/` segment against the home directory
+/// (TS `expandTildePath`).
 pub fn expand_tilde_path(path: &str) -> PathBuf {
     let Some(home) = eukhe_types::platform::home_dir() else {
         return PathBuf::from(path);
@@ -108,10 +108,6 @@ pub fn expand_tilde_path(path: &str) -> PathBuf {
         return home;
     }
     if let Some(rest) = path.strip_prefix("~/") {
-        return home.join(rest);
-    }
-    #[cfg(windows)]
-    if let Some(rest) = path.strip_prefix("~\\") {
         return home.join(rest);
     }
     PathBuf::from(path)
@@ -194,26 +190,5 @@ mod tests {
         );
         assert_eq!(expand_tilde_path("/abs/path"), PathBuf::from("/abs/path"));
         assert_eq!(expand_tilde_path("~foo"), PathBuf::from("~foo"));
-    }
-
-    /// The TS `expandTildePath` win32 arm this crate already carries: a
-    /// `~\`-prefixed value expands against the home dir (the eukhe-types
-    /// twin gained the same arm, so the CLI and the daemon agree on the
-    /// state dir).
-    #[test]
-    #[cfg(windows)]
-    fn expands_the_win32_backslash_tilde() {
-        let _env = env_lock();
-        std::env::remove_var("HOME");
-        std::env::set_var("USERPROFILE", r"C:\Users\tester");
-        assert_eq!(
-            expand_tilde_path(r"~\sessions"),
-            PathBuf::from(r"C:\Users\tester\sessions")
-        );
-        assert_eq!(
-            expand_tilde_path(r"~\deep\dir"),
-            PathBuf::from(r"C:\Users\tester\deep\dir")
-        );
-        std::env::remove_var("USERPROFILE");
     }
 }

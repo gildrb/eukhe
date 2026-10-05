@@ -106,9 +106,8 @@ fn keeps_structured_lines_around_a_torn_multibyte_tail() {
     });
 }
 
-/// Unix-only: the decoy is a directory carrying a future mtime via
-/// `File::set_times` on a directory handle, which Windows cannot open.
-#[cfg(unix)]
+/// The decoy is a directory carrying a future mtime via `File::set_times`
+/// on a directory handle.
 #[test]
 fn falls_back_to_the_newest_per_daemon_log_when_agent_jsonl_is_absent() {
     with_agent_dir(|agent_dir| {

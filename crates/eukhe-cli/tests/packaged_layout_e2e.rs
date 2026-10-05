@@ -41,8 +41,8 @@ fn repo_root() -> PathBuf {
 }
 
 /// The interpreter the release scripts run under: `python3`, or `python`
-/// where only that spelling exists (the Windows runner images; the release
-/// workflow resolves it the same way).
+/// where only that spelling exists (the release workflow resolves it the
+/// same way).
 fn python_interpreter() -> Option<&'static str> {
     ["python3", "python"].into_iter().find(|name| {
         Command::new(name)
@@ -64,17 +64,9 @@ fn serial_lock() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
-/// The staged binary name: Cargo's MSVC linker emits `eukhe.exe` on
-/// Windows (`std::env::consts::EXE_SUFFIX`), and the packaged layout - the
-/// installer's extract target and the binary's own exe-adjacent resolution
-/// - names the platform's spelling.
-fn packaged_binary_name() -> &'static str {
-    if cfg!(windows) {
-        "eukhe.exe"
-    } else {
-        "eukhe"
-    }
-}
+/// The staged binary name: the installer's extract target and the binary's
+/// own exe-adjacent resolution.
+const PACKAGED_BINARY_NAME: &str = "eukhe";
 
 /// Stage the packaged layout into `dir`: the binary, the version manifest,
 /// and the shipped assets. `with_runtime` controls whether the
@@ -82,7 +74,7 @@ fn packaged_binary_name() -> &'static str {
 /// it).
 fn stage_packaged_layout(dir: &Path, with_runtime: bool) {
     std::fs::create_dir_all(dir).expect("stage dir");
-    let binary = dir.join(packaged_binary_name());
+    let binary = dir.join(PACKAGED_BINARY_NAME);
     std::fs::copy(env!("CARGO_BIN_EXE_eukhe"), &binary).expect("copy binary");
     set_executable(&binary);
     std::fs::write(
@@ -131,7 +123,6 @@ fn copy_dir(source: &Path, target: &Path) {
     }
 }
 
-#[cfg(unix)]
 fn set_executable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = std::fs::metadata(path)
@@ -139,11 +130,6 @@ fn set_executable(path: &Path) {
         .permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions).expect("staged binary permissions");
-}
-
-#[cfg(not(unix))]
-fn set_executable(path: &Path) {
-    let _ = path;
 }
 
 /// The kernel Python with eukhe-runtime installed (the interpreter the
@@ -159,14 +145,9 @@ fn kernel_python() -> Option<PathBuf> {
         );
         return Some(explicit);
     }
-    // The kernel venv's interpreter spelling is platform-shaped (the venv
-    // layout the product's own bootstrap creates: `bin/python` on unix,
-    // `Scripts\python.exe` on Windows).
-    let venv_python = if cfg!(windows) {
-        "kernel-venv/Scripts/python.exe"
-    } else {
-        "kernel-venv/bin/python"
-    };
+    // The kernel venv's interpreter (the venv layout the product's own
+    // bootstrap creates).
+    let venv_python = "kernel-venv/bin/python";
     let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
         |_| format!("/home/ubuntu/.eukhe/{venv_python}"),
         |home| format!("{home}/.eukhe/{venv_python}"),
@@ -209,7 +190,7 @@ impl Sandbox {
     /// ambient API keys. A test that wants an override sets it after this
     /// call: a later `Command::env` wins over the scrub.
     fn command(&self, staged: &Path) -> Command {
-        let mut command = Command::new(staged.join(packaged_binary_name()));
+        let mut command = Command::new(staged.join(PACKAGED_BINARY_NAME));
         command
             .env("HOME", self.home.path())
             .env("EUKHE_CODING_AGENT_DIR", &self.agent_dir)
@@ -708,10 +689,8 @@ fn packaging_dry_run_produces_artifact() {
     let out = tempfile::TempDir::new().expect("packaging out dir");
     // Linux fail-closed: the packer accepts only a paired shipped ELF +
     // decoder from split_debug.py, so the dry run first splits a tiny real
-    // ELF fixture — the same artifact shape the CI channel ships. The
-    // Windows arm stages the MSVC exe (the packer carries no split-debug
-    // there). The split fixture dir must outlive the invocation (_split_dir
-    // below).
+    // ELF fixture — the same artifact shape the CI channel ships. The split
+    // fixture dir must outlive the invocation (_split_dir below).
     let (staged_binary, staged_decoder, _split_dir): (
         std::ffi::OsString,
         Option<std::ffi::OsString>,
@@ -732,15 +711,12 @@ fn packaging_dry_run_produces_artifact() {
         (env!("CARGO_BIN_EXE_eukhe").into(), None, None)
     };
     // The platform tag the packer derives on this host: linux-x64 on the
-    // linux CI host, win32-x64 on the windows-latest battery (the channel
-    // alias, never a bare `windows-x64` — the naming the update reader's
-    // manifest contract requires).
-    let host_platform = if cfg!(windows) {
-        "win32-x64"
-    } else {
+    // linux CI host, darwin-arm64 on Apple Silicon.
+    let host_platform = if std::env::consts::OS == "linux" {
         "linux-x64"
+    } else {
+        "darwin-arm64"
     };
-    let staged_binary_name = if cfg!(windows) { "eukhe.exe" } else { "eukhe" };
     let mut command = Command::new(python);
     command
         .arg(repo_root().join("scripts").join("package_release.py"))
@@ -766,7 +742,7 @@ fn packaging_dry_run_produces_artifact() {
     let version = env!("CARGO_PKG_VERSION");
     let stage = out.path().join(format!("eukhe-{version}-{host_platform}"));
     assert!(
-        stage.join(staged_binary_name).is_file(),
+        stage.join(PACKAGED_BINARY_NAME).is_file(),
         "staged binary missing"
     );
     let manifest: serde_json::Value = serde_json::from_str(
@@ -849,7 +825,7 @@ fn packaging_dry_run_produces_artifact() {
     assert_eq!(binaries.len(), 1);
     assert_eq!(binaries[0]["sha256"], sha256.as_str());
     assert_eq!(binaries[0]["platform"], host_platform);
-    let executable_sha = sha256_file(&stage.join(staged_binary_name));
+    let executable_sha = sha256_file(&stage.join(PACKAGED_BINARY_NAME));
     assert_eq!(binaries[0]["executableSha256"], executable_sha.as_str());
 }
 
@@ -1045,13 +1021,8 @@ fn bootstrap_kernel_venv_from_packaged_sidecar() {
         stdout.contains("kernel python:"),
         "bootstrap stdout: {stdout}"
     );
-    // The venv layout the product's bootstrap creates: `bin/python` on
-    // unix, `Scripts\python.exe` on Windows.
-    let venv_python = if cfg!(windows) {
-        venv.join("Scripts").join("python.exe")
-    } else {
-        venv.join("bin").join("python")
-    };
+    // The venv layout the product's bootstrap creates.
+    let venv_python = venv.join("bin").join("python");
     assert!(venv_python.exists(), "kernel venv python missing");
 
     // A session boots on the fresh venv: the same kernel-cell proof as the

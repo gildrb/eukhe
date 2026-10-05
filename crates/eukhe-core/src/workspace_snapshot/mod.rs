@@ -138,9 +138,6 @@ pub enum SnapshotError {
     /// baseline that is not the stated commit.
     #[error("worktree changed during capture: {detail}")]
     ConcurrentMutation { detail: String },
-    /// Capture cannot enforce owner-only staging permissions on this platform.
-    #[error("workspace snapshot capture requires Unix owner-only file permissions")]
-    UnsupportedPlatform,
     /// A filesystem error at `path`.
     #[error("io error at {}: {source}", path.display())]
     Io {
@@ -171,9 +168,7 @@ pub enum SnapshotError {
 /// delta and - in [`BaselineMode::HeadTree`] - the HEAD-tree baseline;
 /// the manifest is written last, after everything it describes.
 ///
-/// This capture is supported only on Unix. On other platforms the
-/// permission wall cannot enforce owner-only modes, so capture refuses
-/// before creating the staging directory. The secret skip is a filename-
+/// The secret skip is a filename-
 /// shaped denylist only: ordinary-named files containing secrets stage
 /// verbatim. The snapshot directory is secret-bearing; every consumer
 /// must treat it as credentials.
@@ -184,8 +179,7 @@ pub enum SnapshotError {
 /// `tokio::runtime::Handle::block_on` rather than block a Tokio worker.
 ///
 /// # Errors
-/// Returns [`SnapshotError::UnsupportedPlatform`] on non-Unix targets,
-/// [`SnapshotError::NotAWorktree`] when `root` is not inside a git worktree,
+/// Returns [`SnapshotError::NotAWorktree`] when `root` is not inside a git worktree,
 /// staging-guard errors for an unusable staging directory,
 /// [`SnapshotError::Limit`] when a bound is exceeded, and git/io errors
 /// for the enumeration, baseline, and capture steps.
@@ -201,9 +195,6 @@ pub async fn create_workspace_snapshot(
     baseline_mode: BaselineMode,
     limits: &SnapshotLimits,
 ) -> Result<WorkspaceSnapshot, SnapshotError> {
-    if !cfg!(unix) {
-        return Err(SnapshotError::UnsupportedPlatform);
-    }
     let worktree_root = git::resolve_worktree_root(root, limits.git_timeout_ms).await?;
     prepare_staging_dir(staging_dir, &worktree_root)?;
     let status = git::read_worktree_status(&worktree_root, limits.git_timeout_ms).await?;
@@ -498,8 +489,7 @@ enum LeafOutcome {
 }
 
 /// What a path's leaf opened as, with every component walked via
-/// `openat` with `O_NOFOLLOW` on unix: no step follows a symlink.
-#[cfg(unix)]
+/// `openat` with `O_NOFOLLOW`: no step follows a symlink.
 enum OpenLeaf {
     File {
         content: Vec<u8>,
@@ -517,10 +507,8 @@ enum OpenLeaf {
 
 /// Open one raw fd with `O_NOFOLLOW`, closing it on drop; the guard keeps
 /// the walk's error paths leak-free without unsafe constructors.
-#[cfg(unix)]
 struct FdGuard(nix::libc::c_int);
 
-#[cfg(unix)]
 impl Drop for FdGuard {
     fn drop(&mut self) {
         let _ = nix::unistd::close(self.0);
@@ -528,11 +516,10 @@ impl Drop for FdGuard {
 }
 
 /// Open `path` beneath `root`, refusing to follow any symlink at any
-/// step (unix): ancestors via `openat(O_DIRECTORY | O_NOFOLLOW)`, the
+/// step: ancestors via `openat(O_DIRECTORY | O_NOFOLLOW)`, the
 /// leaf via `openat(O_NOFOLLOW)` or `readlinkat`. A symlink swapped in
 /// after the walk started still cannot redirect the read, because every
 /// component is pinned by its opened fd, not its path.
-#[cfg(unix)]
 fn open_leaf(
     root: &Path,
     path: &str,
@@ -573,7 +560,7 @@ fn open_leaf(
     if let Some(leaf) = components.last() {
         let leaf = *leaf;
         // O_NONBLOCK: opening a FIFO (or a device) read-only blocks
-        // until a writer or driver appears - an untracked named pipe in
+        // until a writer or driver appears - an untracked FIFO in
         // the worktree would otherwise hang the whole capture. Regular
         // files ignore the flag, and the fstat below classifies before
         // any read happens.
@@ -645,90 +632,8 @@ fn open_leaf(
     }
 }
 
-#[cfg(unix)]
 fn io_from_errno(errno: nix::errno::Errno) -> std::io::Error {
     std::io::Error::from_raw_os_error(errno as i32)
-}
-
-/// Non-unix fallback: component validation before the read. Without
-/// `openat`, an untrusted concurrent actor can still swap an ancestor
-/// for a symlink between the check and the read, so the residual race is
-/// documented rather than closed: staging on non-unix targets must not
-/// run with untrusted concurrent filesystem actors.
-#[cfg(not(unix))]
-enum OpenLeaf {
-    File { content: Vec<u8>, executable: bool },
-    Symlink { target: String },
-    AncestorSymlink,
-    Missing,
-    NotRegularFile,
-}
-
-#[cfg(not(unix))]
-fn open_leaf(
-    root: &Path,
-    path: &str,
-    max_bytes: usize,
-    classify_only: bool,
-) -> std::io::Result<OpenLeaf> {
-    let components: Vec<&str> = path.split('/').filter(|c| !c.is_empty()).collect();
-    let mut prefix = PathBuf::new();
-    for component in &components[..components.len().saturating_sub(1)] {
-        prefix.push(component);
-        if let Ok(metadata) = std::fs::symlink_metadata(root.join(&prefix)) {
-            if metadata.is_symlink() {
-                return Ok(OpenLeaf::AncestorSymlink);
-            }
-        }
-    }
-    let absolute = root.join(path);
-    let metadata = match std::fs::symlink_metadata(&absolute) {
-        Ok(metadata) => metadata,
-        // A tracked deletion or a leaf that vanished between the status
-        // run and this open is a missing leaf, not a capture error
-        // (the unix arm's ENOENT path, in the std error kind).
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(OpenLeaf::Missing),
-        Err(error) => return Err(error),
-    };
-    if metadata.file_type().is_symlink() {
-        return Ok(OpenLeaf::Symlink {
-            target: std::fs::read_link(&absolute)?
-                .to_string_lossy()
-                .into_owned(),
-        });
-    }
-    if metadata.is_file() {
-        if classify_only {
-            // A kind-only probe (the replaced-gitlink path): the leaf
-            // is classified from the metadata alone, so discarded bytes
-            // never reach the read budget.
-            return Ok(OpenLeaf::File {
-                content: Vec::new(),
-                executable: false,
-            });
-        }
-        let mut file = std::fs::File::open(&absolute)?;
-        let mut content = Vec::new();
-        let mut buffer = vec![0u8; 128 * 1024];
-        loop {
-            let read = std::io::Read::read(&mut file, &mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            content.extend_from_slice(&buffer[..read]);
-            // Past the caller's cap, stop reading: the caller's size
-            // check errors on the oversized capture instead of
-            // buffering an unbounded raced-grown file whole.
-            if content.len() > max_bytes {
-                break;
-            }
-        }
-        return Ok(OpenLeaf::File {
-            content,
-            executable: false,
-        });
-    }
-    Ok(OpenLeaf::NotRegularFile)
 }
 
 /// Classify and stage one path's worktree leaf: a regular file becomes a
@@ -808,7 +713,7 @@ fn capture_leaf(
                     // A clean leaf restates HEAD's own mode: the object
                     // id is the mutation check, and the filesystem bit
                     // is not git's truth under core.filemode=false
-                    // (WSL drvfs, FAT/exFAT).
+                    // (FAT/exFAT and other mounts without mode bits).
                     executable = expected.mode == "100755";
                 }
                 verify_against_head(
@@ -921,8 +826,7 @@ fn write_manifest(
     }
     let temp_path = staging_dir.join(format!("{MANIFEST_FILE}.tmp"));
     std::fs::write(&temp_path, &bytes).map_err(|error| io_error(&temp_path, error))?;
-    crate::platform::rename_onto(&temp_path, &manifest_path)
-        .map_err(|error| io_error(&manifest_path, error))?;
+    std::fs::rename(&temp_path, &manifest_path).map_err(|error| io_error(&manifest_path, error))?;
     tighten_private_file(&manifest_path)?;
     Ok(manifest_path)
 }

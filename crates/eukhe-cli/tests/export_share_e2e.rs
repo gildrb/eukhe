@@ -22,7 +22,6 @@
 //! reports the TS success row, and `/share` uploads through a stub `gh` on
 //! PATH (no real upload ever leaves the box) and surfaces the share viewer
 //! URL. `Usage: /share` is the TS error row when arguments appear.
-#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -197,7 +196,6 @@ esac
     make_executable(&dir.join("gh"));
 }
 
-#[cfg(unix)]
 fn make_executable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = std::fs::metadata(path).expect("stat").permissions();

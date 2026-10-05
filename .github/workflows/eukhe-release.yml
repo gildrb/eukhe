@@ -199,10 +199,6 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             runs-on: macos-14
-          # Cross-compiled on Apple silicon; the livecheck runs it under
-          # Rosetta 2.
-          - target: x86_64-apple-darwin
-            runs-on: macos-15
     env:
       COPYFILE_DISABLE: "1"
       VERSION: ${{ needs.tag-check.outputs.version }}
@@ -287,7 +283,6 @@ jobs:
           systems = {
               "linux-x64": "x86_64-linux",
               "linux-arm64": "aarch64-linux",
-              "darwin-x64": "x86_64-darwin",
               "darwin-arm64": "aarch64-darwin",
           }
           repo, tag, version = os.environ["GH_REPO"], os.environ["TAG"], os.environ["VERSION"]

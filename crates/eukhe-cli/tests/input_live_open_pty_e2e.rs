@@ -27,8 +27,6 @@
 //! stall plus an Enter queued behind the open must submit once the
 //! session lands — never lost, never errored.
 
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;

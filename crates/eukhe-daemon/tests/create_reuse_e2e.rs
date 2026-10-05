@@ -7,8 +7,6 @@
 //! cannot remove must still name the LIVE worker, never an id inherited
 //! from an ancestor environment) and the dead-worker rebind on the create
 //! path (the #2575 supersede, driven by an open of the superseded file).
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};

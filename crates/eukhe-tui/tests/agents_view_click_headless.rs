@@ -5,7 +5,6 @@
 //! Verifies the operator's named interaction: a plain click on a session
 //! row selects and opens it — the Enter action — while a dragged
 //! release never opens.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

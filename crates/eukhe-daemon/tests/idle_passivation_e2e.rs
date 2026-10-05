@@ -14,8 +14,6 @@
 // passivation flow is one intentionally linear harness script (the
 // fn-length gate is style, not correctness).
 #![allow(clippy::too_many_lines)]
-#![cfg(unix)]
-
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};

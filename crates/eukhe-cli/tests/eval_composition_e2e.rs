@@ -58,7 +58,6 @@ fn run(home: &Path, args: &[&str], script: &Value) -> (String, String, i32) {
     )
 }
 
-#[cfg(unix)]
 fn make_executable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = std::fs::metadata(path).unwrap().permissions();
@@ -87,7 +86,6 @@ fn pass_on_second_consult_verifier(home: &Path) -> PathBuf {
         ),
     )
     .unwrap();
-    #[cfg(unix)]
     make_executable(&script);
     script
 }
@@ -103,7 +101,6 @@ fn always_failing_verifier(home: &Path) -> PathBuf {
          exit 1\n",
     )
     .unwrap();
-    #[cfg(unix)]
     make_executable(&script);
     script
 }

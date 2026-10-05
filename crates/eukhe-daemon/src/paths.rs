@@ -22,8 +22,7 @@ pub const CONFIG_DIR_NAME: &str = eukhe_types::platform::dirs::AGENT_DIR_NAME;
 /// Returns an error when the home directory cannot be resolved from the
 /// supported environment variables.
 pub fn home_dir() -> Result<PathBuf> {
-    eukhe_types::platform::home_dir()
-        .ok_or_else(|| anyhow!("home directory not found: set HOME (or USERPROFILE on Windows)"))
+    eukhe_types::platform::home_dir().ok_or_else(|| anyhow!("home directory not found: set HOME"))
 }
 
 /// Expand a leading `~`/`~/` against [`home_dir`]; other paths pass through.

@@ -181,7 +181,7 @@ pub fn key_event_to_id(key: &KeyEvent) -> Option<KeyId> {
             if alt {
                 "alt+backspace"
             } else if ctrl {
-                // ctrl+backspace: TS maps raw 0x08 to backspace except Windows Terminal.
+                // ctrl+backspace: TS maps a raw 0x08 to plain backspace.
                 return Some("ctrl+backspace".into());
             } else {
                 "backspace"

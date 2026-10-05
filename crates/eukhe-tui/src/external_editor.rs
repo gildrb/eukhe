@@ -42,15 +42,13 @@ pub(crate) async fn edit(command: &str, text: &str) -> Result<Option<String>> {
     // ours to overwrite or remove.
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
-    #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     // A path we did not create is not ours to delete: only the
     // create's failure returns early, and the cleanup below then runs on
     // every path past a successful create (a write failure on a file we
     // DID create still removes it — "we created it, we remove it").
     // The write handle is scoped to the write: it drops before the
-    // editor child runs (a held-open handle is a Windows sharing
-    // violation — the child could not rewrite the path).
+    // editor child runs.
     let written = (|| -> std::io::Result<()> {
         let mut file = options.open(&path)?;
         std::io::Write::write_all(&mut file, text.as_bytes())
@@ -60,22 +58,10 @@ pub(crate) async fn edit(command: &str, text: &str) -> Result<Option<String>> {
     } else {
         // TS splits the command on spaces (`editorCmd.split(" ")`): the
         // first token is the program, the rest its arguments, and the
-        // temp path rides last; win32 shells out instead (`shell:
-        // process.platform === "win32"`).
-        #[cfg(not(windows))]
-        let mut editor = {
-            let mut tokens = command.split(' ');
-            let mut editor = tokio::process::Command::new(tokens.next().unwrap_or_default());
-            editor.args(tokens);
-            editor
-        };
-        #[cfg(windows)]
-        let mut editor = {
-            let mut editor = tokio::process::Command::new("cmd");
-            editor.arg("/C").arg(command);
-            editor
-        };
-        editor.arg(&path);
+        // temp path rides last.
+        let mut tokens = command.split(' ');
+        let mut editor = tokio::process::Command::new(tokens.next().unwrap_or_default());
+        editor.args(tokens).arg(&path);
         match editor.status().await {
             Err(error) => {
                 Err(error).with_context(|| format!("run the external editor `{command}`"))

@@ -83,7 +83,7 @@ fn text_of(line: &Line) -> String {
 /// A rendered hint row carries the platform's alt label: the queue
 /// browse header quotes `app.message.navigateOlder` and friends through
 /// the shared `format_key_text`, so the row shows `Alt+\u{2191}` on
-/// Linux/Windows hosts and `Option+\u{2191}` on macOS (TS
+/// Linux hosts and `Option+\u{2191}` on macOS (TS
 /// `formatKeyPart`'s darwin branch).
 /// A fresh chat starts at the collapsed conversation-detail level
 /// (operator directive 2026-09-28): the collapse mode renders every

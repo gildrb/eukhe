@@ -196,12 +196,9 @@ impl RequestTimingLog {
         if size <= self.max_bytes {
             return Ok(());
         }
-        // Drop any prior `.old` first: the rename fails on Windows if the
-        // destination exists (TS does the same). A rotation failure keeps
+        // The rename replaces any prior `.old`. A rotation failure keeps
         // appending rather than dropping the log.
-        let rotated = self.path.with_extension("jsonl.old");
-        let _ = std::fs::remove_file(&rotated);
-        std::fs::rename(&self.path, &rotated)
+        std::fs::rename(&self.path, self.path.with_extension("jsonl.old"))
     }
 }
 

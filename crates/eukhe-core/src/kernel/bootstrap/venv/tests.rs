@@ -1,52 +1,6 @@
-//! The venv module's unit battery (moved with its concern): the Windows
-//! executable candidates, the skill-manifest parsing, the version-file round
-//! trip, the two-layer probe memo oracles, the live-probe closure, and the
-//! skill-sync batching.
-#[test]
-fn windows_executable_candidates_default_order() {
-    // No PATHEXT: the TS default extension order, deduped against the
-    // bare name.
-    assert_eq!(
-        windows_executable_candidates("uv", None),
-        vec![
-            "uv".to_string(),
-            "uv.COM".into(),
-            "uv.EXE".into(),
-            "uv.BAT".into(),
-            "uv.CMD".into()
-        ]
-    );
-}
-
-#[test]
-fn windows_executable_candidates_follows_pathext_order() {
-    // Supported extensions keep PATHEXT's order; unsupported ones drop.
-    assert_eq!(
-        windows_executable_candidates("uv", Some(".FOO;.EXE;.BAT")),
-        vec!["uv".to_string(), "uv.exe".into(), "uv.bat".into()]
-    );
-}
-
-#[test]
-fn windows_executable_candidates_skips_suffix_and_duplicates() {
-    // A name that already ends in a default extension is used bare.
-    assert_eq!(
-        windows_executable_candidates("uv.exe", Some(".EXE;.BAT")),
-        vec!["uv.exe".to_string()]
-    );
-    // A candidate equal to the bare name (case-insensitively) never
-    // repeats.
-    assert_eq!(
-        windows_executable_candidates("node", Some("")),
-        vec![
-            "node".to_string(),
-            "node.COM".into(),
-            "node.EXE".into(),
-            "node.BAT".into(),
-            "node.CMD".into()
-        ]
-    );
-}
+//! The venv module's unit battery (moved with its concern): the
+//! skill-manifest parsing, the version-file round trip, the two-layer probe
+//! memo oracles, the live-probe closure, and the skill-sync batching.
 
 use super::*;
 
@@ -94,9 +48,7 @@ fn skill(import_name: &str, path: &str, hash: &str) -> BootstrapPythonSkill {
 static MEMO_STATE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Collect every `.runtime-probe-memo.json` under `root` (the override
-/// boundary pin: the override path must create none). Unix only: its
-/// callers are the unix override-path tests.
-#[cfg(unix)]
+/// boundary pin: the override path must create none).
 fn collect_memo_files(root: &Path, found: &mut Vec<std::path::PathBuf>) {
     if let Ok(entries) = std::fs::read_dir(root) {
         for entry in entries.flatten() {
@@ -172,7 +124,6 @@ fn probe_memo_key_distinguishes_every_input_and_drops_on_invalidate() {
 /// tree is mutated or the interpreter is replaced (the parity point:
 /// the probe re-runs and detects the damage), and miss after
 /// invalidation.
-#[cfg(unix)]
 #[test]
 fn probe_memo_misses_on_out_of_band_venv_mutation() {
     let _memo_state = MEMO_STATE_LOCK
@@ -198,7 +149,6 @@ fn probe_memo_misses_on_out_of_band_venv_mutation() {
         ),
     )
     .unwrap();
-    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -296,7 +246,6 @@ fn probe_memo_misses_on_out_of_band_venv_mutation() {
 /// one) hits the on-disk memo under the same identity key and runs
 /// ZERO interpreter probes. The key recomputation (the content walk)
 /// is the damage detector; only the probes are skipped.
-#[cfg(unix)]
 #[test]
 fn disk_memo_hits_across_a_fresh_process_with_zero_probes() {
     let _memo_state = MEMO_STATE_LOCK
@@ -360,7 +309,6 @@ fn disk_memo_hits_across_a_fresh_process_with_zero_probes() {
 /// out of band, and a FRESH process must miss both layers through the
 /// freshly recomputed key and re-probe — never a stale cross-process
 /// verdict.
-#[cfg(unix)]
 #[test]
 fn disk_memo_damage_across_processes_misses_and_reprobes() {
     let _memo_state = MEMO_STATE_LOCK
@@ -460,7 +408,6 @@ fn disk_memo_damage_across_processes_misses_and_reprobes() {
 /// in #2857 the in-process memo died with the process; here the
 /// window runs until the first failed start, with the same
 /// single-failure-then-heal end state.
-#[cfg(unix)]
 #[test]
 fn disk_memo_masked_class_hits_across_processes_until_invalidation() {
     let _memo_state = MEMO_STATE_LOCK
@@ -537,7 +484,6 @@ fn disk_memo_masked_class_hits_across_processes_until_invalidation() {
 /// honestly earned — and the next failed start re-invalidates. No
 /// locking: the race's cost equals base's own behavior under the
 /// same breakage.
-#[cfg(unix)]
 #[test]
 fn disk_memo_late_write_after_invalidate_is_benign() {
     let _memo_state = MEMO_STATE_LOCK
@@ -598,15 +544,12 @@ fn disk_memo_late_write_after_invalidate_is_benign() {
 }
 
 /// Env-mutating tests serialize on this lock: the process env is
-/// global (same pattern as the request-timing env lock). Unix only:
-/// its takers are the unix env-override tests.
-#[cfg(unix)]
+/// global (same pattern as the request-timing env lock).
 static EUKHE_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The d14 boundary pinned at the observable-facts level: a
 /// caller-owned `EUKHE_KERNEL_PYTHON` override resolves through
 /// the DIRECT probe and never reads or writes any memo file.
-#[cfg(unix)]
 #[tokio::test]
 async fn custom_override_never_touches_the_disk_memo() {
     let _guard = EUKHE_ENV_LOCK.lock().await;
@@ -654,41 +597,12 @@ async fn custom_override_never_touches_the_disk_memo() {
     );
 }
 
-/// The Windows venv layout (`<venv>/Lib/site-packages/rlm`, no
-/// python-version layer) is a fingerprint input: mutations under it
-/// change the memo key, and removal drops to the missing marker.
-#[test]
-fn windows_layout_venv_rlm_is_witnessed() {
-    let dir = tempfile::tempdir().unwrap();
-    let venv = dir.path().join("venv");
-    let rlm = venv.join("lib/site-packages/rlm");
-    std::fs::create_dir_all(&rlm).unwrap();
-    std::fs::write(rlm.join("__init__.py"), "x = 1\n").unwrap();
-
-    assert_eq!(installed_rlm_dir(&venv), Some(rlm.clone()));
-    let python = dir.path().join("python");
-    let id_before = installed_runtime_identity(&python, &venv);
-    std::fs::write(rlm.join("__init__.py"), "x = 2\n").unwrap();
-    let id_after_mutation = installed_runtime_identity(&python, &venv);
-    assert_ne!(
-        id_before, id_after_mutation,
-        "a mutation under the Windows layout changes the fingerprint"
-    );
-    std::fs::remove_dir_all(&rlm).unwrap();
-    let id_after_removal = installed_runtime_identity(&python, &venv);
-    assert_ne!(
-        id_after_removal, id_before,
-        "the out-of-band uninstall changes the fingerprint"
-    );
-}
-
 /// Live (ignored by default; run with `--ignored` on a machine with a
 /// kernel venv under `HOME`): the memo behavior against a REAL
 /// interpreter and a REAL `rlm` import — the probe result on the
 /// counting-wrapper venv must come from the memo while the installed
 /// tree is unchanged, and must re-run (and fail) when the installed
 /// `rlm` tree is removed out of band.
-#[cfg(unix)]
 #[test]
 #[ignore = "live: needs a real kernel venv under HOME (bench VMs)"]
 fn live_probe_memo_reprobes_when_installed_rlm_is_removed() {
@@ -995,7 +909,6 @@ fn extra_recorded_skills_do_not_force_reinstall() {
     assert!(recorded_skills_cover(None, &[]));
 }
 
-#[cfg(unix)]
 fn fake_uv(dir: &Path, script: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let uv = dir.join("uv");
@@ -1004,7 +917,6 @@ fn fake_uv(dir: &Path, script: &str) -> PathBuf {
     uv
 }
 
-#[cfg(unix)]
 fn uv_invocations(dir: &Path) -> Vec<String> {
     std::fs::read_to_string(dir.join("uv.log"))
         .unwrap_or_default()
@@ -1013,7 +925,6 @@ fn uv_invocations(dir: &Path) -> Vec<String> {
         .collect()
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn skill_sync_batches_missing_installs_into_one_uv_call() {
     // A fake uv records its args: every missing skill must land in ONE
@@ -1084,7 +995,6 @@ async fn skill_sync_batches_missing_installs_into_one_uv_call() {
     );
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn skill_sync_falls_back_to_per_skill_installs_on_batch_failure() {
     // A batch covering several skills fails; the fallback retries each
@@ -1224,7 +1134,6 @@ fn committed_runtime_lock_pins_every_default_package() {
     assert_eq!(missing, Vec::<&str>::new());
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn skill_with_unlocked_dependencies_is_uninstalled_and_reported() {
     let dir = tempfile::tempdir().unwrap();

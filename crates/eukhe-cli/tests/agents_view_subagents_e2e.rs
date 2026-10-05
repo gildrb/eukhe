@@ -25,7 +25,6 @@
 //! tray label), and returning to the view with the carried selection —
 //! where the now-live resumed child renders per TS parity (a top-level
 //! runtime row keeping its persisted depth) and Enter re-opens it.
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};

@@ -3,7 +3,6 @@
 //! warning line renders from the agent.jsonl tail, Esc dismisses it
 //! without touching the armed delete confirmation, and a dismissal is
 //! sticky across later polls and view re-entries (the carried state).
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

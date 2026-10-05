@@ -105,7 +105,6 @@ TARGET_ALIASES = {
     "x86_64-unknown-linux-gnu": "linux-x64",
     "aarch64-unknown-linux-gnu": "linux-arm64",
     "aarch64-apple-darwin": "darwin-arm64",
-    "x86_64-apple-darwin": "darwin-x64",
 }
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")

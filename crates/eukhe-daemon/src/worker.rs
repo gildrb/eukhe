@@ -109,8 +109,7 @@ pub struct Worker {
     /// expected identity, so a file REPLACED at the path after this bind -
     /// a successor worker the supervisor relaunches on the same
     /// deterministic path - is never unlinked by this process (the
-    /// D-state-survivor late-exit edge). `None` until `serve` binds
-    /// (named pipes keep `None`: there is no file to stat).
+    /// D-state-survivor late-exit edge). `None` until `serve` binds.
     pub(crate) bound_socket_identity: std::sync::Mutex<Option<crate::socket::SocketIdentity>>,
     /// Supervisor self-registration handle; `None` for standalone workers.
     registration: Option<RegistrationHandle>,

@@ -115,10 +115,9 @@ fn read_install_id(path: &Path) -> Result<Option<String>> {
     Ok(valid)
 }
 
-/// Open the state file read-only, non-blocking on unix (`O_NONBLOCK`):
+/// Open the state file read-only, non-blocking (`O_NONBLOCK`):
 /// whatever now sits on the path — a regular state file or a swapped-in
 /// special file — opens and reads without ever parking the caller.
-#[cfg(unix)]
 fn open_state_nonblocking(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::OpenOptions::new()
@@ -130,11 +129,6 @@ fn open_state_nonblocking(path: &Path) -> std::io::Result<std::fs::File> {
                 .expect("O_NONBLOCK fits the open flags"),
         )
         .open(path)
-}
-
-#[cfg(not(unix))]
-fn open_state_nonblocking(path: &Path) -> std::io::Result<std::fs::File> {
-    std::fs::OpenOptions::new().read(true).open(path)
 }
 
 /// Outcome of trying to publish a candidate state file exclusively.
@@ -177,17 +171,15 @@ fn publish_exclusive(path: &Path, payload: &[u8]) -> Result<Publish> {
 
 /// Atomically replace invalid state (unique temp file + rename, both sides of
 /// the rename land on the same filesystem inside the agent dir, and a unique
-/// temp name keeps concurrent replacers from sharing one temp file). The
-/// rename goes through `rename_onto` so the win32 destination-busy retry
-/// applies, like the TS `writeTelemetryStateAtomically`
-/// (`writeFileAtomicSync`).
+/// temp name keeps concurrent replacers from sharing one temp file), like
+/// the TS `writeTelemetryStateAtomically` (`writeFileAtomicSync`).
 fn replace_invalid_state(path: &Path, payload: &[u8]) -> Result<()> {
     let tmp = unique_sibling(path);
     if let Err(err) = create_exclusive(&tmp, payload) {
         remove_quietly(&tmp);
         return Err(err).with_context(|| format!("create {}", tmp.display()));
     }
-    let renamed = crate::rename_onto(&tmp, path)
+    let renamed = std::fs::rename(&tmp, path)
         .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()));
     if renamed.is_err() {
         remove_quietly(&tmp);
@@ -209,8 +201,7 @@ fn remove_quietly(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
-/// Exclusive create with 0600 permissions on unix (Windows has no portable
-/// mode; the agent dir ACLs apply).
+/// Exclusive create with 0600 permissions.
 ///
 /// No temp-file fsync: the TS product fsyncs NEITHER install-id site — the
 /// fresh create is `writeFileSync` with flag `wx` (Node never fsyncs it) and
@@ -220,13 +211,9 @@ fn remove_quietly(path: &Path) {
 /// re-creates next boot (`read_install_id` fails), and a torn or empty
 /// durable file is invalid state, replaced atomically.
 fn create_exclusive(path: &Path, payload: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
     let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
+    options.write(true).create_new(true).mode(0o600);
     let mut file = options.open(path)?;
     file.write_all(payload)
 }
@@ -266,7 +253,6 @@ mod tests {
     /// parking the caller — the `/telemetry` confirmation after a saved
     /// opt-out may never hang on the telemetry state.
     #[test]
-    #[cfg(unix)]
     fn a_fifo_on_the_state_path_reads_as_no_id() {
         let dir = tempfile::tempdir().expect("temp dir");
         let agent_dir = dir.path().join("agent");
@@ -304,12 +290,10 @@ mod tests {
         let state: State = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(state.version, 1);
         assert_eq!(state.installation_id, first);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o600, "created state must stay private");
-        }
+        let mode = std::os::unix::fs::PermissionsExt::mode(
+            &std::fs::metadata(&path).unwrap().permissions(),
+        );
+        assert_eq!(mode & 0o777, 0o600, "created state must stay private");
         // No candidate temps may survive a clean create.
         let leftovers: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()

@@ -6,7 +6,6 @@
 //! observed these implicitly; the work-conditional tick parks without
 //! them, so each member needs its own deadline on the frame arm — these
 //! tests pin every member (a missing predicate wedges or drops the state).
-#![cfg(unix)]
 
 use eukhe_tui::interactive::{
     run_interactive, HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection,

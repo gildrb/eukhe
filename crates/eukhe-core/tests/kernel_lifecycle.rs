@@ -21,7 +21,6 @@
 //!   objects are dropped and reported;
 //! - the RLM surface (rlm, bash, harness) injected by the bootstrap exists
 //!   and host requests round-trip to the registered handler.
-#![cfg(unix)]
 
 use std::collections::HashMap;
 use std::path::PathBuf;

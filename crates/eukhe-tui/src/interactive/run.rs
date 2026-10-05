@@ -1145,19 +1145,15 @@ async fn run_interactive_surface(
                                 // handled signals reset to the default
                                 // across exec.
                                 let mut signals = crate::suspend::ProcessSignals;
-                                let shielded = if crate::suspend::supported() {
-                                    use crate::suspend::SuspendSignals;
-                                    signals.ignore_sigint()
-                                } else {
-                                    Ok(())
-                                };
-                                let stopped = shielded.and_then(|()| {
-                                    TerminalHandoff {
-                                        renderer: &mut renderer,
-                                        view: &mut view,
-                                    }
-                                    .stop()
-                                });
+                                let stopped =
+                                    crate::suspend::SuspendSignals::ignore_sigint(&mut signals)
+                                        .and_then(|()| {
+                                            TerminalHandoff {
+                                                renderer: &mut renderer,
+                                                view: &mut view,
+                                            }
+                                            .stop()
+                                        });
                                 let outcome = match stopped {
                                     Ok(()) => {
                                         crate::external_editor::edit(
@@ -1171,10 +1167,8 @@ async fn run_interactive_surface(
                                 // The suspend cycle's order: SIGINT is
                                 // back to the default before the surface
                                 // takes the terminal.
-                                if crate::suspend::supported() {
-                                    use crate::suspend::SuspendSignals;
-                                    let _ = signals.restore_sigint();
-                                }
+                                let _ =
+                                    crate::suspend::SuspendSignals::restore_sigint(&mut signals);
                                 // TS resumes in a `finally`: the surface
                                 // returns even when the editor run failed.
                                 let resumed = TerminalHandoff {

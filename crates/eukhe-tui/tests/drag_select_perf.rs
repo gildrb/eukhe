@@ -12,7 +12,6 @@
 //! session: the excess must stay within a small bound of the small
 //! session's — before the sparse-window fixes the large session's burst
 //! spent seconds resolving geometry per frame and per copy.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

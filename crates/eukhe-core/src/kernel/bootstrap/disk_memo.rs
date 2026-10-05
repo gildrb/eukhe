@@ -221,7 +221,6 @@ mod tests {
         assert!(!disk_memo_hit(&path, "mine"));
         std::fs::remove_dir(&path).unwrap();
         // A symlink at the memo path is never followed to a hit.
-        #[cfg(unix)]
         {
             let target = dir.path().join("target.json");
             disk_memo_write(&target, "mine");

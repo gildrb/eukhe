@@ -9,7 +9,6 @@
 //! spanned text (the run's recorded `copies` stand in for the OSC 52
 //! write a terminal receives), a dock press starts a frame selection, and
 //! a plain click without a drag copies nothing.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

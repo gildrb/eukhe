@@ -20,7 +20,6 @@
 //!   `transient` + `runId` + `excludeFromContext: true`, the row mounts
 //!   in the pane, and (for `!`) the run seeds the follow-up side
 //!   question's `previousTurns`.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

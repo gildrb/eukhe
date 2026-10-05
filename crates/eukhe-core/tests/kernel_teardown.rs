@@ -21,7 +21,6 @@
 //! The kernel Python is ambient product state (the auto-bootstrapped kernel
 //! venv); like `kernel_lifecycle.rs`, these tests skip (with a note) on
 //! machines without a live install so the suite stays hermetic elsewhere.
-#![cfg(unix)]
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};

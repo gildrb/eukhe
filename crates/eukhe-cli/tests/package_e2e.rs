@@ -29,7 +29,6 @@
 //! the `npmCommand` setting, and git sources clone through an ssh shim that
 //! maps `ssh://localhost/...` onto the local bare repo (the product only
 //! accepts https/ssh/git protocol URLs for git sources).
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::os::unix::fs::PermissionsExt;

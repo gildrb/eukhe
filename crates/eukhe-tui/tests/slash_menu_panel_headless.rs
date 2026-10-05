@@ -4,7 +4,6 @@
 //! the rule that separates a panel from the transcript above), drawn
 //! directly above the menu rows — so an open slash-command menu reads as
 //! a panel, not as loose transcript rows.
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

@@ -24,7 +24,6 @@
 //! `/traces` renders the status block and writes the setting through the
 //! composition-root hook, and `/login` + `/logout` run the provider auth
 //! flows through a scripted hook.
-#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};

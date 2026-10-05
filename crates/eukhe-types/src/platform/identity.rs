@@ -2,17 +2,14 @@
 //!
 //! A ticket or stale-file check must prove the file at a socket path is the
 //! same filesystem object it was when the identity was recorded (dev + ino
-//! survive path rewrites and pid reuse). `None` where the platform keeps no
-//! file for the endpoint (Windows named pipes): TS treats identity as
-//! undefined there and callers skip the ownership check.
+//! survive path rewrites and pid reuse).
 
 use std::path::Path;
 
 use crate::daemon::SocketIdentity;
 
-/// Stat the endpoint's filesystem identity (dev + ino). Unix sockets only;
-/// named-pipe endpoints have no file to stat.
-#[cfg(unix)]
+/// Stat the endpoint's filesystem identity (dev + ino); `None` when the
+/// socket file cannot be stated.
 #[must_use]
 pub fn socket_identity(path: &Path) -> Option<SocketIdentity> {
     use std::os::unix::fs::MetadataExt;
@@ -23,13 +20,7 @@ pub fn socket_identity(path: &Path) -> Option<SocketIdentity> {
     })
 }
 
-#[cfg(not(unix))]
-#[must_use]
-pub fn socket_identity(_path: &Path) -> Option<SocketIdentity> {
-    None
-}
-
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

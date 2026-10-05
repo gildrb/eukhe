@@ -46,7 +46,6 @@
 //! known-terminal axis (`KITTY_WINDOW_ID` set) re-runs every route with
 //! the probe skipped: the direct-push path a kitty/Ghostty operator
 //! rides, where the flags arm without any query.
-#![cfg(unix)]
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};

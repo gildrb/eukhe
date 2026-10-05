@@ -211,17 +211,10 @@ pub(crate) fn spawn_roster_activity_watch(events: &Arc<EventPump>, queue: Roster
 #[cfg(test)]
 mod tests {
     use super::*;
-    // The socket-harness test below is the only user of these; the
-    // import gates keep the portable tests above import-clean on
-    // non-unix targets.
-    #[cfg(unix)]
     use crate::supervisor_link::SupervisorLink;
     use serde_json::json;
-    #[cfg(unix)]
     use serde_json::Value;
-    #[cfg(unix)]
     use std::sync::Mutex;
-    #[cfg(unix)]
     use std::time::Duration;
 
     fn session_event_frame(event: &serde_json::Value) -> OutboundFrame {
@@ -303,7 +296,6 @@ mod tests {
     /// One pending flag bounds the backlog: a burst of requests behind a
     /// slow supervisor collapses into a couple of flushes with the latest
     /// state — an unbounded queue would drain every request one by one.
-    #[cfg(unix)]
     #[tokio::test]
     async fn a_burst_collapses_behind_a_slow_supervisor() {
         let dir = tempfile::TempDir::new().unwrap();

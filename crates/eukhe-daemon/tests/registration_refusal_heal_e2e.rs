@@ -11,10 +11,9 @@
 //! process death (the same contract the shutdown pass enforces), so a
 //! stop that misses its worker escalates instead of stranding it.
 // The suite's liveness and child-discovery helpers read Linux procfs;
-// on other unixes they cannot observe processes, and the waits would
-// pass vacuously — skip the suite there instead of reporting a false
-// green.
-#![cfg(all(unix, target_os = "linux"))]
+// on macOS they cannot observe processes, and the waits would pass
+// vacuously — skip the suite there instead of reporting a false green.
+#![cfg(target_os = "linux")]
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;

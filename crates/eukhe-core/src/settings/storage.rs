@@ -170,37 +170,15 @@ struct FileIdentity {
     len: u64,
 }
 
-// The fallible non-Unix twin pins the Option shape across
-// platforms - unwrapping only this arm would split the contract.
-#[allow(clippy::unnecessary_wraps)]
-#[cfg(unix)]
-fn stat_identity(metadata: &fs::Metadata) -> Option<FileIdentity> {
+fn stat_identity(metadata: &fs::Metadata) -> FileIdentity {
     use std::os::unix::fs::MetadataExt;
-    Some(FileIdentity {
+    FileIdentity {
         dev: metadata.dev(),
         ino: metadata.ino(),
         mtime_sec: metadata.mtime(),
         mtime_nsec: metadata.mtime_nsec(),
         len: metadata.len(),
-    })
-}
-
-#[cfg(windows)]
-fn stat_identity(metadata: &fs::Metadata) -> Option<FileIdentity> {
-    let modified = metadata.modified().ok()?;
-    let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
-    Some(FileIdentity {
-        dev: 0,
-        ino: 0,
-        mtime_sec: since.as_secs() as i64,
-        mtime_nsec: i64::from(since.subsec_nanos()),
-        len: metadata.len(),
-    })
-}
-
-#[cfg(not(any(unix, windows)))]
-fn stat_identity(_metadata: &fs::Metadata) -> Option<FileIdentity> {
-    None
+    }
 }
 
 /// One validated document read held in the process-wide read-through cache.
@@ -235,7 +213,7 @@ impl SettingsStorage for FileSettingsStorage {
         let _process_guard = process_lock(path);
         let now_identity = fs::metadata(path)
             .ok()
-            .and_then(|metadata| stat_identity(&metadata));
+            .map(|metadata| stat_identity(&metadata));
         // No file: `with_lock`'s read arm delivers `None` without a lock
         // protocol, and so does this.
         let Some(identity) = now_identity else {
@@ -344,8 +322,7 @@ pub(crate) fn opt_in_fsync_calls() -> usize {
     OPT_IN_FSYNC.with(std::cell::Cell::get)
 }
 
-/// Atomic write: temp file + rename, private mode like `writeFileAtomicSync`
-/// (its win32-only destination-busy retry rides along in `rename_onto`).
+/// Atomic write: temp file + rename, private mode like `writeFileAtomicSync`.
 ///
 /// The TS default durability: NO fsync. `writeFileAtomicSync`'s `fsync` is
 /// opt-in (atomic-file.ts: `if (options.fsync) fsyncSync(descriptor)`) and
@@ -377,7 +354,7 @@ pub fn atomic_write_with(path: &Path, content: &str, options: AtomicWriteOptions
             file.sync_all()?;
         }
     }
-    crate::platform::rename_onto(&temp, path)?;
+    std::fs::rename(&temp, path)?;
     Ok(())
 }
 
@@ -448,8 +425,7 @@ mod tests {
         let path = dir.path().join("agent").join("settings.json");
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("prime-inference"));
-        // Owner-only mode is a Unix guarantee; Windows inherits ACLs.
-        #[cfg(unix)]
+        // Owner-only mode.
         assert_eq!(crate::platform::perms::file_mode(&path), Some(0o600));
     }
 
@@ -478,7 +454,6 @@ mod tests {
         );
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "durable bytes\n");
-        #[cfg(unix)]
         assert_eq!(crate::platform::perms::file_mode(&path), Some(0o600));
         // The temp never leaks: only the destination remains.
         let names: Vec<String> = fs::read_dir(path.parent().unwrap())
@@ -585,7 +560,6 @@ mod tests {
     /// paths against `AT_FDCWD`, and the settings document under it is
     /// read back under the same lock.
     #[test]
-    #[cfg(unix)]
     fn relative_agent_dir_locks_and_loads() {
         let cwd = tempfile::tempdir().unwrap();
         let previous = std::env::current_dir().unwrap();

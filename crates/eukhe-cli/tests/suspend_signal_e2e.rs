@@ -39,8 +39,6 @@
 //! real shell cannot produce that (Ctrl+C goes to the shell, the
 //! foreground process), so the byte-level assertions run without it.
 
-#![cfg(unix)]
-
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;

@@ -86,10 +86,8 @@ fn holder_process(pid: Option<u32>) -> (HolderFlavor, Option<std::path::PathBuf>
 
 /// The classification core, factored for tests: `exe` is the holder's
 /// resolved process image, `own_exe` this process's own. The path checks
-/// match whole path COMPONENTS (platform separators, no raw substrings):
-/// an arbitrary parent directory named `target` is no evidence, and a
-/// Windows cargo build (`target\debug\eukhe.exe`) classifies the same as a
-/// Unix one.
+/// match whole path COMPONENTS (no raw substrings): an arbitrary parent
+/// directory named `target` is no evidence.
 fn classify_from(exe: Option<&Path>, own_exe: Option<&Path>) -> HolderFlavor {
     let Some(exe) = exe else {
         return HolderFlavor::AnotherProcess;
@@ -110,7 +108,7 @@ fn classify_from(exe: Option<&Path>, own_exe: Option<&Path>) -> HolderFlavor {
         .last()
         .map(|last| last.trim_end_matches(" (deleted)"))
         .unwrap_or_default();
-    if name == "eukhe" || name == "eukhe.exe" {
+    if name == "eukhe" {
         return HolderFlavor::ThisBuild;
     }
     if let Some(index) = components

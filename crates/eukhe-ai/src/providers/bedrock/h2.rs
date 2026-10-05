@@ -555,9 +555,9 @@ mod h2_wire_tests {
             socket.shutdown().await.ok();
             // The readiness event is the client's EOF, not elapsed time:
             // the read consumes the request DATA (a close over unread
-            // data resets, and Windows would discard the queued answer
-            // on the reset) and holds the socket until the client -
-            // which closes once the parse fails - has the answer.
+            // data resets, which can discard the queued answer) and holds
+            // the socket until the client - which closes once the parse
+            // fails - has the answer.
             let mut rest = Vec::new();
             let _ = socket.read_to_end(&mut rest).await;
         });

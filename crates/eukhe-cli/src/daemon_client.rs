@@ -284,7 +284,7 @@ fn node_connect_error(error: &std::io::Error, socket_path: &Path) -> String {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;

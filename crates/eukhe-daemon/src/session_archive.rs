@@ -17,9 +17,9 @@
 //! existing selector (TS parity: an archived session stays reachable via
 //! `--resume <selector>`).
 //!
-//! Windows-readiness: paths resolve through `eukhe_types::platform::home_dir`
-//! via the agent dir; moves fall back to copy+delete when rename cannot
-//! cross filesystems.
+//! Paths resolve through `eukhe_types::platform::home_dir` via the agent
+//! dir; moves fall back to copy+delete when rename cannot cross
+//! filesystems.
 
 use std::collections::HashSet;
 use std::fs;

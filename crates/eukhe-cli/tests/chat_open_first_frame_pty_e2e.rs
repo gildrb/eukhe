@@ -38,8 +38,6 @@
 //! socket, non-blocking pty master); the byte-level waits serialize
 //! through the same static lock.
 
-#![cfg(unix)]
-
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;

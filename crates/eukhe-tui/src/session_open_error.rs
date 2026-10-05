@@ -138,40 +138,11 @@ pub(crate) fn already_active_line(holder: &str, session_path: &Path) -> String {
 
 /// The suggested `--resume <holder>` argument, shell-quoted so a holder id
 /// the daemon or a roster row controls can never break the suggested
-/// command (or inject a second one). Unix: POSIX single quotes with the
+/// command (or inject a second one): POSIX single quotes with the
 /// embedded-quote escape - the exact form a shell round-trips
 /// byte-identically, and inert for the hex ids the product mints.
-/// Windows: the CRT parser's backslash/quote rules PLUS cmd.exe's own
-/// metacharacters (both documented in the arm below).
 pub(crate) fn quoted_resume_arg(id: &str) -> String {
-    #[cfg(windows)]
-    {
-        // Two parsers see a pasted command on Windows: the CRT argument
-        // parser (a backslash run before a quote folds 2n -> n, so every
-        // backslash doubles and every embedded quote escapes - neither
-        // can terminate the argument) and cmd.exe itself (every `"`
-        // toggles its quote state, exposing the separator metacharacters
-        // to command interpretation - so each of cmd's separators is
-        // ^-escaped, which renders it literal even in a toggle-out).
-        // The caret itself escapes FIRST (its own occurrences double),
-        // then the separators get their single ^ - a later caret pass would
-        // double the carets just inserted and un-escape the separators
-        // again (`^^&` leaves `&` live inside a toggle-out).
-        let cmd_escaped = id.replace('^', "^^");
-        let cmd_escaped = ['&', '|', '<', '>']
-            .iter()
-            .fold(cmd_escaped, |escaped, metachar| {
-                escaped.replace(*metachar, &format!("^{metachar}"))
-            });
-        format!(
-            "--resume \"{}\"",
-            cmd_escaped.replace('\\', "\\\\").replace('"', "\\\"")
-        )
-    }
-    #[cfg(not(windows))]
-    {
-        format!("--resume '{}'", id.replace('\'', "'\\''"))
-    }
+    format!("--resume '{}'", id.replace('\'', "'\\''"))
 }
 
 /// The descriptive refusal for a holder the live roster identifies: the
@@ -501,27 +472,6 @@ mod decorate_tests {
             "--resume 'it'\\''s'",
             "the POSIX escape form"
         );
-        #[cfg(windows)]
-        {
-            // The cmd separator stays ^-escaped with a SINGLE caret (the
-            // caret pass runs first, so it never re-escapes its own
-            // insertions - the `^^&` un-escape regression).
-            let quoted = quoted_resume_arg("a & b");
-            assert!(
-                quoted.contains("^&"),
-                "the separator rides a single caret: {quoted}"
-            );
-            assert!(
-                !quoted.contains("^^&"),
-                "no doubled caret un-escapes the separator: {quoted}"
-            );
-            // An id's OWN caret doubles (cmd's literal-caret escape).
-            let caret = quoted_resume_arg("a^b");
-            assert!(
-                caret.contains("a^^b"),
-                "the id's own caret doubles: {caret}"
-            );
-        }
         // The unseen-holder arm (no roster row) suggests the daemon-restart
         // path instead - it never interpolates the id into a command.
         let unseen = decorate_interactive_refusal(original, None, "245ddb974b6d; rm -rf /");

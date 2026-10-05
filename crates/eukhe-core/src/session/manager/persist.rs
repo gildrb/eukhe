@@ -146,8 +146,7 @@ impl SessionManager {
 }
 
 /// Atomic session-file write: private temp + fsync + rename onto the
-/// destination (the `writeFileAtomicSync` shape; the win32 destination-busy
-/// retry rides along in `rename_onto`).
+/// destination (the `writeFileAtomicSync` shape).
 ///
 /// The fsync is the port's deliberate session durability strengthening, not
 /// TS parity: the TS session rewrites and repairs pass no `fsync` option
@@ -169,5 +168,5 @@ pub(super) fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
         file.write_all(content.as_bytes())?;
         file.sync_all()?;
     }
-    crate::platform::rename_onto(&temp, path)
+    std::fs::rename(&temp, path)
 }

@@ -26,7 +26,6 @@
 //! rows out of the roster, so the first agents-view render is the live
 //! roster alone — while the saved catalog keeps every dead row resumable
 //! under the parent's collapsed tree.
-#![cfg(unix)]
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};

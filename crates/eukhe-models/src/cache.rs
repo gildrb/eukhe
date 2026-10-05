@@ -478,25 +478,15 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         std::process::id(),
         TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
-    #[cfg(unix)]
-    let write = || {
+    let mut file = {
         use std::os::unix::fs::OpenOptionsExt;
         std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .mode(0o600)
-            .open(&temp)
+            .open(&temp)?
     };
-    #[cfg(not(unix))]
-    let write = || {
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&temp)
-    };
-    let mut file = write()?;
     file.write_all(bytes)?;
     file.flush()?;
     file.sync_all()?;

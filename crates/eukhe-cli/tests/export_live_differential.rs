@@ -29,7 +29,6 @@
 //! worker's `export_html` wire command (TS `session.exportToHtml` with
 //! the tool renderer; the Rust worker's `ExportCommands`). The TS daemon
 //! is ground truth; the test skips when the TS binary is not installed.
-#![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;

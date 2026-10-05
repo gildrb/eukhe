@@ -43,44 +43,24 @@ pub fn osc8_open(url: &str) -> String {
 /// OSC 8 close: ends the active hyperlink region.
 pub const OSC8_CLOSE: &str = "\x1b]8;;\x1b\\";
 
-/// Rewrite a Windows drive-letter path (`c:\...` / `C:/...`) to a `file:///`
-/// URL, mirroring the TS href normalization that classifies it as a path
-/// rather than a URL scheme and lets `new URL()` canonicalize the
-/// backslashes. Other targets pass through unchanged.
-#[must_use]
-pub fn rewrite_drive_path(url: &str) -> String {
-    let bytes = url.as_bytes();
-    if url.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && (bytes[2] == b'\\' || bytes[2] == b'/')
-    {
-        format!("file:///{}", url.replace('\\', "/"))
-    } else {
-        url.to_string()
-    }
-}
-
-/// TS `markdown.ts` `case "link"` href resolution: drive-path rewrite,
-/// then a WHATWG `new URL()` pass. The deployed interactive renderer
-/// always sets `options.baseUrl` (`assistant-message.ts` derives it from
-/// the session cwd), so every non-fragment target that parses is emitted
-/// through `new URL(target, baseUrl).href`: absolute urls canonicalize
-/// (a bare host gains its `/`, the scheme and host lower-case), drive
-/// paths re-canonicalize their `file:///` form. `WhatWG` parsing with no
-/// base only succeeds for absolute urls, so relative targets pass
+/// TS `markdown.ts` `case "link"` href resolution: a WHATWG `new URL()`
+/// pass. The deployed interactive renderer always sets `options.baseUrl`
+/// (`assistant-message.ts` derives it from the session cwd), so every
+/// non-fragment target that parses is emitted through
+/// `new URL(target, baseUrl).href`: absolute urls canonicalize (a bare
+/// host gains its `/`, the scheme and host lower-case). `WhatWG` parsing
+/// with no base only succeeds for absolute urls, so relative targets pass
 /// through raw here - the one documented gap: resolving them against the
 /// session cwd needs cwd plumbing the markdown pipeline does not carry,
 /// and no battery covers a relative link target.
 #[must_use]
-pub fn resolve_link_href(token_href: &str) -> String {
-    let target = rewrite_drive_path(token_href);
+pub fn resolve_link_href(target: &str) -> String {
     if target.starts_with('#') {
-        return sanitize_control_bytes(target);
+        return sanitize_control_bytes(target.to_string());
     }
-    match url::Url::parse(&target) {
+    match url::Url::parse(target) {
         Ok(parsed) => parsed.to_string(),
-        Err(_) => sanitize_control_bytes(target),
+        Err(_) => sanitize_control_bytes(target.to_string()),
     }
 }
 
@@ -536,8 +516,8 @@ mod tests {
     fn resolve_link_href_canonicalizes_parseable_targets() {
         // The deployed renderer always sets baseUrl, so every parseable
         // non-fragment href goes through `new URL().href`: hosts gain a
-        // trailing `/`, scheme and host lower-case, drive paths
-        // re-canonicalize. Unparseable targets and fragments pass raw.
+        // trailing `/`, scheme and host lower-case. Unparseable targets
+        // and fragments pass raw.
         assert_eq!(
             resolve_link_href("https://x.dev/a?b=1"),
             "https://x.dev/a?b=1"
@@ -548,7 +528,6 @@ mod tests {
             "https://upper.com/PATH"
         );
         assert_eq!(resolve_link_href("mailto:a@b.dev"), "mailto:a@b.dev");
-        assert_eq!(resolve_link_href("c:\\src"), "file:///c:/src");
         assert_eq!(resolve_link_href("see docs"), "see docs");
         assert_eq!(resolve_link_href("#section"), "#section");
     }
@@ -617,11 +596,6 @@ mod tests {
             "\x1b]8;;https://x.dev/a\x1b\\"
         );
         assert_eq!(OSC8_CLOSE, "\x1b]8;;\x1b\\");
-        assert_eq!(
-            rewrite_drive_path("c:\\src\\main.rs"),
-            "file:///c:/src/main.rs"
-        );
-        assert_eq!(rewrite_drive_path("https://x.dev"), "https://x.dev");
     }
 
     #[test]

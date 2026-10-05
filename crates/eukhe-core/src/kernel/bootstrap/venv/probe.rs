@@ -21,8 +21,6 @@ fn run_quiet(command: &str, args: &[&str]) -> bool {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    // Hidden window on Windows (TS `spawnHidden`).
-    crate::platform::process::set_no_window(&mut child);
     matches!(child.status(), Ok(status) if status.success())
 }
 
@@ -111,9 +109,8 @@ pub(super) fn installed_runtime_identity(python: &Path, venv: &Path) -> String {
     format!("sha256:{:x}", hasher.finalize())
 }
 
-/// The installed `rlm` package under the venv's site-packages: the
-/// Windows layout `<venv>/Lib/site-packages/rlm` (no python-version
-/// layer) or the Unix layout `<venv>/lib/python*/site-packages/rlm`.
+/// The installed `rlm` package under the venv's site-packages
+/// (`<venv>/lib/python*/site-packages/rlm`).
 #[cfg(test)]
 pub(super) fn installed_rlm_dir(venv: &Path) -> Option<PathBuf> {
     installed_package_dir(venv, "rlm")
@@ -121,10 +118,6 @@ pub(super) fn installed_rlm_dir(venv: &Path) -> Option<PathBuf> {
 
 pub(super) fn installed_package_dir(venv: &Path, package: &str) -> Option<PathBuf> {
     let lib = venv.join("lib");
-    let windows_layout = lib.join("site-packages").join(package);
-    if windows_layout.is_dir() {
-        return Some(windows_layout);
-    }
     let entries = std::fs::read_dir(&lib).ok()?;
     for entry in entries.flatten() {
         if !entry.file_type().is_ok_and(|t| t.is_dir()) {
@@ -237,9 +230,8 @@ pub fn invalidate_runtime_probe_cache() {
 
 /// Drop only the in-process memo layer, leaving the on-disk layer intact:
 /// the fresh-process simulation the disk-memo oracles use (a real fresh
-/// process starts with an empty map and the disk file on disk). Unix
-/// only: its callers are the unix socket-harness tests.
-#[cfg(all(test, unix))]
+/// process starts with an empty map and the disk file on disk).
+#[cfg(test)]
 pub(crate) fn clear_in_process_probe_memo_for_tests() {
     *lock_probe_memo() = None;
 }

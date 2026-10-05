@@ -1,7 +1,4 @@
 //! TS provisioner parity: all first-touch callers join one in-flight boot.
-// Unix-only: the permission bits the provisioner stamps are unix mode
-// bits (std::os::unix::fs::PermissionsExt).
-#![cfg(unix)]
 
 use eukhe_core::kernel::cancellation::AbortSignal;
 use eukhe_core::kernel::provisioner::{IpythonKernelProvisioner, IpythonKernelProvisionerOptions};

@@ -12,17 +12,13 @@
 //! depends on eukhe-types alone and opts into the workspace `unsafe_code`
 //! forbid (the process-suspend precedent).
 
-#[cfg(unix)]
 use std::fs::File;
-#[cfg(unix)]
 use std::io;
-#[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 
 /// The classic control characters `stty sane` restores (Linux
 /// defaults): a poisoned tty may carry zeroes here, and canonical
 /// editing depends on them (`VERASE`, `VEOF`, ...).
-#[cfg(unix)]
 const SANE_CONTROL_CHARS: [(usize, u8); 12] = [
     (libc::VINTR, 3),
     (libc::VQUIT, 28),
@@ -52,7 +48,6 @@ pub enum TtyCooked {
 
 /// Whether the attrs describe a cooked tty: canonical input and echo -
 /// the two flags a raw leak takes away.
-#[cfg(unix)]
 fn cooked(attrs: &libc::termios) -> bool {
     attrs.c_lflag & (libc::ICANON | libc::ECHO) == (libc::ICANON | libc::ECHO)
 }
@@ -62,15 +57,13 @@ fn cooked(attrs: &libc::termios) -> bool {
 /// there is nothing to clear off it there.
 #[cfg(target_os = "linux")]
 const OLCUC: libc::tcflag_t = libc::OLCUC;
-/// Other unixes (and every non-unix build, where `tcflag_t` does not
-/// exist) never see the flag: the constant itself stays unix-only.
-#[cfg(all(unix, not(target_os = "linux")))]
+/// macOS never sees the flag.
+#[cfg(target_os = "macos")]
 const OLCUC: libc::tcflag_t = 0;
 
 /// Rebuild a sane cooked mode in place (the `stty sane` recipe): the
 /// line discipline on, signal characters live, echo with erase
 /// rendering, and the classic control characters restored.
-#[cfg(unix)]
 fn make_sane(attrs: &mut libc::termios) {
     attrs.c_iflag &=
         !(libc::IGNBRK | libc::BRKINT | libc::PARMRK | libc::ISTRIP | libc::INLCR | libc::IGNCR);
@@ -88,15 +81,14 @@ fn make_sane(attrs: &mut libc::termios) {
 /// The reopen-stdin fallback for the no-controlling-terminal case:
 /// Linux exposes open descriptors under /proc, macOS through its
 /// fdesc `/dev/fd` (there is no /proc on the Mac).
-#[cfg(all(unix, target_os = "linux"))]
+#[cfg(target_os = "linux")]
 const STDIN_TTY_PATH: &str = "/proc/self/fd/0";
-#[cfg(all(unix, not(target_os = "linux")))]
+#[cfg(target_os = "macos")]
 const STDIN_TTY_PATH: &str = "/dev/fd/0";
 
 /// The process tty (`/dev/tty`, stdin when no controlling terminal
 /// exists - the restore path must still be able to repair the pane it
 /// owns).
-#[cfg(unix)]
 fn tty() -> Option<File> {
     match File::open("/dev/tty") {
         Ok(tty) => Some(tty),
@@ -118,7 +110,6 @@ fn tty() -> Option<File> {
 /// shell's own flow-control configuration returns byte-equal.
 /// Best-effort: no tty means nothing to lift, and the caller proceeds
 /// (the same swallow-first contract as `disable_raw_mode`).
-#[cfg(unix)]
 pub fn restart_output() {
     let Some(tty) = tty() else {
         return;
@@ -140,15 +131,10 @@ pub fn restart_output() {
     }
 }
 
-/// The non-unix arm: no POSIX software flow control to lift.
-#[cfg(not(unix))]
-pub fn restart_output() {}
-
 /// Verify the process tty and repair a raw state: the force-quit
 /// restore already ran its best-effort `disable_raw_mode`, so a raw
 /// read here means the saved original was poisoned or the restore write
 /// failed - the sane reconstruction applies directly.
-#[cfg(unix)]
 #[must_use]
 pub fn ensure_cooked_tty() -> TtyCooked {
     let Some(tty) = tty() else {
@@ -177,13 +163,7 @@ pub fn ensure_cooked_tty() -> TtyCooked {
     TtyCooked::Repaired
 }
 
-#[cfg(not(unix))]
-#[must_use]
-pub fn ensure_cooked_tty() -> TtyCooked {
-    TtyCooked::Unavailable
-}
-
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

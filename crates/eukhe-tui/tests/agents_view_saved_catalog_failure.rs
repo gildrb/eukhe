@@ -4,7 +4,6 @@
 //! default row instead of re-arming "Still loading sessions" behind the
 //! error it already showed (the operator's stuck loading state). The fetch
 //! re-arms on the next query change (TS `rearmSavedSearchFetch`).
-#![cfg(unix)]
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

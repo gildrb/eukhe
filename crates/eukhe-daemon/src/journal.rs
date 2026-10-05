@@ -64,22 +64,18 @@ pub(crate) fn append_records(path: &Path, records: &[Value]) -> Result<()> {
     Ok(())
 }
 
-/// How the temp journal lands on its path, and whether its data rides a
-/// full sync before the swap: the two are one seam — each variant is the
-/// sync class its TS counterpart (or Rust-native owner) carries.
+/// Whether the temp journal's data rides a full sync before the rename
+/// onto its path: each variant is the sync class its TS counterpart (or
+/// Rust-native owner) carries.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Finalize {
-    /// Rename through `rename_onto`: the bounded win32 destination-busy
-    /// retry (TS `writeFileAtomicSync` -> `renameOntoSync`), with the
-    /// temp file synced before the swap (TS `fsync: true`).
-    RetryBusy,
-    /// Bare rename with the temp file synced before the swap: every
-    /// failure surfaces immediately. The Rust-native terminal-compaction
-    /// journal (no TS counterpart) keeps its belt.
+    /// Temp file synced before the rename (TS `writeFileAtomicSync` with
+    /// `fsync: true`; the Rust-native terminal-compaction journal keeps
+    /// the same belt).
     Synced,
-    /// Bare rename with an UNSYNCED temp (TS
+    /// Rename with an UNSYNCED temp (TS
     /// `worker-recovery-journal.ts` compact: `writeFileSync` + plain
-    /// `renameSync` — no retry, no temp fsync): the OS carries the temp
+    /// `renameSync` — no temp fsync): the OS carries the temp
     /// data to the rename. Durability is owned by the append path — the
     /// compacted form holds only records the append path already made
     /// durable, so a lost compact falls back to the append-only history,
@@ -102,11 +98,7 @@ pub(crate) fn rewrite_records(path: &Path, records: &[Value], finalize: Finalize
             writer.get_ref().sync_all()?;
         }
     }
-    let rename = match finalize {
-        Finalize::RetryBusy => eukhe_core::platform::rename_onto(&temp, path),
-        Finalize::Synced | Finalize::Bare => fs::rename(&temp, path),
-    };
-    rename.with_context(|| format!("persist {}", path.display()))?;
+    fs::rename(&temp, path).with_context(|| format!("persist {}", path.display()))?;
     Ok(())
 }
 
@@ -274,7 +266,7 @@ impl CommandRecoveryJournal {
             }
             records.push(received);
         }
-        rewrite_records(&self.path, &records, Finalize::RetryBusy)?;
+        rewrite_records(&self.path, &records, Finalize::Synced)?;
         self.record_count = records.len();
         Ok(())
     }

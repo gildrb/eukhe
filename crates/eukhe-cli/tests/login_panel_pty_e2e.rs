@@ -32,7 +32,6 @@
 //! product's own rendering path. A plain `cargo test` run (no
 //! `EUKHE_LOGIN_PANEL_CHILD_SOCKET`) passes trivially — only the parent
 //! tests drive the real path.
-#![cfg(unix)]
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};

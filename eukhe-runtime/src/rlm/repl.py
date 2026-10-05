@@ -11,7 +11,6 @@ import ast
 import asyncio
 import codecs
 import contextvars
-import ctypes
 import functools
 import inspect
 import io
@@ -424,7 +423,6 @@ def _request_interrupt(target: str | None) -> None:
     """
     global _sigint_target
     with _interrupt_lock:
-        task = _active["task"]
         rid = _active["rid"]
         if rid is not None and (target is None or target == rid):
             # Active, or in the done-task handoff before _run_guarded's finally:
@@ -442,25 +440,11 @@ def _request_interrupt(target: str | None) -> None:
             return
         else:
             return
-    # SIGINT must land on the main thread, where cells execute. Windows has no
-    # signal.pthread_kill: fall back to cancelling the active task on the loop
-    # (sync-blocked cells and the finishing repr/drain cannot be broken there;
-    # best-effort parity).
-    if hasattr(signal, "pthread_kill"):
-        signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
-        if _loop is not None:
-            # Wake the selector so a cancel scheduled by the handler runs promptly.
-            _loop.call_soon_threadsafe(lambda: None)
-        return
+    # SIGINT must land on the main thread, where cells execute.
+    signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
     if _loop is not None:
-
-        def cancel_active() -> None:
-            current = _active["task"]
-            if current is task and current is not None and not current.done():
-                _active["interrupted"] = True
-                current.cancel()
-
-        _loop.call_soon_threadsafe(cancel_active)
+        # Wake the selector so a cancel scheduled by the handler runs promptly.
+        _loop.call_soon_threadsafe(lambda: None)
 
 
 def _consume_pending_interrupt(rid: str) -> bool:
@@ -1619,34 +1603,8 @@ def _wait_owner_posix(owner: int, initial_ppid: int) -> None:
         wait_for_exit()
 
 
-def _wait_owner_windows(owner: int) -> None:
-    # Blocks until the owner exits. os.kill(pid, 0) on Windows TERMINATES the
-    # target, so a SYNCHRONIZE handle wait is the only sound probe.
-    from ctypes import wintypes
-
-    SYNCHRONIZE = 0x00100000
-    INFINITE = 0xFFFFFFFF
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    k32.OpenProcess.restype = wintypes.HANDLE
-    k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    k32.WaitForSingleObject.restype = wintypes.DWORD
-    k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    k32.CloseHandle.restype = wintypes.BOOL
-    handle = k32.OpenProcess(SYNCHRONIZE, False, owner)
-    if not handle:
-        return  # already gone (or unprobeable): exit rather than run ownerless
-    try:
-        k32.WaitForSingleObject(handle, INFINITE)
-    finally:
-        k32.CloseHandle(handle)
-
-
 def _owner_watchdog(owner: int, initial_ppid: int) -> None:
-    if os.name == "nt":
-        _wait_owner_windows(owner)
-    else:
-        _wait_owner_posix(owner, initial_ppid)
+    _wait_owner_posix(owner, initial_ppid)
     # Event-loop-independent by design: a synchronous cell monopolizes the
     # loop, so the queued EOF shutdown can never run; hard-exit from here.
     try:
