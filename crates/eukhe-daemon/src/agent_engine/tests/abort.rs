@@ -58,20 +58,21 @@ fn abort_in_flight_turn_cancels_a_mid_provider_wait() {
             },
         );
     });
-    // Wait until the turn is live (the agent run started) so the abort
-    // lands mid-provider-wait, the window TS's requestAbort owns.
+    // Wait until the provider request is in flight (the faux provider
+    // served the call; `delayMs` holds its response) so the abort lands
+    // mid-provider-wait, the window TS's requestAbort owns. The run's
+    // `is_streaming` flips at its registration, ahead of the loop's
+    // pre-stream abort checks: an abort landing there fails the run before
+    // any turn streams (no `turn_end`, TS `handleRunFailure`).
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        let agent = engine.turn_agent.lock().expect("turn agent lock").clone();
-        if let Some(agent) = agent {
-            let state = engine.runtime.block_on(agent.state());
-            if state.is_streaming {
-                break;
-            }
-        }
+    while engine
+        .faux_registration
+        .get()
+        .is_none_or(|registration| registration.call_count() == 0)
+    {
         assert!(
             std::time::Instant::now() < deadline,
-            "the turn never started streaming"
+            "the provider request never started"
         );
         std::thread::sleep(std::time::Duration::from_millis(25));
     }

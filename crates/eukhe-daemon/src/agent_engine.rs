@@ -435,10 +435,12 @@ pub struct AgentSessionEngine {
     /// session: the durable `rlm_max_depth_state` custom entry parks here
     /// and flushes at build, exactly the `pending_branch` pattern.
     pending_max_depth: std::sync::Mutex<Option<u64>>,
-    /// The resolved faux model, registered once per engine so scripted
-    /// responses queue across turns instead of replaying per resolution.
-    /// Verification harness only; never set by the product.
-    faux_model: std::sync::OnceLock<Model>,
+    /// The faux provider registered from the script, once per engine so
+    /// scripted responses queue across turns instead of replaying per
+    /// resolution. The handle serves the model and the served-path probe
+    /// (`call_count`: a provider request is in flight). Verification
+    /// harness only; never set by the product.
+    faux_registration: std::sync::OnceLock<eukhe_ai::faux::FauxProviderRegistration>,
     /// One compact-and-retry attempt per context overflow (TS
     /// `_overflowRecovery`): the state machine the overflow arm walks.
     pub(crate) overflow_recovery: std::sync::Mutex<OverflowRecovery>,

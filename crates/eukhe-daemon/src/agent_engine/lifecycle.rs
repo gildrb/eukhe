@@ -205,7 +205,7 @@ impl AgentSessionEngine {
             rlm_max_depth_source: std::sync::Mutex::new("default"),
             pending_max_depth: std::sync::Mutex::new(None),
             reloaded_goal_update: std::sync::Mutex::new(None),
-            faux_model: std::sync::OnceLock::new(),
+            faux_registration: std::sync::OnceLock::new(),
             overflow_recovery: std::sync::Mutex::new(OverflowRecovery::default()),
             auto_compaction_abort: std::sync::Mutex::new(None),
             compaction_summary_sink: std::sync::Mutex::new(None),

@@ -327,13 +327,13 @@ impl AgentSessionEngine {
     /// provider).
     pub(crate) fn resolve_model(&self) -> anyhow::Result<Model> {
         if let Some(script) = &self.config.faux_script {
-            let model = if let Some(model) = self.faux_model.get() {
-                model.clone()
+            let registration = if let Some(registration) = self.faux_registration.get() {
+                registration
             } else {
-                let model = faux_model_from_script(script)?;
-                let _ = self.faux_model.set(model.clone());
-                model
+                let registration = faux_registration_from_script(script)?;
+                self.faux_registration.get_or_init(|| registration)
             };
+            let model = registration.get_model();
             let selection = self.current_selection();
             let names_script_model = selection
                 .provider
@@ -607,13 +607,16 @@ pub(crate) fn saved_session_context_from_parts(
     }
 }
 
-/// Register the faux provider from a script and return its model. Scripts
-/// carry plain-text responses (strings or `{"text"}` objects) or content-block
-/// arrays (thinking, text, tool calls) so harnesses can script full turns.
+/// Register the faux provider from a script. Scripts carry plain-text
+/// responses (strings or `{"text"}` objects) or content-block arrays
+/// (thinking, text, tool calls) so harnesses can script full turns.
 /// Verification harness only; never set by the product.
-fn faux_model_from_script(script: &str) -> anyhow::Result<Model> {
+fn faux_registration_from_script(
+    script: &str,
+) -> anyhow::Result<eukhe_ai::faux::FauxProviderRegistration> {
     let script: serde_json::Value = serde_json::from_str(script)?;
     let parsed = eukhe_ai::faux::script::parse_faux_script(&script).map_err(anyhow::Error::msg)?;
-    let registration = eukhe_ai::faux::script::register_faux_provider_from_script(&parsed);
-    Ok(registration.get_model())
+    Ok(eukhe_ai::faux::script::register_faux_provider_from_script(
+        &parsed,
+    ))
 }

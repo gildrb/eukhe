@@ -70,7 +70,8 @@ impl AgentSessionEngine {
     /// arrive. The first attempt prompts the session; retries continue the
     /// parked turn. Returns the turn outcome: the final assistant message
     /// (provider failures included), `None` when no assistant message was
-    /// produced, or `Aborted` when the emit callback cancelled the run or
+    /// produced, or `Aborted` when the emit callback cancelled the run, the
+    /// run failed on its abort (an abort ahead of the provider stream), or
     /// the delivery's cancel flag raced the admission (the abort-and-send
     /// idle race: an abort landing between the runner's pickup and the
     /// agent run's registration was lost to a run that registered fresh
@@ -505,6 +506,16 @@ impl AgentSessionEngine {
             return Ok(TurnOnce::Aborted);
         }
         if let Some(error) = admission_error {
+            // An abort landing after the run registered but before its
+            // provider stream (the loop head's abort checks throw) fails
+            // the run with the typed abort error; the agent already
+            // settled it on its aborted row (TS `runWithLifecycle`'s
+            // catch, which resolves the prompt). The aborted outcome,
+            // never a failure: stringified, it settled `Done(Err)`, which
+            // fails an active goal and the turn's settle.
+            if eukhe_agent::abort::is_abort_error(&error) {
+                return Ok(TurnOnce::Aborted);
+            }
             return Err(anyhow::anyhow!("{error:#}"));
         }
         // The final assistant message decides the outcome (provider
