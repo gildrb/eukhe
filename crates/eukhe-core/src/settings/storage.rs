@@ -358,6 +358,39 @@ pub fn atomic_write_with(path: &Path, content: &str, options: AtomicWriteOptions
     Ok(())
 }
 
+/// The real file behind `path` (TS `realpathIfPresentSync`), so an
+/// [`atomic_write`] replaces the symlink's target instead of the symlink
+/// itself: a shared document linked into the agent dir stays shared.
+/// A missing path is returned as-is; a dangling symlink chain is followed
+/// hop by hop (a relative target resolves against the link's physical
+/// parent), like the in-place writes TS replaced.
+///
+/// # Errors
+///
+/// Returns an error when resolving an existing path fails, or when the
+/// chain exceeds 32 hops (a cycle).
+pub fn realpath_if_present(path: &Path) -> Result<PathBuf> {
+    match fs::canonicalize(path) {
+        Ok(real) => return Ok(real),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let mut current = path.to_path_buf();
+    for _ in 0..32 {
+        let Ok(target) = fs::read_link(&current) else {
+            return Ok(current);
+        };
+        let parent = current.parent().unwrap_or(Path::new(""));
+        current = fs::canonicalize(parent)
+            .unwrap_or_else(|_| parent.to_path_buf())
+            .join(target);
+    }
+    Err(anyhow!(
+        "Too many symlink hops resolving {}",
+        path.display()
+    ))
+}
+
 /// In-memory storage (tests, embedded hosts).
 #[derive(Default)]
 pub struct InMemorySettingsStorage {

@@ -255,7 +255,11 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         let current = fs::read_to_string(&self.auth_path).ok();
         let ((), next) = update(current)?;
         if let Some(next) = next {
-            super::super::settings::storage::atomic_write(&self.auth_path, &next)?;
+            // The replace lands on the symlink's target (TS
+            // `realpathIfPresentSync`): an auth.json linked to a shared
+            // document stays linked, and the shared file is updated.
+            let target = super::super::settings::storage::realpath_if_present(&self.auth_path)?;
+            super::super::settings::storage::atomic_write(&target, &next)?;
         }
         drop(guard);
         Ok(())
