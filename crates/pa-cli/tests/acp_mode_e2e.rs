@@ -966,7 +966,7 @@ fn acp_daemon_attached_default_session_persists_and_resumes() {
     assert!(
         std::path::Path::new(&session_file)
             .parent()
-            .is_some_and(|dir| dir.ends_with("agent/sessions")),
+            .is_some_and(|dir| dir.ends_with(".eukhe/sessions")),
         "the session is saved in the session dir: {session_file}"
     );
     assert!(std::fs::read_to_string(&session_file)

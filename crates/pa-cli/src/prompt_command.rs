@@ -80,6 +80,8 @@ fn assemble_breakdown(
     model: Option<&str>,
 ) -> anyhow::Result<pa_core::prompts::SystemPromptBreakdown> {
     let agent_dir = get_agent_dir();
+    // Every chat-memory session names the chat log (one path for all).
+    let chat_log = pa_core::memory::chat_dir(&agent_dir).display().to_string();
     let settings = SettingsManager::create(cwd, &agent_dir);
     // MCP gating: auth-gated built-in integrations drop their skills;
     // enabled persistent generic servers add the prompt MCP guidance.
@@ -105,8 +107,7 @@ fn assemble_breakdown(
     Ok(pa_core::prompts::system_prompt::system_prompt_breakdown(
         &pa_core::prompts::BuildSystemPromptOptions {
             cwd: cwd.display().to_string(),
-            // A dump has no session file; the tail states the value it uses.
-            messages_path: None,
+            messages_path: Some(chat_log),
             model,
             custom_prompt: resources.system_prompt.clone(),
             context_files: resources
@@ -226,9 +227,10 @@ mod tests {
         assert!(breakdown
             .assembled
             .contains("Recursive agent depth: 0 (root)"));
-        assert!(breakdown
-            .assembled
-            .contains("Conversation log: not persisted"));
+        assert!(breakdown.assembled.contains(&format!(
+            "Chat log: {}",
+            pa_core::memory::chat_dir(&get_agent_dir()).display()
+        )));
         // Every static segment sits inside the cached prefix.
         for segment in &breakdown.segments {
             let inside = breakdown
