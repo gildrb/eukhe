@@ -140,10 +140,12 @@ pub fn switchable_stream_fn(
 /// Stream one completion against `model` with its resolved request auth
 /// (the per-request tail the switchable seam and the CLI's
 /// route-authoritative variant share). An unresolved auth (`ok: false`: a
-/// token refresh the endpoint refused, a required key missing) settles
-/// the request as an error turn carrying the reason, the shape a provider
-/// gives a missing key: TS `streamFn` throws `auth.error`, and its agent
-/// settles the throw as the run's assistant error message.
+/// token refresh that failed, a required key missing) settles the request
+/// as the error turn TS produces: its `streamFn` throws `auth.error`, and
+/// the agent's `handleRunFailure` settles the throw as an assistant error
+/// tagged `agent_lifecycle_failure`. The tag keeps it out of the provider
+/// retry ladder (TS `_isRetryableError`): re-sending cannot fix missing
+/// credentials, and the failure surfaces at once.
 ///
 /// # Errors
 ///
@@ -157,6 +159,9 @@ pub fn stream_with_auth(
     options: StreamRequestOptions,
 ) -> anyhow::Result<Box<dyn ModelStream>> {
     if !auth.ok {
+        let error_message = auth.error.unwrap_or_else(|| {
+            format!("No request credentials resolved for \"{}\"", model.provider)
+        });
         let failure = eukhe_agent::types::AssistantMessage {
             content: Vec::new(),
             api: model.api.clone(),
@@ -164,11 +169,15 @@ pub fn stream_with_auth(
             model: model.id.clone(),
             response_model: None,
             response_id: None,
-            diagnostics: None,
+            diagnostics: Some(vec![eukhe_agent::types::assistant_message_diagnostic(
+                "agent_lifecycle_failure",
+                &anyhow::anyhow!(error_message.clone()),
+                Some(serde_json::json!({ "source": "request_auth" })),
+            )]),
             usage: eukhe_agent::types::Usage::zero(),
             stop_reason: eukhe_agent::types::StopReason::Error,
             stop_reason_raw: None,
-            error_message: auth.error,
+            error_message: Some(error_message),
             timestamp: eukhe_agent::now_ms(),
         };
         let (handle, stream) = eukhe_agent::stream::event_stream();
