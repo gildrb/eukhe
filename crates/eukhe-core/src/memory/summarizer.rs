@@ -1,9 +1,11 @@
 //! The compactor's model, resolved from settings on every call so a
 //! settings change applies without a restart: `memory.model`
-//! (`provider/model-id`), else `auxiliaryModel`, else the default model, at
-//! the `memory.thinking` effort (default medium). The `allowedModels` pin
-//! applies like everywhere else; an unusable model fails the call (the
-//! owner reports it and retries) instead of silently picking another one.
+//! (`provider/model-id`), else `auxiliaryModel`, else the default model —
+//! the agent's startup chain (saved default, featured default, first model
+//! with credentials) — at the `memory.thinking` effort (default medium).
+//! The `allowedModels` pin applies like everywhere else; an unusable model
+//! fails the call (the owner reports it and retries) instead of silently
+//! picking another one.
 
 use std::path::{Path, PathBuf};
 
@@ -67,39 +69,56 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
     // The agent dir doubles as the cwd: the compactor serves every
     // project, so no project's settings may steer it.
     let settings = crate::settings::SettingsManager::create(agent_dir, agent_dir);
-    let selector = settings
-        .get_memory_model()
-        .or_else(|| {
-            settings
-                .get_auxiliary_model()
-                .map(str::trim)
-                .filter(|model| !model.is_empty())
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            let provider = settings.get_default_provider()?;
-            let model = settings.get_default_model()?;
-            Some(format!("{provider}/{model}"))
-        })
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "no model for the memory compactor: set memory.model (provider/model-id) in settings.json"
-            )
-        })?;
-    if let Some(allowlist) = settings.get_allowed_models() {
-        if !crate::models::model_allowed(&selector, &allowlist) {
-            anyhow::bail!("the memory compactor model {selector} is outside allowedModels");
-        }
-    }
+    let explicit = settings.get_memory_model().or_else(|| {
+        settings
+            .get_auxiliary_model()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(str::to_string)
+    });
     let auth = crate::auth::AuthStorage::create(agent_dir);
     let mut registry = crate::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
     registry.load_private_authorization_from_cache();
-    let model =
-        crate::models::resolver::find_exact_model_reference_match(&selector, registry.get_all())
-            .cloned()
-            .ok_or_else(|| {
-                anyhow::anyhow!("the memory compactor model {selector} is not in the model catalog")
-            })?;
+    let (selector, model) = if let Some(selector) = explicit {
+        let model = crate::models::resolver::find_exact_model_reference_match(
+            &selector,
+            registry.get_all(),
+        )
+        .cloned()
+        .ok_or_else(|| {
+            anyhow::anyhow!("the memory compactor model {selector} is not in the model catalog")
+        })?;
+        (selector, model)
+    } else {
+        // The default model: the same chain that picks the agent's model
+        // when no flag or session pins one.
+        let all: Vec<Model> = registry.get_all().to_vec();
+        let available: Vec<Model> = registry.get_available().into_iter().cloned().collect();
+        let options = crate::models::InitialModelOptions {
+            cli_provider: None,
+            cli_model: None,
+            scoped_models: &[],
+            is_continuing: false,
+            default_provider: settings.get_default_provider(),
+            default_model_id: settings.get_default_model(),
+            all_models: &all,
+            available_models: &available,
+        };
+        let model = crate::models::find_initial_model(&options).ok_or_else(|| {
+            anyhow::anyhow!(
+                "no model for the memory compactor: {} Or set memory.model (provider/model-id) in settings.json.",
+                crate::models::initial_model_unavailable_message(&options)
+            )
+        })?;
+        (format!("{}/{}", model.provider, model.id), model)
+    };
+    if let Some(allowlist) = settings.get_allowed_models() {
+        if !crate::models::model_allowed(&selector, &allowlist) {
+            anyhow::bail!(
+                "the memory compactor model {selector} is outside allowedModels: set memory.model to an allowed model"
+            );
+        }
+    }
     let resolved = registry.get_api_key_and_headers(&model, model.headers.as_ref());
     if !resolved.ok {
         anyhow::bail!(

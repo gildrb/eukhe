@@ -147,6 +147,18 @@ fn serve(
     if content_length > 0 {
         reader.read_exact(&mut body_bytes)?;
     }
+    // The supervisor's chat-memory compactor runs on its own provider,
+    // routed under `/memory` (`setup_with_rejection`): it always succeeds
+    // and never counts, so the counter and the scripted failures stay the
+    // session's provider requests.
+    let memory_request = head
+        .lines()
+        .next()
+        .and_then(|request_line| request_line.split_whitespace().nth(1))
+        .is_some_and(|path| path.starts_with("/memory/"));
+    if memory_request {
+        return write_answer(&mut stream, "user: said hi");
+    }
     let index = {
         let mut requests = requests.lock().expect("mock lock");
         *requests += 1;
@@ -196,9 +208,14 @@ fn serve(
             .as_bytes(),
         );
     }
+    write_answer(&mut stream, answer)
+}
+
+/// One successful streamed completion carrying `content`.
+fn write_answer(stream: &mut TcpStream, content: &str) -> std::io::Result<()> {
     let mut payload = String::new();
     for data in [
-        chunk(&json!({"role": "assistant", "content": answer}), None),
+        chunk(&json!({"role": "assistant", "content": content}), None),
         chunk(&json!({}), Some("stop")),
     ] {
         write!(payload, "data: {data}\n\n").expect("write to String");
@@ -401,6 +418,25 @@ fn setup_with_rejection(
                             "maxTokens": 4096
                         }
                     ]
+                },
+                // The chat-memory compactor's provider: the supervisor
+                // summarizes every logged message, and without
+                // `memory.model` it runs on the default model — this
+                // mock's prime-inference route — so its requests would
+                // land in the session's provider accounting.
+                "chat-memory": {
+                    "api": "openai-completions",
+                    "baseUrl": format!("http://127.0.0.1:{}/memory", mock.port),
+                    "apiKey": "sk-memory",
+                    "models": [
+                        {
+                            "id": "summarizer",
+                            "name": "Summarizer",
+                            "api": "openai-completions",
+                            "contextWindow": 128_000,
+                            "maxTokens": 4096
+                        }
+                    ]
                 }
             }
         })
@@ -410,7 +446,11 @@ fn setup_with_rejection(
     // A fast retry policy so the test asserts the loop, not the delays.
     std::fs::write(
         agent_dir.join("settings.json"),
-        json!({ "retry": { "enabled": true, "maxRetries": 2, "baseDelayMs": 50 } }).to_string(),
+        json!({
+            "retry": { "enabled": true, "maxRetries": 2, "baseDelayMs": 50 },
+            "memory": { "model": "chat-memory/summarizer" }
+        })
+        .to_string(),
     )
     .expect("write settings.json");
     let socket = dir.path().join(format!("{name}.sock"));
