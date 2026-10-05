@@ -812,7 +812,7 @@ async fn fresh_home_asks_the_trace_question_once_and_completes() {
     // the answer and the completion flag persisted together.
     let rendered = outcome.frames.join("\n");
     assert!(
-        rendered.contains("Share agent traces"),
+        rendered.contains("Upload agent traces"),
         "the onboarding question rendered once for the fresh home:\n{rendered}"
     );
     assert!(
@@ -890,7 +890,7 @@ async fn provisioned_opt_out_home_completes_silently_without_the_question() {
         "the session started directly and completed its first turn:\n{rendered}"
     );
     assert!(
-        !rendered.contains("Share agent traces"),
+        !rendered.contains("Upload agent traces"),
         "the question never owned a session frame:\n{rendered}"
     );
 
@@ -1149,7 +1149,7 @@ async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
             wait_render("\u{2713}"),
             enter(),
             // The trace question: Enter on the pre-selected Share row.
-            wait_render("Share agent traces"),
+            wait_render("Upload agent traces"),
             enter(),
             // The released pane runs the submitted turn.
             eukhe_tui::interactive::HeadlessStep::Submit("hi".to_string()),
@@ -1164,11 +1164,11 @@ async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
 
     let rendered = outcome.frames.join("\n");
     assert!(
-        rendered.contains("Log in with Prime Intellect"),
+        rendered.contains("Log in with Prime Inference"),
         "the welcome screen's action rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("Login with Prime Intellect"),
+        rendered.contains("Login with Prime Inference"),
         "the login dialog's heading replaced the brand line:\n{rendered}"
     );
     assert!(
@@ -1180,7 +1180,7 @@ async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
         "the providers picker rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("Share agent traces"),
+        rendered.contains("Upload agent traces"),
         "the trace question ended the flow:\n{rendered}"
     );
     assert!(
@@ -1284,7 +1284,7 @@ async fn a_failed_completion_write_surfaces_a_warning_and_never_kills_the_run() 
         "the session ran its first turn despite the failed write:\n{rendered}"
     );
     assert!(
-        !rendered.contains("Share agent traces"),
+        !rendered.contains("Upload agent traces"),
         "the standing choice never re-opened the question:\n{rendered}"
     );
     assert!(
@@ -1362,7 +1362,7 @@ async fn a_completed_flow_never_reopens_the_question_for_a_later_session() {
         .expect("first interactive run");
     let first_rendered = first.frames.join("\n");
     assert!(
-        first_rendered.contains("Share agent traces"),
+        first_rendered.contains("Upload agent traces"),
         "the fresh home was asked once:\n{first_rendered}"
     );
     assert!(
@@ -1399,7 +1399,7 @@ async fn a_completed_flow_never_reopens_the_question_for_a_later_session() {
         "the second session started directly and completed its turn:\n{second_rendered}"
     );
     assert!(
-        !second_rendered.contains("Share agent traces"),
+        !second_rendered.contains("Upload agent traces"),
         "the completed flow never reopened the question:\n{second_rendered}"
     );
     drop(supervisor);

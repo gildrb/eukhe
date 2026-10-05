@@ -326,7 +326,7 @@ pub async fn login_prime_traces(
         {
             Ok(()) => return Ok((api_key, PrimeTracesLoginSource::PrimeCli)),
             Err(PrimeAccessError::Denied(failure)) => callbacks.progress(&format!(
-                "Existing Prime CLI key cannot upload Prime Intellect traces ({}). Starting browser login...",
+                "Existing Prime CLI key cannot upload to Prime Intellect Traces ({}). Starting browser login...",
                 failure.format()
             )),
             Err(PrimeAccessError::Failed(message)) => return Err(message),
@@ -736,7 +736,7 @@ mod tests {
             "Checking existing Prime CLI credentials..."
         );
         assert!(logged.lock().unwrap()[1]
-            .starts_with("Existing Prime CLI key cannot upload Prime Intellect traces ("));
+            .starts_with("Existing Prime CLI key cannot upload to Prime Intellect Traces ("));
     }
 
     #[tokio::test]

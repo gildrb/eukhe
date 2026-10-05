@@ -27,11 +27,11 @@ pub(crate) const PROVIDERS_NOTE: &str = "You can add providers anytime with /log
 /// TS `continueLabel`.
 pub(crate) const CONTINUE_LABEL: &str = "Continue";
 /// TS `LOGIN_ACTION_LABEL`: the welcome screen's single action.
-pub(crate) const LOGIN_ACTION_LABEL: &str = "Log in with Prime Intellect";
+pub(crate) const LOGIN_ACTION_LABEL: &str = "Log in with Prime Inference";
 /// The Prime Inference login's heading (TS `showAuthPanel(dialog, {
 /// heading })`): the panel that owns the block names itself in place of
 /// the brand line.
-pub(crate) const EUKHE_LOGIN_HEADING: &str = "Login with Prime Intellect";
+pub(crate) const EUKHE_LOGIN_HEADING: &str = "Login with Prime Inference";
 /// The API-key prompt's heading label (TS `showPrompt("Enter API key:")`).
 pub(crate) const API_KEY_PROMPT: &str = "Enter API key:";
 
@@ -350,8 +350,8 @@ impl ProviderPicker {
 #[derive(Debug)]
 pub enum OnboardingPanel {
     /// A login flow's inline auth panel (TS the `LoginDialogComponent`
-    /// over the splash), with the heading line that replaces the brand
-    /// mark while it owns the block. The dialog is boxed: it dwarfs the
+    /// over the splash), with the heading line that replaces the welcome
+    /// line while it owns the block. The dialog is boxed: it dwarfs the
     /// other variants (progress lines, the paste field), and the enum
     /// rides every mount/unmount by value.
     Auth {
@@ -522,7 +522,7 @@ pub(crate) fn welcome_rows(theme: &Theme, width: usize) -> Vec<Line> {
 }
 
 /// The welcome screen's single action (TS `renderActions`): the bold
-/// `> Log in with Prime Intellect` row washed across its highlight band,
+/// `> Log in with Prime Inference` row washed across its highlight band,
 /// one column in from the pane edge.
 pub(crate) fn welcome_action_row(theme: &Theme, width: usize) -> Line {
     let band = MIN_HIGHLIGHT_WIDTH

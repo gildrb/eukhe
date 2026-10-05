@@ -182,7 +182,7 @@ enum PaneBarrier {
 /// splash's render/wait loop). Each iteration draws first and waits
 /// after — a deciding key that is already queued still leaves the
 /// mounted frame captured — servicing keys, pastes, the auth-panel
-/// channel, and the animation tick (TS `ANIMATION_INTERVAL_MS`).
+/// channel, and an armed render barrier's deadline.
 async fn drive_onboarding_pane(
     view: &mut AgentView,
     drive: &mut PaneDrive<'_>,
@@ -362,11 +362,17 @@ async fn drive_onboarding_pane(
             } => {
                 return Ok((pane, PaneOutcome::Flow(settled)));
             }
-            // The field animates behind the flow panels until dismissal
-            // (TS ANIMATION_INTERVAL_MS).
-            () = tokio::time::sleep(Duration::from_millis(120)) => {
-                pane.tick();
-            }
+            // An armed render barrier wakes the loop at its deadline, so
+            // a barrier no frame satisfies still pops (the panels are
+            // static: nothing else redraws on a timer).
+            () = async {
+                match &barrier {
+                    Some(
+                        PaneBarrier::Render { deadline, .. } | PaneBarrier::Gone { deadline, .. },
+                    ) => tokio::time::sleep_until(tokio::time::Instant::from_std(*deadline)).await,
+                    None => std::future::pending().await,
+                }
+            } => {}
         }
         // Hand the pane back for the next draw (the non-deciding arms).
         screen = pane;
