@@ -15,8 +15,9 @@ use crate::event_stream::{
 };
 use crate::models::{clamp_thinking_level, supports_thinking};
 use crate::providers::openai_responses_shared::{
-    convert_responses_messages, convert_responses_tools, ConvertResponsesMessagesOptions,
-    ConvertResponsesToolsOptions, ResponsesStreamHooks, AZURE_TOOL_CALL_PROVIDERS,
+    apply_reasoning_context, convert_responses_messages, convert_responses_tools,
+    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, ResponsesStreamHooks,
+    AZURE_TOOL_CALL_PROVIDERS,
 };
 use crate::providers::simple_options::build_base_options;
 use crate::registry::Provider;
@@ -241,6 +242,7 @@ fn build_params(
             }
         }
     }
+    apply_reasoning_context(model, &mut params);
     Value::Object(params)
 }
 
@@ -560,6 +562,36 @@ mod tests {
         assert_eq!(
             params.get("reasoning"),
             Some(&json!({ "effort": "xhigh", "summary": "auto" }))
+        );
+    }
+
+    /// The explicit-cache family pins `reasoning.context: "all_turns"`; the
+    /// reasoning of other models stays unchanged.
+    #[test]
+    fn the_explicit_cache_family_pins_the_reasoning_context() {
+        let model = |id: &str| {
+            serde_json::from_value::<Model>(json!({
+                "id": id, "name": id,
+                "api": "azure-openai-responses", "provider": "azure-openai-responses",
+                "baseUrl": "", "reasoning": true, "input": ["text"],
+                "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+                "contextWindow": 400_000, "maxTokens": 128_000
+            }))
+            .unwrap()
+        };
+        let mut options = AzureOpenAIResponsesOptions::from_base(StreamOptions::default());
+        options.reasoning_effort = Some(ModelThinkingLevel::High);
+        let reasoning = |id: &str| {
+            build_params(&model(id), &Context::default(), &options, "deploy")
+                .get("reasoning")
+                .cloned()
+        };
+        assert_eq!(
+            [reasoning("gpt-5.6-sol"), reasoning("gpt-5.4")],
+            [
+                Some(json!({ "effort": "high", "summary": "auto", "context": "all_turns" })),
+                Some(json!({ "effort": "high", "summary": "auto" })),
+            ]
         );
     }
 

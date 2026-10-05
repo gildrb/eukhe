@@ -6,8 +6,10 @@
 //! normalization. The stream event processor lives in
 //! [`crate::providers::openai_responses_stream`].
 
+use pa_types::ai::supports_explicit_cache_breakpoints;
 use serde_json::{json, Map, Value};
 
+use crate::providers::cache_breakpoints::has_cache_breakpoint;
 use crate::providers::transform_messages::transform_messages_with_normalizer;
 use crate::types::{
     AssistantContent, AssistantMessage, Context, Model, ModelExt, TextSignaturePhase, Tool,
@@ -116,7 +118,9 @@ fn build_foreign_responses_item_id(item_id: &str) -> String {
     }
 }
 
-/// Convert a conversation to Responses API `input` items.
+/// Convert a conversation to Responses API `input` items. On the models with
+/// explicit prompt-cache breakpoints, each marked user text block carries
+/// `prompt_cache_breakpoint`.
 // Long by design (a 1:1 port of the upstream provider shape); refactoring is out of scope for the zero-behavior pedantic sweep.
 #[allow(clippy::too_many_lines)]
 pub fn convert_responses_messages(
@@ -155,6 +159,7 @@ pub fn convert_responses_messages(
             Some(normalize_tool_call_id(id, source))
         });
 
+    let explicit_breakpoints = supports_explicit_cache_breakpoints(&model.id);
     let include_system_prompt = options.include_system_prompt;
     if include_system_prompt {
         if let Some(system_prompt) = &context.system_prompt {
@@ -180,20 +185,37 @@ pub fn convert_responses_messages(
                 UserMessageContent::Blocks(blocks) => {
                     let content_items: Vec<Value> = blocks
                         .iter()
-                        .map(|item| match crate::types::user_block_payload(item) {
-                            crate::types::UserBlockPayload::Text(text) => json!({
-                                "type": "input_text",
-                                "text": sanitize_surrogates(text),
-                            }),
-                            crate::types::UserBlockPayload::Image { data, mime_type } => json!({
-                                "type": "input_image",
-                                "detail": "auto",
-                                "image_url": format!("data:{mime_type};base64,{data}"),
-                            }),
-                            crate::types::UserBlockPayload::Opaque(json) => json!({
-                                "type": "input_text",
-                                "text": sanitize_surrogates(&json),
-                            }),
+                        .map(|item| {
+                            let mut content_item = match crate::types::user_block_payload(item) {
+                                crate::types::UserBlockPayload::Text(text) => json!({
+                                    "type": "input_text",
+                                    "text": sanitize_surrogates(text),
+                                }),
+                                crate::types::UserBlockPayload::Image { data, mime_type } => {
+                                    json!({
+                                        "type": "input_image",
+                                        "detail": "auto",
+                                        "image_url": format!("data:{mime_type};base64,{data}"),
+                                    })
+                                }
+                                crate::types::UserBlockPayload::Opaque(json) => json!({
+                                    "type": "input_text",
+                                    "text": sanitize_surrogates(&json),
+                                }),
+                            };
+                            // A marked block ends a cacheable prefix (the chat
+                            // memory marks the pieces of its view). The implicit
+                            // breakpoint at the end of the latest message stays.
+                            if explicit_breakpoints && has_cache_breakpoint(item) {
+                                content_item
+                                    .as_object_mut()
+                                    .expect("content items are objects")
+                                    .insert(
+                                        "prompt_cache_breakpoint".into(),
+                                        json!({ "mode": "explicit" }),
+                                    );
+                            }
+                            content_item
                         })
                         .collect();
                     if content_items.is_empty() {
@@ -364,6 +386,23 @@ pub fn convert_responses_messages(
     }
 
     messages
+}
+
+/// Pin `reasoning.context: "all_turns"` in the request's reasoning object,
+/// when it sends one, on the models with explicit prompt-cache controls: the
+/// reasoning of earlier turns stays in the prompt, so a user message sent
+/// mid-run keeps the cached prefix (with `current_turn` it drops the earlier
+/// reasoning and the cache misses). Other models' requests stay unchanged.
+pub(crate) fn apply_reasoning_context(model: &Model, params: &mut Map<String, Value>) {
+    if !supports_explicit_cache_breakpoints(&model.id) {
+        return;
+    }
+    if let Some(reasoning) = params
+        .get_mut("reasoning")
+        .and_then(|value| value.as_object_mut())
+    {
+        reasoning.insert("context".into(), json!("all_turns"));
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -654,6 +693,44 @@ mod tests {
             panic!("missing message item in {items:?}");
         };
         assert_eq!(message.get("id"), Some(&json!("msg_1")));
+    }
+
+    /// On the models with explicit cache breakpoints, a marked block's
+    /// `input_text` item carries `prompt_cache_breakpoint`; the items of
+    /// other models stay unchanged.
+    #[test]
+    fn marked_blocks_carry_explicit_breakpoints_on_the_explicit_cache_family() {
+        let message: Message = serde_json::from_value(json!({
+            "role": "user",
+            "content": [
+                { "type": "text", "text": "view piece", "cacheBreakpoint": "ephemeral" },
+                { "type": "text", "text": "question" }
+            ],
+            "timestamp": 0
+        }))
+        .expect("message json");
+        let items = |model_id: &str| {
+            let model = Model {
+                id: model_id.into(),
+                ..codex_model()
+            };
+            convert(&model, vec![message.clone()])
+        };
+        let marked = json!({
+            "type": "input_text",
+            "text": "view piece",
+            "prompt_cache_breakpoint": { "mode": "explicit" }
+        });
+        let unmarked = json!({ "type": "input_text", "text": "view piece" });
+        let question = json!({ "type": "input_text", "text": "question" });
+        assert_eq!(
+            [items("gpt-5.6-sol"), items("gpt-6-astra"), items("gpt-5.5")],
+            [
+                vec![json!({ "role": "user", "content": [marked, question] })],
+                vec![json!({ "role": "user", "content": [marked, question] })],
+                vec![json!({ "role": "user", "content": [unmarked, question] })],
+            ]
+        );
     }
 
     /// A signature with an empty id is treated as missing (TS `!msgId`).

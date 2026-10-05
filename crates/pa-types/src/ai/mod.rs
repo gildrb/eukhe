@@ -879,6 +879,28 @@ pub fn supports_fast_mode(model: &Model) -> bool {
     supports_service_tier(model, ServiceTier::Priority)
 }
 
+/// Whether an `OpenAI` Responses model id has the explicit prompt-cache
+/// controls: GPT-5.6 and every later GPT-5 minor version (`gpt-5.6`,
+/// `gpt-5.6-sol`, ...) and every GPT-6 model (`gpt-6-astra`, `gpt-6.1-sol`,
+/// ...). These models accept `prompt_cache_breakpoint: {"mode": "explicit"}`
+/// on `input_text` items and `reasoning.context: "all_turns"`; the requests
+/// of every other model carry neither field.
+#[must_use]
+pub fn supports_explicit_cache_breakpoints(model_id: &str) -> bool {
+    if let Some(rest) = model_id.strip_prefix("gpt-6") {
+        return rest.is_empty() || rest.starts_with(['-', '.']);
+    }
+    let Some(rest) = model_id.strip_prefix("gpt-5.") else {
+        return false;
+    };
+    let minor_end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    let (minor, suffix) = rest.split_at(minor_end);
+    (suffix.is_empty() || suffix.starts_with('-'))
+        && minor.parse::<u32>().is_ok_and(|minor| minor >= 6)
+}
+
 // The unit battery lives in the child module (ai::tests); its use-super
 // glob resolves through this facade's bindings and re-exports.
 #[cfg(test)]

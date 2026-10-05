@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use serde_json::{json, Map, Value};
 
 use crate::models::supports_thinking;
+use crate::providers::cache_breakpoints::CacheMarkBudget;
 use crate::providers::openai_completions::convert::{convert_messages, convert_tools};
 use crate::providers::openai_completions::has_tool_history;
 use crate::providers::openai_completions::{
@@ -24,7 +25,7 @@ pub(crate) fn build_params(
     cache_control: Option<&OpenAICompatCacheControl>,
 ) -> Value {
     let options = options.cloned().unwrap_or_default();
-    let messages = convert_messages(model, context, compat);
+    let messages = convert_messages(model, context, compat, cache_control);
     let mut params = Map::new();
     params.insert("model".into(), json!(model.id));
     params.insert("messages".into(), json!(messages));
@@ -242,36 +243,20 @@ pub(crate) fn build_params(
     Value::Object(params)
 }
 
+/// Anthropic-format `cache_control` marks: the end mark on the last
+/// conversation message, then the optional marks while the request's mark
+/// budget lasts (system prompt first, then the last tool). The marked user
+/// blocks already carry their marks from the conversion.
 fn apply_anthropic_cache_control(
     params: &mut Map<String, Value>,
     cache_control: &OpenAICompatCacheControl,
 ) {
-    // Last tool.
-    if let Some(tools) = params
-        .get_mut("tools")
-        .and_then(|value| value.as_array_mut())
-    {
-        if let Some(last_tool) = tools.last_mut() {
-            last_tool
-                .as_object_mut()
-                .expect("tools entries are objects")
-                .insert("cache_control".into(), cache_control.to_json());
-        }
-    }
     let Some(messages) = params
         .get_mut("messages")
         .and_then(|value| value.as_array_mut())
     else {
         return;
     };
-    // System prompt.
-    for message in messages.iter_mut() {
-        let role = message.get("role").and_then(|value| value.as_str());
-        if role == Some("system") || role == Some("developer") {
-            add_cache_control_to_message(message, cache_control);
-            break;
-        }
-    }
     // Last conversation message (user/assistant/tool), from the end.
     for message in messages.iter_mut().rev() {
         let role = message
@@ -282,6 +267,32 @@ fn apply_anthropic_cache_control(
             && add_cache_control_to_message(message, cache_control)
         {
             break;
+        }
+    }
+    // The marked blocks and the end mark are fixed; without a marked block
+    // both optional marks fit, as before.
+    let mut budget = CacheMarkBudget::after_message_marks(messages, "cache_control");
+    // System prompt.
+    let system = messages.iter_mut().find(|message| {
+        let role = message.get("role").and_then(|value| value.as_str());
+        role == Some("system") || role == Some("developer")
+    });
+    if let Some(system) = system {
+        if budget.take() {
+            add_cache_control_to_message(system, cache_control);
+        }
+    }
+    // Last tool.
+    if let Some(last_tool) = params
+        .get_mut("tools")
+        .and_then(|value| value.as_array_mut())
+        .and_then(|tools| tools.last_mut())
+    {
+        if budget.take() {
+            last_tool
+                .as_object_mut()
+                .expect("tools entries are objects")
+                .insert("cache_control".into(), cache_control.to_json());
         }
     }
 }
@@ -364,6 +375,205 @@ mod tests {
     use crate::models::clamp_thinking_level;
     use crate::models_generated;
     use crate::types::{Message, StreamOptions, UserMessage, UserMessageContent};
+
+    fn text(text: &str) -> Value {
+        json!({ "type": "text", "text": text })
+    }
+
+    /// A text block that carries a cache breakpoint (a chat-memory view piece).
+    fn marked(text: &str) -> Value {
+        json!({ "type": "text", "text": text, "cacheBreakpoint": "ephemeral" })
+    }
+
+    /// A system prompt, two tools, and one user message with `blocks`.
+    fn blocks_context(blocks: &[Value]) -> Context {
+        let tool = |name: &str| {
+            json!({
+                "name": name, "description": "A tool",
+                "parameters": { "type": "object", "properties": {} }
+            })
+        };
+        serde_json::from_value(json!({
+            "systemPrompt": "You are a test.",
+            "messages": [{ "role": "user", "content": blocks, "timestamp": 1 }],
+            "tools": [tool("read"), tool("bash")]
+        }))
+        .expect("context json")
+    }
+
+    /// Three view pieces, the first `marked_pieces` of them marked, then the
+    /// new question (the end-mark block).
+    fn view_context(marked_pieces: usize) -> Context {
+        let mut blocks: Vec<Value> = (0..3)
+            .map(|index| {
+                let piece = format!("view piece {index}");
+                if index < marked_pieces {
+                    marked(&piece)
+                } else {
+                    text(&piece)
+                }
+            })
+            .collect();
+        blocks.push(text("question"));
+        blocks_context(&blocks)
+    }
+
+    /// Prime Inference's Claude route: Anthropic-format `cache_control`.
+    fn anthropic_format_model() -> &'static Model {
+        models_generated::get_model("prime-inference", "anthropic/claude-fable-5")
+            .expect("the compiled catalog carries the Claude route")
+    }
+
+    /// Where the request carries `cache_control`: tools by index, then message
+    /// content parts by message and part index.
+    fn cache_marks(params: &Value) -> Vec<String> {
+        let mut marks = Vec::new();
+        let tools = params["tools"].as_array().into_iter().flatten();
+        for (index, tool) in tools.enumerate() {
+            if tool.get("cache_control").is_some() {
+                marks.push(format!("tools[{index}]"));
+            }
+        }
+        let messages = params["messages"].as_array().into_iter().flatten();
+        for (message_index, message) in messages.enumerate() {
+            let parts = message["content"].as_array().into_iter().flatten();
+            for (part_index, part) in parts.enumerate() {
+                if part.get("cache_control").is_some() {
+                    marks.push(format!("messages[{message_index}][{part_index}]"));
+                }
+            }
+        }
+        marks
+    }
+
+    /// Anthropic-format marks follow the Anthropic budget: the marked blocks
+    /// and the end mark always stay, then the system prompt and the last
+    /// tool take the slots left within four. Without a marked block the
+    /// request keeps today's three marks.
+    #[test]
+    fn anthropic_format_marked_blocks_take_the_optional_mark_slots_in_priority_order() {
+        let model = anthropic_format_model();
+        let compat = crate::providers::openai_completions::get_compat(model);
+        let cache_control = crate::providers::openai_completions::get_compat_cache_control(
+            &compat,
+            CacheRetention::Short,
+        );
+        let options = OpenAICompletionsOptions::from_base(StreamOptions {
+            api_key: Some("test".into()),
+            ..Default::default()
+        });
+        let actual: Vec<(usize, Vec<String>)> = (0..=3)
+            .map(|marked_pieces| {
+                let params = build_params(
+                    model,
+                    &view_context(marked_pieces),
+                    Some(&options),
+                    &compat,
+                    CacheRetention::Short,
+                    cache_control.as_ref(),
+                );
+                (marked_pieces, cache_marks(&params))
+            })
+            .collect();
+        let expected: Vec<(usize, Vec<String>)> = [
+            (0, vec!["tools[1]", "messages[0][0]", "messages[1][3]"]),
+            (
+                1,
+                vec![
+                    "tools[1]",
+                    "messages[0][0]",
+                    "messages[1][0]",
+                    "messages[1][3]",
+                ],
+            ),
+            (
+                2,
+                vec![
+                    "messages[0][0]",
+                    "messages[1][0]",
+                    "messages[1][1]",
+                    "messages[1][3]",
+                ],
+            ),
+            (
+                3,
+                vec![
+                    "messages[1][0]",
+                    "messages[1][1]",
+                    "messages[1][2]",
+                    "messages[1][3]",
+                ],
+            ),
+        ]
+        .into_iter()
+        .map(|(marked_pieces, marks)| {
+            (
+                marked_pieces,
+                marks.into_iter().map(ToString::to_string).collect(),
+            )
+        })
+        .collect();
+        assert_eq!(actual, expected);
+        // A marked part carries the request's cache_control next to its text.
+        let params = build_params(
+            model,
+            &view_context(1),
+            Some(&options),
+            &compat,
+            CacheRetention::Short,
+            cache_control.as_ref(),
+        );
+        assert_eq!(
+            params["messages"][1]["content"][0],
+            json!({
+                "type": "text",
+                "text": "view piece 0",
+                "cache_control": { "type": "ephemeral" }
+            })
+        );
+    }
+
+    /// A fourth marked block on an Anthropic-format route is a caller bug:
+    /// the request fails before it is built or sent.
+    #[tokio::test]
+    async fn a_fourth_marked_block_fails_an_anthropic_format_request() {
+        use crate::event_stream::AssistantMessageEventExt;
+        // A closed local port: a request that slips through fails to connect.
+        let model = Model {
+            base_url: "http://127.0.0.1:9".into(),
+            ..anthropic_format_model().clone()
+        };
+        let options = OpenAICompletionsOptions::from_base(StreamOptions {
+            api_key: Some("test".into()),
+            ..Default::default()
+        });
+        let context = blocks_context(&[
+            marked("piece 0"),
+            marked("piece 1"),
+            marked("piece 2"),
+            marked("question"),
+        ]);
+        let events = crate::providers::openai_completions::stream_openai_completions(
+            &model,
+            &context,
+            Some(&options),
+        )
+        .collect()
+        .await;
+        let outcome: Vec<(&str, Option<&str>)> = events
+            .iter()
+            .map(|event| (event.event_type(), event.partial().error_message.as_deref()))
+            .collect();
+        assert_eq!(
+            outcome,
+            [(
+                "error",
+                Some(
+                    "Too many cache breakpoints: the request marks 4 blocks, at most 3 are allowed"
+                )
+            )]
+        );
+    }
 
     /// Port of the TS #2497 pin: the provider layer owns no Prime
     /// Inference team lookup — a prime-inference request with

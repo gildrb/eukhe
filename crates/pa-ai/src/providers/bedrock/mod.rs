@@ -28,13 +28,14 @@ use crate::event_stream::{
 use crate::providers::bedrock::auth::{resolve_credentials, resolve_endpoint, sigv4_headers};
 use crate::providers::bedrock::convert::{
     convert_messages, convert_tool_config, map_stop_reason, map_thinking_level_to_effort,
-    supports_always_on_adaptive_thinking, BedrockToolChoice,
+    supports_always_on_adaptive_thinking, supports_prompt_caching, BedrockToolChoice,
 };
 pub(crate) use crate::providers::bedrock::convert::{
     is_anthropic_claude_model, supports_adaptive_thinking,
 };
 use crate::providers::bedrock::events::{handle_event, BedrockStreamState};
 use crate::providers::bedrock::eventstream::EventStreamDecoder;
+use crate::providers::cache_breakpoints::{excess_breakpoints_error, CacheMarkBudget};
 use crate::providers::simple_options::{build_base_options, clamp_reasoning};
 use crate::registry::Provider;
 use crate::types::{
@@ -250,12 +251,19 @@ fn bedrock_proxy_configured() -> bool {
     .any(|key| std::env::var(key).is_ok_and(|value| !value.is_empty()))
 }
 
-/// Port of `streamBedrock`.
+/// Port of `streamBedrock`. For a model with prompt caching, a context with
+/// more marked cache-breakpoint blocks than the mark budget allows fails
+/// before the request is built.
 pub fn stream_bedrock(
     model: &Model,
     context: &Context,
     options: Option<&BedrockOptions>,
 ) -> AssistantMessageEventStream {
+    if supports_prompt_caching(model) {
+        if let Some(error) = excess_breakpoints_error(model, context) {
+            return error;
+        }
+    }
     let options = options.cloned();
     let model = model.clone();
     let context = context.clone();
@@ -472,13 +480,17 @@ async fn run_stream(
 
     let mut command_input = Map::new();
     command_input.insert("modelId".into(), json!(model.id));
-    command_input.insert(
-        "messages".into(),
-        json!(convert_messages(context, model, cache_retention)),
-    );
-    if let Some(system) =
-        build_system_prompt_blocks(context.system_prompt.as_deref(), model, cache_retention)
-    {
+    let messages = convert_messages(context, model, cache_retention);
+    // The message cache points (the marked blocks and the end mark) are
+    // fixed; the system cache point takes a slot only when one is left.
+    let mut budget = CacheMarkBudget::after_message_marks(&messages, "cachePoint");
+    command_input.insert("messages".into(), json!(messages));
+    if let Some(system) = build_system_prompt_blocks(
+        context.system_prompt.as_deref(),
+        model,
+        cache_retention,
+        &mut budget,
+    ) {
         command_input.insert("system".into(), json!(system));
     }
     if !inference_config.is_empty() {
@@ -1023,6 +1035,221 @@ mod tests {
             &test_model("us.anthropic.claude"),
             &options
         ));
+    }
+
+    /// A text block that carries a cache breakpoint (a chat-memory view piece).
+    fn marked(text: &str) -> Value {
+        json!({ "type": "text", "text": text, "cacheBreakpoint": "ephemeral" })
+    }
+
+    /// A system prompt and one user message with `blocks`.
+    fn blocks_context(blocks: &[Value]) -> Context {
+        serde_json::from_value(json!({
+            "systemPrompt": "You are a test.",
+            "messages": [{ "role": "user", "content": blocks, "timestamp": 1 }]
+        }))
+        .expect("context json")
+    }
+
+    /// Three view pieces, the first `marked_pieces` of them marked, then the
+    /// new question (the end-mark block).
+    fn view_context(marked_pieces: usize) -> Context {
+        let mut blocks: Vec<Value> = (0..3)
+            .map(|index| {
+                let piece = format!("view piece {index}");
+                if index < marked_pieces {
+                    marked(&piece)
+                } else {
+                    json!({ "type": "text", "text": piece })
+                }
+            })
+            .collect();
+        blocks.push(json!({ "type": "text", "text": "question" }));
+        blocks_context(&blocks)
+    }
+
+    /// The request body `stream_bedrock` builds for `context` with short
+    /// cache retention, captured by the payload hook. The local endpoint
+    /// closes every connection, so the request itself then fails.
+    async fn request_body(model: &Model, context: &Context) -> Value {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind a local endpoint");
+        let address = listener.local_addr().expect("local endpoint address");
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                drop(socket);
+            }
+        });
+        let captured: std::sync::Arc<std::sync::Mutex<Option<Value>>> = std::sync::Arc::default();
+        let slot = std::sync::Arc::clone(&captured);
+        let on_payload: crate::types::OnPayloadHook =
+            std::sync::Arc::new(move |payload: Value, _model: &Model| {
+                *slot.lock().expect("payload slot") = Some(payload);
+                None
+            });
+        let options = BedrockOptions {
+            base: StreamOptions {
+                cache_retention: Some(CacheRetention::Short),
+                on_payload: Some(on_payload),
+                ..Default::default()
+            },
+            bearer_token: Some("test-token".into()),
+            ..Default::default()
+        };
+        let model = Model {
+            base_url: format!("http://{address}"),
+            ..model.clone()
+        };
+        stream_bedrock(&model, context, Some(&options))
+            .collect()
+            .await;
+        let body = captured.lock().expect("payload slot").take();
+        body.expect("the payload hook saw the request")
+    }
+
+    /// A cache point follows each marked block. The marked blocks and the
+    /// end cache point always stay; the system cache point takes a slot only
+    /// when one is left within four (three marked blocks drop it). Without a
+    /// marked block the request keeps today's two cache points.
+    #[tokio::test]
+    async fn marked_blocks_get_cache_points_within_the_mark_budget() {
+        let model = test_model("us.anthropic.claude-sonnet-4-6");
+        let piece = |index: usize| json!({ "text": format!("view piece {index}") });
+        let question = json!({ "text": "question" });
+        let cache_point = json!({ "cachePoint": { "type": "default" } });
+        let system = json!({ "text": "You are a test." });
+        let expected = vec![
+            (
+                0,
+                json!([piece(0), piece(1), piece(2), question, cache_point]),
+                json!([system, cache_point]),
+            ),
+            (
+                1,
+                json!([
+                    piece(0),
+                    cache_point,
+                    piece(1),
+                    piece(2),
+                    question,
+                    cache_point
+                ]),
+                json!([system, cache_point]),
+            ),
+            (
+                2,
+                json!([
+                    piece(0),
+                    cache_point,
+                    piece(1),
+                    cache_point,
+                    piece(2),
+                    question,
+                    cache_point
+                ]),
+                json!([system, cache_point]),
+            ),
+            (
+                3,
+                json!([
+                    piece(0),
+                    cache_point,
+                    piece(1),
+                    cache_point,
+                    piece(2),
+                    cache_point,
+                    question,
+                    cache_point
+                ]),
+                json!([system]),
+            ),
+        ];
+        let mut actual = Vec::new();
+        for marked_pieces in 0..=3 {
+            let body = request_body(&model, &view_context(marked_pieces)).await;
+            actual.push((
+                marked_pieces,
+                body["messages"][0]["content"].clone(),
+                body["system"].clone(),
+            ));
+        }
+        assert_eq!(actual, expected);
+    }
+
+    /// A marked block that ends the request is followed by one cache point:
+    /// it is the end mark too and counts once.
+    #[tokio::test]
+    async fn a_marked_last_block_keeps_one_cache_point() {
+        let model = test_model("us.anthropic.claude-sonnet-4-6");
+        let context = blocks_context(&[marked("piece 0"), marked("piece 1")]);
+        let body = request_body(&model, &context).await;
+        let cache_point = json!({ "cachePoint": { "type": "default" } });
+        assert_eq!(
+            (&body["messages"][0]["content"], &body["system"]),
+            (
+                &json!([{ "text": "piece 0" }, cache_point, { "text": "piece 1" }, cache_point]),
+                &json!([{ "text": "You are a test." }, cache_point])
+            )
+        );
+    }
+
+    /// A model without prompt caching ignores the marks: no cache point and
+    /// no mark budget, so four marked blocks still make a request.
+    #[tokio::test]
+    async fn models_without_prompt_caching_ignore_the_marks() {
+        let model = test_model("anthropic.claude-3-haiku-20240307-v1:0");
+        let context = blocks_context(&[
+            marked("piece 0"),
+            marked("piece 1"),
+            marked("piece 2"),
+            marked("question"),
+        ]);
+        let body = request_body(&model, &context).await;
+        assert_eq!(
+            (&body["messages"][0]["content"], &body["system"]),
+            (
+                &json!([
+                    { "text": "piece 0" },
+                    { "text": "piece 1" },
+                    { "text": "piece 2" },
+                    { "text": "question" }
+                ]),
+                &json!([{ "text": "You are a test." }])
+            )
+        );
+    }
+
+    /// A fourth marked block for a model with prompt caching is a caller
+    /// bug: the request fails before it is built or sent.
+    #[tokio::test]
+    async fn a_fourth_marked_block_fails_the_request() {
+        use crate::event_stream::AssistantMessageEventExt;
+        // A closed local port: a request that slips through fails to connect.
+        let model = Model {
+            base_url: "http://127.0.0.1:9".into(),
+            ..test_model("us.anthropic.claude-sonnet-4-6")
+        };
+        let context = blocks_context(&[
+            marked("piece 0"),
+            marked("piece 1"),
+            marked("piece 2"),
+            marked("question"),
+        ]);
+        let events = stream_bedrock(&model, &context, None).collect().await;
+        let outcome: Vec<(&str, Option<&str>)> = events
+            .iter()
+            .map(|event| (event.event_type(), event.partial().error_message.as_deref()))
+            .collect();
+        assert_eq!(
+            outcome,
+            [(
+                "error",
+                Some(
+                    "Too many cache breakpoints: the request marks 4 blocks, at most 3 are allowed"
+                )
+            )]
+        );
     }
 
     fn test_model(id: &str) -> Model {

@@ -74,6 +74,41 @@ fn service_tier_eligibility_matches_ts() {
 }
 
 #[test]
+fn explicit_cache_breakpoint_family_matches_the_id_table() {
+    let table = [
+        ("gpt-5.6", true),
+        ("gpt-5.6-luna", true),
+        ("gpt-5.6-sol", true),
+        ("gpt-5.6-terra", true),
+        ("gpt-5.7", true),
+        ("gpt-5.10-mini", true),
+        ("gpt-6", true),
+        ("gpt-6-astra", true),
+        ("gpt-6-luna", true),
+        ("gpt-6-sol", true),
+        ("gpt-6.1-sol", true),
+        ("gpt-5.5", false),
+        ("gpt-5.5-pro", false),
+        ("gpt-5.4-mini", false),
+        ("gpt-5.1-codex-max", false),
+        ("gpt-5", false),
+        ("gpt-5-mini", false),
+        ("gpt-5.", false),
+        ("gpt-5.6x", false),
+        ("gpt-60", false),
+        ("gpt-4.1", false),
+        ("gpt-realtime-2.1", false),
+        ("o3", false),
+        ("openai/gpt-5.6-sol", false),
+    ];
+    let actual: Vec<(&str, bool)> = table
+        .iter()
+        .map(|(id, _)| (*id, supports_explicit_cache_breakpoints(id)))
+        .collect();
+    assert_eq!(actual, table);
+}
+
+#[test]
 fn clamp_service_tier_degrades_unsupported_requests() {
     use ServiceTier::*;
     let openai = tier_model("openai", "openai-responses", "gpt-5.5");

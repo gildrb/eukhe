@@ -4,6 +4,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::providers::anthropic::{to_claude_code_name, CacheControl};
+use crate::providers::cache_breakpoints::has_cache_breakpoint;
 use crate::types::{
     AssistantContent, Context, Message, Model, StopReason, Tool, UserMessageContent,
     UserOrToolContent,
@@ -100,23 +101,38 @@ pub fn convert_messages(
                 UserMessageContent::Blocks(blocks) => {
                     let converted: Vec<Value> = blocks
                         .iter()
-                        .map(|item| match crate::types::user_block_payload(item) {
-                            crate::types::UserBlockPayload::Text(text) => json!({
-                                "type": "text",
-                                "text": sanitize_surrogates(text),
-                            }),
-                            crate::types::UserBlockPayload::Image { data, mime_type } => json!({
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": mime_type,
-                                    "data": data,
-                                },
-                            }),
-                            crate::types::UserBlockPayload::Opaque(json) => json!({
-                                "type": "text",
-                                "text": sanitize_surrogates(&json),
-                            }),
+                        .map(|item| {
+                            let mut block = match crate::types::user_block_payload(item) {
+                                crate::types::UserBlockPayload::Text(text) => json!({
+                                    "type": "text",
+                                    "text": sanitize_surrogates(text),
+                                }),
+                                crate::types::UserBlockPayload::Image { data, mime_type } => {
+                                    json!({
+                                        "type": "image",
+                                        "source": {
+                                            "type": "base64",
+                                            "media_type": mime_type,
+                                            "data": data,
+                                        },
+                                    })
+                                }
+                                crate::types::UserBlockPayload::Opaque(json) => json!({
+                                    "type": "text",
+                                    "text": sanitize_surrogates(&json),
+                                }),
+                            };
+                            // A marked block ends a cacheable prefix (the chat
+                            // memory marks the pieces of its view).
+                            if let Some(cache_control) =
+                                cache_control.filter(|_| has_cache_breakpoint(item))
+                            {
+                                block
+                                    .as_object_mut()
+                                    .expect("content blocks are objects")
+                                    .insert("cache_control".into(), cache_control.to_json());
+                            }
+                            block
                         })
                         .collect();
                     let filtered: Vec<Value> = converted

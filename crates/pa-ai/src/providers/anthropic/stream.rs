@@ -20,6 +20,7 @@ use crate::providers::anthropic::{
     build_request_headers, from_claude_code_name, get_cache_control,
     should_use_fine_grained_tool_streaming_beta, AnthropicOptions,
 };
+use crate::providers::cache_breakpoints::excess_breakpoints_error;
 use crate::types::{
     done_reason, error_reason, AssistantContent, AssistantMessage, Context, Model, StopReason,
     TextContent, ThinkingContent, ToolCall, Usage,
@@ -123,12 +124,16 @@ impl IndexedBlocks {
     }
 }
 
-/// Port of `streamAnthropic`.
+/// Port of `streamAnthropic`. A context with more marked cache-breakpoint
+/// blocks than the mark budget allows fails before the request is built.
 pub fn stream_anthropic(
     model: &Model,
     context: &Context,
     options: Option<&AnthropicOptions>,
 ) -> AssistantMessageEventStream {
+    if let Some(error) = excess_breakpoints_error(model, context) {
+        return error;
+    }
     let options = options.cloned();
     let model = model.clone();
     let context = context.clone();

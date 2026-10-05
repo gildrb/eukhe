@@ -12,9 +12,9 @@ use crate::event_stream::{
 };
 use crate::models::{clamp_thinking_level, supports_thinking};
 use crate::providers::openai_responses_shared::{
-    apply_service_tier_pricing, convert_responses_messages, convert_responses_tools,
-    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, ReasoningSummary,
-    ResponsesStreamHooks, OPENAI_TOOL_CALL_PROVIDERS,
+    apply_reasoning_context, apply_service_tier_pricing, convert_responses_messages,
+    convert_responses_tools, ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions,
+    ReasoningSummary, ResponsesStreamHooks, OPENAI_TOOL_CALL_PROVIDERS,
 };
 use crate::providers::simple_options::build_base_options;
 use crate::registry::Provider;
@@ -272,6 +272,7 @@ fn build_params(model: &Model, context: &Context, options: &OpenAIResponsesOptio
             params.insert("include".into(), json!(["reasoning.encrypted_content"]));
         }
     }
+    apply_reasoning_context(model, &mut params);
 
     Value::Object(params)
 }
@@ -552,6 +553,53 @@ mod tests {
         let compat = get_responses_compat(&plain);
         assert!(compat.send_session_id_header);
         assert!(compat.supports_long_cache_retention);
+    }
+
+    /// The explicit-cache family pins `reasoning.context: "all_turns"` in the
+    /// reasoning object the request sends (an effort, or the off arm); the
+    /// reasoning of other models stays unchanged. No request carries
+    /// `prompt_cache_options`.
+    #[test]
+    fn the_explicit_cache_family_pins_the_reasoning_context() {
+        let model = |id: &str| {
+            serde_json::from_value::<Model>(json!({
+                "id": id, "name": id, "api": "openai-responses", "provider": "openai",
+                "baseUrl": "https://api.openai.com/v1", "reasoning": true, "input": ["text"],
+                "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+                "contextWindow": 400_000, "maxTokens": 128_000
+            }))
+            .unwrap()
+        };
+        let mut effort = OpenAIResponsesOptions::from_base(StreamOptions::default());
+        effort.reasoning_effort = Some(ModelThinkingLevel::High);
+        let off = OpenAIResponsesOptions::from_base(StreamOptions::default());
+        let request = |id: &str, options: &OpenAIResponsesOptions| {
+            let params = build_params(&model(id), &Context::default(), options);
+            (
+                params.get("reasoning").cloned(),
+                params.get("prompt_cache_options").cloned(),
+            )
+        };
+        assert_eq!(
+            [
+                request("gpt-5.6-sol", &effort),
+                request("gpt-5.6-sol", &off),
+                request("gpt-5.5", &effort),
+                request("gpt-5.5", &off),
+            ],
+            [
+                (
+                    Some(json!({ "effort": "high", "summary": "auto", "context": "all_turns" })),
+                    None
+                ),
+                (
+                    Some(json!({ "effort": "none", "context": "all_turns" })),
+                    None
+                ),
+                (Some(json!({ "effort": "high", "summary": "auto" })), None),
+                (Some(json!({ "effort": "none" })), None),
+            ]
+        );
     }
 
     /// A `reasoning: false` model whose map addresses levels (the live
