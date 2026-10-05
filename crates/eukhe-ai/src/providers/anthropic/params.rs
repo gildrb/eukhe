@@ -56,7 +56,7 @@ pub(crate) fn build_params(
             system[0]
                 .as_object_mut()
                 .expect("system entry is an object")
-                .insert("cache_control".into(), cache_control.to_json());
+                .insert("cache_control".into(), Value::from(cache_control));
         }
         if let Some(system_prompt) = &context.system_prompt {
             let mut entry = json!({
@@ -67,7 +67,7 @@ pub(crate) fn build_params(
                 entry
                     .as_object_mut()
                     .expect("system entry is an object")
-                    .insert("cache_control".into(), cache_control.to_json());
+                    .insert("cache_control".into(), Value::from(cache_control));
             }
             system.push(entry);
         }
@@ -81,7 +81,7 @@ pub(crate) fn build_params(
             entry
                 .as_object_mut()
                 .expect("system entry is an object")
-                .insert("cache_control".into(), cache_control.to_json());
+                .insert("cache_control".into(), Value::from(cache_control));
         }
         params.insert("system".into(), json!([entry]));
     }
@@ -152,4 +152,67 @@ pub(crate) fn build_params(
     }
 
     Value::Object(params)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, Value};
+
+    use super::build_params;
+    use crate::providers::anthropic::get_cache_control;
+    use crate::types::{Context, Model};
+
+    /// Every `cache_control` value in `value`, in document order.
+    fn cache_marks(value: &Value, marks: &mut Vec<Value>) {
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    if key == "cache_control" {
+                        marks.push(child.clone());
+                    } else {
+                        cache_marks(child, marks);
+                    }
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    cache_marks(item, marks);
+                }
+            }
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+        }
+    }
+
+    /// A chat-memory-shaped request (system prompt, a tool, a marked view
+    /// piece, the new message) with the default retention: every mark is a
+    /// 5-minute entry, never a `ttl` (spec §8: no 1-hour entries).
+    #[test]
+    fn every_cache_mark_is_a_five_minute_entry() {
+        let model = serde_json::from_value::<Model>(json!({
+            "id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5",
+            "api": "anthropic-messages", "provider": "anthropic",
+            "baseUrl": "https://api.anthropic.com", "reasoning": true, "input": ["text"],
+            "cost": { "input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75 },
+            "contextWindow": 200_000, "maxTokens": 64_000
+        }))
+        .unwrap();
+        let context = serde_json::from_value::<Context>(json!({
+            "systemPrompt": "the system prompt",
+            "tools": [{ "name": "zoom", "description": "zoom a node", "parameters": { "type": "object" } }],
+            "messages": [{
+                "role": "user",
+                "timestamp": 0,
+                "content": [
+                    { "type": "text", "text": "view piece", "cacheBreakpoint": "ephemeral" },
+                    { "type": "text", "text": "the new message" }
+                ]
+            }]
+        }))
+        .unwrap();
+        let cache_control = get_cache_control(None);
+        let params = build_params(&model, &context, false, None, cache_control.as_ref());
+        let mut marks = Vec::new();
+        cache_marks(&params, &mut marks);
+        assert_eq!(marks, vec![json!({ "type": "ephemeral" }); 4]);
+    }
 }

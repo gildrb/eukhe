@@ -79,20 +79,15 @@ impl OpenAICompletionsOptions {
     }
 }
 
-/// Anthropic-style `cache_control` payload on OpenAI-compat proxies.
+/// Anthropic-style `cache_control` payload on OpenAI-compat proxies: always a
+/// 5-minute `ephemeral` entry; 1-hour entries are never written (`OptChat`
+/// spec §8, §11.10).
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct OpenAICompatCacheControl {
-    ttl: Option<&'static str>, // Some("1h") or None (default 5m)
-}
+pub(crate) struct OpenAICompatCacheControl;
 
-impl OpenAICompatCacheControl {
-    fn to_json(&self) -> Value {
-        let mut map = Map::new();
-        map.insert("type".into(), json!("ephemeral"));
-        if let Some(ttl) = self.ttl {
-            map.insert("ttl".into(), json!(ttl));
-        }
-        Value::Object(map)
+impl From<&OpenAICompatCacheControl> for Value {
+    fn from(_: &OpenAICompatCacheControl) -> Value {
+        json!({ "type": "ephemeral" })
     }
 }
 
@@ -114,7 +109,6 @@ pub struct ResolvedCompat {
     pub supports_strict_mode: bool,
     pub cache_control_format: Option<crate::types::CacheControlFormat>,
     pub send_session_affinity_headers: bool,
-    pub supports_long_cache_retention: bool,
     pub zai_tool_stream: bool,
     pub open_router_routing: Option<crate::types::OpenRouterRouting>,
     pub vercel_gateway_routing: Option<eukhe_types::ai::VercelGatewayRouting>,
@@ -195,7 +189,6 @@ pub fn detect_compat(model: &Model) -> ResolvedCompat {
         supports_strict_mode: !is_moonshot && !is_cloudflare_ai_gateway && !is_prime_inference,
         cache_control_format,
         send_session_affinity_headers: false,
-        supports_long_cache_retention: !(is_cloudflare_workers_ai || is_cloudflare_ai_gateway),
     }
 }
 
@@ -253,37 +246,24 @@ pub fn get_compat(model: &Model) -> ResolvedCompat {
         send_session_affinity_headers: compat
             .send_session_affinity_headers
             .unwrap_or(detected.send_session_affinity_headers),
-        supports_long_cache_retention: compat
-            .supports_long_cache_retention
-            .unwrap_or(detected.supports_long_cache_retention),
     }
 }
 
 pub fn resolve_cache_retention(cache_retention: Option<CacheRetention>) -> CacheRetention {
-    if let Some(retention) = cache_retention {
-        return retention;
-    }
-    if std::env::var("EUKHE_CACHE_RETENTION").as_deref() == Ok("long") {
-        return CacheRetention::Long;
-    }
-    CacheRetention::Short
+    cache_retention.unwrap_or(CacheRetention::Short)
 }
 
 pub(crate) fn get_compat_cache_control(
     compat: &ResolvedCompat,
     cache_retention: CacheRetention,
 ) -> Option<OpenAICompatCacheControl> {
-    if compat.cache_control_format != Some(crate::types::CacheControlFormat::Anthropic)
-        || cache_retention == CacheRetention::None
-    {
-        return None;
+    match (compat.cache_control_format, cache_retention) {
+        (Some(crate::types::CacheControlFormat::Anthropic), CacheRetention::Short) => {
+            Some(OpenAICompatCacheControl)
+        }
+        (Some(crate::types::CacheControlFormat::Anthropic) | None, CacheRetention::None)
+        | (None, CacheRetention::Short) => None,
     }
-    let ttl = if cache_retention == CacheRetention::Long && compat.supports_long_cache_retention {
-        Some("1h")
-    } else {
-        None
-    };
-    Some(OpenAICompatCacheControl { ttl })
 }
 
 pub(crate) fn has_tool_history(messages: &[crate::types::Message]) -> bool {

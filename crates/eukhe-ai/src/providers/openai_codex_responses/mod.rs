@@ -657,7 +657,11 @@ fn build_request_body(
             include_system_prompt: false,
             // The ChatGPT backend's acceptance of `prompt_cache_breakpoint`
             // and `reasoning.context` is unverified: a rejected field would
-            // fail every request, so neither is sent here.
+            // fail every request, so neither is sent here. A live probe
+            // (2026-10-05) could not run: the stored refresh token was
+            // revoked (token endpoint 401 `invalid_refresh_token`). Enable
+            // both (with `apply_reasoning_context`) only after a probe shows
+            // no 400 and cached tokens on a repeated long prefix.
             explicit_cache_breakpoints: false,
         },
     );

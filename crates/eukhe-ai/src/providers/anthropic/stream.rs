@@ -220,16 +220,11 @@ async fn run_stream(
         base_options.session_id.as_deref(),
     );
 
-    let (_retention, cache_control) = get_cache_control(model, base_options.cache_retention);
+    let cache_control = get_cache_control(base_options.cache_retention);
     let uses_anthropic_cache_pricing = has_standard_anthropic_cache_pricing(model);
-    let mut cache_write_cost: Option<f64> = match (&cache_control, uses_anthropic_cache_pricing) {
-        (Some(cache_control), true) => Some(get_anthropic_cache_write_cost(
-            model.cost.input.as_f64(),
-            cache_control.duration(),
-            None,
-        )),
-        _ => None,
-    };
+    let mut cache_write_cost: Option<f64> = (cache_control.is_some()
+        && uses_anthropic_cache_pricing)
+        .then(|| get_anthropic_cache_write_cost(model.cost.input.as_f64(), None));
 
     let mut params = build_params(model, context, is_oauth, options, cache_control.as_ref());
     if let Some(on_payload) = &base_options.on_payload {
@@ -330,7 +325,6 @@ async fn run_stream(
                                     });
                                 cache_write_cost = Some(get_anthropic_cache_write_cost(
                                     model.cost.input.as_f64(),
-                                    cache_control.as_ref().expect("checked").duration(),
                                     creation.as_ref(),
                                 ));
                             }
@@ -628,7 +622,6 @@ async fn run_stream(
                                     };
                                     cache_write_cost = Some(get_anthropic_cache_write_cost(
                                         model.cost.input.as_f64(),
-                                        cache_control.as_ref().expect("checked").duration(),
                                         Some(&creation),
                                     ));
                                 }

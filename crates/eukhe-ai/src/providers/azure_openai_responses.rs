@@ -186,8 +186,7 @@ fn build_params(
     // TS #2948: Azure stores responses server-side by default — pin
     // `store: false` (the d1fce2ba1 fix the OpenAI Responses provider got and
     // this Azure copy never did), and drop `prompt_cache_key` when the caller
-    // pinned cacheRetention to none. Azure does not send
-    // `prompt_cache_retention` (support unclear) — that stays as-is.
+    // pinned cacheRetention to none.
     if options.base.cache_retention != Some(CacheRetention::None) {
         if let Some(session_id) = &options.base.session_id {
             params.insert("prompt_cache_key".into(), json!(session_id));

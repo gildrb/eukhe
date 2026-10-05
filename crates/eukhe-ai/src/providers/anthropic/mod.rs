@@ -153,7 +153,6 @@ pub struct AnthropicOptions {
 /// Resolved anthropic compat (`Required<AnthropicMessagesCompat>`).
 pub struct ResolvedAnthropicCompat {
     pub supports_eager_tool_input_streaming: bool,
-    pub supports_long_cache_retention: bool,
 }
 
 pub fn get_anthropic_compat(model: &Model) -> ResolvedAnthropicCompat {
@@ -166,63 +165,25 @@ pub fn get_anthropic_compat(model: &Model) -> ResolvedAnthropicCompat {
             .as_ref()
             .and_then(|c| c.supports_eager_tool_input_streaming)
             .unwrap_or(true),
-        supports_long_cache_retention: compat
-            .as_ref()
-            .and_then(|c| c.supports_long_cache_retention)
-            .unwrap_or(true),
     }
 }
 
-pub(crate) fn resolve_cache_retention(cache_retention: Option<CacheRetention>) -> CacheRetention {
-    if let Some(retention) = cache_retention {
-        return retention;
-    }
-    if std::env::var("EUKHE_CACHE_RETENTION").as_deref() == Ok("long") {
-        return CacheRetention::Long;
-    }
-    CacheRetention::Short
-}
+/// The `cache_control` mark: always a 5-minute `ephemeral` entry. 1-hour
+/// entries are never written (`OptChat` spec §8, §11.10).
+pub struct CacheControl;
 
-/// `cache_control` payload derived from the retention preference.
-pub struct CacheControl {
-    pub ttl: Option<&'static str>,
-}
-
-impl CacheControl {
-    fn to_json(&self) -> Value {
-        let mut map = Map::new();
-        map.insert("type".into(), json!("ephemeral"));
-        if let Some(ttl) = self.ttl {
-            map.insert("ttl".into(), json!(ttl));
-        }
-        Value::Object(map)
-    }
-
-    fn duration(&self) -> &'static str {
-        if self.ttl == Some("1h") {
-            "1h"
-        } else {
-            "5m"
-        }
+impl From<&CacheControl> for Value {
+    fn from(_: &CacheControl) -> Value {
+        json!({ "type": "ephemeral" })
     }
 }
 
-pub(crate) fn get_cache_control(
-    model: &Model,
-    cache_retention: Option<CacheRetention>,
-) -> (CacheRetention, Option<CacheControl>) {
-    let retention = resolve_cache_retention(cache_retention);
-    if retention == CacheRetention::None {
-        return (retention, None);
+/// The cache mark for the retention preference: none when caching is off.
+pub(crate) fn get_cache_control(cache_retention: Option<CacheRetention>) -> Option<CacheControl> {
+    match cache_retention.unwrap_or(CacheRetention::Short) {
+        CacheRetention::None => None,
+        CacheRetention::Short => Some(CacheControl),
     }
-    let ttl = if retention == CacheRetention::Long
-        && get_anthropic_compat(model).supports_long_cache_retention
-    {
-        Some("1h")
-    } else {
-        None
-    };
-    (retention, Some(CacheControl { ttl }))
 }
 
 /// Fable/Mythos models — and Claude Opus 5.5 — think every turn and reject an

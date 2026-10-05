@@ -172,12 +172,15 @@ pub struct ThinkingBudgets {
 // Provider options
 // ---------------------------------------------------------------------------
 
+/// Prompt-cache retention: the provider's default short entries (5 min on
+/// Anthropic and Bedrock, in-memory on `OpenAI`), or none. There is no long
+/// (1 h / 24 h) option: a 1 h write costs 2× input against 1.25×, and every
+/// step of a turn renews the short entry it reads (`OptChat` spec §8, §11.10).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CacheRetention {
     None,
     Short,
-    Long,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

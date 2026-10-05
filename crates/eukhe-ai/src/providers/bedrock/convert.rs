@@ -137,15 +137,10 @@ fn create_image_block(mime_type: &str, data: &str) -> Value {
     })
 }
 
-/// The request's cache point block: the default TTL, or one hour for long
-/// retention.
-fn cache_point(cache_retention: CacheRetention) -> Value {
-    let mut point = Map::new();
-    point.insert("type".into(), json!("default"));
-    if cache_retention == CacheRetention::Long {
-        point.insert("ttl".into(), json!("1h"));
-    }
-    json!({ "cachePoint": Value::Object(point) })
+/// The request's cache point block: always the default (5-minute) TTL;
+/// 1-hour entries are never written (`OptChat` spec §8, §11.10).
+fn cache_point() -> Value {
+    json!({ "cachePoint": { "type": "default" } })
 }
 
 /// Port of `buildSystemPrompt`. The system cache point is the request's one
@@ -161,7 +156,7 @@ pub fn build_system_prompt(
     let mut blocks = vec![json!({ "text": sanitize_surrogates(system_prompt) })];
 
     if cache_retention != CacheRetention::None && supports_prompt_caching(model) && budget.take() {
-        blocks.push(cache_point(cache_retention));
+        blocks.push(cache_point());
     }
 
     Some(blocks)
@@ -207,7 +202,7 @@ pub fn convert_messages(
                             // A marked block ends a cacheable prefix (the chat
                             // memory marks the pieces of its view).
                             if caching && has_cache_breakpoint(c) {
-                                converted.push(cache_point(cache_retention));
+                                converted.push(cache_point());
                             }
                         }
                         converted
@@ -338,7 +333,7 @@ pub fn convert_messages(
                 .and_then(|block| block.get("cachePoint"))
                 .is_none()
             {
-                last_blocks.push(cache_point(cache_retention));
+                last_blocks.push(cache_point());
             }
         }
     }
@@ -457,5 +452,48 @@ mod supports_always_on_adaptive_thinking_tests {
             "us.anthropic.claude-opus-5-v1",
             Some("Claude Opus 5")
         ));
+    }
+}
+
+#[cfg(test)]
+mod cache_point_tests {
+    use serde_json::{json, Value};
+
+    use super::convert_messages;
+    use crate::types::{CacheRetention, Context, Model};
+
+    /// A marked view piece plus the new message: the cache points are the
+    /// marked block's and the request end's, both the default TTL (spec §8:
+    /// no 1-hour entries).
+    #[test]
+    fn every_cache_point_is_a_default_ttl_entry() {
+        let model = serde_json::from_value::<Model>(json!({
+            "id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "name": "Claude Sonnet 4.5",
+            "api": "bedrock-converse-stream", "provider": "amazon-bedrock",
+            "baseUrl": "https://bedrock-runtime.us-east-1.amazonaws.com",
+            "reasoning": true, "input": ["text"],
+            "cost": { "input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75 },
+            "contextWindow": 200_000, "maxTokens": 64_000
+        }))
+        .unwrap();
+        let context = serde_json::from_value::<Context>(json!({
+            "messages": [{
+                "role": "user",
+                "timestamp": 0,
+                "content": [
+                    { "type": "text", "text": "view piece", "cacheBreakpoint": "ephemeral" },
+                    { "type": "text", "text": "the new message" }
+                ]
+            }]
+        }))
+        .unwrap();
+        let messages = convert_messages(&context, &model, CacheRetention::Short);
+        let points: Vec<Value> = messages
+            .iter()
+            .filter_map(|message| message.get("content").and_then(Value::as_array))
+            .flatten()
+            .filter_map(|block| block.get("cachePoint").cloned())
+            .collect();
+        assert_eq!(points, vec![json!({ "type": "default" }); 2]);
     }
 }

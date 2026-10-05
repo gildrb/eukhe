@@ -96,7 +96,7 @@ pub fn convert_messages(
                             {
                                 part.as_object_mut()
                                     .expect("content parts are objects")
-                                    .insert("cache_control".into(), cache_control.to_json());
+                                    .insert("cache_control".into(), Value::from(cache_control));
                             }
                             part
                         })

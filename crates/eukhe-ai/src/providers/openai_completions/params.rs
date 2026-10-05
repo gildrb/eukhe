@@ -31,19 +31,10 @@ pub(crate) fn build_params(
     params.insert("messages".into(), json!(messages));
     params.insert("stream".into(), json!(true));
 
-    let prompt_cache_key = if (model.base_url.contains("api.openai.com")
-        && cache_retention != CacheRetention::None)
-        || (cache_retention == CacheRetention::Long && compat.supports_long_cache_retention)
-    {
-        options.base.session_id.clone().map(Value::String)
-    } else {
-        None
-    };
-    if let Some(key) = prompt_cache_key {
-        params.insert("prompt_cache_key".into(), key);
-    }
-    if cache_retention == CacheRetention::Long && compat.supports_long_cache_retention {
-        params.insert("prompt_cache_retention".into(), json!("24h"));
+    if model.base_url.contains("api.openai.com") && cache_retention != CacheRetention::None {
+        if let Some(session_id) = &options.base.session_id {
+            params.insert("prompt_cache_key".into(), json!(session_id));
+        }
     }
 
     if compat.supports_usage_in_streaming {
@@ -292,7 +283,7 @@ fn apply_anthropic_cache_control(
             last_tool
                 .as_object_mut()
                 .expect("tools entries are objects")
-                .insert("cache_control".into(), cache_control.to_json());
+                .insert("cache_control".into(), Value::from(cache_control));
         }
     }
 }
@@ -301,7 +292,7 @@ fn add_cache_control_to_message(
     message: &mut Value,
     cache_control: &OpenAICompatCacheControl,
 ) -> bool {
-    let cache_json = cache_control.to_json();
+    let cache_json = Value::from(cache_control);
     match message.get_mut("content") {
         Some(Value::String(content)) => {
             if content.is_empty() {

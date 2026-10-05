@@ -563,20 +563,8 @@ async fn run_stream(
     let compat = get_compat(model);
     let cache_retention = resolve_cache_retention(base_options.cache_retention);
     let cache_control = get_compat_cache_control(&compat, cache_retention);
-    let cache_write_cost = if cache_control.is_some() && has_standard_anthropic_cache_pricing(model)
-    {
-        Some(get_anthropic_cache_write_cost(
-            model.cost.input.as_f64(),
-            if cache_control.as_ref().and_then(|control| control.ttl) == Some("1h") {
-                "1h"
-            } else {
-                "5m"
-            },
-            None,
-        ))
-    } else {
-        None
-    };
+    let cache_write_cost = (cache_control.is_some() && has_standard_anthropic_cache_pricing(model))
+        .then(|| get_anthropic_cache_write_cost(model.cost.input.as_f64(), None));
     let cache_session_id = if cache_retention == CacheRetention::None {
         None
     } else {

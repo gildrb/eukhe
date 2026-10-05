@@ -130,7 +130,7 @@ pub fn convert_messages(
                                 block
                                     .as_object_mut()
                                     .expect("content blocks are objects")
-                                    .insert("cache_control".into(), cache_control.to_json());
+                                    .insert("cache_control".into(), Value::from(cache_control));
                             }
                             block
                         })
@@ -257,7 +257,7 @@ pub fn convert_messages(
                         "content": [{
                             "type": "text",
                             "text": text,
-                            "cache_control": cache_control.to_json(),
+                            "cache_control": Value::from(cache_control),
                         }],
                     });
                 } else if let Value::Array(blocks) = content_value {
@@ -273,7 +273,7 @@ pub fn convert_messages(
                             last_block
                                 .as_object_mut()
                                 .expect("content blocks are objects")
-                                .insert("cache_control".into(), cache_control.to_json());
+                                .insert("cache_control".into(), Value::from(cache_control));
                         }
                     }
                 }
@@ -317,7 +317,7 @@ pub fn convert_tools(
             );
             if let Some(cache_control) = cache_control {
                 if index == tools.len() - 1 {
-                    entry.insert("cache_control".into(), cache_control.to_json());
+                    entry.insert("cache_control".into(), Value::from(cache_control));
                 }
             }
             Value::Object(entry)

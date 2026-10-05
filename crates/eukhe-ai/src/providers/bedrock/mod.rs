@@ -321,17 +321,6 @@ pub fn stream_bedrock(
     reader
 }
 
-/// Port of `resolveCacheRetention`.
-fn resolve_cache_retention(cache_retention: Option<CacheRetention>) -> CacheRetention {
-    if let Some(retention) = cache_retention {
-        return retention;
-    }
-    if std::env::var("EUKHE_CACHE_RETENTION").as_deref() == Ok("long") {
-        return CacheRetention::Long;
-    }
-    CacheRetention::Short
-}
-
 /// Port of `isGovCloudBedrockTarget`.
 fn is_gov_cloud_bedrock_target(model: &Model, options: &BedrockOptions) -> bool {
     if options
@@ -466,7 +455,10 @@ async fn run_stream(
         return Err(ProviderError::Aborted);
     }
 
-    let cache_retention = resolve_cache_retention(options.base.cache_retention);
+    let cache_retention = options
+        .base
+        .cache_retention
+        .unwrap_or(CacheRetention::Short);
 
     let mut inference_config = Map::new();
     if let Some(max_tokens) = options.base.max_tokens {

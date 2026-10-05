@@ -34,19 +34,12 @@ use crate::utils_inner::stream_failure::{
 pub const API_OPENAI_RESPONSES: &str = "openai-responses";
 
 fn resolve_cache_retention(cache_retention: Option<CacheRetention>) -> CacheRetention {
-    if let Some(retention) = cache_retention {
-        return retention;
-    }
-    if std::env::var("EUKHE_CACHE_RETENTION").as_deref() == Ok("long") {
-        return CacheRetention::Long;
-    }
-    CacheRetention::Short
+    cache_retention.unwrap_or(CacheRetention::Short)
 }
 
 /// Resolved compat (`Required<OpenAIResponsesCompat>`).
 pub struct ResolvedResponsesCompat {
     pub send_session_id_header: bool,
-    pub supports_long_cache_retention: bool,
 }
 
 pub fn get_responses_compat(model: &Model) -> ResolvedResponsesCompat {
@@ -64,21 +57,6 @@ pub fn get_responses_compat(model: &Model) -> ResolvedResponsesCompat {
             .as_ref()
             .and_then(|c| c.send_session_id_header)
             .unwrap_or(true),
-        supports_long_cache_retention: compat
-            .as_ref()
-            .and_then(|c| c.supports_long_cache_retention)
-            .unwrap_or(true),
-    }
-}
-
-fn get_prompt_cache_retention(
-    compat: &ResolvedResponsesCompat,
-    cache_retention: CacheRetention,
-) -> Option<&'static str> {
-    if cache_retention == CacheRetention::Long && compat.supports_long_cache_retention {
-        Some("24h")
-    } else {
-        None
     }
 }
 
@@ -199,18 +177,16 @@ fn build_params(model: &Model, context: &Context, options: &OpenAIResponsesOptio
     );
 
     let cache_retention = resolve_cache_retention(options.base.cache_retention);
-    let compat = get_responses_compat(model);
     let mut params = Map::new();
     params.insert("model".into(), json!(model.id));
     params.insert("input".into(), json!(messages));
     params.insert("stream".into(), json!(true));
+    // No `prompt_cache_retention`: the in-memory (short) entries only; 24 h
+    // entries are never written (`OptChat` spec §8, §11.10).
     if cache_retention != CacheRetention::None {
         if let Some(session_id) = &options.base.session_id {
             params.insert("prompt_cache_key".into(), json!(session_id));
         }
-    }
-    if let Some(retention) = get_prompt_cache_retention(&compat, cache_retention) {
-        params.insert("prompt_cache_retention".into(), json!(retention));
     }
     params.insert("store".into(), json!(false));
 
@@ -527,7 +503,6 @@ mod tests {
         // its shape).
         let model = compat_model(serde_json::json!({ "supportsLongCacheRetention": false }));
         let compat = get_responses_compat(&model);
-        assert!(!compat.supports_long_cache_retention);
         assert!(
             compat.send_session_id_header,
             "the absent header flag defaults on"
@@ -541,8 +516,7 @@ mod tests {
         );
         let compat = get_responses_compat(&model);
         assert!(!compat.send_session_id_header);
-        assert!(compat.supports_long_cache_retention);
-        // Absent compat: both defaults on (TS's defaults).
+        // Absent compat: the header flag defaults on (TS's default).
         let plain = serde_json::from_value::<Model>(serde_json::json!({
             "id": "m", "name": "m", "api": "openai-responses", "provider": "openai",
             "baseUrl": "https://api.openai.com/v1", "reasoning": false, "input": ["text"],
@@ -552,7 +526,6 @@ mod tests {
         .unwrap();
         let compat = get_responses_compat(&plain);
         assert!(compat.send_session_id_header);
-        assert!(compat.supports_long_cache_retention);
     }
 
     /// A `reasoning: false` model whose map addresses levels (the live
@@ -577,6 +550,62 @@ mod tests {
         assert_eq!(
             params.get("reasoning"),
             Some(&json!({ "effort": "xhigh", "summary": "auto" }))
+        );
+    }
+
+    /// The chat-memory request shape on a model with explicit cache
+    /// controls (spec §8): the marked view piece carries
+    /// `prompt_cache_breakpoint`, reasoning keeps `all_turns`, the session
+    /// keys the cache, and the request sets no `prompt_cache_retention`
+    /// (only the short, in-memory entries).
+    #[test]
+    fn the_chat_memory_request_shape_uses_short_entries_and_explicit_marks() {
+        let model = serde_json::from_value::<Model>(json!({
+            "id": "gpt-5.6", "name": "GPT-5.6",
+            "api": "openai-responses", "provider": "openai",
+            "baseUrl": "https://api.openai.com/v1", "reasoning": true, "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 400_000, "maxTokens": 128_000
+        }))
+        .unwrap();
+        let context = serde_json::from_value::<Context>(json!({
+            "messages": [{
+                "role": "user",
+                "timestamp": 0,
+                "content": [
+                    { "type": "text", "text": "view piece", "cacheBreakpoint": "ephemeral" },
+                    { "type": "text", "text": "the new message" }
+                ]
+            }]
+        }))
+        .unwrap();
+        let mut options = OpenAIResponsesOptions::from_base(StreamOptions {
+            session_id: Some("session-1".into()),
+            ..StreamOptions::default()
+        });
+        options.reasoning_effort = Some(ModelThinkingLevel::Medium);
+        let params = build_params(&model, &context, &options);
+        assert_eq!(
+            params,
+            json!({
+                "model": "gpt-5.6",
+                "input": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "view piece",
+                            "prompt_cache_breakpoint": { "mode": "explicit" }
+                        },
+                        { "type": "input_text", "text": "the new message" }
+                    ]
+                }],
+                "stream": true,
+                "prompt_cache_key": "session-1",
+                "store": false,
+                "reasoning": { "effort": "medium", "summary": "auto", "context": "all_turns" },
+                "include": ["reasoning.encrypted_content"]
+            })
         );
     }
 }

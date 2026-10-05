@@ -3,9 +3,6 @@
 
 use crate::types::Model;
 
-pub type AnthropicCacheDuration = &'static str; // "5m" | "1h"
-
-pub const ANTHROPIC_CACHE_READ_COST_MULTIPLIER: f64 = 0.1;
 pub const ANTHROPIC_FIVE_MINUTE_CACHE_WRITE_COST_MULTIPLIER: f64 = 1.25;
 pub const ANTHROPIC_ONE_HOUR_CACHE_WRITE_COST_MULTIPLIER: f64 = 2.0;
 
@@ -36,27 +33,17 @@ pub fn has_standard_anthropic_cache_pricing(model: &Model) -> bool {
     (model.cost.cache_write.as_f64() - expected_cache_write_cost).abs() <= tolerance
 }
 
-#[must_use]
-pub fn get_anthropic_cache_costs(input_cost: f64, duration: AnthropicCacheDuration) -> (f64, f64) {
-    (
-        input_cost * ANTHROPIC_CACHE_READ_COST_MULTIPLIER,
-        input_cost
-            * if duration == "1h" {
-                ANTHROPIC_ONE_HOUR_CACHE_WRITE_COST_MULTIPLIER
-            } else {
-                ANTHROPIC_FIVE_MINUTE_CACHE_WRITE_COST_MULTIPLIER
-            },
-    )
-}
-
+/// The per-token cache-write cost. Requests write 5-minute entries only; a
+/// reported `cache_creation` split still prices any 1-hour tokens at their
+/// own rate.
 #[must_use]
 pub fn get_anthropic_cache_write_cost(
     input_cost: f64,
-    duration: AnthropicCacheDuration,
     cache_creation: Option<&AnthropicCacheCreationUsage>,
 ) -> f64 {
+    let five_minute_cost = input_cost * ANTHROPIC_FIVE_MINUTE_CACHE_WRITE_COST_MULTIPLIER;
     let Some(creation) = cache_creation else {
-        return get_anthropic_cache_costs(input_cost, duration).1;
+        return five_minute_cost;
     };
     // Token counts sit far below f64's 2^53 exact-integer range; the cost math is f64 by design.
     #[allow(clippy::cast_precision_loss)]
@@ -65,7 +52,7 @@ pub fn get_anthropic_cache_write_cost(
     let one_hour_tokens = creation.ephemeral_1h_input_tokens as f64;
     let total_tokens = five_minute_tokens + one_hour_tokens;
     if total_tokens == 0.0 {
-        return get_anthropic_cache_costs(input_cost, duration).1;
+        return five_minute_cost;
     }
     input_cost
         * (five_minute_tokens * ANTHROPIC_FIVE_MINUTE_CACHE_WRITE_COST_MULTIPLIER
@@ -84,7 +71,7 @@ mod tests {
             ephemeral_1h_input_tokens: 3000,
         };
         // TS formula: inputCost * (5m*1.25 + 1h*2) / total = 10*(1250+6000)/4000 = 18.125.
-        let cost = get_anthropic_cache_write_cost(10.0, "5m", Some(&usage));
+        let cost = get_anthropic_cache_write_cost(10.0, Some(&usage));
         assert!((cost - 18.125).abs() < 1e-9);
     }
 }
