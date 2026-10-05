@@ -64,7 +64,9 @@ fn tool_result_entries_persisted_and_streamed() {
     assert_eq!(prompt_ack["success"], true, "prompt failed: {prompt_ack}");
 
     // Streamed events: the tool execution frames, then the toolResult
-    // message pair, then the closing turn.
+    // message pair, then the scripted follow-up turn. The run ends at
+    // `agent_end`: the first `turn_end` closes only the tool turn, and the
+    // stats below count the follow-up reply too.
     let mut tool_result_message = serde_json::Value::Null;
     let mut message_pair = 0usize;
     let mut tool_execution_end = serde_json::Value::Null;
@@ -82,7 +84,7 @@ fn tool_result_entries_persisted_and_streamed() {
                     tool_result_message = event["message"].clone();
                 }
             }
-            Some("turn_end") => break,
+            Some("agent_end") => break,
             _ => {}
         }
     }
