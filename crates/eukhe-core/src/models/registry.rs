@@ -868,6 +868,18 @@ impl ModelRegistry {
                 }
             }
         }
+        // An expired OAuth credential whose refresh failed resolves no key:
+        // the request fails with the refresh's reason and the TS login hint
+        // (`LOGIN_RECOVERY_MESSAGE`), never the provider's bare "No API key".
+        if let (None, Some(refresh_error)) = (&api_key, stored.refresh_error) {
+            return ResolvedRequestAuth {
+                ok: false,
+                error: Some(format!(
+                    "{refresh_error}\n\nRun /login to update credentials."
+                )),
+                ..Default::default()
+            };
+        }
         let provider_headers = provider_config
             .as_ref()
             .and_then(|config| config.headers.clone());
@@ -912,6 +924,28 @@ impl ModelRegistry {
             error: None,
         }
     }
+}
+
+/// Request auth for `model` from `agent_dir`'s auth storage and
+/// `models.json` (TS `getApiKeyAndHeaders`, the per-request resolution
+/// a session stream runs): the stored credential (an expired OAuth token
+/// refreshes), then the models.json provider `apiKey`, with the merged
+/// request headers. A `runtime_api_key` rides as the runtime override (TS
+/// `setRuntimeApiKey`): it wins without reading or refreshing the stored
+/// credential, and the merged headers still ship. Blocking: reads auth
+/// storage and may refresh a token over the network.
+#[must_use]
+pub fn resolve_request_auth(
+    agent_dir: &Path,
+    runtime_api_key: Option<&str>,
+    model: &Model,
+) -> ResolvedRequestAuth {
+    let mut auth = AuthStorage::create(agent_dir);
+    if let Some(api_key) = runtime_api_key {
+        auth.set_runtime_api_key(&model.provider, api_key.to_string());
+    }
+    ModelRegistry::create(auth, agent_dir.join("models.json"))
+        .get_api_key_and_headers(model, model.headers.as_ref())
 }
 
 fn now_millis() -> u64 {

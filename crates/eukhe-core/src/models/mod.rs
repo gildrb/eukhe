@@ -7,7 +7,8 @@ pub use private_auth::{
     PrivatePrimeAuthorizationCache, PRIVATE_PRIME_AUTHORIZATION_CACHE_TTL_MS,
 };
 pub use registry::{
-    ModelRegistry, ProviderRequestConfig, ResolvedRequestAuth, SetModelSelectionError,
+    resolve_request_auth, ModelRegistry, ProviderRequestConfig, ResolvedRequestAuth,
+    SetModelSelectionError,
 };
 
 pub use catalog_chain::{

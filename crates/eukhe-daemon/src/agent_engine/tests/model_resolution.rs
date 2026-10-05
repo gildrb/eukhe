@@ -411,7 +411,8 @@ async fn an_api_key_override_keeps_the_merged_team_headers() {
     });
     let model = engine.resolve_registry_model().expect("resolved model");
     assert_eq!(model.provider, "prime-inference");
-    let (api_key, headers) = engine.resolve_request_key_and_headers(&model);
+    let resolved = engine.resolve_request_key_and_headers(&model);
+    let (api_key, headers) = (resolved.api_key, resolved.headers);
     assert_eq!(api_key.as_deref(), Some("explicit-override"));
     let headers = headers.expect("the override keeps the merged headers");
     assert_eq!(
@@ -434,7 +435,8 @@ async fn request_auth_carries_the_stored_team_header() {
     let engine = restore_test_engine(dir.path(), Some("prime-inference"), None);
     let model = engine.resolve_registry_model().expect("resolved model");
     assert_eq!(model.provider, "prime-inference");
-    let (api_key, headers) = engine.resolve_request_key_and_headers(&model);
+    let resolved = engine.resolve_request_key_and_headers(&model);
+    let (api_key, headers) = (resolved.api_key, resolved.headers);
     assert_eq!(api_key.as_deref(), Some("test-key"));
     let headers = headers.expect("merged request headers");
     assert_eq!(

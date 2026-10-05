@@ -14,7 +14,8 @@ use crate::headless_autonomous::{autonomous_runtime_config, HeadlessAutonomous};
 use crate::mode::{AppMode, MissingSubsystem, RunOptions};
 use eukhe_agent::stream::{LlmContext, StreamFn, StreamRequestOptions};
 use eukhe_core::session_engine::provider_adapter::{
-    json_round_trip, map_thinking_level, stream_once, switchable_stream_fn, ProviderTarget,
+    json_round_trip, map_thinking_level, stream_with_auth, switchable_stream_fn, ProviderTarget,
+    RequestAuthFn,
 };
 use eukhe_core::session_engine::session_events::agent_event_json;
 
@@ -525,10 +526,14 @@ async fn build_headless_engine_with(
     registry.load_private_authorization_from_cache();
     let model = model_selection::select_model(&registry, config, &options.session)?;
 
-    // Resolve request auth once (single-shot mode): the merged headers
-    // ship on the request (the TS `getApiKeyAndHeaders` single-owner path;
-    // TS #2497 removed the provider-side team-header fallback, so the
-    // stored team / `PRIME_TEAM_ID` reach the wire through these headers).
+    // Resolve the session model's request auth once at build: the session
+    // commands and summarizer passes take its key, and it serves the first
+    // request, so a single-shot run resolves (and refreshes an expired
+    // OAuth token) once, like TS's one request-time resolution. Later
+    // requests resolve when issued (TS `streamFn`). The merged headers ship
+    // on the request (the TS `getApiKeyAndHeaders` single-owner path; TS
+    // #2497 removed the provider-side team-header fallback, so the stored
+    // team / `PRIME_TEAM_ID` reach the wire through these headers).
     let resolved = registry.get_api_key_and_headers(&model, model.headers.as_ref());
 
     // The stream reads the provider target per call (the switchable seam
@@ -536,10 +541,8 @@ async fn build_headless_engine_with(
     // per dispatched batch).
     let provider_target: ProviderTargetSlot =
         std::sync::Arc::new(std::sync::RwLock::new(Some(ProviderTarget {
-            api_key: resolved.api_key.clone(),
             model: model.clone(),
             service_tier: None,
-            headers: resolved.headers.clone(),
         })));
     // The armed image route's target, shared with the stream seam: while
     // an episode is armed the stream serves THIS target (TS keeps the
@@ -550,9 +553,17 @@ async fn build_headless_engine_with(
     // still-routed guard leaves it).
     let armed_target: std::sync::Arc<std::sync::Mutex<Option<ProviderTarget>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
+    let request_auth: RequestAuthFn = {
+        let agent_dir = config.agent_dir.clone();
+        std::sync::Arc::new(move |model: &Model| {
+            eukhe_core::models::resolve_request_auth(&agent_dir, None, model)
+        })
+    };
     let stream_fn = route_authoritative_stream_fn(
         std::sync::Arc::clone(&provider_target),
         std::sync::Arc::clone(&armed_target),
+        request_auth,
+        (model.clone(), resolved.clone()),
     );
     // TS settings.imageModel routing (the headless surfaces' host seam):
     // image-attaching batches on a session model without image input
@@ -716,10 +727,19 @@ async fn build_headless_engine_with(
 /// included): a `set_model` picker write to the slot lands only when the
 /// settle clears the armed target, exactly when TS's next dispatch would
 /// re-evaluate against the new selection.
+///
+/// Each request resolves its auth when issued (TS `streamFn`): an expired
+/// OAuth token refreshes, and a failed refresh ends the request as an
+/// error turn carrying the reason. The build-time resolution serves the
+/// first request while it still targets the build's model, so the run
+/// never resolves twice back to back.
 fn route_authoritative_stream_fn(
     provider_target: ProviderTargetSlot,
     armed_target: std::sync::Arc<std::sync::Mutex<Option<ProviderTarget>>>,
+    request_auth: RequestAuthFn,
+    build_auth: (Model, eukhe_core::models::ResolvedRequestAuth),
 ) -> StreamFn {
+    let build_auth = std::sync::Mutex::new(Some(build_auth));
     std::sync::Arc::new(
         move |_requested: AgentModel, context: LlmContext, options: StreamRequestOptions| {
             let armed = armed_target
@@ -735,13 +755,26 @@ fn route_authoritative_stream_fn(
                 })
                 .expect("provider target set before the first stream");
             let ProviderTarget {
-                api_key,
                 model,
                 service_tier,
-                headers,
             } = target;
+            let build_auth = build_auth
+                .lock()
+                .expect("build auth lock")
+                .take()
+                .filter(|(auth_model, _)| {
+                    auth_model.provider == model.provider && auth_model.id == model.id
+                })
+                .map(|(_, auth)| auth);
+            let request_auth = std::sync::Arc::clone(&request_auth);
             Box::pin(async move {
-                stream_once(&model, api_key, service_tier, headers, context, options)
+                let auth = if let Some(auth) = build_auth {
+                    auth
+                } else {
+                    let auth_model = model.clone();
+                    tokio::task::spawn_blocking(move || request_auth(&auth_model)).await?
+                };
+                stream_with_auth(&model, service_tier, auth, context, options)
             })
         },
     )
@@ -774,7 +807,7 @@ fn headless_image_model_router(
     // the routed target the arm wrote, so the settle can tell a slot that
     // still holds the route from one a mid-run `/model` switch rewrote.
     let armed_to = armed_target;
-    let decide_agent_dir = agent_dir.clone();
+    let decide_agent_dir = agent_dir;
     let decide_provider_target = std::sync::Arc::clone(provider_target);
     let decide_armed_from = std::sync::Arc::clone(&armed_from);
     let decide = std::sync::Arc::new(
@@ -820,8 +853,8 @@ fn headless_image_model_router(
             registry.load_private_authorization_from_cache();
             let available: Vec<eukhe_types::ai::Model> =
                 registry.get_available().into_iter().cloned().collect();
-            // Route acceptance uses the same resolved-auth result the arm
-            // path installs: a provider can be signed in (the status
+            // Route acceptance runs the same request-auth resolution the
+            // routed requests will: a provider can be signed in (the status
             // probe) while its key resolution still fails, and a route
             // accepted on the status probe alone would arm an
             // unauthenticated target — the image turn's content would
@@ -871,19 +904,9 @@ fn headless_image_model_router(
                         armed_from
                             .clone_from(&provider_target.read().expect("provider target lock"));
                     }
-                    // The routed model's request auth resolves like the
-                    // session model's did at startup (registry + headers).
-                    let auth = eukhe_core::auth::AuthStorage::create(&agent_dir);
-                    let mut registry = eukhe_core::models::ModelRegistry::create(
-                        auth,
-                        agent_dir.join("models.json"),
-                    );
-                    registry.load_private_authorization_from_cache();
-                    let resolved_auth = registry
-                        .get_api_key_and_headers(&resolved.model, resolved.model.headers.as_ref());
+                    // The stream resolves the routed model's request auth
+                    // per request, like the session model's.
                     let target = eukhe_core::session_engine::provider_adapter::ProviderTarget {
-                        api_key: resolved_auth.api_key,
-                        headers: resolved_auth.headers,
                         model: resolved.model.clone(),
                         service_tier: resolved.service_tier,
                     };
@@ -905,16 +928,16 @@ fn headless_image_model_router(
                         .read()
                         .expect("provider target lock")
                         .clone();
-                    // The full serving target, credentials included: an ACP
-                    // model switch may keep the same model id while rotating
-                    // its api key or headers, and the guard must treat that
-                    // slot as switched, not as the route's own.
+                    // The full serving target: an ACP model switch may land
+                    // on a same-id model of another provider, and the guard
+                    // must treat that slot as switched, not as the route's
+                    // own (the request auth is resolved per request, so it
+                    // is no part of the target).
                     let still_routed = match (&current, &routed) {
                         (Some(current), Some(routed)) => {
-                            current.model.id == routed.model.id
+                            current.model.provider == routed.model.provider
+                                && current.model.id == routed.model.id
                                 && current.service_tier == routed.service_tier
-                                && current.api_key == routed.api_key
-                                && current.headers == routed.headers
                         }
                         _ => true,
                     };
@@ -1741,12 +1764,18 @@ async fn build_faux_engine_with(
     let agent_model = json_round_trip(&model).ok_or("model conversion failed")?;
     let provider_target: ProviderTargetSlot =
         std::sync::Arc::new(std::sync::RwLock::new(Some(ProviderTarget {
-            api_key: None,
             model: model.clone(),
             service_tier: None,
-            headers: None,
         })));
-    let stream_fn = switchable_stream_fn(std::sync::Arc::clone(&provider_target));
+    // The scripted provider takes no credentials: every request resolves
+    // to no key, without reading auth storage.
+    let stream_fn = switchable_stream_fn(
+        std::sync::Arc::clone(&provider_target),
+        std::sync::Arc::new(|_model: &Model| eukhe_core::models::ResolvedRequestAuth {
+            ok: true,
+            ..Default::default()
+        }),
+    );
     // The faux path shares the session-manager wiring (persist / --no-session
     // / --resume / --continue) with the real provider path so binary-level
     // tests can verify persistence without the network.
@@ -1843,8 +1872,6 @@ mod tests {
             model: eukhe_types::ai::Model,
         ) -> eukhe_core::session_engine::provider_adapter::ProviderTarget {
             eukhe_core::session_engine::provider_adapter::ProviderTarget {
-                api_key: None,
-                headers: None,
                 model,
                 service_tier: None,
             }

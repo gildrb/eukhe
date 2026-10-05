@@ -26,8 +26,8 @@ use crate::agent_engine::AgentSessionEngine;
 /// identifying the session for UI and persistence.
 #[derive(Clone)]
 pub(crate) struct ImageRoute {
-    /// The stream's provider target for the episode (the image model, its
-    /// resolved key, and the session tier clamped for it).
+    /// The stream's provider target for the episode (the image model and
+    /// the session tier clamped for it; its auth resolves per request).
     pub(crate) target: ProviderTarget,
     /// The agent's per-run override (the image model + the session thinking
     /// level clamped for it) feeding the loop config.
@@ -66,8 +66,8 @@ impl AgentSessionEngine {
         registry.load_private_authorization_from_cache();
         let available: Vec<eukhe_types::ai::Model> =
             registry.get_available().into_iter().cloned().collect();
-        // Route acceptance uses the same resolved-auth result the arm
-        // installs (the create-config key pin aside): a provider can be
+        // Route acceptance runs the same request-auth resolution the routed
+        // requests will (the create-config key pin aside): a provider can be
         // signed in while its key resolution still fails, and a route
         // accepted on the status probe alone would arm an
         // unauthenticated target — the image turn's content would reach
@@ -143,9 +143,7 @@ impl AgentSessionEngine {
                 Some(ImageRoute {
                     target: ProviderTarget {
                         service_tier: resolved.service_tier,
-                        api_key: self.resolve_request_api_key(&resolved.model),
                         model: resolved.model.clone(),
-                        headers: self.resolve_request_key_and_headers(&resolved.model).1,
                     },
                     agent_override: eukhe_agent::agent::AgentModelOverride {
                         thinking_level: map_thinking_level(resolved.thinking_level),
@@ -222,24 +220,19 @@ impl AgentSessionEngine {
             return;
         };
         // The agent override clears even when the session target cannot be
-        // rebuilt (an auth/read failure): the next run must not silently
-        // serve on the routed image model — the captured session target
-        // restores the slot instead (a stale pin beats a leftover routed
-        // image target serving later image-free turns).
+        // rebuilt (the session model no longer resolves): the next run must
+        // not silently serve on the routed image model — the captured
+        // session target restores the slot instead (a stale pin beats a
+        // leftover routed image target serving later image-free turns).
         let agent = self.turn_agent.lock().expect("turn agent lock").clone();
         if let Some(agent) = agent {
             agent.set_model_override(None);
         }
         let mut target = match self.resolve_model() {
-            Ok(model) => {
-                let (api_key, headers) = self.resolve_request_key_and_headers(&model);
-                Some(ProviderTarget {
-                    service_tier: *self.service_tier.read().expect("service tier lock"),
-                    api_key,
-                    headers,
-                    model,
-                })
-            }
+            Ok(model) => Some(ProviderTarget {
+                service_tier: *self.service_tier.read().expect("service tier lock"),
+                model,
+            }),
             Err(_) => route.session_target,
         };
         if let Some(target) = target.take() {

@@ -458,50 +458,26 @@ impl AgentSessionEngine {
         resolved
     }
 
-    /// Resolve the request API key for `model`: the create-config key (the
-    /// TS `setRuntimeApiKey` path), else the registry's auth resolution
-    /// The request-time api key AND its resolved provider headers (the
-    /// selection's own headers lead; the registry resolves the model's
-    /// configured ones otherwise): the provider target carries both, so
-    /// models needing custom or auth headers send them on every
-    /// request — the same resolution `set_model`'s swap applies.
+    /// The request auth for `model` with the live create-config key pin as
+    /// the runtime override ([`eukhe_core::models::resolve_request_auth`]):
+    /// the whole result, `ok` and `error` included, so a failed OAuth
+    /// refresh reaches the caller with its reason.
     pub(crate) fn resolve_request_key_and_headers(
         &self,
         model: &Model,
-    ) -> (
-        Option<String>,
-        Option<std::collections::BTreeMap<String, String>>,
-    ) {
-        let auth = eukhe_core::auth::AuthStorage::create(&self.config.agent_dir);
-        let mut registry = eukhe_core::models::ModelRegistry::create(
-            auth,
-            self.config.agent_dir.join("models.json"),
-        );
-        let resolved = registry.get_api_key_and_headers(model, model.headers.as_ref());
-        if let Some(api_key) = &self.current_selection().api_key {
-            // The create-config key override pins the key, never the
-            // headers: the registry's merged headers (the auth storage's
-            // single-owner team header among them) still ship, exactly like
-            // the TS `getApiKeyAndHeaders` override path.
-            return (Some(api_key.clone()), resolved.headers);
-        }
-        (resolved.api_key, resolved.headers)
+    ) -> eukhe_core::models::ResolvedRequestAuth {
+        eukhe_core::models::resolve_request_auth(
+            &self.config.agent_dir,
+            self.current_selection().api_key.as_deref(),
+            model,
+        )
     }
 
-    /// (auth storage, then the models.json provider `apiKey` — the same
-    /// sources `getApiKeyAndHeaders` merges in the TS product).
+    /// The request API key for `model` (the session commands and the
+    /// summarizer passes: compaction, refinement), resolved when the pass
+    /// runs (TS `_getRequiredRequestAuth`).
     pub(crate) fn resolve_request_api_key(&self, model: &Model) -> Option<String> {
-        if let Some(api_key) = &self.current_selection().api_key {
-            return Some(api_key.clone());
-        }
-        let auth = eukhe_core::auth::AuthStorage::create(&self.config.agent_dir);
-        let mut registry = eukhe_core::models::ModelRegistry::create(
-            auth,
-            self.config.agent_dir.join("models.json"),
-        );
-        registry
-            .get_api_key_and_headers(model, model.headers.as_ref())
-            .api_key
+        self.resolve_request_key_and_headers(model).api_key
     }
 }
 

@@ -170,7 +170,7 @@ impl AgentSessionEngine {
             kernel_release_probe: std::sync::Mutex::new(None),
             registered_jobs_probe: std::sync::Mutex::new(None),
             session_file,
-            selection: std::sync::RwLock::new(selection.clone()),
+            selection: std::sync::Arc::new(std::sync::RwLock::new(selection.clone())),
             restored_model: std::sync::Mutex::new(None),
             startup_scope: std::sync::Mutex::new(None),
             initial_selection: std::sync::RwLock::new(selection),
@@ -1097,20 +1097,33 @@ impl AgentSessionEngine {
             .expect("create resources lock")
             .clone();
 
-        // The session's stream reads its target from the engine's live slot:
-        // `set_model` swaps the slot so the built session follows without a
-        // rebuild.
-        let stream_fn = switchable_stream_fn(std::sync::Arc::clone(&self.provider_target));
-        {
-            let (api_key, headers) = self.resolve_request_key_and_headers(model);
-            let mut target = self.provider_target.write().expect("provider target lock");
-            *target = Some(ProviderTarget {
-                service_tier: *self.service_tier.read().expect("service tier lock"),
-                api_key,
-                model: model.clone(),
-                headers,
-            });
-        }
+        // The session's stream reads its target from the engine's live slot
+        // (`set_model` swaps the slot so the built session follows without a
+        // rebuild) and resolves each request's auth when it is issued (TS
+        // `streamFn`): an expired OAuth token refreshes mid-session, and a
+        // failed refresh fails that turn with its reason.
+        let request_auth: eukhe_core::session_engine::provider_adapter::RequestAuthFn = {
+            let agent_dir = self.config.agent_dir.clone();
+            let selection = std::sync::Arc::clone(&self.selection);
+            std::sync::Arc::new(move |model: &Model| {
+                let pinned_api_key = selection
+                    .read()
+                    .expect("model selection lock")
+                    .api_key
+                    .clone();
+                eukhe_core::models::resolve_request_auth(
+                    &agent_dir,
+                    pinned_api_key.as_deref(),
+                    model,
+                )
+            })
+        };
+        let stream_fn =
+            switchable_stream_fn(std::sync::Arc::clone(&self.provider_target), request_auth);
+        *self.provider_target.write().expect("provider target lock") = Some(ProviderTarget {
+            service_tier: *self.service_tier.read().expect("service tier lock"),
+            model: model.clone(),
+        });
         if let Some(session_dir) = &self.config.session_dir {
             std::fs::create_dir_all(session_dir)?;
         }

@@ -158,14 +158,19 @@ impl McpOAuth {
         &self,
         provider_id: &str,
         credentials: &AuthCredential,
-    ) -> Option<AuthCredential> {
-        let server = provider_id.strip_prefix("mcp:")?.to_string();
+    ) -> Result<AuthCredential, String> {
+        let server = provider_id
+            .strip_prefix("mcp:")
+            .ok_or_else(|| format!("{provider_id} is not an MCP login"))?
+            .to_string();
         let AuthCredential::Oauth {
             endpoint: Some(endpoint),
             ..
         } = credentials
         else {
-            return None;
+            return Err(format!(
+                "the stored {provider_id} credential names no MCP endpoint"
+            ));
         };
         let config = McpOAuthConfig {
             server: server.clone(),
@@ -180,27 +185,24 @@ impl McpOAuth {
         // pool, or no runtime at all), so the refresh runs on its own
         // short-lived thread with a private runtime. Refreshes are rare:
         // token expiry, once per hour at worst.
-        let result = std::thread::Builder::new()
+        std::thread::Builder::new()
             .name("mcp-oauth-refresh".to_string())
             .spawn(move || {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .ok()?;
-                Some(
-                    runtime
-                        .block_on(super::oauth::mcp_refresh_token(
-                            http.as_ref(),
-                            &config,
-                            &credential,
-                        ))
-                        .ok(),
-                )
+                    .map_err(|error| format!("could not start the refresh runtime: {error}"))?;
+                runtime
+                    .block_on(super::oauth::mcp_refresh_token(
+                        http.as_ref(),
+                        &config,
+                        &credential,
+                    ))
+                    .map_err(|error| format!("{error:#}"))
             })
-            .ok()?
+            .map_err(|error| format!("could not start the refresh thread: {error}"))?
             .join()
-            .ok()??;
-        result
+            .map_err(|_| "the refresh thread panicked".to_string())?
     }
 }
 
@@ -216,8 +218,10 @@ impl OAuthIntegration for McpOAuth {
         &self,
         provider_id: &str,
         credentials: &crate::auth::AuthStorageData,
-    ) -> Option<AuthCredential> {
-        let credential = credentials.credential(provider_id)?;
+    ) -> Result<AuthCredential, String> {
+        let credential = credentials
+            .credential(provider_id)
+            .ok_or_else(|| format!("no stored credential for {provider_id}"))?;
         self.refresh_blocking(provider_id, &credential)
     }
 }

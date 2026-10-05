@@ -122,7 +122,7 @@ impl CodexHttp for ReqwestCodexHttp {
                     if error.is_timeout() {
                         "the token request timed out".to_string()
                     } else {
-                        error.to_string()
+                        transport_failure(&error)
                     }
                 })?;
             let status = response.status().as_u16();
@@ -130,6 +130,20 @@ impl CodexHttp for ReqwestCodexHttp {
             Ok(CodexHttpResponse { status, body })
         })
     }
+}
+
+/// A transport failure with its cause chain (TS `formatErrorDetails`
+/// appends `cause=`): reqwest's own message names only the URL, the
+/// chain carries the reason (DNS, TLS, proxy, refused connect).
+fn transport_failure(error: &reqwest::Error) -> String {
+    use std::fmt::Write as _;
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        let _ = write!(message, "; cause={cause}");
+        source = cause.source();
+    }
+    message
 }
 
 #[cfg(test)]

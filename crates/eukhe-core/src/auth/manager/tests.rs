@@ -566,12 +566,16 @@ impl OAuthIntegration for CountingOAuth {
         }
     }
 
-    fn refresh(&self, _provider: &str, _credentials: &AuthStorageData) -> Option<AuthCredential> {
+    fn refresh(
+        &self,
+        _provider: &str,
+        _credentials: &AuthStorageData,
+    ) -> Result<AuthCredential, String> {
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if self.delay_ms > 0 {
             std::thread::sleep(std::time::Duration::from_millis(self.delay_ms));
         }
-        Some(Self::fetched_credential())
+        Ok(Self::fetched_credential())
     }
 }
 

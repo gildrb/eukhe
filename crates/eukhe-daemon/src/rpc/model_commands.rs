@@ -80,10 +80,8 @@ async fn apply_model_selection(
         // half of the selection.
         let mut handle = state.session.handle_mut().await;
         let provider_target = ProviderTarget {
-            api_key: resolved.api_key.clone(),
             model: model.clone(),
             service_tier: None,
-            headers: resolved.headers.clone(),
         };
         *handle
             .provider_target

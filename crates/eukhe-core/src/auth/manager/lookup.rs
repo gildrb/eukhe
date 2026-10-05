@@ -24,6 +24,7 @@ impl AuthStorage {
                         api_key: Some(api_key),
                         source_token: Self::token_for(provider_id, &candidate),
                         credential_type: Some("api_key"),
+                        refresh_error: None,
                     };
                 }
             }
@@ -40,6 +41,7 @@ impl AuthStorage {
                         api_key: Some(api_key),
                         source_token: Self::token_for(provider_id, &candidate),
                         credential_type: Some("api_key"),
+                        refresh_error: None,
                     };
                 }
             }
@@ -62,31 +64,59 @@ impl AuthStorage {
                                 api_key,
                                 source_token: Self::token_for(provider_id, &candidate),
                                 credential_type: Some("api_key"),
+                                refresh_error: None,
                             };
                         }
                         AuthCredential::Oauth { expires, .. } => {
-                            let now_ms = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map_or(i64::MAX, |d| d.as_millis() as i64);
-                            if now_ms >= *expires {
-                                // Refresh under the backend lock.
-                                if let Some(refreshed) = self.refresh_oauth(provider_id) {
+                            if now_epoch_ms() < *expires {
+                                return AuthApiKeyResult {
+                                    api_key: self.oauth.api_key_for(provider_id, &credential),
+                                    source_token: Self::token_for(provider_id, &candidate),
+                                    credential_type: Some("oauth"),
+                                    refresh_error: None,
+                                };
+                            }
+                            let error = match self.refresh_oauth(provider_id) {
+                                Ok(refreshed) => {
                                     let candidate = self.stored_candidate(provider_id);
                                     return AuthApiKeyResult {
                                         api_key: self.oauth.api_key_for(provider_id, &refreshed),
                                         source_token: candidate
                                             .and_then(|c| Self::token_for(provider_id, &c)),
                                         credential_type: Some("oauth"),
+                                        refresh_error: None,
                                     };
                                 }
-                                // Refresh failed: keep credentials for a
-                                // later retry; discovery skips the provider.
-                                return AuthApiKeyResult::default();
+                                Err(cause) => format!(
+                                    "OAuth token refresh failed for \"{provider_id}\": {cause}"
+                                ),
+                            };
+                            // The reason rides the result, not `errors`: that
+                            // channel reports the caller's own writes (login
+                            // and remove flows drain it after a `set`). A
+                            // peer may have refreshed meanwhile: reload first.
+                            self.reload();
+                            let fresh = self.data.credential(provider_id).filter(|credential| {
+                                matches!(
+                                    credential,
+                                    AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires
+                                )
+                            });
+                            if let Some(fresh) = fresh {
+                                let candidate = self.stored_candidate(provider_id);
+                                return AuthApiKeyResult {
+                                    api_key: self.oauth.api_key_for(provider_id, &fresh),
+                                    source_token: candidate
+                                        .and_then(|c| Self::token_for(provider_id, &c)),
+                                    credential_type: Some("oauth"),
+                                    refresh_error: None,
+                                };
                             }
+                            // Keep the credential for a later /login retry;
+                            // discovery skips the provider.
                             return AuthApiKeyResult {
-                                api_key: self.oauth.api_key_for(provider_id, &credential),
-                                source_token: Self::token_for(provider_id, &candidate),
-                                credential_type: Some("oauth"),
+                                refresh_error: Some(error),
+                                ..AuthApiKeyResult::default()
                             };
                         }
                         // A pasted MCP static token IS the api key for its
@@ -97,6 +127,7 @@ impl AuthStorage {
                                 api_key: Some(bearer.clone()),
                                 source_token: Self::token_for(provider_id, &candidate),
                                 credential_type: Some("mcp_static_token"),
+                                refresh_error: None,
                             };
                         }
                     }
@@ -112,6 +143,7 @@ impl AuthStorage {
                         api_key: Some(api_key),
                         source_token: Self::token_for(provider_id, &candidate),
                         credential_type: None,
+                        refresh_error: None,
                     };
                 }
             }
@@ -129,6 +161,7 @@ impl AuthStorage {
                         api_key,
                         source_token: Self::token_for(provider_id, &candidate),
                         credential_type: None,
+                        refresh_error: None,
                     };
                 }
             }
@@ -143,7 +176,8 @@ impl AuthStorage {
     }
 
     /// Refresh an expired OAuth credential, returning the new credential on
-    /// success.
+    /// success and why the refresh failed otherwise (the caller reloads,
+    /// serves a peer's fresh credential, or surfaces the reason).
     ///
     /// Load-then-lock shape: the token fetch is a network round trip and
     /// never runs under the document lock. The TS product runs the same
@@ -169,41 +203,32 @@ impl AuthStorage {
     ///    atomic write. A peer that refreshed while this fetch ran keeps
     ///    its fresher credential: this attempt writes nothing and serves
     ///    the peer's.
-    fn refresh_oauth(&mut self, provider_id: &str) -> Option<AuthCredential> {
+    fn refresh_oauth(&mut self, provider_id: &str) -> Result<AuthCredential, String> {
         // LOAD: no document lock.
-        let Ok(content) = self.storage.read() else {
-            // The locked run failed the way the old single-lock shape
-            // failed: reload, then serve the stored credential.
-            self.reload();
-            return self
-                .data
-                .credential(provider_id)
-                .filter(|c| matches!(c, AuthCredential::Oauth { .. }));
-        };
-        let Ok(data) = parse_storage_data(content.as_deref()) else {
-            self.reload();
-            return self
-                .data
-                .credential(provider_id)
-                .filter(|c| matches!(c, AuthCredential::Oauth { .. }));
-        };
+        let content = self
+            .storage
+            .read()
+            .map_err(|error| format!("could not read the auth file: {error:#}"))?;
+        let data = parse_storage_data(content.as_deref())
+            .map_err(|error| format!("could not parse the auth file: {error:#}"))?;
         let Some(credential) = data.credential(provider_id) else {
-            self.reload();
-            return None;
+            return Err(format!("no stored credential for {provider_id}"));
         };
         let AuthCredential::Oauth { expires, .. } = &credential else {
-            self.reload();
-            return None;
+            return Err(format!(
+                "the stored credential for {provider_id} is not OAuth"
+            ));
         };
         if now_epoch_ms() < *expires {
             self.reload();
-            return Some(credential);
+            return Ok(credential);
         }
         // FETCH: outside every lock, one flight per provider.
-        let fetched = {
+        let new_credential = {
             let _flight = refresh_flight(provider_id);
             // The gate may have just released a flight that wrote a fresh
-            // credential; re-check before spending a refresh token.
+            // credential; re-check before spending a refresh token. An
+            // unreadable document here fetches from the loaded one.
             let content = self.storage.read().unwrap_or_default();
             if let Some(credential) = parse_storage_data(content.as_deref())
                 .ok()
@@ -216,48 +241,36 @@ impl AuthStorage {
                 })
             {
                 self.reload();
-                return Some(credential);
+                return Ok(credential);
             }
-            self.oauth.refresh(provider_id, &data)
-        };
-        let Some(new_credential) = fetched else {
-            // Refresh failed: keep credentials for a later retry; a peer
-            // may have refreshed meanwhile, so reload before failing.
-            self.reload();
-            return None;
+            self.oauth.refresh(provider_id, &data)?
         };
         // WRITE: the locked read-modify-write, holding the document lock
         // only for the re-read, insert, and atomic write.
-        let mut refreshed: Option<AuthCredential> = Some(new_credential.clone());
-        let result = self.storage.with_lock(&mut |current| {
-            let mut data = parse_storage_data(current.as_deref())?;
-            if let Some(credential) = data.credential(provider_id).filter(|credential| {
-                matches!(
-                    credential,
-                    AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires
-                )
-            }) {
-                // A peer refreshed while this fetch ran: its fresher
-                // credential stands and this attempt writes nothing.
-                refreshed = Some(credential);
-                return Ok(((), None));
-            }
-            data.insert(provider_id, &new_credential);
-            let content = serde_json::to_string_pretty(&data.0)?;
-            Ok(((), Some(content)))
-        });
-        if result.is_err() {
-            // A peer may have refreshed successfully; reload before failing.
-            self.reload();
-            return self
-                .data
-                .credential(provider_id)
-                .filter(|c| matches!(c, AuthCredential::Oauth { .. }));
-        }
+        let mut refreshed = new_credential.clone();
+        self.storage
+            .with_lock(&mut |current| {
+                let mut data = parse_storage_data(current.as_deref())?;
+                if let Some(credential) = data.credential(provider_id).filter(|credential| {
+                    matches!(
+                        credential,
+                        AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires
+                    )
+                }) {
+                    // A peer refreshed while this fetch ran: its fresher
+                    // credential stands and this attempt writes nothing.
+                    refreshed = credential;
+                    return Ok(((), None));
+                }
+                data.insert(provider_id, &new_credential);
+                let content = serde_json::to_string_pretty(&data.0)?;
+                Ok(((), Some(content)))
+            })
+            .map_err(|error| format!("could not save the refreshed credential: {error:#}"))?;
         // Reload from what we wrote: the in-memory snapshot must not
         // serve the pre-refresh credential to a later read (a rotated
         // refresh token is single-use).
         self.reload();
-        refreshed
+        Ok(refreshed)
     }
 }

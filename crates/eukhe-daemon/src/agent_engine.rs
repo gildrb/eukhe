@@ -264,8 +264,10 @@ pub struct AgentSessionEngine {
     session_file: std::sync::Mutex<Option<std::path::PathBuf>>,
     /// The authoritative model selection. Starts from the process fallback
     /// (create config or worker env) and is re-bound when a session's create
-    /// command carries explicit wire flags.
-    selection: std::sync::RwLock<EngineModelSelection>,
+    /// command carries explicit wire flags. Shared with the session stream's
+    /// per-request auth resolution, which reads the live create-config key
+    /// pin.
+    selection: std::sync::Arc<std::sync::RwLock<EngineModelSelection>>,
     /// TS `createAgentSession`'s restored-from-session decision, scoped to
     /// the session file it was computed for: a revived session's saved
     /// model (or, after a missed restore window, the on-the-record

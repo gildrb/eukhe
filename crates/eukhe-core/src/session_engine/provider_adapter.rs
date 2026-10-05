@@ -86,67 +86,102 @@ fn agent_response_hook_to_ai(
 
 /// The mutable provider target a live session's stream reads per call:
 /// daemon `set_model` swaps it without rebuilding the session, and the
-/// provider-failover switch swaps it for the switched-to provider.
+/// provider-failover switch swaps it for the switched-to provider. The
+/// request auth is not part of it: the stream resolves the target model's
+/// key and headers on every request ([`RequestAuthFn`]).
 #[derive(Debug, Clone)]
 pub struct ProviderTarget {
-    pub api_key: Option<String>,
     pub model: Model,
     pub service_tier: Option<eukhe_types::ai::ServiceTier>,
-    /// The provider-request headers the resolved auth composed (model,
-    /// auth-storage, provider-config, and per-model headers): a live
-    /// `set_model` carries them through to the stream the same way the
-    /// build-time resolution does.
-    pub headers: Option<std::collections::BTreeMap<String, String>>,
 }
+
+/// Request auth for one provider request (TS `streamFn`'s
+/// `getApiKeyAndHeaders`): the key and merged headers for the request's
+/// model, resolved when the request is issued, so an expired OAuth token
+/// refreshes mid-session and a failed refresh fails that request with its
+/// reason. Implementations read auth storage and may refresh a token over
+/// the network; the stream calls them off the async workers.
+pub type RequestAuthFn = Arc<dyn Fn(&Model) -> crate::models::ResolvedRequestAuth + Send + Sync>;
 
 /// A real eukhe-ai provider stream adapter for the agent loop, reading its
 /// target from a shared slot the host can swap live (`set_model`, provider
-/// failover). The slot is `None` only before the host sets the build-time
-/// target; the adapter never runs before that.
+/// failover) and resolving each request's auth through `request_auth`.
+/// The slot is `None` only before the host sets the build-time target;
+/// the adapter never runs before that.
 ///
 /// # Panics
 ///
 /// Panics at stream time if the provider target lock is poisoned, or if the
 /// target slot was never set before the first stream.
-pub fn switchable_stream_fn(target: Arc<std::sync::RwLock<Option<ProviderTarget>>>) -> StreamFn {
+pub fn switchable_stream_fn(
+    target: Arc<std::sync::RwLock<Option<ProviderTarget>>>,
+    request_auth: RequestAuthFn,
+) -> StreamFn {
     Arc::new(
         move |_requested: AgentModel, context: LlmContext, options: StreamRequestOptions| {
             let ProviderTarget {
-                api_key,
                 model,
                 service_tier,
-                headers,
             } = target
                 .read()
                 .expect("provider target lock")
                 .clone()
                 .expect("provider target set before the first stream");
+            let request_auth = Arc::clone(&request_auth);
             Box::pin(async move {
-                stream_once(&model, api_key, service_tier, headers, context, options)
+                let auth_model = model.clone();
+                let auth = tokio::task::spawn_blocking(move || request_auth(&auth_model)).await?;
+                stream_with_auth(&model, service_tier, auth, context, options)
             })
         },
     )
 }
 
-/// Stream one completion against `model` with `api_key` and the
-/// auth-resolved request `headers`.
-/// Stream one completion against `model` (the per-request tail the
-/// switchable seams and the CLI's route-authoritative variant share).
-/// `pub`: the CLI headless's route-authoritative stream reads the armed
-/// image target ahead of the shared slot and streams with the same tail.
+/// Stream one completion against `model` with its resolved request auth
+/// (the per-request tail the switchable seam and the CLI's
+/// route-authoritative variant share). An unresolved auth (`ok: false`: a
+/// token refresh the endpoint refused, a required key missing) settles
+/// the request as an error turn carrying the reason, the shape a provider
+/// gives a missing key: TS `streamFn` throws `auth.error`, and its agent
+/// settles the throw as the run's assistant error message.
 ///
 /// # Errors
 ///
 /// Returns the provider stream's error when the request fails (the
 /// per-attempt failures the retry driver classifies).
-pub fn stream_once(
+pub fn stream_with_auth(
     model: &Model,
-    api_key: Option<String>,
     service_tier: Option<eukhe_types::ai::ServiceTier>,
-    headers: Option<std::collections::BTreeMap<String, String>>,
+    auth: crate::models::ResolvedRequestAuth,
     context: LlmContext,
     options: StreamRequestOptions,
 ) -> anyhow::Result<Box<dyn ModelStream>> {
+    if !auth.ok {
+        let failure = eukhe_agent::types::AssistantMessage {
+            content: Vec::new(),
+            api: model.api.clone(),
+            provider: model.provider.clone(),
+            model: model.id.clone(),
+            response_model: None,
+            response_id: None,
+            diagnostics: None,
+            usage: eukhe_agent::types::Usage::zero(),
+            stop_reason: eukhe_agent::types::StopReason::Error,
+            stop_reason_raw: None,
+            error_message: auth.error,
+            timestamp: eukhe_agent::now_ms(),
+        };
+        let (handle, stream) = eukhe_agent::stream::event_stream();
+        handle.push(eukhe_agent::stream::AssistantMessageEvent::Error {
+            reason: eukhe_agent::types::StopReason::Error,
+            error: failure.clone(),
+        });
+        handle.end(Some(failure));
+        return Ok(Box::new(stream));
+    }
+    let crate::models::ResolvedRequestAuth {
+        api_key, headers, ..
+    } = auth;
     let messages: Vec<eukhe_types::ai::Message> = context
         .messages
         .iter()
@@ -227,16 +262,23 @@ pub fn stream_once(
     Ok(consumer_pump(forwarder, consumer, cancel))
 }
 
-/// A stream adapter pinned to one target: the headless runtimes (print and
-/// json modes) resolve their model once, so the slot never changes.
+/// A stream adapter pinned to one target and one key (verification
+/// harnesses and embedded hosts that resolve their auth up front): the
+/// slot never changes, and every request sends `api_key` with no headers.
 #[must_use]
 pub fn real_stream_fn(api_key: Option<String>, model: Model) -> StreamFn {
-    switchable_stream_fn(Arc::new(std::sync::RwLock::new(Some(ProviderTarget {
-        api_key,
-        model,
-        service_tier: None,
-        headers: None,
-    }))))
+    switchable_stream_fn(
+        Arc::new(std::sync::RwLock::new(Some(ProviderTarget {
+            model,
+            service_tier: None,
+        }))),
+        Arc::new(move |_model| crate::models::ResolvedRequestAuth {
+            ok: true,
+            api_key: api_key.clone(),
+            headers: None,
+            error: None,
+        }),
+    )
 }
 
 /// Convert one eukhe-ai stream event into the eukhe-agent loop's event enum.
@@ -433,12 +475,16 @@ mod tests {
         registration.set_responses(vec![factory.clone(), factory]);
         let model = registration.get_model();
         let target = Arc::new(std::sync::RwLock::new(Some(ProviderTarget {
-            api_key: None,
             model: model.clone(),
             service_tier: Some(eukhe_types::ai::ServiceTier::Priority),
-            headers: None,
         })));
-        let stream_fn = switchable_stream_fn(target.clone());
+        let stream_fn = switchable_stream_fn(
+            target.clone(),
+            Arc::new(|_model| crate::models::ResolvedRequestAuth {
+                ok: true,
+                ..Default::default()
+            }),
+        );
         for tier in [Some(eukhe_types::ai::ServiceTier::Priority), None] {
             target.write().unwrap().as_mut().unwrap().service_tier = tier;
             let mut stream = stream_fn(
@@ -565,12 +611,16 @@ mod tests {
             delay_ms: 60_000,
         }]);
         let target = Arc::new(std::sync::RwLock::new(Some(ProviderTarget {
-            api_key: None,
             model: model.clone(),
             service_tier: None,
-            headers: None,
         })));
-        let stream_fn = switchable_stream_fn(target);
+        let stream_fn = switchable_stream_fn(
+            target,
+            Arc::new(|_model| crate::models::ResolvedRequestAuth {
+                ok: true,
+                ..Default::default()
+            }),
+        );
         let mut stream = stream_fn(
             eukhe_agent::types::Model::unknown(),
             LlmContext::default(),

@@ -116,7 +116,7 @@ impl ProviderHttp for ReqwestProviderHttp {
                 if error.is_timeout() {
                     "the request timed out".to_string()
                 } else {
-                    error.to_string()
+                    super::transport_failure(&error)
                 }
             })?;
             let status = response.status().as_u16();

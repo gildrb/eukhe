@@ -473,17 +473,12 @@ impl SessionEngine for AgentSessionEngine {
         };
         // The built session follows the new model without a rebuild: the
         // agent's model (loop context) and the provider stream's target
-        // swap in place (TS `agent.state.model = model`).
-        {
-            let (api_key, headers) = self.resolve_request_key_and_headers(&model);
-            let mut target = self.provider_target.write().expect("provider target lock");
-            *target = Some(ProviderTarget {
-                service_tier: *self.service_tier.read().expect("service tier lock"),
-                api_key,
-                model: model.clone(),
-                headers,
-            });
-        }
+        // swap in place (TS `agent.state.model = model`); the stream
+        // resolves the new model's auth per request.
+        *self.provider_target.write().expect("provider target lock") = Some(ProviderTarget {
+            service_tier: *self.service_tier.read().expect("service tier lock"),
+            model: model.clone(),
+        });
         let session = self.session.blocking_lock();
         if let Some(core) = session.as_deref() {
             let provider = model.provider.clone();

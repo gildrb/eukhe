@@ -114,6 +114,10 @@ pub struct AuthApiKeyResult {
     pub api_key: Option<String>,
     pub source_token: Option<AuthSourceToken>,
     pub credential_type: Option<&'static str>,
+    /// Why an expired OAuth credential resolved no key: the failed
+    /// refresh's reason. The credential stays stored for a later
+    /// `/login` retry.
+    pub refresh_error: Option<String>,
 }
 
 /// OAuth integration seam: the eukhe-ai oauth provider registry implements this
@@ -122,8 +126,17 @@ pub struct AuthApiKeyResult {
 pub trait OAuthIntegration: Send + Sync {
     /// The resolved API key for stored OAuth credentials (bearer/token form).
     fn api_key_for(&self, provider_id: &str, credential: &AuthCredential) -> Option<String>;
-    /// Refresh an expired credential; `None` = refresh failed.
-    fn refresh(&self, provider_id: &str, credentials: &AuthStorageData) -> Option<AuthCredential>;
+    /// Refresh an expired credential.
+    ///
+    /// # Errors
+    ///
+    /// Returns why no fresh credential came back: the token endpoint's
+    /// answer, a transport failure, or no refresh flow for the provider.
+    fn refresh(
+        &self,
+        provider_id: &str,
+        credentials: &AuthStorageData,
+    ) -> Result<AuthCredential, String>;
 }
 
 /// No OAuth provider registry available (embedded hosts); stored OAuth
@@ -139,8 +152,12 @@ impl OAuthIntegration for NoOAuth {
         }
     }
 
-    fn refresh(&self, _provider: &str, _credentials: &AuthStorageData) -> Option<AuthCredential> {
-        None
+    fn refresh(
+        &self,
+        provider: &str,
+        _credentials: &AuthStorageData,
+    ) -> Result<AuthCredential, String> {
+        Err(format!("no OAuth integration can refresh {provider}"))
     }
 }
 

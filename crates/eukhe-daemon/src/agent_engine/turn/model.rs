@@ -25,8 +25,6 @@ impl AgentSessionEngine {
         struct FailoverPrimary {
             model: eukhe_types::ai::Model,
             thinking_level: eukhe_agent::types::ThinkingLevel,
-            api_key: Option<String>,
-            headers: Option<std::collections::BTreeMap<String, String>>,
         }
         // Model resolution and session construction are hard failures: they
         // never reach the provider, so the retry loop does not apply (the
@@ -162,8 +160,8 @@ impl AgentSessionEngine {
             )
         };
         // The failover-captured primary target state (TS `_backupModel`):
-        // the model, its thinking level, and its resolved request auth,
-        // restored when the turn settles back onto the primary.
+        // the model and its thinking level, restored when the turn settles
+        // back onto the primary (the stream resolves its auth per request).
         let primary_state: std::cell::RefCell<Option<FailoverPrimary>> =
             std::cell::RefCell::new(None);
         // The quota-park seam (TS #2375): the retry chain consults the
@@ -303,17 +301,13 @@ impl AgentSessionEngine {
                     let persistence = persistence.clone();
                     {
                         let mut primary = primary_state.borrow_mut();
-                        // Capture the primary model + thinking level + key
-                        // once (TS `_backupModel` state): the level the
-                        // session was built with, restored when the turn
-                        // settles.
+                        // Capture the primary model + thinking level once
+                        // (TS `_backupModel` state): the level the session
+                        // was built with, restored when the turn settles.
                         if primary.is_none() {
-                            let (api_key, headers) = self.resolve_request_key_and_headers(&model);
                             *primary = Some(FailoverPrimary {
                                 model: model.clone(),
                                 thinking_level: map_thinking_level(self.effective_thinking()),
-                                api_key,
-                                headers,
                             });
                         }
                     }
@@ -331,33 +325,26 @@ impl AgentSessionEngine {
                         );
                         // The stream's provider target follows the switch
                         // (the same slot `set_model` swaps): the retried
-                        // request hits the switched-to provider with its
-                        // resolved key.
+                        // request hits the switched-to provider, its auth
+                        // resolved when the request is issued.
                         {
                             // A routed image-model episode keeps serving
                             // the route's target across the failover
                             // switch (the image model receives the
                             // requests; the switch moves only the agent
                             // state).
-                            if let Some(route) = self.armed_image_route() {
-                                let mut target =
-                                    self.provider_target.write().expect("provider target lock");
-                                *target = Some(route.target);
-                            } else {
-                                let (api_key, headers) =
-                                    self.resolve_request_key_and_headers(&next);
-                                let mut target =
-                                    self.provider_target.write().expect("provider target lock");
-                                *target = Some(ProviderTarget {
+                            let target = match self.armed_image_route() {
+                                Some(route) => route.target,
+                                None => ProviderTarget {
                                     service_tier: *self
                                         .service_tier
                                         .read()
                                         .expect("service tier lock"),
-                                    api_key,
                                     model: next.clone(),
-                                    headers,
-                                });
-                            }
+                                },
+                            };
+                            *self.provider_target.write().expect("provider target lock") =
+                                Some(target);
                         }
                         agent.set_model(agent_model).await;
                         agent.set_thinking_level(map_thinking_level(clamped)).await;
@@ -376,8 +363,6 @@ impl AgentSessionEngine {
                         let Some(FailoverPrimary {
                             model: primary_model,
                             thinking_level,
-                            api_key: primary_api_key,
-                            headers: primary_headers,
                         }) = primary
                         else {
                             return Ok(None);
@@ -400,9 +385,7 @@ impl AgentSessionEngine {
                                         .service_tier
                                         .read()
                                         .expect("service tier lock"),
-                                    api_key: primary_api_key,
                                     model: primary_model.clone(),
-                                    headers: primary_headers,
                                 });
                             }
                         }
