@@ -90,6 +90,115 @@ pub enum ParsedSource {
     Local(LocalSource),
 }
 
+/// The part of a package source a [`SourceParseError`] rejects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourcePart {
+    GitHost,
+    GitPath,
+    GitRef,
+    CloneUrl,
+    NpmSpec,
+    NpmName,
+}
+
+impl std::fmt::Display for SourcePart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::GitHost => "git host",
+            Self::GitPath => "git path",
+            Self::GitRef => "git ref",
+            Self::CloneUrl => "git clone URL",
+            Self::NpmSpec => "npm spec",
+            Self::NpmName => "npm package name",
+        })
+    }
+}
+
+/// Why a source part is unsafe to hand to git/npm or to join onto an install
+/// root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceDefect {
+    Empty,
+    EmptySegment,
+    DotSegment,
+    DrivePrefix,
+    Backslash,
+    ControlCharacter,
+    LeadingDash,
+    Slash,
+}
+
+impl std::fmt::Display for SourceDefect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Empty => "is empty",
+            Self::EmptySegment => "has an empty path segment",
+            Self::DotSegment => "has a '.' or '..' segment",
+            Self::DrivePrefix => "has a drive-prefixed segment",
+            Self::Backslash => "contains a backslash",
+            Self::ControlCharacter => "contains a control character",
+            Self::LeadingDash => "starts with '-'",
+            Self::Slash => "contains '/'",
+        })
+    }
+}
+
+/// A package source that has a recognized npm/git shape but carries a part
+/// that could escape the install root or be read as a command-line option.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Invalid package source {input}: {part} {defect}")]
+pub struct SourceParseError {
+    pub input: String,
+    pub part: SourcePart,
+    pub defect: SourceDefect,
+}
+
+fn rejection(input: &str, part: SourcePart) -> impl Fn(SourceDefect) -> SourceParseError + '_ {
+    move |defect| SourceParseError {
+        input: input.to_string(),
+        part,
+        defect,
+    }
+}
+
+/// Reject values git/npm could read as an option, plus control characters
+/// and backslashes.
+fn check_argument(value: &str) -> Result<(), SourceDefect> {
+    if value.is_empty() {
+        return Err(SourceDefect::Empty);
+    }
+    if value.starts_with('-') {
+        return Err(SourceDefect::LeadingDash);
+    }
+    if value.chars().any(char::is_control) {
+        return Err(SourceDefect::ControlCharacter);
+    }
+    if value.contains('\\') {
+        return Err(SourceDefect::Backslash);
+    }
+    Ok(())
+}
+
+/// [`check_argument`] plus: every `/`-separated segment is a plain relative
+/// name (no empty, `.`, `..`, or `C:`-style segment), so joining the value
+/// onto a directory always stays below it.
+fn check_relative_path(value: &str) -> Result<(), SourceDefect> {
+    check_argument(value)?;
+    for segment in value.split('/') {
+        if segment.is_empty() {
+            return Err(SourceDefect::EmptySegment);
+        }
+        if segment == "." || segment == ".." {
+            return Err(SourceDefect::DotSegment);
+        }
+        let bytes = segment.as_bytes();
+        if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+            return Err(SourceDefect::DrivePrefix);
+        }
+    }
+    Ok(())
+}
+
 /// Split a possibly ref-suffixed git URL into clone URL and ref, matching the
 /// three URL shapes the product accepts (scp-like, protocol, shorthand).
 fn split_ref(url: &str) -> (String, Option<String>) {
@@ -274,19 +383,24 @@ fn parse_generic_git_url(url: &str) -> Option<GitSource> {
 /// Parse a package source into a git source.
 ///
 /// Rules: with the `git:` prefix every historical shorthand form is accepted;
-/// without it only explicit protocol URLs parse as git.
-#[must_use]
-pub fn parse_git_url(source: &str) -> Option<GitSource> {
+/// without it only explicit protocol URLs parse as git. `Ok(None)` means the
+/// source has no git shape; a git-shaped source whose host, path, ref, or
+/// clone URL could escape the install root or act as a git option is an
+/// error.
+///
+/// # Errors
+///
+/// Returns a [`SourceParseError`] naming the rejected part.
+pub fn parse_git_url(source: &str) -> Result<Option<GitSource>, SourceParseError> {
     let trimmed = source.trim();
     let has_git_prefix = trimmed.starts_with("git:");
-    let url = if has_git_prefix {
-        trimmed.strip_prefix("git:")?.trim()
-    } else {
-        trimmed
+    let url = match trimmed.strip_prefix("git:") {
+        Some(rest) => rest.trim(),
+        None => trimmed,
     };
 
     if !has_git_prefix && !is_protocol_url(url) {
-        return None;
+        return Ok(None);
     }
 
     let (split_repo, split_ref) = split_ref(url);
@@ -297,31 +411,54 @@ pub fn parse_git_url(source: &str) -> Option<GitSource> {
         split_ref.as_ref().map(|r| format!("{split_repo}#{r}")),
         Some(url.to_string()),
     ];
-    for candidate in candidates.into_iter().flatten() {
-        if let Some(info) = hosted_from_url(&candidate) {
-            if split_ref.is_some() && info.project.contains('@') {
-                continue;
-            }
-            let https_prefixed = !split_repo.starts_with("http://")
-                && !split_repo.starts_with("https://")
-                && !split_repo.starts_with("ssh://")
-                && !split_repo.starts_with("git://")
-                && !split_repo.starts_with("git@");
-            return Some(GitSource {
-                repo: if https_prefixed {
-                    format!("https://{split_repo}")
-                } else {
-                    split_repo
-                },
-                host: info.domain,
-                path: format!("{}/{}", info.user, info.project),
-                r#ref: info.committish.clone().or_else(|| split_ref.clone()),
-                pinned: info.committish.is_some() || split_ref.is_some(),
-            });
+    let hosted = candidates.into_iter().flatten().find_map(|candidate| {
+        let info = hosted_from_url(&candidate)?;
+        if split_ref.is_some() && info.project.contains('@') {
+            return None;
         }
-    }
+        let https_prefixed = !split_repo.starts_with("http://")
+            && !split_repo.starts_with("https://")
+            && !split_repo.starts_with("ssh://")
+            && !split_repo.starts_with("git://")
+            && !split_repo.starts_with("git@");
+        Some(GitSource {
+            repo: if https_prefixed {
+                format!("https://{split_repo}")
+            } else {
+                split_repo.clone()
+            },
+            host: info.domain,
+            path: format!("{}/{}", info.user, info.project),
+            r#ref: info.committish.clone().or_else(|| split_ref.clone()),
+            pinned: info.committish.is_some() || split_ref.is_some(),
+        })
+    });
+    let Some(git) = hosted.or_else(|| parse_generic_git_url(url)) else {
+        return Ok(None);
+    };
 
-    parse_generic_git_url(url)
+    let host_check = if git.host.contains('/') {
+        Err(SourceDefect::Slash)
+    } else {
+        check_relative_path(&git.host)
+    };
+    host_check.map_err(rejection(source, SourcePart::GitHost))?;
+    check_relative_path(&git.path).map_err(rejection(source, SourcePart::GitPath))?;
+    if let Some(git_ref) = &git.r#ref {
+        check_argument(git_ref).map_err(rejection(source, SourcePart::GitRef))?;
+    }
+    check_argument(&git.repo).map_err(rejection(source, SourcePart::CloneUrl))?;
+    // `ssh://-oProxyCommand=...@host/...` would hand ssh an option.
+    if git
+        .repo
+        .split_once("://")
+        .is_some_and(|(_, authority)| authority.starts_with('-'))
+    {
+        return Err(rejection(source, SourcePart::CloneUrl)(
+            SourceDefect::LeadingDash,
+        ));
+    }
+    Ok(Some(git))
 }
 
 /// `https?://`, `ssh://`, or `git://` prefix check (the TS gate for
@@ -367,26 +504,34 @@ pub fn parse_npm_spec(spec: &str) -> (String, Option<String>) {
 }
 
 /// Parse a raw package source string.
-pub fn parse_source(source: &str) -> ParsedSource {
+///
+/// # Errors
+///
+/// Returns a [`SourceParseError`] when an `npm:` spec or a git-shaped source
+/// carries a part that could escape its install root or be read as a
+/// command-line option; such sources never fall back to another kind.
+pub fn parse_source(source: &str) -> Result<ParsedSource, SourceParseError> {
     if let Some(spec) = source.strip_prefix("npm:") {
         let spec = spec.trim();
+        check_argument(spec).map_err(rejection(source, SourcePart::NpmSpec))?;
         let (name, version) = parse_npm_spec(spec);
-        return ParsedSource::Npm(NpmSource {
+        check_relative_path(&name).map_err(rejection(source, SourcePart::NpmName))?;
+        return Ok(ParsedSource::Npm(NpmSource {
             spec: spec.to_string(),
             name,
             pinned: version.is_some(),
-        });
+        }));
     }
     if is_local_path(source) {
-        return ParsedSource::Local(LocalSource {
+        return Ok(ParsedSource::Local(LocalSource {
             path: source.to_string(),
-        });
+        }));
     }
-    if let Some(git) = parse_git_url(source) {
-        return ParsedSource::Git(git);
-    }
-    ParsedSource::Local(LocalSource {
-        path: source.to_string(),
+    Ok(match parse_git_url(source)? {
+        Some(git) => ParsedSource::Git(git),
+        None => ParsedSource::Local(LocalSource {
+            path: source.to_string(),
+        }),
     })
 }
 
@@ -435,7 +580,7 @@ mod tests {
     use super::*;
 
     fn kind(source: &str) -> &'static str {
-        match parse_source(source) {
+        match parse_source(source).unwrap() {
             ParsedSource::Npm(_) => "npm",
             ParsedSource::Git(_) => "git",
             ParsedSource::Local(_) => "local",
@@ -457,11 +602,11 @@ mod tests {
 
     #[test]
     fn never_parses_dot_relative_paths_as_git() {
-        let ParsedSource::Local(local) = parse_source("./packages/agent-timers") else {
+        let Ok(ParsedSource::Local(local)) = parse_source("./packages/agent-timers") else {
             panic!("expected local");
         };
         assert_eq!(local.path, "./packages/agent-timers");
-        let ParsedSource::Local(local) = parse_source("../packages/agent-timers") else {
+        let Ok(ParsedSource::Local(local)) = parse_source("../packages/agent-timers") else {
             panic!("expected local");
         };
         assert_eq!(local.path, "../packages/agent-timers");
@@ -469,7 +614,7 @@ mod tests {
 
     #[test]
     fn parses_https_github_urls() {
-        let ParsedSource::Git(git) = parse_source("https://github.com/user/repo") else {
+        let Ok(ParsedSource::Git(git)) = parse_source("https://github.com/user/repo") else {
             panic!("expected git");
         };
         assert_eq!(git.host, "github.com");
@@ -480,7 +625,7 @@ mod tests {
 
     #[test]
     fn parses_https_urls_with_git_prefix() {
-        let ParsedSource::Git(git) = parse_source("git:https://github.com/user/repo") else {
+        let Ok(ParsedSource::Git(git)) = parse_source("git:https://github.com/user/repo") else {
             panic!("expected git");
         };
         assert_eq!(git.host, "github.com");
@@ -489,14 +634,15 @@ mod tests {
 
     #[test]
     fn parses_https_urls_with_ref() {
-        let ParsedSource::Git(git) = parse_source("https://github.com/user/repo@v1.2.3") else {
+        let Ok(ParsedSource::Git(git)) = parse_source("https://github.com/user/repo@v1.2.3") else {
             panic!("expected git");
         };
         assert_eq!(git.repo, "https://github.com/user/repo");
         assert_eq!(git.r#ref.as_deref(), Some("v1.2.3"));
         assert!(git.pinned);
 
-        let ParsedSource::Git(git) = parse_source("https://github.com/user/repo@feature/branch")
+        let Ok(ParsedSource::Git(git)) =
+            parse_source("https://github.com/user/repo@feature/branch")
         else {
             panic!("expected git");
         };
@@ -505,7 +651,7 @@ mod tests {
 
     #[test]
     fn parses_host_path_shorthand_only_with_git_prefix() {
-        let ParsedSource::Git(git) = parse_source("git:github.com/user/repo") else {
+        let Ok(ParsedSource::Git(git)) = parse_source("git:github.com/user/repo") else {
             panic!("expected git");
         };
         assert_eq!(git.repo, "https://github.com/user/repo");
@@ -517,7 +663,7 @@ mod tests {
 
     #[test]
     fn parses_https_urls_with_git_suffix() {
-        let ParsedSource::Git(git) = parse_source("https://github.com/user/repo.git") else {
+        let Ok(ParsedSource::Git(git)) = parse_source("https://github.com/user/repo.git") else {
             panic!("expected git");
         };
         assert_eq!(git.path, "user/repo");
@@ -530,7 +676,7 @@ mod tests {
             "https://bitbucket.org/user/repo",
             "https://codeberg.org/user/repo",
         ] {
-            let ParsedSource::Git(git) = parse_source(url) else {
+            let Ok(ParsedSource::Git(git)) = parse_source(url) else {
                 panic!("expected git for {url}");
             };
             assert_eq!(git.path, "user/repo");
@@ -539,7 +685,7 @@ mod tests {
 
     #[test]
     fn keeps_scp_clone_urls_for_scp_like_sources() {
-        let ParsedSource::Git(git) = parse_source("git:git@github.com:user/repo") else {
+        let Ok(ParsedSource::Git(git)) = parse_source("git:git@github.com:user/repo") else {
             panic!("expected git");
         };
         assert_eq!(git.repo, "git@github.com:user/repo");
@@ -549,7 +695,7 @@ mod tests {
 
     #[test]
     fn parses_ssh_protocol_urls() {
-        let ParsedSource::Git(git) = parse_source("git:ssh://git@github.com/user/repo") else {
+        let Ok(ParsedSource::Git(git)) = parse_source("git:ssh://git@github.com/user/repo") else {
             panic!("expected git")
         };
         assert_eq!(git.repo, "ssh://git@github.com/user/repo");
@@ -588,5 +734,106 @@ mod tests {
         assert_eq!(lexical_resolve(base, "/abs"), PathBuf::from("/abs"));
         assert_eq!(path_relative(base, Path::new("/work")), "..");
         assert_eq!(path_relative(base, base), "");
+    }
+
+    fn rejected(input: &str, part: SourcePart, defect: SourceDefect) -> SourceParseError {
+        SourceParseError {
+            input: input.to_string(),
+            part,
+            defect,
+        }
+    }
+
+    #[test]
+    fn rejects_sources_that_escape_the_install_root_or_read_as_options() {
+        let cases = [
+            (
+                "git:git@h.io:../../../../tmp/a/b",
+                SourcePart::GitPath,
+                SourceDefect::DotSegment,
+            ),
+            (
+                "git:git@/home/u:x/y",
+                SourcePart::GitHost,
+                SourceDefect::Slash,
+            ),
+            (
+                "git:github:../x",
+                SourcePart::GitPath,
+                SourceDefect::DotSegment,
+            ),
+            (
+                "git:../../x/y",
+                SourcePart::GitHost,
+                SourceDefect::DotSegment,
+            ),
+            (
+                "git:github.com/user//repo",
+                SourcePart::GitPath,
+                SourceDefect::EmptySegment,
+            ),
+            (
+                "git:git@h.io:user\\..\\x/y",
+                SourcePart::GitPath,
+                SourceDefect::Backslash,
+            ),
+            (
+                "git:git@h.io:C:/x",
+                SourcePart::GitPath,
+                SourceDefect::DrivePrefix,
+            ),
+            (
+                "git:git@h.io:user/repo\u{0}",
+                SourcePart::GitPath,
+                SourceDefect::ControlCharacter,
+            ),
+            (
+                "git:git@-oProxyCommand=x.io:user/repo",
+                SourcePart::GitHost,
+                SourceDefect::LeadingDash,
+            ),
+            (
+                "git:github.com/user/repo@--orphan=x",
+                SourcePart::GitRef,
+                SourceDefect::LeadingDash,
+            ),
+            (
+                "https://github.com/user/repo@-x",
+                SourcePart::GitRef,
+                SourceDefect::LeadingDash,
+            ),
+            (
+                "ssh://-oProxyCommand=x@h.io/user/repo",
+                SourcePart::CloneUrl,
+                SourceDefect::LeadingDash,
+            ),
+            (
+                "npm:--registry=http://evil.test",
+                SourcePart::NpmSpec,
+                SourceDefect::LeadingDash,
+            ),
+            ("npm:../../x", SourcePart::NpmName, SourceDefect::DotSegment),
+        ];
+        for (input, part, defect) in cases {
+            assert_eq!(
+                parse_source(input),
+                Err(rejected(input, part, defect)),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_safe_refs_on_git_sources() {
+        assert_eq!(
+            parse_source("git:github.com/user/repo@v1"),
+            Ok(ParsedSource::Git(GitSource {
+                repo: "https://github.com/user/repo".to_string(),
+                host: "github.com".to_string(),
+                path: "user/repo".to_string(),
+                r#ref: Some("v1".to_string()),
+                pinned: true,
+            }))
+        );
     }
 }

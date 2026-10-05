@@ -1,0 +1,8 @@
+{
+  "repository": "PrimeIntellect-ai/prime-agent-catalog",
+  "commit": "a35d3fd0d8a75c6d417e4587147fb0579a695b92",
+  "files": {
+    "models/catalog.v1.json": "952e83915d111d45d7b5d48a18fd1760cf2248b07e046da05d300e40a58af49d",
+    "plugins/catalog.v2.json": "2257ad3b25eb7ea1a30a6ec550680165eb56e6a3ecac01a3bcf9cedba43447c3"
+  }
+}

@@ -65,6 +65,7 @@ from assemble_artifacts import (  # noqa: E402
     decoder_facts,
     fail_if_decoder_in_archive,
     fail_if_decoder_in_tree,
+    pack_tarball,
 )
 # `--root` re-anchors asset discovery (workspace version, eukhe-runtime,
 # skills, README, LICENSE) so integration tests can package synthetic trees.
@@ -96,6 +97,8 @@ REQUIRED_FILES = (
     "models.bundled.json",
     "mcp-services.bundled.json",
     "eukhe-runtime/pyproject.toml",
+    # The hash-locked kernel venv requirements the bootstrap installs.
+    "eukhe-runtime/requirements-kernel.txt",
     "eukhe-runtime/src/rlm/repl.py",
 )
 REQUIRED_DIRS = ("eukhe-runtime/src/rlm", "skills")
@@ -312,11 +315,9 @@ def sha256_file(path):
 
 
 def write_tar(stage_dir, output):
-    entries = sorted(path for path in stage_dir.rglob("*"))
-    # gzip default level 6 (the system `tar -czf` the TS packaging uses).
-    with tarfile.open(output, "w:gz", compresslevel=6) as tar:
-        for path in entries:
-            tar.add(path, arcname=str(path.relative_to(stage_dir)), recursive=False)
+    # The release assembler's deterministic packer: sorted members, fixed
+    # owner/mtime/modes, gzip mtime 0, link entries refused.
+    pack_tarball(stage_dir, output, [path.name for path in stage_dir.iterdir()])
     with tarfile.open(output) as tar:
         listed = sorted(name for name in tar.getnames() if name.strip())
     expected = sorted(

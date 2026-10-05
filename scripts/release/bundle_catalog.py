@@ -11,9 +11,10 @@ The two assets are the client's no-cold-start layer 2 (spec §3.2):
                              ({version, counts, entries})
 
 They are generated at BUILD time and never committed: `--catalog-dir` copies
-from a local catalog checkout, the network mode fetches the live catalog repo
-for CI/packaging, and `--fixture` emits a synthetic snapshot that still
-passes the full validation gates so offline builds work end to end.
+from a local catalog checkout, the network mode fetches the catalog repo at
+the commit pinned in catalog-pin.json for CI/packaging, and `--fixture` emits
+a synthetic snapshot that still passes the full validation gates so offline
+builds work end to end.
 
 Validation (the release packer runs the same functions before packing):
   models   schemaVersion == 1, models is an array, and at least
@@ -22,26 +23,34 @@ Validation (the release packer runs the same functions before packing):
 
 Usage:
     python3 scripts/release/bundle_catalog.py generate \
-        [--catalog-dir DIR | --network | --fixture] [--out DIR] \
+        [--catalog-dir DIR | --network | --fixture] [--out DIR] [--pin FILE] \
         [--models-url URL] [--mcp-services-url URL] [--allow-small-fixture]
     python3 scripts/release/bundle_catalog.py verify [--out DIR] [--allow-small-fixture]
+    python3 scripts/release/bundle_catalog.py pin [--ref REF] [--pin FILE]
 
-Network mode reads GITHUB_TOKEN / PRIME_CATALOG_REPO_TOKEN (optional Bearer;
-the catalog repo is public), aborts after 5 s, refuses redirects, and caps
-responses at MAX_REMOTE_CATALOG_BYTES.
+Network mode fetches `raw.githubusercontent.com/<repository>/<commit>/<path>`
+for the pinned commit and fails unless each body matches the pinned sha256
+(also for --models-url / --mcp-services-url overrides). `pin` resolves REF
+(default main) to a commit, fetches and validates both files at that commit,
+and rewrites the pin file. Fetches read GITHUB_TOKEN / PRIME_CATALOG_REPO_TOKEN
+(optional Bearer; the catalog repo is public), abort after 5 s, refuse
+redirects, and cap responses at MAX_REMOTE_CATALOG_BYTES.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import re
 import shutil
 import sys
+import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -56,14 +65,17 @@ BUNDLED_CATALOG_FILES = ("models.bundled.json", "mcp-services.bundled.json")
 MIN_MODEL_TRANSPORT_TUPLES = 42
 MIN_MCP_SERVICES = 68
 
-DEFAULT_MODEL_CATALOG_URL = (
-    "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent-catalog"
-    "/main/models/catalog.v1.json"
-)
-DEFAULT_MCP_SERVICE_CATALOG_URL = (
-    "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent-catalog"
-    "/main/plugins/catalog.v2.json"
-)
+# The catalog repo pin: repository, commit, and the sha256 of each source
+# file at that commit. `pin` rewrites it; network mode never fetches a
+# moving ref.
+CATALOG_PIN = Path(__file__).resolve().parent / "catalog-pin.json"
+RAW_BASE_URL = "https://raw.githubusercontent.com"
+GITHUB_API_URL = "https://api.github.com"
+MODELS_SOURCE = "models/catalog.v1.json"
+MCP_SERVICES_SOURCE = "plugins/catalog.v2.json"
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # Build-time fetch limits (TS parity: 20 MiB cap, 5 s hard timeout, no
 # redirects — a moved catalog must be a client change).
@@ -701,8 +713,8 @@ def fixture_catalog_bodies() -> dict:
 
 def catalog_source_paths(catalog_dir: Path) -> dict:
     return {
-        "models.bundled.json": catalog_dir / "models" / "catalog.v1.json",
-        "mcp-services.bundled.json": catalog_dir / "plugins" / "catalog.v2.json",
+        "models.bundled.json": catalog_dir / MODELS_SOURCE,
+        "mcp-services.bundled.json": catalog_dir / MCP_SERVICES_SOURCE,
     }
 
 
@@ -718,7 +730,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
             headers, fp)
 
 
-def fetch_catalog(url: str, label: str) -> str:
+def fetch_bytes(url: str, label: str) -> bytes:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("PRIME_CATALOG_REPO_TOKEN")
     request = urllib.request.Request(url, headers={
         "accept": "application/json",
@@ -771,8 +783,53 @@ def fetch_catalog(url: str, label: str) -> str:
                     f"{label} catalog is too large: exceeds "
                     f"{MAX_REMOTE_CATALOG_BYTES} bytes"
                 )
-        text = body.decode("utf-8")
+    return bytes(body)
+
+
+def catalog_text(body: bytes) -> str:
+    """The asset body: the fetched bytes as UTF-8, newline-terminated."""
+    text = body.decode("utf-8")
     return text if text.endswith("\n") else f"{text}\n"
+
+
+def load_catalog_pin(path: Path) -> dict:
+    """The validated pin file: repository, 40-hex commit, and the sha256 of
+    exactly the two source files."""
+    try:
+        pin = json.loads(Path(path).read_text())
+    except (OSError, ValueError) as error:
+        fail(f"cannot read catalog pin {path}: {error}")
+    if not isinstance(pin, dict) or set(pin) != {"repository", "commit", "files"}:
+        fail(f"catalog pin {path}: expected keys repository, commit, files")
+    if not isinstance(pin["repository"], str) or not _REPOSITORY_RE.match(pin["repository"]):
+        fail(f"catalog pin {path}: invalid repository {pin['repository']!r}")
+    if not isinstance(pin["commit"], str) or not _COMMIT_RE.match(pin["commit"]):
+        fail(f"catalog pin {path}: commit must be a full 40-hex sha")
+    files = pin["files"]
+    if not isinstance(files, dict) or set(files) != {MODELS_SOURCE, MCP_SERVICES_SOURCE}:
+        fail(f"catalog pin {path}: files must list exactly "
+             f"{MODELS_SOURCE} and {MCP_SERVICES_SOURCE}")
+    for source, digest in files.items():
+        if not isinstance(digest, str) or not _SHA256_RE.match(digest):
+            fail(f"catalog pin {path}: {source} needs a 64-hex sha256")
+    return pin
+
+
+def pinned_url(repository: str, commit: str, source: str) -> str:
+    return f"{RAW_BASE_URL}/{repository}/{commit}/{source}"
+
+
+def fetch_pinned(url: str, label: str, expected_sha256: str) -> str:
+    """Fetch one catalog file and fail unless its bytes match the pin."""
+    body = fetch_bytes(url, label)
+    actual = hashlib.sha256(body).hexdigest()
+    if actual != expected_sha256:
+        fail(
+            f"{label} catalog from {url}: sha256 mismatch "
+            f"(pinned {expected_sha256}, got {actual}); "
+            "run `make catalog-pin` to review and move the pin"
+        )
+    return catalog_text(body)
 
 
 def generate_bundled_catalog_assets(options) -> dict:
@@ -797,16 +854,21 @@ def generate_bundled_catalog_assets(options) -> dict:
                 fail(f"catalog checkout missing {source}; pass a valid --catalog-dir")
             shutil.copyfile(source, targets[name])
     else:
-        # Network mode is the default for CI/packaging (TS parity: fetch both
-        # live files and write the bodies verbatim). Both bodies are fetched
-        # BEFORE either target is replaced: a failed MCP fetch must not leave
-        # a mixed snapshot (a fresh models file beside the previous services
+        # Network mode is the default for CI/packaging: fetch both files at
+        # the pinned commit, check each against its pinned sha256, and write
+        # the bodies verbatim. Both bodies are fetched and verified BEFORE
+        # either target is replaced: a failed MCP fetch must not leave a
+        # mixed snapshot (a fresh models file beside the previous services
         # file would pack together).
-        model_body = fetch_catalog(
-            options.models_url or DEFAULT_MODEL_CATALOG_URL, "model")
-        mcp_body = fetch_catalog(
-            options.mcp_services_url or DEFAULT_MCP_SERVICE_CATALOG_URL,
-            "MCP service")
+        pin = load_catalog_pin(options.pin)
+        model_body = fetch_pinned(
+            options.models_url
+            or pinned_url(pin["repository"], pin["commit"], MODELS_SOURCE),
+            "model", pin["files"][MODELS_SOURCE])
+        mcp_body = fetch_pinned(
+            options.mcp_services_url
+            or pinned_url(pin["repository"], pin["commit"], MCP_SERVICES_SOURCE),
+            "MCP service", pin["files"][MCP_SERVICES_SOURCE])
         targets["models.bundled.json"].write_text(model_body)
         targets["mcp-services.bundled.json"].write_text(mcp_body)
     allow_small = options.allow_small_fixture or options.fixture
@@ -815,23 +877,62 @@ def generate_bundled_catalog_assets(options) -> dict:
     return result
 
 
+def bump_catalog_pin(options) -> dict:
+    """Resolve --ref to a commit, fetch both files at it, run the full
+    validation gates, and rewrite the pin with the commit and both sha256."""
+    repository = load_catalog_pin(options.pin)["repository"]
+    commit_info = json.loads(fetch_bytes(
+        f"{GITHUB_API_URL}/repos/{repository}/commits/"
+        f"{urllib.parse.quote(options.ref, safe='')}", "commit"))
+    commit = commit_info.get("sha") if isinstance(commit_info, dict) else None
+    if not isinstance(commit, str) or not _COMMIT_RE.match(commit):
+        fail(f"GitHub returned no commit sha for {repository}@{options.ref}")
+    bodies = {
+        source: fetch_bytes(pinned_url(repository, commit, source), source)
+        for source in (MODELS_SOURCE, MCP_SERVICES_SOURCE)
+    }
+    with tempfile.TemporaryDirectory() as scratch:
+        scratch_dir = Path(scratch)
+        targets = bundled_targets(scratch_dir)
+        targets["models.bundled.json"].write_text(catalog_text(bodies[MODELS_SOURCE]))
+        targets["mcp-services.bundled.json"].write_text(
+            catalog_text(bodies[MCP_SERVICES_SOURCE]))
+        result = validate_bundled_catalog_dir(scratch_dir)
+    pin = {
+        "repository": repository,
+        "commit": commit,
+        "files": {source: hashlib.sha256(body).hexdigest()
+                  for source, body in bodies.items()},
+    }
+    Path(options.pin).write_text(json.dumps(pin, indent=2) + "\n")
+    result["pin"] = pin
+    return result
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", nargs="?", default="generate",
-                        choices=("generate", "verify"),
-                        help="generate (default) or verify an existing --out dir")
+                        choices=("generate", "verify", "pin"),
+                        help="generate (default), verify an existing --out dir, "
+                             "or pin (move the catalog pin to --ref)")
     parser.add_argument("--out", dest="out_dir", default=None,
                         help="asset output directory (default: target/catalog-assets)")
     parser.add_argument("--catalog-dir", default=None,
                         help="copy from a local prime-agent-catalog checkout")
     parser.add_argument("--network", action="store_true",
-                        help="fetch the live catalog repo (CI/packaging default)")
+                        help="fetch the pinned catalog commit (CI/packaging default)")
     parser.add_argument("--fixture", action="store_true",
                         help="emit the synthetic full-gate snapshot (offline builds)")
     parser.add_argument("--models-url", default=None,
-                        help="override the model catalog URL")
+                        help="override the model catalog URL (body still "
+                             "checked against the pinned sha256)")
     parser.add_argument("--mcp-services-url", default=None,
-                        help="override the MCP service catalog URL")
+                        help="override the MCP service catalog URL (body still "
+                             "checked against the pinned sha256)")
+    parser.add_argument("--pin", type=Path, default=CATALOG_PIN,
+                        help="catalog pin file (default: scripts/release/catalog-pin.json)")
+    parser.add_argument("--ref", default="main",
+                        help="pin: the catalog repo ref to pin (default: main)")
     parser.add_argument("--allow-small-fixture", action="store_true",
                         help="skip the minimum-count gates (smoke fixtures only)")
     return parser.parse_args(argv)
@@ -845,6 +946,9 @@ def main(argv=None) -> int:
             out_dir, allow_small_fixture=args.allow_small_fixture)
         result["outDir"] = str(out_dir)
         print(json.dumps(result, indent=2))
+        return 0
+    if args.command == "pin":
+        print(json.dumps(bump_catalog_pin(args), indent=2))
         return 0
     print(json.dumps(generate_bundled_catalog_assets(args), indent=2))
     return 0

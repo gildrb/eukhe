@@ -115,7 +115,8 @@ Omit `[project.scripts]` when a CLI is not needed.
 ## Dependencies and the Kernel Venv
 
 - Declare every third-party package `run()` imports in `dependencies` — `pyproject.toml` is the source of truth. The one exception is `eukhe-runtime` (see above).
-- These are already in the kernel venv, so depending on them is free: `requests`, `httpx`, `pyyaml`, `tomli`, `python-dotenv`, `pandas`, `numpy`, `scipy`, `beautifulsoup4`, `lxml`, `pydantic`, `tyro`.
+- Eukhe never downloads a skill's dependencies: skills install with `--no-deps` into the kernel venv, which holds only the hash-locked kernel packages, and a skill whose declared dependencies are not all present there is uninstalled and reported unavailable.
+- These are in the kernel venv, so depending on them works: `requests`, `httpx`, `pyyaml`, `tomli`, `python-dotenv`, `pandas`, `numpy`, `scipy`, `beautifulsoup4`, `lxml`, `pydantic`, `tyro`, `pillow`.
 - The install is editable and keyed on a hash of `pyproject.toml`: editing Python source takes effect on the next kernel start with no reinstall; editing `pyproject.toml` triggers a reinstall automatically.
 - If the user sets `EUKHE_KERNEL_PYTHON`, Eukhe installs nothing — skills whose imports are missing there are disabled with a warning.
 

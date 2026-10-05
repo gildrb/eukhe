@@ -1,9 +1,12 @@
+# eukhe-runtime (rlm.skill) is always installed in the kernel venv before
+# skills, so it is intentionally not declared as a dependency (it is not
+# published on any package index).
 [project]
 name = "eukhe-skill-attach-image"
 version = "0.1.0"
 description = "Load on-disk images into the model's context as viewable attachments."
 requires-python = ">=3.10"
-dependencies = ["pillow>=10.0.0", "eukhe-runtime"]
+dependencies = ["pillow>=10.0.0"]
 
 [project.scripts]
 attach_image = "rlm.skill:cli"

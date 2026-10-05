@@ -1,13 +1,22 @@
 //! The runtime source concern (moved with its concern): the packaged
 //! sidecar layout, the source-checkout fallback, and the content identity
-//! that invalidates an existing venv on any runtime change.
+//! that invalidates an existing venv on any runtime change. A missing
+//! runtime source is a hard error: there is no registry fallback (the
+//! `eukhe-runtime` name is not ours on any package index).
 
-use super::{expand_home, Digest, Path, PathBuf, RUNTIME_REQUIREMENT};
+use anyhow::{anyhow, Context};
+
+use super::{expand_home, Digest, Path, PathBuf};
+
+/// The hash-locked requirements of the kernel venv, exported from the
+/// runtime's `uv.lock` (`make runtime-lock`): every distribution the
+/// bootstrap installs besides the runtime itself, pinned with hashes.
+pub(super) const RUNTIME_LOCK_FILE: &str = "requirements-kernel.txt";
 
 /// Directory of the installed `eukhe-runtime` sources. The Rust binary
 /// ships the same sidecar layout the compiled TS executable uses; an explicit
 /// `EUKHE_PACKAGE_DIR` override wins (matching the TS `getPackageDir`).
-pub(in crate::kernel::bootstrap) fn package_dir() -> PathBuf {
+fn package_dir() -> PathBuf {
     if let Ok(env_dir) = std::env::var("EUKHE_PACKAGE_DIR") {
         if !env_dir.is_empty() {
             return expand_home(&env_dir);
@@ -20,63 +29,75 @@ pub(in crate::kernel::bootstrap) fn package_dir() -> PathBuf {
     exe_dir
 }
 
-/// The packaged sidecar directory (the exe-adjacent layout): the TS
-/// `runtimeCandidateDirs` bun-binary candidates, `EUKHE_PACKAGE_DIR` included
-/// through [`package_dir`].
-pub(in crate::kernel::bootstrap) fn packaged_runtime_dir() -> Option<PathBuf> {
+/// Every place the runtime source may live, in priority order (present or
+/// not, so a miss can name them all): the packaged exe-adjacent sidecar
+/// (the TS `runtimeCandidateDirs` bun-binary candidates, `EUKHE_PACKAGE_DIR`
+/// included through [`package_dir`]), then the source checkout's
+/// `eukhe-runtime/` — only for a binary running from inside that checkout
+/// ([`crate::packages::source_checkout_root`]).
+fn runtime_candidate_dirs() -> Vec<PathBuf> {
     let package = package_dir();
-    [
+    let mut candidates = vec![
         package.join("eukhe-runtime"),
         package.join("dist").join("eukhe-runtime"),
-    ]
-    .into_iter()
-    .find(|candidate| candidate.join("pyproject.toml").exists())
-}
-
-fn runtime_candidate_dirs() -> Vec<PathBuf> {
-    let mut candidates = packaged_runtime_dir().into_iter().collect::<Vec<_>>();
-    // Source checkouts keep the sidecar at the workspace root (TS resolves
-    // module-relative monorepo candidates the same way).
-    if let Some(root) = crate::packages::source_checkout_root() {
-        candidates.push(root.join("eukhe-runtime"));
-    }
+    ];
+    candidates
+        .extend(crate::packages::source_checkout_root().map(|root| root.join("eukhe-runtime")));
     candidates
 }
 
-pub(super) fn resolve_runtime_source_dir() -> Option<PathBuf> {
-    runtime_candidate_dirs()
-        .into_iter()
+pub(super) fn resolve_runtime_source_dir() -> anyhow::Result<PathBuf> {
+    select_runtime_source_dir(&runtime_candidate_dirs())
+}
+
+/// The first candidate holding a runtime `pyproject.toml`, else an
+/// actionable error naming every place looked at.
+pub(super) fn select_runtime_source_dir(candidates: &[PathBuf]) -> anyhow::Result<PathBuf> {
+    if let Some(found) = candidates
+        .iter()
         .find(|candidate| candidate.join("pyproject.toml").exists())
+    {
+        return Ok(found.clone());
+    }
+    let looked = candidates
+        .iter()
+        .map(|candidate| candidate.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(anyhow!(
+        "the eukhe-runtime kernel runtime directory was not found (looked in: {looked}); \
+         reinstall eukhe so eukhe-runtime/ ships beside the binary, or set EUKHE_PACKAGE_DIR \
+         to the directory that contains it"
+    ))
 }
 
 /// Content identity of the runtime: a hash of every `rlm/*.py` file, the
 /// packaged machine library under `src/rlm/machines` (wheel package data:
-/// machine changes are runtime changes), and `pyproject.toml`, so any
-/// runtime change invalidates an existing venv. Falls back to the bare
-/// package name when the runtime resolves to a registry install (no local
-/// source).
+/// machine changes are runtime changes), `pyproject.toml`, and the
+/// hash-locked kernel requirements, so any runtime or lock change
+/// invalidates an existing venv.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics when hashing the resolved local runtime source fails (unreadable
-/// or missing runtime files).
-#[must_use]
-pub fn resolve_runtime_identity() -> String {
-    let Some(source_dir) = resolve_runtime_source_dir() else {
-        return RUNTIME_REQUIREMENT.to_string();
-    };
-    hash_runtime_source(&source_dir).unwrap_or_else(|error| {
-        panic!(
-            "cannot hash runtime source at {}: {error}",
-            source_dir.display()
-        )
-    })
+/// Returns an error when no runtime source directory exists or hashing it
+/// fails (unreadable or missing runtime files, a missing lock file).
+pub fn resolve_runtime_identity() -> anyhow::Result<String> {
+    hash_runtime_source(&resolve_runtime_source_dir()?)
 }
 
-fn hash_runtime_source(source_dir: &Path) -> anyhow::Result<String> {
+pub(super) fn hash_runtime_source(source_dir: &Path) -> anyhow::Result<String> {
+    let lock = source_dir.join(RUNTIME_LOCK_FILE);
+    if !lock.is_file() {
+        return Err(anyhow!(
+            "the kernel runtime at {} has no {RUNTIME_LOCK_FILE}; reinstall eukhe (a source \
+             checkout regenerates it with `make runtime-lock`)",
+            source_dir.display()
+        ));
+    }
     let rlm_dir = source_dir.join("src").join("rlm");
-    let mut files = vec![source_dir.join("pyproject.toml")];
-    collect_python_files(&rlm_dir, &mut files)?;
+    let mut files = vec![source_dir.join("pyproject.toml"), lock];
+    collect_python_files(&rlm_dir, &mut files)
+        .with_context(|| format!("cannot hash runtime source at {}", source_dir.display()))?;
     collect_package_data_files(&rlm_dir.join("machines"), &mut files)?;
     files.sort();
     let mut hasher = sha2::Sha256::new();
@@ -142,6 +163,63 @@ mod tests {
             "[project]
 ",
         )?;
+        std::fs::write(
+            temp.join(RUNTIME_LOCK_FILE),
+            "dill==0.4.1 --hash=sha256:aa\n",
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn missing_runtime_source_is_a_hard_error() -> anyhow::Result<()> {
+        // Regression: no local runtime used to fall back to installing the
+        // bare `eukhe-runtime` name from PyPI (an unclaimed name).
+        let temp = tempfile::tempdir()?;
+        let packaged = temp.path().join("eukhe-runtime");
+        let checkout = temp.path().join("checkout").join("eukhe-runtime");
+        std::fs::create_dir_all(&packaged)?;
+        let error = select_runtime_source_dir(&[packaged.clone(), checkout.clone()])
+            .expect_err("no runtime source must not resolve");
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the eukhe-runtime kernel runtime directory was not found (looked in: {}, {}); \
+                 reinstall eukhe so eukhe-runtime/ ships beside the binary, or set \
+                 EUKHE_PACKAGE_DIR to the directory that contains it",
+                packaged.display(),
+                checkout.display()
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_without_its_lock_is_a_hard_error() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        runtime_fixture(temp.path(), "---\n")?;
+        std::fs::remove_file(temp.path().join(RUNTIME_LOCK_FILE))?;
+        let error = hash_runtime_source(temp.path()).expect_err("an unlocked runtime must fail");
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the kernel runtime at {} has no {RUNTIME_LOCK_FILE}; reinstall eukhe (a source \
+                 checkout regenerates it with `make runtime-lock`)",
+                temp.path().display()
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn lock_changes_invalidate_the_runtime_identity() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        runtime_fixture(temp.path(), "---\n")?;
+        let before = hash_runtime_source(temp.path())?;
+        std::fs::write(
+            temp.path().join(RUNTIME_LOCK_FILE),
+            "dill==0.4.2 --hash=sha256:bb\n",
+        )?;
+        assert_ne!(before, hash_runtime_source(temp.path())?);
         Ok(())
     }
 

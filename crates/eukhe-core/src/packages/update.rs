@@ -66,7 +66,7 @@ impl PackageManager {
                     continue;
                 }
                 match parse_source(&source) {
-                    ParsedSource::Npm(parsed) if !parsed.pinned => {
+                    Ok(ParsedSource::Npm(parsed)) if !parsed.pinned => {
                         if let Some(installed) = self.get_installed_path(&source, scope) {
                             if self.npm_has_available_update(&parsed, &installed) {
                                 updates.push(PackageUpdate {
@@ -78,7 +78,7 @@ impl PackageManager {
                             }
                         }
                     }
-                    ParsedSource::Git(parsed) if !parsed.pinned => {
+                    Ok(ParsedSource::Git(parsed)) if !parsed.pinned => {
                         if let Some(installed) = self.get_installed_path(&source, scope) {
                             if super::git::git_has_available_update(&installed) {
                                 updates.push(PackageUpdate {
@@ -106,7 +106,7 @@ impl PackageManager {
         let mut git_candidates: Vec<GitUpdateTarget> = Vec::new();
 
         for (source, scope) in sources {
-            match parse_source(&source) {
+            match parse_source(&source)? {
                 ParsedSource::Local(_) => {}
                 ParsedSource::Npm(parsed) if parsed.pinned => {}
                 ParsedSource::Git(parsed) if parsed.pinned => {}
@@ -239,14 +239,14 @@ impl PackageManager {
         for entry in configured {
             let (candidate, _) = super::manager::split_entry(entry);
             match parse_source(&candidate) {
-                ParsedSource::Npm(parsed) => {
+                Ok(ParsedSource::Npm(parsed)) => {
                     if trimmed == parsed.name || trimmed == parsed.spec {
                         return format!(
                             "No matching package found for {source}. Did you mean {candidate}?"
                         );
                     }
                 }
-                ParsedSource::Git(parsed) => {
+                Ok(ParsedSource::Git(parsed)) => {
                     let shorthand = format!("{}/{}", parsed.host, parsed.path);
                     let with_ref = parsed.r#ref.as_ref().map(|r| format!("{shorthand}@{r}"));
                     if trimmed == shorthand || with_ref.is_some_and(|with_ref| trimmed == with_ref)
@@ -256,7 +256,7 @@ impl PackageManager {
                         );
                     }
                 }
-                ParsedSource::Local(_) => {}
+                Ok(ParsedSource::Local(_)) | Err(_) => {}
             }
         }
         format!("No matching package found for {source}")

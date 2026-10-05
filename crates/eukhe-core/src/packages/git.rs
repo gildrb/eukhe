@@ -2,9 +2,9 @@
 //! install after clone, fetch/reset/clean updates against the upstream ref,
 //! and removal with empty-parent pruning.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use super::npm;
 use super::process::{run_command, run_command_capture};
@@ -12,23 +12,39 @@ use super::source::{GitSource, SourceScope};
 use super::NETWORK_TIMEOUT_MS;
 
 /// Where git packages install for a scope.
+///
+/// # Errors
+///
+/// Fails when the joined host/path does not stay strictly below the scope's
+/// install root (parse-time validation should make that unreachable; this
+/// guards every install, update, and removal that acts on the path).
 pub fn git_install_path(
     source: &GitSource,
     scope: SourceScope,
     cwd: &Path,
     agent_dir: &Path,
-) -> PathBuf {
-    match scope {
+) -> Result<PathBuf> {
+    let root = git_install_root(scope, cwd, agent_dir).unwrap_or_else(super::temporary_root);
+    let path = match scope {
         SourceScope::Temporary => {
             super::temporary_dir(&format!("git-{}", source.host), Some(&source.path))
         }
-        SourceScope::Project => cwd
-            .join(super::CONFIG_DIR_NAME)
-            .join("git")
-            .join(&source.host)
-            .join(&source.path),
-        SourceScope::User => agent_dir.join("git").join(&source.host).join(&source.path),
+        SourceScope::Project | SourceScope::User => root.join(&source.host).join(&source.path),
+    };
+    let contained = path.strip_prefix(&root).is_ok_and(|relative| {
+        relative.components().next().is_some()
+            && relative
+                .components()
+                .all(|component| matches!(component, Component::Normal(_)))
+    });
+    if !contained {
+        bail!(
+            "git package path {} escapes install root {}",
+            path.display(),
+            root.display()
+        );
     }
+    Ok(path)
 }
 
 /// Git install root (used for the `.gitignore` write); `None` for temporary.
@@ -48,7 +64,7 @@ pub fn install_git(
     agent_dir: &Path,
     npm_command: Option<&Vec<String>>,
 ) -> Result<()> {
-    let target_dir = git_install_path(source, scope, cwd, agent_dir);
+    let target_dir = git_install_path(source, scope, cwd, agent_dir)?;
     if target_dir.exists() {
         return Ok(());
     }
@@ -59,13 +75,22 @@ pub fn install_git(
         std::fs::create_dir_all(parent)?;
     }
 
+    // `--` keeps the URL and target positional; the parser already rejects
+    // option-like clone URLs and refs.
     run_command(
         "git",
-        &["clone", &source.repo, &target_dir.display().to_string()],
+        &[
+            "clone",
+            "--",
+            &source.repo,
+            &target_dir.display().to_string(),
+        ],
         None,
     )?;
     if let Some(git_ref) = source.r#ref.as_deref() {
-        run_command("git", &["checkout", git_ref], Some(&target_dir))?;
+        // A trailing `--` makes git read the ref as a branch/commit, never a
+        // pathspec; branch names still DWIM to their `origin/` tracking ref.
+        run_command("git", &["checkout", git_ref, "--"], Some(&target_dir))?;
     }
     let package_json = target_dir.join("package.json");
     if package_json.exists() {
@@ -162,7 +187,7 @@ pub fn update_git(
     agent_dir: &Path,
     npm_command: Option<&Vec<String>>,
 ) -> Result<()> {
-    let target_dir = git_install_path(source, scope, cwd, agent_dir);
+    let target_dir = git_install_path(source, scope, cwd, agent_dir)?;
     if !target_dir.exists() {
         return install_git(source, scope, cwd, agent_dir, npm_command);
     }
@@ -308,7 +333,7 @@ pub fn remove_git(
     cwd: &Path,
     agent_dir: &Path,
 ) -> Result<()> {
-    let target_dir = git_install_path(source, scope, cwd, agent_dir);
+    let target_dir = git_install_path(source, scope, cwd, agent_dir)?;
     if !target_dir.exists() {
         return Ok(());
     }
@@ -347,5 +372,64 @@ fn prune_empty_git_parents(target_dir: &Path, install_root: &Path) {
             Some(parent) => current = parent,
             None => break,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn source_with_path(path: &str) -> GitSource {
+        GitSource {
+            repo: "https://h.io/user/repo".to_string(),
+            host: "h.io".to_string(),
+            path: path.to_string(),
+            r#ref: None,
+            pinned: false,
+        }
+    }
+
+    #[test]
+    fn remove_refuses_paths_outside_the_install_root() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("project");
+        let agent_dir = root.path().join("agent");
+        let victim = cwd.join("victim");
+        std::fs::create_dir_all(&victim).unwrap();
+        let install_root = cwd.join(super::super::CONFIG_DIR_NAME).join("git");
+
+        for path in ["../../../victim", victim.to_str().unwrap()] {
+            let escaped = install_root.join("h.io").join(path);
+            let error = remove_git(
+                &source_with_path(path),
+                SourceScope::Project,
+                &cwd,
+                &agent_dir,
+            )
+            .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "git package path {} escapes install root {}",
+                    escaped.display(),
+                    install_root.display()
+                )
+            );
+            assert!(victim.exists(), "{path}");
+        }
+    }
+
+    #[test]
+    fn install_path_stays_below_the_install_root() {
+        let root = tempfile::tempdir().unwrap();
+        let agent_dir = root.path().join("agent");
+        let path = git_install_path(
+            &source_with_path("user/repo"),
+            SourceScope::User,
+            root.path(),
+            &agent_dir,
+        )
+        .unwrap();
+        assert_eq!(path, agent_dir.join("git").join("h.io").join("user/repo"));
     }
 }

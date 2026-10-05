@@ -14,6 +14,7 @@ Run: python3 scripts/release/test_catalog_assets.py  (or: make catalog-assets-ga
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import http.server
 import io
 import json
@@ -146,6 +147,10 @@ class DripServer:
         self.thread.join(timeout=5)
 
 
+# A one-pin hash-locked runtime requirements file (the assembler's gate).
+FIXTURE_RUNTIME_LOCK = "dill==0.4.1 \\\n    --hash=sha256:" + "a" * 64 + "\n"
+
+
 class SyntheticRepo:
     """A minimal repo tree the assembler/verifier/packer accept."""
 
@@ -159,11 +164,13 @@ class SyntheticRepo:
         runtime = root / "runtime"
         runtime.mkdir()
         (runtime / "pyproject.toml").write_text("[project]\nname='rlm'\n")
+        (runtime / "requirements-kernel.txt").write_text(FIXTURE_RUNTIME_LOCK)
         (runtime / "src").mkdir()
         # The exe-adjacent kernel runtime tree package_release.py stages.
         kernel = root / "eukhe-runtime"
         (kernel / "src" / "rlm").mkdir(parents=True)
         (kernel / "pyproject.toml").write_text("[project]\nname='rlm'\n")
+        (kernel / "requirements-kernel.txt").write_text(FIXTURE_RUNTIME_LOCK)
         (kernel / "src" / "rlm" / "repl.py").write_text("# repl\n")
         (runtime / "src" / "repl.py").write_text("# repl\n")
         source = root / "eukhe.c"
@@ -430,30 +437,78 @@ class CatalogDirMode(unittest.TestCase):
             self.assertIn("missing", broken.stderr)
 
 
+def write_pin(path: Path, models_body: bytes, mcp_body: bytes) -> Path:
+    """A pin file whose sha256 entries match the given served bodies."""
+    path.write_text(json.dumps({
+        "repository": "PrimeIntellect-ai/prime-agent-catalog",
+        "commit": "0" * 40,
+        "files": {
+            bundle_catalog.MODELS_SOURCE: hashlib.sha256(models_body).hexdigest(),
+            bundle_catalog.MCP_SERVICES_SOURCE: hashlib.sha256(mcp_body).hexdigest(),
+        },
+    }))
+    return path
+
+
 class NetworkMode(unittest.TestCase):
 
     def setUp(self):
         bodies = bundle_catalog.fixture_catalog_bodies()
-        no_newline = bodies["models.bundled.json"].rstrip("\n")
+        self.models_body = bodies["models.bundled.json"].rstrip("\n").encode()
+        self.mcp_body = bodies["mcp-services.bundled.json"].encode()
         self.server = RecordingServer({
-            "/models/catalog.v1.json": (no_newline.encode(), {}, 200),
-            "/plugins/catalog.v2.json": (bodies["mcp-services.bundled.json"].encode(), {}, 200),
+            "/models/catalog.v1.json": (self.models_body, {}, 200),
+            "/plugins/catalog.v2.json": (self.mcp_body, {}, 200),
             "/moved": (b"gone", {"location": "/models/catalog.v1.json"}, 302),
             "/huge": (b"x" * 1024,
                       {"content-length": str(bundle_catalog.MAX_REMOTE_CATALOG_BYTES + 1)},
                       200),
         })
+        self._tmp = tempfile.TemporaryDirectory()
+        self.pin = write_pin(Path(self._tmp.name) / "pin.json",
+                             self.models_body, self.mcp_body)
 
     def tearDown(self):
         self.server.stop()
+        self._tmp.cleanup()
 
     def _generate(self, out, env_extra=None, extra=()):
         return run_cli(BUNDLER, [
-            "generate", "--network",
+            "generate", "--network", "--pin", str(self.pin),
             "--models-url", f"{self.server.base}/models/catalog.v1.json",
             "--mcp-services-url", f"{self.server.base}/plugins/catalog.v2.json",
             "--out", str(out), *extra,
         ], env_extra=env_extra)
+
+    def test_network_fetch_rejects_a_body_that_does_not_match_the_pin(self):
+        """A catalog body that differs from the pinned sha256 is a hard
+        failure and leaves no asset behind."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "assets"
+            stale_pin = write_pin(Path(tmp) / "stale.json",
+                                  self.models_body + b" ", self.mcp_body)
+            result = run_cli(BUNDLER, [
+                "generate", "--network", "--pin", str(stale_pin),
+                "--models-url", f"{self.server.base}/models/catalog.v1.json",
+                "--mcp-services-url", f"{self.server.base}/plugins/catalog.v2.json",
+                "--out", str(out)])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("sha256 mismatch", result.stderr)
+            self.assertFalse((out / "models.bundled.json").exists())
+            self.assertFalse((out / "mcp-services.bundled.json").exists())
+
+    def test_network_mode_rejects_a_moving_ref_pin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pin = Path(tmp) / "pin.json"
+            pin.write_text(json.dumps({
+                "repository": "PrimeIntellect-ai/prime-agent-catalog",
+                "commit": "main",
+                "files": json.loads(self.pin.read_text())["files"],
+            }))
+            result = run_cli(BUNDLER, ["generate", "--network", "--pin", str(pin),
+                                       "--out", str(Path(tmp) / "assets")])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("commit must be a full 40-hex sha", result.stderr)
 
     def test_network_fetch_is_byte_identical_and_normalizes_newlines(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -539,6 +594,8 @@ class NetworkMode(unittest.TestCase):
             try:
                 result = run_cli(BUNDLER, [
                     "generate", "--network",
+                    "--pin", str(write_pin(Path(tmp) / "broken-pin.json",
+                                           models_before.encode(), self.mcp_body)),
                     "--models-url", f"{broken.base}/models/catalog.v1.json",
                     "--mcp-services-url", f"{broken.base}/plugins/catalog.v2.json",
                     "--out", str(out)])
@@ -694,6 +751,65 @@ class PackerGates(unittest.TestCase):
                                    "--target", HOST_TARGET])
         self.assertEqual(verify.returncode, 0, verify.stderr)
         self.assertIn("catalog assets", verify.stdout)
+
+    def test_verifier_rejects_unsafe_tar_members(self):
+        """Each unsafe member is rejected before extraction writes it: a
+        `..` path that passes the top-level payload check (it starts with
+        skills/) would otherwise land outside the scratch directory, and a
+        device or FIFO member would be written as a plain file."""
+        out = self.tmp / "dist-unsafe"
+        result = self.repo.assemble(out, catalog_assets=self.assets)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        archive_name = f"eukhe-9.9.9-{HOST_ARCHIVE_PLATFORM}.tar.gz"
+        with tarfile.open(out / archive_name) as original:
+            items = [(member, original.extractfile(member).read() if member.isfile() else None)
+                     for member in original.getmembers()]
+        manifest = json.loads((out / "manifest.json").read_text())
+        cases = {
+            "skills/../../escaped": (tarfile.REGTYPE, "not a relative in-tree path"),
+            "skills/fifo": (tarfile.FIFOTYPE, "not a regular file or directory"),
+        }
+        for name, (member_type, error) in cases.items():
+            case_dir = self.tmp / f"unsafe-{member_type.decode()}"
+            case_dir.mkdir()
+            with tarfile.open(case_dir / archive_name, "w:gz") as bad:
+                for member, payload in items:
+                    bad.addfile(member, io.BytesIO(payload) if payload is not None else None)
+                extra = tarfile.TarInfo(name)
+                extra.type = member_type
+                extra.size = 1 if member_type == tarfile.REGTYPE else 0
+                bad.addfile(extra, io.BytesIO(b"x") if member_type == tarfile.REGTYPE else None)
+            digest = hashlib.sha256((case_dir / archive_name).read_bytes()).hexdigest()
+            (case_dir / "SHA256SUMS").write_text(f"{digest}  {archive_name}\n")
+            for binary in manifest["binaries"]:
+                binary["sha256"] = digest
+            (case_dir / "manifest.json").write_text(json.dumps(manifest))
+            # The scratch dir is tmp_root/eukhe-verify-*, so the `..`
+            # member would resolve to tmp_root/escaped.
+            tmp_root = case_dir / "tmp"
+            tmp_root.mkdir()
+            checked = run_cli(VERIFIER, ["--dist-dir", str(case_dir), "--version", "9.9.9",
+                                         "--target", HOST_TARGET],
+                              env_extra={"TMPDIR": str(tmp_root)})
+            self.assertNotEqual(checked.returncode, 0, name)
+            self.assertIn(error, checked.stderr, name)
+            self.assertEqual(list(case_dir.rglob("escaped")), [], name)
+
+    def test_kernel_packer_archive_is_reproducible(self):
+        """Two packs of the same input are byte-identical: fixed member
+        metadata and a zero gzip mtime, even when packed seconds apart."""
+        archives = []
+        for run in ("first", "second"):
+            out = self.tmp / f"reproducible-{run}"
+            packaged = run_cli(PACKER, ["--root", str(self.repo.root), "--version", "9.9.9",
+                                        "--binary", str(self.repo.binary),
+                                        "--decoder", str(self.repo.decoder), "--skip-build",
+                                        "--catalog-assets", str(self.assets),
+                                        "--out-dir", str(out)])
+            self.assertEqual(packaged.returncode, 0, packaged.stderr)
+            archives.append((out / "eukhe-9.9.9-linux-x64.tar.gz").read_bytes())
+            time.sleep(1.1)
+        self.assertEqual(archives[0], archives[1])
 
     def test_kernel_packer_gates_the_same_assets(self):
         # package_release.py (the exe-adjacent kernel packaging) fails without

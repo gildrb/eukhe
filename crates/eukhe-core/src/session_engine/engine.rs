@@ -287,6 +287,9 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
     // factory host bridge's preflight facts (the daemon `allowedModels`
     // pin), like the request-timing snapshot above.
     let factory_allowed_models = settings.get_allowed_models();
+    // Captured before `settings` moves into the resource loader: the
+    // project's trust decides which Python skills reach the kernel.
+    let project_trust = settings.project_trust().clone();
     let (mcp_skill_overrides, mcp_generic_servers, built_manager) =
         mcp_gating(&settings, config.agent_dir.clone()).await?;
     let mcp_manager = config
@@ -301,7 +304,7 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
             generic_mcp_servers.push(server);
         }
     }
-    let resources = load_resources(ResourceLoaderOptions {
+    let mut resources = load_resources(ResourceLoaderOptions {
         cwd: cwd.clone(),
         agent_dir: config.agent_dir.clone(),
         settings: Some(settings),
@@ -341,7 +344,20 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
     // The runtime wiring: goal/rlm-heartbeat host handlers ride the kernel
     // provisioner, and the agent gains the `ipython` tool backed by that
     // kernel (unless the caller supplied one).
-    let python_skills = super::runtime_wiring::kernel_python_skills(&resources.skills);
+    let kernel_skills =
+        super::runtime_wiring::kernel_python_skills(&resources.skills, project_trust.level);
+    // One warning names every key and skill the untrusted project did not
+    // get to apply, beside the other resource diagnostics.
+    if let Some(message) = project_trust.warning(&kernel_skills.withheld) {
+        resources
+            .skill_diagnostics
+            .push(crate::skills::ResourceDiagnostic::Warning {
+                message,
+                path: None,
+            });
+    }
+    let python_skill_count = kernel_skills.admitted.len();
+    let python_skills = kernel_skills.admitted;
     let session_id = wiring.session.lock().await.get_session_id().to_string();
     let mut handlers = wiring.handlers.clone();
     if let Some(extra) = config.extra_host_handlers.clone() {
@@ -920,8 +936,7 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         (Some(wiring), 0) => {
             let skill_counts = super::telemetry::SkillCounts {
                 skill_count: resources.skills.len(),
-                python_skill_count: super::runtime_wiring::kernel_python_skills(&resources.skills)
-                    .len(),
+                python_skill_count,
             };
             let installed = super::telemetry::install_session_telemetry(
                 &telemetry_agent,

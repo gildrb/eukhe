@@ -3,6 +3,7 @@ name = "eukhe-models"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 description = "Live model catalog: fetch, no-cold-start chain, transport pinning, Prime Inference."
 
 [dependencies]

@@ -2,6 +2,8 @@
 //! skill shape, the pyproject parsing, and the normalization that
 //! deduplicates and resolves sibling-local dependencies.
 
+use std::collections::HashMap;
+
 use super::{Digest, KernelPythonSkill, Path};
 
 /// One normalized skill as recorded in the bootstrap version file.
@@ -60,6 +62,43 @@ pub(super) fn read_python_skill_project_name(skill: &BootstrapPythonSkill) -> St
         None
     });
     name.unwrap_or_else(|| skill.import_name.replace('_', "-"))
+}
+
+/// PEP 503 name normalization: lowercase, every run of `-`, `_`, `.`
+/// collapsed to one `-`.
+pub(super) fn normalize_distribution_name(name: &str) -> String {
+    let mut normalized = String::with_capacity(name.len());
+    for c in name.chars() {
+        if matches!(c, '-' | '_' | '.') {
+            if !normalized.ends_with('-') {
+                normalized.push('-');
+            }
+        } else {
+            normalized.push(c.to_ascii_lowercase());
+        }
+    }
+    normalized
+}
+
+/// The `uv pip check` report lines grouped by the (normalized) distribution
+/// whose requirement is unsatisfied: uv reports each as
+/// ``The package `name` requires `spec`, but …``.
+pub(super) fn unsatisfied_requirements(report: &str) -> HashMap<String, Vec<String>> {
+    let mut unsatisfied: HashMap<String, Vec<String>> = HashMap::new();
+    for line in report.lines() {
+        let Some((name, _)) = line
+            .trim()
+            .strip_prefix("The package `")
+            .and_then(|rest| rest.split_once('`'))
+        else {
+            continue;
+        };
+        unsatisfied
+            .entry(normalize_distribution_name(name))
+            .or_default()
+            .push(line.trim().to_string());
+    }
+    unsatisfied
 }
 
 fn parse_dependency_package_name(dependency: &str) -> Option<String> {

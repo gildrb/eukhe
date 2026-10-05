@@ -224,7 +224,7 @@ fn toggle_top_level(
     let enable = format!("+{pattern}");
     let existing = |settings: &SettingsManager| -> Vec<String> {
         let scope = if project {
-            settings.project_settings()
+            settings.project_document()
         } else {
             settings.global_settings()
         };
@@ -267,7 +267,7 @@ fn toggle_package_resource(
 ) -> String {
     let project = item.metadata.scope == SourceScope::Project;
     let scope = if project {
-        settings.project_settings()
+        settings.project_document()
     } else {
         settings.global_settings()
     };
@@ -623,7 +623,7 @@ mod tests {
         let written = toggle_resource(&mut settings, &cwd, &agent_dir, &item, true).unwrap();
         assert_eq!(written, "+skills/p-skill/SKILL.md");
         assert_eq!(
-            settings.project_settings().skills,
+            settings.project_document().skills,
             Some(vec!["+skills/p-skill/SKILL.md".to_string()])
         );
     }

@@ -22,6 +22,10 @@ crossterm = { path = "vendor/crossterm" }
 version = "0.9.9-eukhe.1"
 edition = "2021"
 license = "MIT"
+# Never published to a registry: the release is the GitHub tarball built by
+# eukhe-release.yml. cargo-deny's allow-wildcard-paths accepts the
+# workspace's version-less path dependencies only for unpublished crates.
+publish = false
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

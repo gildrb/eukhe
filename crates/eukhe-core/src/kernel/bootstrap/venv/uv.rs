@@ -4,7 +4,12 @@
 
 use super::{anyhow, home_dir, Path, PathBuf};
 
-const UV_INSTALL_COMMAND: &str = "curl -LsSf https://astral.sh/uv/install.sh | sh";
+/// Package-manager installs only: a piped install script runs unreviewed
+/// remote code.
+const UV_INSTALL_GUIDANCE: &str = "install it with your package manager \
+     (`nix profile install nixpkgs#uv`, `brew install uv`, `winget install --id=astral-sh.uv`) \
+     or download a release from https://github.com/astral-sh/uv/releases and verify it \
+     against the release's published sha256 checksum";
 
 fn find_executable(name: &str) -> Option<PathBuf> {
     let path_value = std::env::var("PATH").ok()?;
@@ -94,6 +99,6 @@ pub(crate) fn ensure_uv() -> anyhow::Result<String> {
         return Ok(local_uv.to_string_lossy().to_string());
     }
     Err(anyhow!(
-        "uv is required to set up the Python kernel. Install uv yourself: {UV_INSTALL_COMMAND}"
+        "uv is required to set up the Python kernel; {UV_INSTALL_GUIDANCE}"
     ))
 }

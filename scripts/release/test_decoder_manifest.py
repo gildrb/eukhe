@@ -35,6 +35,9 @@ class DecoderManifest(unittest.TestCase):
             for directory in ("eukhe-runtime", "skills"):
                 (repo / directory).mkdir()
             (repo / "eukhe-runtime/pyproject.toml").write_text("[project]\nname = 'fixture'\nversion = '0.1.0'\n")
+            (repo / "eukhe-runtime/requirements-kernel.txt").write_text(
+                "dill==0.4.1 \\\n    --hash=sha256:" + "a" * 64 + "\n"
+            )
             (repo / "LICENSE").write_text("fixture\n")
             (repo / "README.md").write_text("fixture\n")
             catalog = root / "catalog"

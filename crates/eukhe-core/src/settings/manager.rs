@@ -8,6 +8,7 @@ use anyhow::Result;
 use super::load::from_value_lenient;
 use super::merge::{deep_merge, migrate};
 use super::storage::{SettingsScope, SettingsStorage};
+use super::trust::{apply_project_trust, effective_project, ProjectTrust};
 use super::types::{QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting};
 
 pub const RECENT_MODELS_LIMIT: usize = 20;
@@ -27,7 +28,14 @@ pub struct SettingsError {
 pub struct SettingsManager {
     storage: Arc<dyn SettingsStorage>,
     global: Settings,
+    /// The project scope as its document holds it (every key): the base
+    /// project-scope edits rewrite arrays from, never an input to the
+    /// effective settings.
+    project_document: Settings,
+    /// The project scope that applies: the document minus what the
+    /// project's trust withholds (see `settings::trust`).
     project: Settings,
+    project_trust: ProjectTrust,
     merged: Settings,
     runtime_overrides: Settings,
     errors: Vec<SettingsError>,
@@ -46,20 +54,40 @@ pub struct SettingsManager {
 impl SettingsManager {
     /// Load global + project settings from a storage backend.
     pub fn from_storage(storage: Arc<dyn SettingsStorage>) -> Self {
-        let mut errors = Vec::new();
+        Self::load(storage, Vec::new(), Settings::default())
+    }
+
+    /// The one load path ([`Self::from_storage`] and [`Self::reload`]):
+    /// both scopes, the project trust decision, and the merge of the
+    /// global scope with the project scope that trust lets apply.
+    fn load(
+        storage: Arc<dyn SettingsStorage>,
+        mut errors: Vec<SettingsError>,
+        runtime_overrides: Settings,
+    ) -> Self {
         let (global, global_raw, global_load_error) =
             load_scope(storage.as_ref(), SettingsScope::Global, &mut errors);
-        let (project, _, project_load_error) =
+        let (project_document, _, project_load_error) =
             load_scope(storage.as_ref(), SettingsScope::Project, &mut errors);
+        let (project, project_trust) =
+            apply_project_trust(storage.as_ref(), &global, &project_document, &mut errors);
+        if let Some(message) = project_trust.warning(&[]) {
+            errors.push(SettingsError {
+                scope: SettingsScope::Project,
+                message,
+            });
+        }
         let merged = deep_merge(&global, &project);
         Self {
             storage,
             global,
+            project_document,
             project,
+            project_trust,
             merged,
-            runtime_overrides: Settings::default(),
-            global_raw,
+            runtime_overrides,
             errors,
+            global_raw,
             global_load_error,
             project_load_error,
         }
@@ -121,9 +149,33 @@ impl SettingsManager {
         self.global_raw.as_ref()
     }
 
+    /// The project scope that applies (trust-filtered; see
+    /// `settings::trust`).
     #[must_use]
     pub fn project_settings(&self) -> &Settings {
         &self.project
+    }
+
+    /// The project scope exactly as its document holds it, for edits that
+    /// rewrite a project array; an untrusted project's withheld keys are
+    /// still here, so the edit never drops them.
+    #[must_use]
+    pub fn project_document(&self) -> &Settings {
+        &self.project_document
+    }
+
+    /// This load's project trust decision and what it withheld.
+    #[must_use]
+    pub fn project_trust(&self) -> &ProjectTrust {
+        &self.project_trust
+    }
+
+    /// The global document's read/parse failure, if any (setting-level
+    /// errors such as a relative `trustedProjects` entry are not load
+    /// failures).
+    #[must_use]
+    pub fn global_load_error(&self) -> Option<&str> {
+        self.global_load_error.as_deref()
     }
 
     #[must_use]
@@ -144,18 +196,9 @@ impl SettingsManager {
     /// The current implementation never returns `Err`; scope load problems
     /// are recorded as load errors on the manager instead.
     pub fn reload(&mut self) -> Result<()> {
-        let mut errors = std::mem::take(&mut self.errors);
-        let (global, global_raw, global_load_error) =
-            load_scope(self.storage.as_ref(), SettingsScope::Global, &mut errors);
-        let (project, _, project_load_error) =
-            load_scope(self.storage.as_ref(), SettingsScope::Project, &mut errors);
-        self.global = global;
-        self.project = project;
-        self.global_raw = global_raw;
-        self.global_load_error = global_load_error;
-        self.project_load_error = project_load_error;
-        self.errors = errors;
-        self.merged = deep_merge(&self.global, &self.project);
+        let errors = std::mem::take(&mut self.errors);
+        let runtime_overrides = std::mem::take(&mut self.runtime_overrides);
+        *self = Self::load(Arc::clone(&self.storage), errors, runtime_overrides);
         Ok(())
     }
 
@@ -511,13 +554,13 @@ impl SettingsManager {
 
     /// Replace the `packages` array in the project settings file.
     pub fn set_project_packages(&mut self, packages: Vec<serde_json::Value>) {
-        self.project.packages = Some(packages.clone());
+        self.project_document.packages = Some(packages.clone());
         self.persist_scope_field(
             SettingsScope::Project,
             "packages",
             &serde_json::Value::Array(packages),
         );
-        self.merged = deep_merge(&self.global, &self.project);
+        self.refresh_project_scope();
     }
 
     /// Replace one resource-path array (`skills`/`prompts`/`themes`) in the
@@ -545,9 +588,9 @@ impl SettingsManager {
         let array: Vec<serde_json::Value> =
             values.into_iter().map(serde_json::Value::String).collect();
         match field {
-            "skills" => self.project.skills = Some(strings(&array)),
-            "prompts" => self.project.prompts = Some(strings(&array)),
-            "themes" => self.project.themes = Some(strings(&array)),
+            "skills" => self.project_document.skills = Some(strings(&array)),
+            "prompts" => self.project_document.prompts = Some(strings(&array)),
+            "themes" => self.project_document.themes = Some(strings(&array)),
             _ => return,
         }
         self.persist_scope_field(
@@ -555,6 +598,13 @@ impl SettingsManager {
             field,
             &serde_json::Value::Array(array),
         );
+        self.refresh_project_scope();
+    }
+
+    /// Re-derive the applying project scope and the merge after a project
+    /// document edit (the trust decision stands).
+    fn refresh_project_scope(&mut self) {
+        (self.project, _) = effective_project(&self.project_document, self.project_trust.level);
         self.merged = deep_merge(&self.global, &self.project);
     }
 

@@ -5,6 +5,14 @@
 # - Every push to main publishes a rolling release
 #   `eukhe-v<workspace version>-main.<run number>` (mise installs the newest
 #   one). A newer push cancels an older main build that has not finished.
+#
+# Supply chain: every action is pinned by full commit SHA; the build jobs
+# use no cache (a poisoned cache would ride the shipped binary); apt
+# installs come from a fixed snapshot.ubuntu.com timestamp; rustup-init is
+# a pinned version checked against committed sha256; the bundled catalog
+# is the commit pinned in scripts/release/catalog-pin.json, hash-checked;
+# builds set SOURCE_DATE_EPOCH and remap the workspace and cargo home
+# paths; publish attests build provenance for every release asset.
 name: eukhe-release
 
 on:
@@ -58,9 +66,11 @@ jobs:
     needs: tag-check
     name: build-${{ matrix.target }}
     runs-on: ${{ matrix.runs-on }}
-    # The glibc 2.35 baseline (Ubuntu 22.04).
+    # The glibc 2.35 baseline (Ubuntu 22.04). buildpack-deps:jammy-curl is
+    # ubuntu:22.04 plus ca-certificates and curl, so the pinned snapshot
+    # below is reachable over verified TLS without an unpinned bootstrap.
     container:
-      image: ubuntu:22.04@sha256:b8b6ee6aa931ecd9d0d952abc34dc0e5f7c6a30c6bb71b079fe399fde0329c02
+      image: buildpack-deps:jammy-curl@sha256:6326f638affaad95fcc68973d732ecee04d8746fd1529ec113e88c76be9b3ad0
     defaults:
       run:
         shell: bash
@@ -74,36 +84,61 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runs-on: ubuntu-24.04
             alias: linux-x64
+            # https://static.rust-lang.org/rustup/archive/<RUSTUP_VERSION>/<target>/rustup-init.sha256
+            rustup-init-sha256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
           - target: aarch64-unknown-linux-gnu
             runs-on: ubuntu-24.04-arm
             alias: linux-arm64
+            rustup-init-sha256: 15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433
     env:
       COPYFILE_DISABLE: "1"
       VERSION: ${{ needs.tag-check.outputs.version }}
       TARGET: ${{ matrix.target }}
+      # The Ubuntu archive as of this instant (snapshot.ubuntu.com serves
+      # amd64 and arm64 under the same path). Move it forward by editing
+      # this value; it must not predate the container image build.
+      UBUNTU_SNAPSHOT: 20261005T000000Z
+      RUSTUP_VERSION: 1.29.1
     steps:
-      - name: Install build prerequisites (Ubuntu 22.04 container)
+      - name: Install build prerequisites (Ubuntu 22.04 snapshot)
         run: |
           set -euo pipefail
+          rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
+          for suite in jammy jammy-updates jammy-security; do
+            echo "deb https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT} ${suite} main universe"
+          done > /etc/apt/sources.list
           apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential curl ca-certificates python3 git binutils
+          apt-get install -y --no-install-recommends build-essential python3 git binutils
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      # The pinned SHA is the toolchain pin (Rust 1.98.1).
-      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e
-        with:
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          key: ${{ matrix.target }}-glibc235
-      - name: Stamp the rolling version (main)
-        if: github.ref_type == 'branch'
+      - name: Install Rust (pinned rustup-init, sha256-checked; toolchain from rust-toolchain.toml)
+        env:
+          RUSTUP_INIT_SHA256: ${{ matrix.rustup-init-sha256 }}
         run: |
           set -euo pipefail
-          python3 scripts/release/stamp_version.py "${VERSION}"
-          cargo update --workspace
+          init="${RUNNER_TEMP}/rustup-init"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "${init}" \
+            "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${TARGET}/rustup-init"
+          echo "${RUSTUP_INIT_SHA256}  ${init}" | sha256sum -c -
+          chmod +x "${init}"
+          "${init}" -y --no-modify-path --profile minimal --default-toolchain none
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+          "${HOME}/.cargo/bin/rustup" toolchain install --no-self-update
+          "${HOME}/.cargo/bin/rustup" target add "${TARGET}"
+      - name: Reproducible build environment
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          {
+            echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
+            echo "RUSTFLAGS=--remap-path-prefix=${GITHUB_WORKSPACE}=/eukhe --remap-path-prefix=${HOME}/.cargo=/cargo"
+          } >> "${GITHUB_ENV}"
+      # Cargo.toml and Cargo.lock move together; the --locked build below
+      # fails if the lockfile needs any other change.
+      - name: Stamp the rolling version (main)
+        if: github.ref_type == 'branch'
+        run: python3 scripts/release/stamp_version.py "${VERSION}"
       - name: Build (release, locked)
         run: cargo build --release --locked --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: Split the shipped binary and its debug decoder
@@ -128,7 +163,7 @@ jobs:
           max_glibc="$(printf '%s\n' "${syms}" | sort -Vu | tail -1)"
           top="$(printf '%s\nGLIBC_2.35\n' "${max_glibc}" | sort -Vu | tail -1)"
           [[ "${top}" == "GLIBC_2.35" ]] || { echo "::error::binary requires ${max_glibc}"; exit 1; }
-      - name: Generate bundled catalog assets (the live catalog)
+      - name: Generate bundled catalog assets (pinned catalog commit, sha256-checked)
         run: python3 scripts/release/bundle_catalog.py generate --network --out "target/${TARGET}/catalog-assets"
       - name: Assemble tarball, checksums, manifest
         run: |
@@ -176,18 +211,26 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e
-        with:
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          key: ${{ matrix.target }}
-      - name: Stamp the rolling version (main)
-        if: github.ref_type == 'branch'
+      # The runner image ships rustup; refusing to continue without it keeps
+      # the job off any curl | sh install path.
+      - name: Install Rust (runner rustup; toolchain from rust-toolchain.toml)
         run: |
           set -euo pipefail
-          python3 scripts/release/stamp_version.py "${VERSION}"
-          cargo update --workspace
+          command -v rustup >/dev/null || { echo "::error::rustup is not preinstalled on ${RUNNER_OS}"; exit 1; }
+          rustup toolchain install --no-self-update
+          rustup target add "${TARGET}"
+      - name: Reproducible build environment
+        run: |
+          set -euo pipefail
+          {
+            echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
+            echo "RUSTFLAGS=--remap-path-prefix=${GITHUB_WORKSPACE}=/eukhe --remap-path-prefix=${CARGO_HOME:-${HOME}/.cargo}=/cargo"
+          } >> "${GITHUB_ENV}"
+      # Cargo.toml and Cargo.lock move together; the --locked build below
+      # fails if the lockfile needs any other change.
+      - name: Stamp the rolling version (main)
+        if: github.ref_type == 'branch'
+        run: python3 scripts/release/stamp_version.py "${VERSION}"
       - name: Build (release, locked)
         run: cargo build --release --locked --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: "Livecheck: --version prints the tag version"
@@ -195,7 +238,7 @@ jobs:
           set -euo pipefail
           out="$("target/${TARGET}/release/eukhe" --version)"
           [[ "${out}" == "${VERSION}" ]] || { echo "::error::binary reports '${out}', expected '${VERSION}'"; exit 1; }
-      - name: Generate bundled catalog assets (the live catalog)
+      - name: Generate bundled catalog assets (pinned catalog commit, sha256-checked)
         run: python3 scripts/release/bundle_catalog.py generate --network --out "target/${TARGET}/catalog-assets"
       - name: Assemble tarball, checksums, manifest
         run: |
@@ -220,8 +263,13 @@ jobs:
   publish:
     needs: [tag-check, build-linux, build-darwin]
     runs-on: ubuntu-24.04
+    # id-token + attestations: the build provenance attestation below
+    # (Sigstore-signed via the workflow's OIDC identity). Only this job
+    # holds them.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -266,6 +314,13 @@ jobs:
           (out / "SHA256SUMS").write_text("\n".join(sorted(sums, key=lambda line: line.split()[1])) + "\n")
           release = {"version": version, "tag": tag, "assets": dict(sorted(assets.items()))}
           pathlib.Path("release.json").write_text(json.dumps(release, indent=2) + "\n")
+      # Verify a downloaded asset: gh attestation verify <file> --repo gildrb/eukhe
+      - name: Attest build provenance (every release asset + SHA256SUMS + release.json)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release-out/*
+            release.json
       - name: Create the GitHub release (tag)
         if: github.ref_type == 'tag'
         run: gh release create "${TAG}" release-out/* release.json --verify-tag --title "${TAG}" --notes "eukhe ${VERSION}"

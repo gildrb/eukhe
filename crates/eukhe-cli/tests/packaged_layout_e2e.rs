@@ -381,7 +381,7 @@ fn missing_sidecar_reports_actionable_bootstrap_error() {
         "TS bootstrap failure text missing: {stderr}"
     );
     assert!(
-        stderr.contains("eukhe-runtime directory was not found"),
+        stderr.contains("the eukhe-runtime kernel runtime directory was not found"),
         "missing-sidecar hint missing: {stderr}"
     );
     assert!(
@@ -466,7 +466,7 @@ fn hostile_child_assertions(staged: &Path) {
         "TS bootstrap failure text missing: {stderr}"
     );
     assert!(
-        stderr.contains("eukhe-runtime directory was not found"),
+        stderr.contains("the eukhe-runtime kernel runtime directory was not found"),
         "missing-sidecar hint missing: {stderr}"
     );
     assert!(
@@ -635,6 +635,12 @@ fn packaging_dry_run_produces_artifact() {
     let runtime = tree.path().join("eukhe-runtime");
     std::fs::create_dir_all(runtime.join("src").join("rlm")).expect("runtime tree");
     std::fs::write(runtime.join("pyproject.toml"), "[project]\nname = \"x\"\n").unwrap();
+    // The hash-locked kernel requirements every shipped runtime carries.
+    std::fs::write(
+        runtime.join("requirements-kernel.txt"),
+        format!("dill==0.4.1 \\\n    --hash=sha256:{}\n", "a".repeat(64)),
+    )
+    .unwrap();
     std::fs::write(
         runtime.join("src").join("rlm").join("repl.py"),
         "def main():\n    pass\n",
@@ -771,6 +777,13 @@ fn packaging_dry_run_produces_artifact() {
     assert!(
         stage.join("eukhe-runtime").join("pyproject.toml").is_file(),
         "sidecar manifest missing"
+    );
+    assert!(
+        stage
+            .join("eukhe-runtime")
+            .join("requirements-kernel.txt")
+            .is_file(),
+        "sidecar hash lock missing"
     );
     assert!(
         stage

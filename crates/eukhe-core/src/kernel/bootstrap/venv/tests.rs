@@ -741,7 +741,7 @@ fn live_probe_memo_reprobes_when_installed_rlm_is_removed() {
         std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    let identity = resolve_runtime_identity();
+    let identity = resolve_runtime_identity().expect("the live runtime source resolves");
     write_bootstrap_version(&fake, &identity, &[]).unwrap();
 
     let probe_count = || {
@@ -1063,16 +1063,19 @@ async fn skill_sync_batches_missing_installs_into_one_uv_call() {
     .await
     .unwrap();
     let calls = uv_invocations(dir.path());
-    assert_eq!(calls.len(), 1, "one batched uv invocation: {calls:?}");
-    assert!(
-        calls[0].contains("goal"),
-        "the missing skill installs: {calls:?}"
+    let python = dir.path().join("python");
+    assert_eq!(
+        calls,
+        vec![
+            format!(
+                "pip install --no-config --python {} --no-deps --no-index --no-build-isolation --editable {}",
+                python.display(),
+                dir.path().join("skills/goal").display()
+            ),
+            format!("pip check --no-config --python {}", python.display()),
+        ],
+        "one batched, dependency-free install of only the missing skill, then the offline check"
     );
-    assert!(
-        !calls[0].contains("skills/edit"),
-        "the installed skill is not reinstalled: {calls:?}"
-    );
-    assert_eq!(calls[0].matches("--editable").count(), 1);
     let version = read_bootstrap_version(&venv).expect("version written");
     assert_eq!(
         version.python_skills.as_ref().map(Vec::len),
@@ -1118,14 +1121,22 @@ async fn skill_sync_falls_back_to_per_skill_installs_on_batch_failure() {
     .await
     .unwrap();
     let calls = uv_invocations(dir.path());
+    let python = dir.path().join("python");
+    let install = |paths: &str| {
+        format!(
+            "pip install --no-config --python {} --no-deps --no-index --no-build-isolation {paths}",
+            python.display()
+        )
+    };
     assert_eq!(
-        calls.len(),
-        3,
-        "one failed batch then one call per skill: {calls:?}"
-    );
-    assert!(
-        calls[0].contains("edit") && calls[0].contains("broken"),
-        "the batch covers both skills: {calls:?}"
+        calls,
+        vec![
+            install("--editable /skills/edit --editable /skills/broken"),
+            install("--editable /skills/edit"),
+            install("--editable /skills/broken"),
+            format!("pip check --no-config --python {}", python.display()),
+        ],
+        "one failed batch, one call per skill, then the offline check"
     );
     let warnings = warnings.lock().unwrap();
     assert!(
@@ -1141,4 +1152,159 @@ async fn skill_sync_falls_back_to_per_skill_installs_on_batch_failure() {
         .map(|s| s.import_name.clone())
         .collect::<Vec<_>>();
     assert_eq!(recorded, vec!["edit"], "only the healthy skill is recorded");
+}
+
+#[test]
+fn venv_builds_only_from_the_hash_locked_runtime_source() {
+    // Regression: the base install named the bare `eukhe-runtime`, `dill`,
+    // and twelve unversioned extras, all resolved from an index.
+    let venv = Path::new("/state/kernel-venv");
+    let source = Path::new("/opt/eukhe/eukhe-runtime");
+    let python = "/state/kernel-venv/bin/python";
+    let strings = |args: &[&str]| args.iter().map(ToString::to_string).collect::<Vec<_>>();
+    assert_eq!(
+        venv_build_commands(venv, python, source),
+        vec![
+            strings(&["python", "install", "--no-config", "3.11"]),
+            strings(&[
+                "venv",
+                "--no-config",
+                "/state/kernel-venv",
+                "--python",
+                "3.11"
+            ]),
+            strings(&[
+                "pip",
+                "install",
+                "--no-config",
+                "--python",
+                python,
+                "--require-hashes",
+                "--only-binary",
+                ":all:",
+                "-r",
+                "/opt/eukhe/eukhe-runtime/requirements-kernel.txt",
+            ]),
+            strings(&[
+                "pip",
+                "install",
+                "--no-config",
+                "--python",
+                python,
+                "--no-deps",
+                "--no-index",
+                "--no-build-isolation",
+                "/opt/eukhe/eukhe-runtime",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn committed_runtime_lock_pins_every_default_package() {
+    // The prompt promises these imports; the lock must actually install
+    // them, each as an exact, hashed pin.
+    let lock = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../eukhe-runtime")
+            .join(RUNTIME_LOCK_FILE),
+    )
+    .unwrap();
+    let pinned: Vec<String> = lock
+        .lines()
+        .filter_map(|line| line.split_once("=="))
+        .map(|(name, _)| normalize_distribution_name(name))
+        .collect();
+    let missing: Vec<&str> = DEFAULT_RLM_EXTRA_PACKAGES
+        .iter()
+        .map(|(distribution, _, _)| *distribution)
+        .chain(["dill", "hatchling", "editables"])
+        .filter(|name| !pinned.contains(&normalize_distribution_name(name)))
+        .collect();
+    assert_eq!(missing, Vec::<&str>::new());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn skill_with_unlocked_dependencies_is_uninstalled_and_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let uv = fake_uv(
+        dir.path(),
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\ncase \"$*\" in\n  'pip check'*) echo 'The package `eukhe-skill-websearch` requires `httpx>=0.27,<1`, but it'\"'\"'s not installed' >&2; exit 1;;\nesac\nexit 0\n",
+            dir.path().join("uv.log").display()
+        ),
+    );
+    let venv = dir.path().join("venv");
+    std::fs::create_dir_all(&venv).unwrap();
+    let websearch = dir.path().join("skills/websearch");
+    std::fs::create_dir_all(&websearch).unwrap();
+    std::fs::write(
+        websearch.join("pyproject.toml"),
+        "[project]\nname = \"eukhe-skill-websearch\"\ndependencies = [\"httpx>=0.27,<1\"]\n",
+    )
+    .unwrap();
+    let edit = dir.path().join("skills/edit");
+    std::fs::create_dir_all(&edit).unwrap();
+    std::fs::write(edit.join("pyproject.toml"), "[project]\nname = \"edit\"\n").unwrap();
+    let skills = vec![
+        BootstrapPythonSkill {
+            import_name: "edit".to_string(),
+            package_path: edit.to_string_lossy().into_owned(),
+            pyproject_path: edit.join("pyproject.toml").to_string_lossy().into_owned(),
+            pyproject_hash: "h1".to_string(),
+        },
+        BootstrapPythonSkill {
+            import_name: "websearch".to_string(),
+            package_path: websearch.to_string_lossy().into_owned(),
+            pyproject_path: websearch
+                .join("pyproject.toml")
+                .to_string_lossy()
+                .into_owned(),
+            pyproject_hash: "h2".to_string(),
+        },
+    ];
+    let warnings = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut options = EnsureKernelPythonOptions::default();
+    let sink = warnings.clone();
+    options.on_progress = Some(std::sync::Arc::new(move |message: &str| {
+        sink.lock().unwrap().push(message.to_string());
+    }));
+    let python = dir.path().join("python");
+    sync_python_skills(
+        uv.to_str().unwrap(),
+        &venv,
+        &python,
+        "sha256:rt",
+        &skills,
+        &options,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        uv_invocations(dir.path()),
+        vec![
+            format!(
+                "pip install --no-config --python {} --no-deps --no-index --no-build-isolation --editable {} --editable {}",
+                python.display(),
+                edit.display(),
+                websearch.display()
+            ),
+            format!("pip check --no-config --python {}", python.display()),
+            format!(
+                "pip uninstall --no-config --python {} eukhe-skill-websearch",
+                python.display()
+            ),
+        ]
+    );
+    assert_eq!(
+        *warnings.lock().unwrap(),
+        vec![
+            "Warning: Python skill websearch needs packages the hash-locked kernel venv does not provide and will be unavailable:\nThe package `eukhe-skill-websearch` requires `httpx>=0.27,<1`, but it's not installed".to_string()
+        ]
+    );
+    let recorded = read_bootstrap_version(&venv)
+        .and_then(|version| version.python_skills)
+        .expect("skills recorded");
+    assert_eq!(recorded, vec![skills[0].clone()]);
 }

@@ -44,10 +44,11 @@ pub fn capture_git_context(cwd: &Path) -> Option<GitContext> {
         return None;
     }
     Some(GitContext {
-        repo_url: remote.map(|url| {
-            crate::packages::parse_git_url(&url)
-                .map(|source| source.repo)
-                .unwrap_or(url)
+        // Display-only normalization: a remote that is not a valid package
+        // source is recorded verbatim.
+        repo_url: remote.map(|url| match crate::packages::parse_git_url(&url) {
+            Ok(Some(source)) => source.repo,
+            Ok(None) | Err(_) => url,
         }),
         commit,
         branch,

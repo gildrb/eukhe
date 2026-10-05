@@ -3,6 +3,7 @@ name = "eukhe-telemetry"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 description = "Modular telemetry: event schema, queueing, and sinks for Eukhe."
 
 [dependencies]

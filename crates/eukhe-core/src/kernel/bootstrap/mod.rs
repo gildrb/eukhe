@@ -11,7 +11,6 @@ mod disk_memo;
 mod runtime_code;
 pub(crate) mod venv;
 
-use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -42,9 +41,12 @@ pub struct KernelPythonSkill {
 }
 
 /// The default extra packages pre-installed in the kernel venv and promised to
-/// the model in the system prompt.
+/// the model in the system prompt. The installs themselves come from the
+/// runtime's `kernel` dependency group, hash-locked in
+/// `eukhe-runtime/requirements-kernel.txt`; the distribution column names
+/// the locked distribution backing each import.
 pub const DEFAULT_RLM_EXTRA_PACKAGES: [(&str, &str, &str); 12] = [
-    // (uvArg, importName, promptLabel)
+    // (distribution, importName, promptLabel)
     ("requests", "requests", "requests"),
     ("httpx", "httpx", "httpx"),
     ("pyyaml", "yaml", "yaml (PyYAML)"),
@@ -58,14 +60,6 @@ pub const DEFAULT_RLM_EXTRA_PACKAGES: [(&str, &str, &str); 12] = [
     ("pydantic", "pydantic", "pydantic"),
     ("tyro", "tyro", "tyro"),
 ];
-
-#[must_use]
-pub fn default_rlm_extra_uv_args() -> Vec<&'static str> {
-    DEFAULT_RLM_EXTRA_PACKAGES
-        .iter()
-        .map(|(uv, _, _)| *uv)
-        .collect()
-}
 
 #[must_use]
 pub fn default_rlm_extra_import_names() -> Vec<&'static str> {
@@ -102,24 +96,12 @@ impl EnsureKernelPythonOptions {
 }
 
 fn format_bootstrap_failure(error: &anyhow::Error) -> anyhow::Error {
-    let mut message = format!(
+    anyhow!(
         "Failed to set up the Python kernel runtime. {error:#}\n\
-         First-time setup needs internet to install uv, Python, eukhe-runtime, and default Python packages; once set up, eukhe runs offline. \
+         First-time setup needs internet to download Python and the kernel's hash-locked packages (eukhe-runtime/requirements-kernel.txt); once set up, eukhe runs offline. \
          An interrupted runtime upgrade needs network once more, so re-run this while online. \
          Set EUKHE_KERNEL_PYTHON to a Python with a current eukhe-runtime and default Python packages installed to skip auto-bootstrap."
-    );
-    // The packaged exe-adjacent sidecar is the kernel runtime source; when it
-    // is missing everywhere (packaged layout and source checkout), name it:
-    // a registry fallback then has no local runtime to fall back from, and
-    // the raw install error alone is not actionable.
-    if venv::packaged_runtime_dir().is_none() {
-        let package = venv::package_dir();
-        let _ = write!(message,
-            "\nThe packaged eukhe-runtime directory was not found (looked next to the executable at {} and EUKHE_PACKAGE_DIR); reinstall eukhe so the kernel runtime ships beside the binary.",
-            package.display()
-        );
-    }
-    anyhow!(message)
+    )
 }
 
 /// One in-flight bootstrap per unique options set, joined by concurrent callers.
@@ -232,7 +214,8 @@ async fn ensure_kernel_python_uncached(
     let venv = resolve_writable_kernel_venv_dir()?;
     let python = kernel_venv_python(&venv);
     let python_str = python.to_string_lossy().to_string();
-    let runtime_identity = resolve_runtime_identity();
+    let runtime_identity =
+        resolve_runtime_identity().map_err(|error| format_bootstrap_failure(&error))?;
     if kernel_ready(&python_str, &venv, &runtime_identity, python_skills) {
         return Ok(python);
     }

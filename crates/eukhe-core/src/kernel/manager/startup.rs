@@ -180,8 +180,13 @@ impl Inner {
         );
         let cwd = self.options.cwd.clone();
         let mut command = tokio::process::Command::new(&python);
+        // `-P` (Python >= 3.11, the runtime's floor): the working directory is
+        // not prepended to `sys.path`, so a project's own `rlm/`, `json.py`,
+        // ... cannot shadow the runtime or the stdlib. `rlm.repl` appends the
+        // cwd at the END of `sys.path` after boot, so cells still import
+        // project-only modules; cells run with `cwd` as their working dir.
         command
-            .args(["-m", "rlm.repl"])
+            .args(["-P", "-m", "rlm.repl"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());

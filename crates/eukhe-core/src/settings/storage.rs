@@ -56,6 +56,14 @@ pub trait SettingsStorage: Send + Sync {
         scope: SettingsScope,
         update: &mut dyn FnMut(Option<String>) -> Option<String>,
     ) -> Result<()>;
+
+    /// The project directory whose `<config-dir>/settings.json` is the
+    /// project scope (the trust check's subject); `None` when the storage
+    /// has none, which leaves its project scope untrusted.
+    fn project_dir(&self) -> Option<&Path>;
+
+    /// Where the global scope lives, for user-facing hints.
+    fn global_location(&self) -> Option<&Path>;
 }
 
 /// File-backed storage with proper-lockfile directory locks (`{file}.lock`
@@ -63,6 +71,7 @@ pub trait SettingsStorage: Send + Sync {
 /// `acquireLockSyncWithRetry` (10 x 20ms).
 pub struct FileSettingsStorage {
     global_path: PathBuf,
+    project_dir: PathBuf,
     project_path: PathBuf,
 }
 
@@ -74,9 +83,11 @@ const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
 impl FileSettingsStorage {
     pub fn new(cwd: impl Into<PathBuf>, agent_dir: impl Into<PathBuf>) -> Self {
         let agent_dir: PathBuf = agent_dir.into();
+        let project_dir: PathBuf = cwd.into();
         FileSettingsStorage {
             global_path: agent_dir.join("settings.json"),
-            project_path: cwd.into().join(CONFIG_DIR_NAME).join("settings.json"),
+            project_path: project_dir.join(CONFIG_DIR_NAME).join("settings.json"),
+            project_dir,
         }
     }
 
@@ -295,6 +306,14 @@ impl SettingsStorage for FileSettingsStorage {
         drop(held);
         Ok(())
     }
+
+    fn project_dir(&self) -> Option<&Path> {
+        Some(&self.project_dir)
+    }
+
+    fn global_location(&self) -> Option<&Path> {
+        Some(&self.global_path)
+    }
 }
 
 /// The TS `WriteFileAtomicOptions` (atomic-file.ts) for
@@ -384,6 +403,14 @@ impl SettingsStorage for InMemorySettingsStorage {
             *guard = Some(next);
         }
         Ok(())
+    }
+
+    fn project_dir(&self) -> Option<&Path> {
+        None
+    }
+
+    fn global_location(&self) -> Option<&Path> {
+        None
     }
 }
 

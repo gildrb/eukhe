@@ -49,6 +49,10 @@ allow = [
 # cargo resolves them fine); duplicates and wildcards are surfaced instead.
 multiple-versions = "warn"
 wildcards = "deny"
+# Version-less `path` dependencies between the workspace's own crates
+# (all `publish = false`) are not registry wildcards; registry and git
+# wildcards stay denied.
+allow-wildcard-paths = true
 highlight = "all"
 deny = []
 skip = []

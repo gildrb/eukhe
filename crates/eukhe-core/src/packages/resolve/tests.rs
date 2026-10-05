@@ -89,6 +89,13 @@ impl Fixture {
         self.reload();
     }
 
+    /// Trust the fixture's project (global `trustedProjects`), so its
+    /// project `packages` apply.
+    fn trust_project(&mut self) {
+        let cwd = self.manager.cwd().display().to_string();
+        self.set_user_array("trustedProjects", serde_json::json!([cwd]));
+    }
+
     fn reload(&mut self) {
         self.manager.reload_settings().unwrap();
     }
@@ -794,6 +801,7 @@ fn same_local_package_in_both_scopes_resolves_once_with_project_scope() {
     skill_md(&pkg_dir.join("skills"), "shared-skill", "Shared skill");
 
     fixture.set_user_packages(serde_json::json!([pkg_dir.display().to_string()]));
+    fixture.trust_project();
     let project_dir = fixture.manager.cwd().join(crate::settings::CONFIG_DIR_NAME);
     std::fs::create_dir_all(&project_dir).unwrap();
     std::fs::write(
@@ -822,6 +830,7 @@ fn different_packages_in_both_scopes_both_resolve() {
     write(&pkg2.join("prompts").join("from-pkg2.md"), "Pkg2 prompt");
 
     fixture.set_user_packages(serde_json::json!([pkg1.display().to_string()]));
+    fixture.trust_project();
     let project_dir = fixture.manager.cwd().join(crate::settings::CONFIG_DIR_NAME);
     std::fs::create_dir_all(&project_dir).unwrap();
     std::fs::write(
@@ -851,6 +860,7 @@ fn offline_mode_skips_installing_missing_sources() {
     std::env::set_var("EUKHE_OFFLINE", "1");
     let mut fixture = Fixture::new();
     fixture.set_user_packages(serde_json::json!(["npm:missing-package"]));
+    fixture.trust_project();
     let project_dir = fixture.manager.cwd().join(crate::settings::CONFIG_DIR_NAME);
     std::fs::create_dir_all(&project_dir).unwrap();
     std::fs::write(

@@ -1,0 +1,6 @@
+# The pinned toolchain for local builds, CI, and the release builds
+# (rustup reads this file). nix/source.nix builds with nixpkgs' rustc instead.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

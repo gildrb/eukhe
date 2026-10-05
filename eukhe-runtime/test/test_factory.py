@@ -8086,8 +8086,10 @@ class InstalledRuntimeLibraryTest(unittest.TestCase):
     """A kernel venv built from a staged runtime runs the bundled machines.
 
     The kernel installs eukhe-runtime non-editably into its venv (the
-    bootstrap's ``uv pip install <staged runtime>`` builds the hatchling
-    wheel, whose target package is ``src/rlm``), so the machine library
+    bootstrap installs the hash-locked ``requirements-kernel.txt``, then
+    ``uv pip install --no-deps --no-index --no-build-isolation <staged
+    runtime>`` builds the hatchling wheel, whose target package is
+    ``src/rlm``), so the machine library
     must resolve from the installed package — ``site-packages/rlm/
     machines`` — not from any source-checkout path. This stages the
     runtime the way the release does, installs it into a fresh venv, and
@@ -8135,9 +8137,13 @@ class InstalledRuntimeLibraryTest(unittest.TestCase):
         (agent_home / "settings.json").write_text(
             json.dumps({"factory": {"enabled": True}}), encoding="utf-8"
         )
+        python = str(venv / "bin" / "python")
         for args in (
-            [uv, "venv", str(venv)],
-            [uv, "pip", "install", "--python", str(venv / "bin" / "python"), "--no-deps", str(staged)],
+            [uv, "venv", "--no-config", str(venv)],
+            [uv, "pip", "install", "--no-config", "--python", python, "--require-hashes",
+             "--only-binary", ":all:", "-r", str(staged / "requirements-kernel.txt")],
+            [uv, "pip", "install", "--no-config", "--python", python, "--no-deps",
+             "--no-index", "--no-build-isolation", str(staged)],
         ):
             install = subprocess.run(
                 args, capture_output=True, text=True, timeout=240, check=False

@@ -30,12 +30,10 @@ pub enum DaemonAllowlist {
 /// scope).
 pub(crate) fn load(cwd: &Path, agent_dir: &Path) -> DaemonAllowlist {
     let settings = eukhe_core::settings::SettingsManager::create(cwd, agent_dir);
-    if let Some(error) = settings
-        .errors()
-        .iter()
-        .find(|error| error.scope == eukhe_core::settings::SettingsScope::Global)
-    {
-        return DaemonAllowlist::Unreadable(error.message.clone());
+    // Only a global document that failed to load is an unknown policy; a
+    // setting-level error (a relative `trustedProjects` entry) is not.
+    if let Some(error) = settings.global_load_error() {
+        return DaemonAllowlist::Unreadable(error.to_string());
     }
     if let Some(patterns) = settings.get_allowed_models() {
         DaemonAllowlist::Allowed(patterns)

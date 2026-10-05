@@ -28,7 +28,10 @@ pub use resolve::{
     MetadataSource, MissingSourceAction, PathMetadata, ResolvedPaths, ResolvedResource,
     ResourceOrigin, ResourceType,
 };
-pub use source::{parse_git_url, GitSource, LocalSource, NpmSource, ParsedSource, SourceScope};
+pub use source::{
+    parse_git_url, GitSource, LocalSource, NpmSource, ParsedSource, SourceDefect, SourceParseError,
+    SourcePart, SourceScope,
+};
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -81,25 +84,36 @@ fn home_dir() -> PathBuf {
     eukhe_types::platform::home_dir().unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// The workspace root at compile time (source-checkout layout): eukhe-core
-/// lives at `<root>/crates/eukhe-core`.
-/// Compile-time workspace root (`<root>/crates/eukhe-core` ancestors), shared by
-/// every package-dir resolution that falls back to the source-checkout layout.
+/// The workspace root of the source checkout this binary was built from
+/// (`<root>/crates/eukhe-core`, baked in at compile time), shared by every
+/// package-dir resolution that falls back to the source-checkout layout.
+/// Only `Some` while the running executable lives inside that checkout
+/// (`target/…`): a shipped or copied binary never consults the build
+/// machine's path, which anyone could create on the user's machine.
 pub(crate) fn source_checkout_root() -> Option<&'static std::path::Path> {
-    static ROOT: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
-    ROOT.get_or_init(|| {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    static ROOT: std::sync::LazyLock<Option<PathBuf>> = std::sync::LazyLock::new(|| {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .ancestors()
-            .nth(2)
-            .map(std::path::Path::to_path_buf)
-    })
-    .as_deref()
+            .nth(2)?;
+        checkout_containing(root, &std::env::current_exe().ok()?)
+    });
+    ROOT.as_deref()
+}
+
+/// `root` (canonical) when `exe` resolves to a path inside it.
+fn checkout_containing(root: &std::path::Path, exe: &std::path::Path) -> Option<PathBuf> {
+    let root = std::fs::canonicalize(root).ok()?;
+    std::fs::canonicalize(exe)
+        .ok()?
+        .starts_with(&root)
+        .then_some(root)
 }
 
 /// The directory of built-in skills shipped with the package (TS
 /// `getBundledSkillsDir`): `skills/` next to the executable (the packaged
-/// layout), falling back to the workspace `skills/` for source checkouts
-/// (TS keeps built-in skills at the package root next to `src/`).
+/// layout), falling back to the workspace `skills/` for a binary running
+/// from inside its source checkout ([`source_checkout_root`]; TS keeps
+/// built-in skills at the package root next to `src/`).
 pub(crate) fn get_bundled_skills_dir() -> PathBuf {
     let packaged = package_dir().join("skills");
     if packaged.is_dir() {
@@ -114,6 +128,11 @@ pub(crate) fn get_bundled_skills_dir() -> PathBuf {
     packaged
 }
 
+/// Root every resolve-only temporary package install lives under.
+pub(crate) fn temporary_root() -> PathBuf {
+    std::env::temp_dir().join("pi-extensions")
+}
+
 /// Stable temporary directory for resolve-only package installs (the hash
 /// keys on prefix+suffix so the same source always maps to one checkout).
 pub(crate) fn temporary_dir(prefix: &str, suffix: Option<&str>) -> PathBuf {
@@ -126,8 +145,7 @@ pub(crate) fn temporary_dir(prefix: &str, suffix: Option<&str>) -> PathBuf {
         let _ = write!(output, "{byte:02x}");
         output
     });
-    std::env::temp_dir()
-        .join("pi-extensions")
+    temporary_root()
         .join(prefix)
         .join(&hash)
         .join(suffix.unwrap_or_default())

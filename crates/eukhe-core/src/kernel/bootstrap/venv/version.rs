@@ -2,23 +2,17 @@
 //! `.bootstrap-version` read/write, and the current-version predicates the
 //! flows and the readiness gates compose.
 
-use super::{default_rlm_extra_uv_args, BootstrapPythonSkill, BootstrapVersion, Path};
+use super::{BootstrapPythonSkill, BootstrapVersion, Path};
 
-/// Schema of `.bootstrap-version`; a mismatch rebuilds the venv.
-pub(super) const BOOTSTRAP_SCHEMA: u64 = 9;
-pub(super) const STATE_SNAPSHOT_REQUIREMENT: &str = "dill";
+/// Schema of `.bootstrap-version`; a mismatch rebuilds the venv. Schema 10:
+/// the venv installs from the runtime's hash-locked requirements, whose
+/// content is part of the runtime identity (no separate package record).
+pub(super) const BOOTSTRAP_SCHEMA: u64 = 10;
 const BOOTSTRAP_VERSION_FILE: &str = ".bootstrap-version";
 pub(super) fn read_bootstrap_version(venv: &Path) -> Option<BootstrapVersion> {
     let raw = std::fs::read_to_string(venv.join(BOOTSTRAP_VERSION_FILE)).ok()?;
     let parsed: BootstrapVersion = serde_json::from_str(&raw).ok()?;
     (parsed.schema > 0).then_some(parsed)
-}
-
-fn extra_uv_args_match(a: Option<&[String]>, b: &[&str]) -> bool {
-    match a {
-        None => false,
-        Some(a) => a.iter().map(String::as_str).eq(b.iter().copied()),
-    }
 }
 
 /// Identity of one recorded skill: the install root is the package path, and
@@ -58,11 +52,6 @@ pub(super) fn bootstrap_base_version_current(
         Some(version) => {
             version.schema == BOOTSTRAP_SCHEMA
                 && version.runtime.as_deref() == Some(runtime_identity)
-                && version.snapshot.as_deref() == Some(STATE_SNAPSHOT_REQUIREMENT)
-                && extra_uv_args_match(
-                    version.extra_uv_args.as_deref(),
-                    &default_rlm_extra_uv_args(),
-                )
         }
         None => false,
     }
@@ -87,13 +76,6 @@ pub(crate) fn write_bootstrap_version(
     let version = BootstrapVersion {
         schema: BOOTSTRAP_SCHEMA,
         runtime: Some(runtime_identity.to_string()),
-        snapshot: Some(STATE_SNAPSHOT_REQUIREMENT.to_string()),
-        extra_uv_args: Some(
-            default_rlm_extra_uv_args()
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        ),
         python_skills: Some(python_skills.to_vec()),
     };
     std::fs::write(

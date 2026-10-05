@@ -17,9 +17,9 @@ Usage:
 assets (`models.bundled.json` + `mcp-services.bundled.json`); the packer
 hard-fails without VALIDATED assets (version gates + >= 42 transport tuples +
 >= 68 services — see scripts/release/bundle_catalog.py, the catalog spec §3.2
-no-cold-start layer 2). The release workflow fetches the live catalog
-(`bundle_catalog.py generate --network`); the Nix source build copies the
-repository's catalog snapshot (`--catalog-dir`).
+no-cold-start layer 2). The release workflow fetches the catalog commit pinned
+in catalog-pin.json (`bundle_catalog.py generate --network`, sha256-checked);
+the Nix source build copies the repository's catalog snapshot (`--catalog-dir`).
 
 `--binary` defaults to `<repo>/target/<target>/release/eukhe` (cross builds)
 and falls back to `<repo>/target/release/eukhe` (host builds).
@@ -52,6 +52,7 @@ from pathlib import Path
 
 # The bundled-catalog validation gate (same release-scripts directory).
 from bundle_catalog import BUNDLED_CATALOG_FILES, validate_bundled_catalog_dir
+from runtime_lock import LockError, read_runtime_lock
 
 # Tarball-root payload: the exe-adjacent layout the binary resolves at
 # runtime, and the one `nix/package.nix` copies into its payload directory.
@@ -72,16 +73,18 @@ STAGED_ENTRIES = [
 # Shipped-content policy: what the installed tree carries beyond the binary.
 #
 # The runtime sidecar ships only what the kernel consumes. The venv
-# bootstrap installs it with `uv pip install <payload>/eukhe-runtime`
-# (uv's pip interface builds the hatchling wheel, whose target packages
-# only `src/rlm`), and the venv cache identity hashes `src/rlm/*.py` + the
-# packaged machine library under `src/rlm/machines` + `pyproject.toml` — so
-# the pytest suite (`test/`) and the development
-# `uv.lock` (the pip interface never reads the project lockfile) are dead
-# weight in every installed tree, and dropping them changes neither the
-# built wheel nor the bootstrap-version identity. The cache names and
-# suffixes mirror package_release.py's EXCLUDED_* so a stale `.venv` or
-# `__pycache__` cannot ride the payload either.
+# bootstrap installs `<payload>/eukhe-runtime/requirements-kernel.txt`
+# (`uv pip install --require-hashes --only-binary :all:`, the hash-locked
+# export of `uv.lock`; runtime_lock.py gates it at staging), then the
+# runtime itself with `--no-deps --no-index --no-build-isolation` (the
+# hatchling wheel targets only `src/rlm`). The venv cache identity hashes
+# `src/rlm/*.py` + the packaged machine library under `src/rlm/machines` +
+# `pyproject.toml` + the requirements lock — so the pytest suite (`test/`)
+# and the development `uv.lock` (already exported into the requirements
+# lock) are dead weight in every installed tree, and dropping them changes
+# neither the built wheel nor the bootstrap-version identity. The cache
+# names and suffixes mirror package_release.py's EXCLUDED_* so a stale
+# `.venv` or `__pycache__` cannot ride the payload either.
 RUNTIME_EXCLUDED_NAMES = frozenset({
     "test",
     "uv.lock",
@@ -237,6 +240,11 @@ def stage_tree(staging: Path, args: argparse.Namespace) -> dict:
             f"{runtime_dir} (expected eukhe-runtime with pyproject.toml); "
             "pass --runtime-dir or merge the kernel-packaging lane"
         )
+    # The bootstrap installs nothing that is not an exact, hashed pin.
+    try:
+        read_runtime_lock(runtime_dir)
+    except LockError as error:
+        fail(f"kernel runtime lock rejected: {error}")
     for name, source in sources.items():
         target_path = staging / name
         if not source.exists():

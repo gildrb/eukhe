@@ -123,39 +123,6 @@ impl Skill {
     }
 }
 
-/// Runtime info for kernel-side Python skill preparation.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PythonSkillRuntimeInfo {
-    pub name: String,
-    pub import_name: String,
-    pub package_path: PathBuf,
-    pub pyproject_path: PathBuf,
-}
-
-/// The runtime info for every Python skill in the list.
-///
-/// # Panics
-///
-/// The `expect` on the Python metadata cannot fire: the loader marks a
-/// skill `Python` only when its metadata was parsed.
-#[must_use]
-pub fn get_python_skill_runtime_info(skills: &[Skill]) -> Vec<PythonSkillRuntimeInfo> {
-    skills
-        .iter()
-        .filter(|skill| skill.is_python())
-        .map(|skill| {
-            let python = skill.python.as_ref().expect("python skill has metadata");
-            PythonSkillRuntimeInfo {
-                name: skill.name.clone(),
-                import_name: python.import_name.clone(),
-                package_path: python.package_path.clone(),
-                pyproject_path: python.pyproject_path.clone(),
-            }
-        })
-        .collect()
-}
-
 pub(crate) fn validate_name(name: &str, parent_dir_name: &str) -> Vec<String> {
     let mut errors = Vec::new();
     if name != parent_dir_name {

@@ -334,3 +334,27 @@ fn git_ref_checkout_installs_the_pinned_revision() {
     assert!(installed.join("package.json").exists());
     assert!(!installed.join("skills.md").exists(), "pinned ref checkout");
 }
+
+#[test]
+fn checkout_fallback_only_serves_a_binary_inside_the_checkout() {
+    // Regression: the compile-time checkout root served bundled skills and
+    // the kernel runtime to ANY binary, so a shipped binary read whatever
+    // sat at the build machine's path on the user's machine.
+    let temp = tempfile::tempdir().unwrap();
+    let checkout = temp.path().join("checkout");
+    let inside = checkout.join("target").join("debug");
+    let outside = temp.path().join("installed");
+    std::fs::create_dir_all(&inside).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(inside.join("eukhe"), "").unwrap();
+    std::fs::write(outside.join("eukhe"), "").unwrap();
+    let canonical = std::fs::canonicalize(&checkout).unwrap();
+    assert_eq!(
+        [
+            crate::packages::checkout_containing(&checkout, &inside.join("eukhe")),
+            crate::packages::checkout_containing(&checkout, &outside.join("eukhe")),
+            crate::packages::checkout_containing(&checkout, &temp.path().join("missing")),
+        ],
+        [Some(canonical), None, None]
+    );
+}

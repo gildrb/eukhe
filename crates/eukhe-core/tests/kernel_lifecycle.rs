@@ -180,6 +180,58 @@ async fn kernel_state_persists_across_cells_and_turns() {
 }
 
 #[tokio::test]
+async fn project_modules_in_cwd_never_shadow_the_runtime_or_stdlib() {
+    // Regression: `python -m rlm.repl` prepended the working directory to
+    // `sys.path`, so a project's own `rlm/` or `json.py` ran at kernel boot.
+    // Cells must still import project-only modules from the cwd, which the
+    // runtime appends at the END of `sys.path`.
+    let Some(mut options) = test_options(None) else {
+        return;
+    };
+    let project = tempfile::tempdir().expect("tempdir");
+    let marker = project.path().join("shadow-imported");
+    let shadow = format!(
+        "open({:?}, 'w').close()\nraise SystemExit('shadowed')\n",
+        marker.display().to_string()
+    );
+    std::fs::create_dir_all(project.path().join("rlm")).expect("mkdir");
+    std::fs::write(project.path().join("rlm").join("__init__.py"), &shadow).expect("write");
+    std::fs::write(project.path().join("json.py"), &shadow).expect("write");
+    std::fs::write(project.path().join("csv.py"), &shadow).expect("write");
+    std::fs::write(
+        project.path().join("eukhe_project_probe.py"),
+        "VALUE = 'project'\n",
+    )
+    .expect("write");
+    options.cwd = Some(project.path().to_path_buf());
+    let manager = started_manager(options).await;
+
+    let probe = execute(
+        &manager,
+        "import os, sys, csv, json, rlm, eukhe_project_probe\ncwd = os.getcwd()\n(cwd, sys.path[-1] == cwd, '' in sys.path, [m.__file__.startswith(cwd) for m in (csv, json, rlm)], eukhe_project_probe.VALUE, eukhe_project_probe.__file__.startswith(cwd))",
+    )
+    .await;
+    assert_eq!(probe.status, ExecuteStatus::Ok, "{}", probe.stderr);
+    let cwd = project.path().canonicalize().expect("canonical cwd");
+    assert_eq!(
+        probe.result,
+        Some(
+            format!(
+                "({:?}, True, False, [False, False, False], 'project', True)",
+                cwd.display().to_string()
+            )
+            .replace('"', "'")
+        )
+    );
+    assert!(
+        !marker.exists(),
+        "a cwd module shadowed the stdlib or runtime"
+    );
+    let shutdown = manager.shutdown(KernelShutdownOptions::default()).await;
+    assert!(shutdown.is_ok());
+}
+
+#[tokio::test]
 async fn background_thread_output_is_separated_from_cell_output() {
     let Some(options) = test_options(None) else {
         return;

@@ -55,15 +55,16 @@ fn dedupe_configured_sources(
         let (source, is_object) = super::super::manager::split_entry(&entry);
         let filter = is_object.then(|| parse_package_filter(&entry)).flatten();
         let identity = match parse_source(&source) {
-            ParsedSource::Npm(npm_source) => format!("npm:{}", npm_source.name),
-            ParsedSource::Git(git_source) => {
+            Ok(ParsedSource::Npm(npm_source)) => format!("npm:{}", npm_source.name),
+            Ok(ParsedSource::Git(git_source)) => {
                 format!("git:{}/{}", git_source.host, git_source.path)
             }
-            ParsedSource::Local(local) => {
+            Ok(ParsedSource::Local(local)) => {
                 let base_dir = manager.base_dir_for_scope(scope);
                 let resolved = PackageManager::resolve_path_from_base(&local.path, &base_dir);
                 format!("local:{}", resolved.display())
             }
+            Err(error) => format!("invalid:{}", error.input),
         };
         match seen.get(&identity) {
             None => {
@@ -199,7 +200,7 @@ impl PackageManager {
         mut on_missing: Option<&mut dyn FnMut(&str) -> MissingSourceAction>,
     ) -> Result<()> {
         for configured in sources {
-            let parsed = parse_source(&configured.source);
+            let parsed = parse_source(&configured.source)?;
             let mut metadata = PathMetadata {
                 source: MetadataSource::Package(configured.source.clone()),
                 scope: configured.scope,
@@ -246,7 +247,7 @@ impl PackageManager {
                         configured.scope,
                         self.cwd(),
                         self.agent_dir(),
-                    );
+                    )?;
                     if !installed_path.exists() {
                         if !self.install_missing(
                             &configured.source,
@@ -292,7 +293,7 @@ impl PackageManager {
                 MissingSourceAction::Install => {}
             }
         }
-        let parsed = parse_source(source);
+        let parsed = parse_source(source)?;
         match &parsed {
             ParsedSource::Npm(npm_source) => {
                 let temporary = scope == SourceScope::Temporary;

@@ -12,7 +12,7 @@ check:
 
 deny:
 	@command -v cargo-deny >/dev/null 2>&1 || { echo "cargo-deny not installed (cargo install cargo-deny --locked)"; exit 1; }
-	cargo deny --all-features --workspace check advisories licenses
+	cargo deny --all-features --workspace check advisories bans licenses sources
 
 # Windows cfg-hygiene gate: cross-target check +
 # clippy at -D warnings for every crate and test, the local mirror of the
@@ -62,10 +62,12 @@ RUNTIME_DIR ?=
 RUNTIME_FLAG = $(if $(RUNTIME_DIR),--runtime-dir $(RUNTIME_DIR),)
 
 # Bundled catalog assets (catalog spec §3.2 layer 2): generated at build
-# time, never committed. CI generates the offline fixture snapshot (it passes
-# the full packer gates: >= 42 transport tuples, >= 68 services) so builds
-# never depend on the catalog repo being reachable; CATALOG_ASSETS_MODE=network
-# switches the dry-runs to the live fetch for packaging parity.
+# time, never committed. The release workflow fetches the catalog commit
+# pinned in scripts/release/catalog-pin.json and checks each file's sha256
+# (`--network`). The local dry-runs default to the offline fixture snapshot
+# (it passes the full packer gates: >= 42 transport tuples, >= 68 services);
+# CATALOG_ASSETS_MODE=network switches them to the pinned fetch for
+# packaging parity.
 CATALOG_ASSETS_DIR = target/catalog-assets
 CATALOG_ASSETS_MODE ?= fixture
 CATALOG_ASSETS_FLAG = --catalog-assets $(CATALOG_ASSETS_DIR)
@@ -89,14 +91,22 @@ RELEASE_PACKAGE_BUILD = :
 RELEASE_PACKAGE_FLAGS =
 endif
 
-# Live-catalog asset generation (network fetch; packaging parity with the
-# TS release flow — CI itself uses the fixture snapshot for reliability).
+# Pinned-catalog asset generation (network fetch of the catalog-pin.json
+# commit, sha256-checked; the release workflow's mode).
 catalog-assets:
 	python3 scripts/release/bundle_catalog.py generate --network --out $(CATALOG_ASSETS_DIR)
 
 # Offline asset generation: the synthetic full-gate fixture snapshot.
 catalog-assets-fixture:
 	python3 scripts/release/bundle_catalog.py generate --fixture --out $(CATALOG_ASSETS_DIR)
+
+# Move the catalog pin (scripts/release/catalog-pin.json) to the catalog
+# repo's current CATALOG_REF (default main): resolves the commit, fetches
+# both files at it, runs the full validation gates, and records the commit
+# and both sha256. Review the diff before committing it.
+CATALOG_REF ?= main
+catalog-pin:
+	python3 scripts/release/bundle_catalog.py pin --ref $(CATALOG_REF)
 
 release-dry-run:
 	cargo build --release --locked --workspace
@@ -128,9 +138,12 @@ package:
 # Bundled-catalog gates (scripts/release/test_catalog_assets.py): the
 # offline fixture passes the full packer validation, the packer hard-fails
 # on missing/invalid assets, network mode is verified against a local HTTP
-# server, and the assets land in the tarball layout the binary expects.
+# server (including the pinned-sha256 check), and the assets land in the
+# tarball layout the binary expects. test_stamp_version.py covers the
+# rolling-version Cargo.toml/Cargo.lock stamp.
 catalog-assets-gates:
 	python3 scripts/release/test_catalog_assets.py
+	python3 scripts/release/test_stamp_version.py
 
 # The CI shard tooling's contract battery (ci.yml's PR smoke): the stable
 # crc32 assignment under the narrowed selection, the scope-aware summary
@@ -140,4 +153,20 @@ shard-gates:
 	python3 scripts/test_ci_test_shard.py
 	python3 scripts/test_ci_pr_crates.py
 
-.PHONY: check deny windows-cross actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-assets-gates shard-gates
+# The kernel venv's hash-locked requirements: eukhe-runtime/uv.lock exported
+# to eukhe-runtime/requirements-kernel.txt (the only file the venv bootstrap
+# installs from). runtime-lock re-resolves (network) and re-exports;
+# runtime-lock-check is offline: uv.lock must match pyproject.toml, the
+# committed export must equal a fresh frozen export, and every pin must be
+# exact, hashed, and in uv.lock (scripts/release/runtime_lock.py).
+RUNTIME_LOCK_EXPORT = uv export --frozen --no-header --format requirements-txt --no-emit-project --no-default-groups --group kernel
+
+runtime-lock:
+	cd eukhe-runtime && uv lock && $(RUNTIME_LOCK_EXPORT) > requirements-kernel.txt
+
+runtime-lock-check:
+	cd eukhe-runtime && uv lock --check --offline
+	cd eukhe-runtime && $(RUNTIME_LOCK_EXPORT) | diff -u requirements-kernel.txt -
+	python3 scripts/release/test_runtime_lock.py
+
+.PHONY: check deny windows-cross actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates shard-gates runtime-lock runtime-lock-check

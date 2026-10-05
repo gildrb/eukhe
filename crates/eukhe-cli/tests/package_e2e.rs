@@ -277,10 +277,13 @@ impl Sandbox {
             &npm_shim,
             &template.replace("{SANDBOX_GLOBAL_ROOT}", &global_root.display().to_string()),
         );
+        // The sandbox project is trusted: its `--local` packages take part
+        // in `package update` like the recorded flow expects.
         std::fs::write(
             agent_dir.join("settings.json"),
             serde_json::to_string_pretty(&serde_json::json!({
-                "npmCommand": [npm_shim.display().to_string()]
+                "npmCommand": [npm_shim.display().to_string()],
+                "trustedProjects": [cwd.display().to_string()]
             }))
             .unwrap(),
         )

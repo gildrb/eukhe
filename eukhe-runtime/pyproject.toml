@@ -10,6 +10,31 @@ dependencies = [
 
 [dependency-groups]
 dev = ["dill"]
+# The kernel venv: everything the bootstrap installs besides the runtime
+# itself, hash-locked in uv.lock and exported to requirements-kernel.txt
+# (`make runtime-lock`). The bootstrap installs that export with
+# `--require-hashes`, then this project with `--no-deps --no-index
+# --no-build-isolation`, so hatchling (and every skill's build backend)
+# must come from this group, never from an index at build time.
+kernel = [
+  "dill",
+  "requests",
+  "httpx",
+  "pyyaml",
+  "tomli",
+  "python-dotenv",
+  "pandas",
+  "numpy",
+  "scipy",
+  "beautifulsoup4",
+  "lxml",
+  "pydantic",
+  "tyro",
+  "pillow",
+  "hatchling",
+  # hatchling's editable-install hook (skills install `--editable`).
+  "editables",
+]
 
 [build-system]
 requires = ["hatchling"]

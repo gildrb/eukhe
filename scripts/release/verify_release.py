@@ -23,7 +23,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # The bundled-catalog gate (same release-scripts directory).
 from bundle_catalog import validate_bundled_catalog_dir
@@ -36,6 +36,7 @@ from assemble_artifacts import (
     RUNTIME_EXCLUDED_SUFFIXES,
     STAGED_ENTRIES,
 )
+from runtime_lock import RUNTIME_LOCK_FILE, LockError, parse_requirements
 
 # The designed tarball-root payload (STAGED_ENTRIES in assemble_artifacts.py).
 # The bundled catalog assets among them must also pass the same validation
@@ -98,6 +99,18 @@ def main() -> int:
             if member.uid != 0 or member.gid != 0 or member.mtime != 0:
                 fail(f"tarball entry {member.name!r} is not deterministic "
                      f"(uid={member.uid} gid={member.gid} mtime={member.mtime})")
+        # The kernel venv bootstrap installs only this hash-locked file.
+        lock_member = f"eukhe-runtime/{RUNTIME_LOCK_FILE}"
+        if lock_member not in {member.name for member in members}:
+            fail(f"tarball is missing the kernel runtime lock {lock_member!r}")
+        lock_file = tar.extractfile(lock_member)
+        if lock_file is None:
+            fail(f"kernel runtime lock {lock_member!r} is not a regular file")
+        with lock_file:
+            try:
+                parse_requirements(lock_file.read().decode("utf-8"))
+            except LockError as error:
+                fail(f"kernel runtime lock {lock_member!r} rejected: {error}")
 
     # 2. Checksums agree with SHA256SUMS and manifest.json.
     archive_sha = sha256_file(archive)
@@ -120,21 +133,31 @@ def main() -> int:
     #    EUKHE_PACKAGE_DIR unset: shipped artifacts never depend on it.
     scratch = Path(tempfile.mkdtemp(prefix="eukhe-verify-"))
     try:
-        # Manual extraction: the deterministic-shape checks above already
-        # rejected link entries, and staying on explicit member writes keeps
-        # the gate working on any Python >= 3.8 (no `filter=` kwarg).
+        # Manual extraction: every member must be a plain file or directory
+        # whose relative name stays inside scratch, checked before any write;
+        # staying on explicit member writes keeps the gate working on any
+        # Python >= 3.8 (no `filter=` kwarg).
+        scratch_root = str(scratch.resolve())
         with tarfile.open(archive) as tar:
             for member in tar.getmembers():
+                name = PurePosixPath(member.name)
+                if name.is_absolute() or ".." in name.parts:
+                    fail(f"tarball entry {member.name!r} is not a relative in-tree path")
+                if not (member.isdir() or member.isfile()):
+                    fail(f"tarball entry {member.name!r} is not a regular file or directory")
                 target = scratch / member.name
+                if os.path.commonpath([scratch_root, str(target.resolve())]) != scratch_root:
+                    fail(f"tarball entry {member.name!r} escapes the extraction directory")
                 if member.isdir():
                     target.mkdir(parents=True, exist_ok=True)
                 else:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     source = tar.extractfile(member)
-                    assert source is not None  # plain-file member, links rejected above
+                    if source is None:
+                        fail(f"tarball entry {member.name!r} has no file data")
                     with source, open(target, "wb") as sink:
                         shutil.copyfileobj(source, sink)
-                    os.chmod(target, member.mode)
+                    os.chmod(target, member.mode & 0o755)
         # The bundled catalog assets must be present and valid in the
         # installed layout (the full packer gates: no small-fixture waiver).
         catalog_facts = validate_bundled_catalog_dir(scratch)

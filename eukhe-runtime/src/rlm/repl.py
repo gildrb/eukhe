@@ -1701,6 +1701,14 @@ def main() -> None:
     user_module = types.ModuleType("__main__")
     user_module.__dict__["__builtins__"] = __builtins__
     sys.modules["__main__"] = user_module
+    # The host starts the kernel with `python -P` so the working directory
+    # cannot shadow the stdlib or this runtime at boot. Cells still import
+    # the project's own modules: the cwd goes at the END of sys.path, so
+    # stdlib, site-packages, and rlm always win over a same-named project
+    # module.
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.append(cwd)
 
     _loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_loop)

@@ -6,6 +6,7 @@ pub(crate) mod load;
 pub(crate) mod manager;
 pub(crate) mod merge;
 pub(crate) mod storage;
+pub(crate) mod trust;
 pub(crate) mod types;
 
 pub use manager::{
@@ -16,6 +17,7 @@ pub use manager::{
 pub use storage::{
     FileSettingsStorage, InMemorySettingsStorage, SettingsScope, SettingsStorage, CONFIG_DIR_NAME,
 };
+pub use trust::{ProjectTrust, TrustLevel};
 pub use types::{
     AutoRefineSettings, AutonomousSettings, CompactionSettings, McpServerConfig, MemorySettings,
     QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting,

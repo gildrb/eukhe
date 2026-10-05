@@ -36,7 +36,7 @@ rustPlatform.buildRustPackage {
     payload="$out/libexec/eukhe"
     mkdir -p "$payload/eukhe-runtime"
     mv "$out/bin/eukhe" "$payload/"
-    cp -R eukhe-runtime/pyproject.toml eukhe-runtime/src "$payload/eukhe-runtime/"
+    cp -R eukhe-runtime/pyproject.toml eukhe-runtime/requirements-kernel.txt eukhe-runtime/src "$payload/eukhe-runtime/"
     cp -R skills "$payload/skills"
     cp LICENSE "$payload/"
     catalog="$(mktemp -d)"

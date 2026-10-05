@@ -252,10 +252,10 @@ impl PackageManager {
     ///
     /// # Errors
     ///
-    /// Returns an error when the npm or git install fails, or when a local
-    /// source path does not exist.
+    /// Returns an error when the source is invalid, when the npm or git
+    /// install fails, or when a local source path does not exist.
     pub fn install(&mut self, source: &str, scope: UserOrProject) -> Result<()> {
-        let parsed = parse_source(source);
+        let parsed = parse_source(source)?;
         self.with_progress(
             ProgressAction::Install,
             source,
@@ -282,10 +282,11 @@ impl PackageManager {
     ///
     /// # Errors
     ///
-    /// Returns an error when the npm uninstall or git removal fails. Local
-    /// sources have no installed files and always succeed.
+    /// Returns an error when the source is invalid or when the npm uninstall
+    /// or git removal fails. Local sources have no installed files and
+    /// always succeed.
     pub fn remove(&mut self, source: &str, scope: UserOrProject) -> Result<()> {
-        let parsed = parse_source(source);
+        let parsed = parse_source(source)?;
         self.with_progress(
             ProgressAction::Remove,
             source,
@@ -320,7 +321,8 @@ impl PackageManager {
     /// Add a source to settings; false when an equivalent source is already
     /// configured.
     pub fn add_source_to_settings(&mut self, source: &str, scope: UserOrProject) -> bool {
-        let current: Vec<serde_json::Value> = self.packages_for_scope(scope).unwrap_or_default();
+        let current: Vec<serde_json::Value> =
+            self.document_packages_for_scope(scope).unwrap_or_default();
         let normalized = self.normalize_package_source_for_settings(source, scope);
         let exists = current
             .iter()
@@ -336,7 +338,8 @@ impl PackageManager {
 
     /// Drop a source from settings; true when a matching entry was removed.
     pub fn remove_source_from_settings(&mut self, source: &str, scope: UserOrProject) -> bool {
-        let current: Vec<serde_json::Value> = self.packages_for_scope(scope).unwrap_or_default();
+        let current: Vec<serde_json::Value> =
+            self.document_packages_for_scope(scope).unwrap_or_default();
         let next: Vec<serde_json::Value> = current
             .iter()
             .filter(|existing| !self.package_sources_match(existing, source, scope))
@@ -349,12 +352,13 @@ impl PackageManager {
         true
     }
 
-    /// Configured packages across both scopes (user first).
+    /// Configured packages across both scopes (user first), as the
+    /// documents list them (an untrusted project's withheld packages too).
     #[must_use]
     pub fn list_configured_packages(&self) -> Vec<ConfiguredPackage> {
         let mut packages = Vec::new();
         for scope in [UserOrProject::User, UserOrProject::Project] {
-            for entry in self.packages_for_scope(scope).unwrap_or_default() {
+            for entry in self.document_packages_for_scope(scope).unwrap_or_default() {
                 let (source, filtered) = split_entry(&entry);
                 packages.push(ConfiguredPackage {
                     source: source.clone(),
@@ -367,10 +371,11 @@ impl PackageManager {
         packages
     }
 
-    /// Absolute install location for a configured source, when present.
+    /// Absolute install location for a configured source, when present
+    /// (invalid sources have none).
     #[must_use]
     pub fn get_installed_path(&self, source: &str, scope: UserOrProject) -> Option<PathBuf> {
-        match parse_source(source) {
+        match parse_source(source).ok()? {
             ParsedSource::Npm(npm_source) => {
                 let global_root = self.global_npm_root().ok()?;
                 let path =
@@ -379,7 +384,8 @@ impl PackageManager {
             }
             ParsedSource::Git(git_source) => {
                 let path =
-                    git::git_install_path(&git_source, scope.into(), &self.cwd, &self.agent_dir);
+                    git::git_install_path(&git_source, scope.into(), &self.cwd, &self.agent_dir)
+                        .ok()?;
                 path.exists().then_some(path)
             }
             ParsedSource::Local(local) => {
@@ -392,6 +398,8 @@ impl PackageManager {
 
     // -- scoped settings helpers --------------------------------------------
 
+    /// The packages that apply in a scope (an untrusted project's are
+    /// withheld): the input to installs, updates, and resolution.
     pub(super) fn packages_for_scope(
         &self,
         scope: UserOrProject,
@@ -399,6 +407,16 @@ impl PackageManager {
         match scope {
             UserOrProject::User => self.settings.global_settings().packages.clone(),
             UserOrProject::Project => self.settings.project_settings().packages.clone(),
+        }
+    }
+
+    /// The packages a scope's document lists, withheld or not: what the
+    /// configured list shows and the base an add/remove rewrites, so the
+    /// edit never drops entries.
+    fn document_packages_for_scope(&self, scope: UserOrProject) -> Option<Vec<serde_json::Value>> {
+        match scope {
+            UserOrProject::User => self.settings.global_settings().packages.clone(),
+            UserOrProject::Project => self.settings.project_document().packages.clone(),
         }
     }
 
@@ -420,7 +438,7 @@ impl PackageManager {
     /// Local sources persist relative to their settings base (git/npm sources
     /// persist verbatim).
     fn normalize_package_source_for_settings(&self, source: &str, scope: UserOrProject) -> String {
-        if !matches!(parse_source(source), ParsedSource::Local(_)) {
+        if !matches!(parse_source(source), Ok(ParsedSource::Local(_))) {
             return source.to_string();
         }
         let base = self.base_dir_for_scope(scope.into());
@@ -449,13 +467,14 @@ impl PackageManager {
 
     pub(super) fn get_source_match_key_for_input(&self, source: &str) -> String {
         match parse_source(source) {
-            ParsedSource::Npm(npm_source) => format!("npm:{}", npm_source.name),
-            ParsedSource::Git(git_source) => {
+            Ok(ParsedSource::Npm(npm_source)) => format!("npm:{}", npm_source.name),
+            Ok(ParsedSource::Git(git_source)) => {
                 format!("git:{}/{}", git_source.host, git_source.path)
             }
-            ParsedSource::Local(local) => {
+            Ok(ParsedSource::Local(local)) => {
                 format!("local:{}", self.resolve_path(&local.path).display())
             }
+            Err(error) => format!("invalid:{}", error.input),
         }
     }
 
@@ -465,17 +484,18 @@ impl PackageManager {
         scope: UserOrProject,
     ) -> String {
         match parse_source(source) {
-            ParsedSource::Npm(npm_source) => format!("npm:{}", npm_source.name),
-            ParsedSource::Git(git_source) => {
+            Ok(ParsedSource::Npm(npm_source)) => format!("npm:{}", npm_source.name),
+            Ok(ParsedSource::Git(git_source)) => {
                 format!("git:{}/{}", git_source.host, git_source.path)
             }
-            ParsedSource::Local(local) => {
+            Ok(ParsedSource::Local(local)) => {
                 let base = self.base_dir_for_scope(scope.into());
                 format!(
                     "local:{}",
                     Self::resolve_path_from_base(&local.path, &base).display()
                 )
             }
+            Err(error) => format!("invalid:{}", error.input),
         }
     }
 

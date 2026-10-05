@@ -93,7 +93,7 @@ jobs:
   # feeds test shards' --crates; empty means "the full union".
   changes:
     name: touched crates (PR) / full selection (push + queue)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     outputs:
@@ -228,10 +228,15 @@ jobs:
           # ref, and PR-ref entries are the eviction pressure on the
           # release-build caches.
           save-if: ${{ github.event_name == 'push' }}
+      # Pinned uv release, checked against its published sha256
+      # (https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-unknown-linux-gnu.tar.gz.sha256).
+      # No Actions cache: the uv cache would carry state between runs.
       - name: Install uv (the kernel venv bootstrap below uses it)
-        run: |
-          python3 -m pip install --user uv
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.23"
+          checksum: 9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6
+          enable-cache: false
       # The wave's selection, resolved once per leg before anything builds:
       # the narrowed selection's unit list decides whether the bins build
       # below has any work to do (an empty selection runs no units and needs
@@ -300,9 +305,9 @@ jobs:
   #   x86_64-pc-windows-gnu; ring's C needs the mingw cross compiler even
   #   for check builds.
   #
-  #   deny — cargo-deny advisories + licenses, the CI mirror of `make deny`.
-  #   The advisory DB drifts daily, so a drifted advisory can gate PRs —
-  #   that is the accepted trade.
+  #   deny — cargo-deny advisories + bans + licenses + sources, the CI
+  #   mirror of `make deny`. The advisory DB drifts daily, so a drifted
+  #   advisory can gate PRs — that is the accepted trade.
   windows-cross:
     name: windows cross-check + clippy (x86_64-pc-windows-gnu)
     if: (github.event_name == 'push' || !github.event.pull_request.draft)
@@ -316,8 +321,21 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
           components: clippy
+      # The mingw cross compiler from a fixed snapshot.ubuntu.com instant:
+      # apt reads only the snapshot list, not the runner's mirror.
       - name: Install the mingw-w64 cross toolchain (ring C for the target)
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+        env:
+          UBUNTU_SNAPSHOT: 20261005T000000Z
+        run: |
+          set -euo pipefail
+          lists="${RUNNER_TEMP}/apt-snapshot"
+          mkdir -p "${lists}/parts"
+          for suite in noble noble-updates noble-security; do
+            echo "deb https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT} ${suite} main universe"
+          done > "${lists}/sources.list"
+          apt_opts=(-o "Dir::Etc::SourceList=${lists}/sources.list" -o "Dir::Etc::SourceParts=${lists}/parts")
+          sudo apt-get "${apt_opts[@]}" update
+          sudo apt-get "${apt_opts[@]}" install -y --no-install-recommends gcc-mingw-w64-x86-64
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: windows-cross
@@ -325,17 +343,26 @@ jobs:
       - run: cargo clippy --locked --workspace --target x86_64-pc-windows-gnu --all-targets -- -D warnings
 
   deny:
-    name: deny (cargo-deny advisories + licenses)
+    name: deny (cargo-deny advisories + bans + licenses + sources)
     if: (github.event_name == 'push' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      CARGO_DENY_VERSION: 0.20.2
+      # https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz.sha256
+      CARGO_DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Dependency audit (cargo-deny advisories + licenses)
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
-        with:
-          command: check
-          arguments: --all-features --workspace
-          command-arguments: advisories licenses
+      - name: Install cargo-deny (pinned release, sha256-checked)
+        run: |
+          set -euo pipefail
+          name="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "${RUNNER_TEMP}/${name}.tar.gz" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${name}.tar.gz"
+          echo "${CARGO_DENY_SHA256}  ${RUNNER_TEMP}/${name}.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/${name}.tar.gz" -C "${RUNNER_TEMP}" "${name}/cargo-deny"
+          echo "${RUNNER_TEMP}/${name}" >> "${GITHUB_PATH}"
+      - name: Dependency audit (cargo-deny advisories + bans + licenses + sources)
+        run: cargo deny --all-features --workspace check advisories bans licenses sources

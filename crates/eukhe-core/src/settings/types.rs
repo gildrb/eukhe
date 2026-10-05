@@ -382,6 +382,11 @@ pub struct Settings {
     /// Log per-request provider timing phases to the diagnostic log (TS
     /// `requestTiming`; unset means OFF, exactly the TS default).
     pub request_timing: Option<bool>,
+    /// Global-only: absolute directories whose projects (the directory and
+    /// everything under it) may set code-execution-capable settings and
+    /// load project Python skills. A project-scope value is never read
+    /// (see `settings::trust`).
+    pub trusted_projects: Option<Vec<String>>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

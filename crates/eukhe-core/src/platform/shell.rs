@@ -20,11 +20,18 @@ pub struct ShellConfig {
 ///
 /// # Errors
 ///
-/// Returns an error when the explicit custom shell path does not exist;
-/// built-in resolution never fails (a missing bash falls back to `sh`).
+/// Returns an error when the explicit custom shell path is not absolute (a
+/// relative path would resolve against whatever directory the command
+/// runs in) or does not exist; built-in resolution never fails (a missing
+/// bash falls back to `sh`).
 #[cfg(unix)]
 pub fn get_shell_config(custom_shell_path: Option<&str>) -> anyhow::Result<ShellConfig> {
     if let Some(path) = custom_shell_path {
+        if !Path::new(path).is_absolute() {
+            return Err(anyhow::anyhow!(
+                "shellPath must be an absolute path, got: {path}"
+            ));
+        }
         if Path::new(path).exists() {
             return Ok(ShellConfig {
                 shell: path.to_string(),
@@ -61,12 +68,17 @@ pub fn get_shell_config(custom_shell_path: Option<&str>) -> anyhow::Result<Shell
 ///
 /// # Errors
 ///
-/// Returns an error when the explicit shell path does not exist; every
-/// other fallback (Git Bash dirs, `where bash.exe`, `sh`) resolves or
-/// the final error names the classes searched.
+/// Returns an error when the explicit shell path is not absolute or does
+/// not exist; every other fallback (Git Bash dirs, `where bash.exe`, `sh`)
+/// resolves or the final error names the classes searched.
 #[cfg(windows)]
 pub fn get_shell_config(custom_shell_path: Option<&str>) -> anyhow::Result<ShellConfig> {
     if let Some(path) = custom_shell_path {
+        if !Path::new(path).is_absolute() {
+            return Err(anyhow::anyhow!(
+                "shellPath must be an absolute path, got: {path}"
+            ));
+        }
         if Path::new(path).exists() {
             return Ok(bash_config(path));
         }
@@ -220,6 +232,25 @@ pub fn resolve_kernel_bash_shell(custom_shell_path: Option<&str>) -> Option<Stri
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+#[cfg(all(test, unix))]
+mod unix_tests {
+    use super::*;
+
+    /// A relative `shellPath` is refused even when it names an existing
+    /// file relative to the current directory (the crate root's
+    /// `Cargo.toml` here): it would resolve against whatever directory the
+    /// command runs in, which a cloned repository controls.
+    #[test]
+    fn relative_custom_shell_path_is_rejected() {
+        assert!(Path::new("Cargo.toml").exists());
+        let error = get_shell_config(Some("Cargo.toml")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "shellPath must be an absolute path, got: Cargo.toml"
+        );
+    }
 }
 
 #[cfg(all(test, windows))]
