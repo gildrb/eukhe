@@ -1,9 +1,11 @@
 //! The memory's prompts (`OptChat` spec §4.4, §7.2, §9), with the agent
 //! named [`AGENT_NAME`]. `COMPACT`, `VIEW_DOC`, `MASTER` and the subagent
-//! prompt are verbatim, with two deviations in `MASTER`: it notes that the
+//! prompt are verbatim, with three deviations in `MASTER`: it notes that the
 //! Python REPL state persists across turns while the conversation does not,
-//! and it says "background tasks" where the spec says "computer tasks"
-//! (eukhe has no computer use; its background work is RLM subagents).
+//! it says "background tasks" where the spec says "computer tasks"
+//! (eukhe has no computer use; its background work is RLM subagents), and
+//! it adds one paragraph: the view is history, so a request repeated from it
+//! is done again, not answered from memory.
 
 /// The agent's name in its memory prompts.
 pub const AGENT_NAME: &str = "Eukhe";
@@ -85,6 +87,12 @@ conversation does not). Each turn starts with the view below, followed by
 the user's new message. Summaries keep little of tool output, so say in
 your reply what you learned that will matter later. Messages the user
 sends while you work reach you between tool calls.
+
+The view is history, not the current state: files, processes and repos
+may have changed since. Do each request in the new message now, with your
+tools, even if the view shows the same request done before. Check with
+tools in this turn any state your answer depends on. Never report a
+remembered result as the result of this turn.
 
 Subagents and background tasks run in the background. Each one's report
 reaches you as a message starting "[id] ": between your tool calls
