@@ -181,15 +181,18 @@ impl Inner {
                 *stdin = None;
             }
             let pid = child.pid;
-            let signaled = kill_process(pid, kill_signal);
-            // Inactive only when the signal proved the pid still named our child.
-            if pid > 0 && signaled {
-                orphan_journal::record_orphan_process_state(pid, false);
-            }
+            kill_process(pid, kill_signal);
             // A killed/crashed kernel cannot run its own shutdown hook, so the
             // host reaps the bash() process groups it journaled under this pid.
             if pid > 0 {
-                orphan_journal::reap_kernel_orphan_processes(pid);
+                if let Err(error) =
+                    orphan_journal::reap_kernel_orphan_processes(&child.orphan_journal, pid)
+                {
+                    self.append_diagnostic(&format!(
+                        "orphan journal {}: {error}",
+                        child.orphan_journal.display()
+                    ));
+                }
             }
         }
         *lock(&self.start_memo) = None;

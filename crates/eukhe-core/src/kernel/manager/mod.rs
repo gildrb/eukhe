@@ -375,6 +375,8 @@ struct ChildHandle {
     pid: i32,
     stdin: Arc<tokio::sync::Mutex<Option<tokio::process::ChildStdin>>>,
     exit_rx: tokio::sync::watch::Receiver<Option<ExitInfo>>,
+    /// This kernel's own `bash()` orphan journal, reaped at teardown.
+    orphan_journal: std::path::PathBuf,
 }
 
 /// The RLM kernel manager: owns one `python -m rlm.repl` subprocess and the

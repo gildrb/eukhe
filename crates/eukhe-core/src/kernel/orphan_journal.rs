@@ -1,18 +1,17 @@
 //! Orphan-process journal: how the host tracks `bash()` children a kernel left
 //! behind, so a killed/crashed kernel cannot leak process groups.
 //!
-//! The Python runtime journals every `bash()` process group under the kernel
-//! pid (`kernelPid`) into the file named by `EUKHE_INTERNAL_ORPHAN_PROCESS_JOURNAL`;
-//! the host reaps those groups when the kernel dies without running its
-//! shutdown hook.
+//! The kernel manager hands every kernel it spawns its own journal file
+//! through `EUKHE_INTERNAL_ORPHAN_PROCESS_JOURNAL`; the Python runtime
+//! journals every `bash()` process group there under the kernel pid
+//! (`kernelPid`). `bash()` groups run in their own sessions, so a kernel
+//! killed without running its shutdown hook leaves them alive: the host
+//! reaps them from the journal at teardown and deletes the file.
 //!
 //! Ported from `core/orphan-process-journal.ts`.
 
 use std::collections::HashMap;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-
-use serde_json::json;
+use std::path::Path;
 
 /// Environment variable naming the journal file.
 pub const ORPHAN_PROCESS_JOURNAL_ENV: &str = "EUKHE_INTERNAL_ORPHAN_PROCESS_JOURNAL";
@@ -28,14 +27,6 @@ pub struct ActiveOrphanProcess {
     pub process_start_id: Option<String>,
 }
 
-fn journal_path() -> Option<std::path::PathBuf> {
-    let path = std::env::var(ORPHAN_PROCESS_JOURNAL_ENV).ok()?;
-    if path.is_empty() {
-        return None;
-    }
-    Some(PathBuf::from(path))
-}
-
 /// Pid-reuse identity (`proc:<starttime>`), shared with eukhe-daemon through
 /// `eukhe_types::platform::process`.
 #[must_use]
@@ -44,77 +35,6 @@ pub fn get_process_start_id(pid: i32) -> Option<String> {
         return None;
     }
     eukhe_types::platform::process::process_start_id(pid as u32)
-}
-
-/// Record a process as active/inactive in the journal. Best-effort: process
-/// tracking must never make a successfully spawned command fail.
-pub fn record_orphan_process_state(pid: i32, active: bool) {
-    let Some(path) = journal_path() else {
-        return;
-    };
-    if pid <= 0 {
-        return;
-    }
-    let process_start_id = if active {
-        get_process_start_id(pid)
-    } else {
-        None
-    };
-    let record = json!({
-        "version": 1,
-        "pid": pid,
-        "ownerPid": std::process::id(),
-        "active": active,
-        "recordedAt": iso8601_now(),
-    });
-    let record = match process_start_id {
-        Some(id) => {
-            let mut map = record;
-            map["processStartId"] = json!(id);
-            map
-        }
-        None => record,
-    };
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).append(true);
-    crate::platform::perms::set_private_mode(&mut options);
-    let Ok(mut file) = options.open(&path) else {
-        return;
-    };
-    let _ = writeln!(file, "{record}");
-    let _ = file.sync_all();
-}
-
-fn iso8601_now() -> String {
-    // RFC3339 UTC timestamp with second precision; the field is informational.
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs() as i64;
-    let (year, month, day, hh, mm, ss) = civil_from_unix(secs);
-    format!("{year:04}-{month:02}-{day:02}T{hh:02}:{mm:02}:{ss:02}Z")
-}
-
-fn civil_from_unix(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
-    // Howard Hinnant's civil_from_days algorithm.
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    let (hh, mm, ss) = (
-        (rem / 3600) as u32,
-        ((rem % 3600) / 60) as u32,
-        (rem % 60) as u32,
-    );
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let year = if m <= 2 { y + 1 } else { y };
-    (year, m, d, hh, mm, ss)
 }
 
 /// Read the still-active orphan processes recorded by this host process.
@@ -192,28 +112,29 @@ pub fn kill_orphan_process(pid: i32) -> bool {
     crate::platform::process::kill_process_group_or_pid(pid)
 }
 
-/// Kill still-active `bash()` children journaled by the given kernel pid;
-/// sibling kernels' records are untouched.
-pub fn reap_kernel_orphan_processes(kernel_pid: i32) {
-    let Some(path) = journal_path() else {
-        return;
-    };
-    if kernel_pid <= 0 {
-        return;
-    }
-    let Ok(orphans) = read_active_orphan_processes(&path) else {
-        return;
-    };
-    for orphan in orphans {
+/// Kill the still-active `bash()` children `journal` holds for the given
+/// kernel pid, then delete the journal: its kernel is gone, so nothing
+/// appends to it again. A journal that was never created (the kernel ran
+/// no `bash()`) is an empty record.
+///
+/// # Errors
+///
+/// Returns an error when the journal exists but cannot be read or removed.
+pub fn reap_kernel_orphan_processes(journal: &Path, kernel_pid: i32) -> anyhow::Result<()> {
+    for orphan in read_active_orphan_processes(journal)? {
         if orphan.kernel_pid != Some(kernel_pid) || orphan.pid == kernel_pid {
             continue;
         }
         if !should_reap(&orphan) {
             continue;
         }
-        if kill_orphan_process(orphan.pid) {
-            record_orphan_process_state(orphan.pid, false);
-        }
+        // `false` means the group is already gone: nothing left to reap.
+        let _ = kill_orphan_process(orphan.pid);
+    }
+    match std::fs::remove_file(journal) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -228,11 +149,5 @@ mod tests {
         let id = get_process_start_id(std::process::id() as i32);
         let id = id.expect("own pid must be readable");
         assert!(id.starts_with("proc:") || id.starts_with("ps:"));
-    }
-
-    #[test]
-    fn civil_conversion_known_dates() {
-        assert_eq!(civil_from_unix(0), (1970, 1, 1, 0, 0, 0));
-        assert_eq!(civil_from_unix(1_700_000_000), (2023, 11, 14, 22, 13, 20));
     }
 }

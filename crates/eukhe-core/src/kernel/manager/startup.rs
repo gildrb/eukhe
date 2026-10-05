@@ -13,6 +13,9 @@ use super::{
 // Startup and child wiring
 // ---------------------------------------------------------------------------
 
+/// Numbers each spawned kernel's orphan journal within this host process.
+static NEXT_ORPHAN_JOURNAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl Inner {
     /// True when a teardown (or newer start) superseded the start that
     /// captured `generation`.
@@ -168,8 +171,14 @@ impl Inner {
             return Err(anyhow!("Kernel was disposed during startup"));
         }
 
-        // bash.py journals its process groups under this pid so the host can
-        // reap them if the runtime dies without running its shutdown hook.
+        // bash.py journals its process groups under this pid into the
+        // kernel's own journal so the host can reap them if the runtime dies
+        // without running its shutdown hook.
+        let orphan_journal = std::env::temp_dir().join(format!(
+            "eukhe-kernel-orphans-{}-{}.jsonl",
+            std::process::id(),
+            NEXT_ORPHAN_JOURNAL.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut env: HashMap<String, String> = std::env::vars().collect();
         for (key, value) in &self.options.env {
             env.insert(key.clone(), value.clone());
@@ -177,6 +186,10 @@ impl Inner {
         env.insert(
             "EUKHE_KERNEL_OWNER_PID".to_string(),
             std::process::id().to_string(),
+        );
+        env.insert(
+            orphan_journal::ORPHAN_PROCESS_JOURNAL_ENV.to_string(),
+            orphan_journal.to_string_lossy().into_owned(),
         );
         let cwd = self.options.cwd.clone();
         let mut command = tokio::process::Command::new(&python);
@@ -220,15 +233,13 @@ impl Inner {
                 ));
             }
         };
-        let pid = child.id().map_or(-1, |p| p as i32);
-        orphan_journal::record_orphan_process_state(pid, true);
         let (ready_tx, ready_rx) = oneshot::channel::<anyhow::Result<i64>>();
         {
             let mut g = lock(&self.guarded);
             g.startup_protocol_error = None;
             g.ready_tx = Some(ready_tx);
         }
-        self.wire_child(child, generation);
+        self.wire_child(child, generation, orphan_journal);
 
         let protocol = match self.wait_for_ready(ready_rx, generation).await {
             Ok(protocol) => protocol,
@@ -287,7 +298,12 @@ impl Inner {
 
     /// Wire the spawned child: protocol reader, stderr tail + log, and the
     /// exit watcher that settles the manager when the process dies.
-    fn wire_child(self: &Arc<Self>, mut child: tokio::process::Child, generation: u64) {
+    fn wire_child(
+        self: &Arc<Self>,
+        mut child: tokio::process::Child,
+        generation: u64,
+        orphan_journal: std::path::PathBuf,
+    ) {
         let pid = child.id().map_or(-1, |p| p as i32);
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
@@ -298,6 +314,7 @@ impl Inner {
             pid,
             stdin: stdin.clone(),
             exit_rx,
+            orphan_journal,
         });
 
         if let Some(stdout) = stdout {
