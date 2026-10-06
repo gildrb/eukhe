@@ -38,6 +38,21 @@ pub fn all_redirect_uris() -> Vec<String> {
         .collect()
 }
 
+/// Serializes this crate's tests that bind the callback range: one holding
+/// every candidate would otherwise starve another's start.
+#[cfg(test)]
+pub(crate) static CALLBACK_PORT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// The range's staging probe: `true` when this run can bind every
+/// candidate (another process holding one makes the fallback layout
+/// unpredictable). Call it under the lock above.
+#[cfg(test)]
+pub(crate) fn callback_range_stages() -> bool {
+    (0..CALLBACK_PORT_COUNT).all(|offset| {
+        std::net::TcpListener::bind(("127.0.0.1", CALLBACK_PORT_BASE + offset)).is_ok()
+    })
+}
+
 /// One callback-route hit: the code with this login's state, or why it
 /// cannot complete the login (an OAuth error, no code, another state).
 pub type CallbackResult = Result<VerifiedAuthorization, RedirectInputError>;
@@ -329,12 +344,13 @@ mod tests {
 
     #[tokio::test]
     async fn falls_back_to_the_next_free_port() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
+        if !callback_range_stages() {
+            return; // the range is busy: this run cannot stage it.
+        }
         // The base port is occupied, so the login lands on a later
-        // candidate (a leaked login cannot wedge all of them). Skip when a
-        // concurrent test already holds the base port.
-        let Ok(blocker) = std::net::TcpListener::bind(("127.0.0.1", CALLBACK_PORT_BASE)) else {
-            return;
-        };
+        // candidate (a leaked login cannot wedge all of them).
+        let blocker = std::net::TcpListener::bind(("127.0.0.1", CALLBACK_PORT_BASE)).unwrap();
         let server = CallbackServer::start("Linear", "st").await.unwrap();
         assert_ne!(server.redirect_uri(), redirect_uri_for(CALLBACK_PORT_BASE));
         assert!(server.redirect_uri().starts_with("http://localhost:5370"));
@@ -343,16 +359,13 @@ mod tests {
 
     #[tokio::test]
     async fn all_candidates_bound_fails_clearly() {
-        let blockers: Vec<std::net::TcpListener> = (0..CALLBACK_PORT_COUNT)
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
+        // Whatever this run cannot bind is held elsewhere: busy either way.
+        let _blockers: Vec<std::net::TcpListener> = (0..CALLBACK_PORT_COUNT)
             .filter_map(|offset| {
                 std::net::TcpListener::bind(("127.0.0.1", CALLBACK_PORT_BASE + offset)).ok()
             })
             .collect();
-        if blockers.len() < CALLBACK_PORT_COUNT as usize {
-            // Another test holds a candidate port; not a failure of this
-            // invariant on this machine.
-            return;
-        }
         let error = CallbackServer::start("Linear", "st")
             .await
             .unwrap_err()
@@ -364,6 +377,10 @@ mod tests {
     /// re-arms the slot for the next hit (a retried browser login).
     #[tokio::test]
     async fn callback_hits_settle_their_outcomes_in_turn() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
+        if !callback_range_stages() {
+            return; // the range is busy: this run cannot stage it.
+        }
         let server = CallbackServer::start("Linear", "the-state").await.unwrap();
         assert_eq!(hit(&server, "/callback?code=x&state=other").await, 400);
         assert_eq!(
@@ -405,8 +422,29 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_route_is_404_without_settling() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
+        if !callback_range_stages() {
+            return; // the range is busy: this run cannot stage it.
+        }
         let server = CallbackServer::start("Linear", "st").await.unwrap();
         assert_eq!(hit(&server, "/other").await, 404);
         assert!(!server.is_settled().await);
+    }
+
+    /// Dropping the server frees its port at once, even while the accept
+    /// loop waits: the next login rebinds the same candidate.
+    #[tokio::test]
+    async fn a_dropped_server_releases_its_port() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
+        if !callback_range_stages() {
+            return; // the range is busy: this run cannot stage it.
+        }
+        let server = CallbackServer::start("Linear", "st").await.unwrap();
+        let port = server.port;
+        drop(server);
+        assert!(
+            std::net::TcpListener::bind(("127.0.0.1", port)).is_ok(),
+            "port {port} is still held after the drop"
+        );
     }
 }

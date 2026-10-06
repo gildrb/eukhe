@@ -381,6 +381,9 @@ mod tests {
     /// -> the server unlocks in the prompt gating.
     #[tokio::test]
     async fn begin_login_persists_creds_and_unlocks_gating() {
+        let _ports = super::super::oauth_callback::CALLBACK_PORT_LOCK
+            .lock()
+            .await;
         let agent = tempfile::tempdir().unwrap();
         let http = Arc::new(fixture_http());
         let mut user_servers = HashMap::new();
@@ -456,6 +459,9 @@ mod tests {
     /// override; notion stays disabled.
     #[tokio::test]
     async fn begin_login_unlocks_builtin_skill_gating() {
+        let _ports = super::super::oauth_callback::CALLBACK_PORT_LOCK
+            .lock()
+            .await;
         let agent = tempfile::tempdir().unwrap();
         let http = Arc::new(ScriptedHttp::new(vec![
             ("https://mcp.linear.app/mcp", 404, ""),

@@ -469,6 +469,7 @@ pub async fn mcp_refresh_token(
 
 #[cfg(test)]
 mod tests {
+    use super::super::oauth_callback::{callback_range_stages, CALLBACK_PORT_LOCK};
     use super::*;
     use crate::mcp::oauth_http::{OAuthHttpRequest, OAuthHttpResponse};
     use eukhe_ai::oauth::RedirectInputError;
@@ -694,6 +695,7 @@ mod tests {
     /// the full Plane-style login through a manual paste.
     #[tokio::test]
     async fn discovers_protected_resource_metadata_and_external_issuer() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
         let http = ScriptedHttp::new(vec![
             (RESOURCE, 401, None, ""),
             (
@@ -781,6 +783,7 @@ mod tests {
     /// Origin-level discovery when the server serves no RFC 9728 metadata.
     #[tokio::test]
     async fn origin_level_metadata_without_protected_resource() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
         let origin_prm = "https://srv.test/.well-known/oauth-protected-resource/mcp";
         let http = ScriptedHttp::new(vec![
             (ORIGIN_URL, 404, None, ""),
@@ -841,6 +844,7 @@ mod tests {
     /// A `WWW-Authenticate` resource pointer wins over the derived location.
     #[tokio::test]
     async fn www_authenticate_pointer_preferred() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
         let pointer = "https://metadata.example/resources/plane";
         let http = ScriptedHttp::new(vec![
             (
@@ -965,6 +969,7 @@ mod tests {
     /// Pathful OIDC metadata when RFC 8414 serves a non-metadata document.
     #[tokio::test]
     async fn pathful_oidc_fallback() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
         let issuer = "https://login.example/tenant";
         let oidc_meta = "https://login.example/tenant/.well-known/openid-configuration";
         let oidc = serde_json::json!({
@@ -1271,6 +1276,7 @@ mod tests {
     /// verifier.
     #[tokio::test]
     async fn a_wrong_state_paste_re_prompts_then_the_right_one_logs_in() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
         let http = origin_http(vec![(200, r#"{"access_token":"origin-access"}"#)]);
         let ui = std::sync::Arc::new(TestUi::with_manual_input(
             "http://localhost:53700/callback?code=stolen&state=other",
@@ -1301,6 +1307,7 @@ mod tests {
     /// same verifier.
     #[tokio::test]
     async fn a_failed_exchange_re_prompts_and_the_retry_logs_in() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
         let http = origin_http(vec![
             (400, r#"{"error":"invalid_grant"}"#),
             (200, r#"{"access_token":"origin-access"}"#),
@@ -1324,6 +1331,10 @@ mod tests {
     /// dropped and the redirect's code is exchanged.
     #[tokio::test]
     async fn the_browser_callback_wins_and_drops_the_paste() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
+        if !callback_range_stages() {
+            return; // the range is busy: this run cannot stage it.
+        }
         let http = std::sync::Arc::new(origin_http(vec![(
             200,
             r#"{"access_token":"origin-access"}"#,
@@ -1381,6 +1392,7 @@ mod tests {
     /// A pre-registered client id skips dynamic registration.
     #[tokio::test]
     async fn pre_registered_client_skips_registration() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
         let http = ScriptedHttp::new(vec![
             (ORIGIN_URL, 404, None, ""),
             (
@@ -1418,5 +1430,46 @@ mod tests {
             .map(|(url, _)| url.clone())
             .collect();
         assert!(!urls.contains(&ORIGIN_REGISTER.to_string()));
+    }
+
+    /// Every candidate busy: the login says why the browser cannot hand
+    /// it back, and the paste of the first candidate's redirect logs in.
+    #[tokio::test]
+    async fn busy_ports_name_the_range_and_the_paste_logs_in() {
+        let _ports = CALLBACK_PORT_LOCK.lock().await;
+        // Whatever this run cannot bind is held elsewhere: busy either way.
+        let _blockers: Vec<std::net::TcpListener> = (0..CALLBACK_PORT_COUNT)
+            .filter_map(|offset| {
+                std::net::TcpListener::bind(("127.0.0.1", CALLBACK_PORT_BASE + offset)).ok()
+            })
+            .collect();
+        let http = origin_http(vec![(200, r#"{"access_token":"origin-access"}"#)]);
+        let ui = test_ui();
+        let credentials = mcp_login(&http, &config("origin", ORIGIN_URL), &ui)
+            .await
+            .unwrap();
+        assert!(matches!(
+            &credentials,
+            AuthCredential::Oauth { access, .. } if access == "origin-access"
+        ));
+        let progress = ui.progress.lock().unwrap().clone();
+        assert!(
+            progress
+                .iter()
+                .any(|line| line.starts_with("Ports 53700-53709 are busy")),
+            "{progress:?}"
+        );
+        assert_eq!(
+            ui.auth_param("redirect_uri"),
+            Some(redirect_uri_for(CALLBACK_PORT_BASE))
+        );
+        let bodies = http.bodies(ORIGIN_TOKEN);
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(token_param(&bodies[0], "code").as_deref(), Some("the-code"));
+        assert_eq!(
+            token_param(&bodies[0], "redirect_uri"),
+            Some(redirect_uri_for(CALLBACK_PORT_BASE))
+        );
+        assert!(ui.rejections().is_empty(), "{:?}", ui.rejections());
     }
 }
