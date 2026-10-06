@@ -384,7 +384,9 @@ impl Client {
     /// `/login`, then the Anthropic subscription row; returns the sign-in
     /// URL read whole from the byte stream.
     fn open_anthropic_login(&mut self) -> url::Url {
-        self.pty.wait_for("[D] ", "the chat footer");
+        // The path segment is `[T]` when the fixture lives under a temp
+        // dir (CI's TMPDIR) and `[D]` elsewhere.
+        self.pty.wait_for_any(&["[D] ", "[T] "], "the chat footer");
         self.pty.write(b"/login");
         self.pty.wait_for("/login", "the typed command");
         self.pty.write(b"\r");
@@ -476,16 +478,21 @@ impl PtyReader {
 
     /// Drain until `needle` shows in the escape-stripped stream.
     fn wait_for(&mut self, needle: &str, what: &str) {
+        self.wait_for_any(&[needle], what);
+    }
+
+    /// Drain until any of `needles` shows in the escape-stripped stream.
+    fn wait_for_any(&mut self, needles: &[&str], what: &str) {
         let deadline = Instant::now() + Duration::from_secs(45);
         loop {
             self.drain();
             let text = strip_escapes(&self.output);
-            if text.contains(needle) {
+            if needles.iter().any(|needle| text.contains(needle)) {
                 return;
             }
             assert!(
                 Instant::now() < deadline,
-                "timeout waiting for {what} ({needle:?}); stream tail:\n{}",
+                "timeout waiting for {what} ({needles:?}); stream tail:\n{}",
                 &text[text.len().saturating_sub(3000)..]
             );
             std::thread::sleep(Duration::from_millis(20));
