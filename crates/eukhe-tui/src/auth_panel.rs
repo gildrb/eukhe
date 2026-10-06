@@ -480,6 +480,7 @@ fn is_printable_key(key: &str) -> bool {
     matches!(chars.next(), Some(c) if !c.is_control()) && chars.next().is_none()
 }
 
+    Requested,
 /// The mounted panel: the flow's progress lines, the browser URL block,
 /// and the one active input (a paste prompt or the team picker).
 #[derive(Debug)]
@@ -823,7 +824,8 @@ impl AuthPanel {
         };
         let url = scrub_controls(&url).replace('\n', "");
         self.copy_status = match crate::clipboard::copy_to_clipboard(&url, sink) {
-            Ok(()) => Some(CopyStatus::Copied),
+            Ok(crate::clipboard::CopyOutcome::Confirmed) => Some(CopyStatus::Copied),
+            Ok(crate::clipboard::CopyOutcome::Requested) => Some(CopyStatus::Requested),
             Err(_) => Some(CopyStatus::Failed),
         };
     }

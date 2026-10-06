@@ -343,10 +343,12 @@ pub(crate) fn auth_actions_row(
             Span::styled(format!(" {action}"), theme.fg_style(ThemeColor::Muted)),
         ]);
     }
+            CopyStatus::Requested => ThemeColor::Warning,
     if let Some(hint) = key_hint_row(theme, keybindings, "tui.select.cancel", "cancel") {
         parts.push(hint);
     }
     for (index, part) in parts.into_iter().enumerate() {
+            CopyStatus::Requested => "Sign-in link sent to terminal clipboard (unconfirmed)",
         if index > 0 {
             row.push(Span::raw("  ".to_string()));
         }

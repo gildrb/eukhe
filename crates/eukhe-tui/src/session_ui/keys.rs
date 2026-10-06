@@ -844,53 +844,16 @@ impl SessionUi {
                     }
                 }
                 crate::editor::EditorEvent::ClipboardWrite(text) => {
-                    // A selection cut/copy. On a live terminal it takes
-                    // TS `copySelection`'s shape exactly: the OSC 52
-                    // sequence goes straight to the terminal (it works
-                    // locally, over SSH, and through tmux
-                    // `set-clipboard`). The
-                    // platform-tool chain (child processes whose
-                    // `wait()` has no timeout) never runs on this path:
-                    // a stalled xclip/wl-copy/pbcopy can neither freeze
-                    // the prompt nor leak an unkillable blocking task,
-                    // and no background task accumulates. The toast is
-                    // success-only; a failed write shows the error row.
-                    // A headless run has no terminal to write to and no
-                    // stalling children (the tools fail to spawn
-                    // instantly), so it keeps the synchronous platform
-                    // chain and its captured OSC sink stays verifiable.
-                    if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-                        use std::io::Write;
-                        // The sequence goes through `osc52::sequence`, so
-                        // the encoded-payload cap applies to this path
-                        // like every other OSC 52 write: an oversized
-                        // sequence desynchronizes the terminal, so the
-                        // copy reports failure instead of writing it.
-                        match crate::osc52::sequence(&text) {
-                            Some(sequence) => {
-                                let mut out = std::io::stdout();
-                                match out.write_all(sequence.as_bytes()) {
-                                    Ok(()) => {
-                                        let _ = out.flush();
-                                        self.toast("Copied selection to clipboard", view);
-                                    }
-                                    Err(error) => {
-                                        self.error_row(
-                                            &format!("Failed to copy selection: {error}"),
-                                            view,
-                                        );
-                                    }
-                                }
-                            }
-                            None => {
-                                self.error_row("Failed to copy selection to clipboard", view);
-                            }
+                    // An editor cut/copy takes the shared platform/tmux/OSC 52
+                    // chain; a headless run's buffer sink records the request.
+                    match crate::clipboard::copy_to_clipboard(&text, &mut self.osc_sink) {
+                        Ok(crate::clipboard::CopyOutcome::Confirmed) => {
+                            self.toast("Copied selection to clipboard", view);
                         }
-                    } else {
-                        match crate::clipboard::copy_to_clipboard(&text, &mut self.osc_sink) {
-                            Ok(()) => self.toast("Copied selection to clipboard", view),
-                            Err(message) => self.error_row(&message, view),
+                        Ok(crate::clipboard::CopyOutcome::Requested) => {
+                            self.toast(crate::clipboard::CLIPBOARD_REQUESTED, view);
                         }
+                        Err(message) => self.error_row(&message, view),
                     }
                 }
                 _ => {}
