@@ -940,10 +940,19 @@ impl SessionUi {
         // regardless of the generation guard, and 5741 retains into the
         // submit-time stash state); a succeeded one stays silent (the
         // admitted turn belongs to the detached session, which the
-        // daemon keeps serving).
+        // daemon keeps serving). So does one whose direct link closed
+        // after the frame was sent: the switch itself drops the old
+        // session's link, so the ack can lose the race on a loaded box
+        // while the daemon admits the turn -- that is not a refusal, and
+        // retaining the draft would invite a duplicate.
         if note.active_session_id != self.active_session_id {
             // Borrow the settled result here: the ladder below owns it.
-            if let Some(error) = note.result.as_ref().err() {
+            if let Some(error) = note
+                .result
+                .as_ref()
+                .err()
+                .filter(|error| !sent_before_link_closed(error))
+            {
                 let rendered = format!("{error:#}");
                 self.error_row(&rendered, view);
                 self.retain_rejected_draft(
@@ -1095,11 +1104,7 @@ impl SessionUi {
                 // turn -- restoring the draft would invite a duplicate
                 // submission, so the draft stays consumed (the timeout
                 // arm's contract).
-                let direct_sent = crate::daemon_client::is_daemon_unreachable(&error)
-                    && rendered
-                        .to_lowercase()
-                        .contains("session connection closed");
-                if direct_sent {
+                if sent_before_link_closed(&error) {
                     self.error_row(
                         &format!(
                             "{rendered} -- the request may have been sent; the turn may still start"
@@ -1175,4 +1180,14 @@ impl SessionUi {
             .expect("prompt stash store poisoned");
         store.for_session(stash_session_id).stash_draft_head(stash);
     }
+}
+
+/// The submit frame went out on the session's direct link and the link
+/// closed before the answer (`request_direct` sent it): the daemon may
+/// have admitted the turn, so this is not a refusal.
+fn sent_before_link_closed(error: &anyhow::Error) -> bool {
+    crate::daemon_client::is_daemon_unreachable(error)
+        && format!("{error:#}")
+            .to_lowercase()
+            .contains("session connection closed")
 }
