@@ -185,6 +185,60 @@ pub fn restrict_socket_path(path: &Path) {
     let _ = eukhe_core::platform::perms::restrict_file(path);
 }
 
+/// Supervisor-start sweep of this supervisor's leftover worker endpoints:
+/// every `worker-<key>-*.sock` beside the supervisor socket (and every
+/// orphaned `.lock` dir of one) whose worker is gone - a killed worker
+/// cannot unlink its own socket. Live workers answer the probe and keep
+/// theirs; other supervisors' endpoints carry another key and are never
+/// considered. Each endpoint's cleanup lock is taken without waiting: a
+/// fresh lock means a live process is preparing or cleaning it, so the
+/// file stays its business; taking it reclaims a crashed holder's stale
+/// lock dir, and releasing it removes the dir. Only socket files are
+/// unlinked, and only the inode that was probed dead. Returns how many
+/// socket files were removed.
+pub(crate) async fn reap_stale_worker_sockets(supervisor_socket: &Path) -> usize {
+    use std::os::unix::fs::FileTypeExt;
+    let dir = match supervisor_socket.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let prefix = crate::platform::worker_socket_prefix(supervisor_socket);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let endpoints: std::collections::BTreeSet<std::path::PathBuf> = entries
+        .filter_map(std::result::Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let socket_name = name.strip_suffix(".lock").unwrap_or(&name);
+            (socket_name.starts_with(&prefix)
+                && Path::new(socket_name)
+                    .extension()
+                    .is_some_and(|ext| ext == "sock"))
+            .then(|| dir.join(socket_name))
+        })
+        .collect();
+    let mut removed = 0;
+    for endpoint in endpoints {
+        let Ok(_cleanup_lock) = eukhe_core::platform::LockDir::acquire(&endpoint, LOCK_STALE_AFTER)
+        else {
+            continue;
+        };
+        let is_socket = std::fs::symlink_metadata(&endpoint)
+            .is_ok_and(|metadata| metadata.file_type().is_socket());
+        let Some(probed) = socket_identity(&endpoint).filter(|_| is_socket) else {
+            continue;
+        };
+        if !can_connect(&endpoint, Duration::from_millis(250)).await
+            && socket_identity(&endpoint) == Some(probed)
+            && std::fs::remove_file(&endpoint).is_ok()
+        {
+            removed += 1;
+        }
+    }
+    removed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,5 +410,47 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(!socket.exists(), "stale socket file must be unlinked");
+    }
+
+    /// The supervisor-start sweep removes exactly this supervisor's dead
+    /// worker endpoints and orphaned lock dirs: a live worker, a dead
+    /// endpoint whose lock a live process holds, another supervisor's
+    /// endpoint, and a non-socket file keep their entries.
+    #[tokio::test]
+    async fn the_start_sweep_reaps_only_this_supervisors_dead_worker_endpoints() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let supervisor = dir.path().join("d.sock");
+        let dead = worker_socket_path(&supervisor, "dead00000000");
+        bind_stale_socket(&dead).await;
+        let live = worker_socket_path(&supervisor, "live00000000");
+        let _live_listener = bind_transport(&live).await.unwrap();
+        let held = worker_socket_path(&supervisor, "held00000000");
+        bind_stale_socket(&held).await;
+        let held_lock = eukhe_core::platform::LockDir::path_for(&held);
+        std::fs::create_dir(&held_lock).unwrap();
+        let orphan_lock = eukhe_core::platform::LockDir::path_for(&worker_socket_path(
+            &supervisor,
+            "gone00000000",
+        ));
+        std::fs::create_dir(&orphan_lock).unwrap();
+        let crashed = filetime::FileTime::from_system_time(
+            std::time::SystemTime::now() - 2 * LOCK_STALE_AFTER,
+        );
+        filetime::set_file_mtime(&orphan_lock, crashed).unwrap();
+        let foreign = worker_socket_path(&dir.path().join("other.sock"), "dead00000000");
+        bind_stale_socket(&foreign).await;
+        let not_a_socket = worker_socket_path(&supervisor, "file00000000");
+        std::fs::write(&not_a_socket, b"not a socket").unwrap();
+
+        assert_eq!(reap_stale_worker_sockets(&supervisor).await, 1);
+
+        let mut remaining: Vec<std::path::PathBuf> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        remaining.sort();
+        let mut expected = vec![live, held, held_lock, foreign, not_a_socket];
+        expected.sort();
+        assert_eq!(remaining, expected);
     }
 }

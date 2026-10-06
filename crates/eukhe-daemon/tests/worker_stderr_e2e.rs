@@ -2,12 +2,12 @@
 //! binaries: a worker's stderr lands in its per-worker log under the
 //! daemon's logs dir, a worker that never comes up reports the captured
 //! stderr tail in the create failure, and the spawn-time prune bounds the
-//! retained logs. The never-ready case is driven by a `TMPDIR` pointing
-//! at a plain file: the worker resolves its socket dir under `TMPDIR` and
-//! dies at the socket-path preparation with the failure on its
-//! (captured) stderr, so the supervisor's probe budget runs out against a
-//! dead worker — no test-only fault hook, just the real bind path
-//! failing.
+//! retained logs. The never-ready case is driven by a socket dir turned
+//! into a plain file under the serving supervisor: the worker's socket
+//! lives beside the supervisor's, so the worker dies at the socket-path
+//! preparation with the failure on its (captured) stderr, and the
+//! supervisor's probe budget runs out against a dead worker — no
+//! test-only fault hook, just the real bind path failing.
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -242,18 +242,10 @@ fn worker_stderr_lands_in_the_per_worker_log_and_prunes_retention() {
 #[test]
 fn never_ready_worker_failure_carries_the_captured_stderr_tail() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    let socket = dir.path().join("daemon.sock");
+    let socket_dir = dir.path().join("sockets");
+    let socket = socket_dir.join("daemon.sock");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    // The worker resolves its socket dir under TMPDIR: pointing TMPDIR
-    // at a plain file makes the socket dir un-creatable (ENOTDIR, even
-    // for root), so the real worker dies at its socket-path preparation
-    // with the failure on stderr — the exact silent death the capture
-    // exists for. The supervisor's own endpoints are explicit paths, so
-    // it boots untouched.
-    let tmpdir_file = dir.path().join("not-a-directory");
-    std::fs::write(&tmpdir_file, "the worker's socket dir would live here\n")
-        .expect("write tmpdir file");
 
     // The supervisor reads this override at launch time
     // (`WORKER_CONNECT_TIMEOUT_ENV`, crate-private): a short probe budget
@@ -261,8 +253,17 @@ fn never_ready_worker_failure_carries_the_captured_stderr_tail() {
     // of the default launch window.
     let _daemon = DaemonBuilder::new(&socket, &agent_dir)
         .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "2000")
-        .env("TMPDIR", &tmpdir_file)
         .spawn(&socket);
+    // Worker sockets live beside the supervisor's: once the supervisor is
+    // bound, its socket dir moves aside (the listener keeps serving
+    // through the moved path) and a plain file takes the dir's place, so
+    // the worker's socket dir is un-creatable (ENOTDIR, even for root)
+    // and the real worker dies at its socket-path preparation with the
+    // failure on stderr — the exact silent death the capture exists for.
+    let served_dir = dir.path().join("served");
+    std::fs::rename(&socket_dir, &served_dir).expect("move the socket dir aside");
+    std::fs::write(&socket_dir, "the worker's socket dir would live here\n")
+        .expect("write socket dir file");
 
     let script_path = write_script(dir.path(), &["never reached"]);
     let create_config = json!({
@@ -270,7 +271,7 @@ fn never_ready_worker_failure_carries_the_captured_stderr_tail() {
         "sessionDir": agent_dir.join("sessions").to_string_lossy(),
         "script": script_path.to_string_lossy(),
     });
-    let mut client = Client::connect(&socket);
+    let mut client = Client::connect(&served_dir.join("daemon.sock"));
     client.send_command("c1", &json!({ "type": "create", "config": create_config }));
     let failed = client.read_response("c1");
     assert_eq!(failed["success"], false, "create must fail: {failed}");

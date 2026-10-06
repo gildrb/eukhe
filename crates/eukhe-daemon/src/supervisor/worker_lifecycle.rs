@@ -834,9 +834,13 @@ impl Supervisor {
     /// session lease, so every open of its session then refuses with
     /// `Session is already active in <its id>`.
     pub(super) async fn retire_worker_after_stop(self: &Arc<Self>, resident: &Arc<ResidentWorker>) {
-        let (pid, start_id) = {
+        let (pid, start_id, worker_socket) = {
             let descriptor = resident.descriptor.lock().await;
-            (descriptor.pid as u32, descriptor.process_start_id.clone())
+            (
+                descriptor.pid as u32,
+                descriptor.process_start_id.clone(),
+                std::path::PathBuf::from(&descriptor.socket_path),
+            )
         };
         // An unobservable identity never receives the escalation's
         // signals (a pid that cannot be proven ours stays untouched);
@@ -863,6 +867,15 @@ impl Supervisor {
                 ));
             }
             _ => {
+                // The worker is provably gone. A signaled worker never
+                // unlinked its own socket, and a no-longer-running
+                // worker's file is never connectable again: its
+                // supervisor-minted endpoint leaves with it (the boot
+                // reap's same unlink; a probe here could still see the
+                // dying process's last threads holding the listener).
+                if crate::boot_reap::is_unix_socket_file(&worker_socket) {
+                    let _ = std::fs::remove_file(&worker_socket);
+                }
                 let _ = std::fs::remove_file(&resident.descriptor_path);
                 // The identity-pending side record dies with the
                 // descriptor it shadows (an orphaned pending would

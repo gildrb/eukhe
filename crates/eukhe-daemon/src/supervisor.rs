@@ -450,6 +450,15 @@ impl Supervisor {
         // the lease refusal this pass exists to clear. Bounded by
         // construction (every target shares one escalation window).
         crate::boot_reap::reap_predecessors(&self).await;
+        // The endpoint half of the same lineage rule: worker sockets (and
+        // their cleanup lock dirs) this socket's dead workers left beside
+        // it are removed; a killed worker never unlinks its own.
+        let removed = socket::reap_stale_worker_sockets(&self.options.socket_path).await;
+        if removed > 0 {
+            self.log_line(&format!(
+                "boot reap: removed {removed} stale worker socket(s)"
+            ));
+        }
 
         // Descriptor adoption runs concurrently with the accept loop: a
         // supervisor restarted over live sessions must accept their

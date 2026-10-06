@@ -8,6 +8,7 @@ mod paths;
 
 pub(crate) use executable::worker_image;
 
+pub(crate) use paths::worker_socket_prefix;
 pub use paths::{
     default_daemon_socket_path, socket_dir, socket_identity, worker_socket_path, SocketIdentity,
 };

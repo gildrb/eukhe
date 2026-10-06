@@ -29,15 +29,9 @@ impl WorkerImage {
     /// A command that executes this image with its argv[0].
     pub(crate) fn command(&self) -> tokio::process::Command {
         let mut command = tokio::process::Command::new(&self.program);
-        #[cfg(unix)]
         if let Some(arg0) = &self.arg0 {
             command.arg0(arg0);
         }
-        #[cfg(not(unix))]
-        debug_assert!(
-            self.arg0.is_none(),
-            "only the Linux procfs image overrides argv[0]"
-        );
         command
     }
 }

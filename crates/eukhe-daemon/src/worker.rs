@@ -866,14 +866,15 @@ impl Worker {
         )
     }
 
-    /// The durable tail of a successful close: the resume entry, the
-    /// worker's own socket cleanup, and the process exit. The routed
-    /// `shutdown` arm and the registration-retirement path share it
-    /// (`std::process::exit` runs no destructors, so the caller must
-    /// have settled the close first).
-    fn exit_after_close(&self) -> ! {
-        // Shutdown keeps the resume entry and exits the process, like the
-        // TS close path (`closeKeepsResumeEntry("shutdown")`).
+    /// The durable tail of a successful close: the resume entry and the
+    /// worker's own socket cleanup. It runs before anything can end the
+    /// process: the routed `shutdown` arm runs it BEFORE its reply (the
+    /// supervisor's retire pass escalates against a still-running worker
+    /// as soon as the reply lands, and a signal must not cut the tail),
+    /// the registration-retirement path right before its exit.
+    fn finish_close(&self) {
+        // Shutdown keeps the resume entry, like the TS close path
+        // (`closeKeepsResumeEntry("shutdown")`).
         let _ = self.record_recovery(false, "shutdown");
         // A graceful exit owns its socket file: remove it now so a respawn
         // does not wait out the stale-socket path (a killed worker cannot
@@ -881,12 +882,12 @@ impl Worker {
         // `prepare_socket_path`). The bind-time identity (captured in
         // `serve`) is the unlink's expected identity, so a REPLACED file
         // at the path - a successor worker's live socket - survives this
-        // exit (TS daemon-mode.ts:1078-1080).
+        // exit (TS daemon-mode.ts:1078-1080). Unlinking the path leaves
+        // the open connections serving.
         crate::socket::cleanup_socket_path(
             &self.config.socket_path,
             self.bound_socket_identity.lock().unwrap().clone(),
         );
-        std::process::exit(0)
     }
 
     /// The refused-registration self-heal: the supervisor definitively
@@ -905,7 +906,8 @@ impl Worker {
             std::process::id()
         );
         let _ = self.handle_shutdown().await;
-        self.exit_after_close();
+        self.finish_close();
+        std::process::exit(0)
     }
 }
 

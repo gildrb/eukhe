@@ -492,12 +492,19 @@ impl Worker {
                         let response = self.dispatch(&command_type, &payload).await;
                         // The reply must precede the exit (the response is
                         // consumed by the write), so capture the outcome
-                        // before handing the response over.
+                        // before handing the response over. The durable
+                        // close tail lands BEFORE the reply: the supervisor
+                        // escalates against a still-running worker as soon
+                        // as the reply arrives, and a tail after the reply
+                        // would race that signal (the leaked socket file).
                         let success = response.success;
+                        if success {
+                            self.finish_close();
+                        }
                         self.write_response_frame(&sink, &request_id, response)
                             .await;
                         if success {
-                            self.exit_after_close();
+                            std::process::exit(0);
                         }
                         continue;
                     }

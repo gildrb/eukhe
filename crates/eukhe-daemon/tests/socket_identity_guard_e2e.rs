@@ -14,7 +14,7 @@
 //!   relaunches its replacement on the SAME deterministic path
 //!   (supervision.rs reuses `descriptor.socket_path`), and the survivor's
 //!   late orphan exit must not unlink the replacement's live socket.
-//! * `worker.rs` `exit_after_close` - the same class through the routed
+//! * `worker.rs` `finish_close` - the same class through the routed
 //!   `shutdown` arm.
 //! * `supervisor.rs` `run`'s exit cleanup - the external-sweep edge: the
 //!   socket file is removed under a serving supervisor, a successor binds
@@ -316,8 +316,11 @@ fn orphan_exit_never_unlinks_a_replacement_bound_on_the_worker_path() {
 }
 
 /// The routed `shutdown` control (the still-ours direction of
-/// `exit_after_close`): a worker's graceful exit owns its socket file - it
-/// must remove it so a respawn does not wait out the stale-socket path.
+/// `finish_close`): a worker's graceful exit owns its socket file - it
+/// must remove it so a respawn does not wait out the stale-socket path,
+/// and it removes it BEFORE the reply: the supervisor escalates against a
+/// still-running worker as soon as the reply lands, so an unlink after
+/// the reply could be cut by that signal and leak the file.
 /// The still-ours directions of the other two call sites are pinned by the
 /// in-tree controls named in the module doc.
 #[test]
@@ -329,15 +332,15 @@ fn routed_shutdown_removes_the_workers_own_socket_file() {
     let mut client = WorkerClient::connect(&socket, "shutdown-guard-token");
     let shutdown = client.request("shutdown", &json!({}));
     assert_eq!(shutdown["success"], true, "shutdown failed: {shutdown}");
-    wait_clean_exit(&mut worker.child, Duration::from_secs(10));
     assert!(
         !socket.exists(),
-        "the graceful exit removed the worker's own socket file"
+        "the worker's own socket file is gone by the time its reply lands"
     );
+    wait_clean_exit(&mut worker.child, Duration::from_secs(10));
 }
 
 /// The replaced-socket scenario on the routed `shutdown` arm
-/// (`worker.rs` `exit_after_close`): the same survivor class as the
+/// (`worker.rs` `finish_close`): the same survivor class as the
 /// orphan exit - a file replaced at the path after the bind is never
 /// unlinked by the old owner's exit.
 #[test]
@@ -348,7 +351,7 @@ fn routed_shutdown_never_unlinks_a_replacement_bound_on_the_worker_path() {
     wait_worker_socket(&socket);
     // Authenticate first: the supervisor role both arms the routed
     // `shutdown` arm and disarms the orphan monitor (claims > 0), so the
-    // exit below is `exit_after_close` alone.
+    // exit below is `finish_close` alone.
     let mut client = WorkerClient::connect(&socket, "shutdown-guard-token");
     let original = socket_identity(&socket);
     let (_replacement, replacement_identity) = bind_replacement_at(&socket, original);

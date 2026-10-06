@@ -501,8 +501,8 @@ pub(crate) fn is_worker_argv(argv: &[String]) -> bool {
         && argv.get(1).map(String::as_str) == Some("worker")
 }
 
-/// Whether a path is one of THIS supervisor's worker endpoints: under the
-/// shared socket dir, named with this socket's own key
+/// Whether a path is one of THIS supervisor's worker endpoints: beside
+/// this supervisor's socket, named with this socket's own key
 /// (`worker-<hash12(supervisor socket)>-*.sock`) - the deterministic name
 /// `worker_socket_path` mints, so a foreign or forged value never matches
 /// and the reap's endpoint unlink stays inside the product's namespace.
@@ -511,10 +511,9 @@ pub(crate) fn is_our_worker_socket(path: &str, supervisor_socket: &Path) -> bool
     let Some(name) = Path::new(path).file_name().and_then(|name| name.to_str()) else {
         return false;
     };
-    let key = crate::paths::hash_key(&supervisor_socket.to_string_lossy(), 12);
-    normalize_socket_spelling(Path::new(path).parent().unwrap_or(Path::new(path)))
-        == normalize_socket_spelling(&crate::platform::socket_dir())
-        && name.starts_with(&format!("worker-{key}-"))
+    normalize_socket_spelling(Path::new(path).parent().unwrap_or(Path::new("")))
+        == normalize_socket_spelling(supervisor_socket.parent().unwrap_or(Path::new("")))
+        && name.starts_with(&crate::platform::worker_socket_prefix(supervisor_socket))
         && Path::new(name).extension().is_some_and(|ext| ext == "sock")
 }
 
@@ -667,7 +666,7 @@ pub(crate) fn supervisor_argv_names_socket(argv: &[String], socket: &str) -> boo
 /// removes endpoints only - a regular file at a matching name is never
 /// touched). Unconditional on purpose: the std `os::unix` socket-file
 /// probe compiles on linux and macOS alike.
-fn is_unix_socket_file(path: &Path) -> bool {
+pub(crate) fn is_unix_socket_file(path: &Path) -> bool {
     use std::os::unix::fs::FileTypeExt;
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_socket())
 }
@@ -1178,14 +1177,14 @@ mod tests {
 
     /// The endpoint gate: only this supervisor's deterministic worker-socket
     /// names match - a foreign path, another socket's key, or a name
-    /// outside the shared socket dir never does (the reap's unlink stays
-    /// inside the product's endpoint namespace).
+    /// outside the supervisor socket's dir never does (the reap's unlink
+    /// stays inside the product's endpoint namespace).
     #[cfg(target_os = "linux")]
     #[test]
     fn our_worker_socket_names_only() {
-        let supervisor = Path::new("/tmp/eukhe-1000/daemon.sock");
+        let supervisor = Path::new("/fixture/custom/daemon.sock");
         let key = crate::paths::hash_key(&supervisor.to_string_lossy(), 12);
-        let dir = crate::platform::socket_dir().to_string_lossy().to_string();
+        let dir = "/fixture/custom";
         let ours = format!("{dir}/worker-{key}-abcdef123456.sock");
         assert!(
             is_our_worker_socket(&ours, supervisor),

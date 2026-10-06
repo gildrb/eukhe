@@ -291,6 +291,13 @@ fn a_hung_worker_is_killed_within_the_escalation_window_and_its_lease_frees() {
     let session = create_session(&mut client, "create", dir.path(), &agent_dir);
     let session_file = session_file_of(&mut client, &session.active_id);
     let (descriptor, worker_pid) = worker_descriptor_of(&agent_dir, &socket, &session.session_id);
+    let worker_socket = PathBuf::from(
+        serde_json::from_str::<Value>(&std::fs::read_to_string(&descriptor).expect("descriptor"))
+            .expect("descriptor json")["socketPath"]
+            .as_str()
+            .expect("worker socket path"),
+    );
+    assert!(worker_socket.exists(), "the live worker's socket exists");
 
     // The live worker holds the runtime lease: a fresh open's acquire
     // refuses (the premise the escalation must break).
@@ -349,6 +356,12 @@ fn a_hung_worker_is_killed_within_the_escalation_window_and_its_lease_frees() {
     assert!(
         !descriptor.exists(),
         "the provably-dead worker's descriptor must be gone"
+    );
+    // A SIGKILLed worker never unlinks its own socket: the stop that
+    // proved it dead removed the endpoint for it.
+    assert!(
+        !worker_socket.exists(),
+        "the escalated stop must remove the dead worker's socket"
     );
     // The kill's durable half ran on the failed route: the session file
     // carries the archived state.
