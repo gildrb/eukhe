@@ -143,6 +143,11 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     if public_command.attach_agent.is_some() && app_mode != mode::AppMode::Interactive {
         return Err("attach requires an interactive terminal".to_string());
     }
+    if public_command.explicit_agents_view && app_mode != mode::AppMode::Interactive {
+        return Err(
+            "agents requires an interactive terminal; `eukhe list` prints the agents".to_string(),
+        );
+    }
     if parsed.resume_bare && app_mode != mode::AppMode::Interactive {
         return Err(
             "--resume without a session selector requires an interactive terminal".to_string(),
