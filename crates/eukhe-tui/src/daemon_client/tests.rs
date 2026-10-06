@@ -600,6 +600,151 @@ async fn direct_upgrade_routes_attach_and_streams_events() {
     let _ = supervisor.await;
 }
 
+/// A worker socket for session `s2` that holds its answer to the first
+/// command after `peer_auth` until `release` fires, reporting the
+/// command's arrival on `received`.
+async fn spawn_held_worker(
+    listener: UnixListener,
+    received: oneshot::Sender<()>,
+    release: oneshot::Receiver<()>,
+) {
+    use eukhe_types::daemon::framing;
+
+    let response = |request_id: &str, command: &str, data: Value| {
+        framing::encode_private_frame(
+            &json!({ "kind": "outbound", "outboundType": "response", "requestId": request_id }),
+            &serde_json::to_vec(&json!({
+                "type": "response",
+                "id": request_id,
+                "command": command,
+                "success": true,
+                "data": data,
+            }))
+            .unwrap(),
+            framing::DEFAULT_PRIVATE_FRAME_LIMITS,
+        )
+        .unwrap()
+    };
+    let (stream, _) = listener.accept().await.expect("worker accept");
+    let (reader, mut writer) = stream.into_split();
+    let mut reader =
+        framing::PrivateFrameReader::new(reader, framing::DEFAULT_PRIVATE_FRAME_LIMITS);
+    let hello = framing::encode_private_frame(
+        &json!({ "kind": "outbound", "outboundType": "daemon_hello" }),
+        br#"{"type":"daemon_hello","protocol":{"name":"eukhe.daemon","version":7}}"#,
+        framing::DEFAULT_PRIVATE_FRAME_LIMITS,
+    )
+    .unwrap();
+    writer.write_all(&hello).await.unwrap();
+    let auth = reader.read_frame().await.unwrap().expect("peer_auth");
+    let claim = json!({
+        "workerInstanceId": "inst-1",
+        "activeSessionId": "s2",
+        "purpose": "session_client",
+    });
+    let auth_id = auth.header["requestId"].as_str().unwrap();
+    writer
+        .write_all(&response(auth_id, "peer_auth", claim))
+        .await
+        .unwrap();
+    let command = reader.read_frame().await.unwrap().expect("command");
+    received.send(()).unwrap();
+    release.await.unwrap();
+    let command_id = command.header["requestId"].as_str().unwrap();
+    let command_type = command.header["commandType"].as_str().unwrap();
+    writer
+        .write_all(&response(command_id, command_type, json!({ "id": "s2" })))
+        .await
+        .unwrap();
+    // Hold the link open until the client closes it.
+    let _ = reader.read_frame().await;
+}
+
+/// A `/switch` replaces the direct link, and on a loaded box the replaced
+/// worker's socket reaches EOF only after the new link already carries a
+/// request. The replaced link's close-time sweep fails only its own
+/// requests: the live link's in-flight request resolves from its own
+/// worker instead of failing as "the session connection closed".
+#[tokio::test]
+async fn a_replaced_link_closing_late_never_fails_the_live_links_requests() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let socket = dir.path().join("d.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    tokio::spawn(spawn_mock_daemon(listener));
+    let (client, _events) = DaemonClient::connect(&socket).await.unwrap();
+    let ticket = |socket: &Path, session: &str| eukhe_types::daemon::DaemonPeerTransportTicket {
+        purpose: "session_client".to_string(),
+        socket_path: socket.to_string_lossy().to_string(),
+        socket_identity: eukhe_types::platform::socket_identity(socket).unwrap(),
+        worker_instance_id: "inst-1".to_string(),
+        active_session_id: session.to_string(),
+        grant_id: format!("grant-{session}"),
+        token: "t".to_string(),
+        expires_at: "2999-01-01T00:00:00.000Z".to_string(),
+    };
+
+    // The switched-away session's link, still open.
+    let replaced_socket = dir.path().join("replaced.sock");
+    let replaced_listener = UnixListener::bind(&replaced_socket).unwrap();
+    tokio::spawn(spawn_mock_worker(replaced_listener));
+    let (replaced_tx, mut replaced_events) = mpsc::unbounded_channel();
+    let replaced = connect_direct(
+        &ticket(&replaced_socket, "s1"),
+        Arc::clone(&client.shared),
+        replaced_tx,
+    )
+    .await
+    .unwrap();
+
+    // The switched-to session's link serves the client; its worker holds
+    // the answer until the replaced link's sweep has run.
+    let live_socket = dir.path().join("live.sock");
+    let live_listener = UnixListener::bind(&live_socket).unwrap();
+    let (received_tx, received_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    tokio::spawn(spawn_held_worker(live_listener, received_tx, release_rx));
+    let live = connect_direct(
+        &ticket(&live_socket, "s2"),
+        Arc::clone(&client.shared),
+        client.direct.event_sender().unwrap(),
+    )
+    .await
+    .unwrap();
+    client.direct.set_link(live);
+    let request = tokio::spawn({
+        let client = client.clone();
+        async move {
+            client
+                .request_ok(DaemonCommand::GetState {
+                    id: None,
+                    active_session_id: "s2".to_string(),
+                    rest: Map::default(),
+                })
+                .await
+        }
+    });
+    received_rx.await.unwrap();
+
+    // The replaced worker's socket closes. Dropped without the switch's
+    // close mark, its reader reports the loss right after its sweep: the
+    // observable point the sweep is done.
+    drop(replaced);
+    let lost = tokio::time::timeout(Duration::from_secs(5), replaced_events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(
+            &lost,
+            DaemonClientEvent::DirectLinkLost { active_session_id } if active_session_id == "s1"
+        ),
+        "unexpected event: {lost:?}"
+    );
+    release_tx.send(()).unwrap();
+    assert_eq!(request.await.unwrap().unwrap(), json!({ "id": "s2" }));
+    client.close();
+}
+
 #[tokio::test]
 async fn dead_connection_fails_pending_requests_immediately() {
     // The supervisor dies after the handshake while a request is in

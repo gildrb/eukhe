@@ -253,6 +253,9 @@ pub(crate) struct Shared {
     /// failure -- the two must stay distinguishable, because a refusal is
     /// recoverable UI data while a dead connection is fatal.
     pending: Mutex<HashMap<String, oneshot::Sender<Result<DaemonResponse, anyhow::Error>>>>,
+    /// Direct links connected so far: link `n` owns the request-id
+    /// namespace `direct_<n>_` in `pending`.
+    pub(crate) next_direct_link: AtomicU64,
 }
 
 impl Shared {
@@ -271,8 +274,9 @@ impl Shared {
     /// the abort was accepted, but the client then hung on a request whose
     /// socket peer was already gone. The reader task of each connection
     /// calls this when its socket closes (supervisor reader fails the
-    /// `daemon_`-routed requests, a direct worker pump the `direct_` ones,
-    /// so a live link keeps serving its own in-flight requests). The
+    /// `daemon_`-routed requests, a direct worker pump only its own link's
+    /// `direct_<n>_` ones, so a live link keeps serving its own in-flight
+    /// requests even when a link it replaced reaches EOF late). The
     /// failure resolves on the `Err` half of the channel -- never as a
     /// synthetic response -- so a dead connection can never be mistaken
     /// for a daemon refusal.
@@ -357,9 +361,7 @@ impl DaemonClient {
         // signal the UI loop arms its reconnect driver on.
         let (reader_dead_tx, reader_dead_rx) = tokio::sync::watch::channel(false);
         let (hello_tx, hello_rx) = oneshot::channel::<std::result::Result<Value, String>>();
-        let shared = Arc::new(Shared {
-            pending: Mutex::new(HashMap::new()),
-        });
+        let shared = Arc::new(Shared::default());
         let reader_shared = Arc::clone(&shared);
 
         // Writer task: serializes one line per write.
@@ -625,10 +627,8 @@ impl DaemonClient {
         timeout_ms: u64,
     ) -> Result<DaemonResponse> {
         if let Some(link) = self.direct_link_for(&command) {
-            let id = format!(
-                "direct_{}",
-                self.next_request_id.fetch_add(1, Ordering::SeqCst) + 1
-            );
+            let sequence = self.next_request_id.fetch_add(1, Ordering::SeqCst) + 1;
+            let id = format!("{}{sequence}", link.request_prefix);
             match self.request_direct(&link, &command, &id, timeout_ms).await {
                 Ok(response) => return Ok(response),
                 Err(DirectRequestError::NotSent) => {

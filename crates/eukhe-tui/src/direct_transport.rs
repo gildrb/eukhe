@@ -47,6 +47,9 @@ pub(crate) struct DirectLink {
     pub(crate) active_session_id: String,
     /// The worker socket this link is pinned to.
     pub(crate) socket_path: String,
+    /// This link's request-id namespace in the shared pending table: its
+    /// reader's EOF sweep fails only these ids.
+    pub(crate) request_prefix: String,
     writer: mpsc::UnboundedSender<Vec<u8>>,
     alive: Arc<AtomicBool>,
 }
@@ -246,6 +249,10 @@ pub(crate) async fn connect_direct(
         bail!("peer_auth admitted the wrong session");
     }
 
+    let request_prefix = format!(
+        "direct_{}_",
+        shared.next_direct_link.fetch_add(1, Ordering::SeqCst) + 1
+    );
     let alive = Arc::new(AtomicBool::new(true));
     let (frame_tx, mut frame_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     // Writer pump: one frame at a time, exits when the link closes.
@@ -263,6 +270,7 @@ pub(crate) async fn connect_direct(
         let event_tx = event_tx.clone();
         let alive = Arc::clone(&alive);
         let active_session_id = ticket.active_session_id.clone();
+        let request_prefix = request_prefix.clone();
         tokio::spawn(async move {
             while let Ok(Some(frame)) = reader.read_frame().await {
                 let header_type = frame
@@ -291,9 +299,11 @@ pub(crate) async fn connect_direct(
                     let _ = event_tx.send(event);
                 }
             }
-            // The worker socket closed: every direct-link request in
-            // flight fails now instead of riding out its timeout.
-            shared.fail_pending("direct_", "the session connection closed");
+            // The worker socket closed: every request in flight on THIS
+            // link fails now instead of riding out its timeout. A replaced
+            // link's EOF can land after the switched-to link sent its first
+            // request; the namespace keeps that request alive.
+            shared.fail_pending(&request_prefix, "the session connection closed");
             // An intentional close (client `close`, session switch, link
             // replacement) marks the link dead before its writer's
             // shutdown reaches this EOF; only an unmarked exit is the
@@ -308,6 +318,7 @@ pub(crate) async fn connect_direct(
     Ok(DirectLink {
         active_session_id: ticket.active_session_id.clone(),
         socket_path: ticket.socket_path.clone(),
+        request_prefix,
         writer: frame_tx,
         alive,
     })
