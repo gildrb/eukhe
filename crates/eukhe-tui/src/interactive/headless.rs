@@ -194,3 +194,58 @@ impl HeadlessSettle {
         blockers
     }
 }
+
+/// The `SubmitAndSettle` barrier's daemon round trip: submit the message
+/// as a `prompt_and_wait`, then read the session's event sequence through
+/// `get_rlm_children` -- the one read-only command that reports it. Both
+/// requests are bounded by `timeout_ms`.
+pub(super) async fn settled_sequence(
+    client: &super::DaemonClient,
+    active_session_id: String,
+    message: String,
+    timeout_ms: u64,
+) -> anyhow::Result<u64> {
+    let input = eukhe_types::daemon::PromptInput {
+        content: None,
+        images: None,
+        streaming_behavior: Some(eukhe_types::daemon::StreamingBehavior::Steer),
+        queue_if_busy: Some(true),
+        expand_prompt_templates: None,
+        source: None,
+        agent_message_id: None,
+        custom_message: None,
+        queue_key: None,
+        prefix_messages: None,
+        admission_id: None,
+        rlm_notice_nonce: None,
+    };
+    let waited = client
+        .request_with_timeout(
+            eukhe_types::daemon::DaemonCommand::PromptAndWait {
+                id: None,
+                active_session_id: active_session_id.clone(),
+                message,
+                input,
+                rest: serde_json::Map::default(),
+            },
+            timeout_ms,
+        )
+        .await?;
+    anyhow::ensure!(waited.success, "prompt_and_wait failed: {:?}", waited.error);
+    let children = client
+        .request_with_timeout(
+            eukhe_types::daemon::DaemonCommand::GetRlmChildren {
+                id: None,
+                active_session_id,
+                rest: serde_json::Map::default(),
+            },
+            timeout_ms,
+        )
+        .await?;
+    children
+        .data
+        .as_ref()
+        .and_then(|data| data.get("eventSequence"))
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| anyhow::anyhow!("get_rlm_children carried no eventSequence"))
+}

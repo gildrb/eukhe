@@ -54,10 +54,7 @@ mod render;
 
 pub use headless::{HeadlessPlan, HeadlessStep, UiMode};
 pub use onboarding::{ModelReadiness, OnboardingSink, OnboardingTask};
-use render::{
-    apply_startup_chrome, check_tmux_keyboard_setup, spawn_session_reader, Renderer, SurfaceExit,
-    TerminalHandoff,
-};
+use render::{apply_startup_chrome, check_tmux_keyboard_setup, Renderer, SurfaceExit};
 
 // The reconnect machinery (the unexpected-loss hiccup loop and the
 // announced shutdown's bounded
@@ -66,10 +63,7 @@ use render::{
 // the unit battery's bare paths in scope.
 mod reconnect;
 
-use reconnect::{
-    arm_shutdown_recovery, ReconnectConnect, ReconnectLoop, SessionReconnect,
-    SESSION_RECONNECT_ATTEMPT_TIMEOUT_S,
-};
+use reconnect::{arm_shutdown_recovery, ReconnectConnect, ReconnectLoop, SessionReconnect};
 #[cfg(test)]
 use reconnect::{DAEMON_SHUTDOWN_RECONNECT_WINDOW, SHUTDOWN_RECONNECT_RETRY};
 
@@ -78,6 +72,10 @@ use reconnect::{DAEMON_SHUTDOWN_RECONNECT_WINDOW, SHUTDOWN_RECONNECT_RETRY};
 // module at the same tree position (interactive::run); the facade
 // re-exports keep the composition root's entry paths stable.
 mod run;
+
+// The startup open's failure routes (the agents-view fallback or the
+// fatal return).
+mod open_failure;
 
 pub use run::run_interactive;
 

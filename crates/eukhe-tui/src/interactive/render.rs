@@ -113,8 +113,8 @@ pub(super) enum Renderer {
 /// `stop` hands the terminal to the shell (the live area left as output,
 /// raw mode off); `resume` takes it back after SIGCONT with every mode
 /// re-applied and a new live area below the shell's output.
-pub(super) struct TerminalHandoff<'a> {
-    pub(super) renderer: &'a mut Renderer,
+struct TerminalHandoff<'a> {
+    renderer: &'a mut Renderer,
 }
 
 impl crate::suspend::SuspendTerminal for TerminalHandoff<'_> {
@@ -127,6 +127,86 @@ impl crate::suspend::SuspendTerminal for TerminalHandoff<'_> {
     }
 }
 
+/// Run the terminal handoffs a handled key requested.
+///
+/// TS `handleCtrlZ` (`app.suspend`, default ctrl+z): hand the terminal
+/// to the shell and stop the process group; execution continues here once
+/// the user foregrounds the process (SIGCONT), where the cycle re-applies
+/// raw mode and the key modes and takes the screen back (TS `ui.start()`).
+///
+/// TS `openExternalEditor`: hand the terminal to the editor, then resume.
+/// The input reader would steal the editor's keys, so it stops (flag +
+/// join) and respawns after the resume.
+///
+/// Headless runs keep no terminal renderer (TS never registers the
+/// actions without one), so both requests are observed and dropped.
+pub(super) async fn hand_terminal_to_requests(
+    session: &mut SessionUi,
+    view: &mut AgentView,
+    renderer: &mut Renderer,
+) {
+    use crate::suspend::{SuspendSignals, SuspendTerminal};
+    if session.take_suspend_request() && renderer.is_terminal() {
+        match crate::suspend::suspend_cycle(
+            &mut crate::suspend::ProcessSignals,
+            &mut TerminalHandoff {
+                renderer: &mut *renderer,
+            },
+        ) {
+            Ok(()) => session.track_suspend_used("resumed"),
+            Err(error) => {
+                session.track_suspend_used("failed");
+                session.error_row(&format!("{error:#}"), view);
+                // Try to take the terminal back so the run stays usable;
+                // if that also fails, the next draw surfaces the broken
+                // frame.
+                let _ = renderer.resume();
+            }
+        }
+    }
+    let Some(command) = session.take_external_editor_request() else {
+        return;
+    };
+    let (ui_tx, exit_guard) = match &*renderer {
+        Renderer::Terminal {
+            ui_tx, exit_guard, ..
+        } => (ui_tx.clone(), exit_guard.clone()),
+        Renderer::Headless { .. } => return,
+    };
+    crate::input::stop_reader();
+    // The suspend path's SIGINT shield: the handoff restores cooked mode
+    // (ISIG), and a cooked-mode editor wrapper (`code --wait`, `subl -w`)
+    // turns Ctrl+C into SIGINT for the shared foreground group -- the
+    // default disposition would kill the TUI mid-edit. The no-op handler
+    // (never SIG_IGN) keeps the child's own Ctrl+C: handled signals reset
+    // to the default across exec.
+    let mut signals = crate::suspend::ProcessSignals;
+    let stopped = signals.ignore_sigint().and_then(|()| {
+        TerminalHandoff {
+            renderer: &mut *renderer,
+        }
+        .stop()
+    });
+    let outcome = match stopped {
+        Ok(()) => crate::external_editor::edit(&command, &view.editor.get_expanded_text()).await,
+        Err(error) => Err(error),
+    };
+    // The suspend cycle's order: SIGINT is back to the default before the
+    // surface takes the terminal.
+    let _ = signals.restore_sigint();
+    // TS resumes in a `finally`: the surface returns even when the editor
+    // run failed.
+    let resumed = TerminalHandoff {
+        renderer: &mut *renderer,
+    }
+    .resume();
+    if let Err(error) = resumed {
+        session.error_row(&format!("{error:#}"), view);
+    }
+    spawn_session_reader(ui_tx, exit_guard);
+    session.apply_external_editor_outcome(outcome, view);
+}
+
 /// Start the session surface's terminal input reader (the setup mount and
 /// the external-editor cycle's respawn both call it). One reader thread
 /// feeds the loop; crossterm events are process-global, so the reader
@@ -137,7 +217,7 @@ impl crate::suspend::SuspendTerminal for TerminalHandoff<'_> {
 /// coalesces a marker-less multi-line keystroke burst (tmux 3.2 and older
 /// forward pastes without bracketed markers) into one editor paste -- TS
 /// `StdinBuffer`'s `isRawMultilinePaste`.
-pub(super) fn spawn_session_reader(ui_tx: mpsc::UnboundedSender<UiInput>, exit_guard: ExitGuard) {
+fn spawn_session_reader(ui_tx: mpsc::UnboundedSender<UiInput>, exit_guard: ExitGuard) {
     crate::input::spawn_paste_aware_reader(move |input| match input {
         crate::input::ReaderInput::BurstPaste(text) => ui_tx.send(UiInput::Paste(text)).is_ok(),
         crate::input::ReaderInput::Event(event) => match event {
@@ -546,4 +626,50 @@ pub(super) enum SurfaceExit {
     /// Another surface takes the terminal in-process: the live area is
     /// cleared for it and raw mode stays on.
     Handoff,
+}
+
+/// The spinner's wall-clock cadence (TS `Loader` `DEFAULT_INTERVAL_MS`):
+/// the animation phase advances one frame per 80ms of animating time
+/// regardless of the render rate.
+pub(super) const SPINNER_INTERVAL_MS: u128 = 80;
+
+/// The animating loader's next phase boundary, the wake the select needs
+/// while a quiet turn waits out its stream: TS `Loader`'s `setInterval`
+/// keeps painting the 80ms cadence through quiet turns, and this
+/// boundary is that interval's timer. The wake always precedes the
+/// phase change it observes -- an off-by-one here parks the loop for a
+/// whole boundary instead of firing at the phase edge.
+pub(super) fn next_spinner_deadline(
+    started: std::time::Instant,
+    now: std::time::Instant,
+) -> std::time::Instant {
+    // The remainder form keeps the arithmetic bounded by one phase: a
+    // wide phase counter would truncate through `as usize` on 32-bit
+    // targets after ~10.9 years of continuous animation and arm an
+    // already-expired deadline, hot-spinning the select's wake.
+    let into_phase = now.duration_since(started).as_millis() % SPINNER_INTERVAL_MS;
+    now + Duration::from_millis((SPINNER_INTERVAL_MS - into_phase) as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The boundary the select arms is always the current phase's
+    /// 80ms edge -- the wake must precede the phase change it observes
+    /// (an off-by-one parks the loop for a whole boundary). Samples sit
+    /// at least a millisecond inside their phase because `Instant`
+    /// round-trips can lose sub-millisecond ticks on the platform
+    /// clock, and the phase is floored from whole milliseconds.
+    #[test]
+    fn spinner_deadline_is_the_current_phase_edge() {
+        let started = std::time::Instant::now();
+        let at = |ms: u64| started + Duration::from_millis(ms);
+        assert_eq!(next_spinner_deadline(started, started), at(80));
+        assert_eq!(next_spinner_deadline(started, at(1)), at(80));
+        assert_eq!(next_spinner_deadline(started, at(79)), at(80));
+        assert_eq!(next_spinner_deadline(started, at(81)), at(160));
+        assert_eq!(next_spinner_deadline(started, at(161)), at(240));
+        assert_eq!(next_spinner_deadline(started, at(239)), at(240));
+    }
 }

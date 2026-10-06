@@ -37,7 +37,7 @@ const SESSION_RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(2);
 /// One re-attach attempt's budget: the attach carries its own request
 /// timeouts; this bounds a wedged attempt so the loop reschedules instead
 /// of blocking the UI.
-pub(super) const SESSION_RECONNECT_ATTEMPT_TIMEOUT_S: u64 = 10;
+const SESSION_RECONNECT_ATTEMPT_TIMEOUT_S: u64 = 10;
 
 /// The interactive loop's session re-attach driver (TS
 /// `DaemonAgentConnection.reconnect` over a direct-transport loss): the
@@ -68,6 +68,87 @@ impl SessionReconnect {
         self.delay = (self.delay * 2).min(SESSION_RECONNECT_BACKOFF_MAX);
         self.next_attempt = tokio::time::Instant::now() + self.delay;
         self
+    }
+}
+
+/// One session-plane re-attach attempt. Returns the driver to keep (the
+/// next attempt) or `None` when the session is back, the user switched
+/// sessions, or the window closed.
+pub(super) async fn retry_session_attach(
+    session: &mut SessionUi,
+    view: &mut AgentView,
+    mut state: SessionReconnect,
+) -> Option<SessionReconnect> {
+    // The user switched sessions while the link was down: the new attach
+    // owns its own connection, so this driver stops.
+    if state.active_session_id != session.active_session_id {
+        return None;
+    }
+    // The attempt's budget covers the attach alone: the surface is
+    // already up and its dock holds (the background refreshes update
+    // it), so the first-frame fold's bounded fetches cannot eat the 10s
+    // attempt budget on a slow daemon.
+    let attempt = tokio::time::timeout(
+        Duration::from_secs(SESSION_RECONNECT_ATTEMPT_TIMEOUT_S),
+        session.attach_session(&state.active_session_id, crate::session_ui::DockFold::Held),
+    )
+    .await;
+    state.last_error = match attempt {
+        Ok(Ok(())) => {
+            // The resynced transcript replaces the chat (TS
+            // `session_resynced`), then the reconnected status lands on
+            // the rebuilt chat (TS `connection_status: "connected"`).
+            session.rebuild_view(view, &crate::session_ui::RebuildKind::Resync);
+            session.note_as("Daemon reconnected", crate::chat::StatusKind::Info, view);
+            session.reconnection_failed = None;
+            // TS refreshes the heartbeat catalog on the
+            // `connection_status: "connected"` event.
+            session.spawn_heartbeat_refresh();
+            session.dirty = true;
+            return None;
+        }
+        Ok(Err(error)) => format!("{error:#}"),
+        Err(_) => "the session re-attach attempt timed out".to_string(),
+    };
+    if tokio::time::Instant::now() <= state.deadline {
+        return Some(state.next_attempt());
+    }
+    // TS terminal close: the window expired, the last error surfaces as
+    // the closed event's error row, and the UI stays mounted without
+    // dispatching anything.
+    session.error_row(
+        &format!("Daemon reconnection failed: {}", state.last_error),
+        view,
+    );
+    session.reconnection_failed = Some(state.last_error);
+    session.dirty = true;
+    None
+}
+
+/// The full reconnect window ran out: say why the surface is closing.
+pub(super) fn close_expired_recovery(
+    session: &mut SessionUi,
+    view: &mut AgentView,
+    kind: RecoveryKind,
+) {
+    match kind {
+        RecoveryKind::Shutdown => {
+            // TS #2458: the daemon never came back within the reconnect
+            // timeout -- the saved-transcript close (the session file
+            // survives on disk).
+            session.note(
+                "The Eukhe daemon shut down while this window was attached. The session transcript remains saved; restart Eukhe and reopen it from Agents View.",
+                view,
+            );
+            session.exit_reason = "daemon_closed";
+        }
+        RecoveryKind::Lost => {
+            session.note(
+                "could not reconnect to the daemon within 10 minutes -- run `eukhe attach` to resume.",
+                view,
+            );
+            session.exit_reason = "daemon_reconnect_failed";
+        }
     }
 }
 

@@ -1,16 +1,20 @@
 //! The run concern (moved with its concern): the interactive run's entry
-//! points and open routes, the terminal/headless surface loop with the
-//! reconnect and settle gates, and the loop's timing constants.
+//! point, the terminal/headless surface loop with the reconnect and
+//! settle gates, and the loop's timing constants. The open's failure
+//! routes, the terminal handoffs, the spinner cadence, and the reconnect
+//! attempts live in their own modules.
 
+use super::headless::settled_sequence;
+use super::open_failure::finish_failed_open;
+use super::reconnect::{close_expired_recovery, retry_session_attach};
+use super::render::{hand_terminal_to_requests, next_spinner_deadline, SPINNER_INTERVAL_MS};
 use super::{
     apply_startup_chrome, arm_shutdown_recovery, check_tmux_keyboard_setup, mpsc,
-    run_onboarding_phase, spawn_session_reader, AgentView, DaemonClient, Duration, ExitGuard,
-    HeadlessSettle, Instant, InteractiveOptions, InteractiveOutcome, PaneDrive, ReconnectConnect,
-    ReconnectLoop, RecoveryKind, Renderer, Result, SessionReconnect, SessionSelection, SessionUi,
-    SurfaceExit, TerminalHandoff, UiInput, UiMode, VecDeque, SESSION_RECONNECT_ATTEMPT_TIMEOUT_S,
-    TELEMETRY_EXIT_TIMEOUT_MS,
+    run_onboarding_phase, AgentView, DaemonClient, Duration, ExitGuard, HeadlessSettle, Instant,
+    InteractiveOptions, InteractiveOutcome, PaneDrive, ReconnectConnect, ReconnectLoop,
+    RecoveryKind, Renderer, Result, SessionReconnect, SessionSelection, SessionUi, SurfaceExit,
+    UiInput, UiMode, VecDeque, TELEMETRY_EXIT_TIMEOUT_MS,
 };
-use crate::suspend::SuspendTerminal;
 use anyhow::Context;
 
 /// The headless exit gate's settle bound: after the plan completes
@@ -33,26 +37,6 @@ const HEADLESS_SETTLE_TIMEOUT_MS: u64 = 60_000;
 /// next frame, capping the render rate at ~60fps however fast the stream
 /// delivers).
 const MIN_RENDER_INTERVAL: Duration = Duration::from_millis(16);
-/// The spinner's wall-clock cadence (TS `Loader` `DEFAULT_INTERVAL_MS`):
-/// the animation phase advances one frame per 80ms of animating time
-/// regardless of the render rate.
-const SPINNER_INTERVAL_MS: u128 = 80;
-
-/// The animating loader's next phase boundary, the wake the select needs
-/// while a quiet turn waits out its stream: TS `Loader`'s `setInterval`
-/// keeps painting the 80ms cadence through quiet turns, and this
-/// boundary is that interval's timer. The wake always precedes the
-/// phase change it observes -- an off-by-one here parks the loop for a
-/// whole boundary instead of firing at the phase edge.
-fn next_spinner_deadline(started: Instant, now: Instant) -> Instant {
-    // The remainder form keeps the arithmetic bounded by one phase: a
-    // wide phase counter would truncate through `as usize` on 32-bit
-    // targets after ~10.9 years of continuous animation and arm an
-    // already-expired deadline, hot-spinning the select's wake.
-    let into_phase = now.duration_since(started).as_millis() % SPINNER_INTERVAL_MS;
-    now + Duration::from_millis((SPINNER_INTERVAL_MS - into_phase) as u64)
-}
-
 /// Run the interactive UI until the user exits (terminal) or the plan
 /// completes (headless).
 ///
@@ -106,61 +90,6 @@ pub async fn run_interactive(
             Err(error)
         }
     }
-}
-
-/// The `SubmitAndSettle` barrier's daemon round trip: submit the message
-/// as a `prompt_and_wait`, then read the session's event sequence through
-/// `get_rlm_children` -- the one read-only command that reports it. Both
-/// requests are bounded by `timeout_ms`.
-async fn settled_sequence(
-    client: &DaemonClient,
-    active_session_id: String,
-    message: String,
-    timeout_ms: u64,
-) -> anyhow::Result<u64> {
-    let input = eukhe_types::daemon::PromptInput {
-        content: None,
-        images: None,
-        streaming_behavior: Some(eukhe_types::daemon::StreamingBehavior::Steer),
-        queue_if_busy: Some(true),
-        expand_prompt_templates: None,
-        source: None,
-        agent_message_id: None,
-        custom_message: None,
-        queue_key: None,
-        prefix_messages: None,
-        admission_id: None,
-        rlm_notice_nonce: None,
-    };
-    let waited = client
-        .request_with_timeout(
-            eukhe_types::daemon::DaemonCommand::PromptAndWait {
-                id: None,
-                active_session_id: active_session_id.clone(),
-                message,
-                input,
-                rest: serde_json::Map::default(),
-            },
-            timeout_ms,
-        )
-        .await?;
-    anyhow::ensure!(waited.success, "prompt_and_wait failed: {:?}", waited.error);
-    let children = client
-        .request_with_timeout(
-            eukhe_types::daemon::DaemonCommand::GetRlmChildren {
-                id: None,
-                active_session_id,
-                rest: serde_json::Map::default(),
-            },
-            timeout_ms,
-        )
-        .await?;
-    children
-        .data
-        .as_ref()
-        .and_then(|data| data.get("eventSequence"))
-        .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| anyhow::anyhow!("get_rlm_children carried no eventSequence"))
 }
 
 async fn run_interactive_surface(
@@ -575,83 +504,7 @@ async fn run_interactive_surface(
     let (mut events, mut session) = match open_outcome {
         Ok(opened) => opened,
         Err(error) => {
-            // A daemon refusal for the startup create/attach/resume (the
-            // daemon is alive and refused THIS request -- a remembered id
-            // whose worker is gone, or a saved-session create the daemon
-            // refuses, e.g. "Session is already active in <id>" while
-            // another instance holds the session file): the pane hands off
-            // to the agents view with the failure as its status line --
-            // the session-picker fallback -- instead of dying to the
-            // shell. Only transport/protocol failures (daemon down,
-            // unanswerable socket) stay fatal.
-            //
-            // The unknown-session check matches the daemon's RAW refusal
-            // message exactly - it must name this attach's own selector -
-            // so a selector that happens to contain the phrase could not
-            // forge the refusal (and vice versa).
-            let unknown_session_refusal = |selector: &str| {
-                let expected = format!("Unknown active session: {selector}");
-                error.chain().any(|cause| {
-                    cause
-                        .downcast_ref::<crate::daemon_client::RequestRejected>()
-                        .is_some_and(|rejection| rejection.message == expected)
-                })
-            };
-            if let SessionSelection::Attach(selector) = &options.session {
-                if unknown_session_refusal(selector) {
-                    // The handoff keeps the process alive: disarm the
-                    // double-Ctrl+C force-quit watchdog like the normal
-                    // agents-view handoff does.
-                    exit_guard.cancel();
-                    let frames = renderer.finish(SurfaceExit::Handoff, &view);
-                    return Ok(InteractiveOutcome {
-                        return_to_agents_view: true,
-                        agents_view_notice: Some(format!(
-                            "Session {selector} is no longer running -- pick a session to continue."
-                        )),
-                        frames,
-                        ..Default::default()
-                    });
-                }
-            }
-            // A response/handshake timeout (the daemon alive but slow at
-            // load: "Timed out after Nms waiting for the Eukhe daemon
-            // response") is a hiccup, not a protocol failure: the same
-            // session-picker fallback, never a fatal exit that loses the
-            // user's pane (operator directive 2026-09-24 -- the attach
-            // timeout at box load exited the TUI).
-            if crate::daemon_client::is_daemon_timeout(&error) {
-                exit_guard.cancel();
-                let frames = renderer.finish(SurfaceExit::Handoff, &view);
-                return Ok(InteractiveOutcome {
-                    return_to_agents_view: true,
-                    agents_view_notice: Some(format!("{error:#} -- pick a session to continue.")),
-                    frames,
-                    ..Default::default()
-                });
-            }
-            // Any other daemon refusal (a create the daemon refused for a
-            // saved-session open, an admission refusal, ...) gets the same
-            // session-picker fallback: the agents view opens with the
-            // refusal as its status line and the client never exits.
-            if crate::daemon_client::is_daemon_rejection(&error) {
-                exit_guard.cancel();
-                let frames = renderer.finish(SurfaceExit::Handoff, &view);
-                return Ok(InteractiveOutcome {
-                    return_to_agents_view: true,
-                    agents_view_notice: Some(format!("{error:#}")),
-                    frames,
-                    ..Default::default()
-                });
-            }
-            // The surface is already up: hand the terminal back before the
-            // CLI reports the failure on the plain screen (the same
-            // teardown contract as the onboarding exit below).
-            if renderer.is_terminal() {
-                exit_guard.arm_for_exit();
-            }
-            renderer.finish(SurfaceExit::Process, &view);
-            return Err(error);
+            return finish_failed_open(error, &options.session, &exit_guard, renderer, &view);
         }
     };
     session.exit_guard = exit_guard.clone();
@@ -1068,15 +921,6 @@ async fn run_interactive_surface(
                             // fatal.
                             Err(error) => return Err(error),
                         }
-                        // TS `handleCtrlZ` (`app.suspend`, default ctrl+z):
-                        // hand the terminal to the shell and stop the process
-                        // group; execution continues here once the user
-                        // foregrounds the process (SIGCONT), where the cycle
-                        // re-applies raw mode and the key modes and starts a
-                        // new live area (TS `ui.start()`).
-                        // Headless runs keep no terminal renderer (TS never
-                        // registers the action without one), so the request is
-                        // observed and dropped.
                         // A parked `/traces login` (or the enable arm's
                         // login-first step): mount the inline auth panel
                         // and spawn the flow (the panel channel carries
@@ -1084,84 +928,7 @@ async fn run_interactive_surface(
                         if session.pending_traces_login() {
                             session.run_traces_login(&mut view);
                         }
-                        if session.take_suspend_request() && renderer.is_terminal() {
-                            match crate::suspend::suspend_cycle(
-                                &mut crate::suspend::ProcessSignals,
-                                &mut TerminalHandoff {
-                                    renderer: &mut renderer,
-                                },
-                            ) {
-                                Ok(()) => session.track_suspend_used("resumed"),
-                                Err(error) => {
-                                    session.track_suspend_used("failed");
-                                    session.error_row(&format!("{error:#}"), &mut view);
-                                    // Try to take the terminal back so the run
-                                    // stays usable; if that also fails, the
-                                    // draw below surfaces the broken frame.
-                                    let _ = renderer.resume();
-                                }
-                            }
-                        }
-                        // TS `openExternalEditor`: hand the terminal to the
-                        // editor, then resume. The input reader would steal
-                        // the editor's keys, so it stops (flag + join) and
-                        // respawns after the resume. Headless runs drop it.
-                        if let Some(command) = session.take_external_editor_request() {
-                            let reader = match &renderer {
-                                Renderer::Terminal {
-                                    ui_tx, exit_guard, ..
-                                } => Some((ui_tx.clone(), exit_guard.clone())),
-                                Renderer::Headless { .. } => None,
-                            };
-                            if let Some((ui_tx, exit_guard)) = reader {
-                                crate::input::stop_reader();
-                                // The suspend path's SIGINT shield: the
-                                // handoff restores cooked mode (ISIG), and
-                                // a cooked-mode editor wrapper (`code
-                                // --wait`, `subl -w`) turns Ctrl+C into
-                                // SIGINT for the shared foreground group --
-                                // the default disposition would kill the
-                                // TUI mid-edit. The no-op handler (never
-                                // SIG_IGN) keeps the child's own Ctrl+C:
-                                // handled signals reset to the default
-                                // across exec.
-                                let mut signals = crate::suspend::ProcessSignals;
-                                let stopped =
-                                    crate::suspend::SuspendSignals::ignore_sigint(&mut signals)
-                                        .and_then(|()| {
-                                            TerminalHandoff {
-                                                renderer: &mut renderer,
-                                            }
-                                            .stop()
-                                        });
-                                let outcome = match stopped {
-                                    Ok(()) => {
-                                        crate::external_editor::edit(
-                                            &command,
-                                            &view.editor.get_expanded_text(),
-                                        )
-                                        .await
-                                    }
-                                    Err(error) => Err(error),
-                                };
-                                // The suspend cycle's order: SIGINT is
-                                // back to the default before the surface
-                                // takes the terminal.
-                                let _ =
-                                    crate::suspend::SuspendSignals::restore_sigint(&mut signals);
-                                // TS resumes in a `finally`: the surface
-                                // returns even when the editor run failed.
-                                let resumed = TerminalHandoff {
-                                    renderer: &mut renderer,
-                                }
-                                .resume();
-                                if let Err(error) = resumed {
-                                    session.error_row(&format!("{error:#}"), &mut view);
-                                }
-                                spawn_session_reader(ui_tx, exit_guard);
-                                session.apply_external_editor_outcome(outcome, &mut view);
-                            }
-                        }
+                        hand_terminal_to_requests(&mut session, &mut view, &mut renderer).await;
                         // The `/mcp` view resolved to an auth request (its
                         // Enter on a connection, or the pasteable service's
                         // paste flow): mount the inline auth panel and spawn
@@ -1738,25 +1505,7 @@ async fn run_interactive_surface(
                     None => continue,
                 };
                 if tokio::time::Instant::now() > deadline {
-                    match kind {
-                        RecoveryKind::Shutdown => {
-                            // TS #2458: the daemon never came back within
-                            // the reconnect timeout -- the saved-transcript
-                            // close (the session file survives on disk).
-                            session.note(
-                                "The Eukhe daemon shut down while this window was attached. The session transcript remains saved; restart Eukhe and reopen it from Agents View.",
-                                &mut view,
-                            );
-                            session.exit_reason = "daemon_closed";
-                        }
-                        RecoveryKind::Lost => {
-                            session.note(
-                                "could not reconnect to the daemon within 10 minutes -- run `eukhe attach` to resume.",
-                                &mut view,
-                            );
-                            session.exit_reason = "daemon_reconnect_failed";
-                        }
-                    }
+                    close_expired_recovery(&mut session, &mut view, kind);
                     reconnect = None;
                     session.dirty = true;
                     running = false;
@@ -1817,25 +1566,7 @@ async fn run_interactive_surface(
                     None => continue,
                 };
                 if expired {
-                    match kind {
-                        RecoveryKind::Shutdown => {
-                            // TS #2458: the daemon never came back within
-                            // the reconnect timeout -- the saved-transcript
-                            // close (the session file survives on disk).
-                            session.note(
-                                "The Eukhe daemon shut down while this window was attached. The session transcript remains saved; restart Eukhe and reopen it from Agents View.",
-                                &mut view,
-                            );
-                            session.exit_reason = "daemon_closed";
-                        }
-                        RecoveryKind::Lost => {
-                            session.note(
-                                "could not reconnect to the daemon within 10 minutes -- run `eukhe attach` to resume.",
-                                &mut view,
-                            );
-                            session.exit_reason = "daemon_reconnect_failed";
-                        }
-                    }
+                    close_expired_recovery(&mut session, &mut view, kind);
                     reconnect = None;
                     session.dirty = true;
                     running = false;
@@ -1930,82 +1661,8 @@ async fn run_interactive_surface(
                     None => std::future::pending::<()>().await,
                 }
             } => {
-                let Some(state) = session_reconnect.take() else {
-                    continue;
-                };
-                // The user switched sessions while the link was down: the
-                // new attach owns its own connection, so this driver stops.
-                if state.active_session_id != session.active_session_id {
-                    continue;
-                }
-                // The reconnect attempt's budget covers the attach
-                // alone: the surface is already up and its dock holds
-                // (the background refreshes update it), so the
-                // first-frame fold's bounded fetches cannot eat the 10s
-                // attempt budget on a slow daemon.
-                let attempt = tokio::time::timeout(
-                    Duration::from_secs(SESSION_RECONNECT_ATTEMPT_TIMEOUT_S),
-                    session.attach_session(
-                        &state.active_session_id,
-                        crate::session_ui::DockFold::Held,
-                    ),
-                )
-                .await;
-                match attempt {
-                    Ok(Ok(())) => {
-                        // The resynced transcript replaces the chat (TS
-                        // `session_resynced`), then the reconnected status
-                        // lands on the rebuilt chat (TS
-                        // `connection_status: "connected"`).
-                        session.rebuild_view(
-                            &mut view,
-                            &crate::session_ui::RebuildKind::Resync,
-                        );
-                        session.note_as(
-                            "Daemon reconnected",
-                            crate::chat::StatusKind::Info,
-                            &mut view,
-                        );
-                        session.reconnection_failed = None;
-                        session_reconnect = None;
-                        // TS refreshes the heartbeat catalog on the
-                        // `connection_status: "connected"` event.
-                        session.spawn_heartbeat_refresh();
-                        session.dirty = true;
-                    }
-                    Ok(Err(error)) => {
-                        let mut state = state;
-                        state.last_error = format!("{error:#}");
-                        if tokio::time::Instant::now() > state.deadline {
-                            // TS terminal close: the window expired, the
-                            // last error surfaces as the closed event's
-                            // error row, and the UI stays mounted without
-                            // dispatching anything.
-                            let failure =
-                                format!("Daemon reconnection failed: {}", state.last_error);
-                            session.error_row(&failure, &mut view);
-                            session.reconnection_failed = Some(state.last_error.clone());
-                            session_reconnect = None;
-                            session.dirty = true;
-                        } else {
-                            session_reconnect = Some(state.next_attempt());
-                        }
-                    }
-                    Err(_) => {
-                        let mut state = state;
-                        state.last_error =
-                            "the session re-attach attempt timed out".to_string();
-                        if tokio::time::Instant::now() > state.deadline {
-                            let failure =
-                                format!("Daemon reconnection failed: {}", state.last_error);
-                            session.error_row(&failure, &mut view);
-                            session.reconnection_failed = Some(state.last_error.clone());
-                            session_reconnect = None;
-                            session.dirty = true;
-                        } else {
-                            session_reconnect = Some(state.next_attempt());
-                        }
-                    }
+                if let Some(state) = session_reconnect.take() {
+                    session_reconnect = retry_session_attach(&mut session, &mut view, state).await;
                 }
             }
             () = async {
@@ -2301,27 +1958,4 @@ async fn run_interactive_surface(
         exit_guard.cancel();
     }
     Ok(outcome)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The boundary the select arms is always the current phase's
-    /// 80ms edge -- the wake must precede the phase change it observes
-    /// (an off-by-one parks the loop for a whole boundary). Samples sit
-    /// at least a millisecond inside their phase because `Instant`
-    /// round-trips can lose sub-millisecond ticks on the platform
-    /// clock, and the phase is floored from whole milliseconds.
-    #[test]
-    fn spinner_deadline_is_the_current_phase_edge() {
-        let started = Instant::now();
-        let at = |ms: u64| started + Duration::from_millis(ms);
-        assert_eq!(next_spinner_deadline(started, started), at(80));
-        assert_eq!(next_spinner_deadline(started, at(1)), at(80));
-        assert_eq!(next_spinner_deadline(started, at(79)), at(80));
-        assert_eq!(next_spinner_deadline(started, at(81)), at(160));
-        assert_eq!(next_spinner_deadline(started, at(161)), at(240));
-        assert_eq!(next_spinner_deadline(started, at(239)), at(240));
-    }
 }
