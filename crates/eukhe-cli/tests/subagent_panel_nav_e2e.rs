@@ -236,6 +236,7 @@ fn session_options(
         session,
         initial_message: None,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -376,6 +377,7 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
         status_message: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     };

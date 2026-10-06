@@ -211,7 +211,11 @@ fn diff_selector_child_mode() {
     } else {
         eukhe_tui::keybindings::KeybindingsManager::new()
     };
-    let options = ConfigSelectorOptions::new(theme, keybindings);
+    let options = ConfigSelectorOptions::new(
+        theme,
+        keybindings,
+        eukhe_tui::screen_mode::ScreenMode::Inline,
+    );
     let mut on_toggle = move |_key: &str, _enabled: bool| -> anyhow::Result<()> {
         if fail_toggle {
             anyhow::bail!("the toggle persistence failed (the error route)");

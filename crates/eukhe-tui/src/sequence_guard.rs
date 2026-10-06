@@ -18,18 +18,21 @@
 //!
 //! - a bare `Esc` press is held for [`HOLD`] (TS `StdinBuffer.timeout`);
 //! - continuation bytes reassemble the sequence; a complete one is
-//!   classified before any text insertion: SGR/X10/rxvt mouse reports
-//!   are consumed whole (the CLI never decodes mouse input), recognized
-//!   key sequences synthesize the event crossterm's own single-read
-//!   parse would have produced, and everything else is consumed
-//!   (dropped);
+//!   classified before any text insertion: an SGR wheel report becomes
+//!   the scroll event crossterm's own single-read parse would have
+//!   produced (the fullscreen surfaces scroll on it), every other
+//!   SGR/X10/rxvt mouse report is consumed whole, recognized key
+//!   sequences synthesize their crossterm event, and everything else is
+//!   consumed (dropped);
 //! - a sequence still incomplete at the deadline is dropped whole -- the
 //!   editor never sees escape bytes as text;
 //! - a held `Esc` that nothing continues flushes as the key press.
 
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseEvent, MouseEventKind,
+};
 
 /// TS `StdinBuffer.timeout`: how long a lone `ESC` (or a half-assembled
 /// sequence) waits for its continuation before flushing.
@@ -253,22 +256,61 @@ fn ends_with_terminator(after_esc: &[u8], bel: bool) -> bool {
 }
 
 /// Classify a complete reassembled sequence before anything can reach the
-/// editor as text: recognized keys synthesize their crossterm event, and
-/// everything else -- mouse reports, OSC/DCS/APC replies, focus and cursor
-/// reports, kitty replies, paste markers, unknown forms -- is consumed.
+/// editor as text: wheel reports and recognized keys synthesize their
+/// crossterm event, and everything else -- other mouse reports,
+/// OSC/DCS/APC replies, focus and cursor reports, kitty replies, paste
+/// markers, unknown forms -- is consumed.
 fn classify(pending: &PendingEscape) -> Vec<Event> {
     let bytes = pending.assembled.as_slice();
-    // Mouse reports (SGR, X10, rxvt `ESC [ cb ; cx ; cy M`) are dropped
-    // whole: their bodies must never reach the editor as text.
+    // Mouse reports (SGR, X10, rxvt `ESC [ cb ; cx ; cy M`): their
+    // bodies must never reach the editor as text.
     let mouse = bytes.starts_with(b"\x1b[<")
         || (bytes.starts_with(b"\x1b[M") && bytes.len() == 6)
         || (bytes.starts_with(b"\x1b[") && bytes.ends_with(b"M"));
     if mouse {
-        return Vec::new();
+        return sgr_wheel(bytes).into_iter().collect();
     }
     classify_key(bytes, pending.first.as_ref())
         .into_iter()
         .collect()
+}
+
+/// An SGR wheel report (`ESC [ < cb ; cx ; cy M|m`, button 4 or 5, no
+/// drag bit): crossterm's `parse_csi_sgr_mouse` event for it. `None`
+/// for every other report.
+fn sgr_wheel(bytes: &[u8]) -> Option<Event> {
+    let (last, body) = bytes.strip_prefix(b"\x1b[<")?.split_last()?;
+    if *last != b'M' && *last != b'm' {
+        return None;
+    }
+    let mut fields = std::str::from_utf8(body).ok()?.split(';');
+    let cb: u8 = fields.next()?.parse().ok()?;
+    let column: u16 = fields.next()?.parse().ok()?;
+    let row: u16 = fields.next()?.parse().ok()?;
+    if fields.next().is_some() || cb & 0b0010_0000 != 0 {
+        return None;
+    }
+    let kind = match (cb & 0b0000_0011) | ((cb & 0b1100_0000) >> 4) {
+        4 => MouseEventKind::ScrollUp,
+        5 => MouseEventKind::ScrollDown,
+        _ => return None,
+    };
+    let mut modifiers = KeyModifiers::empty();
+    for (bit, modifier) in [
+        (0b0000_0100, KeyModifiers::SHIFT),
+        (0b0000_1000, KeyModifiers::ALT),
+        (0b0001_0000, KeyModifiers::CONTROL),
+    ] {
+        if cb & bit != 0 {
+            modifiers |= modifier;
+        }
+    }
+    Some(Event::Mouse(MouseEvent {
+        kind,
+        column: column.saturating_sub(1),
+        row: row.saturating_sub(1),
+        modifiers,
+    }))
 }
 
 /// Recognized key sequences: their crossterm event. `None` consumes the

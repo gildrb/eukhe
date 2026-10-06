@@ -297,12 +297,13 @@ async fn tui_settings_menu_cycles_rows() {
         "the settings menu rendered its first row:\n{rendered}"
     );
     assert!(
-        rendered.contains("1 General    2 Models    3 Display    4 Editor    5 Agents"),
+        rendered
+            .contains("1 General    2 Models    3 Display    4 Terminal    5 Editor    6 Agents"),
         "the settings menu rendered its tab strip:\n{rendered}"
     );
     assert!(
         rendered
-            .contains("Type to search - Tab/1-5 tabs - left/right/Enter/Space change - Esc close"),
+            .contains("Type to search - Tab/1-6 tabs - left/right/Enter/Space change - Esc close"),
         "the settings hint rendered:\n{rendered}"
     );
 }

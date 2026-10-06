@@ -334,11 +334,13 @@ async fn drive_onboarding_pane(
                 }
                 // The plan's driving steps mean nothing to the pane
                 // (the headless harness replays them against the session
-                // screen once the pane releases).
+                // screen once the pane releases); the pane has no
+                // transcript to scroll.
                 UiInput::Submit(_)
                 | UiInput::SubmitAndSettle { .. }
                 | UiInput::SettleIdle
-                | UiInput::WaitIdle { .. } => {}
+                | UiInput::WaitIdle { .. }
+                | UiInput::Scroll(_) => {}
                 UiInput::Resize => view.request_replay(),
                 }
             }

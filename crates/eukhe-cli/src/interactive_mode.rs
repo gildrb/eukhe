@@ -330,6 +330,7 @@ async fn run_agents_view_flow(
                 .client_settings
                 .as_ref()
                 .is_some_and(|settings| settings.show_hardware_cursor()),
+            screen_mode: current_screen_mode(&base),
             // TS `persistentState.incidentNoticeState`: the incident
             // notice state survives leaving and re-entering the view (a
             // dismissed incident never comes back, and the poll does not
@@ -393,6 +394,7 @@ async fn run_agents_view_flow(
         session_options.session = selection;
         session_options.session_rlm_depth = view.opened_rlm_depth;
         session_options.session_has_children = view.opened_has_children;
+        session_options.screen_mode = current_screen_mode(&base);
         // The scoped panel's own exit (the parent key or escape) reopened
         // the scope root's chat: it starts with the dock focused on the
         // panel's own group (the Subagents item), not the prompt bar --
@@ -439,6 +441,7 @@ async fn run_agents_view_flow(
         while let Some(selection) = pending.take() {
             let mut next = base.clone();
             next.session = selection;
+            next.screen_mode = current_screen_mode(&base);
             let outcome = eukhe_tui::interactive::run_interactive(next, UiMode::Terminal).await?;
             if !outcome.session_id.is_empty() {
                 anchor = Some(outcome.session_id.clone());
@@ -464,6 +467,16 @@ async fn run_agents_view_flow(
             pending = outcome.selection_request;
         }
     }
+}
+
+/// The `terminal.fullscreen` mode a surface mounts with: read at each
+/// mount, since `/settings` can switch it while a chat runs.
+fn current_screen_mode(base: &InteractiveOptions) -> eukhe_tui::screen_mode::ScreenMode {
+    base.client_settings
+        .as_ref()
+        .map_or(base.screen_mode, |settings| {
+            eukhe_tui::screen_mode::ScreenMode::from_fullscreen_setting(settings.fullscreen())
+        })
 }
 
 /// `--daemon-socket` value, the `EUKHE_DAEMON_SOCKET` environment,
@@ -511,6 +524,8 @@ fn build_tui_options(
     let settings = eukhe_core::settings::SettingsManager::create(&config.cwd, &config.agent_dir);
     let code_block_indent = settings.get_code_block_indent();
     let show_images = settings.get_show_images();
+    let screen_mode =
+        eukhe_tui::screen_mode::ScreenMode::from_fullscreen_setting(settings.get_fullscreen());
     // The `/tree` selector's initial filter and the branch-summary prompt
     // skip read the same settings the TS interactive mode reads at
     // startup.
@@ -531,7 +546,6 @@ fn build_tui_options(
         registry.get_available().into_iter().cloned().collect();
     let configured_providers: std::collections::HashSet<String> =
         catalog.iter().map(|model| model.provider.clone()).collect();
-    let settings = eukhe_core::settings::SettingsManager::create(&config.cwd, &config.agent_dir);
     let recent = settings.get_recent_models();
     let default_thinking_level = settings
         .get_default_thinking_level()
@@ -575,6 +589,7 @@ fn build_tui_options(
         session,
         initial_message: options.initial_message.clone(),
         show_images,
+        screen_mode,
         // TS startup reads the settings theme (`getTheme() || "eukhe"`).
         theme: settings.get_theme().map(str::to_string).unwrap_or_default(),
         // The client-settings seam the interactive commands persist

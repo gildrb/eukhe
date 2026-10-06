@@ -279,6 +279,7 @@ fn carried_selection_wins_over_the_entry_anchor() {
         status_message: None,
         keybindings: crate::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     });

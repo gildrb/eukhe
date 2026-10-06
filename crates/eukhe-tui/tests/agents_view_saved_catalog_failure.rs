@@ -211,6 +211,7 @@ fn view_options(socket: &std::path::Path) -> AgentsViewOptions {
         status_message: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     }

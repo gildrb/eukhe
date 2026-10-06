@@ -107,6 +107,9 @@ pub struct AgentsViewOptions {
     /// hardware cursor is positioned at the search caret for IME every
     /// frame, but only shown when this is set.
     pub show_hardware_cursor: bool,
+    /// Inline or fullscreen (`terminal.fullscreen`): fullscreen paints
+    /// the view as a screen-sized frame in the alternate screen.
+    pub screen_mode: crate::screen_mode::ScreenMode,
     /// The incident notice state carried across view runs (TS
     /// `AgentsViewPersistentState.incidentNoticeState`): the windowed log
     /// entries, the consumed log offset, and the dismissal horizons
@@ -270,6 +273,8 @@ enum UiInput {
         timeout_ms: u64,
     },
     Resize,
+    /// One mouse wheel notch (fullscreen only): moves the selection.
+    Wheel(crate::screen_mode::WheelDirection),
     Settled,
     Done,
     /// The saved-catalog fetch landed (TS `armSavedSearchFetch` applying
@@ -867,6 +872,7 @@ async fn run_agents_view_surface(
         exit_guard.clone(),
         &surface_mounted,
         options.show_hardware_cursor,
+        options.screen_mode,
     )?;
     // The first frame renders from the live roster the moment the surface
     // mounts (TS `applySessionList(this.rosterStore.summaries(), true)`
@@ -1093,6 +1099,13 @@ async fn run_agents_view_surface(
                 // The live area re-fits the new height; the next frame
                 // repaints it whole.
                 UiInput::Resize => renderer.resize()?,
+                UiInput::Wheel(direction) => {
+                    let rows = crate::screen_mode::WHEEL_ROWS as isize;
+                    mode.move_selection(match direction {
+                        crate::screen_mode::WheelDirection::Up => -rows,
+                        crate::screen_mode::WheelDirection::Down => rows,
+                    });
+                }
                 UiInput::DeleteResult {
                     message,
                     tone,
@@ -1411,6 +1424,7 @@ async fn run_agents_view_surface(
             | UiInput::Paste(_)
             | UiInput::WaitRender { .. }
             | UiInput::Resize
+            | UiInput::Wheel(_)
             | UiInput::Settled
             | UiInput::Done
             | UiInput::SavedLoaded { .. }

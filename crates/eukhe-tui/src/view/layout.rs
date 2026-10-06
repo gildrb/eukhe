@@ -66,6 +66,14 @@ impl AgentView {
         if let (Some(working), Some(since)) = (&mut self.working, self.working_since) {
             working.elapsed_secs = since.elapsed().as_secs();
         }
+        let mut rows = self.render_history(width);
+        rows.extend(self.render_transcript_tail(width));
+        rows
+    }
+
+    /// The splash and every entry: the rows inline mode leaves in
+    /// scrollback, which a fullscreen exit prints to the normal screen.
+    pub(crate) fn render_history(&self, width: usize) -> Vec<Line> {
         let mut rows = if self.splash_suppressed {
             Vec::new()
         } else {
@@ -74,7 +82,6 @@ impl AgentView {
         for index in 0..self.chat.len() {
             rows.extend(self.render_entry_at(index, width));
         }
-        rows.extend(self.render_transcript_tail(width));
         rows
     }
 

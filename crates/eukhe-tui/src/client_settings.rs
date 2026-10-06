@@ -44,6 +44,15 @@ pub trait ClientSettings: Send + Sync {
     /// Returns `Err` when opening or persisting the settings
     /// store fails.
     fn set_show_terminal_progress(&self, enabled: bool) -> Result<()>;
+    /// `terminal.fullscreen` (default false: inline).
+    fn fullscreen(&self) -> bool;
+    /// Persists `terminal.fullscreen` to the global scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when opening or persisting the settings
+    /// store fails.
+    fn set_fullscreen(&self, enabled: bool) -> Result<()>;
     /// `images.autoResize` (TS default true).
     fn image_auto_resize(&self) -> bool;
     /// Persists `images.autoResize` to the global scope.

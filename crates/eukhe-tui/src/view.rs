@@ -16,8 +16,10 @@ mod frame;
 mod layout;
 mod panels;
 mod rows;
+mod viewport;
 
 pub use frame::ChatFrame;
+pub use viewport::{ScrollAmount, ScrollRequest};
 
 /// A `/share` gist upload in flight (TS `BorderedLoader` with
 /// `CancellableLoader`): the spinner "Creating gist..." rows that replace
@@ -180,6 +182,11 @@ pub struct AgentView {
     /// The ephemeral action toasts (auto-dismiss rows in the live area;
     /// a sanctioned divergence from TS -- see `toast`).
     pub toasts: crate::toast::Toasts,
+    /// Inline or fullscreen: the surface paints [`AgentView::compose`] or
+    /// [`AgentView::compose_fullscreen`] frames.
+    pub screen_mode: crate::screen_mode::ScreenMode,
+    /// The fullscreen transcript window.
+    viewport: viewport::Viewport,
 }
 
 /// Clip the editor selection to one rendered chunk (view.rs): the
@@ -331,6 +338,8 @@ impl AgentView {
             replay_requested: false,
             md_caches: std::cell::RefCell::new(std::collections::HashMap::new()),
             toasts: crate::toast::Toasts::default(),
+            screen_mode: crate::screen_mode::ScreenMode::Inline,
+            viewport: viewport::Viewport::default(),
         }
     }
 

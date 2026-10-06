@@ -34,12 +34,22 @@ pub struct ChatFrame {
     pub(crate) cursor: Option<LiveCursor>,
 }
 
+/// How a composed frame relates to the frames before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FrameStart {
+    /// The surface's first frame.
+    First,
+    /// The shape changed or a replay was requested: every row is redone.
+    Replay,
+    /// The rows composed before still hold.
+    Continue,
+}
+
 impl AgentView {
-    /// Compose the next frame for a `width` x `height` terminal: advance
-    /// the commit cursor over the settled prefix of the chat (their rows
-    /// become history), then lay out the live area. A changed shape or a
-    /// change that reached scrollback makes this a replay frame.
-    pub fn compose(&mut self, width: usize, height: usize) -> ChatFrame {
+    /// Start a frame at `width`: refresh the loader's elapsed time and
+    /// decide whether the frame replays. A first or replay frame starts
+    /// the commit cursor over.
+    pub(super) fn begin_frame(&mut self, width: usize) -> FrameStart {
         if let (Some(working), Some(since)) = (&mut self.working, self.working_since) {
             working.elapsed_secs = since.elapsed().as_secs();
         }
@@ -50,29 +60,38 @@ impl AgentView {
             code_block_indent: self.code_block_indent.clone(),
             show_images: self.show_images,
         };
-        let replay = self.replay_requested
-            || self
-                .history_shape
-                .as_ref()
-                .is_some_and(|previous| *previous != shape);
-        let mut history = Vec::new();
-        // The splash goes into scrollback once, with the surface's first
-        // frame, and again with every replay.
-        if replay || self.history_shape.is_none() {
+        let start = match &self.history_shape {
+            None => FrameStart::First,
+            Some(previous) if self.replay_requested || *previous != shape => FrameStart::Replay,
+            Some(_) => FrameStart::Continue,
+        };
+        if start != FrameStart::Continue {
             self.committed = 0;
-            if !self.splash_suppressed {
-                history = render_splash(&self.chrome, &self.theme, width);
-            }
         }
         self.replay_requested = false;
         self.history_shape = Some(shape);
+        start
+    }
+
+    /// Compose the next frame for a `width` x `height` terminal: advance
+    /// the commit cursor over the settled prefix of the chat (their rows
+    /// become history), then lay out the live area. A changed shape or a
+    /// change that reached scrollback makes this a replay frame.
+    pub fn compose(&mut self, width: usize, height: usize) -> ChatFrame {
+        let start = self.begin_frame(width);
+        let mut history = Vec::new();
+        // The splash goes into scrollback once, with the surface's first
+        // frame, and again with every replay.
+        if start != FrameStart::Continue && !self.splash_suppressed {
+            history = render_splash(&self.chrome, &self.theme, width);
+        }
         while self.committed < self.chat.len() && self.entry_settled(self.committed) {
             history.extend(self.render_entry_at(self.committed, width));
             self.committed += 1;
         }
         let (live, cursor) = self.compose_live(width, height);
         ChatFrame {
-            replay,
+            replay: start == FrameStart::Replay,
             history,
             live,
             cursor,
@@ -94,16 +113,7 @@ impl AgentView {
             rows.extend(self.render_entry_at(index, width));
         }
         rows.extend(self.render_transcript_tail(width));
-        let toasts = self.toasts.active(std::time::Instant::now());
-        if !toasts.is_empty() {
-            // The action ack renders as the brand-purple pill: the
-            // theme's Accent token flipped onto the pill's background.
-            let style = self
-                .theme
-                .fg_style(crate::theme::ThemeColor::Accent)
-                .add_modifier(Modifier::REVERSED);
-            rows.extend(crate::toast::render_toasts(&toasts, width, style));
-        }
+        rows.extend(self.toast_rows(width));
         let budget = height.saturating_sub(dock.len());
         if rows.len() > budget {
             rows.drain(..rows.len() - budget);
@@ -119,11 +129,26 @@ impl AgentView {
         (rows, cursor)
     }
 
+    /// The active action toasts as rows.
+    pub(super) fn toast_rows(&self, width: usize) -> Vec<Line> {
+        let toasts = self.toasts.active(std::time::Instant::now());
+        if toasts.is_empty() {
+            return Vec::new();
+        }
+        // The action ack renders as the brand-purple pill: the theme's
+        // Accent token flipped onto the pill's background.
+        let style = self
+            .theme
+            .fg_style(crate::theme::ThemeColor::Accent)
+            .add_modifier(Modifier::REVERSED);
+        crate::toast::render_toasts(&toasts, width, style)
+    }
+
     /// The dock rows and whether the editor holds the focus: the docked
     /// pickers and panels replace the editor part of the dock (TS
     /// `showConfigurationMenu`/`showSelector` replace the editor
     /// container) and keep the prompt context above them.
-    fn compose_dock(&mut self, width: usize) -> (Vec<Line>, bool) {
+    pub(super) fn compose_dock(&mut self, width: usize) -> (Vec<Line>, bool) {
         let prompt_context = self.prompt_context_rows(width);
         // The read-only info panel's CURRENT row budget (a terminal resize
         // re-budgets an open panel every frame, never a stale open-time

@@ -221,6 +221,7 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -333,7 +334,7 @@ fn info_commands_open_inline_panels_that_esc_closes_without_transcript_rows() {
         submit("/hotkeys"),
         wait_render("Move cursor / browse history"),
         key(KeyCode::End),
-        wait_render("Slash commands"),
+        wait_render("Scroll to bottom and follow output"),
         key(KeyCode::Esc),
         wait_gone(PANEL_HINT),
         // `/list`: the live-sessions listing (the mock daemon answers an
@@ -360,7 +361,7 @@ fn info_commands_open_inline_panels_that_esc_closes_without_transcript_rows() {
     // The scrollable window scrolled: End put the guide's last rows on
     // the screen (the first window never shows them).
     assert!(
-        rendered.contains("Slash commands"),
+        rendered.contains("Scroll to bottom and follow output"),
         "the End key jumped the panel to the guide's bottom:\n{rendered}"
     );
     // The `?` quick-shortcut guide never mounted anywhere in the run

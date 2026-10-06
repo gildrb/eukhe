@@ -76,6 +76,10 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
     let select_doc_start = key_display(kb, "tui.editor.selectDocStart");
     let select_doc_end = key_display(kb, "tui.editor.selectDocEnd");
     let browse_queue_newer = key_display(kb, "app.message.navigateNewer");
+    let viewport_page_up = key_display(kb, "tui.viewport.pageUp");
+    let viewport_page_down = key_display(kb, "tui.viewport.pageDown");
+    let viewport_top = key_display(kb, "tui.viewport.top");
+    let viewport_bottom = key_display(kb, "tui.viewport.bottom");
 
     let mut hotkeys = format!(
         r"
@@ -146,7 +150,15 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
 | `{browse_queue}` / `{browse_queue_newer}` | Browse and edit queued messages |
 | `{reorder_queue}` | Reorder the selected queued message |
 | `{paste_image}` | Paste image from clipboard |
-| `/` | Slash commands |"
+| `/` | Slash commands |
+
+**Transcript (fullscreen mode)**
+| Key | Action |
+|-----|--------|
+| `{viewport_page_up}` / `{viewport_page_down}` | Scroll transcript by page |
+| `{viewport_top}` | Scroll to top |
+| `{viewport_bottom}` | Scroll to bottom and follow output |
+| mouse wheel | Scroll transcript |"
     );
     hotkeys
 }
@@ -183,6 +195,16 @@ mod tests {
         assert!(guide.contains("Select to start / end of text"), "{guide}");
         assert!(
             guide.contains("| `Alt+up` / `Alt+down` | Browse and edit queued messages |"),
+            "{guide}"
+        );
+        // The fullscreen transcript window's keys.
+        assert!(
+            guide.contains("| `PageUp` / `PageDown` | Scroll transcript by page |"),
+            "{guide}"
+        );
+        assert!(guide.contains("| `Ctrl+Home` | Scroll to top |"), "{guide}");
+        assert!(
+            guide.contains("| `Ctrl+End` | Scroll to bottom and follow output |"),
             "{guide}"
         );
     }

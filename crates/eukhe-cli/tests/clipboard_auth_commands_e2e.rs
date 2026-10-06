@@ -536,6 +536,7 @@ fn command_options(
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::Attach(session_id.to_string()),
         show_images: false,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         client_settings: None,
         initial_message: None,
         theme: "eukhe".to_string(),

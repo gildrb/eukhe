@@ -20,6 +20,7 @@ fn mode_with_notice(notice: &str) -> AgentsViewMode {
         status_message: Some(notice.to_string()),
         keybindings: crate::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     });

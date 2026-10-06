@@ -259,6 +259,7 @@ fn headless_options(socket: &Path, dir: &Path) -> eukhe_tui::interactive::Intera
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::New,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         client_settings: None,
         initial_message: None,
         theme: "eukhe".to_string(),

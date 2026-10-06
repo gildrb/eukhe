@@ -6,6 +6,7 @@ use super::{
     mpsc, terminal, AgentView, Duration, ExitGuard, HeadlessStep, InteractiveOptions, KeyEvent,
     Result, SessionUi, UiInput, UiMode,
 };
+use crate::screen_mode::ScreenMode;
 
 /// One typed string as key events: characters become `Char` presses, `\n`
 /// becomes Enter, and `\t` becomes Tab (the keys autocomplete reacts to).
@@ -88,6 +89,10 @@ pub(super) async fn check_tmux_keyboard_setup() -> Option<String> {
 pub(super) enum Renderer {
     Terminal {
         term: crate::inline_term::InlineTerminal,
+        /// The screen mode the terminal is set up for; `None` until the
+        /// first frame and after a resume: the next draw sets the screen
+        /// up for the view's mode (a fullscreen one repaints whole).
+        shown: Option<ScreenMode>,
         /// The reader's channel and force-quit guard: the external-editor
         /// cycle stops and respawns the session reader around the child
         /// run, and the terminal renderer owns the seeds for the respawn.
@@ -145,11 +150,20 @@ pub(super) fn spawn_session_reader(ui_tx: mpsc::UnboundedSender<UiInput>, exit_g
             // widthChanged/heightChanged); the loop replays the history at
             // the new size.
             crossterm::event::Event::Resize(..) => ui_tx.send(UiInput::Resize).is_ok(),
-            // No mouse tracking is ever enabled; focus reports carry
-            // nothing the surface reads.
-            crossterm::event::Event::Mouse(_)
-            | crossterm::event::Event::FocusGained
-            | crossterm::event::Event::FocusLost => true,
+            // Wheel reports arrive only while a fullscreen surface has
+            // reporting on; every other mouse event and the focus
+            // reports carry nothing the surface reads.
+            crossterm::event::Event::Mouse(mouse) => {
+                match crate::screen_mode::wheel_scroll(mouse) {
+                    Some(direction) => ui_tx
+                        .send(UiInput::Scroll(crate::view::ScrollRequest::wheel(
+                            direction,
+                        )))
+                        .is_ok(),
+                    None => true,
+                }
+            }
+            crossterm::event::Event::FocusGained | crossterm::event::Event::FocusLost => true,
         },
     });
 }
@@ -183,9 +197,12 @@ impl Renderer {
                 // The live area starts at the cursor's line: the shell's
                 // next line for a fresh process, the previous surface's
                 // cleared live area for a view switch. Nothing is painted
-                // until the first frame.
+                // until the first frame, which also sets the screen up for
+                // the view's mode (a fullscreen handoff keeps the previous
+                // surface on screen until then).
                 Ok(Renderer::Terminal {
                     term: crate::inline_term::InlineTerminal::new(terminal::size()?.1),
+                    shown: None,
                     ui_tx,
                     exit_guard,
                 })
@@ -269,20 +286,24 @@ impl Renderer {
     }
 
     /// Hand the terminal back to the process (the live area left as
-    /// output, keys off, raw mode off, cursor visible) so an interactive
-    /// client command or a stopped job can use it. Headless verification
-    /// runs keep their plain pipes. The shared exit tail ends the
-    /// hand-back -- the same whole-terminal contract every exit
-    /// guarantees.
+    /// output, or the alternate screen left with wheel reporting off;
+    /// keys off, raw mode off, cursor visible) so an interactive client
+    /// command or a stopped job can use it. Headless verification runs
+    /// keep their plain pipes. The shared exit tail ends the hand-back --
+    /// the same whole-terminal contract every exit guarantees.
     fn suspend(&mut self) -> Result<()> {
         match self {
-            Renderer::Terminal { term, .. } => {
+            Renderer::Terminal { term, shown, .. } => {
                 // The raw-mode bracket takes the enhanced-key modes with
                 // it (TS `stop` on suspend: paste markers off, kitty
                 // flags popped); `resume` re-enables both.
-                let _ = crate::enhanced_keys::disable(&mut std::io::stdout());
-                term.release(&mut std::io::stdout())?;
-                crate::exit_restore::terminal_release_tail(&mut std::io::stdout());
+                let mut out = std::io::stdout();
+                let _ = crate::enhanced_keys::disable(&mut out);
+                if !crate::screen_mode::leave_alt_screen(&mut out) {
+                    term.release(&mut out)?;
+                }
+                *shown = None;
+                crate::exit_restore::terminal_release_tail(&mut out);
                 Ok(())
             }
             Renderer::Headless { .. } => Ok(()),
@@ -290,7 +311,8 @@ impl Renderer {
     }
 
     /// Take the terminal back after a suspended client command. The next
-    /// frame starts a new live area below whatever the command printed.
+    /// frame starts a new live area below whatever the command printed,
+    /// or (fullscreen) re-enters the alternate screen and repaints it.
     pub(super) fn resume(&mut self) -> Result<()> {
         match self {
             Renderer::Terminal { term, .. } => {
@@ -322,17 +344,48 @@ impl Renderer {
     }
 
     /// Paint one frame on the terminal; headless runs capture through
-    /// [`Renderer::render_headless`] instead.
+    /// [`Renderer::render_headless`] instead. The first frame (and the
+    /// first after a resume or a `/settings` switch) sets the screen up
+    /// for the view's mode.
     pub(super) fn draw(&mut self, view: &mut AgentView) -> Result<()> {
-        match self {
-            Renderer::Terminal { term, .. } => crate::app::draw(term, view),
-            Renderer::Headless { .. } => Ok(()),
+        let Renderer::Terminal { term, shown, .. } = self else {
+            return Ok(());
+        };
+        let mode = view.screen_mode;
+        let mut paint = crate::app::Paint::Changed;
+        if *shown != Some(mode) {
+            let mut out = std::io::stdout().lock();
+            let height = terminal::size()?.1;
+            match mode {
+                ScreenMode::Fullscreen => {
+                    if *shown == Some(ScreenMode::Inline) {
+                        term.clear_live(&mut out)?;
+                    }
+                    crate::screen_mode::enter_alt_screen(&mut out)?;
+                    paint = crate::app::Paint::Full;
+                }
+                ScreenMode::Inline => {
+                    // Back on the normal screen at the line the inline
+                    // live area started on: the history replays, since
+                    // entries settled while the alternate screen was up.
+                    if crate::screen_mode::leave_alt_screen(&mut out) {
+                        *term = crate::inline_term::InlineTerminal::new(height);
+                        view.request_replay();
+                    }
+                }
+            }
+            *shown = Some(mode);
+        }
+        match mode {
+            ScreenMode::Inline => crate::app::draw(term, view),
+            ScreenMode::Fullscreen => crate::app::draw_fullscreen(term, view, paint),
         }
     }
 
-    /// Capture one frame as plain text (headless assertions): every
-    /// history row composed so far, then the live area. A frame that has
-    /// not changed does not add a duplicate.
+    /// Capture one frame as plain text (headless assertions). Inline:
+    /// every history row composed so far, then the live area.
+    /// Fullscreen: the screen-sized frame. A frame that has not changed
+    /// does not add a duplicate.
     pub(super) fn render_headless_pane(&mut self, view: &mut AgentView) {
         let Renderer::Headless {
             width,
@@ -343,18 +396,30 @@ impl Renderer {
         else {
             return;
         };
-        let frame = view.compose(usize::from(*width), usize::from(*height));
-        if frame.replay {
-            history.clear();
-        }
-        history.extend(frame.history.iter().map(crate::app::plain_row));
-        let mut text = history.join("\n");
-        for row in &frame.live {
-            if !text.is_empty() {
-                text.push('\n');
+        let (width, height) = (usize::from(*width), usize::from(*height));
+        let text = match view.screen_mode {
+            ScreenMode::Inline => {
+                let frame = view.compose(width, height);
+                if frame.replay {
+                    history.clear();
+                }
+                history.extend(frame.history.iter().map(crate::app::plain_row));
+                let mut text = history.join("\n");
+                for row in &frame.live {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(&crate::app::plain_row(row));
+                }
+                text
             }
-            text.push_str(&crate::app::plain_row(row));
-        }
+            ScreenMode::Fullscreen => {
+                history.clear();
+                let frame = view.compose_fullscreen(width, height);
+                let rows: Vec<String> = frame.live.iter().map(crate::app::plain_row).collect();
+                rows.join("\n")
+            }
+        };
         if frames.last().map(String::as_str) != Some(text.as_str()) {
             frames.push(text);
         }
@@ -376,12 +441,15 @@ impl Renderer {
     }
 
     /// Teardown. A `handoff` exit (agents-back, `/resume`) clears the live
-    /// area so the next surface starts its own there, and keeps raw mode on
-    /// (the in-process gap would otherwise echo keypresses). Every other
-    /// exit leaves the live area as the final output with the cursor on
-    /// the line below it, then restores the terminal -- the resume hint the
-    /// composition root prints next lands right below the transcript.
-    pub(super) fn finish(self, handoff: SurfaceExit) -> Vec<String> {
+    /// area so the next surface starts its own there (a fullscreen surface
+    /// keeps the alternate screen for the next one to repaint), and keeps
+    /// raw mode on (the in-process gap would otherwise echo keypresses).
+    /// Every other exit leaves the live area as the final output with the
+    /// cursor on the line below it (a fullscreen surface leaves the
+    /// alternate screen and prints the transcript to the normal screen),
+    /// then restores the terminal -- the resume hint the composition root
+    /// prints next lands right below the transcript.
+    pub(super) fn finish(self, handoff: SurfaceExit, view: &AgentView) -> Vec<String> {
         let ending = matches!(handoff, SurfaceExit::Process);
         // The exit that ends the process stands the kitty probe down
         // FIRST: an answer landing after the pop below would re-arm
@@ -396,6 +464,17 @@ impl Renderer {
         // through crossterm's global event-reader lock, and a parked
         // reader would hold it.
         crate::input::request_reader_stop();
+        // A process exit turns wheel reporting off with the alternate
+        // screen before the drain, so no report lands in the shell.
+        let fullscreen_shown = ending
+            && matches!(
+                &self,
+                Renderer::Terminal {
+                    shown: Some(ScreenMode::Fullscreen),
+                    ..
+                }
+            )
+            && crate::screen_mode::leave_alt_screen(&mut std::io::stdout());
         // In-flight kitty key releases are consumed before the terminal is
         // restored (TS `drainInput` before `stop`): a release that lands
         // after raw mode is off would leak its escape sequence into the
@@ -411,15 +490,22 @@ impl Renderer {
         // modifyOtherKeys reset for every exit, handoffs included).
         let _ = crate::enhanced_keys::disable(&mut std::io::stdout());
         match self {
-            Renderer::Terminal { mut term, .. } => {
+            Renderer::Terminal {
+                mut term, shown, ..
+            } => {
                 let mut out = std::io::stdout();
                 if ending {
-                    let _ = term.release(&mut out);
+                    if fullscreen_shown {
+                        let (width, height) = terminal::size().unwrap_or((80, 24));
+                        let _ = print_transcript(view, width, height, &mut out);
+                    } else {
+                        let _ = term.release(&mut out);
+                    }
                     // The shared exit tail: the synchronized-output
                     // release, the SGR reset, the cursor show, and the
                     // cooked-tty verification.
                     crate::exit_restore::terminal_release_tail(&mut out);
-                } else {
+                } else if shown != Some(ScreenMode::Fullscreen) {
                     let _ = term.clear_live(&mut out);
                 }
                 Vec::new()
@@ -427,6 +513,28 @@ impl Renderer {
             Renderer::Headless { frames, .. } => frames,
         }
     }
+}
+
+/// The fullscreen exit's output on the normal screen (after the
+/// alternate screen is left): the splash and every entry, the rows inline
+/// mode leaves in scrollback, with the cursor on the line below them.
+pub(super) fn print_transcript(
+    view: &AgentView,
+    width: u16,
+    height: u16,
+    out: &mut impl std::io::Write,
+) -> std::io::Result<()> {
+    let rows = view.render_history(usize::from(width));
+    let mut term = crate::inline_term::InlineTerminal::new(height);
+    term.paint(
+        out,
+        crate::inline_term::InlineFrame {
+            history: &rows,
+            live: &[],
+            cursor: None,
+        },
+    )?;
+    term.release(out)
 }
 
 /// How the chat surface ends.

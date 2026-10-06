@@ -537,6 +537,7 @@ fn base_options(
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::New,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),

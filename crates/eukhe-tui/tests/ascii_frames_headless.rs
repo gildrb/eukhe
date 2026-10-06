@@ -3,7 +3,8 @@
 //! captured frame (history rows plus the live area, at every detail
 //! level) as ASCII when the daemon's content is ASCII. Everything eukhe
 //! draws itself (chrome, cards, borders, spinners, hints, the dock) comes
-//! from the ASCII glyph table.
+//! from the ASCII glyph table. The fullscreen run renders the same turn
+//! as screen-sized frames and scrolls its transcript window.
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -16,6 +17,7 @@ use eukhe_tui::interactive::{
     run_interactive, HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection,
     SessionSelection, UiMode,
 };
+use eukhe_tui::screen_mode::ScreenMode;
 use serde_json::{json, Value};
 
 /// The assistant's final markdown: every block kind the transcript
@@ -284,7 +286,7 @@ fn stream_turn(writer: &mut UnixStream) {
     write_json(writer, &event(json!({ "type": "agent_end" })));
 }
 
-fn options(socket: PathBuf) -> InteractiveOptions {
+fn options(socket: PathBuf, screen_mode: ScreenMode) -> InteractiveOptions {
     InteractiveOptions {
         models: None,
         socket_path: socket,
@@ -300,6 +302,7 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
+        screen_mode,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -324,8 +327,34 @@ fn ctrl_o() -> HeadlessStep {
     HeadlessStep::Key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL))
 }
 
-#[test]
-fn a_tool_turn_renders_only_ascii_frames() {
+/// The turn: the slash popup, the tool turn, then every detail level.
+fn turn_steps() -> Vec<HeadlessStep> {
+    vec![
+        HeadlessStep::WaitMs(200),
+        // The slash menu's popup draws its own chrome.
+        HeadlessStep::Type("/".to_string()),
+        HeadlessStep::SettleIdle,
+        HeadlessStep::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        HeadlessStep::Submit("list and read".to_string()),
+        HeadlessStep::WaitIdle { timeout_ms: 10_000 },
+        HeadlessStep::WaitRender {
+            needle: "See the docs".to_string(),
+            timeout_ms: 10_000,
+        },
+        // Walk every detail level: the expanded cards draw the tool
+        // output and the thinking block.
+        ctrl_o(),
+        HeadlessStep::WaitMs(100),
+        ctrl_o(),
+        HeadlessStep::WaitMs(100),
+        ctrl_o(),
+        HeadlessStep::WaitMs(100),
+    ]
+}
+
+/// Run `steps` against the mock supervisor's tool turn; the captured
+/// frames.
+fn run_turn(screen_mode: ScreenMode, steps: Vec<HeadlessStep>, height: u16) -> Vec<String> {
     // The ambient TMUX variable adds a startup notice to the
     // transcript; scrub it so the run is the same inside tmux and out.
     std::env::remove_var("TMUX");
@@ -338,37 +367,24 @@ fn a_tool_turn_renders_only_ascii_frames() {
         .build()
         .expect("tokio runtime");
     let plan = HeadlessPlan {
-        steps: vec![
-            HeadlessStep::WaitMs(200),
-            // The slash menu's popup draws its own chrome.
-            HeadlessStep::Type("/".to_string()),
-            HeadlessStep::SettleIdle,
-            HeadlessStep::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-            HeadlessStep::Submit("list and read".to_string()),
-            HeadlessStep::WaitIdle { timeout_ms: 10_000 },
-            HeadlessStep::WaitRender {
-                needle: "See the docs".to_string(),
-                timeout_ms: 10_000,
-            },
-            // Walk every detail level: the expanded cards draw the tool
-            // output and the thinking block.
-            ctrl_o(),
-            HeadlessStep::WaitMs(100),
-            ctrl_o(),
-            HeadlessStep::WaitMs(100),
-            ctrl_o(),
-            HeadlessStep::WaitMs(100),
-        ],
+        steps,
         width: 100,
-        height: 40,
+        height,
     };
     let outcome = runtime
-        .block_on(run_interactive(options(socket), UiMode::Headless(plan)))
+        .block_on(run_interactive(
+            options(socket, screen_mode),
+            UiMode::Headless(plan),
+        ))
         .expect("interactive run");
     drop(runtime);
     handle.join().expect("mock supervisor finished");
+    outcome.frames
+}
 
-    let all = outcome.frames.join("\n---frame---\n");
+/// The turn's content rendered, and every frame byte is ASCII.
+fn assert_ascii_turn(frames: &[String]) {
+    let all = frames.join("\n---frame---\n");
     for needle in [
         "list and read",
         "listing output done",
@@ -377,8 +393,7 @@ fn a_tool_turn_renders_only_ascii_frames() {
     ] {
         assert!(all.contains(needle), "the turn rendered {needle:?}:\n{all}");
     }
-    let offenders: Vec<String> = outcome
-        .frames
+    let offenders: Vec<String> = frames
         .iter()
         .enumerate()
         .flat_map(|(index, frame)| {
@@ -392,5 +407,65 @@ fn a_tool_turn_renders_only_ascii_frames() {
         offenders.is_empty(),
         "every frame byte is ASCII; non-ASCII rows:\n{}",
         offenders.join("\n")
+    );
+}
+
+#[test]
+fn a_tool_turn_renders_only_ascii_frames() {
+    assert_ascii_turn(&run_turn(ScreenMode::Inline, turn_steps(), 40));
+}
+
+#[test]
+fn a_fullscreen_tool_turn_fills_the_screen_and_scrolls() {
+    const HEIGHT: u16 = 24;
+    const MORE_BELOW: &str = "more below - Ctrl+End to follow";
+    let key = |code, modifiers| HeadlessStep::Key(KeyEvent::new(code, modifiers));
+    let mut steps = turn_steps();
+    steps.extend([
+        key(KeyCode::PageUp, KeyModifiers::NONE),
+        HeadlessStep::WaitRender {
+            needle: MORE_BELOW.to_string(),
+            timeout_ms: 10_000,
+        },
+        key(KeyCode::Home, KeyModifiers::CONTROL),
+        HeadlessStep::WaitMs(100),
+    ]);
+    // Page through the whole transcript: every row passes the window.
+    for _ in 0..8 {
+        steps.push(key(KeyCode::PageDown, KeyModifiers::NONE));
+        steps.push(HeadlessStep::WaitMs(50));
+    }
+    steps.extend([
+        key(KeyCode::End, KeyModifiers::CONTROL),
+        HeadlessStep::WaitGone {
+            needle: MORE_BELOW.to_string(),
+            timeout_ms: 10_000,
+        },
+    ]);
+    let frames = run_turn(ScreenMode::Fullscreen, steps, HEIGHT);
+    assert_ascii_turn(&frames);
+    for (index, frame) in frames.iter().enumerate() {
+        assert_eq!(
+            frame.split('\n').count(),
+            usize::from(HEIGHT),
+            "frame {index} fills the screen:\n{frame}"
+        );
+    }
+    let scrolled: Vec<&String> = frames
+        .iter()
+        .filter(|frame| frame.contains(MORE_BELOW))
+        .collect();
+    assert!(
+        scrolled.len() >= 2,
+        "PageUp and Ctrl+Home each showed a scrolled window"
+    );
+    assert!(
+        scrolled.iter().all(|frame| !frame.contains("See the docs")),
+        "the scrolled windows sit above the answer's last row"
+    );
+    let last = frames.last().expect("frames");
+    assert!(
+        last.contains("See the docs") && !last.contains(MORE_BELOW),
+        "Ctrl+End follows the bottom again:\n{last}"
     );
 }

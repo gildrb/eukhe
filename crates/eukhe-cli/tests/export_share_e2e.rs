@@ -274,6 +274,7 @@ async fn tui_export_and_share_surface() {
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::Attach(session_id.clone()),
         show_images: false,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),

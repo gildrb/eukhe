@@ -45,6 +45,7 @@ fn mode_with_row(title: &str, model: &str) -> (AgentsViewMode, usize) {
         status_message: None,
         keybindings: crate::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     });
@@ -139,6 +140,7 @@ fn mode_with_parent_and_child() -> AgentsViewMode {
         status_message: None,
         keybindings: crate::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     });
@@ -168,6 +170,7 @@ fn mode_with_anchor(anchor: Option<&str>, roster: Vec<serde_json::Value>) -> Age
         status_message: None,
         keybindings: crate::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     });
@@ -199,6 +202,7 @@ fn scoped_mode(anchor: Option<&str>, roster: Vec<serde_json::Value>) -> AgentsVi
         status_message: None,
         keybindings: crate::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     });
@@ -230,6 +234,7 @@ fn mode_with_user_bindings(bindings: &[(&str, &str)]) -> AgentsViewMode {
         status_message: None,
         keybindings: crate::keybindings::KeybindingsManager::with_user_bindings(cfg),
         show_hardware_cursor: false,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     });
@@ -257,6 +262,7 @@ fn fresh_mode(roster: Vec<serde_json::Value>) -> AgentsViewMode {
         status_message: None,
         keybindings: crate::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     });

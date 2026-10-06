@@ -16,8 +16,10 @@
 //! 4. synchronized output and SGR reset -- a crash between a frame's
 //!    sync brackets or inside a styled write must not hand the shell a
 //!    terminal holding pending updates or a dangling color;
-//! 5. the cursor moves below the live area last painted
-//!    ([`crate::inline_term::park_below_live`]) and shows;
+//! 5. a fullscreen surface leaves the alternate screen with wheel
+//!    reporting off ([`crate::screen_mode::leave_alt_screen`]); an inline
+//!    one moves the cursor below the live area last painted
+//!    ([`crate::inline_term::park_below_live`]); the cursor shows;
 //! 6. the kitty stack drains its stale levels
 //!    ([`crate::enhanced_keys::pop_stale_levels`]) -- a mode-counting
 //!    relay (herdr's pane emulator) can miss the pair's pop, so the bare
@@ -99,10 +101,15 @@ pub(crate) fn restore_terminal() {
         crate::enhanced_keys::pop_stale_levels(&mut out);
         let _ = out.write_all(SYNC_OUTPUT_OFF);
         let _ = out.write_all(SGR_RESET);
-        // Autowrap back on (a crash inside a frame leaves it off), then the
-        // shell prompt goes below the live area instead of over it.
+        // Autowrap back on (a crash inside a frame leaves it off). A
+        // fullscreen surface leaves the alternate screen (wheel reporting
+        // off), which restores the shell's screen and cursor; an inline
+        // one puts the shell prompt below the live area instead of over
+        // it.
         let _ = out.write_all(AUTOWRAP_ON);
-        crate::inline_term::park_below_live(&mut out);
+        if !crate::screen_mode::leave_alt_screen(&mut out) {
+            crate::inline_term::park_below_live(&mut out);
+        }
         let _ = crossterm::execute!(out, crossterm::cursor::Show);
     }
     // The raw-mode release and the cooked verification run regardless of a

@@ -10,7 +10,6 @@ use crossterm::event::{Event, KeyEvent};
 use crossterm::terminal::{self};
 use std::time::{Duration, Instant};
 
-use crate::inline_term::{InlineFrame, InlineTerminal};
 use crate::keybindings::{format_key_text, KeybindingsManager};
 use crate::keys::key_event_to_id;
 use crate::search_input::SearchInput;
@@ -192,6 +191,17 @@ impl ConfigSelector {
             .saturating_sub(MAX_VISIBLE / 2)
             .min(self.filtered.len().saturating_sub(MAX_VISIBLE));
         (start, (start + MAX_VISIBLE).min(self.filtered.len()))
+    }
+
+    /// One mouse wheel notch: the selection moves three items.
+    pub fn wheel(&mut self, direction: crate::screen_mode::WheelDirection) {
+        let step = match direction {
+            crate::screen_mode::WheelDirection::Up => -1,
+            crate::screen_mode::WheelDirection::Down => 1,
+        };
+        for _ in 0..crate::screen_mode::WHEEL_ROWS {
+            self.selected = self.find_next_item(self.selected, step);
+        }
     }
 
     /// One key id, TS `ResourceList.handleInput`.
@@ -530,24 +540,32 @@ fn raw_key_hint(kb: &KeybindingsManager, key: &str, action: &str) -> Option<Stri
 pub struct ConfigSelectorOptions {
     pub theme: Theme,
     pub keybindings: KeybindingsManager,
+    /// Inline or fullscreen (`terminal.fullscreen`).
+    pub screen_mode: crate::screen_mode::ScreenMode,
     /// Headless verification seam: leave the loop after this many ms.
     pub auto_exit_ms: Option<u64>,
 }
 
 impl ConfigSelectorOptions {
     #[must_use]
-    pub fn new(theme: Theme, keybindings: KeybindingsManager) -> Self {
+    pub fn new(
+        theme: Theme,
+        keybindings: KeybindingsManager,
+        screen_mode: crate::screen_mode::ScreenMode,
+    ) -> Self {
         ConfigSelectorOptions {
             theme,
             keybindings,
+            screen_mode,
             auto_exit_ms: None,
         }
     }
 }
 
 /// Run the selector until Esc (close) or Ctrl+C (exit) in the inline
-/// live area: redraws on every key and toggle, `on_toggle` persists each
-/// flip. The selector is transient: its live area is erased on leave.
+/// live area (or, fullscreen, the alternate screen): redraws on every
+/// key and toggle, `on_toggle` persists each flip. The selector is
+/// transient: its frame is erased on leave.
 ///
 /// Every error return funnels through the one exit restore: an early `?`
 /// after the mount (a draw failure, a persist error in `on_toggle`) must
@@ -592,47 +610,58 @@ fn run_selector_surface(
     // chunk instead of per-line keystrokes.
     crate::enhanced_keys::enable(&mut std::io::stdout())?;
     let (_, rows) = terminal::size()?;
-    let mut term = InlineTerminal::new(rows);
+    let mut term = crate::screen_mode::SurfaceTerminal::new(options.screen_mode, rows);
     let theme = options.theme;
     let kb = options.keybindings;
     let start = Instant::now();
+    // The escape guard the session readers run: a report or key sequence
+    // split across reads never types its body into the filter.
+    let mut guard = crate::sequence_guard::SequenceGuard::default();
     // Only an input changes the frame: an idle poll tick paints nothing.
     let mut dirty = true;
-    loop {
+    'run: loop {
         if dirty {
             let (width, height) = terminal::size()?;
-            term.set_height(height);
             let mut frame: Vec<Line> = selector.render(&theme, usize::from(width), &kb);
             frame.truncate(usize::from(height));
-            term.paint(
-                &mut std::io::stdout().lock(),
-                InlineFrame {
-                    history: &[],
-                    live: &frame,
-                    cursor: None,
-                },
-            )?;
+            term.paint(&mut std::io::stdout().lock(), frame, None, height)?;
             dirty = false;
         }
-        if crossterm::event::poll(Duration::from_millis(50))? {
+        let tick = Duration::from_millis(50);
+        let wait = guard
+            .poll_deadline(Instant::now())
+            .map_or(tick, |hold| hold.min(tick));
+        let events = if crossterm::event::poll(wait)? {
+            guard.feed(crossterm::event::read()?, Instant::now())
+        } else {
+            guard.flush_expired(Instant::now())
+        };
+        for event in events {
             dirty = true;
-            let action = match crossterm::event::read()? {
+            let action = match event {
                 Event::Key(key) => handle_key_event(&mut selector, key, &kb),
                 Event::Paste(text) => {
                     selector.paste(&text);
                     None
                 }
-                // A resize repaints the live area whole at the new size.
-                Event::Resize(..) => {
-                    term.clear_live(&mut std::io::stdout().lock())?;
+                // A resize repaints the frame whole at the new size.
+                Event::Resize(_, height) => {
+                    term.resize(&mut std::io::stdout().lock(), height)?;
                     None
                 }
-                Event::FocusGained | Event::FocusLost | Event::Mouse(_) => None,
+                // Wheel reports arrive only in fullscreen.
+                Event::Mouse(mouse) => {
+                    if let Some(direction) = crate::screen_mode::wheel_scroll(mouse) {
+                        selector.wheel(direction);
+                    }
+                    None
+                }
+                Event::FocusGained | Event::FocusLost => None,
             };
             match action {
-                Some(SelectorAction::Close) => break,
+                Some(SelectorAction::Close) => break 'run,
                 Some(SelectorAction::Exit) => {
-                    term.clear_live(&mut std::io::stdout().lock())?;
+                    term.clear(&mut std::io::stdout().lock())?;
                     crate::exit_restore::restore_terminal();
                     std::process::exit(0);
                 }
@@ -648,7 +677,7 @@ fn run_selector_surface(
             }
         }
     }
-    term.clear_live(&mut std::io::stdout().lock())?;
+    term.clear(&mut std::io::stdout().lock())?;
     crate::exit_restore::restore_terminal();
     Ok(())
 }

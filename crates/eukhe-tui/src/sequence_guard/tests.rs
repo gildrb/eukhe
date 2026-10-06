@@ -55,9 +55,11 @@ fn leaks(outputs: &[Event]) -> Vec<Event> {
 
 /// Every byte-offset split of one mouse report: a split at the `ESC`
 /// byte commits the `Esc` and types the body, which the guard
-/// reassembles and consumes whole (no output at all); any later split
-/// is held across reads by crossterm itself, which parses the whole
-/// report and the guard passes that mouse event through unchanged.
+/// reassembles and consumes whole (no output at all) -- except a wheel
+/// report, which it decodes into the scroll event crossterm's own parse
+/// produces; any later split is held across reads by crossterm itself,
+/// which parses the whole report and the guard passes that mouse event
+/// through unchanged.
 fn assert_every_split_is_consumed_or_passed(stream: &[u8]) {
     let whole = read_projection(stream, &[]);
     assert!(
@@ -65,10 +67,17 @@ fn assert_every_split_is_consumed_or_passed(stream: &[u8]) {
         "{stream:?} parses as one mouse event: {whole:?}"
     );
     assert_eq!(run_guard(whole.clone()), whole, "{stream:?} unsplit");
+    let wheel = matches!(
+        whole.as_slice(),
+        [Event::Mouse(CtMouse {
+            kind: CtMouseKind::ScrollUp | CtMouseKind::ScrollDown,
+            ..
+        })]
+    );
     for split in 1..stream.len() {
         let events = read_projection(stream, &[split]);
         let outputs = run_guard(events.clone());
-        let expected = if split == 1 {
+        let expected = if split == 1 && !wheel {
             Vec::new()
         } else {
             whole.clone()
@@ -510,6 +519,47 @@ fn a_report_split_across_three_reads_is_consumed() {
     let mid = report.find(';').expect("field separator");
     let events = read_projection(report.as_bytes(), &[1, mid, mid + 3]);
     assert_eq!(run_guard(events), Vec::new());
+}
+
+/// A wheel report split anywhere -- the committed-`ESC` boundary, the
+/// body across three reads, modifier bits, both wheel directions, a
+/// release-final `m` -- reaches the reader as the scroll event the
+/// unsplit read parses to, and never as text.
+#[test]
+fn a_split_wheel_report_decodes_to_the_scroll_event() {
+    for report in [
+        sgr(64, 20, 5, true),
+        sgr(65, 1, 1, true),
+        // Wheel up with shift and control; wheel down with alt, released.
+        sgr(0b0101_0100, 120, 40, true),
+        sgr(0b0100_1001, 7, 9, false),
+    ] {
+        let whole = read_projection(report.as_bytes(), &[]);
+        assert!(
+            matches!(
+                whole.as_slice(),
+                [Event::Mouse(CtMouse {
+                    kind: CtMouseKind::ScrollUp | CtMouseKind::ScrollDown,
+                    ..
+                })]
+            ),
+            "{report:?} parses as a wheel event: {whole:?}"
+        );
+        let mid = report.find(';').expect("field separator");
+        for splits in [vec![1], vec![1, mid], vec![1, mid, mid + 2]] {
+            let events = read_projection(report.as_bytes(), &splits);
+            assert_eq!(run_guard(events), whole, "{report:?} split at {splits:?}");
+        }
+    }
+}
+
+/// A wheel report and a key in one stream, the report split at its
+/// `ESC`: the scroll event and then the key, in order.
+#[test]
+fn a_split_wheel_report_keeps_the_stream_order() {
+    let stream = format!("{}x", sgr(65, 3, 4, true));
+    let events = read_projection(stream.as_bytes(), &[1]);
+    assert_eq!(run_guard(events), read_projection(stream.as_bytes(), &[]));
 }
 
 // -- held Esc behavior ----------------------------------------------

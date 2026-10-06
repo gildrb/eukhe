@@ -8,7 +8,8 @@ use super::{
     RowLayout, Section, Theme, ThemeColor, UiInput, Value,
 };
 use crate::glyphs;
-use crate::inline_term::{InlineFrame, InlineTerminal, LiveCursor};
+use crate::inline_term::LiveCursor;
+use crate::screen_mode::{ScreenMode, SurfaceTerminal};
 
 impl AgentsViewMode {
     /// Compose one frame (splash, search prompt, sectioned list, hints):
@@ -829,7 +830,7 @@ pub(super) enum Leave {
 
 pub(super) enum Renderer {
     Terminal {
-        term: InlineTerminal,
+        term: SurfaceTerminal,
         /// The `showHardwareCursor` setting snapshot the surface mounted
         /// with: the caret is shown at the prompt only when this is set.
         show_hardware_cursor: bool,
@@ -837,6 +838,7 @@ pub(super) enum Renderer {
     Headless {
         width: u16,
         height: u16,
+        screen_mode: ScreenMode,
         frames: Vec<String>,
     },
 }
@@ -848,6 +850,7 @@ impl Renderer {
         exit_guard: crate::exit_guard::ExitGuard,
         surface_mounted: &std::sync::Arc<std::sync::atomic::AtomicBool>,
         show_hardware_cursor: bool,
+        screen_mode: ScreenMode,
     ) -> Result<Renderer> {
         match ui {
             AgentsViewUiMode::Terminal => {
@@ -893,16 +896,24 @@ impl Renderer {
                             ui_tx.send(UiInput::Paste(text)).is_ok()
                         }
                         crossterm::event::Event::Resize(..) => ui_tx.send(UiInput::Resize).is_ok(),
+                        // Wheel reports arrive only in fullscreen.
+                        crossterm::event::Event::Mouse(mouse) => {
+                            match crate::screen_mode::wheel_scroll(mouse) {
+                                Some(direction) => ui_tx.send(UiInput::Wheel(direction)).is_ok(),
+                                None => true,
+                            }
+                        }
                         crossterm::event::Event::FocusGained
-                        | crossterm::event::Event::FocusLost
-                        | crossterm::event::Event::Mouse(_) => true,
+                        | crossterm::event::Event::FocusLost => true,
                     },
                 });
-                // The live area starts at the cursor line the previous
-                // surface's `clear_live` (or the shell) left at column 0.
+                // Inline, the live area starts at the cursor line the
+                // previous surface's `clear_live` (or the shell) left at
+                // column 0; fullscreen, the first frame repaints the
+                // alternate screen.
                 let (_, rows) = crossterm::terminal::size()?;
                 Ok(Renderer::Terminal {
-                    term: InlineTerminal::new(rows),
+                    term: SurfaceTerminal::new(screen_mode, rows),
                     show_hardware_cursor,
                 })
             }
@@ -942,14 +953,15 @@ impl Renderer {
                 Ok(Renderer::Headless {
                     width: plan.width,
                     height: plan.height,
+                    screen_mode,
                     frames: Vec::new(),
                 })
             }
         }
     }
 
-    /// Paint one frame into the live area (terminal) or capture its text
-    /// (headless).
+    /// Paint one frame into the live area or the alternate screen
+    /// (terminal) or capture its text (headless).
     pub(super) fn draw(&mut self, mode: &mut AgentsViewMode) -> std::io::Result<()> {
         match self {
             Renderer::Terminal {
@@ -964,21 +976,18 @@ impl Renderer {
                 let cursor = cursor
                     .filter(|_| *show_hardware_cursor)
                     .map(|(row, col)| LiveCursor { row, col });
-                term.paint(
-                    &mut std::io::stdout().lock(),
-                    InlineFrame {
-                        history: &[],
-                        live: &lines,
-                        cursor,
-                    },
-                )
+                term.paint(&mut std::io::stdout().lock(), lines, cursor, height)
             }
             Renderer::Headless {
                 width,
                 height,
+                screen_mode,
                 frames,
             } => {
-                let (lines, _) = mode.render_frame(usize::from(*width), usize::from(*height));
+                let (mut lines, _) = mode.render_frame(usize::from(*width), usize::from(*height));
+                if *screen_mode == ScreenMode::Fullscreen {
+                    crate::screen_mode::fill_height(&mut lines, usize::from(*height));
+                }
                 let text = frame_text(&lines);
                 if frames.last().map(String::as_str) != Some(text.as_str()) {
                     frames.push(text);
@@ -988,14 +997,13 @@ impl Renderer {
         }
     }
 
-    /// The terminal resized: the live area re-fits the new height and is
-    /// erased, so the next frame repaints it whole at the new width.
+    /// The terminal resized: the next frame repaints whole at the new
+    /// size.
     pub(super) fn resize(&mut self) -> std::io::Result<()> {
         match self {
             Renderer::Terminal { term, .. } => {
                 let (_, rows) = crossterm::terminal::size()?;
-                term.set_height(rows);
-                term.clear_live(&mut std::io::stdout().lock())
+                term.resize(&mut std::io::stdout().lock(), rows)
             }
             Renderer::Headless { .. } => Ok(()),
         }
@@ -1011,13 +1019,15 @@ impl Renderer {
     }
 
     /// Teardown. The view is transient: its live area is erased on
-    /// every leave, so it leaves no output. A handoff keeps raw mode for
-    /// the adopting surface (which starts its live area at the erased
-    /// row); an exit runs the one exit restore.
+    /// every leave, so it leaves no output (fullscreen, the alternate
+    /// screen stays for the adopting surface, and the exit restore leaves
+    /// it on an exit). A handoff keeps raw mode for the adopting surface
+    /// (which starts its live area at the erased row); an exit runs the
+    /// one exit restore.
     pub(super) fn finish(self, leave: Leave) -> std::io::Result<Vec<String>> {
         match self {
             Renderer::Terminal { mut term, .. } => {
-                let cleared = term.clear_live(&mut std::io::stdout().lock());
+                let cleared = term.clear(&mut std::io::stdout().lock());
                 // The view's input reader stands down before the terminal
                 // is handed on: the adopting session's mount joins this
                 // reader through the registry, and a parked reader would

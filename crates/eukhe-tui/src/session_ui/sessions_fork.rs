@@ -351,6 +351,9 @@ impl SessionUi {
             theme: String::new(),
             code_block_indent: self.code_block_indent.clone(),
             show_images: self.show_images,
+            // Only the create config reads these options; it carries no
+            // screen mode.
+            screen_mode: crate::screen_mode::ScreenMode::default(),
             tree_filter_mode: self.tree_filter_mode.wire_name().to_string(),
             branch_summary_skip_prompt: self.branch_summary_skip_prompt,
             version: String::new(),

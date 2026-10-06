@@ -90,6 +90,7 @@ fn options(selection: ModelSelection) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -321,4 +322,42 @@ fn the_startup_placeholder_carries_the_dock_a_fresh_session_mounts() {
         ],
         "the placeholder's last two rows are the dock's rule and zero row"
     );
+}
+
+/// A fullscreen exit leaves the alternate screen first, then prints the
+/// transcript (every entry, in order) to the normal screen and leaves
+/// the cursor visible on the line below it.
+#[test]
+fn a_fullscreen_exit_prints_the_transcript_after_leaving_the_alternate_screen() {
+    // The alternate-screen flag is process-global: hold the shared
+    // terminal-state lock while this test moves it.
+    let _state = crate::exit_restore::TEST_STATE_LOCK.lock();
+    let mut view = AgentView::new(crate::theme::Theme::builtin(
+        "eukhe",
+        crate::theme::ColorMode::TrueColor,
+    ));
+    view.screen_mode = crate::screen_mode::ScreenMode::Fullscreen;
+    for text in ["first question", "second question"] {
+        view.push_entry(crate::chat::ChatEntry::User {
+            text: text.to_string(),
+        });
+    }
+    let mut out = Vec::new();
+    crate::screen_mode::enter_alt_screen(&mut out).expect("enter");
+    assert!(crate::screen_mode::leave_alt_screen(&mut out));
+    super::render::print_transcript(&view, 80, 24, &mut out).expect("print");
+    let text = String::from_utf8(out).expect("utf8");
+
+    let entered = text
+        .find("\x1b[?1049h")
+        .expect("entered the alternate screen");
+    let left = text.find("\x1b[?1049l").expect("left the alternate screen");
+    let first = text.find("first question").expect("first entry printed");
+    let second = text.find("second question").expect("second entry printed");
+    assert!(entered < left && left < first && first < second, "{text:?}");
+    // Wheel reporting goes off with the alternate screen.
+    assert!(text[..left].contains("\x1b[?1000l"), "{text:?}");
+    // The last row ends its line; the cursor shows below it.
+    assert!(text[second..].contains("\r\n"), "{text:?}");
+    assert!(text.ends_with("\x1b[?25h"), "{text:?}");
 }

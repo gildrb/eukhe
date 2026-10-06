@@ -266,6 +266,8 @@ impl SessionUi {
             // (getDefaultServiceTier's "default"), never a blank value.
             values.default_service_tier = "default".to_string();
         }
+        // The running surface is the truth for the fullscreen row.
+        values.fullscreen = view.screen_mode == crate::screen_mode::ScreenMode::Fullscreen;
         // The registered themes (TS `getAvailableThemes`; this surface
         // ships the builtins).
         values.available_themes = eukhe_types::themes::BUILTIN_THEME_NAMES
@@ -435,6 +437,19 @@ impl SessionUi {
                     value,
                     view,
                 );
+            }
+            "fullscreen" => {
+                // A failed persist changes nothing; a persisted one
+                // switches the surface with the next frame (the renderer
+                // enters or leaves the alternate screen and repaints).
+                if let Some(settings) = &self.client_settings {
+                    if let Err(error) = settings.set_fullscreen(value == "true") {
+                        self.error_row(&format!("{error:#}"), view);
+                        return;
+                    }
+                }
+                view.screen_mode =
+                    crate::screen_mode::ScreenMode::from_fullscreen_setting(value == "true");
             }
             "terminal-progress" => {
                 self.persist_bool_setting(

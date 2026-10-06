@@ -19,6 +19,9 @@ pub fn run() -> i32 {
     let mut resolve_settings = SettingsManager::create(&cwd, &agent_dir);
     crate::package_command::report_settings_errors(&mut resolve_settings, "config command");
     let theme_name = resolve_settings.get_theme().unwrap_or("eukhe").to_string();
+    let screen_mode = eukhe_tui::screen_mode::ScreenMode::from_fullscreen_setting(
+        resolve_settings.get_fullscreen(),
+    );
     let mut manager = PackageManager::new(cwd.clone(), agent_dir.clone(), resolve_settings);
     let resolved = match manager.resolve() {
         Ok(resolved) => resolved,
@@ -34,7 +37,7 @@ pub fn run() -> i32 {
     // TS `setKeybindings(KeybindingsManager.create())` in main.ts: the
     // config selector navigates with the user's effective bindings too.
     let keybindings = KeybindingsManager::create(&agent_dir);
-    let options = ConfigSelectorOptions::new(theme, keybindings);
+    let options = ConfigSelectorOptions::new(theme, keybindings, screen_mode);
     let mut toggle_settings = SettingsManager::create(&cwd, &agent_dir);
     let mut on_toggle = |key: &str, enabled: bool| -> anyhow::Result<()> {
         let index: usize = key

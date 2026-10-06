@@ -44,6 +44,12 @@ pub(crate) fn park_below_live(out: &mut impl Write) {
     let _ = out.write_all(move_down.as_bytes());
 }
 
+/// Drop the live-area position [`park_below_live`] would move below:
+/// the screen it was painted on is gone (an alternate-screen switch).
+pub(crate) fn forget_live_area() {
+    LIVE_ROWS_BELOW_CURSOR.store(NO_LIVE_AREA, Ordering::SeqCst);
+}
+
 /// Begin a frame: hide the cursor, start a synchronized update, turn
 /// autowrap off.
 const PAINT_BEGIN: &str = "\x1b[?25l\x1b[?2026h\x1b[?7l";

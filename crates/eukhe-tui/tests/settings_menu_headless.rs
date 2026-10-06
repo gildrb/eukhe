@@ -279,6 +279,12 @@ impl eukhe_tui::client_settings::ClientSettings for RecordingSettings {
     fn set_show_terminal_progress(&self, _enabled: bool) -> Result<()> {
         Ok(())
     }
+    fn fullscreen(&self) -> bool {
+        false
+    }
+    fn set_fullscreen(&self, _enabled: bool) -> Result<()> {
+        Ok(())
+    }
     fn image_auto_resize(&self) -> bool {
         true
     }
@@ -396,6 +402,7 @@ fn options(socket: PathBuf, settings: Arc<RecordingSettings>) -> InteractiveOpti
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -497,7 +504,8 @@ fn the_settings_page_renders_the_spacing_and_the_new_keys() {
         .position(|row| row.starts_with("  1 General"))
         .expect("the tab strip renders");
     assert_eq!(
-        rows[strip_index], "  1 General    2 Models    3 Display    4 Editor    5 Agents",
+        rows[strip_index],
+        "  1 General    2 Models    3 Display    4 Terminal    5 Editor    6 Agents",
         "the tabs sit four spaces apart (the spacing pass)"
     );
     // A blank row rides between the search field's bottom rule and the
@@ -531,7 +539,7 @@ fn the_settings_page_renders_the_spacing_and_the_new_keys() {
     );
     assert!(
         rows[hint_index].starts_with(
-            "  Type to search - Tab/1-5 tabs - left/right/Enter/Space change - Esc close"
+            "  Type to search - Tab/1-6 tabs - left/right/Enter/Space change - Esc close"
         ),
         "the hint names the Tab/number tab keys and the arrow value keys: {:?}",
         rows[hint_index]
@@ -560,9 +568,9 @@ fn the_arrows_cycle_values_and_the_writes_persist() {
     // Enter keeps its cycle: false -> true again.
     steps.push(HeadlessStep::Key(key(KeyCode::Enter)));
     steps.push(HeadlessStep::WaitMs(100));
-    // 5 jumps to the Agents tab; down x2 lands on Idle worker eviction
+    // 6 jumps to the Agents tab; down x2 lands on Idle worker eviction
     // (a multi-option row: off/30/60/90/180/360).
-    steps.push(HeadlessStep::Key(key(KeyCode::Char('5'))));
+    steps.push(HeadlessStep::Key(key(KeyCode::Char('6'))));
     steps.push(HeadlessStep::WaitMs(100));
     steps.push(HeadlessStep::Key(key(KeyCode::Down)));
     steps.push(HeadlessStep::Key(key(KeyCode::Down)));

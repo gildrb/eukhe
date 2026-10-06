@@ -227,6 +227,14 @@ pub fn settings_menu_rows(current: &SettingsCurrentValues) -> Vec<SettingsMenuRo
             submenu: None,
         },
         SettingsMenuRow {
+            id: "fullscreen",
+            label: "Fullscreen",
+            description: "Run in the alternate screen with a scrollable transcript (switches now)",
+            current: current.fullscreen.to_string(),
+            values: Some(bool_value()),
+            submenu: None,
+        },
+        SettingsMenuRow {
             id: "clear-on-shrink",
             label: "Clear on shrink",
             description: "Clear empty rows when content shrinks (may cause flicker)",
@@ -351,6 +359,7 @@ pub struct SettingsCurrentValues {
     pub editor_padding: u64,
     pub autocomplete_max_visible: u64,
     pub clear_on_shrink: bool,
+    pub fullscreen: bool,
     pub terminal_progress: bool,
     pub idle_eviction_minutes: String,
     pub steering_mode: String,

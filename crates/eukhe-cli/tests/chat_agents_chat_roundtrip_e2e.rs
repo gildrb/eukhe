@@ -157,6 +157,7 @@ fn chat_options(socket: PathBuf, cwd: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -248,6 +249,7 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
         status_message: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     };
@@ -389,6 +391,7 @@ async fn a_post_turn_reentry_renders_the_turn_rows() {
         status_message: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     };

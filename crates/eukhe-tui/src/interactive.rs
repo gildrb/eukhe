@@ -340,6 +340,9 @@ pub struct InteractiveOptions {
     /// whether image blocks render their metadata rows or the
     /// `[Image: ...]` placeholders.
     pub show_images: bool,
+    /// Inline or fullscreen (`terminal.fullscreen`), resolved by the
+    /// composition root; `/settings` can switch it while the chat runs.
+    pub screen_mode: crate::screen_mode::ScreenMode,
     pub theme: String,
     /// The chat markdown fenced-code indent, resolved by the composition
     /// root from `markdown.codeBlockIndent` (TS `getCodeBlockIndent`;
@@ -423,6 +426,7 @@ impl std::fmt::Debug for InteractiveOptions {
             .field("session", &self.session)
             .field("initial_message", &self.initial_message)
             .field("theme", &self.theme)
+            .field("screen_mode", &self.screen_mode)
             .field("code_block_indent", &self.code_block_indent)
             .field("version", &self.version)
             .field("onboarding", &self.onboarding)
@@ -546,5 +550,8 @@ enum UiInput {
     /// The terminal was resized: the next draw replays the history at
     /// the new geometry.
     Resize,
+    /// A wheel notch over a fullscreen surface: scrolls the transcript
+    /// window (inline, nothing scrolls).
+    Scroll(crate::view::ScrollRequest),
     HeadlessDone,
 }

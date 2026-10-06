@@ -6,6 +6,7 @@ use super::{
     StatusKind, SubmitBehavior,
 };
 use crate::glyphs::WARN;
+use crate::view::{ScrollAmount, ScrollRequest};
 
 /// How long the Ctrl+C exit hint arms the second-press exit (TS
 /// `EXIT_HINT_DURATION_MS`).
@@ -225,6 +226,30 @@ impl SessionUi {
         let Some(id) = key_event_to_id(&key) else {
             return Ok(());
         };
+        // The fullscreen transcript window's keys come before the editor
+        // and the dock (inline mode leaves them to the editor); an open
+        // completion menu keeps its own paging.
+        if view.screen_mode == crate::screen_mode::ScreenMode::Fullscreen
+            && !view.editor.is_showing_autocomplete()
+        {
+            let kb = view.editor.keybindings();
+            let request = if kb.matches(&id, "tui.viewport.pageUp") {
+                Some(ScrollRequest::Up(ScrollAmount::Page))
+            } else if kb.matches(&id, "tui.viewport.pageDown") {
+                Some(ScrollRequest::Down(ScrollAmount::Page))
+            } else if kb.matches(&id, "tui.viewport.top") {
+                Some(ScrollRequest::Top)
+            } else if kb.matches(&id, "tui.viewport.bottom") {
+                Some(ScrollRequest::Bottom)
+            } else {
+                None
+            };
+            if let Some(request) = request {
+                view.scroll_viewport(request);
+                self.dirty = true;
+                return Ok(());
+            }
+        }
         // The dispatch order below mirrors the TS key pipeline: the
         // focused subagent summary line (`SubagentSummaryLine.handleInput` owns every key
         // while focused), then `CustomEditor.handleInput` -- paste image,

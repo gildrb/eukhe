@@ -48,6 +48,7 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                     status_message: outcome.agents_view_notice.clone(),
                     keybindings: options.keybindings.clone(),
                     show_hardware_cursor: false,
+                    screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
                     incident_notice_state: None,
                     create_config: serde_json::json!({}),
                 };
@@ -84,6 +85,7 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                     status_message: None,
                     keybindings: options.keybindings.clone(),
                     show_hardware_cursor: false,
+                    screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
                     incident_notice_state: None,
                     create_config: serde_json::json!({}),
                 };
@@ -124,6 +126,7 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                 theme,
                 keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
                 auto_exit_ms: Some(2_000),
+                screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
             };
             let mut on_toggle = |_key: &str, _enabled: bool| Ok(());
             eukhe_tui::config_selector::run_config_selector(selector, options, &mut on_toggle)
@@ -202,6 +205,7 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),

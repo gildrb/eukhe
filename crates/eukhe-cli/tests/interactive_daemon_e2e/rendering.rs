@@ -58,6 +58,7 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::New,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
@@ -190,6 +191,7 @@ async fn tui_renders_and_fires_user_keybindings_from_settings() {
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::New,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
@@ -244,7 +246,7 @@ async fn tui_renders_and_fires_user_keybindings_from_settings() {
                 crossterm::event::KeyModifiers::NONE,
             )),
             eukhe_tui::interactive::HeadlessStep::WaitRender {
-                needle: "Slash commands".to_string(),
+                needle: "Scroll to bottom and follow output".to_string(),
                 timeout_ms: 30_000,
             },
             eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
@@ -299,7 +301,7 @@ async fn tui_renders_and_fires_user_keybindings_from_settings() {
         "the hotkeys panel rendered the guide:\n{rendered}"
     );
     assert!(
-        rendered.contains("Slash commands"),
+        rendered.contains("Scroll to bottom and follow output"),
         "the End key jumped the panel to the guide's bottom:\n{rendered}"
     );
     // The removed default key is gone (no other default binding uses
@@ -363,6 +365,7 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::New,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
@@ -495,6 +498,7 @@ async fn tui_flagged_model_turn_reports_the_ts_preflight_error_without_credentia
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::New,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         client_settings: None,
         initial_message: None,
         theme: "eukhe".to_string(),
@@ -631,6 +635,7 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::New,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         client_settings: None,
         initial_message: None,
         theme: "eukhe".to_string(),

@@ -25,8 +25,9 @@ struct TabLayout {
 }
 
 /// The settings tabs: General (session behavior), Models (model-side
-/// choices), Display (what the UI renders), Editor (the input editor),
-/// Agents (the agent tree and its services).
+/// choices), Display (what the UI renders), Terminal (how eukhe uses the
+/// terminal), Editor (the input editor), Agents (the agent tree and its
+/// services).
 const TAB_LAYOUT: &[TabLayout] = &[
     TabLayout {
         name: "General",
@@ -46,13 +47,15 @@ const TAB_LAYOUT: &[TabLayout] = &[
         name: "Display",
         ids: &[
             "theme",
-            "terminal-progress",
-            "clear-on-shrink",
             "show-images",
             "auto-resize-images",
             "block-images",
             "mermaid-rendering",
         ],
+    },
+    TabLayout {
+        name: "Terminal",
+        ids: &["fullscreen", "terminal-progress", "clear-on-shrink"],
     },
     TabLayout {
         name: "Editor",

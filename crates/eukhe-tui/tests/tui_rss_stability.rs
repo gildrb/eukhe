@@ -365,6 +365,7 @@ fn interactive_session_rss_plateaus_over_long_stream() {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
 

@@ -98,6 +98,13 @@ impl ClientSettings for CliClientSettings {
         bool
     );
     setting!(
+        fullscreen,
+        set_fullscreen,
+        get_fullscreen,
+        set_fullscreen,
+        bool
+    );
+    setting!(
         image_auto_resize,
         set_image_auto_resize,
         get_image_auto_resize,
@@ -254,11 +261,14 @@ mod tests {
         settings.set_idle_eviction_minutes("off").expect("idle");
         settings.set_tree_filter_mode("all").expect("tree filter");
         settings.set_show_images(false).expect("show images");
+        assert!(!settings.fullscreen());
+        settings.set_fullscreen(true).expect("fullscreen");
 
         assert_eq!(settings.theme().as_deref(), Some("dark"));
         assert_eq!(settings.idle_eviction_minutes(), "off");
         assert_eq!(settings.tree_filter_mode(), "all");
         assert!(!settings.show_images());
+        assert!(settings.fullscreen());
 
         // The persisted file the real consumers read.
         let content =
@@ -267,6 +277,8 @@ mod tests {
         assert_eq!(value["theme"], "dark");
         assert_eq!(value["idleEvictionMinutes"], "off");
         assert_eq!(value["treeFilterMode"], "all");
+        assert_eq!(value["terminal"]["showImages"], false);
+        assert_eq!(value["terminal"]["fullscreen"], true);
 
         // The factory's opt-in gate (`/factory on|off|status`): unset reads
         // as disabled (the default off), and the write persists the exact

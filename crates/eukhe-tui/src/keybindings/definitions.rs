@@ -237,6 +237,27 @@ pub const TUI_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
         "tui.input.copy",
         def!(&["ctrl+c"], "Copy selection", scope "editor"),
     ),
+    // The fullscreen transcript window (`terminal.fullscreen`); inline
+    // mode leaves these keys to the editor.
+    (
+        "tui.viewport.pageUp",
+        def!(&["pageUp"], "Scroll transcript up a page (fullscreen)"),
+    ),
+    (
+        "tui.viewport.pageDown",
+        def!(&["pageDown"], "Scroll transcript down a page (fullscreen)"),
+    ),
+    (
+        "tui.viewport.top",
+        def!(&["ctrl+home"], "Scroll transcript to top (fullscreen)"),
+    ),
+    (
+        "tui.viewport.bottom",
+        def!(
+            &["ctrl+end"],
+            "Scroll transcript to bottom and follow output (fullscreen)"
+        ),
+    ),
     ("tui.select.up", def!(&["up"], "Move selection up")),
     ("tui.select.down", def!(&["down"], "Move selection down")),
     ("tui.select.pageUp", def!(&["pageUp"], "Selection page up")),

@@ -63,13 +63,15 @@ fn tabs_partition_the_settings_rows() {
                 "Display",
                 vec![
                     "theme",
-                    "terminal-progress",
-                    "clear-on-shrink",
                     "show-images",
                     "auto-resize-images",
                     "block-images",
                     "mermaid-rendering"
                 ]
+            ),
+            (
+                "Terminal",
+                vec!["fullscreen", "terminal-progress", "clear-on-shrink"]
             ),
             (
                 "Editor",
@@ -154,7 +156,7 @@ fn enter_opens_the_thinking_submenu_and_selection_applies() {
     // The submenu is gone (the hint line is back).
     let text = render_text(&menu);
     assert!(text.iter().any(|row| {
-        row.contains("Type to search - Tab/1-5 tabs - left/right/Enter/Space change - Esc close")
+        row.contains("Type to search - Tab/1-6 tabs - left/right/Enter/Space change - Esc close")
     }));
 }
 
@@ -258,8 +260,8 @@ fn switching_tabs_shows_that_tabs_settings() {
     assert!(render_text(&menu)
         .iter()
         .any(|row| row.contains("Auto-compact")));
-    // 4 jumps to the Editor tab: the editor-side settings only.
-    menu.handle_key("4", &kb());
+    // 5 jumps to the Editor tab: the editor-side settings only.
+    menu.handle_key("5", &kb());
     let text = render_text(&menu);
     assert!(text.iter().any(|row| row.contains("Editor padding")));
     assert!(text
@@ -315,8 +317,8 @@ fn arrows_cycle_values_and_the_tab_keys_switch_tabs() {
     assert!(render_text(&menu)
         .iter()
         .any(|row| row.contains("Auto-compact")));
-    // 5 jumps to the Agents tab.
-    menu.handle_key("5", &kb());
+    // 6 jumps to the Agents tab.
+    menu.handle_key("6", &kb());
     assert!(render_text(&menu)
         .iter()
         .any(|row| row.contains("Skill commands")));
@@ -503,7 +505,7 @@ fn the_strip_lists_the_tabs_and_marks_the_active_one() {
     let text: String = lines[4].iter().map(|span| span.content.as_str()).collect();
     assert_eq!(
         text,
-        "  1 General    2 Models    3 Display    4 Editor    5 Agents"
+        "  1 General    2 Models    3 Display    4 Terminal    5 Editor    6 Agents"
     );
     let strip_blank_below: String = lines[5].iter().map(|span| span.content.as_str()).collect();
     assert_eq!(strip_blank_below, "");
@@ -540,7 +542,7 @@ fn the_header_and_the_settings_list_breathe_apart() {
     assert_eq!(text[3], "");
     assert_eq!(
         text[4],
-        "  1 General    2 Models    3 Display    4 Editor    5 Agents"
+        "  1 General    2 Models    3 Display    4 Terminal    5 Editor    6 Agents"
     );
     assert_eq!(text[5], "");
     assert!(text[6].starts_with("> Auto-compact"));
@@ -554,7 +556,7 @@ fn render_shows_value_and_selected_description() {
         .iter()
         .any(|row| row.contains("Automatically compact context when it gets too large")));
     assert!(text.iter().any(|row| {
-        row.contains("Type to search - Tab/1-5 tabs - left/right/Enter/Space change - Esc close")
+        row.contains("Type to search - Tab/1-6 tabs - left/right/Enter/Space change - Esc close")
     }));
     // The selected first row carries the menu marker and its value
     // rides the row's trailing cluster (the shared menu-row grammar).

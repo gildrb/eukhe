@@ -251,6 +251,44 @@ pub(crate) fn draw(term: &mut InlineTerminal, view: &mut AgentView) -> Result<()
     Ok(())
 }
 
+/// How much of the screen a fullscreen frame rewrites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Paint {
+    /// Only the rows that changed.
+    Changed,
+    /// Clear the screen and paint every row (the screen was just
+    /// entered).
+    Full,
+}
+
+/// Paint one fullscreen chat frame (exactly the terminal's height) into
+/// the alternate screen. A full paint or a replay frame (a resize, a
+/// changed shape) clears the screen and paints every row.
+pub(crate) fn draw_fullscreen(
+    term: &mut InlineTerminal,
+    view: &mut AgentView,
+    paint: Paint,
+) -> Result<()> {
+    let (width, height) = terminal::size()?;
+    let frame = view.compose_fullscreen(usize::from(width), usize::from(height));
+    let mut out = stdout().lock();
+    if paint == Paint::Full || frame.replay {
+        crate::screen_mode::clear_for_repaint(&mut out)?;
+        *term = InlineTerminal::new(height);
+    }
+    term.set_height(height);
+    term.set_cursor_visible(view.show_hardware_cursor);
+    term.paint(
+        &mut out,
+        InlineFrame {
+            history: &[],
+            live: &frame.live,
+            cursor: frame.cursor,
+        },
+    )?;
+    Ok(())
+}
+
 /// One row as plain text: styling, OSC 133 zone markers, and OSC 8
 /// hyperlinks stripped.
 pub(crate) fn plain_row(line: &crate::Line) -> String {

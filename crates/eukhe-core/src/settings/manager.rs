@@ -282,6 +282,17 @@ impl SettingsManager {
             .unwrap_or(true)
     }
 
+    /// `terminal.fullscreen`: whether the interactive surfaces run in the
+    /// alternate screen instead of inline; default false.
+    #[must_use]
+    pub fn get_fullscreen(&self) -> bool {
+        self.settings()
+            .terminal
+            .as_ref()
+            .and_then(|terminal| terminal.fullscreen)
+            .unwrap_or(false)
+    }
+
     /// `treeFilterMode` (TS `getTreeFilterMode`): the `/tree` selector's
     /// initial filter; an unset or invalid value falls back to
     /// `user-only`, like the TS default.
@@ -1179,6 +1190,31 @@ mod tests {
             .set_factory_enabled(false)
             .expect("set factory disabled");
         assert!(!manager.get_factory_enabled());
+    }
+
+    /// `terminal.fullscreen` survives eukhe rewriting the global document
+    /// for another setting, and its own setter persists it.
+    #[test]
+    fn fullscreen_survives_an_unrelated_save_and_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().join("cwd");
+        let agent_dir = dir.path().join("agent");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        let path = agent_dir.join("settings.json");
+        std::fs::write(&path, r#"{ "terminal": { "fullscreen": true } }"#).unwrap();
+        let read = || -> serde_json::Value {
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+        };
+
+        let mut manager = SettingsManager::create(&cwd, &agent_dir);
+        assert!(manager.get_fullscreen());
+        manager.set_theme("dark".to_string()).expect("set theme");
+        assert_eq!(read()["terminal"]["fullscreen"], serde_json::json!(true));
+
+        manager.set_fullscreen(false).expect("set fullscreen");
+        assert!(!SettingsManager::create(&cwd, &agent_dir).get_fullscreen());
+        assert_eq!(read()["terminal"]["fullscreen"], serde_json::json!(false));
     }
 
     #[test]

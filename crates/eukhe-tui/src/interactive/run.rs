@@ -264,6 +264,7 @@ async fn run_interactive_surface(
     // The `terminal.showImages` setting rides the startup options (TS
     // `getShowImages`), resolved by the composition root.
     view.show_images = options.show_images;
+    view.screen_mode = options.screen_mode;
     if let Some(settings) = &options.client_settings {
         // TS constructs the chat TUI with the live `showHardwareCursor`
         // value (interactive-mode.ts `new TUI(..., getShowHardwareCursor())`);
@@ -460,7 +461,7 @@ async fn run_interactive_surface(
                                     && echoing
                                 {
                                     exit_guard.arm_for_exit();
-                                    renderer.finish(SurfaceExit::Process);
+                                    renderer.finish(SurfaceExit::Process, &view);
                                     return Ok(InteractiveOutcome {
                                         frames: Vec::new(),
                                         ..Default::default()
@@ -510,6 +511,12 @@ async fn run_interactive_surface(
                             } else {
                                 pending.push_back(UiInput::Paste(text));
                             }
+                        }
+                        // Order-insensitive like a resize: the window moves
+                        // now and the echo path stays open.
+                        UiInput::Scroll(request) => {
+                            view.scroll_viewport(request);
+                            opening_dirty = true;
                         }
                         UiInput::Resize => {
                             // Geometry is order-insensitive, so the resize
@@ -596,7 +603,7 @@ async fn run_interactive_surface(
                     // double-Ctrl+C force-quit watchdog like the normal
                     // agents-view handoff does.
                     exit_guard.cancel();
-                    let frames = renderer.finish(SurfaceExit::Handoff);
+                    let frames = renderer.finish(SurfaceExit::Handoff, &view);
                     return Ok(InteractiveOutcome {
                         return_to_agents_view: true,
                         agents_view_notice: Some(format!(
@@ -615,7 +622,7 @@ async fn run_interactive_surface(
             // timeout at box load exited the TUI).
             if crate::daemon_client::is_daemon_timeout(&error) {
                 exit_guard.cancel();
-                let frames = renderer.finish(SurfaceExit::Handoff);
+                let frames = renderer.finish(SurfaceExit::Handoff, &view);
                 return Ok(InteractiveOutcome {
                     return_to_agents_view: true,
                     agents_view_notice: Some(format!("{error:#} -- pick a session to continue.")),
@@ -629,7 +636,7 @@ async fn run_interactive_surface(
             // refusal as its status line and the client never exits.
             if crate::daemon_client::is_daemon_rejection(&error) {
                 exit_guard.cancel();
-                let frames = renderer.finish(SurfaceExit::Handoff);
+                let frames = renderer.finish(SurfaceExit::Handoff, &view);
                 return Ok(InteractiveOutcome {
                     return_to_agents_view: true,
                     agents_view_notice: Some(format!("{error:#}")),
@@ -643,7 +650,7 @@ async fn run_interactive_surface(
             if renderer.is_terminal() {
                 exit_guard.arm_for_exit();
             }
-            renderer.finish(SurfaceExit::Process);
+            renderer.finish(SurfaceExit::Process, &view);
             return Err(error);
         }
     };
@@ -742,7 +749,7 @@ async fn run_interactive_surface(
             // The user quit at the onboarding screen: still hand the
             // terminal back (live area left as output, raw mode off)
             // exactly like a session exit.
-            renderer.finish(SurfaceExit::Process);
+            renderer.finish(SurfaceExit::Process, &view);
             return Ok(InteractiveOutcome {
                 active_session_id: session.active_session_id.clone(),
                 session_id: session.session_id.clone(),
@@ -1216,6 +1223,7 @@ async fn run_interactive_surface(
                     UiInput::WaitRender { .. } | UiInput::WaitGone { .. } => {
                         unreachable!("render barrier handled above")
                     }
+                    UiInput::Scroll(request) => view.scroll_viewport(request),
                     UiInput::Resize => {
                         // The editor lays its window out against the new row
                         // count, and the terminal reflowed its scrollback:
@@ -2271,7 +2279,7 @@ async fn run_interactive_surface(
         session_id: session.session_id.clone(),
         resume_hint,
         last_assistant_text: session.last_assistant_text.clone(),
-        frames: renderer.finish(surface_exit),
+        frames: renderer.finish(surface_exit, &view),
         // The headless OSC 52 capture (terminal runs wrote the sequences
         // to stdout as they happened).
         clipboard_emissions: session.take_osc_emissions(),

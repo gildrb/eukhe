@@ -273,6 +273,12 @@ impl eukhe_tui::client_settings::ClientSettings for StubSettings {
     fn set_show_terminal_progress(&self, _enabled: bool) -> Result<()> {
         Ok(())
     }
+    fn fullscreen(&self) -> bool {
+        false
+    }
+    fn set_fullscreen(&self, _enabled: bool) -> Result<()> {
+        Ok(())
+    }
     fn image_auto_resize(&self) -> bool {
         true
     }
@@ -390,6 +396,7 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
+        screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),

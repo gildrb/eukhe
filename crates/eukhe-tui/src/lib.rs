@@ -96,6 +96,7 @@ pub(crate) mod prompt_highlight;
 pub mod prompt_stash;
 pub mod provider_auth;
 pub mod queued;
+pub mod screen_mode;
 pub(crate) mod search_input;
 mod sequence_guard;
 pub mod session;

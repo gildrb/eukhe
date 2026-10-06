@@ -57,6 +57,7 @@ fn pending_ancestors_expand_and_selection_restores_after_reentry() {
         status_message: None,
         keybindings: crate::keybindings::KeybindingsManager::new(),
         show_hardware_cursor: false,
+        screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,
         create_config: serde_json::json!({}),
     });
