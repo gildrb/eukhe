@@ -56,9 +56,15 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
             "15000",
         );
     let child = command.spawn().expect("spawn eukhe-daemon supervisor");
+    // Ready means serving, not bound: the supervisor binds its socket
+    // before the boot reap, which SIGTERMs every same-socket worker no
+    // descriptor backs, and greets a connection only from the accept loop
+    // that runs after it. A worker spawned on a bare connect races the
+    // reap.
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if UnixStream::connect(socket).is_ok() {
+            drop(Client::connect(socket));
             return Daemon {
                 child,
                 socket: socket.to_path_buf(),
