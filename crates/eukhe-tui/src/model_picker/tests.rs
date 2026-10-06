@@ -240,31 +240,28 @@ fn a_scope_the_catalog_cannot_resolve_still_scopes() {
 }
 
 /// The frame matches the TS inline menu panel row for row (the f17
-/// model-selector capture geometry: bordered search field, `›` rows
+/// model-selector capture geometry: bordered search field, `>` rows
 /// with the effort cluster centered at columns 54/62, trailing flush
 /// right, scroll indicator, price detail, key hint).
 /// The frame matches the TS inline menu panel row for row (the f17
-/// model-selector capture geometry): bordered search field, `›` rows
+/// model-selector capture geometry): bordered search field, `>` rows
 /// with the effort cluster centered (squares at column 54, label at
 /// 62), trailing flush right, scroll indicator, price detail, key hint.
 #[test]
 fn renders_the_ts_inline_panel_shape() {
     let mut picker = ModelPicker::new(picker_options(battery_catalog()));
     let rows = frame_text(&mut picker);
-    let border = "\u{2500}".repeat(120);
+    let border = "-".repeat(120);
     assert_eq!(rows[0], border, "top rule");
     assert_eq!(rows[2], border, "bottom rule");
     // The search field: prompt, caret cell, dim placeholder.
     assert_eq!(rows[1], " >  Search models");
-    // The current model leads, marked `current \u{b7} provider`, no
+    // The current model leads, marked `current - provider`, no
     // effort cluster (no thinking surface); the trailing sits flush
     // right.
     assert_eq!(
         rows[3],
-        format!(
-            "\u{203a} Mock 1{}current \u{b7} prime-inference",
-            " ".repeat(87)
-        )
+        format!("> Mock 1{}current - prime-inference", " ".repeat(87))
     );
     // The effort cluster: name cell (17), centered gap (33), arrow
     // slots, squares, label cell (6), then the trailing provider.
@@ -277,26 +274,9 @@ fn renders_the_ts_inline_panel_shape() {
             " ".repeat(37),
         )
     };
-    assert_eq!(
-        rows[4],
-        effort_row(
-            "Claude Fable 5",
-            "\u{25a0}\u{25a0}\u{25a1}\u{25a1}\u{25a1}",
-            "medium"
-        )
-    );
-    assert_eq!(
-        rows[5],
-        effort_row("Claude Haiku 4.5", "\u{25a0}    ", "high")
-    );
-    assert_eq!(
-        rows[6],
-        effort_row(
-            "Claude Opus 4.6",
-            "\u{25a0}\u{25a0}\u{25a1}\u{25a1} ",
-            "medium"
-        )
-    );
+    assert_eq!(rows[4], effort_row("Claude Fable 5", "##...", "medium"));
+    assert_eq!(rows[5], effort_row("Claude Haiku 4.5", "#    ", "high"));
+    assert_eq!(rows[6], effort_row("Claude Opus 4.6", "##.. ", "medium"));
     // The scroll indicator counts the whole catalog.
     assert_eq!(rows[11], "  (1/9)");
     // The price detail block: blank, labels with the trailing unit,
@@ -319,7 +299,7 @@ fn renders_the_ts_inline_panel_shape() {
     // The key hint.
     assert_eq!(
         rows[16],
-        " \u{2191}/\u{2193} model \u{b7} \u{2190}/\u{2192} effort \u{b7} Enter select \u{b7} Esc close"
+        " up/down model - left/right effort - Enter select - Esc close"
     );
     // One blank line of spacing below the shortcuts (the operator's
     // 2026-09-24 directive), never a rule.
@@ -365,28 +345,6 @@ fn typed_filter_selects_the_match_and_enter_applies_it() {
 
 /// The Tab-intercepted partial keeps the caret at its end, so typing
 /// extends the filter instead of inserting before it.
-#[test]
-fn a_row_click_lands_the_arrows_on_the_clicked_rows_effort() {
-    let kb = kb();
-    let mut picker = ModelPicker::new(picker_options(battery_catalog()));
-    // A nonempty search keeps Left/Right on the search field until
-    // the user enters the list (an arrow move) — a row click is the
-    // same entry.
-    picker.set_query("fable");
-    assert!(
-        picker.search.value().contains("fable"),
-        "the query prefilled"
-    );
-    picker.select_filtered(0);
-    let before = picker.search.value().to_string();
-    picker.handle_key("left", &kb);
-    assert_eq!(
-        picker.search.value(),
-        before,
-        "Left adjusted the clicked row's effort, not the search"
-    );
-}
-
 #[test]
 fn set_query_prefill_leaves_the_caret_at_the_end() {
     let mut picker = ModelPicker::new(picker_options(battery_catalog()));
@@ -510,7 +468,7 @@ fn unconfigured_providers_mark_require_sign_in_and_sort_last() {
     // marking in their trailing cluster.
     assert!(rows
         .iter()
-        .any(|row| row.contains("require sign in \u{b7} other")));
+        .any(|row| row.contains("require sign in - other")));
     assert!(rows.iter().any(|row| row.contains("Mock 1")));
 }
 

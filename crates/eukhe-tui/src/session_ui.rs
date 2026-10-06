@@ -1,5 +1,5 @@
 //! Live per-session UI state for the interactive loop: the daemon-client
-//! side of one attached session — prompt submission, slash commands, streamed
+//! side of one attached session -- prompt submission, slash commands, streamed
 //! event application, and session switching. Rendering itself lives in the
 //! view crate modules; this module only decides what the view shows.
 
@@ -31,10 +31,9 @@ pub(crate) use factory::FactoryUpdate;
 use heartbeats::paused_heartbeat_count;
 pub(crate) use heartbeats::HeartbeatsUpdate;
 /// The opening phase's echo gate (run.rs): the fresh-state projection of
-/// `handle_key`'s keymap-aware ladder — a claimed key queues behind the
+/// `handle_key`'s keymap-aware ladder -- a claimed key queues behind the
 /// session open instead of echoing into the editor.
 pub(crate) use keys::opening_echo_key_claimed;
-use keys::SelectionAutoScroll;
 pub(crate) use model_picker::picker_viewport_rows;
 pub(crate) use model_picker::ModelCatalogUpdate;
 use panels::pop_superseded_attempt_row;
@@ -66,7 +65,6 @@ use crate::chat::{
     ChatEntry, CompactionReason, CompactionState, MessageBlock, RetryState, StatusKind,
     ToolResultView, WorkingState,
 };
-use crate::click_dispatch::PressedClick;
 use crate::daemon_client::{DaemonClient, DaemonClientEvent};
 use crate::effort_picker::{self, EffortPickerAction};
 use crate::export_share::{self, GhAuthStatus, GistOutcome};
@@ -102,7 +100,7 @@ use tokio::sync::mpsc;
 
 /// Cap on any daemon request awaited on the key-handling path: the UI loop
 /// must stay responsive to Ctrl+C while a submission travels (the TS loop
-/// never blocks on these — aborts are fire-and-forget, submissions resolve
+/// never blocks on these -- aborts are fire-and-forget, submissions resolve
 /// off the render path).
 const UI_REQUEST_TIMEOUT_MS: u64 = 10_000;
 
@@ -117,12 +115,12 @@ const EXIT_STATS_TIMEOUT_MS: u64 = 500;
 /// ban-risk warning a completed Anthropic subscription login shows once
 /// per session (the settings toggle `warnings.anthropicExtraUsage`
 /// gates it).
-const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Usage draws from your plan limits, but Eukhe identifies as Claude Code and this may violate Anthropic's terms — your account can be restricted or banned. An Anthropic API key avoids the risk. Manage usage at https://claude.ai/settings/usage.";
+const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Usage draws from your plan limits, but Eukhe identifies as Claude Code and this may violate Anthropic's terms -- your account can be restricted or banned. An Anthropic API key avoids the risk. Manage usage at https://claude.ai/settings/usage.";
 
 /// A landed `get_commands` refresh (TS `refreshCommandCatalogForCurrentSession`
 /// over `connectionCommands`): the session's `skill:` commands for the
 /// autocomplete provider. A response from an older refresh (a rebind raced
-/// a fetch) never applies — the epoch drops it.
+/// a fetch) never applies -- the epoch drops it.
 pub(crate) struct CommandCatalogUpdate {
     pub epoch: u64,
     pub skill_commands: Vec<crate::autocomplete::SlashCommandEntry>,
@@ -137,14 +135,14 @@ pub(crate) struct SessionUi {
     /// pairs it with the attach's event sequence so a restarted worker
     /// can never serve a stale handoff.
     pub(crate) attach_event_generation: String,
-    /// The event sequence of this run's attach — the same monotonic
+    /// The event sequence of this run's attach -- the same monotonic
     /// counter the resume cursor rides. The layout handoff's ADOPT keys
     /// on the next attach's value here: every transcript change rides an
     /// event, so a match means the entries the handoff's packs were
     /// rendered from are exactly the ones the re-entry rebuilt
     /// (`view::handoff`).
     pub(crate) attach_event_sequence: u64,
-    /// The LATEST event sequence this run has seen — the attach's value,
+    /// The LATEST event sequence this run has seen -- the attach's value,
     /// then the monotonic max over every event's `meta.sequence` (the
     /// live tracker `view::handoff` keys its STASH with, so a turn during
     /// the run advances the stash's key to the value the next attach
@@ -153,7 +151,7 @@ pub(crate) struct SessionUi {
     /// Whether the attach supplied the resume cursor (the event
     /// generation + sequence fields). The handoff's key collapses an
     /// absent cursor to empty/zero defaults, which could alias across
-    /// cursor-less attaches of the same entry count — a cursor-less
+    /// cursor-less attaches of the same entry count -- a cursor-less
     /// attach stashes nothing (`view::handoff`).
     pub(crate) attach_cursor_present: bool,
     session_name: Option<String>,
@@ -177,7 +175,7 @@ pub(crate) struct SessionUi {
     /// The settings recent-model list (`provider/id` keys, newest first).
     model_recent_models: Vec<String>,
     /// The settings default thinking level (TS `getDefaultThinkingLevel`)
-    /// — the picker's effort seed for non-reasoning current models.
+    /// -- the picker's effort seed for non-reasoning current models.
     default_thinking_level: Option<String>,
     /// When the daemon catalog was last refreshed (TS
     /// `connectionModelsFetchedAt`; the refresh is TTL-gated).
@@ -206,9 +204,6 @@ pub(crate) struct SessionUi {
     last_status_index: Option<usize>,
     /// The `terminal.showImages` setting, carried into `/new` runs.
     show_images: bool,
-    /// The `terminal.fullscreenMouse` setting: whether the interactive
-    /// surface enables mouse tracking; carried into `/new` runs.
-    fullscreen_mouse: bool,
     /// The `/speed` display flag (TS `speedDisplayEnabled`): per-client
     /// runtime state, never persisted; turning it off clears the stats and
     /// the row.
@@ -224,20 +219,20 @@ pub(crate) struct SessionUi {
     /// The current model's provider (TS `getCurrentModel()` keeps the full
     /// model): the eligibility lookups over the TUI-side catalog disambiguate
     /// same-id entries across providers with it.
-    /// The client-process settings seam (`/settings`, `/fullscreen`);
+    /// The client-process settings seam (`/settings`);
     /// the composition root supplies it.
     client_settings: Option<std::sync::Arc<dyn crate::client_settings::ClientSettings>>,
     /// The ban-risk warning's view-local dedup (TS
     /// `anthropicSubscriptionWarningShown`): this VIEW's own
     /// once-per-instance gate. The once-per-SESSION-lifecycle gate (the
     /// operator 2026-09-29 fix for the every-open re-warn) is the
-    /// daemon-side marker read through `get_state` — see
+    /// daemon-side marker read through `get_state` -- see
     /// [`Self::anthropic_warning_already_shown`] and
     /// [`Self::mark_anthropic_warning_shown`].
     anthropic_subscription_warning_shown: bool,
     /// The in-flight `mark_anthropic_warning_shown` fire-and-forget: set
     /// when the mark task is spawned, cleared by the task itself at its
-    /// end (ack, error, or bound) — the headless exit gate reads it so a
+    /// end (ack, error, or bound) -- the headless exit gate reads it so a
     /// scripted run never ends with the durable write still in flight.
     anthropic_warning_mark_pending: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// The side-question run currently streaming (TS `activeSideQuestionId`):
@@ -287,7 +282,7 @@ pub(crate) struct SessionUi {
     /// One-shot: return the freed heap of the first frame that renders
     /// after an attach fold (the fold itself trims the wire/parse churn;
     /// the first frame's visible-window materialization is its own,
-    /// bigger transient — see the draw loop's post-frame trim).
+    /// bigger transient -- see the draw loop's post-frame trim).
     trim_after_frame: bool,
     /// Snapshot labels (model) for the next rebuild.
     pending_model: Option<String>,
@@ -333,7 +328,7 @@ pub(crate) struct SessionUi {
     /// streamed call registers at its `message_update` frame or at
     /// `tool_execution_start`, the final result unregisters, and the run's
     /// failed final frame settles every pending card with the failure text
-    /// (late frames land on nothing — TS `resetPendingToolState`).
+    /// (late frames land on nothing -- TS `resetPendingToolState`).
     pending_tools: std::collections::HashSet<String>,
     /// Tool calls settled by a failed final frame, card or not: the run's
     /// late tool frames land on nothing (a new assistant message re-arms a
@@ -484,7 +479,7 @@ pub(crate) struct SessionUi {
     /// The ordered inbox the single submit worker drains (see
     /// [`PromptOrder`]): one in-flight request at a time keeps the wire
     /// in submit order while the key path stays free of the round trip.
-    /// The outcome channel is not held here — the worker (spawned in
+    /// The outcome channel is not held here -- the worker (spawned in
     /// [`Self::open`]) owns its sender, and the run loop owns the
     /// receiving side.
     prompt_orders: mpsc::UnboundedSender<PromptOrder>,
@@ -493,7 +488,7 @@ pub(crate) struct SessionUi {
     /// any newer submit.
     input_submission_generation: u64,
     /// Armed prompt round trips (one per spawned request): the headless
-    /// idle and exit gates treat an in-flight submit as busy — the inline
+    /// idle and exit gates treat an in-flight submit as busy -- the inline
     /// submit held those gates by blocking the loop until the ack landed.
     prompt_in_flight: usize,
     /// A succeeded compaction replaced the durable transcript (TS
@@ -501,8 +496,6 @@ pub(crate) struct SessionUi {
     pub(crate) transcript_stale: bool,
     /// Adoption telemetry (counted into `tui exit`); `None` drops events.
     pub(crate) telemetry: Option<std::sync::Arc<dyn crate::interactive::InteractionTelemetry>>,
-    /// Whether this run already reported its first scroll action.
-    scroll_adoption_emitted: bool,
     /// How the client run ended (the `tui exit` reason).
     pub(crate) exit_reason: &'static str,
     /// TS #2458 `daemonClosingNotice`: the reason the daemon last
@@ -532,10 +525,10 @@ pub(crate) struct SessionUi {
     escape_repeat_until: Option<Instant>,
     /// Whether the double-Escape tree shortcut already fired for this input
     /// chain (the operator's 2026-09-29 Esc-overflow ruling: the repeat-opened
-    /// tree's dismissal must not re-enter the open cycle — the empty state's
+    /// tree's dismissal must not re-enter the open cycle -- the empty state's
     /// pop loop terminates, and a pure stream of Escape presses converges to
     /// the inert empty editor instead of reopening the tree every second
-    /// press). Any other input — a non-Escape key, a plain click — re-arms
+    /// press). Any other input -- a non-Escape key, a plain click -- re-arms
     /// the gesture.
     escape_tree_shortcut_spent: bool,
     /// The `!`/`!!` user-bash lane (TS interactive-mode onSubmit): the
@@ -550,13 +543,13 @@ pub(crate) struct SessionUi {
     user_bash_counter: u64,
     /// The attached snapshot's bash slot state (TS
     /// `applyConnectionStateSnapshot` patches `isBashRunning`): consumed
-    /// by the next transcript rebuild — a same-session resync runs the
+    /// by the next transcript rebuild -- a same-session resync runs the
     /// `renderResyncedSession` bashFinished edge off it.
     resync_bash: Option<ResyncBash>,
     /// The LAST HUMAN PROMPT's wall-clock time (unix ms), from the
     /// attach snapshot's newest user message: the rebuilt loader
     /// anchors its elapsed clock here (the operator's 2026-09-28
-    /// rule — the waiting/executing timer never resets on a view
+    /// rule -- the waiting/executing timer never resets on a view
     /// transition; it counts since the prompt that started the live
     /// turn). `None` keeps the re-attach-instant anchor.
     loader_anchor_ms: Option<u64>,
@@ -585,48 +578,21 @@ pub(crate) struct SessionUi {
     /// spawns the command through the auth seam, never through the
     /// typed-command path.
     pending_mcp_auth: Option<McpAuthIntent>,
-    /// The editor holds the user's own text — the Tab path's restored
-    /// browse draft, or the text ctrl+l opened the picker over — not a
+    /// The editor holds the user's own text -- the Tab path's restored
+    /// browse draft, or the text ctrl+l opened the picker over -- not a
     /// typed command partial: a picker apply must keep it (TS's selector
     /// never touches the editor).
     picker_restored_draft: bool,
     /// Whether this run already reported its first suspend cycle.
     suspend_adoption_emitted: bool,
-    /// The armed selection auto-scroll (TS `selectionAutoScroll*`): a drag
-    /// holding the pointer at the window edge scrolls the transcript while
-    /// it lasts.
-    selection_auto_scroll: Option<SelectionAutoScroll>,
-    /// Whether this run already reported its first selection copy.
-    selection_adoption_emitted: bool,
-    /// Texts copied out by finished selections this run (headless runs
-    /// have no terminal to write OSC 52 to; the verifier reads these).
-    pub(crate) copies: Vec<String>,
-    /// TS `fullscreenPressedHyperlink`: the link under the last plain left
-    /// press; a release without a drag opens it.
-    pub(crate) pressed_hyperlink: Option<String>,
-    /// TS `fullscreenLeftMouseDragged`: the left press turned into a drag,
-    /// so its release ends the selection instead of opening the link or
-    /// firing the pressed click.
-    pub(crate) left_mouse_dragged: bool,
-    /// Links opened by clicks this run (headless runs have no terminal to
-    /// hand a browser to; the verifier reads these).
-    pub(crate) opened_urls: Vec<String>,
-    /// The click target under the last plain left press (TS
-    /// `fullscreenPressedClick`): the release fires it when it lands on
-    /// the same row without a drag between and no hyperlink covers the
-    /// press.
-    pub(crate) pressed_click: Option<PressedClick>,
-    /// Whether this run already reported its first click-driven
-    /// interaction.
-    click_adoption_emitted: bool,
 }
 
 /// Why one transcript rebuild runs (TS: a session rebind renders through
 /// `renderCurrentSessionState`, a same-session resync through
-/// `renderResyncedSession` — the bash slot survives only the resync).
+/// `renderResyncedSession` -- the bash slot survives only the resync).
 /// The reattach outcome for `reattach_after_recovery`: the budget expiry
 /// (a queued attach waiting out a slow restore) is a RETRY
-/// outcome — the reconnect driver schedules its next attempt; only a
+/// outcome -- the reconnect driver schedules its next attempt; only a
 /// true attach error is an `Err`.
 pub(crate) enum ReattachOutcome {
     Attached,
@@ -660,12 +626,12 @@ enum DockFocusSource {
 pub(crate) enum DockFold {
     /// Clear and fold the first `heartbeats_list` and `list_kernel_bash`
     /// responses into the session before the attach returns: the dock's
-    /// counts are first-frame state — the first content frame reads the
+    /// counts are first-frame state -- the first content frame reads the
     /// final counts (open, switch, rebind), never a late repaint.
     FirstFrame,
     /// Clear and hand the dock to the background refreshes: a brand-new
     /// session (`/new`) owns nothing, so its dock is deterministically
-    /// empty — the fold cannot change the counts, and waiting on two
+    /// empty -- the fold cannot change the counts, and waiting on two
     /// registry reads would only delay the new chat's first frame.
     Fresh,
     /// Hold the dock's data and let the background refreshes update it: a
@@ -805,7 +771,7 @@ impl SessionUi {
         tiers
     }
 
-    /// TS `getServiceTierCompletions`: the `/tier` argument items — the
+    /// TS `getServiceTierCompletions`: the `/tier` argument items -- the
     /// available tiers with their descriptions, the current one marked.
     fn tier_completion_items(&self, view: &AgentView) -> Vec<crate::autocomplete::CompletionItem> {
         let current = self.service_tier.as_deref().unwrap_or("default");
@@ -880,7 +846,7 @@ impl SessionUi {
         }
         // The status row reports what the session actually applied (TS
         // `formatStatus(state.serviceTier)`); a state read that fails or
-        // omits the tier shows no success row — the stale local tier must
+        // omits the tier shows no success row -- the stale local tier must
         // not report an apply that did not confirm.
         let Some(state) = self.connection_state(view).await else {
             return;
@@ -899,7 +865,7 @@ impl SessionUi {
     }
 
     /// Send a prompt to the session and start the working loader. Session
-    /// commands travel the same path — the session engine parses and
+    /// commands travel the same path -- the session engine parses and
     /// executes them instead of admitting a model turn. `behavior` is the
     /// TS streaming behavior: Enter parks mid-turn input on the steering
     /// lane, the follow-up key on the follow-up lane; an idle session runs
@@ -961,7 +927,7 @@ impl SessionUi {
                 view.editor.set_text(&text);
                 // The editor child received the expanded text, so the
                 // registry describes markers the saved draft no longer
-                // carries — a literal `[paste #N]` in it would expand to
+                // carries -- a literal `[paste #N]` in it would expand to
                 // stale content. Clear it the same way submit does (TS
                 // keeps the stale registry: the same latent bug); undo
                 // still restores the markers, snapshots carry the
@@ -1001,11 +967,11 @@ mod loader_anchor_tests {
     use super::SessionUi;
 
     /// The anchor clock (Macroscope 2026-09-28: a prompt's age must
-    /// not be capped — the old 24-hour cutoff reset REAL old prompts
+    /// not be capped -- the old 24-hour cutoff reset REAL old prompts
     /// to a zero loader): any past prompt anchors at its own instant,
     /// however long ago; only a future timestamp falls back to the
     /// re-attach anchor. A placeholder-era timestamp anchors at its
-    /// own wall time too — TS `restoreTurnStartFromMessages` trusts
+    /// own wall time too -- TS `restoreTurnStartFromMessages` trusts
     /// the wire's timestamp the same way.
     #[test]
     fn prompts_anchor_at_their_wall_time_and_future_ones_fall_back() {

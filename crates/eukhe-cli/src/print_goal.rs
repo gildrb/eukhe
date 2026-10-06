@@ -1,4 +1,4 @@
-//! The print run's goal continuation loop — the #252 residue: the print
+//! The print run's goal continuation loop -- the #252 residue: the print
 //! driver runs the same in-run continuation the TS session hosts inside one
 //! `promptAndWait`.
 //!
@@ -19,7 +19,7 @@
 //!
 //! The Rust mapping: the eukhe-core engine owns the goal arms
 //! ([`SessionEngine`]'s boundary methods); this surface owns the print
-//! stream — the usage-accounting subscription (message-end recording plus
+//! stream -- the usage-accounting subscription (message-end recording plus
 //! the `goal_update` frames), the in-loop continuation hook installed on the
 //! agent (the natural mint, with the threshold/requested-compaction stops
 //! deferring to the turn boundary like TS `_shouldStopForThresholdCompaction`),
@@ -183,7 +183,7 @@ impl PrintGoalSurface {
 
     /// Seed the publish dedupe's baseline from the current state: the state
     /// that exists when the stream attaches (the seeded `--goal`, or a
-    /// resumed session's persisted goal) never announces itself — TS's
+    /// resumed session's persisted goal) never announces itself -- TS's
     /// construction-time mutations land before the print client subscribes,
     /// so the first `goal_update` on the stream is the first change the
     /// run observes.
@@ -402,7 +402,7 @@ impl PrintGoalSurface {
     }
 
     /// One durable row's `message_start`/`message_end` pair on the stream
-    /// (rows appended outside the agent loop — the session-command echo,
+    /// (rows appended outside the agent loop -- the session-command echo,
     /// result, and status rows).
     pub(crate) fn emit_row_pair(&self, row: &CustomMessage) {
         let value = crate::headless_autonomous::custom_row_wire_value(row);
@@ -539,9 +539,9 @@ impl PrintGoalSurface {
     /// each natural turn end, queued input (the armed steer) and a
     /// compaction due (requested or threshold, TS
     /// `_shouldStopForThresholdCompaction` stopping the loop) gate the mint
-    /// — the threshold arm mints the goal's continuation ahead of the
+    /// -- the threshold arm mints the goal's continuation ahead of the
     /// compaction and holds it for the driver (TS
-    /// `_queueGoalContinuationForThresholdCompaction`) — and an active goal
+    /// `_queueGoalContinuationForThresholdCompaction`) -- and an active goal
     /// mints its next continuation turn, which the composed hook runs
     /// inside the same agent run. [`NaturalContinuation::FallThrough`]
     /// hands the boundary to the autonomous arm.
@@ -551,7 +551,7 @@ impl PrintGoalSurface {
         model: &eukhe_types::ai::Model,
     ) -> NaturalContinuation {
         // TS `_getContinuationMessages`: queued session input owns
-        // the boundary before any goal work — the armed budget steer
+        // the boundary before any goal work -- the armed budget steer
         // ends the run so the queue drains it.
         if self.queued.lock().await.is_some() {
             return NaturalContinuation::QueuedInput;
@@ -577,7 +577,7 @@ impl PrintGoalSurface {
         // The natural continuation mint: the goal's context turn runs
         // as the next turn of the same run (TS pendingMessages). The
         // handoff to the run loop is the admission: the driver's pending
-        // guard releases here — a row that cannot convert drops the mint
+        // guard releases here -- a row that cannot convert drops the mint
         // with the guard (the next boundary re-mints).
         if let Some(message) = engine.mint_goal_continuation().await {
             self.publish_goal_update(engine).await;
@@ -598,7 +598,7 @@ impl PrintGoalSurface {
     /// `_finishGoalForTerminalAssistantMessage` at `agent_end`, after
     /// `_checkCompaction`). Returns whether an active goal still owns the
     /// boundary (TS `_getContinuationMessages`: the goal arm takes
-    /// exclusive priority — the autonomous arm is never consulted while a
+    /// exclusive priority -- the autonomous arm is never consulted while a
     /// goal is active).
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn drive_boundary(
@@ -652,7 +652,7 @@ impl PrintGoalSurface {
     }
 
     /// Admit a session command's scheduled continuation (a `/goal` start or
-    /// resume) as the print invocation's next run — the TS
+    /// resume) as the print invocation's next run -- the TS
     /// `promptAndWait` drain, with the command surface's frame order: the
     /// action's `preparing`/`committing` frames ahead of the turn, the
     /// `running` frame at the turn's `turn_start` (the probed TS order for
@@ -701,9 +701,9 @@ impl PrintGoalSurface {
 
     /// Admit one queued goal turn as the print invocation's next run (the
     /// queue drain: TS `resumeQueuedWork` -> `_createPreparedTurnAction`
-    /// admission). The action's phase frames bookend the turn — `preparing`
+    /// admission). The action's phase frames bookend the turn -- `preparing`
     /// and `committing` ahead of it, the `running` frame on the loop's
-    /// `agent_start`, the drained-queue frame right after the run settles —
+    /// `agent_start`, the drained-queue frame right after the run settles --
     /// and the turn crosses the same boundary pair every print turn crosses
     /// (TS `_prepareForCommit` -> `_runPreTurnCompaction` before, the
     /// `agent_end` checks after).
@@ -720,7 +720,7 @@ impl PrintGoalSurface {
         // The queued goal turn's run completes its admission: the held
         // threshold continuation leaves the hold, so the driver's pending
         // guard releases before the boundary's next consult (the budget
-        // steer consumed no slot — releasing is a no-op for it).
+        // steer consumed no slot -- releasing is a no-op for it).
         engine.clear_pending_goal_continuation().await;
         let label = compact_rlm_text(&custom_message_text(message), 160);
         self.emit_action_preparing(&label).await;
@@ -1183,7 +1183,7 @@ mod tests {
         assert_eq!(goal.status, eukhe_types::goal::GoalStatus::Error);
         assert_eq!(goal.continuations_used, 2);
         // The stream: each turn's usage bump, each mint's bump, and the
-        // terminal error — in that order, with no queue frames (the
+        // terminal error -- in that order, with no queue frames (the
         // natural mints never queue).
         assert_eq!(
             frame_kinds(&bed.frames),
@@ -1254,7 +1254,7 @@ mod tests {
     }
 
     /// The threshold arm's held continuation (a resumed session with an
-    /// active goal — the print `-c` shape): the in-loop hook mints BEFORE
+    /// active goal -- the print `-c` shape): the in-loop hook mints BEFORE
     /// the run stops (the slot bump entry precedes the compaction entry),
     /// the boundary compacts the resumed history, and the held turn runs as
     /// the post-compaction turn with its queue frames.
@@ -1389,7 +1389,7 @@ mod tests {
 
     /// The threshold bed's engine shape: a RESUMED session carrying one
     /// history turn and an active goal (the persisted goal state the
-    /// driver loads at construction — the print `-c` shape). The history
+    /// driver loads at construction -- the print `-c` shape). The history
     /// turn gives the threshold compaction something to summarize.
     async fn goal_bed_with_resumed_goal(script: Value, settings: Value) -> GoalBed {
         let dir = tempfile::TempDir::new().unwrap();
@@ -1423,7 +1423,7 @@ mod tests {
                         // A large history turn: it crosses the reserve headroom
                         // on the crossing turn's request estimate (the resumed
                         // context rides every request), and the threshold
-                        // compaction summarizes it away — the post-compaction
+                        // compaction summarizes it away -- the post-compaction
                         // context sits back under the headroom.
                         String::from("a resumed history turn ") + &"x".repeat(60000),
                     ),

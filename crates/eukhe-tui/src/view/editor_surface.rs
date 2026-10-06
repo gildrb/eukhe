@@ -1,50 +1,39 @@
-//! The editor box: the shared renderer for every editor-bearing surface —
+//! The editor box: the shared renderer for every editor-bearing surface --
 //! the chat's prompt dock and the agents view's action composers. This
 //! module owns "the editor box" (TS `Editor.render` on its background
 //! surface, plus `CustomEditor.render`'s header-block and placeholder
-//! insertions); the surfaces compose it with their own headers,
-//! placeholders, and click regions.
+//! insertions); the surfaces compose it with their own headers and
+//! placeholders.
 //!
 //! The box's row shape (TS `Editor.render` with a background surface):
 //! the top bg row (a scroll indicator once content hides above), the
 //! header block's two rows (the caller's header line plus its blank
 //! companion, TS `getHeaderLine` via `renderHeaderContentLine`), the
 //! content rows (`> ` prompt, styled text, the reverse-video cursor),
-//! and the trailing bg row (a `↓ N more` indicator once content hides
+//! and the trailing bg row (a `v N more` indicator once content hides
 //! below). An empty editor with a placeholder shows the placeholder row
 //! in place of the first content row (TS `renderPlaceholderLine`: the
 //! cursor cell, then the dim placeholder).
 
 use super::chunk_selection;
-use super::flush::split_at_chars;
-use super::frame::{indicator_row, pad_row};
+use super::frame::indicator_row;
 use crate::editor::Editor;
 use crate::prompt_highlight::{
     command_token, editor_chunk_highlights, editor_text_spans, find_arg_tokens, ArgTokenSpan,
 };
+use crate::style::Modifier;
 use crate::theme::{Theme, ThemeBg, ThemeColor};
 use crate::width::{str_width, truncate_to_width};
 use crate::{Line, Span};
 use eukhe_types::slash_commands::SlashCommandRegistry;
-use ratatui::style::Modifier;
 
-/// The composed editor box plus the geometry its caller records: the
-/// click surface's metrics and the cursor's cell.
+/// The composed editor box and the cursor's cell.
 pub(crate) struct EditorBox {
     /// The box's rows, top bg row first.
     pub(crate) rows: Vec<Line>,
     /// The cursor's row within the box and its column (`None` while the
     /// editor's window shows no cursor).
     pub(crate) cursor: Option<(usize, usize)>,
-    /// The rows between the box's top row and its first content row (TS
-    /// `getContentLineOffset`): a header block inserts its two.
-    pub(crate) content_offset: usize,
-    /// The rendered prompt's visible width (`> `, `! `, `!! `).
-    pub(crate) prompt_width: usize,
-    /// The width the editor's layout wrapped at.
-    pub(crate) content_width: usize,
-    /// The content rows the box shows.
-    pub(crate) visible_rows: usize,
 }
 
 /// Compose one editor box (TS `Editor.render` + `CustomEditor.render`'s
@@ -79,14 +68,14 @@ pub(crate) fn render(
     let content_offset = usize::from(header.is_some()) * 2;
     let mut rows: Vec<Line> = Vec::new();
     if scroll_offset > 0 {
-        let indicator = format!(" \u{2191} {scroll_offset} more");
+        let indicator = format!(" {} {scroll_offset} more", crate::glyphs::UP);
         rows.push(indicator_row(&indicator, bg, border, width));
     } else {
         rows.push(vec![Span::styled(" ".repeat(width), bg)]);
     }
     // The header block (TS `renderHeaderContentLine`): the caller's line
     // on the editor background, padded and truncated to the content
-    // width, plus its empty companion row — the box grows by two rows
+    // width, plus its empty companion row -- the box grows by two rows
     // while a header shows (TS `getContentLineOffset` shifts the click
     // regions with it).
     if let Some(header) = header {
@@ -198,7 +187,7 @@ pub(crate) fn render(
     }
     if hidden_below > 0 {
         rows.push(indicator_row(
-            &format!(" \u{2193} {hidden_below} more"),
+            &format!(" {} {hidden_below} more", crate::glyphs::DOWN),
             bg,
             border,
             width,
@@ -206,14 +195,7 @@ pub(crate) fn render(
     } else {
         rows.push(vec![Span::styled(" ".repeat(width), bg)]);
     }
-    EditorBox {
-        rows,
-        cursor,
-        content_offset,
-        prompt_width,
-        content_width: layout_width,
-        visible_rows: visible.len(),
-    }
+    EditorBox { rows, cursor }
 }
 
 /// The autocomplete dropdown, mounted just above the editor surface (TS
@@ -238,11 +220,14 @@ pub(crate) fn overlay(editor: &Editor, theme: &Theme, width: usize) -> Vec<Line>
     let prompt_width = str_width(editor.bash_prompt_prefix().unwrap_or("> "));
     let content_width = width.saturating_sub(padding_x * 2).max(1);
     let input_width = content_width.saturating_sub(prompt_width).max(1);
-    // The panel's top border: the muted `─` rule that separates an
+    // The panel's top border: the muted rule that separates an
     // inline menu panel from the rows above it, drawn on the panel
     // surface.
     let border = theme.fg_style(ThemeColor::BorderMuted).patch(bg);
-    let mut rows: Vec<Line> = vec![vec![Span::styled("\u{2500}".repeat(width.max(1)), border)]];
+    let mut rows: Vec<Line> = vec![vec![Span::styled(
+        crate::glyphs::RULE.repeat(width.max(1)),
+        border,
+    )]];
     let mut overlay = Vec::new();
     overlay.extend(state.render(theme, input_width));
     overlay.push(Vec::new());
@@ -269,7 +254,15 @@ pub(crate) fn overlay(editor: &Editor, theme: &Theme, width: usize) -> Vec<Line>
             edge,
         ));
         row.push(Span::styled(" ".repeat(padding_x), edge));
-        rows.push(pad_row(row, width));
+        rows.push(row);
     }
     rows
+}
+
+/// Split `text` after its first `at` chars (the whole text when shorter).
+fn split_at_chars(text: &str, at: usize) -> (&str, &str) {
+    match text.char_indices().nth(at) {
+        Some((index, _)) => (&text[..index], &text[index..]),
+        None => (text, ""),
+    }
 }

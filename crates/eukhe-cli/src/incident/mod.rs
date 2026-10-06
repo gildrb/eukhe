@@ -193,7 +193,7 @@ fn scan_incident_log_files(files: &[(PathBuf, IncidentLogFileKind)]) -> Incident
     for (path, kind) in files {
         // A torn multi-byte write at the live log's tail must not cost
         // the whole scan (TS readFile + toString keeps it as replacement
-        // characters — the agents-view reader's own lossy rule): decode
+        // characters -- the agents-view reader's own lossy rule): decode
         // lossily, keep every structured line around the tear, and let
         // the torn line itself fail the parse like any non-line. Only a
         // read error (missing, unreadable) skips the file whole.

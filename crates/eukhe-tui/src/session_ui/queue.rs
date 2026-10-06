@@ -2,7 +2,7 @@
 //! steering/follow-up messages (TS `queueSelection`'s browse/move/apply).
 //! The browse walks every parked item (the full queue stays inspectable),
 //! but the reorder/apply gates are user-origin only (operator directive
-//! 2026-09-28: internal prompts render read-only — the system owns
+//! 2026-09-28: internal prompts render read-only -- the system owns
 //! them); see [`crate::queued::QueueSelectionItem::internal`].
 use super::{
     anyhow, AgentView, DaemonCommand, Duration, Map, QueueBrowseDirection, QueueLane, Result,
@@ -95,7 +95,7 @@ impl SessionUi {
             return Ok(());
         };
         // The edit surface is user-origin only (operator directive
-        // 2026-09-28: the system owns the harness prompts — a human
+        // 2026-09-28: the system owns the harness prompts -- a human
         // reorder of a child-exit notice or a continuation could
         // mis-steer the agent): an internal item never reorders, the
         // note says why, and the selection stays for the read-only
@@ -157,8 +157,8 @@ impl SessionUi {
         };
         // The edit surface is user-origin only (operator directive
         // 2026-09-28: humans edit the human sent and queued messages;
-        // an internal prompt — a child-exit notice, a heartbeat, a
-        // continuation — is never steered, re-queued, or deleted
+        // an internal prompt -- a child-exit notice, a heartbeat, a
+        // continuation -- is never steered, re-queued, or deleted
         // through the browse). The refusal follows the failed-edit
         // contract: the typed text stays in the editor, the note says
         // why, the selection stays.

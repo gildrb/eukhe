@@ -1,16 +1,16 @@
 //! Slash-command chat rows: the durable echo row session commands append
 //! (custom type `session_slash_command`): the command as typed, in the
-//! user-message block geometry — `Box(2,1)` on the `userMessageBg` surface
-//! — with the `/name` token in `accent` and `@path` / `--flag` argument
+//! user-message block geometry -- `Box(2,1)` on the `userMessageBg` surface
+//! -- with the `/name` token in `accent` and `@path` / `--flag` argument
 //! tokens in `success` / `mdLink` (prompt-highlight token styling). The
 //! outcome rows (`session_slash_command_result`) render in the status-row
 //! class instead (the operator's 2026-09-25 ruling: command output is
 //! system output, never user text).
 
+use crate::style::Style;
 use crate::theme::{Theme, ThemeBg};
 use crate::width::str_width;
 use crate::{Line, Span};
-use ratatui::style::Style;
 
 /// `Box(2,1)` content width: 2 columns of padding on each side, matching
 /// the user-message block.
@@ -110,14 +110,6 @@ fn source_paragraphs(text: &str, theme: &Theme) -> Vec<Line> {
         }
     }
     paragraphs
-}
-
-pub(crate) fn slash_command_row_count(text: &str, theme: &Theme, width: usize) -> usize {
-    2 + source_paragraphs(text, theme)
-        .iter()
-        .map(|paragraph| crate::width::wrapped_line_count(paragraph, content_width(width)))
-        .sum::<usize>()
-        .max(1)
 }
 
 #[cfg(test)]

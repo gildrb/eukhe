@@ -45,7 +45,7 @@ impl ClientTraces {
         trace_credential(&self.agent_dir).map(|credential| credential.label)
     }
 
-    /// TS `uploadCurrentTraceOnce` → `uploadAgentTraceFile` (the one-shot
+    /// TS `uploadCurrentTraceOnce` -> `uploadAgentTraceFile` (the one-shot
     /// arm with `requireEnabled: false`, `reloadConfig: false`).
     async fn upload_once(&self, session_file: Option<&str>) -> TraceUploadReport {
         let http = eukhe_core::agent_traces::ReqwestTraceHttp;
@@ -153,7 +153,7 @@ impl TracesCommands for ClientTraces {
         })
     }
 
-    /// TS `previewCurrentTrace` → `previewAgentTraceFile`.
+    /// TS `previewCurrentTrace` -> `previewAgentTraceFile`.
     fn preview(&self, session_file: Option<&str>) -> TracesFuture<TracePreviewOutcome> {
         let session_file = session_file.map(str::to_string);
         Box::pin(async move {
@@ -163,14 +163,14 @@ impl TracesCommands for ClientTraces {
         })
     }
 
-    /// TS `uploadCurrentTraceOnce` → `uploadAgentTraceFile`.
+    /// TS `uploadCurrentTraceOnce` -> `uploadAgentTraceFile`.
     fn upload_current(&self, session_file: Option<&str>) -> TracesFuture<TraceUploadReport> {
         let provider = self.clone();
         let session_file = session_file.map(str::to_string);
         Box::pin(async move { provider.upload_once(session_file.as_deref()).await })
     }
 
-    /// TS `uploadAllTraces` → `uploadAllAgentTraces`: the spawned sweep
+    /// TS `uploadAllTraces` -> `uploadAllAgentTraces`: the spawned sweep
     /// (progress through the note channel, cancellation through the
     /// handle bridged into the engine's abort).
     fn upload_all(
@@ -274,7 +274,7 @@ mod tests {
         let (_dir, agent) = temp_agent_dir();
         let traces = ClientTraces::new("/tmp", agent.clone());
         // Sharing defaults OFF (opt-in); nothing is written until a choice
-        // is made — the onboarding question or this command.
+        // is made -- the onboarding question or this command.
         assert!(!traces.enabled().await, "the default is off");
         traces
             .set_enabled(true)

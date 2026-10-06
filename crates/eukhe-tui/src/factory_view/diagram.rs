@@ -1,5 +1,5 @@
 //! The `/factory` view's diagram model: the snapshot shapes (states,
-//! transitions, live nodes, usage — including each stage's agent
+//! transitions, live nodes, usage -- including each stage's agent
 //! occupancy counts), the status glyphs and colors, and the compact
 //! guard rendering. One graph model feeds the ASCII diagram, so the
 //! in-terminal highlighting and the per-stage occupancy labels are the
@@ -15,7 +15,7 @@ use crate::theme::ThemeColor;
 /// One daemon-provided string scrubbed for the terminal
 /// (`crate::menu_panel::scrub_controls`, the bash activity lane's rule):
 /// the diagram's rows paint wire-provided ids, subagent names, guard
-/// labels, statuses, and errors — none of them may carry a control byte
+/// labels, statuses, and errors -- none of them may carry a control byte
 /// into a styled span (an OSC sequence in that text could otherwise
 /// drive the terminal, e.g. overwrite the operator's clipboard via
 /// OSC 52). The scrub lands at this parse seam, so every diagram row
@@ -95,7 +95,7 @@ impl FactoryTransition {
 }
 
 /// One last-fired edge from the snapshot's trailing window. The optional
-/// `when` carries the guard that fired — two guarded transitions may
+/// `when` carries the guard that fired -- two guarded transitions may
 /// share one from+to pair, so the guard is the identity that tells the
 /// diagram WHICH of them fired.
 #[derive(Debug, Clone, PartialEq)]
@@ -136,7 +136,7 @@ impl FactoryEdge {
     }
 
     /// Whether this fired edge is the given transition (the same
-    /// sources, the same target, and the same guard — the snapshot's
+    /// sources, the same target, and the same guard -- the snapshot's
     /// `from` may arrive in either order for a join, so the source
     /// comparison is order-free; a shared from+to pair with different
     /// guards never cross-marks).
@@ -152,8 +152,8 @@ impl FactoryEdge {
 }
 
 /// One live node's runtime state (the `status()` node shape, compact
-/// lane). `running`/`queued` are the kernel's per-stage agent counts —
-/// how many agents run at the stage and how many queue behind them —
+/// lane). `running`/`queued` are the kernel's per-stage agent counts --
+/// how many agents run at the stage and how many queue behind them --
 /// and both are single-word keys, so the wire's two spellings carry
 /// them identically. `None` on an older kernel's reply, where the
 /// accessors derive the counts from the instance rows.
@@ -220,8 +220,8 @@ impl FactoryNodeState {
     }
 
     /// Whether the node is in flight: an entry pending (awaiting its
-    /// inputs) or running, an instance still running or queued, or — for
-    /// snapshots without entry rows — the derived `running` status. The
+    /// inputs) or running, an instance still running or queued, or -- for
+    /// snapshots without entry rows -- the derived `running` status. The
     /// instance arm is the occupancy contract: a foreach entry that failed
     /// permanently is terminal at the entry layer while its admitted
     /// siblings still run, so the row stays bright exactly while its
@@ -262,7 +262,7 @@ impl FactoryNodeState {
         self.instances.iter().filter(|row| *row == status).count() as u64
     }
 
-    /// The stage's occupancy label — `3 run · 2 queued` — when agents
+    /// The stage's occupancy label -- `3 run * 2 queued` -- when agents
     /// sit at this stage; a stage at rest carries no fragment. The
     /// ASCII row renders the stage's live headcount.
     #[must_use]
@@ -272,7 +272,7 @@ impl FactoryNodeState {
         if running == 0 && queued == 0 {
             String::new()
         } else {
-            format!("{running} run · {queued} queued")
+            format!("{running} run - {queued} queued")
         }
     }
 
@@ -341,12 +341,12 @@ impl FactoryUsage {
 #[must_use]
 pub fn node_glyph(status: &str) -> (&'static str, ThemeColor) {
     match status {
-        "running" => ("●", ThemeColor::Accent),
-        "pending" => ("◐", ThemeColor::Dim),
-        "done" => ("✓", ThemeColor::Muted),
-        "error" => ("✗", ThemeColor::Error),
-        "cancelled" => ("⊘", ThemeColor::Muted),
-        _ => ("○", ThemeColor::Dim),
+        "running" => (crate::glyphs::DOT_ON, ThemeColor::Accent),
+        "pending" => (crate::glyphs::DOT_HALF, ThemeColor::Dim),
+        "done" => (crate::glyphs::OK, ThemeColor::Muted),
+        "error" => (crate::glyphs::FAIL, ThemeColor::Error),
+        "cancelled" => (crate::glyphs::DASH, ThemeColor::Muted),
+        _ => (crate::glyphs::DOT_OFF, ThemeColor::Dim),
     }
 }
 
@@ -363,9 +363,9 @@ pub fn run_state_color(state: Option<&str>) -> ThemeColor {
 }
 
 /// The connector marker for one transition row: the last edge under a
-/// source uses the elbow (`└`), joins use the crossbar (`╪`), and a back
+/// source uses the elbow (backtick), joins use the crossbar (`+`), and a back
 /// edge (re-entry, a target earlier in the machine's declared order)
-/// carries the return marker (`↩`).
+/// carries the return marker (`enter`).
 #[must_use]
 pub fn edge_marker(
     transition: &FactoryTransition,
@@ -383,13 +383,13 @@ pub fn edge_marker(
         ThemeColor::BorderMuted
     };
     let marker = if transition.from.len() > 1 {
-        "├╪"
+        "|+"
     } else if back_edge {
-        "├↩"
+        "|^"
     } else if order.last().is_some_and(|last| *last == transition.from[0]) {
-        "└"
+        "`"
     } else {
-        "├"
+        "|"
     };
     (marker, color)
 }
@@ -411,7 +411,7 @@ pub fn format_guard(when: &Value) -> Option<String> {
             serde_json::to_string(value).ok()?
         )),
         // The valueless form reads `output.path op` (the same shape as the
-        // valued form minus the comparison target — `verdict exists`, not
+        // valued form minus the comparison target -- `verdict exists`, not
         // `verdictexists`).
         None => Some(format!("{output}{path} {op}")),
     }

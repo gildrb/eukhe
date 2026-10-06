@@ -130,7 +130,7 @@ fn armed_keys_route_to_the_editor_and_the_cancels_disarm() {
 /// guard, :1487-1493). The guard rides the move itself, not the key:
 /// while armed the composer owns the navigation keys (they edit the
 /// draft, exactly like TS's gated list navigation), so the drive calls
-/// the production move directly — the shape a future move path takes.
+/// the production move directly -- the shape a future move path takes.
 #[test]
 fn a_selection_move_off_the_target_disarms() {
     let mut mode = armed_live();
@@ -208,7 +208,7 @@ fn enter_submits_the_reply_and_the_outcomes_land() {
 #[test]
 fn the_follow_up_queues_and_streaming_steers() {
     let mut mode = armed_live();
-    // TS `handleReplyFollowUp`: the blank draft is a no-op — nothing
+    // TS `handleReplyFollowUp`: the blank draft is a no-op -- nothing
     // dispatches and the composer stays armed.
     mode.handle_key("alt+enter");
     assert!(mode.pending_reply.is_none());
@@ -239,7 +239,7 @@ fn the_follow_up_queues_and_streaming_steers() {
     );
     // The saved target resumes: the config drops the cwd, or overrides
     // it with the notice when the saved directory is gone (the catalog
-    // row's cwd points at a path that does not exist — the submit
+    // row's cwd points at a path that does not exist -- the submit
     // resolves the CURRENT summary from the records).
     let mut saved = mode_with_anchor(None, Vec::new());
     let mut row = saved_catalog_row("/x/saved.jsonl", "saved-1", "a saved session");
@@ -288,7 +288,7 @@ fn view_commands_route_and_reject() {
         "the rejected command keeps its draft"
     );
     // /name with no args: the usage warning, the draft stays (the
-    // restored old draft clears first — the editor kept the rejected
+    // restored old draft clears first -- the editor kept the rejected
     // command, TS's restore).
     mode.handle_key("ctrl+u");
     for ch in "/name".chars() {
@@ -386,7 +386,7 @@ fn the_reply_hints_follow_the_target_state() {
 }
 
 /// The reply autocomplete (TS `createReplyComposerAutocompleteProvider`):
-/// only the armed composer completes — the session-owned builtins plus
+/// only the armed composer completes -- the session-owned builtins plus
 /// the view commands, never the client builtins (the rejection family).
 #[test]
 fn the_reply_completion_lists_session_and_view_commands() {
@@ -503,38 +503,4 @@ fn the_open_completion_renders_the_overlay_panel() {
         frame.contains("compact"),
         "the completion panel renders above the box:\n{frame}"
     );
-}
-
-/// A click that moves the selection runs the keyboard rule (TS
-/// `moveSelection`'s reply guard): a toggle-click on a nested row stays
-/// in the view, and the composer never stays armed against a row the
-/// highlight left.
-#[test]
-fn a_click_off_the_target_disarms_like_a_key_move() {
-    let _guard = match crate::mouse_tracking::STATE_TEST_LOCK.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    crate::mouse_tracking::enable(&mut std::io::stdout()).expect("enable");
-    let mut mode = armed_live();
-    mode.render_frame(120, 24);
-    let clicked = mode
-        .rows
-        .iter()
-        .position(|row| row.kind != RowKind::Agent)
-        .expect("a nested row renders");
-    let (row, _) = mode
-        .click_rows
-        .iter()
-        .find(|(_, index)| *index == clicked)
-        .copied()
-        .expect("the nested row is on screen");
-    mode.handle_mouse(&mouse_report(row, true, false));
-    mode.handle_mouse(&mouse_report(row, false, false));
-    assert_eq!(mode.selected, clicked, "the click selected the nested row");
-    assert!(
-        matches!(mode.composer, Composer::Search),
-        "the click off the target disarms the composer"
-    );
-    crate::mouse_tracking::disable(&mut std::io::stdout()).expect("disable");
 }

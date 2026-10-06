@@ -7,7 +7,7 @@ use super::{
     run_onboarding_phase, spawn_session_reader, AgentView, DaemonClient, Duration, ExitGuard,
     HeadlessSettle, Instant, InteractiveOptions, InteractiveOutcome, PaneDrive, ReconnectConnect,
     ReconnectLoop, RecoveryKind, Renderer, Result, SessionReconnect, SessionSelection, SessionUi,
-    TerminalHandoff, UiInput, UiMode, VecDeque, SESSION_RECONNECT_ATTEMPT_TIMEOUT_S,
+    SurfaceExit, TerminalHandoff, UiInput, UiMode, VecDeque, SESSION_RECONNECT_ATTEMPT_TIMEOUT_S,
     TELEMETRY_EXIT_TIMEOUT_MS,
 };
 use crate::suspend::SuspendTerminal;
@@ -15,7 +15,7 @@ use anyhow::Context;
 
 /// The headless exit gate's settle bound: after the plan completes
 /// ([`UiInput::HeadlessDone`]), the run must end within this much wall
-/// clock. The gate has no other bound — a settle member that never drains
+/// clock. The gate has no other bound -- a settle member that never drains
 /// (the `interactive_daemon_e2e` exit-gate wedge family: a submit/switch
 /// round-trip race latching `turn_active` with the whole daemon trio
 /// idle) parks the run in `Runtime::block_on` forever and eats a whole
@@ -42,7 +42,7 @@ const SPINNER_INTERVAL_MS: u128 = 80;
 /// while a quiet turn waits out its stream: TS `Loader`'s `setInterval`
 /// keeps painting the 80ms cadence through quiet turns, and this
 /// boundary is that interval's timer. The wake always precedes the
-/// phase change it observes — an off-by-one here parks the loop for a
+/// phase change it observes -- an off-by-one here parks the loop for a
 /// whole boundary instead of firing at the phase edge.
 fn next_spinner_deadline(started: Instant, now: Instant) -> Instant {
     // The remainder form keeps the arithmetic bounded by one phase: a
@@ -59,8 +59,8 @@ fn next_spinner_deadline(started: Instant, now: Instant) -> Instant {
 /// Every error return funnels through the one exit restore: an early `?`
 /// between the surface mount and the deliberate tail teardown (a draw
 /// failure, a key-handler transport error, a suspend/resume failure)
-/// must not hand the shell a terminal still in TUI state — raw mode,
-/// the alternate screen, the enhancement modes armed. The restore is
+/// must not hand the shell a terminal still in TUI state -- raw mode,
+/// the live area, the enhancement modes armed. The restore is
 /// idempotent, so a return after the tail already ran (the startup
 /// refusal path finishes the surface itself) only re-emits the two
 /// unconditional tail bytes.
@@ -77,7 +77,7 @@ pub async fn run_interactive(
 ) -> Result<InteractiveOutcome> {
     // The headless harness drives the same dispatch on plain pipes: it
     // never owned the terminal, so its error returns must not run a
-    // restore (the mode gates it — the distinction the headless e2e
+    // restore (the mode gates it -- the distinction the headless e2e
     // binaries observe, not `restore_terminal`'s pipe no-op).
     let owns_terminal = matches!(ui, UiMode::Terminal);
     // A terminal-mode error that fired BEFORE this surface mounted (the
@@ -91,15 +91,15 @@ pub async fn run_interactive(
         Err(error) => {
             // Restore when THIS run changed the terminal state (the flag
             // arms at the raw-mode entry inside `Renderer::setup`) OR
-            // when it entered on a pane already in TUI state (the
-            // agents-view preserve handoff: the adopting surface owns the
-            // release even when it fails before mounting — the process is
-            // exiting and no other writer remains). A fresh-pane
+            // when it entered on a terminal already in raw mode (the
+            // agents-view handoff: the adopting surface owns the release
+            // even when it fails before mounting -- the process is
+            // exiting and no other writer remains). A fresh-terminal
             // pre-mount failure (the daemon refused the connect) has
             // nothing to release and must not tear down the caller.
             if owns_terminal
                 && (surface_mounted.load(std::sync::atomic::Ordering::SeqCst)
-                    || crate::altscreen::active())
+                    || crossterm::terminal::is_raw_mode_enabled().unwrap_or(false))
             {
                 crate::exit_restore::restore_terminal();
             }
@@ -110,7 +110,7 @@ pub async fn run_interactive(
 
 /// The `SubmitAndSettle` barrier's daemon round trip: submit the message
 /// as a `prompt_and_wait`, then read the session's event sequence through
-/// `get_rlm_children` — the one read-only command that reports it. Both
+/// `get_rlm_children` -- the one read-only command that reports it. Both
 /// requests are bounded by `timeout_ms`.
 async fn settled_sequence(
     client: &DaemonClient,
@@ -186,7 +186,7 @@ async fn run_interactive_surface(
     let (compaction_abort_tx, mut compaction_abort_rx) =
         mpsc::unbounded_channel::<crate::session_ui::CompactionAbortNote>();
     // A backgrounded prompt round trip reports here (TS `onSubmit`
-    // resolves `agentConnection.prompt` off the render path — the
+    // resolves `agentConnection.prompt` off the render path -- the
     // cleared editor paints before the daemon answers); the loop folds
     // the settled outcome into the session.
     let (prompt_tx, mut prompt_rx) =
@@ -219,7 +219,7 @@ async fn run_interactive_surface(
     let (bash_tx, mut bash_rx) = mpsc::unbounded_channel::<crate::session_ui::BashActivityUpdate>();
     // Background factory refreshes (the factory page's watch+graph
     // cadence and the dock count's poll) report here; the loop folds them
-    // into the session — the open page's panels and the dock's count.
+    // into the session -- the open page's panels and the dock's count.
     let (factory_tx, mut factory_rx) =
         mpsc::unbounded_channel::<crate::session_ui::FactoryUpdate>();
     // Background slash-command-catalog refreshes (`get_commands`) report
@@ -242,7 +242,7 @@ async fn run_interactive_surface(
     // lines fill in when the connection state loads). The pane paints the
     // startup chrome immediately instead of holding the previous surface
     // (or a blank pane) until the attach snapshot arrives; the transcript
-    // itself renders when the snapshot lands — `rebuild_view`'s dirty flag
+    // itself renders when the snapshot lands -- `rebuild_view`'s dirty flag
     // schedules the first full repaint, so no resize event is ever needed
     // to see the attached session.
     let theme = crate::app::load_theme(&options.theme);
@@ -251,7 +251,7 @@ async fn run_interactive_surface(
     // The file-completion provider browses the SESSION cwd (TS
     // `createBaseAutocompleteProvider` anchors on `this.getCurrentCwd()`),
     // not the process cwd: the editor constructor's `env::current_dir()`
-    // default only matches when the launch directory is the session cwd —
+    // default only matches when the launch directory is the session cwd --
     // the attach flows pass the session's own cwd, and the completion
     // menu must browse the directory the user sees.
     view.editor.set_autocomplete_provider(Box::new(
@@ -286,34 +286,28 @@ async fn run_interactive_surface(
     // A panic anywhere between the mount below and the deliberate
     // teardown must still hand the terminal back whole: the unwind guard
     // fires the one exit restore while the frame is dying (a set_hook
-    // cannot carry this — tokio catches task panics and the process
+    // cannot carry this -- tokio catches task panics and the process
     // would live on with a half-restored surface).
     let _surface_restore = crate::exit_restore::SurfaceRestore::armed();
-    let mut renderer = Renderer::setup(
-        ui,
-        ui_tx,
-        exit_guard.clone(),
-        options.fullscreen_mouse,
-        &surface_mounted,
-    )?;
+    let mut renderer = Renderer::setup(ui, ui_tx, exit_guard.clone(), &surface_mounted)?;
     // The startup chrome paints before the session loads only for a NEW
     // chat (TS `ui.start()` renders the banner once before the session
     // loads): the startup chrome carries the zero dock a fresh session
     // mounts (`apply_startup_chrome`), so the placeholder frame never
     // reflows when the attach lands. A direct open into an existing
     // session holds the previous surface instead (TS attaches BEFORE
-    // the chat mounts — main.ts and the agents view construct the chat
+    // the chat mounts -- main.ts and the agents view construct the chat
     // over an already-attached connection whose `getInitialSnapshot`
     // is cached, so the first visible frame is the content): the queued
     // clear rides the first draw's single flush, which carries the
-    // complete frame — no splash flash, no panel appearing late over a
+    // complete frame -- no splash flash, no panel appearing late over a
     // half-open view.
     //
     // The same predicate names the surface the opening phase below may
     // repaint: a NEW chat's chrome already mounted (its echo frames
     // paint at the frame scheduler's cadence), while a held surface
     // (a direct open into an existing session) and headless capture
-    // runs never paint during the open — the first draw stays the
+    // runs never paint during the open -- the first draw stays the
     // open's content frame.
     let opening_paints = !headless
         && matches!(
@@ -321,9 +315,7 @@ async fn run_interactive_surface(
             SessionSelection::New | SessionSelection::NewChild { .. }
         );
     if opening_paints {
-        if let Some(renderer) = renderer.is_terminal_mut() {
-            crate::app::draw(renderer, &mut view)?;
-        }
+        renderer.draw(&mut view)?;
     }
     // The startup open reuses the pre-mount connection.
     //
@@ -380,7 +372,7 @@ async fn run_interactive_surface(
     // daemon/kernel/config readiness that is not user-visible work).
     // Editor-level keys echo into the mounted startup chrome at the frame
     // scheduler's cadence; everything else (submits, commands, overlay
-    // keys) queues in `pending` — the same deque the run loop drains —
+    // keys) queues in `pending` -- the same deque the run loop drains --
     // so typed-ahead is delivered, in order, the moment the open lands:
     // never lost, never errored. The open's own result (success or the
     // daemon-refusal arms below) is unchanged; only the WAIT moved off
@@ -389,18 +381,18 @@ async fn run_interactive_surface(
     // ORDERING (the contract the headless plans pin): the editor always
     // holds a PREFIX of the user's input stream. The first input that
     // must queue (a submit, an overlay key, a mouse report) parks the
-    // echo path for the rest of the phase — every later input queues
+    // echo path for the rest of the phase -- every later input queues
     // behind it, so a typed `H` can never land in the editor ahead of a
     // queued `ctrl+home` the user pressed first.
     let mut pending: VecDeque<UiInput> = VecDeque::new();
     // Base parity for the stash restore (finding #3): a session-reopen
-    // launch (Resume/Attach — the shape that can carry a stashed draft)
+    // launch (Resume/Attach -- the shape that can carry a stashed draft)
     // never accepts typed-ahead into the editor during the open. The
     // fold's `restore_prompt_stash_on_open` gates on the editor being
     // EMPTY, so echoing into it pre-restore would silently consume the
     // restore (the draft stays stashed while the typed-ahead sits in its
     // place). A reopen's typed-ahead queues instead and dispatches
-    // through the editor AFTER the fold's restore — base ordering
+    // through the editor AFTER the fold's restore -- base ordering
     // exactly. A NEW session owns no stash, so its launches keep the
     // echo path (headless new-session plans included: no stash exists to
     // protect).
@@ -416,7 +408,7 @@ async fn run_interactive_surface(
     // the phase below consumes `ui_rx` itself once the open lands (it
     // needs the session, so it cannot run during the opening phase). The
     // opening loop must therefore not touch the channel on an onboarding
-    // launch — the login/trace dialogs' keystrokes stay queued in the
+    // launch -- the login/trace dialogs' keystrokes stay queued in the
     // channel for the phase to consume in order, exactly the base
     // ordering for this flow (the editor-level echo service below is the
     // chat chrome's surface, the pane a New chat's open actually mounts).
@@ -468,7 +460,7 @@ async fn run_interactive_surface(
                                     && echoing
                                 {
                                     exit_guard.arm_for_exit();
-                                    renderer.finish(&mut view, false);
+                                    renderer.finish(SurfaceExit::Process);
                                     return Ok(InteractiveOutcome {
                                         frames: Vec::new(),
                                         ..Default::default()
@@ -476,7 +468,7 @@ async fn run_interactive_surface(
                                 }
                                 // Pure editor keys echo now (the TS
                                 // editor path) while the stream is still a
-                                // clean prefix — but only when the
+                                // clean prefix -- but only when the
                                 // effective keymap leaves the key to the
                                 // editor fallback (finding #1): a key the
                                 // post-open dispatch would claim for an
@@ -529,6 +521,7 @@ async fn run_interactive_surface(
                             if let Ok((_width, height)) = crossterm::terminal::size() {
                                 view.set_terminal_rows(height);
                             }
+                            view.request_replay();
                             opening_dirty = true;
                         }
                         other => {
@@ -545,9 +538,7 @@ async fn run_interactive_surface(
                     if last_render_at
                         .is_none_or(|at| now.duration_since(at) >= MIN_RENDER_INTERVAL)
                     {
-                        if let Some(renderer) = renderer.is_terminal_mut() {
-                            crate::app::draw(renderer, &mut view)?;
-                        }
+                        renderer.draw(&mut view)?;
                         last_render_at = Some(now);
                         opening_dirty = false;
                         render_deadline = None;
@@ -568,9 +559,7 @@ async fn run_interactive_surface(
                 }
             }, if render_deadline.is_some() => {
                 render_deadline = None;
-                if let Some(renderer) = renderer.is_terminal_mut() {
-                    crate::app::draw(renderer, &mut view)?;
-                }
+                renderer.draw(&mut view)?;
                 last_render_at = Some(Instant::now());
                 opening_dirty = false;
             }
@@ -580,12 +569,12 @@ async fn run_interactive_surface(
         Ok(opened) => opened,
         Err(error) => {
             // A daemon refusal for the startup create/attach/resume (the
-            // daemon is alive and refused THIS request — a remembered id
+            // daemon is alive and refused THIS request -- a remembered id
             // whose worker is gone, or a saved-session create the daemon
             // refuses, e.g. "Session is already active in <id>" while
             // another instance holds the session file): the pane hands off
-            // to the agents view with the failure as its status line —
-            // the session-picker fallback — instead of dying to the
+            // to the agents view with the failure as its status line --
+            // the session-picker fallback -- instead of dying to the
             // shell. Only transport/protocol failures (daemon down,
             // unanswerable socket) stay fatal.
             //
@@ -607,11 +596,11 @@ async fn run_interactive_surface(
                     // double-Ctrl+C force-quit watchdog like the normal
                     // agents-view handoff does.
                     exit_guard.cancel();
-                    let frames = renderer.finish(&mut view, true);
+                    let frames = renderer.finish(SurfaceExit::Handoff);
                     return Ok(InteractiveOutcome {
                         return_to_agents_view: true,
                         agents_view_notice: Some(format!(
-                            "Session {selector} is no longer running — pick a session to continue."
+                            "Session {selector} is no longer running -- pick a session to continue."
                         )),
                         frames,
                         ..Default::default()
@@ -622,14 +611,14 @@ async fn run_interactive_surface(
             // load: "Timed out after Nms waiting for the Eukhe daemon
             // response") is a hiccup, not a protocol failure: the same
             // session-picker fallback, never a fatal exit that loses the
-            // user's pane (operator directive 2026-09-24 — the attach
+            // user's pane (operator directive 2026-09-24 -- the attach
             // timeout at box load exited the TUI).
             if crate::daemon_client::is_daemon_timeout(&error) {
                 exit_guard.cancel();
-                let frames = renderer.finish(&mut view, true);
+                let frames = renderer.finish(SurfaceExit::Handoff);
                 return Ok(InteractiveOutcome {
                     return_to_agents_view: true,
-                    agents_view_notice: Some(format!("{error:#} — pick a session to continue.")),
+                    agents_view_notice: Some(format!("{error:#} -- pick a session to continue.")),
                     frames,
                     ..Default::default()
                 });
@@ -640,7 +629,7 @@ async fn run_interactive_surface(
             // refusal as its status line and the client never exits.
             if crate::daemon_client::is_daemon_rejection(&error) {
                 exit_guard.cancel();
-                let frames = renderer.finish(&mut view, true);
+                let frames = renderer.finish(SurfaceExit::Handoff);
                 return Ok(InteractiveOutcome {
                     return_to_agents_view: true,
                     agents_view_notice: Some(format!("{error:#}")),
@@ -654,7 +643,7 @@ async fn run_interactive_surface(
             if renderer.is_terminal() {
                 exit_guard.arm_for_exit();
             }
-            renderer.finish(&mut view, false);
+            renderer.finish(SurfaceExit::Process);
             return Err(error);
         }
     };
@@ -670,36 +659,17 @@ async fn run_interactive_surface(
         session.osc_sink = crate::clipboard::OscSink::Buffer(Vec::new());
     }
     session.refresh_stats().await;
-    // The startup catalog fetch (TS `updateAvailableProviderCount` →
+    // The startup catalog fetch (TS `updateAvailableProviderCount` ->
     // `getConnectionAvailableModels`): failures stay silent and the
     // composition-root snapshot keeps serving the picker.
     session.spawn_model_catalog_refresh();
     session.rebuild_view(&mut view, &crate::session_ui::RebuildKind::Rebind);
-    // The cross-view layout handoff's adopt (view::handoff): a re-entry
-    // whose attach cursor exactly matches the previous run's held
-    // handoff — the same worker, the same event sequence, the same entry
-    // count, i.e. a transcript unchanged since the run just left —
-    // holds its visible-window packs for the first draw. The first
-    // layout preparation validates the render shape, and any chat
-    // mutation after this point retires the handoff (the notice folds
-    // below included — a startup notice changes the transcript, so the
-    // re-entry conservatively re-renders on boxes that show one).
-    // A cursor-less re-attach never adopts either (the belt-and-braces
-    // companion to the stash-side gate): the store holds no collapsed
-    // identity to match, and the adopt side never keys on one.
-    if session.attach_cursor_present {
-        view.adopt_layout_handoff(
-            &session.session_id,
-            &session.attach_event_generation,
-            session.attach_event_sequence,
-        );
-    }
     // The launcher kept a daemon of another eukhe version because it had
     // active work: say so once, the restart happens on a later idle start.
     if let Some(version) = session.client.outdated_daemon_version() {
         view.push_entry(crate::chat::ChatEntry::Status {
             text: format!(
-                "\u{26a0} {}",
+                "Warning: {}",
                 crate::daemon_client::outdated_daemon_notice(&version)
             ),
             kind: crate::chat::StatusKind::Warning,
@@ -708,7 +678,7 @@ async fn run_interactive_surface(
     }
     if let Some(notice) = check_tmux_keyboard_setup().await {
         view.push_entry(crate::chat::ChatEntry::Status {
-            text: format!("\u{26a0} {notice}"),
+            text: format!("Warning: {notice}"),
             kind: crate::chat::StatusKind::Warning,
         });
         session.dirty = true;
@@ -725,9 +695,8 @@ async fn run_interactive_surface(
             .await;
     }
     // The once-per-installation telemetry disclosure (TS
-    // agent-session-services): rendered as an info row here — the alt
-    // screen hides any pre-TUI stderr print, so the row is the only
-    // shape the user actually sees.
+    // agent-session-services): rendered as an info row here, in the
+    // transcript the user reads.
     session.maybe_show_telemetry_notice(&mut view);
     // TS `restorePromptStashOnOpen`: a draft stashed on the way out (a
     // previous chat view of this session left via the agents view or a
@@ -740,12 +709,12 @@ async fn run_interactive_surface(
     let mut headless_done = false;
     // The settle bound's deadline, armed once the plan completes (the
     // gate below ends the run on a full settle; the bound ends it with a
-    // named error when a member never drains — see
+    // named error when a member never drains -- see
     // [`HEADLESS_SETTLE_TIMEOUT_MS`]).
     let mut headless_settle_deadline: Option<Instant> = None;
     // Whether the settle gate is waiting out a member: the quiet
     // tick's wake condition reads it (the gate re-checks each
-    // wake — see the gate below).
+    // wake -- see the gate below).
     let mut headless_settle_pending = false;
     // First-run onboarding owns the pane before the session screen (TS
     // `runStartupOnboarding`): a home whose startup model is ready sees
@@ -771,9 +740,9 @@ async fn run_interactive_surface(
             exit_guard.arm_for_exit();
             session.detach_for_exit().await;
             // The user quit at the onboarding screen: still hand the
-            // terminal back (raw mode off, alt screen left and flushed)
+            // terminal back (live area left as output, raw mode off)
             // exactly like a session exit.
-            renderer.finish(&mut view, false);
+            renderer.finish(SurfaceExit::Process);
             return Ok(InteractiveOutcome {
                 active_session_id: session.active_session_id.clone(),
                 session_id: session.session_id.clone(),
@@ -786,10 +755,7 @@ async fn run_interactive_surface(
                 // or pending selection applies.
                 return_to_agents_view: false,
                 selection_request: None,
-                copies: Vec::new(),
-                opened_urls: Vec::new(),
                 agents_view_notice: None,
-                handoff_seeds: 0,
             });
         }
     }
@@ -802,12 +768,12 @@ async fn run_interactive_surface(
     // The fold's first frame must land before the opening phase's
     // typed-ahead queue dispatches: base painted it between the fold and
     // the first input (the select round-trip owns one frame per
-    // iteration), and a pre-loaded queue would otherwise starve it — the
+    // iteration), and a pre-loaded queue would otherwise starve it -- the
     // queued inputs would paint only their own deltas over a state the
     // verifier never saw rendered.
     if !pending.is_empty() && session.dirty {
-        if let Some(renderer) = renderer.is_terminal_mut() {
-            crate::app::draw(renderer, &mut view)?;
+        if renderer.is_terminal() {
+            renderer.draw(&mut view)?;
         } else {
             renderer.render_headless(&mut session, &mut view);
         }
@@ -874,13 +840,13 @@ async fn run_interactive_surface(
     // watch cannot hot-spin the select loop.
     let mut reader_loss_handled = false;
     // The supervisor connection died while a live direct link kept serving
-    // the session: the loss is retained (not recovered — replacing the
+    // the session: the loss is retained (not recovered -- replacing the
     // client would churn the working link) until the direct link itself
     // dies; then the full reconnect driver owns the recovery instead of
     // the session-plane retry loop, which would ride a dead supervisor.
     let mut supervisor_lost = false;
     // Set once the event channel has returned None (a closed connection's
-    // recv() resolves None instantly and forever — see the events arm).
+    // recv() resolves None instantly and forever -- see the events arm).
     let mut events_closed = false;
     // The session re-attach driver: armed when the direct worker link dies
     // (a killed or crashed worker); it re-attaches through the supervisor
@@ -921,7 +887,7 @@ async fn run_interactive_surface(
         // schedules one render): a burst of wheel turns or held keys
         // applies as one batch instead of one full-layout render pass per
         // event, and an exit key queued behind a burst lands in the same
-        // batch — the loop never spends its cycles behind a backlog the
+        // batch -- the loop never spends its cycles behind a backlog the
         // user cannot escape. A WaitIdle step is a barrier: it stays at the
         // head of the queue until the turn finishes (or its deadline),
         // holding everything queued behind it.
@@ -1010,7 +976,7 @@ async fn run_interactive_surface(
                 // out any load latency instead of a fixed wall-clock
                 // window); `WaitGone` holds until the newest frame cleared
                 // it. Frames captured before the barrier reached the queue
-                // head never satisfy it — the baseline is recorded at
+                // head never satisfy it -- the baseline is recorded at
                 // arming and only subsequent frames count, except for the
                 // newest frame at arming time (the current state: a
                 // condition that already holds pops immediately instead of
@@ -1073,9 +1039,6 @@ async fn run_interactive_surface(
                 session.dirty = true;
                 match input {
                     UiInput::Key(key) => {
-                        // TS stops the selection auto-scroll on every
-                        // non-mouse input (`handleFullscreenInput`).
-                        session.stop_selection_auto_scroll();
                         match session.handle_key(key, &mut view, &mut running).await {
                             Ok(()) => {}
                             // A daemon refusal answered this key's request
@@ -1084,7 +1047,7 @@ async fn run_interactive_surface(
                             // timeout on a sent request, a down or
                             // reconnecting daemon): the TS `showError` row
                             // surfaces it and the loop keeps running with
-                            // the editor state preserved — a failed request
+                            // the editor state preserved -- a failed request
                             // never exits the client while the reconnect
                             // driver owns the recovery (the operator's
                             // kicked-out class).
@@ -1102,8 +1065,8 @@ async fn run_interactive_surface(
                         // hand the terminal to the shell and stop the process
                         // group; execution continues here once the user
                         // foregrounds the process (SIGCONT), where the cycle
-                        // re-applies raw mode, the alt screen, and SGR mouse
-                        // tracking (TS `ui.start()` + `applyFullscreen(true)`).
+                        // re-applies raw mode and the key modes and starts a
+                        // new live area (TS `ui.start()`).
                         // Headless runs keep no terminal renderer (TS never
                         // registers the action without one), so the request is
                         // observed and dropped.
@@ -1114,12 +1077,11 @@ async fn run_interactive_surface(
                         if session.pending_traces_login() {
                             session.run_traces_login(&mut view);
                         }
-                        if session.take_suspend_request() && renderer.is_terminal_mut().is_some() {
+                        if session.take_suspend_request() && renderer.is_terminal() {
                             match crate::suspend::suspend_cycle(
                                 &mut crate::suspend::ProcessSignals,
                                 &mut TerminalHandoff {
                                     renderer: &mut renderer,
-                                    view: &mut view,
                                 },
                             ) {
                                 Ok(()) => session.track_suspend_used("resumed"),
@@ -1150,7 +1112,7 @@ async fn run_interactive_surface(
                                 // handoff restores cooked mode (ISIG), and
                                 // a cooked-mode editor wrapper (`code
                                 // --wait`, `subl -w`) turns Ctrl+C into
-                                // SIGINT for the shared foreground group —
+                                // SIGINT for the shared foreground group --
                                 // the default disposition would kill the
                                 // TUI mid-edit. The no-op handler (never
                                 // SIG_IGN) keeps the child's own Ctrl+C:
@@ -1162,7 +1124,6 @@ async fn run_interactive_surface(
                                         .and_then(|()| {
                                             TerminalHandoff {
                                                 renderer: &mut renderer,
-                                                view: &mut view,
                                             }
                                             .stop()
                                         });
@@ -1185,7 +1146,6 @@ async fn run_interactive_surface(
                                 // returns even when the editor run failed.
                                 let resumed = TerminalHandoff {
                                     renderer: &mut renderer,
-                                    view: &mut view,
                                 }
                                 .resume();
                                 if let Err(error) = resumed {
@@ -1198,7 +1158,7 @@ async fn run_interactive_surface(
                         // The `/mcp` view resolved to an auth request (its
                         // Enter on a connection, or the pasteable service's
                         // paste flow): mount the inline auth panel and spawn
-                        // the client auth command against it — the
+                        // the client auth command against it -- the
                         // typed-command arg path is gone, so the view never
                         // resolves through a submitted `/mcp <args>`
                         // string, and no flow touches the terminal.
@@ -1207,7 +1167,6 @@ async fn run_interactive_surface(
                         }
                     }
                     UiInput::Paste(text) => {
-                        session.stop_selection_auto_scroll();
                         // The inline auth panel owns the frame: the paste
                         // lands in its field, never in the editor behind
                         // it.
@@ -1217,22 +1176,15 @@ async fn run_interactive_surface(
                             session.handle_paste(&text, &mut view);
                         }
                     }
-                    // A mouse report reaches the transcript scroll dispatch
-                    // (TS `handleFullscreenInput`'s wheel branch); non-wheel
-                    // reports are consumed inside.
-                    UiInput::Mouse(event) => {
-                        session.handle_mouse(event, &mut view);
-                    }
                     // The headless plan's pause step: the queued keystroke
                     // batch ahead of this barrier is fully handled, so the
-                    // parked suggestions materialize now — the same state the
+                    // parked suggestions materialize now -- the same state the
                     // terminal loop's 50 ms idle tick produces after a real
                     // user pauses typing.
                     UiInput::SettleIdle => {
                         session.materialize_editor_autocomplete(&mut view);
                     }
                     UiInput::Submit(text) => {
-                        session.stop_selection_auto_scroll();
                         // No submitted text needs the terminal: the
                         // `/mcp` typed-arg form is gone (its login flow
                         // resolved through the view's own auth seam above).
@@ -1244,9 +1196,9 @@ async fn run_interactive_surface(
                             )
                             .await;
                         if let Err(error) = dispatched {
-                            // TS: a rejected submission surfaces the `⚠ Error`
+                            // TS: a rejected submission surfaces the `! Error`
                             // row and keeps the client mounted with the draft
-                            // restored — a failed prompt never exits the UI.
+                            // restored -- a failed prompt never exits the UI.
                             session.error_row(&format!("{error:#}"), &mut view);
                             view.editor.set_text(&text);
                             session.dirty = true;
@@ -1254,7 +1206,7 @@ async fn run_interactive_surface(
                         // A parked `/traces login` (or the enable arm's
                         // login-first step): mount the inline auth panel and
                         // spawn the flow (the Submit path needs the same
-                        // dispatch the Key path has — headless plans drive
+                        // dispatch the Key path has -- headless plans drive
                         // commands as submissions).
                         if session.pending_traces_login() {
                             session.run_traces_login(&mut view);
@@ -1264,18 +1216,15 @@ async fn run_interactive_surface(
                     UiInput::WaitRender { .. } | UiInput::WaitGone { .. } => {
                         unreachable!("render barrier handled above")
                     }
-                    UiInput::ScrollTop => {
-                        session.stop_selection_auto_scroll();
-                        view.scroll_to_top();
-                    }
                     UiInput::Resize => {
-                        session.stop_selection_auto_scroll();
                         // The editor lays its window out against the new row
-                        // count; the branch's dirty flag repaints the frame at
-                        // the new geometry.
+                        // count, and the terminal reflowed its scrollback:
+                        // the branch's dirty flag replays the history at the
+                        // new geometry.
                         if let Ok((_width, height)) = crossterm::terminal::size() {
                             view.set_terminal_rows(height);
                         }
+                        view.request_replay();
                     }
                     UiInput::WaitIdle { .. } | UiInput::SubmitAndSettle { .. } => {
                         unreachable!("barrier handled above")
@@ -1284,22 +1233,21 @@ async fn run_interactive_surface(
                 // Paint the handled input in this iteration: the select below can
                 // otherwise wait out its 50ms tick before the next draw, and
                 // that wait is felt directly as keystroke-to-render lag.
-                // A handoff paints nothing: the next surface owns the pane
-                // (TS `returnToAgentsView` hands the terminal over without a
-                // final repaint — the agents view's mount clears the alt
-                // screen), so the chat's last layout is dead work that only
-                // delays the switch.
-                if let Some(renderer) = renderer.is_terminal_mut() {
+                // A handoff paints nothing: the next surface owns the
+                // terminal (TS `returnToAgentsView` hands it over without a
+                // final repaint), so the chat's last layout is dead work
+                // that only delays the switch.
+                if renderer.is_terminal() {
                     if !session.open_agents_view && session.pending_selection.is_none() {
                         // The inline paint must reflect tray state the
                         // handled key just armed (the Ctrl+C exit hint:
                         // TS `showCtrlCExitHint` requestRender's on the
                         // key). The loop's refresh below the select only
                         // reaches the frame gate, and the inline paint
-                        // clears `dirty` — an idle terminal would
+                        // clears `dirty` -- an idle terminal would
                         // otherwise never show the armed hint.
                         view.chrome.tray_override = session.tray_override(&view);
-                        crate::app::draw(renderer, &mut view)?;
+                        renderer.draw(&mut view)?;
                         // The frame scheduler's bookkeeping follows the
                         // inline paint: the 16ms gate below now measures its
                         // interval from this frame, and a paint satisfied
@@ -1318,13 +1266,13 @@ async fn run_interactive_surface(
                 // `exit_requested` is the same leave-now signal (agents-back,
                 // `/resume`, `/exit`): in terminal mode the teardown below must
                 // run this iteration, not after the select's 50ms idle tick
-                // parks the loop — that park reads directly as switch latency
+                // parks the loop -- that park reads directly as switch latency
                 // (TS's event loop leaves on the key). A HANDOFF takes the
                 // leave now: the bare `break` below only leaves the
                 // input-drain loop, and the select after it parks the exit
-                // for the tick — measured as ~50ms of chat->agents switch
+                // for the tick -- measured as ~50ms of chat->agents switch
                 // latency on every handoff. The handoff's next surface owns
-                // the pane (its mount clears the alt screen), so nothing the
+                // the terminal (the chat's live area is cleared), so nothing the
                 // tail pass paints can reach the user. A non-handoff exit
                 // (`/exit`, `/quit`) keeps the tail pass: its frame gate
                 // paints the final chat frame the exit's main-screen flush
@@ -1344,7 +1292,7 @@ async fn run_interactive_surface(
                 // Headless input keeps the one-step-per-iteration order the
                 // plans were written against: every step renders before the
                 // next applies (a plan step is not a terminal burst, and the
-                // captured frame sequence IS the verifier evidence — a
+                // captured frame sequence IS the verifier evidence -- a
                 // batched drain would collapse intermediate states like the
                 // expanded compaction block or an open panel out of the
                 // capture). The terminal path keeps the full batch
@@ -1356,7 +1304,7 @@ async fn run_interactive_surface(
                 // The batch drained: everything queued was handled in this
                 // one pass (TS dispatches a stdin chunk's events the same
                 // way). Without this arm the drain loop would spin on the
-                // empty queue — the select below would never run again,
+                // empty queue -- the select below would never run again,
                 // starving every render and input after the first batch
                 // (the trapped, 90%+ CPU state the dogfood hit).
                 inputs_pending = false;
@@ -1364,7 +1312,7 @@ async fn run_interactive_surface(
         }
         // The headless exit gate: the plan completed, and the run ends
         // once every settle member drains (a `/share` upload in flight
-        // holds the run open like an active turn — the headless harness
+        // holds the run open like an active turn -- the headless harness
         // must not finish before its outcome rows land, and an inline
         // auth flow is work like an upload; a live terminal never ends
         // the run on its own). The members are snapshotted so the bound
@@ -1396,9 +1344,9 @@ async fn run_interactive_surface(
 
         // An exit key must not wait out the select: the loop condition
         // consumes `running`/`exit_requested` at the NEXT wake, and the
-        // input batch's bare `break` only leaves the batch — the select
+        // input batch's bare `break` only leaves the batch -- the select
         // after it parks the exit (the old unconditional quiet tick was
-        // the guaranteed ≤50ms wake; with the tick parked on idle work,
+        // the guaranteed <=50ms wake; with the tick parked on idle work,
         // an exit on an otherwise idle surface would wait for whatever
         // timer happens to be armed). The frame arm is the one that can
         // wake now, so a pending exit takes it immediately: the tail
@@ -1411,7 +1359,7 @@ async fn run_interactive_surface(
         }
         // The frame-wake inventory: every pending-work state whose
         // observation needs a loop iteration arms the frame deadline
-        // here, pre-select — the states the old unconditional tick
+        // here, pre-select -- the states the old unconditional tick
         // used to observe implicitly. A dirty frame (the open's first
         // paint; a keystroke's toast or hint) must not park behind a
         // select that has no other wake: the frame gate that paints
@@ -1449,7 +1397,7 @@ async fn run_interactive_surface(
         // The animating loader's next phase boundary: every paint clears
         // the deadline it satisfied, and the boundary is the only wake a
         // quiet turn has between stream events (a running tool, a
-        // provider gap, silent thinking) — without this arm the select
+        // provider gap, silent thinking) -- without this arm the select
         // parked until the 2s bash-activity poll, freezing the spinner
         // and skipping whole seconds of the elapsed counter.
         if let Some(started) = anim_started {
@@ -1460,17 +1408,16 @@ async fn run_interactive_surface(
         }
         let was_active = session.turn_active;
         // The quiet tick's arming state, snapshotted before the select:
-        // parked autocomplete requests and an armed selection auto-scroll
-        // are the only work the tick exists for, and the arm future reads
-        // these locals instead of borrowing the surface.
+        // parked autocomplete requests are the work the tick exists for,
+        // and the arm future reads these locals instead of borrowing the
+        // surface.
         let autocomplete_pending = view.editor.has_pending_autocomplete();
-        let auto_scroll_armed = session.selection_auto_scroll_armed();
         let bash_refresh_wanted = session.kernel_bash_supported();
         let factory_refresh_wanted = session.factory_activity_supported();
         // A settle waiting out a member is pending work like the
         // autocomplete park: the gate runs at the loop top, so its
         // re-check (and the settle bound's expiry) needs this arm's
-        // wake — a fully quiet select would otherwise park the
+        // wake -- a fully quiet select would otherwise park the
         // settle forever, and the bound itself fires only on an
         // iteration. Terminal runs never arm it (`headless_done`
         // exists only on the headless harness).
@@ -1503,7 +1450,7 @@ async fn run_interactive_surface(
                     // transcript: replace the view's chat with it, and
                     // refresh the tray usage the same way a settled
                     // turn does (TS refreshes after "a turn or
-                    // compaction completes" — post-compaction usage is
+                    // compaction completes" -- post-compaction usage is
                     // unknown until the next assistant response).
                     if session.transcript_stale {
                         session.rebuild_transcript(&mut view).await;
@@ -1558,11 +1505,11 @@ async fn run_interactive_surface(
                             // A supervisor loss retained while the direct
                             // link lived: the supervisor client is dead,
                             // so the session-plane retry loop could never
-                            // restore it — the full reconnect driver
+                            // restore it -- the full reconnect driver
                             // replaces the client and reattaches.
                             if supervisor_lost && reconnect.is_none() {
                                 session.note_as(
-                                    "the daemon connection closed — reconnecting…",
+                                    "the daemon connection closed -- reconnecting...",
                                     crate::chat::StatusKind::Warning,
                                     &mut view,
                                 );
@@ -1571,13 +1518,13 @@ async fn run_interactive_surface(
                             } else if reconnect.is_some() {
                                 // TS #2458: a full reconnect driver (the
                                 // announced shutdown's recovery or the
-                                // hiccup loop) owns the run — the
+                                // hiccup loop) owns the run -- the
                                 // dead direct link joins it instead of
                                 // racing a session-plane retry through a
                                 // supervisor it cannot reach.
                             } else {
                                 session.note_as(
-                                    "Daemon connection lost; reconnecting…",
+                                    "Daemon connection lost; reconnecting...",
                                     crate::chat::StatusKind::Warning,
                                     &mut view,
                                 );
@@ -1606,7 +1553,7 @@ async fn run_interactive_surface(
                         // and backoff. The user can leave at any point;
                         // the window expires into the honest exit note.
                         session.note_as(
-                            "the daemon connection closed — reconnecting…",
+                            "the daemon connection closed -- reconnecting...",
                             crate::chat::StatusKind::Warning,
                             &mut view,
                         );
@@ -1617,7 +1564,7 @@ async fn run_interactive_surface(
             }
             reader_death = async {
                 // One-shot: after the loss is handled (or suppressed), park
-                // the arm — the watch stays closed for the rest of the run
+                // the arm -- the watch stays closed for the rest of the run
                 // and a ready arm would hot-spin the select.
                 if reader_loss_handled {
                     std::future::pending::<()>().await;
@@ -1627,10 +1574,10 @@ async fn run_interactive_surface(
                 reader_loss_handled = true;
                 if reader_death.is_ok() && *reader_dead.borrow_and_update() {
                     // A shutdown close frame can race this signal (the
-                    // reader emits the frame, then dies — the unbiased
+                    // reader emits the frame, then dies -- the unbiased
                     // select may run this arm first): drain every frame the
-                    // reader already delivered — a pending `daemon_closing`
-                    // sets the closing notice — before deciding, so the
+                    // reader already delivered -- a pending `daemon_closing`
+                    // sets the closing notice -- before deciding, so the
                     // shutdown recovery owns the run and the loss driver
                     // never takes over from it.
                     while let Ok(event) = events.try_recv() {
@@ -1644,7 +1591,7 @@ async fn run_interactive_surface(
                     ) {
                         // The announced closing owns the recovery (TS
                         // #2458): the supervisor socket's death joins its
-                        // driver — the direct link below must not retain
+                        // driver -- the direct link below must not retain
                         // the loss behind it.
                     } else if session.client.direct_session_id().is_some() {
                         // A supervisor socket loss while a live direct link
@@ -1662,7 +1609,7 @@ async fn run_interactive_surface(
                         session_reconnect = None;
                         if reconnect.is_none() {
                             session.note_as(
-                                "the daemon connection closed — reconnecting…",
+                                "the daemon connection closed -- reconnecting...",
                                 crate::chat::StatusKind::Warning,
                                 &mut view,
                             );
@@ -1671,7 +1618,7 @@ async fn run_interactive_surface(
                         session.dirty = true;
                     } else if reconnect.is_none() {
                         session.note_as(
-                            "the daemon connection closed — reconnecting…",
+                            "the daemon connection closed -- reconnecting...",
                             crate::chat::StatusKind::Warning,
                             &mut view,
                         );
@@ -1786,7 +1733,7 @@ async fn run_interactive_surface(
                     match kind {
                         RecoveryKind::Shutdown => {
                             // TS #2458: the daemon never came back within
-                            // the reconnect timeout — the saved-transcript
+                            // the reconnect timeout -- the saved-transcript
                             // close (the session file survives on disk).
                             session.note(
                                 "The Eukhe daemon shut down while this window was attached. The session transcript remains saved; restart Eukhe and reopen it from Agents View.",
@@ -1796,7 +1743,7 @@ async fn run_interactive_surface(
                         }
                         RecoveryKind::Lost => {
                             session.note(
-                                "could not reconnect to the daemon within 10 minutes — run `eukhe attach` to resume.",
+                                "could not reconnect to the daemon within 10 minutes -- run `eukhe attach` to resume.",
                                 &mut view,
                             );
                             session.exit_reason = "daemon_reconnect_failed";
@@ -1808,7 +1755,7 @@ async fn run_interactive_surface(
                     continue;
                 }
                 // The connect leg (bounded connect + hello) runs OFF the
-                // loop — the select keeps polling UI input and rendering
+                // loop -- the select keeps polling UI input and rendering
                 // while it is out; the reattach leg runs inline under its
                 // own bound when it lands.
                 let socket_path = options.socket_path.clone();
@@ -1816,7 +1763,7 @@ async fn run_interactive_surface(
                 reconnect_connect = Some(attempt_rx);
                 reconnect_attempt_in_flight = true;
                 // TS #2458: the shutdown recovery's discovery waits no
-                // longer than the bound — one bounded connect+hello per
+                // longer than the bound -- one bounded connect+hello per
                 // poll (the fixed 100ms cadence re-arms faster than the
                 // retry helper's own backoff, and a single leg bounds the
                 // window's over-run; the hiccup window keeps the retrying
@@ -1827,7 +1774,7 @@ async fn run_interactive_surface(
                     // would cancel an in-flight handshake without its
                     // reader abort running (a leaked reader and socket on
                     // an accepting-but-silent daemon). The leg self-bounds
-                    // — every attempt's connect and hello carry their own
+                    // -- every attempt's connect and hello carry their own
                     // budgets and abort their own reader on failure.
                     let attempt = if shutdown {
                         DaemonClient::connect(&socket_path).await
@@ -1840,7 +1787,7 @@ async fn run_interactive_surface(
             maybe_attempt = async {
                 match reconnect_connect.as_mut() {
                     Some(receiver) => receiver.await,
-                    // Nothing in flight: park the arm — the type is
+                    // Nothing in flight: park the arm -- the type is
                     // inferred from the in-flight arm, and the tick is the
                     // only spawner (a plain `None` return would hot-spin).
                     None => std::future::pending().await,
@@ -1851,7 +1798,7 @@ async fn run_interactive_surface(
                 // The deadline check runs here too: the tick arm parks
                 // while an attempt is in flight, so the window can never
                 // overrun its advertised bound by more than the in-flight
-                // attempt's connect leg — the expiry note fires as soon as
+                // attempt's connect leg -- the expiry note fires as soon as
                 // the leg reports back.
                 let expired = match reconnect.as_ref() {
                     Some(state) => tokio::time::Instant::now() > state.deadline,
@@ -1865,7 +1812,7 @@ async fn run_interactive_surface(
                     match kind {
                         RecoveryKind::Shutdown => {
                             // TS #2458: the daemon never came back within
-                            // the reconnect timeout — the saved-transcript
+                            // the reconnect timeout -- the saved-transcript
                             // close (the session file survives on disk).
                             session.note(
                                 "The Eukhe daemon shut down while this window was attached. The session transcript remains saved; restart Eukhe and reopen it from Agents View.",
@@ -1875,7 +1822,7 @@ async fn run_interactive_surface(
                         }
                         RecoveryKind::Lost => {
                             session.note(
-                                "could not reconnect to the daemon within 10 minutes — run `eukhe attach` to resume.",
+                                "could not reconnect to the daemon within 10 minutes -- run `eukhe attach` to resume.",
                                 &mut view,
                             );
                             session.exit_reason = "daemon_reconnect_failed";
@@ -1918,7 +1865,7 @@ async fn run_interactive_surface(
                                 // budget (a slow restore): schedule another
                                 // on both paths (never a fatal exit).
                                 session.note(
-                                    "the daemon is still restoring — retrying…",
+                                    "the daemon is still restoring -- retrying...",
                                     &mut view,
                                 );
                                 session.dirty = true;
@@ -1933,12 +1880,12 @@ async fn run_interactive_surface(
                                 // retries until its own bound lands the
                                 // saved-transcript close (TS #2458): keep
                                 // retrying through the window instead of
-                                // exiting — the pane never dies to it (the
+                                // exiting -- the pane never dies to it (the
                                 // operator's kicked-out class). The update
                                 // path keeps its exit semantics.
                                 if matches!(kind, RecoveryKind::Lost | RecoveryKind::Shutdown) {
                                     session.note_as(
-                                        &format!("reattach failed: {error:#} — retrying…"),
+                                        &format!("reattach failed: {error:#} -- retrying..."),
                                         crate::chat::StatusKind::Warning,
                                         &mut view,
                                     );
@@ -1948,7 +1895,7 @@ async fn run_interactive_surface(
                                     }
                                 } else {
                                     session.note(
-                                        &format!("reattach after the update failed: {error:#} — run `eukhe attach` to resume"),
+                                        &format!("reattach after the update failed: {error:#} -- run `eukhe attach` to resume"),
                                         &mut view,
                                     );
                                     session.exit_reason = "update_reattach_failed";
@@ -2059,26 +2006,23 @@ async fn run_interactive_surface(
                 // resolves suggestions asynchronously after the
                 // keystroke batch, so a typed command plus Enter in one
                 // burst submits as typed and the dropdown opens only
-                // once typing pauses) or an armed selection auto-scroll
-                // (TS's 150 ms hold + 50 ms interval timer, armed only
-                // while a drag holds the window edge). An idle surface
-                // parks this arm — TS keeps no free-running timer either
+                // once typing pauses) or a settle recheck. An idle
+                // surface parks this arm -- TS keeps no free-running timer either
                 // (the loader's interval runs only while a turn
                 // animates, scheduleRender arms only on a render
                 // request), so the unconditional tick spent its wakeups
                 // on nothing observable.
-                if !(autocomplete_pending || auto_scroll_armed || settle_recheck_wanted) {
+                if !(autocomplete_pending || settle_recheck_wanted) {
                     std::future::pending::<()>().await;
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             } => {
                 session.materialize_editor_autocomplete(&mut view);
-                session.selection_auto_scroll_tick(&mut view);
             }
             () = async {
                 // The 2s bash-activity poll, on its own absolute
                 // deadline and only on daemons that advertise the
-                // kernel-bash registry (the same gate the spawn applies —
+                // kernel-bash registry (the same gate the spawn applies --
                 // without the capability every fire was a no-op, so the
                 // arm parks and an idle surface spends no wakeups on it).
                 if !bash_refresh_wanted {
@@ -2129,7 +2073,7 @@ async fn run_interactive_surface(
 
         // Spinner animation (TS `Loader`'s `setInterval(80ms)` drives the
         // phase, not the render rate): the frame gate below caps renders,
-        // so a per-iteration increment would spin the loader too fast —
+        // so a per-iteration increment would spin the loader too fast --
         // the phase follows the animating clock instead, and only a phase
         // change dirties the frame (TS's interval callback is the only
         // requestRender a quiet turn produces, so a turn without stream
@@ -2182,8 +2126,8 @@ async fn run_interactive_surface(
 
         // The tray override row (the Ctrl+C exit hint, or the streaming
         // follow-up hint over a draft) follows the session's hint state on
-        // every frame. Refreshed here — after the select, right before
-        // the paint — because a loop-top refresh goes stale across the
+        // every frame. Refreshed here -- after the select, right before
+        // the paint -- because a loop-top refresh goes stale across the
         // select's sleep: the expiry-deadline wake would repaint the hint
         // with the pre-sleep value and the corrected tray would never get
         // another paint.
@@ -2191,25 +2135,25 @@ async fn run_interactive_surface(
 
         // The frame gate (TS `scheduleRender`: at most one render per
         // MIN_RENDER_INTERVAL_MS): every state change inside the window
-        // coalesces into the next frame — a stream burst renders at most
+        // coalesces into the next frame -- a stream burst renders at most
         // one frame per tick instead of one full-transcript layout per
         // event, an idle session re-renders nothing, and a dirty state
         // inside the window waits for the deadline arm above instead of
         // burning a render now.
         if session.dirty {
-            if let Some(renderer) = renderer.is_terminal_mut() {
+            if renderer.is_terminal() {
                 let interval_elapsed =
                     last_render_at.is_none_or(|at| at.elapsed() >= MIN_RENDER_INTERVAL);
                 if interval_elapsed {
-                    crate::app::draw(renderer, &mut view)?;
+                    renderer.draw(&mut view)?;
                     session.dirty = false;
                     last_render_at = Some(Instant::now());
                     last_pulse_phase = view.pulse_frame;
                     render_deadline = None;
                     // The attach fold arms this once: the first frame
-                    // that renders the rebuilt transcript materializes
-                    // its visible window (the wrap/render churn on top
-                    // of the fold's parse churn), so return that freed
+                    // that renders the rebuilt transcript writes its
+                    // history (the wrap/render churn on top of the
+                    // fold's parse churn), so return that freed
                     // heap right after the frame paints instead of
                     // keeping the resume's peak resident for the
                     // process lifetime.
@@ -2251,7 +2195,7 @@ async fn run_interactive_surface(
     // open past it; the healthy path always finishes well inside.
     // A handoff (agents-back, a `/resume` selection) is a view switch,
     // not an exit: the process keeps running, and TS `returnToAgentsView`
-    // has no exit deadline — its `teardownSessionUi` drain may take its
+    // has no exit deadline -- its `teardownSessionUi` drain may take its
     // full second while the app simply waits. Arming here turned a busy
     // box's slow switch into a mid-teardown process kill ("shutdown
     // stalled; forced exit.", the live report), so the deadline covers
@@ -2262,36 +2206,18 @@ async fn run_interactive_surface(
     }
     // TS `returnToAgentsView` -> `stashDraftForAgentsView` + the
     // `teardownSessionUi` release: a handoff to the agents view (or a
-    // `/resume <selector>` chain — this build's switch surfaces) stashes
+    // `/resume <selector>` chain -- this build's switch surfaces) stashes
     // the live draft for the session being left; every exit releases the
     // run's binding (a held draft stays in the store for the next view).
     if session.open_agents_view || session.pending_selection.is_some() {
         session.stash_draft_for_agents_view(&view);
-        // The cross-view layout handoff (view::handoff): hold the last
-        // frame's visible-window packs keyed by the LATEST event sequence
-        // this run has seen (the live tracker), so the unchanged-session
-        // re-entry's first draw reuses them instead of re-rendering the
-        // window — including the post-turn sojourn class, where a turn
-        // during this run advanced the worker's sequence past this run's
-        // own attach value: the stash keys the value the NEXT attach
-        // reports when the sojourn itself stayed transcript-unchanged
-        // (every changed attach still misses and re-renders exactly as
-        // before). A cursor-less attach never keys (the collapsed
-        // default identity could alias across same-count attaches).
-        if session.attach_cursor_present {
-            view.stash_layout_handoff(
-                &session.session_id,
-                &session.attach_event_generation,
-                session.last_event_sequence,
-            );
-        }
     }
     session.release_prompt_stash_session();
     // TS `shutdown` fetches the session stats while the connection is
     // alive, then prints the resume hint after teardown; eukhe-cli prints it
     // once the terminal is restored. Bounded best-effort. The agents-view
     // handoff never prints it (TS `returnToAgentsView` skips the stats
-    // fetch entirely — the next surface is another view, not a process
+    // fetch entirely -- the next surface is another view, not a process
     // exit), so the round-trip is dead work on that path.
     let resume_hint = if session.open_agents_view {
         None
@@ -2311,7 +2237,7 @@ async fn run_interactive_surface(
         session.detach_for_exit().await;
     }
     // `tui exit` (schema v1): how the run ended. Bounded the same way as
-    // the detach — telemetry must never hold the exit path open either.
+    // the detach -- telemetry must never hold the exit path open either.
     // The handoff still emits the event but does not wait for the flush:
     // the agents view keeps the process (and the runtime) alive, so the
     // background flush completes while the user is already in the view
@@ -2332,35 +2258,36 @@ async fn run_interactive_surface(
                     .await;
         }
     }
-    // Agents-back and `/resume` hand the pane to the agents view; the
-    // alternate screen stays in place for it instead of flushing to the
-    // main screen (TS `stop({ preserveAltScreen: true })`).
-    let preserve_alt_screen = session.open_agents_view;
+    // Agents-back, `/resume`, and `/resume <selector>` hand the terminal to
+    // the next surface in-process: the live area clears for it. Every
+    // other exit leaves the live area as the final output.
+    let surface_exit = if session.open_agents_view || session.pending_selection.is_some() {
+        SurfaceExit::Handoff
+    } else {
+        SurfaceExit::Process
+    };
     let outcome = InteractiveOutcome {
         active_session_id: session.active_session_id.clone(),
         session_id: session.session_id.clone(),
         resume_hint,
         last_assistant_text: session.last_assistant_text.clone(),
-        frames: renderer.finish(&mut view, preserve_alt_screen),
+        frames: renderer.finish(surface_exit),
         // The headless OSC 52 capture (terminal runs wrote the sequences
         // to stdout as they happened).
         clipboard_emissions: session.take_osc_emissions(),
-        return_to_agents_view: preserve_alt_screen,
+        return_to_agents_view: session.open_agents_view,
         agents_view_scope: session.scoped_agents_view.take(),
         selection_request: session.pending_selection,
-        copies: std::mem::take(&mut session.copies),
-        opened_urls: std::mem::take(&mut session.opened_urls),
         agents_view_notice: None,
-        handoff_seeds: view.handoff_seeds,
     };
     // The agents-view handoff's background detach owns this connection now
     // (it closes once the daemon answers); every other exit closes it here.
-    if !preserve_alt_screen {
+    if !session.open_agents_view {
         session.client.close();
     }
     // A handoff (agents view, `/resume <selector>`) lets the process keep
     // running: retire the watchdog. Every other completion is a process
-    // exit, where the deadline dies with the process — or fires when the
+    // exit, where the deadline dies with the process -- or fires when the
     // exit wedged, which is the point.
     if outcome.return_to_agents_view || outcome.selection_request.is_some() {
         exit_guard.cancel();
@@ -2373,7 +2300,7 @@ mod tests {
     use super::*;
 
     /// The boundary the select arms is always the current phase's
-    /// 80ms edge — the wake must precede the phase change it observes
+    /// 80ms edge -- the wake must precede the phase change it observes
     /// (an off-by-one parks the loop for a whole boundary). Samples sit
     /// at least a millisecond inside their phase because `Instant`
     /// round-trips can lose sub-millisecond ticks on the platform

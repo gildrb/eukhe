@@ -5,10 +5,10 @@
 //! the cursor with the selection keys.
 
 use crate::onboarding::{highlight_wash, wrap_words};
+use crate::style::{Modifier, Style};
 use crate::theme::{Theme, ThemeColor};
 use crate::width::str_width;
 use crate::{Line, Span};
-use ratatui::style::{Modifier, Style};
 
 /// Selection-row metrics (TS `OnboardingChoiceComponent`).
 const CHOICE_MARKER_WIDTH: usize = 2;
@@ -22,7 +22,7 @@ const CHOICE_DESCRIPTION_WIDTH: usize = 50;
 pub struct OnboardingChoiceOption {
     /// The row label.
     pub label: String,
-    /// Identifier rendered as `  @detail` after the label — dimmer than the
+    /// Identifier rendered as `  @detail` after the label -- dimmer than the
     /// label, and counted toward the label-width calc (TS `detail`).
     pub detail: Option<String>,
 }
@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(lines.len(), 5);
         let unselected = &lines[3];
         // Label width = max("Personal account" = 16, "Prime  prime-intellect"
-        // = 19) → row width max(30, 2 + 19 + 6) = 30.
+        // = 19) -> row width max(30, 2 + 19 + 6) = 30.
         assert_eq!(
             unselected[1],
             Span::styled("  Personal account", theme.fg_style(ThemeColor::Muted))
@@ -282,7 +282,7 @@ mod tests {
         let lines = choice.render(&theme, 50);
         assert_eq!(lines[3][2].content, " ".repeat(50 - "  Share".len()));
         // Without an override the labels size the band, still clamped:
-        // "Continue with the current setup" (31 columns) →
+        // "Continue with the current setup" (31 columns) ->
         // max(30, 2 + 31 + 6) = 39.
         let choice = OnboardingChoice::new(
             vec![option("Continue with the current setup", None)],

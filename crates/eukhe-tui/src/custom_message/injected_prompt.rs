@@ -5,17 +5,17 @@
 //!
 //! The RLM child status notices left this class (the operator's 2026-10-01
 //! directive: "the factory child status notices should be like subagent
-//! messages not user messages" — a spawned child's exit status is
+//! messages not user messages" -- a spawned child's exit status is
 //! child-originated mail, so those rows render in the `agent_message`
 //! class now, superseding the 2026-09-23 diamond-row divergence): the
-//! kinds here are the engine-injected turn prompts only — the heartbeat
+//! kinds here are the engine-injected turn prompts only -- the heartbeat
 //! prompt, the goal context, the kernel-state restore, and the
 //! skills-unavailable report.
 //!
 //! Second divergence (operator directive 2026-09-23): the heartbeat prompt
-//! row renders the `◷` clock glyph — the unified activity dock's
-//! Heartbeats group icon (`chrome.rs::render_activity_dock`) — where the
-//! TS binary still renders the `♥` heart. The TS side is expected to
+//! row renders the `o` clock glyph -- the unified activity dock's
+//! Heartbeats group icon (`chrome.rs::render_activity_dock`) -- where the
+//! TS binary still renders a heart. The TS side is expected to
 //! adopt the same glyph.
 
 use super::render::{spacer, text_rows, truncate_text};
@@ -39,19 +39,19 @@ pub struct InjectedPromptRow {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InjectedPromptKind {
-    /// `◷ Heartbeat prompt · <schedule>` (error pulse, muted label; the
-    /// clock glyph is the dock's Heartbeats icon — the operator-directed
+    /// `o Heartbeat prompt * <schedule>` (error pulse, muted label; the
+    /// clock glyph is the dock's Heartbeats icon -- the operator-directed
     /// divergence in the module docs).
     Heartbeat { schedule: Option<String> },
-    /// `<goal label>[ · <objective preview>]` (muted; TS `goalLabel`/`metaText`).
+    /// `<goal label>[ * <objective preview>]` (muted; TS `goalLabel`/`metaText`).
     Goal {
         kind: Option<String>,
         objective: Option<String>,
     },
-    /// `◆ Restored Python kernel state` / `◆ Started fresh Python kernel`.
+    /// `* Restored Python kernel state` / `* Started fresh Python kernel`.
     KernelRestored { restored: bool },
-    /// `Python skills unavailable · <skill names>` (muted label, dim
-    /// names; TS PR #2381's header — no marker glyph), expandable to the
+    /// `Python skills unavailable * <skill names>` (muted label, dim
+    /// names; TS PR #2381's header -- no marker glyph), expandable to the
     /// full report.
     PythonSkillsUnavailable { skills: Vec<String> },
 }
@@ -97,7 +97,7 @@ pub(crate) fn injected_prompt_row(
                 .unwrap_or_default(),
         },
         // The dispatch routes only this module's four kinds here; every
-        // other custom type (the RLM child status notices included — they
+        // other custom type (the RLM child status notices included -- they
         // render in the `agent_message` class now) owns its own dispatch
         // arm, and an unknown type never reaches this function.
         _ => unreachable!("injected_prompt_row sees only its four kinds"),
@@ -126,7 +126,7 @@ pub(crate) fn render_injected_prompt(
     if let Some(body) = expanded_prompt_body(row, detail) {
         out.extend(crate::branch::branch_markdown(
             body,
-            &super::geometry::markdown_style(ThemeColor::CustomMessageText, theme),
+            &super::render::markdown_style(ThemeColor::CustomMessageText, theme),
             theme,
             width,
         ));
@@ -143,12 +143,15 @@ fn prompt_header(row: &InjectedPromptRow, theme: &Theme) -> Line {
     // kernel-state row stays header-only).
     let header: Line = match &row.kind {
         InjectedPromptKind::Heartbeat { schedule } => vec![
-            // The ◷ clock (the dock's Heartbeats icon), not the TS ♥ heart:
+            // The o clock (the dock's Heartbeats icon), not the TS heart:
             // the operator-directed divergence in the module docs.
-            Span::styled("\u{25f7}".to_string(), theme.fg_style(ThemeColor::Error)),
+            Span::styled(
+                crate::glyphs::HEARTBEAT.to_string(),
+                theme.fg_style(ThemeColor::Error),
+            ),
             Span::raw(" "),
             Span::styled("Heartbeat prompt".to_string(), muted),
-            Span::styled(" \u{b7} ".to_string(), dim),
+            Span::styled(crate::glyphs::SEP.to_string(), dim),
             Span::styled(heartbeat_schedule(schedule.as_deref()), muted),
         ],
         InjectedPromptKind::Goal { kind, objective } => {
@@ -159,7 +162,7 @@ fn prompt_header(row: &InjectedPromptRow, theme: &Theme) -> Line {
             spans
         }
         InjectedPromptKind::KernelRestored { restored } => vec![
-            Span::styled("\u{25c6}".to_string(), accent),
+            Span::styled(crate::glyphs::NOTICE.to_string(), accent),
             Span::raw(" "),
             Span::styled(
                 if *restored {
@@ -175,9 +178,12 @@ fn prompt_header(row: &InjectedPromptRow, theme: &Theme) -> Line {
             let mut spans = vec![Span::styled("Python skills unavailable".to_string(), muted)];
             if !skills.is_empty() {
                 // TS `truncateToWidth(skills.join(", "),
-                // max(20, 90 - "Python skills unavailable · ".length))` = 62.
+                // max(20, 90 - "Python skills unavailable * ".length))` = 62.
                 spans.push(Span::styled(
-                    format!(" \u{b7} {}", truncate_text(&skills.join(", "), 62, "...")),
+                    format!(
+                        " - {}",
+                        truncate_text(&skills.join(", "), 62, crate::glyphs::ELLIPSIS)
+                    ),
                     dim,
                 ));
             }
@@ -185,23 +191,6 @@ fn prompt_header(row: &InjectedPromptRow, theme: &Theme) -> Line {
         }
     };
     header
-}
-
-pub(crate) fn count_injected_prompt(
-    row: &InjectedPromptRow,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-) -> usize {
-    let header = prompt_header(row, theme);
-    let body = expanded_prompt_body(row, detail).map_or(0, |body| {
-        crate::branch::branch_markdown_count(
-            body,
-            &super::geometry::markdown_style(ThemeColor::CustomMessageText, theme),
-            width,
-        )
-    });
-    1 + super::geometry::text_row_count(&header, width) + body
 }
 
 fn expanded_prompt_body(row: &InjectedPromptRow, detail: Detail) -> Option<&str> {
@@ -244,12 +233,15 @@ fn goal_label(kind: Option<&str>) -> String {
     .to_string()
 }
 
-/// TS `metaText`: ` \u{b7} <collapsed objective>` truncated to the TS budget
-/// (`max(20, 90 - width("Goal continuation \u{b7} "))` = 70) with the default
+/// TS `metaText`: ` - <collapsed objective>` truncated to the TS budget
+/// (`max(20, 90 - width("Goal continuation - "))` = 70) with the default
 /// `...` ellipsis.
 fn goal_meta(objective: &str) -> String {
     let collapsed: String = objective.split_whitespace().collect::<Vec<_>>().join(" ");
-    format!(" \u{b7} {}", truncate_text(&collapsed, 70, "..."))
+    format!(
+        " - {}",
+        truncate_text(&collapsed, 70, crate::glyphs::ELLIPSIS)
+    )
 }
 
 #[cfg(test)]
@@ -289,13 +281,10 @@ mod tests {
         let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 60);
         assert_eq!(rows.len(), 2, "{rows:?}");
         assert!(rows[0].is_empty());
-        assert_eq!(
-            flat(&rows[1]).trim_end(),
-            " \u{25f7} Heartbeat prompt \u{b7} every 10m"
-        );
+        assert_eq!(flat(&rows[1]).trim_end(), " @ Heartbeat prompt - every 10m");
         assert_eq!(
             rows[1][1],
-            Span::styled("\u{25f7}".to_string(), theme().fg_style(ThemeColor::Error))
+            Span::styled("@".to_string(), theme().fg_style(ThemeColor::Error))
         );
     }
 
@@ -311,7 +300,7 @@ mod tests {
         let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 60);
         assert_eq!(
             flat(&rows[1]).trim_end(),
-            " Goal continuation \u{b7} ship it today"
+            " Goal continuation - ship it today"
         );
         // Budget-limit and objective-update kinds carry their own labels.
         for (kind, label) in [
@@ -333,7 +322,7 @@ mod tests {
         // `...` ellipsis, after whitespace collapsing. TS `metaText`
         // truncates only the objective (70 columns); the rendered row
         // adds the 1-column inset plus the 20-column
-        // `Goal continuation \u{b7} ` prefix for a 91-wide line.
+        // `Goal continuation - ` prefix for a 91-wide line.
         let objective = format!("{} tail", "word ".repeat(15));
         let row = InjectedPromptRow {
             kind: InjectedPromptKind::Goal {
@@ -350,7 +339,7 @@ mod tests {
         let preview = visible.trim_end();
         assert_eq!(str_width(preview) + 3, 91, "meta {meta:?}");
         // The truncated objective alone stays within the TS budget.
-        let prefix = " Goal continuation \u{b7} ";
+        let prefix = " Goal continuation - ";
         assert_eq!(
             str_width(preview.trim_start_matches(prefix)) + 3,
             70,
@@ -372,7 +361,7 @@ mod tests {
         assert_eq!(rows.len(), 2, "{rows:?}");
         assert_eq!(
             flat(&rows[1]).trim_end(),
-            " Python skills unavailable \u{b7} websearch, edit"
+            " Python skills unavailable - websearch, edit"
         );
         assert_eq!(rows[1][1].style, theme().fg_style(ThemeColor::Muted));
         assert_eq!(rows[1][2].style, theme().fg_style(ThemeColor::Dim));
@@ -381,7 +370,7 @@ mod tests {
         assert!(rows.len() > 2, "body renders expanded: {rows:?}");
         assert_eq!(
             flat(&rows[1]).trim_end(),
-            " Python skills unavailable \u{b7} websearch, edit"
+            " Python skills unavailable - websearch, edit"
         );
         // The names truncate to the TS budget (62 columns, `...`).
         let long: Vec<String> = (0..12).map(|i| format!("skill-{i}")).collect();
@@ -392,7 +381,7 @@ mod tests {
         let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 120);
         let row_text = flat(&rows[1]);
         let meta = row_text.trim_end();
-        let names = meta.trim_start_matches(" Python skills unavailable \u{b7} ");
+        let names = meta.trim_start_matches(" Python skills unavailable - ");
         assert_eq!(str_width(names), 62, "names width: {names}");
         assert!(names.ends_with("..."), "ellipsized names: {names}");
         // No skills details: the label alone.
@@ -417,7 +406,7 @@ mod tests {
             let rows = render_injected_prompt(&row, Detail::All, &theme(), 60);
             // Header only, no body even expanded.
             assert_eq!(rows.len(), 2, "{rows:?}");
-            assert_eq!(flat(&rows[1]).trim_end(), format!(" \u{25c6} {label}"));
+            assert_eq!(flat(&rows[1]).trim_end(), format!(" * {label}"));
         }
     }
 }

@@ -102,10 +102,10 @@ const SUSPEND_KEY: &[u8] = b"\x1a";
 /// oracle's needle. The mount's enable writes the `h` form, never the
 /// `l`, so the first post-mark occurrence is unambiguous.
 const PASTE_DISABLE: &[u8] = b"\x1b[?2004l";
-/// The suspend teardown's mouse release (written BEFORE the mode lock
-/// wait): its position ahead of the paste-off pins the suspend route as
-/// the needle's writer.
-const MOUSE_DISABLE: &[u8] = b"\x1b[?1006l\x1b[?1003l\x1b[?1002l";
+/// The suspend's release tail (sync-output off, SGR reset), written AFTER
+/// the paste-off and the live-area release: its position behind the
+/// paste-off pins the suspend route as the needle's writer.
+const RELEASE_TAIL: &[u8] = b"\x1b[?2026l\x1b[0m";
 /// The liveness key: `Q` appears nowhere in the harness chrome (the
 /// session name below is Q-free), so the painted cell is an unambiguous
 /// render proof (the early-typing family's needle).
@@ -566,16 +566,19 @@ impl VerdictHarness {
 
     /// The raced suspend's teardown time: waits for the paste-off needle
     /// since the mark (bounded), asserts the suspend route wrote it (the
-    /// mouse release must precede the paste-off — the suspend's exact
-    /// write order), and returns the paste-off's chunk time.
+    /// release tail follows the paste-off -- the suspend's exact write
+    /// order), and returns the paste-off's chunk time.
     fn suspend_teardown_time(&mut self, mark: usize) -> Option<Instant> {
         let t = self.suspend_teardown_or_push(mark, PASTE_DISABLE)?;
         let paste_at = mark
             + find_subsequence(&self.master.output[mark..], PASTE_DISABLE)
                 .expect("the paste-off scan just succeeded");
+        let tail_found = self
+            .suspend_teardown_or_push(paste_at, RELEASE_TAIL)
+            .is_some();
         assert!(
-            find_subsequence(&self.master.output[mark..paste_at], MOUSE_DISABLE).is_some(),
-            "the paste-off arrived without the suspend's mouse release first — \
+            tail_found,
+            "the paste-off arrived without the suspend's release tail after it -- \
              the needle's writer was not the suspend teardown"
         );
         Some(t)
@@ -780,7 +783,6 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),

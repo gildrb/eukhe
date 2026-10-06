@@ -1,6 +1,6 @@
-//! The open-time chat-view fetch (`OptChat` spec §10: "On start, print the view,
-//! so you see what the agent sees"): every session open — new, resume,
-//! switch, reconnect — asks the daemon for the chat memory's view in the
+//! The open-time chat-view fetch (`OptChat` spec section 10: "On start, print the view,
+//! so you see what the agent sees"): every session open -- new, resume,
+//! switch, reconnect -- asks the daemon for the chat memory's view in the
 //! background, off the first-paint path, and the landed view joins the
 //! transcript as the collapsed `chat_view_block` row.
 
@@ -12,7 +12,7 @@ use super::{
 };
 
 /// A landed `get_chat_view` fetch. A response from an older fetch (a
-/// rebind raced it) never applies — the epoch drops it.
+/// rebind raced it) never applies -- the epoch drops it.
 pub(crate) struct ChatViewUpdate {
     pub epoch: u64,
     /// The view (`None`: the session keeps no chat memory), or why the

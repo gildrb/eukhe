@@ -1,13 +1,13 @@
 //! `eukhe-tui-replay`: render a captured agent session in the eukhe-tui agent view.
 //!
 //! Modes:
-//! - live (default): full-screen TUI in a real terminal; typing, editing keys,
+//! - live (default): the inline CLI surface in a real terminal; typing, editing keys,
 //!   and history navigation behave like the interactive product.
 //! - `--frame WxH`: render one 80x24-style frame as plain text to stdout
 //!   (headless structural dump for the tmux verifier).
 //! - `--panic-exit`: panic mid-loop after the first paint (the exit-restore
 //!   verifier's driver: a real unwind on a live surface must still leave
-//!   the terminal whole — alt screen left, cooked tty, no mode leaks).
+//!   the terminal whole -- live area released, cooked tty, no mode leaks).
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded

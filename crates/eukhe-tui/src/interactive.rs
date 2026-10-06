@@ -46,19 +46,16 @@ mod headless;
 
 use headless::HeadlessSettle;
 
-// The render sink concern (the terminal/headless renderer, the startup
-// chrome seeding, the tmux keyboard check, the suspend-cycle terminal
-// handoff, and the exit flush rows) moved to the child module at the same
-// tree position (interactive::render); the facade bindings keep the run
-// loop's and the onboarding pane's bare paths in scope, and the flush
-// re-export keeps the external callers stable.
+// The render sink concern (the inline-terminal/headless renderer, the
+// startup chrome seeding, the tmux keyboard check, the suspend-cycle
+// terminal handoff) lives in interactive::render; the facade bindings keep
+// the run loop's and the onboarding pane's bare paths in scope.
 mod render;
 
 pub use headless::{HeadlessPlan, HeadlessStep, UiMode};
 pub use onboarding::{ModelReadiness, OnboardingSink, OnboardingTask};
-pub(crate) use render::write_flush_rows;
 use render::{
-    apply_startup_chrome, check_tmux_keyboard_setup, spawn_session_reader, Renderer,
+    apply_startup_chrome, check_tmux_keyboard_setup, spawn_session_reader, Renderer, SurfaceExit,
     TerminalHandoff,
 };
 
@@ -86,7 +83,6 @@ pub use run::run_interactive;
 
 use crossterm::event::KeyEvent;
 use crossterm::terminal;
-use ratatui::Terminal;
 use tokio::sync::mpsc;
 
 // The inline unit battery moved to the child module at the same tree
@@ -124,7 +120,7 @@ pub const TELEMETRY_EXIT_TIMEOUT_MS: u64 = 500;
 
 /// Explicit model selection carried into every `create` config: the CLI
 /// `--provider`/`--model`/`--api-key`/`--thinking` flags. Explicit flags are
-/// authoritative end-to-end — the daemon worker resolves its session model
+/// authoritative end-to-end -- the daemon worker resolves its session model
 /// and thinking level from this selection instead of a process-wide fallback.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModelSelection {
@@ -144,20 +140,6 @@ pub struct ModelSelection {
 /// options and session UI), so the async methods return boxed futures with an
 /// explicit `Send` bound instead of RPITIT.
 pub trait InteractionTelemetry: Send + Sync {
-    /// The first transcript scroll action of a run: `action` is
-    /// `page_up` / `page_down` / `top` / `follow`.
-    fn scroll_used(
-        &self,
-        action: &'static str,
-        resumed_following: bool,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
-    /// The run's first selection copy (`tui selection used`): `lines` is
-    /// the copied text's line count.
-    fn selection_used(&self, lines: usize) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
-    /// The run's first click-driven interaction (`tui click used`):
-    /// `surface` is `transcript` (a card expand click) / `editor` (a
-    /// prompt-bar caret placement) / `picker` (a menu row select).
-    fn click_used(&self, surface: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
     /// A builtin command was submitted (`agent command used`): `command`
     /// is the canonical name (`model`, `compact`, ...), client and session
     /// commands alike (TS `captureAgentCommandUsed`).
@@ -209,10 +191,10 @@ pub trait InteractionTelemetry: Send + Sync {
     fn activity_opened(&self, kind: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
     /// A menu surface opened (event `tui menu opened`): `menu` names the
     /// surface (`model`, `mcp`, `settings`, or a read-only info panel
-    /// command — `context`, `session`, `system-prompt`, `logs`,
+    /// command -- `context`, `session`, `system-prompt`, `logs`,
     /// `changelog`, `hotkeys`, `traces`, `list`), `source` how it opened
-    /// (`command` — the bare slash submission, `tab` — a typed partial +
-    /// Tab, `shortcut` — a keybinding action).
+    /// (`command` -- the bare slash submission, `tab` -- a typed partial +
+    /// Tab, `shortcut` -- a keybinding action).
     fn menu_opened(
         &self,
         menu: &'static str,
@@ -263,7 +245,7 @@ pub trait InteractionTelemetry: Send + Sync {
     /// A dispatched bang run settled (event `tui bash bang executed`):
     /// `duration_bucket` is `lt_5s` / `5_to_30s` / `30s_plus` /
     /// `unknown`, `exit_class` is `zero` / `nonzero` / `cancelled` /
-    /// `failed` / `unknown` — primitives only.
+    /// `failed` / `unknown` -- primitives only.
     fn bash_bang_executed(
         &self,
         duration_bucket: &'static str,
@@ -299,7 +281,7 @@ pub trait InteractionTelemetry: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
     /// An agents-view action ran (`tui agents action`): `action` is
     /// `program_shown` (the ctrl+o toggle turned a spawn program on) or
-    /// `renamed` (a rename landed) — primitives only, no prompt,
+    /// `renamed` (a rename landed) -- primitives only, no prompt,
     /// session, or file content.
     fn agents_view_action(
         &self,
@@ -307,7 +289,7 @@ pub trait InteractionTelemetry: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
     /// One live ipython result whose collapsed card renders as bash
     /// (event `tui ipython bash rendered`): the executed `bash()` line share
-    /// of the cell and the command count — primitives only, never command
+    /// of the cell and the command count -- primitives only, never command
     /// text.
     fn ipython_bash_rendered(
         &self,
@@ -343,8 +325,8 @@ pub struct InteractiveOptions {
     pub script_path: Option<PathBuf>,
     /// Model flags to carry into the create config.
     pub model_selection: ModelSelection,
-    /// The `--models` scope patterns (TS `parsed.models`): raw strings —
-    /// `provider/id`, globs, `:thinking` suffixes — that ride the create
+    /// The `--models` scope patterns (TS `parsed.models`): raw strings --
+    /// `provider/id`, globs, `:thinking` suffixes -- that ride the create
     /// config's `models` field; the daemon resolves them against its
     /// registry into the session's scoped list (Alt+M cycling, the
     /// picker's scoped view). `None` leaves the scope unset.
@@ -358,10 +340,6 @@ pub struct InteractiveOptions {
     /// whether image blocks render their metadata rows or the
     /// `[Image: ...]` placeholders.
     pub show_images: bool,
-    /// The `terminal.fullscreenMouse` setting, default true (TS
-    /// `getFullscreenMouse`): whether the fullscreen surface enables SGR
-    /// mouse tracking and wheel-scrolls the transcript.
-    pub fullscreen_mouse: bool,
     pub theme: String,
     /// The chat markdown fenced-code indent, resolved by the composition
     /// root from `markdown.codeBlockIndent` (TS `getCodeBlockIndent`;
@@ -417,11 +395,11 @@ pub struct InteractiveOptions {
     /// The agents view handed the pane back from the dock's scoped panel
     /// (TS `scope_back`: the parent key and escape both reopen the scope
     /// root's chat): the reopened chat starts with the dock focused on
-    /// the panel's own group — the Subagents item — at its first paint
+    /// the panel's own group -- the Subagents item -- at its first paint
     /// after the attach, instead of the prompt bar.
     pub restore_dock_focus: bool,
     /// The client-process settings the interactive commands read and
-    /// persist (`/settings`, `/fullscreen`). The
+    /// persist (`/settings`). The
     /// composition root implements the seam over the real store; `None`
     /// reports the commands' persistence as unavailable.
     pub client_settings: Option<std::sync::Arc<dyn crate::client_settings::ClientSettings>>,
@@ -449,7 +427,6 @@ impl std::fmt::Debug for InteractiveOptions {
             .field("version", &self.version)
             .field("onboarding", &self.onboarding)
             .field("telemetry_disabled", &self.telemetry_disabled)
-            .field("fullscreen_mouse", &self.fullscreen_mouse)
             .field("client_auth", &self.client_auth)
             .field("keybindings", &self.keybindings.get_effective_config())
             .finish()
@@ -458,7 +435,7 @@ impl std::fmt::Debug for InteractiveOptions {
 
 impl InteractiveOptions {
     /// The `create` config carried on every new-session request (the
-    /// agents view reuses it as the base of a resume's config — TS's
+    /// agents view reuses it as the base of a resume's config -- TS's
     /// `AgentsViewModeOptions.config`).
     #[must_use]
     pub fn create_config(&self) -> Value {
@@ -531,23 +508,11 @@ pub struct InteractiveOutcome {
     pub agents_view_scope: Option<crate::agents_view::AgentsViewScope>,
     /// `/resume <selector>` requested this session next.
     pub selection_request: Option<SessionSelection>,
-    /// Texts copied out by finished mouse selections (headless runs have
-    /// no terminal for OSC 52; the verifiers read these).
-    pub copies: Vec<String>,
-    /// Links opened by mouse clicks (headless runs have no terminal to
-    /// hand a browser to; the verifiers read these).
-    pub opened_urls: Vec<String>,
     /// A startup attach failed on a session that is truly gone: the run
     /// hands off to the agents view (`return_to_agents_view`) and this
     /// notice seeds the view's status line instead of the pane dying to
     /// the shell.
     pub agents_view_notice: Option<String>,
-    /// How many first-draw windows this run served from an adopted
-    /// cross-view layout handoff (`view::handoff`): the served-path
-    /// observable for the verifiers — the re-entry's frames are
-    /// byte-identical either way (the frozen-surface property), so a
-    /// zero here is the re-render and a nonzero is the reuse.
-    pub handoff_seeds: u32,
 }
 
 /// Inputs consumed by the UI loop. Terminal keys arrive one event at a time;
@@ -555,9 +520,6 @@ pub struct InteractiveOutcome {
 enum UiInput {
     Key(KeyEvent),
     Paste(String),
-    /// A decoded mouse report (wheel turns; other reports are consumed at
-    /// the source).
-    Mouse(crate::mouse::MouseEvent),
     Submit(String),
     /// The headless `SubmitAndSettle` step (see [`HeadlessStep`]).
     SubmitAndSettle {
@@ -581,8 +543,8 @@ enum UiInput {
         needle: String,
         timeout_ms: u64,
     },
-    ScrollTop,
-    /// The terminal was resized: the next draw repaints the new geometry.
+    /// The terminal was resized: the next draw replays the history at
+    /// the new geometry.
     Resize,
     HeadlessDone,
 }

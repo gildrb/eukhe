@@ -1,14 +1,7 @@
-//! End-to-end verifier for the agents-view round trip's layout handoff
-//! (the tui-switch-layout-reuse cut): a chat run that exits through the
-//! agents-back handoff holds its visible-window entry packs (the
-//! `view::handoff` store), the agents view's Enter opens the same
-//! session, and the re-entry's chat run renders the same transcript rows
-//! over them. The served-path oracles (the packs reused, no re-render;
-//! every changed transcript re-rendering) live in the unit tests; this
-//! e2e pins the REAL flow — one daemon, one worker, one session — the
-//! re-entry attaches the unchanged session, adopts the held handoff on
-//! the matching attach cursor, and its frames carry the identical
-//! transcript content.
+//! End-to-end verifier for the chat -> agents view -> chat round trip: a
+//! chat run that exits through the agents-back handoff, the agents view's
+//! Enter opens the same session, and the re-entry's chat run renders the
+//! same transcript rows. One daemon, one worker, one session.
 // Pedantic-gate dispositions for THIS test root (each tied to its own
 // sites): the two round-trip flows are intentionally linear harness
 // scripts (the fn-length gate is style, not correctness), and their
@@ -28,13 +21,6 @@ use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, 
 use eukhe_tui::interactive::{
     HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
-
-/// The layout handoff store is process-wide: the two round-trip tests
-/// serialize through this lock so one test's stash is never adopted (or
-/// overwritten) by the other's - the unit tests' `HANDOFF_TEST_LOCK`
-/// discipline applied to the e2e pair (the slot lives inside eukhe-tui and
-/// cannot be reset from this crate's tests).
-static HANDOFF_E2E_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct Supervisor {
     child: Child,
@@ -143,8 +129,7 @@ fn write_fixture(dir: &Path, id: &str, name: &str, turns: &[(&str, &str)]) -> Pa
 
 /// The scripted faux provider's script file (the `interactive_daemon_e2e`
 /// pattern): one scripted reply drives a REAL turn through the worker, so
-/// the transcript grows and the worker's event sequence advances during
-/// the chat run — the class the layout handoff's live-sequence key serves.
+/// the transcript grows during the chat run.
 fn write_faux_script(dir: &Path, replies: &[&str]) -> PathBuf {
     let responses: Vec<serde_json::Value> = replies
         .iter()
@@ -172,7 +157,6 @@ fn chat_options(socket: PathBuf, cwd: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -194,14 +178,10 @@ fn chat_options(socket: PathBuf, cwd: PathBuf) -> InteractiveOptions {
 }
 
 /// The real round trip over one daemon: chat (agents-back handoff) ->
-/// agents view (Enter on the anchored session) -> the chat re-entry. The
-/// re-entry attaches the SAME unchanged session, so the held layout
-/// handoff's key matches and the re-entry renders the same transcript
-/// rows (the adopt is output-neutral; the frames prove the flow and the
-/// content, the unit tests prove the packs were the source).
+/// agents view (Enter on the anchored session) -> the chat re-entry, which
+/// renders the same transcript rows.
 #[tokio::test]
 async fn the_roundtrip_reentry_renders_the_same_transcript() {
-    let _handoff_guard = HANDOFF_E2E_LOCK.lock().await;
     let dir = tempfile::TempDir::new().expect("temp dir");
     let session_dir = dir.path().join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
@@ -249,10 +229,6 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
             .any(|frame| frame.contains("flow audit clean")),
         "the first run rendered the fixture rows"
     );
-    assert_eq!(
-        first_outcome.handoff_seeds, 0,
-        "the FIRST run holds no handoff to serve (nothing stashed for it)"
-    );
 
     // The agents view anchored on the session just left: Enter opens it.
     let view_options = AgentsViewOptions {
@@ -297,10 +273,8 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
         .selection
         .expect("Enter selected a session");
 
-    // The re-entry: the same session opens again — the held handoff's
-    // key matches this attach (the worker, the generation, the event
-    // sequence, and the entry count all unchanged), and the re-entry
-    // renders the same transcript rows over the adopted packs.
+    // The re-entry: the same session opens again and renders the same
+    // transcript rows.
     let mut reentry = chat_options(supervisor.socket.clone(), dir.path().to_path_buf());
     reentry.session = selection;
     let reentry_outcome = eukhe_tui::interactive::run_interactive(
@@ -328,30 +302,16 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
             .frames
             .iter()
             .any(|frame| frame.contains("flow audit clean")),
-        "the re-entry rendered the same transcript rows over the adopted handoff"
-    );
-    // The served-path assertion (the frames are byte-identical either way —
-    // the frozen-surface property itself — so the reuse needs its own
-    // observable): this idle round trip's re-entry SERVED the window from
-    // the held packs.
-    assert!(
-        reentry_outcome.handoff_seeds > 0,
-        "the idle round trip's re-entry served its first draw from the held packs"
+        "the re-entry rendered the same transcript rows"
     );
 }
 
-/// The post-turn sojourn class (the live-sequence key, `view::handoff`):
-/// a turn run DURING the chat run advances the worker's event sequence
-/// past the run's own attach value, the exit stashes under the LATEST
-/// sequence, and the transcript-unchanged sojourn's re-entry still
-/// adopts — the re-entry's first draw serves the held packs (the
-/// observable the byte-identical frames cannot prove on their own).
-/// The turn is submitted through the settle barrier, so the exit stashes
-/// under the worker's final sequence (the settle update after
-/// `agent_end`).
+/// A turn run DURING the chat run grows the transcript before the
+/// agents-back exit; the re-entry renders the turn's rows and the fixture
+/// rows. The turn is submitted through the settle barrier, so the exit
+/// leaves a settled session.
 #[tokio::test]
-async fn a_post_turn_sojourn_reentry_still_serves_the_held_packs() {
-    let _handoff_guard = HANDOFF_E2E_LOCK.lock().await;
+async fn a_post_turn_reentry_renders_the_turn_rows() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let session_dir = dir.path().join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
@@ -409,10 +369,6 @@ async fn a_post_turn_sojourn_reentry_still_serves_the_held_packs() {
             .iter()
             .any(|frame| frame.contains("the live turn reply")),
         "the scripted turn landed in the transcript before the exit"
-    );
-    assert_eq!(
-        first_outcome.handoff_seeds, 0,
-        "the FIRST run holds no handoff to serve (nothing stashed for it)"
     );
 
     // The agents view anchored on the session just left: Enter opens it.
@@ -500,9 +456,5 @@ async fn a_post_turn_sojourn_reentry_still_serves_the_held_packs() {
             .iter()
             .any(|frame| frame.contains("flow audit clean")),
         "the re-entry rendered the fixture rows too"
-    );
-    assert!(
-        reentry_outcome.handoff_seeds > 0,
-        "the post-turn sojourn's re-entry served its first draw from the held packs (the live-sequence key)"
     );
 }

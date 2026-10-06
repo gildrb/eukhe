@@ -8,9 +8,8 @@
 //! - `A` starts a marked row (the first row of a message component),
 //! - `B` then `C` land at the start of the component's last row.
 //!
-//! The sequences are zero-width: `width` skips them, the ratatui paint path
-//! strips them from cell content (ratatui has no escape-sequence support),
-//! and `app::draw` re-emits them per row after the frame is painted.
+//! The sequences are zero-width: `width` skips them, the inline writer
+//! paints them in place with the row, and the plain-text dumps strip them.
 
 use crate::Line;
 
@@ -54,19 +53,6 @@ pub fn row_markers(line: &Line) -> RowMarkers {
         markers.end = true;
     }
     markers
-}
-
-/// Split a rendered row into its leading marker spans and the visible rest,
-/// so an overlay can repaint a marked row without losing its zone flags.
-pub(crate) fn split_leading_markers(line: &Line) -> (Line, Line) {
-    let mut index = 0;
-    while line
-        .get(index)
-        .is_some_and(|span| markers_only(&span.content))
-    {
-        index += 1;
-    }
-    (line[..index].to_vec(), line[index..].to_vec())
 }
 
 /// Strip zone-marker spans from a rendered row. Markers are always inserted
@@ -127,21 +113,6 @@ mod tests {
         assert_eq!(last[0].content, ZONE_END_PREFIX);
         let markers = row_markers(&last);
         assert!(markers.end && !markers.start);
-    }
-
-    #[test]
-    fn split_leading_markers_keeps_zone_flags() {
-        let mut line = row();
-        mark_start(&mut line);
-        let (markers, rest) = split_leading_markers(&line);
-        assert_eq!(markers.len(), 1);
-        assert_eq!(markers[0].content, ZONE_START);
-        let joined: String = rest.iter().map(|s| s.content.as_str()).collect();
-        assert_eq!(joined, "hello world");
-        // An unmarked row splits into nothing + everything.
-        let (markers, rest) = split_leading_markers(&row());
-        assert!(markers.is_empty());
-        assert_eq!(rest.len(), 2);
     }
 
     #[test]

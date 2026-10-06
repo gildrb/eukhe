@@ -344,7 +344,7 @@ impl Supervisor {
                 Some(error_info) => {
                     let message = response.error.clone().unwrap_or_default();
                     let headline = message.lines().next().unwrap_or_default();
-                    self.log_line(&format!("relaunch create refused — {headline}"));
+                    self.log_line(&format!("relaunch create refused -- {headline}"));
                     TypedCreateRejection {
                         message,
                         error_info,

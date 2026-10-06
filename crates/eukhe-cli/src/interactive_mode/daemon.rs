@@ -321,7 +321,7 @@ fn spawn_supervisor_detached(socket_path: &Path, spawn_cwd: &Path, exe: &Path) -
         // Strip inherited worker/supervisor role env vars so the spawned
         // supervisor never starts in worker mode (a CLI running inside a
         // daemon worker would otherwise launch a supervisor that listens but
-        // never handshakes) — the TS launcher deletes the same set.
+        // never handshakes) -- the TS launcher deletes the same set.
         .env_remove(eukhe_daemon::worker::WORKER_ROLE_ENV)
         .env_remove(eukhe_daemon::worker::WORKER_TOKEN_ENV)
         .env_remove(eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV)
@@ -332,7 +332,7 @@ fn spawn_supervisor_detached(socket_path: &Path, spawn_cwd: &Path, exe: &Path) -
         .env_remove(eukhe_daemon::worker::WORKER_SCRIPT_ENV)
         // A lease owner id inherited from an ancestor (a CLI running
         // inside a worker's env) would name a stale session in every
-        // lease this daemon's workers write — TS `daemon-launch.ts`
+        // lease this daemon's workers write -- TS `daemon-launch.ts`
         // deletes the same var before spawning the supervisor.
         .env_remove(eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV);
     // A daemon must not share the launching TUI's terminal session: a

@@ -8,7 +8,7 @@ use std::collections::HashSet;
 #[tokio::test]
 async fn headless_error_returns_never_touch_the_terminal() {
     // A socket that never listens: the attach fails and the run
-    // returns Err. The headless harness never owned the terminal —
+    // returns Err. The headless harness never owned the terminal --
     // the wrapper's restore is gated on the terminal ui mode, so a
     // headless error return must not attempt one (the terminal-mode
     // restore is the exit-restore e2e's error-exit scenario, driven
@@ -41,7 +41,7 @@ async fn headless_error_returns_never_touch_the_terminal() {
 
 /// TS #2458's shutdown recovery constants: the announced non-update
 /// closing waits the TS reconnect timeout (60s) on the TS fixed poll
-/// (100ms, never doubling) — not the hiccup loop's window or the
+/// (100ms, never doubling) -- not the hiccup loop's window or the
 /// hiccup loop's doubling backoff.
 #[test]
 fn the_shutdown_recovery_uses_the_ts_window_and_poll() {
@@ -51,7 +51,7 @@ fn the_shutdown_recovery_uses_the_ts_window_and_poll() {
     assert_eq!(state.kind, RecoveryKind::Shutdown);
     // The window is 60s off the arming instant: the deadline sits
     // inside [before + 60s, after + 60s] (the arming ran between the
-    // two clock reads — a single `now + 60s` bound can miss by the
+    // two clock reads -- a single `now + 60s` bound can miss by the
     // nanoseconds between the reads).
     assert!(
         state.deadline >= before + DAEMON_SHUTDOWN_RECONNECT_WINDOW
@@ -74,31 +74,6 @@ fn the_shutdown_recovery_uses_the_ts_window_and_poll() {
     assert_eq!(lost.delay, Duration::from_secs(2));
 }
 
-#[test]
-fn flush_rows_write_crlf_and_keep_zone_markers() {
-    // A marked row keeps its zero-width zone sequence inline (the
-    // flushed row persists into scrollback, where absolute-position
-    // marker re-emission cannot reach) and every row lands on its own
-    // line with explicit CR (raw mode maps `\n` to a bare line feed).
-    let mut marked = vec![crate::Span::raw("hello")];
-    crate::osc133::mark_start(&mut marked);
-    let styled = vec![crate::Span::styled(
-        "world",
-        ratatui::style::Style::default().fg(ratatui::style::Color::Indexed(1)),
-    )];
-    let mut buffer = String::new();
-    write_flush_rows(&mut buffer, &[marked, styled]);
-    let expected = format!(
-        "\r{}hello\r\n\r\x1b[38;5;1mworld\x1b[0m\r\n",
-        crate::osc133::ZONE_START
-    );
-    assert_eq!(buffer, expected);
-    // No rows: no output.
-    let mut empty = String::new();
-    write_flush_rows(&mut empty, &[]);
-    assert!(empty.is_empty());
-}
-
 fn options(selection: ModelSelection) -> InteractiveOptions {
     InteractiveOptions {
         models: None,
@@ -115,7 +90,6 @@ fn options(selection: ModelSelection) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -216,7 +190,7 @@ fn resume_hint_names_a_flushed_session() {
 
 /// The headless settle snapshot: `settled()` is exactly the old exit
 /// gate (every member clear), and each member that sticks is named in
-/// the bound's failure — the diagnostic IS the wedge family's
+/// the bound's failure -- the diagnostic IS the wedge family's
 /// failure name.
 #[test]
 fn the_headless_settle_names_every_stuck_member() {
@@ -342,9 +316,8 @@ fn the_startup_placeholder_carries_the_dock_a_fresh_session_mounts() {
     assert_eq!(
         rows[rows.len() - 2..],
         [
-            "\u{2500}".repeat(100),
-            " \u{25c6} 0 subagents  \u{b7}  \u{25f7} 0 heartbeats  \u{b7}  \u{25b8} 0 shells"
-                .to_string(),
+            "-".repeat(100),
+            " 0 subagents  -  0 heartbeats  -  0 shells".to_string(),
         ],
         "the placeholder's last two rows are the dock's rule and zero row"
     );

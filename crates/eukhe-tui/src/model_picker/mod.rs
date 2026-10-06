@@ -1,6 +1,6 @@
 //! The `/model` inline selector: the TS `ModelSelectorComponent` inline
-//! panel — a bordered "Search models" field over `›`-marker rows that carry
-//! effort squares and a right-aligned `current · provider` trailing, a
+//! panel -- a bordered "Search models" field over `>`-marker rows that carry
+//! effort squares and a right-aligned `current * provider` trailing, a
 //! price-detail block for the selection, and the model/effort key hint.
 //! The daemon supplies the catalog (bundled fallback); this module owns
 //! ordering, filtering, effort state, and the inline geometry.
@@ -72,7 +72,7 @@ pub struct ModelPickerOptions {
     /// The session's scoped models as `provider/id` keys (TS the
     /// selector's `scopedModels` option): the picker opens on them when
     /// non-empty; empty keeps the full catalog. The keys resolve against
-    /// the loaded catalog at open and on every refresh — an entry missing
+    /// the loaded catalog at open and on every refresh -- an entry missing
     /// from the loaded catalog is not listed.
     pub scoped_models: Vec<String>,
     /// The effort a fresh selection starts from (TS `thinkingLevel`).
@@ -422,19 +422,6 @@ impl ModelPicker {
         self.selected.min(self.filtered.len().saturating_sub(1))
     }
 
-    /// Move the selection to one filtered position (the click grammar's
-    /// row select — the arrow keys' exact movement, no apply): a
-    /// position past the filtered list keeps the selection where it
-    /// was. A click lands the user in the list, so the arrow keys
-    /// adjust the clicked row's effort instead of editing the search
-    /// (the same flag the arrow paths set).
-    pub(crate) fn select_filtered(&mut self, position: usize) {
-        if position < self.filtered.len() {
-            self.selected = position;
-            self.navigated_into_list = true;
-        }
-    }
-
     /// The provider-sorted catalog (TS `sortModels`): configured providers
     /// first, signed-in Prime Inference pinned, the current model leading,
     /// then the recent-use rank, the provider name, `featured`, and the
@@ -676,7 +663,7 @@ impl ModelPicker {
             .copied()
     }
 
-    /// Move the model's effort one level (`direction` ±1, wrapping; TS
+    /// Move the model's effort one level (`direction` +/-1, wrapping; TS
     /// `adjustEffort`). Returns whether the effort changed.
     fn adjust_effort(&mut self, model: &Model, direction: isize) -> bool {
         let levels = Self::selectable_levels(model);
@@ -852,7 +839,7 @@ impl ModelPicker {
 impl ModelPicker {
     /// Dispatch `/model [search]`: open the picker with `current` checked
     /// and `search` as the prefilled filter. TS `handleModelCommand` always
-    /// opens the menu — an empty catalog renders the empty panel (the
+    /// opens the menu -- an empty catalog renders the empty panel (the
     /// no-match row), never a note.
     pub(crate) fn open(options: ModelPickerOptions, search: &str) -> ModelCommandOutcome {
         let mut picker = ModelPicker::new(options);

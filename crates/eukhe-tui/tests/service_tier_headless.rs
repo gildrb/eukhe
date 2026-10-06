@@ -272,7 +272,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         restore_dock_focus: false,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -362,7 +361,7 @@ fn tier_command_shows_applies_and_rejects() {
     assert!(
         frames
             .iter()
-            .any(|frame| frame.contains("openai/gpt-5.5 \u{00b7} flex")),
+            .any(|frame| frame.contains("openai/gpt-5.5 - flex")),
         "the tray badge rendered the applied tier:\n{all}"
     );
 }

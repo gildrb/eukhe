@@ -296,7 +296,7 @@ mod tests {
     /// A scripted transport: exact URL -> response, in call order; the
     /// served requests land in the log. With `dynamic_generate` (the
     /// default) the generate POST answers with a fixed challenge and the
-    /// status poll answers pending once, then the encrypted fixture key —
+    /// status poll answers pending once, then the encrypted fixture key --
     /// the flow's poll interval genuinely yields mid-flow, so the armed
     /// paste wins the race deterministically.
     struct ScriptedHttp {
@@ -587,7 +587,7 @@ mod tests {
         );
         let (progress, _auth, prompts) = ui.logs();
         // The browser flow starts (its no-cli progress line lands) before
-        // the pasted key overtakes it — both TS dialog progress lines.
+        // the pasted key overtakes it -- both TS dialog progress lines.
         assert_eq!(
             progress,
             vec![

@@ -1,4 +1,4 @@
-//! The yes/no confirm selector: the shared menu grammar (the `›` marker
+//! The yes/no confirm selector: the shared menu grammar (the `>` marker
 //! rows and the key-hint status row every picker renders with) over the
 //! title, the message as its description lines, and a small option list
 //! that answers the pending question.
@@ -111,7 +111,7 @@ fn hint(kb: &KeybindingsManager) -> String {
     .into_iter()
     .flatten()
     .collect::<Vec<String>>()
-    .join(" · ")
+    .join(crate::glyphs::SEP)
 }
 
 #[cfg(test)]
@@ -164,11 +164,11 @@ mod tests {
         assert!(text
             .iter()
             .any(|row| row.contains("continue in current cwd")));
-        assert!(text.iter().any(|row| row.contains("› Yes")));
+        assert!(text.iter().any(|row| row.contains("> Yes")));
         assert!(text.iter().any(|row| row.contains("  No")));
         // The shared hint-row grammar (the pickers' vocabulary shape).
         assert!(text
             .iter()
-            .any(|row| row.contains("↑/↓ navigate · Enter select · Esc close")));
+            .any(|row| row.contains("up/down navigate - Enter select - Esc close")));
     }
 }

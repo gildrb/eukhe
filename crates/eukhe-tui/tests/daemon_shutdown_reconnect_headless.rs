@@ -365,7 +365,6 @@ fn options_with_session(socket: PathBuf, session: SessionSelection) -> Interacti
         session,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: false,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -459,7 +458,7 @@ fn an_announced_shutdown_reconnects_when_the_daemon_comes_back() {
     // The hiccup loop never fired: the announced closing owns the
     // recovery.
     assert!(
-        !all.contains("the daemon connection closed — reconnecting"),
+        !all.contains("reconnecting"),
         "the announced closing must not fall back to the hiccup loop:\n{all}"
     );
     assert!(

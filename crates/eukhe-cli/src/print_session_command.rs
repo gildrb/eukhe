@@ -1,7 +1,7 @@
 //! Print-mode session slash-command execution: the print driver runs
 //! `/compact`, `/refine`, `/goal`, and `/autonomous` prompts through the
 //! eukhe-core session-command executor (the same seam the daemon worker
-//! drives — no parallel implementation) and streams the TS print-json
+//! drives -- no parallel implementation) and streams the TS print-json
 //! shapes: the `session_action_update` phase frames around the durable
 //! echo row, the per-command events (`compaction_start`/`compaction_end`,
 //! the refinement rows plus `refine_complete`/`refine_failed`, the
@@ -9,12 +9,12 @@
 //! and the settled queue frame.
 //!
 //! TS ground truth (probed against the installed binary over the shared
-//! faux-provider harness): session commands never reach the model loop —
+//! faux-provider harness): session commands never reach the model loop --
 //! `AgentSession._normalizeSubmission` classifies them before admission,
 //! so `_runPreTurnCompaction` never fires for them and the prompt's turn
 //! never exists. A `/goal` start (or resume) schedules its continuation as
 //! queued session input, which `promptAndWait` drains inside the same
-//! wait — the driver admits it as the queued turn right after the
+//! wait -- the driver admits it as the queued turn right after the
 //! command's frames. A failed command rejects the prompt wait: the print
 //! run prints the raw error to stderr, exits 1, and never runs later
 //! prompts (TS `runPrintMode`'s catch).
@@ -98,7 +98,7 @@ fn manual_compaction_end_unsuccessful(
 
 /// Execute one session command and stream its surface. The driver owns
 /// the exit contract: the execution's `error` field carries the raw
-/// failure (TS `promptAndWait` rejects with it — the print run prints it
+/// failure (TS `promptAndWait` rejects with it -- the print run prints it
 /// to stderr, exits 1, and stops the prompt loop); the failure result row
 /// is already durable and on the stream.
 #[allow(clippy::too_many_arguments)]
@@ -197,8 +197,8 @@ pub(crate) async fn execute_prompt_session_command(
         goal.emit_command_queue_hold(&command.text, continuation)
             .await;
     }
-    // The executor's first row is the echo (already streamed); the rest —
-    // result rows, the `autonomous_status` row, the failure row — follow
+    // The executor's first row is the echo (already streamed); the rest --
+    // result rows, the `autonomous_status` row, the failure row -- follow
     // in order.
     for row in execution.messages.iter().skip(1) {
         goal.emit_row_pair(row);
@@ -560,15 +560,15 @@ mod tests {
 
     /// The clear's reply reflects the action it took (the operator's
     /// 2026-09-25 bug report): clearing a goal record answers
-    /// "Goal cleared." — never the nothing-to-clear "No active goal."
-    /// the TS post-state read produces — and clearing with nothing to
+    /// "Goal cleared." -- never the nothing-to-clear "No active goal."
+    /// the TS post-state read produces -- and clearing with nothing to
     /// clear keeps the plain status text.
     #[tokio::test]
     async fn goal_clear_answers_the_action_it_took() {
         let _guard = FAUX_TEST_LOCK.lock().await;
         // One scripted reply: the start's continuation turn consumes it,
         // the next mint hits the exhausted faux queue, and the goal fails
-        // — a goal record (objective held) is exactly what a clear
+        // -- a goal record (objective held) is exactly what a clear
         // removes.
         let test = bed(script(&json!([{"text": "goal turn reply"}]))).await;
         assert_eq!(run_command(&test, "/goal ship it").await, None);

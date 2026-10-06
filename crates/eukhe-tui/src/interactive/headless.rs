@@ -44,7 +44,7 @@ pub enum HeadlessStep {
     /// A bracketed-paste payload (the same editor paste path a terminal's
     /// paste takes, including the large-paste marker rules).
     Paste(String),
-    /// Materialize the parked editor suggestions — the state a live user
+    /// Materialize the parked editor suggestions -- the state a live user
     /// gets after pausing typing for one input-idle tick, so the next step
     /// (typically `Enter`) completes against the open dropdown. A burst of
     /// `Type` steps without this barrier submits as typed, exactly like a
@@ -65,13 +65,6 @@ pub enum HeadlessStep {
     /// window (queue prompts deterministically inside a scripted
     /// `delayMs` hold, where the turn is provably busy).
     WaitMs(u64),
-    /// Scroll the transcript to its top row (the `tui.viewport.top` key
-    /// path): the verifier's window into the head of the transcript.
-    ScrollTop,
-    /// A raw mouse sequence: decoded by the same parser the terminal's SGR
-    /// reports flow through, so the verifier drives the wheel dispatch with
-    /// byte-identical sequences.
-    Mouse(String),
     /// One raw key event: the verifier's window into the selector/picker
     /// surfaces (arrows, escape), which typed text cannot express.
     Key(crossterm::event::KeyEvent),
@@ -79,7 +72,7 @@ pub enum HeadlessStep {
 
 /// The headless exit gate's settle, snapshotted: the members the gate
 /// requires before the run may end (every one is work the harness must
-/// not cut short — a live terminal never ends the run on its own; TS
+/// not cut short -- a live terminal never ends the run on its own; TS
 /// exits the PROCESS at shutdown and lets in-flight work dangle, so the
 /// harness's settle has no TS counterpart). `settled()` is the gate;
 /// `blockers()` is the same members named, so the settle bound's failure
@@ -112,7 +105,7 @@ pub(super) struct HeadlessSettle {
     /// An MCP auth flow is pending.
     pub(super) mcp_auth_pending: bool,
     /// The Anthropic subscription warning's `mark_anthropic_warning_shown`
-    /// write is still in flight (fire-and-forget in the product — the run
+    /// write is still in flight (fire-and-forget in the product -- the run
     /// must still not end with the durable write un-acked; a lost mark
     /// costs a repeated warning on the session's next open).
     pub(super) anthropic_warning_mark_pending: bool,

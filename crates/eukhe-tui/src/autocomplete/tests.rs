@@ -185,9 +185,9 @@ fn path_completion_lists_directories_first() {
 
 /// Dot entries list only for an explicit dot-prefix anchor (the
 /// operator's 2026-09-25 directive): a directory browse (`./`, `src/`,
-/// `..`, the empty root prefix) must not surface the cwd's dotfiles —
+/// `..`, the empty root prefix) must not surface the cwd's dotfiles --
 /// the old forced pass listed the whole cwd and a `.claude` directory
-/// rode first — while a typed dot prefix (`.h`, `./.cl`) still
+/// rode first -- while a typed dot prefix (`.h`, `./.cl`) still
 /// completes hidden paths.
 #[test]
 fn dotfiles_list_only_for_a_dot_prefix_anchor() {
@@ -236,7 +236,7 @@ fn dotfiles_list_only_for_a_dot_prefix_anchor() {
 }
 
 /// The `@` fuzzy file search (the ported fd walk): nested matches list
-/// with fd's semantics — hidden entries included, `.git` pruned —
+/// with fd's semantics -- hidden entries included, `.git` pruned --
 /// the scoped `@src/par` form walks `src` and keeps the typed scope
 /// in the display, and applying a file item leaves the trailing
 /// space the TS `@` branch adds.
@@ -318,12 +318,12 @@ fn render_uses_the_menu_panel_grammar() {
     let rendered: Vec<String> = lines.iter().map(text).collect();
     // The selected row carries the menu marker and the selection band
     // spans the row (padded to the full width).
-    assert!(rendered[0].starts_with("\u{203a} cmd0"));
+    assert!(rendered[0].starts_with("> cmd0"));
     assert_eq!(rendered[0].chars().count(), 60);
     // The argument hint rides the row's right-aligned trailing cluster.
     assert!(rendered.iter().any(|l| l.ends_with("[arg]")));
     // The shared scroll status row (the menu panel's `(n/m)`), not the
-    // old directional `↑ N more` form.
+    // old directional `up N more` form.
     assert!(rendered.iter().any(|l| l.trim() == "(1/7)"));
     // The selected item's description block under the list.
     assert!(rendered.iter().any(|l| l.contains("description 0")));
@@ -476,7 +476,7 @@ fn skill_command_completes_into_the_argument_position() {
 fn skill_completions_apply_through_the_slash_path() {
     // TS `applyCompletion` finds skill items over the whole command
     // list, so a menu-confirmed skill keeps the leading `/` and stays
-    // a command submission (the file path would drop it) — landing in
+    // a command submission (the file path would drop it) -- landing in
     // the argument position like the direct slash completion.
     let provider = provider_with_skill("/tmp");
     let item = item("skill:brainstorm");

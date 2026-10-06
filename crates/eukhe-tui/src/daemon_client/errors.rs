@@ -11,7 +11,7 @@ pub(super) enum DirectRequestError {
 }
 
 /// The daemon answered with `success: false` for one request: the daemon
-/// is alive and healthy — it refused THIS request ("Prompt cannot be
+/// is alive and healthy -- it refused THIS request ("Prompt cannot be
 /// empty", a queue/admission refusal, an unknown session selector, a
 /// model the allowlist refuses, ...). Rejections carry data about the
 /// request, never about the connection: the interactive loop renders
@@ -104,7 +104,7 @@ pub fn is_foreign_daemon(error: &anyhow::Error) -> bool {
 
 /// Whether an error is a response/handshake timeout ("Timed out after
 /// Nms waiting for the Eukhe daemon (response|handshake)"): a
-/// transient under-load failure, not a protocol error — the caller
+/// transient under-load failure, not a protocol error -- the caller
 /// degrades (retry or surface the queued state) instead of exiting.
 #[must_use]
 pub fn is_daemon_timeout(error: &anyhow::Error) -> bool {
@@ -126,7 +126,7 @@ pub fn is_daemon_timeout(error: &anyhow::Error) -> bool {
 
 /// Whether an error means the daemon connection could not carry the
 /// request at all (a timeout, or a closed connection): a transient the
-/// submit path surfaces without exiting — the pane stays mounted for the
+/// submit path surfaces without exiting -- the pane stays mounted for the
 /// reconnect driver to restore the connection.
 #[must_use]
 pub fn is_daemon_unreachable(error: &anyhow::Error) -> bool {
@@ -142,9 +142,9 @@ pub fn is_daemon_unreachable(error: &anyhow::Error) -> bool {
 
 /// Whether the error is the daemon's kernel-not-running refusal
 /// (`KERNEL_NOT_RUNNING_MESSAGE`: the session-addressed lanes answer
-/// with it while the session's kernel is not built — the lane never
+/// with it while the session's kernel is not built -- the lane never
 /// boots an idle kernel): a DEFINITIVE answer, not a transient
-/// failure — the kernel owns its run registry in memory, so a session
+/// failure -- the kernel owns its run registry in memory, so a session
 /// without a kernel carries no live runs and a caller reading the
 /// count can take zero instead of an unknown.
 #[must_use]

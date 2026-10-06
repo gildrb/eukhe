@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// The line a waiting window shows (the TUI loader note, the print
 /// mode's stderr line).
-pub const CHAT_TURN_WAIT_NOTICE: &str = "Waiting for another window's turn…";
+pub const CHAT_TURN_WAIT_NOTICE: &str = "Waiting for another window's turn...";
 
 /// One `chat_turn_wait` event: `waiting` is `true` when the turn starts
 /// waiting for another window's turn, `false` when that wait ends.

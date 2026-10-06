@@ -2,7 +2,7 @@
 //! not-model-ready branch): the welcome block's description paragraphs
 //! and single login action, the connect-more-providers picker (TS
 //! `OnboardingPickerComponent`), and the panel hosting that mounts each
-//! step's surface inside the splash (TS `setPanel` — the flow never
+//! step's surface inside the splash (TS `setPanel` -- the flow never
 //! nests its panels, so one slot covers it: the login dialog replaces
 //! the picker, the loop re-mounts a fresh picker, the question ends the
 //! flow).
@@ -13,9 +13,9 @@ use crate::menu_panel::search_field_plain_row;
 use crate::onboarding::{highlight_wash, wrap_words, OnboardingDecision};
 use crate::onboarding_choice::OnboardingChoice;
 use crate::search_input::SearchInput;
+use crate::style::Modifier;
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
-use ratatui::style::Modifier;
 use tokio::sync::oneshot;
 
 /// TS `prompt` (the picker's question line).
@@ -67,7 +67,7 @@ pub struct ProviderPickerOption {
     pub connected: bool,
     /// Whether this build carries the row's login flow (the /login menu
     /// rule): an unavailable row renders dimmed with the "not available"
-    /// annotation and Enter is inert — the picker states the dead-end
+    /// annotation and Enter is inert -- the picker states the dead-end
     /// before selection instead of error-walling after it.
     pub available: bool,
 }
@@ -88,7 +88,7 @@ pub enum ProviderPick {
     Continue,
     /// One provider row, by id.
     Provider(String),
-    /// Esc: the step ends (TS `onCancel` → the flow continues).
+    /// Esc: the step ends (TS `onCancel` -> the flow continues).
     Cancelled,
 }
 
@@ -135,7 +135,7 @@ impl ProviderPicker {
             }
             let filtered = self.filtered();
             let item = filtered.get(self.selected - 1)?;
-            // The /login menu rule: an unavailable row's Enter is inert —
+            // The /login menu rule: an unavailable row's Enter is inert --
             // the missing flow is stated inline before selection, never
             // answered with an after-selection error wall.
             if !item.available {
@@ -154,7 +154,7 @@ impl ProviderPicker {
 
     /// One paste payload (TS the field's paste): the paste lands in the
     /// query, and the filter's re-clamp keeps the selection inside the
-    /// match list — a shrunk match list never strands the cursor on a
+    /// match list -- a shrunk match list never strands the cursor on a
     /// row that no longer exists.
     pub fn handle_paste(&mut self, text: &str) {
         // A paste is external bytes: the control-sequence scrub (OSC
@@ -235,11 +235,11 @@ impl ProviderPicker {
         let end = (scroll_top + VISIBLE_ROWS).min(filtered.len());
         for (index, item) in filtered.iter().enumerate().take(end).skip(scroll_top) {
             // The menu rule: an unavailable row states its dead-end
-            // inline — the dimmed label carries the annotation.
+            // inline -- the dimmed label carries the annotation.
             let label = if item.available {
                 item.name.clone()
             } else {
-                format!("{} · not available", item.name)
+                format!("{} - not available", item.name)
             };
             lines.push(Self::row(
                 theme,
@@ -282,7 +282,7 @@ impl ProviderPicker {
             available,
         } = marks;
         let name = format!("{}{}", if selected { "> " } else { "  " }, label);
-        let mark = if connected { "  \u{2713}" } else { "" };
+        let mark = if connected { "  ok" } else { "" };
         let pad = " ".repeat(
             row_width
                 .saturating_sub(crate::width::str_width(&name) + crate::width::str_width(mark)),
@@ -363,7 +363,7 @@ pub enum OnboardingPanel {
     /// The trace question (TS `askOnboardingTraceOptIn`'s choice).
     Question(OnboardingChoice),
     /// The Prime team question (TS `showPrimeTeamSelector`'s onboarding
-    /// arm — `OnboardingChoiceComponent` with the personal account and
+    /// arm -- `OnboardingChoiceComponent` with the personal account and
     /// the teams' rows; no heading, so the brand line returns). The
     /// pick answers the flow's `SelectTeam` request directly: the login
     /// flow settles through its own future (the panel yields no
@@ -443,7 +443,7 @@ impl OnboardingPanel {
             }
             // TS `showPrimeTeamSelector`'s onboarding arm: the choice
             // answers its own oneshot (index 0 the personal account,
-            // 1.. the teams; a cancel keeps the stored selection) — the
+            // 1.. the teams; a cancel keeps the stored selection) -- the
             // login flow behind the question settles through its own
             // future, so the panel yields no decision.
             OnboardingPanel::TeamQuestion {
@@ -476,7 +476,7 @@ impl OnboardingPanel {
     }
 
     /// One paste payload (TS the mounted input's paste): the login
-    /// dialog's field, or the picker's search — the questions have no
+    /// dialog's field, or the picker's search -- the questions have no
     /// input.
     pub fn handle_paste(&mut self, text: &str) {
         match self {
@@ -487,7 +487,7 @@ impl OnboardingPanel {
     }
 
     /// The team question's answer (TS `OnboardingChoiceComponent`'s
-    /// `onSelect`): index 0 the personal account, 1.. the team row — a
+    /// `onSelect`): index 0 the personal account, 1.. the team row -- a
     /// row past the list (a clamped seed cannot reach it) answers the
     /// personal account.
     fn choice_pick(selected: usize, teams: &[crate::auth_panel::PrimeTeamOption]) -> PrimeTeamPick {
@@ -643,14 +643,14 @@ mod tests {
         );
         assert!(
             text.iter()
-                .any(|row| row.contains("One") && row.contains('\u{2713}'.to_string().as_str())),
+                .any(|row| row.contains("One") && row.trim_end().ends_with("  ok")),
             "the connected check rides its row: {text:?}"
         );
     }
 
     /// The /login menu rule in the picker: an unavailable row states its
     /// dead-end inline (the dimmed "not available" annotation) and Enter
-    /// is inert — no after-selection error wall.
+    /// is inert -- no after-selection error wall.
     #[test]
     fn the_picker_marks_unavailable_rows_inert() {
         let mut picker = ProviderPicker::new(vec![ProviderPickerOption {
@@ -663,7 +663,7 @@ mod tests {
         let text: Vec<String> = rows.iter().map(row_text).collect();
         assert!(
             text.iter()
-                .any(|row| row.contains("Anthropic · not available")),
+                .any(|row| row.contains("Anthropic - not available")),
             "the unavailable row carries the inline annotation: {text:?}"
         );
         // Enter on the unavailable row keeps the picker mounted.

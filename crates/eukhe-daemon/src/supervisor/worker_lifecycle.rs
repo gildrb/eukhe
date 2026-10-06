@@ -413,13 +413,13 @@ impl Supervisor {
                             session_path,
                             active_session_id,
                         } => self.log_line(&format!(
-                            "create refused: session file {session_path} is already active{} — {headline}",
+                            "create refused: session file {session_path} is already active{} -- {headline}",
                             active_session_id
                                 .as_deref()
                                 .map(|id| format!(" in {id}"))
                                 .unwrap_or_default(),
                         )),
-                        _ => self.log_line(&format!("create refused — {headline}")),
+                        _ => self.log_line(&format!("create refused -- {headline}")),
                     }
                     TypedCreateRejection {
                         message,

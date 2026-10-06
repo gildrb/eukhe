@@ -1,11 +1,11 @@
-//! The `/factory` view: one panel per live factory run — the machine
+//! The `/factory` view: one panel per live factory run -- the machine
 //! diagram with live highlighting, the run's state, the instances
-//! running and queued, the budget consumed, and the milestone tail — on
+//! running and queued, the budget consumed, and the milestone tail -- on
 //! the activity pages' picker keyset (arrows + Enter + Esc): the arrows
 //! move the run selection over the NEWEST-FIRST feed (a run created
 //! after an existing one renders above it, and the page opens with the
 //! newest run selected), Enter opens the selected run's in-page action
-//! rows (stop/resume — the heartbeats picker's drill-in shape), and Esc
+//! rows (stop/resume -- the heartbeats picker's drill-in shape), and Esc
 //! backs out of the open action rows or closes the page.
 //!
 //! The view is pure presentation and selection: the session UI owns the
@@ -16,9 +16,9 @@
 //! notice-worthy run-shape change flips the changed marker).
 //!
 //! The diagram is the honest in-terminal machine graph: every state as a
-//! status-glyphed row in the machine's declared order — the row's label
-//! carrying the stage's agent occupancy (`reviewing (3 run · 2 queued)`:
-//! how many agents run at the node, how many queue behind them) — its
+//! status-glyphed row in the machine's declared order -- the row's label
+//! carrying the stage's agent occupancy (`reviewing (3 run * 2 queued)`:
+//! how many agents run at the node, how many queue behind them) -- its
 //! outgoing transitions as connector rows underneath (joins rendered
 //! once, back edges marked), active nodes bright, pending nodes dim, and
 //! the last-fired edges marked.
@@ -112,7 +112,7 @@ impl FactoryRunSnapshot {
     }
 
     /// Whether the run still holds running children (admitted residents,
-    /// or any in-flight instance a terminal state can carry — a `done`
+    /// or any in-flight instance a terminal state can carry -- a `done`
     /// run whose residents still run stays actionable).
     #[must_use]
     pub fn children_in_flight(&self) -> bool {
@@ -120,7 +120,7 @@ impl FactoryRunSnapshot {
     }
 
     /// Whether the run is LIVE in the dock/page sense: a live state
-    /// (running/stopping/paused), or children still in flight — the
+    /// (running/stopping/paused), or children still in flight -- the
     /// kernel's own unscoped-list liveness rule (`state in live_states
     /// or running > 0`): a `done`/`failed` run whose resident children
     /// still run keeps its panel, its dock count, and its stop control
@@ -159,12 +159,12 @@ impl FactoryAction {
 /// panel never renders), and an unknown shape answers an empty view.
 ///
 /// The reply carries the registry's start order, oldest run first (the
-/// kernel's documented polling order — `FactoryExecutor.graph` in
+/// kernel's documented polling order -- `FactoryExecutor.graph` in
 /// `rlm/factory.py`); the view reads NEWEST-FIRST, like a live activity
 /// feed, so this seam reverses the list exactly once and every view path
 /// (the mount and the refresh fold) receives the same reading order. The
 /// wire contract stays stable: the kernel reply and the agent
-/// conversation API keep their oldest-first order — the reading order is
+/// conversation API keep their oldest-first order -- the reading order is
 /// presentation. Reversal, never an `elapsedMs` sort: the elapsed clock
 /// grows live, truncates to whole milliseconds, and each row snapshots
 /// at its own tick, so two close-start runs could flip between
@@ -181,7 +181,7 @@ pub fn parse_factory_runs(data: &Value) -> Vec<FactoryRunSnapshot> {
 
 /// Whether a reply is the graph list shape at all: a reply without the
 /// `runs` LIST (absent, or present but not an array) is a malformed
-/// lane, not zero runs — the session UI reports it on the open page's
+/// lane, not zero runs -- the session UI reports it on the open page's
 /// error line instead of painting a fake empty state (the emptiness the
 /// view shows is real).
 #[must_use]
@@ -203,11 +203,11 @@ fn opt_string(value: Option<&Value>) -> Option<String> {
 
 /// One daemon-provided DISPLAY string, scrubbed: control bytes never
 /// reach a styled span (`scrub_controls`, the bash activity lane's
-/// rule — a run name or milestone carrying an OSC sequence can never
+/// rule -- a run name or milestone carrying an OSC sequence can never
 /// drive the terminal, e.g. overwrite the operator's clipboard via
 /// OSC 52). The scrub lands at this parse seam, so every paint path
 /// (the panel header, the diagram rows, the milestone tail, the
-/// Mermaid copy) sees terminal-safe text; the run id stays raw — it
+/// Mermaid copy) sees terminal-safe text; the run id stays raw -- it
 /// never reaches a span and must round-trip the kernel's registry as
 /// the stop/resume/watch identity.
 fn scrubbed_string(value: Option<&Value>) -> Option<String> {
@@ -216,7 +216,7 @@ fn scrubbed_string(value: Option<&Value>) -> Option<String> {
 
 /// One field read that tolerates both spellings: the kernel's
 /// conversation shape (`snake_case`) and the activity lane's wire shape
-/// (`camelCase` — `_wire_payload` re-keys the reply before it travels).
+/// (`camelCase` -- `_wire_payload` re-keys the reply before it travels).
 /// The two spellings never coexist in one reply; either resolves.
 fn get_either<'a>(value: &'a Value, snake: &str, camel: &str) -> Option<&'a Value> {
     value.get(snake).or_else(|| value.get(camel))
@@ -230,8 +230,8 @@ fn get_either<'a>(value: &'a Value, snake: &str, camel: &str) -> Option<&'a Valu
 /// tolerates both spellings: the activity wire carries the `camelCase`
 /// form (`_wire_payload` converts the reply before it travels) and the
 /// kernel's conversation shape stays `snake_case`. Every DISPLAY string
-/// scrubs its control bytes ([`scrubbed_string`]) — daemon-provided
-/// text never drives the terminal — and the run id stays raw (the
+/// scrubs its control bytes ([`scrubbed_string`]) -- daemon-provided
+/// text never drives the terminal -- and the run id stays raw (the
 /// stop/resume/watch identity must round-trip the kernel's registry).
 fn parse_run(run: &Value) -> Option<FactoryRunSnapshot> {
     let run_id = opt_string(get_either(run, "run_id", "runId")).unwrap_or_default();
@@ -314,7 +314,7 @@ pub enum FactoryViewAction {
 }
 
 /// The page's mode: the run feed, or the selected run's open action rows
-/// (the heartbeats picker's list/detail drill-in shape, one level — the
+/// (the heartbeats picker's list/detail drill-in shape, one level -- the
 /// feed stays mounted behind the action rows; there is no separate detail
 /// page to paint).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,7 +322,7 @@ enum Mode {
     /// The run feed: the arrows walk the run selection.
     Feed,
     /// The open run's action rows: the arrows walk the offered actions.
-    /// The tracked action rides by IDENTITY, not index — a fold may
+    /// The tracked action rides by IDENTITY, not index -- a fold may
     /// change the run's state (and with it the offered set) while the
     /// rows are open, and a tracked index would silently rename the
     /// selection to a different action (the feed's same-run lesson, one
@@ -340,7 +340,7 @@ pub struct FactoryView {
     runs: Vec<FactoryRunSnapshot>,
     /// Per-run recent-change markers: set by [`Self::apply_runs`] when the
     /// signature changed, decayed on the next cycle (no per-transition
-    /// repaint spam — one marker per notice-worthy change).
+    /// repaint spam -- one marker per notice-worthy change).
     recent_change: Vec<bool>,
     selected: usize,
     mode: Mode,
@@ -351,7 +351,7 @@ pub struct FactoryView {
 impl FactoryView {
     /// Build the view from the first snapshot batch. The batch arrives
     /// newest-first ([`parse_factory_runs`]'s reading order), so the
-    /// default selection — index 0 — is the newest run: the page opens on
+    /// default selection -- index 0 -- is the newest run: the page opens on
     /// the feed's live head.
     #[must_use]
     pub fn new(runs: Vec<FactoryRunSnapshot>, viewport_rows: usize) -> Self {
@@ -367,12 +367,12 @@ impl FactoryView {
     }
 
     /// The actions the page offers on one run (the heartbeats picker's
-    /// `availableActions` grammar): the pause complement first — resume
-    /// on a paused run — then stop, exactly while the run is live (a
+    /// `availableActions` grammar): the pause complement first -- resume
+    /// on a paused run -- then stop, exactly while the run is live (a
     /// `done` run with residents still in flight keeps its stop; a
     /// fully terminal run offers nothing). The offered set is derived
-    /// from the run's CURRENT snapshot everywhere — the render, the
-    /// arrow walk, the Enter confirmation — so a fold's state change
+    /// from the run's CURRENT snapshot everywhere -- the render, the
+    /// arrow walk, the Enter confirmation -- so a fold's state change
     /// can never leave a stale action offered.
     #[must_use]
     pub fn available_actions(run: &FactoryRunSnapshot) -> Vec<FactoryAction> {
@@ -390,8 +390,8 @@ impl FactoryView {
     }
 
     /// Mount the view from the poll cache (the open path's builder): the
-    /// parsed panels, and — when the cached reply is a malformed lane (no
-    /// runs list) — the malformed-reply error set at once. A malformed
+    /// parsed panels, and -- when the cached reply is a malformed lane (no
+    /// runs list) -- the malformed-reply error set at once. A malformed
     /// cache can never mount as a silent fake empty state: the fold's
     /// malformed-reply contract holds at mount too, so the page's first
     /// frame already says why the list is empty instead of waiting a
@@ -408,7 +408,7 @@ impl FactoryView {
     /// Apply one refreshed snapshot batch: keep the selection on the same
     /// run, and light the changed marker exactly on the runs whose
     /// signature changed this cycle (the marker decays when the run goes
-    /// quiet — the repaint hysteresis, no per-transition spam). Returns
+    /// quiet -- the repaint hysteresis, no per-transition spam). Returns
     /// whether any run changed.
     pub fn apply_runs(&mut self, runs: Vec<FactoryRunSnapshot>) -> bool {
         let mut changed = false;
@@ -428,8 +428,8 @@ impl FactoryView {
         // the list reads newest-first, so a newer run folding in moves
         // the selected run down without stealing the selection. A run
         // that left the batch (the wire cap's oldest-end trim, a
-        // cleared registry) returns the selection to the feed's head —
-        // the newest run — because the same slot names a different run
+        // cleared registry) returns the selection to the feed's head --
+        // the newest run -- because the same slot names a different run
         // in the reversed order.
         let selected_id = self.runs.get(self.selected).map(|run| run.run_id.clone());
         self.runs = runs;
@@ -444,7 +444,7 @@ impl FactoryView {
         };
         // The open action rows ride the same fold discipline as the
         // feed's selection: a run that left the batch closes the rows,
-        // and a state change under them re-reads the offered set — a
+        // and a state change under them re-reads the offered set -- a
         // paused run that stopped mid-menu no longer offers resume,
         // and the tracked action clamps to what the run still offers
         // (never a stale target: the rows confirm against the folded
@@ -478,14 +478,14 @@ impl FactoryView {
 
     /// Record one fetch/error line from the session UI's refresh. The
     /// message is daemon-provided text painted on the chrome line, so it
-    /// scrubs — an OSC sequence in a reply's error reason can never
+    /// scrubs -- an OSC sequence in a reply's error reason can never
     /// drive the terminal.
     pub fn set_error(&mut self, error: Option<String>) {
         self.error = error.map(|text| crate::menu_panel::scrub_controls(&text));
     }
 
     /// One key press on the activity pages' picker keyset (arrows +
-    /// Enter + Esc — the heartbeats/bash pages' family): the arrows
+    /// Enter + Esc -- the heartbeats/bash pages' family): the arrows
     /// move the selection (the feed's run, or the open action rows'
     /// action), Enter opens the selected run's action rows or runs the
     /// selected action, and Esc/ctrl+c back out of the open action rows
@@ -496,7 +496,7 @@ impl FactoryView {
     pub fn handle_key(&mut self, key: &str, kb: &KeybindingsManager) -> FactoryViewAction {
         if key == "ctrl+c" || kb.matches(key, "tui.select.cancel") {
             // Esc backs out of the open action rows before it closes
-            // the page — the drill-in's back, on the one close key the
+            // the page -- the drill-in's back, on the one close key the
             // page carries (the keyset stays arrows + Enter + Esc).
             if self.mode != Mode::Feed {
                 self.mode = Mode::Feed;
@@ -519,7 +519,7 @@ impl FactoryView {
         FactoryViewAction::None
     }
 
-    /// One arrow step: the feed walks the run selection (newest-first —
+    /// One arrow step: the feed walks the run selection (newest-first --
     /// down the feed reads OLDER), the open action rows walk their
     /// offered set. A run that left the batch under open rows closes
     /// them (the fold's own hand-back, reached from the key path too).
@@ -553,11 +553,11 @@ impl FactoryView {
     }
 
     /// Enter: the feed opens the selected run's action rows (when the
-    /// run offers any — a terminal run answers nothing), the open rows
+    /// run offers any -- a terminal run answers nothing), the open rows
     /// run the selected action and return to the feed. The
     /// confirmation re-resolves the run and its offered set against
-    /// the CURRENT batch — a fold may have changed the run's state, or
-    /// dropped the run, while the rows were open — so the action lands
+    /// the CURRENT batch -- a fold may have changed the run's state, or
+    /// dropped the run, while the rows were open -- so the action lands
     /// on the folded truth, never a stale target.
     fn confirm_selection(&mut self) -> FactoryViewAction {
         match self.mode.clone() {
@@ -625,7 +625,7 @@ impl FactoryView {
         }
         // The chrome area: the open action rows, the error line from the
         // last failed refresh, and the trailing key hint. The chrome
-        // always renders — the hint is the view's only key legend, and
+        // always renders -- the hint is the view's only key legend, and
         // the action rows are the page's only action surface.
         let action_rows = self.action_block(theme);
         let mut chrome_rows = 2 + action_rows.len();
@@ -635,11 +635,11 @@ impl FactoryView {
         // The dock's frame budget owns the final trim; the view never
         // renders more rows than the viewport asked for. A tall view
         // windows over the panel area: the leading window keeps the top
-        // of the feed (the newest panels — the oldest panels drop
+        // of the feed (the newest panels -- the oldest panels drop
         // first), and when the focused run's panel falls below it the
-        // window slides to it (the focused run is the actionable one —
+        // window slides to it (the focused run is the actionable one --
         // the feed's selection, or the run whose action rows are
-        // open — so a stop/resume target never hides behind the
+        // open -- so a stop/resume target never hides behind the
         // budget); the chrome stays pinned at the end either way.
         let focus = match &self.mode {
             Mode::Actions { run_id, .. } => self
@@ -697,9 +697,9 @@ impl FactoryView {
                 .map_or_else(|| fallback.to_string(), |key| format_key_text(&key))
         };
         format!(
-            "{}/{} move \u{b7} {} actions \u{b7} {} close",
-            key("tui.select.up", "\u{2191}"),
-            key("tui.select.down", "\u{2193}"),
+            "{}/{} move - {} actions - {} close",
+            key("tui.select.up", crate::glyphs::KEY_UP),
+            key("tui.select.down", crate::glyphs::KEY_DOWN),
             key("tui.select.confirm", "Enter"),
             key("tui.select.cancel", "Esc"),
         )
@@ -713,9 +713,9 @@ impl FactoryView {
                 .map_or_else(|| fallback.to_string(), |key| format_key_text(&key))
         };
         format!(
-            "{}/{} action \u{b7} {} run \u{b7} {} back",
-            key("tui.select.up", "\u{2191}"),
-            key("tui.select.down", "\u{2193}"),
+            "{}/{} action - {} run - {} back",
+            key("tui.select.up", crate::glyphs::KEY_UP),
+            key("tui.select.down", crate::glyphs::KEY_DOWN),
             key("tui.select.confirm", "Enter"),
             key("tui.select.cancel", "Esc"),
         )
@@ -724,7 +724,7 @@ impl FactoryView {
     /// The open action rows (the heartbeats picker's drill-in, one
     /// level): a blank, a header naming the run, one row per offered
     /// action with the tracked one marked. The block rides the
-    /// trailing chrome — the panel window's budget keeps it and the
+    /// trailing chrome -- the panel window's budget keeps it and the
     /// hint painted together.
     fn action_block(&self, theme: &Theme) -> Vec<Line> {
         let Mode::Actions { run_id, action } = &self.mode else {
@@ -741,7 +741,7 @@ impl FactoryView {
         for offered in Self::available_actions(run) {
             let tracked = offered == *action;
             let mut row: Line = vec![Span::raw("  ")];
-            row.push(Span::raw(if tracked { "▸ " } else { "  " }));
+            row.push(Span::raw(if tracked { "> " } else { "  " }));
             row.push(theme.fg_span(
                 if tracked {
                     ThemeColor::Text
@@ -769,16 +769,16 @@ impl FactoryView {
         let selected = index == self.selected;
         let changed = self.recent_change.get(index).copied().unwrap_or(false);
         // The header: the selection marker, the run's name, its state.
-        let mut header: Line = vec![Span::raw(if selected { "▸ " } else { "  " })];
+        let mut header: Line = vec![Span::raw(if selected { "> " } else { "  " })];
         header.push(theme.fg_span(ThemeColor::ToolTitle, "factory: "));
         header.push(theme.fg_span(ThemeColor::Text, run.display_name()));
         let state_text = match run.state.as_deref() {
-            Some(state) => format!(" — {state}"),
-            None => " — not running".to_string(),
+            Some(state) => format!(" -- {state}"),
+            None => " -- not running".to_string(),
         };
         header.push(theme.fg_span(run_state_color(run.state.as_deref()), state_text));
         if changed {
-            header.push(theme.fg_span(ThemeColor::Accent, "  ● changed"));
+            header.push(theme.fg_span(ThemeColor::Accent, "  * changed"));
         }
         // The stats tail: elapsed, budget, parallel, instances.
         let running = run
@@ -803,7 +803,7 @@ impl FactoryView {
                 .rev()
                 .cloned()
                 .collect::<Vec<_>>()
-                .join(" · ");
+                .join(crate::glyphs::SEP);
             rows.push(vec![
                 Span::raw("  "),
                 theme.fg_span(ThemeColor::MdQuote, "milestones: "),
@@ -833,8 +833,8 @@ impl FactoryView {
             .values()
             .map(FactoryNodeState::queued_agents)
             .sum::<u64>();
-        parts.push(format!("{running} running · {queued} queued"));
-        parts.join(" · ")
+        parts.push(format!("{running} running - {queued} queued"));
+        parts.join(crate::glyphs::SEP)
     }
 
     /// The machine diagram: every state in the machine's declared order as
@@ -851,9 +851,9 @@ impl FactoryView {
             // an earlier one still runs stays bright (is_active covers
             // every entry's status, not just the newest).
             let (glyph, color) = match node {
-                Some(node) if node.is_active() => ("●", ThemeColor::Accent),
+                Some(node) if node.is_active() => (crate::glyphs::DOT_ON, ThemeColor::Accent),
                 Some(node) => node_glyph(&node.status),
-                None => ("○", ThemeColor::Dim),
+                None => (crate::glyphs::DOT_OFF, ThemeColor::Dim),
             };
             let mut row: Line = vec![
                 Span::raw("   "),
@@ -861,11 +861,11 @@ impl FactoryView {
                 Span::raw(" "),
                 // The whole row paints in the node's status color: active
                 // nodes bright (accent), pending dim, done muted, errors
-                // red — the diagram's live highlighting.
+                // red -- the diagram's live highlighting.
                 theme.fg_span(color, state.id.clone()),
             ];
-            // The stage's agent occupancy rides the label — `reviewing
-            // (3 run · 2 queued)` — so the diagram reads as a page of
+            // The stage's agent occupancy rides the label -- `reviewing
+            // (3 run * 2 queued)` -- so the diagram reads as a page of
             // machines with per-stage headcounts; a stage at rest
             // carries no fragment. The counts come from the kernel's
             // per-state report (the instance rows are the older-kernel
@@ -904,9 +904,9 @@ impl FactoryView {
                     .iter()
                     .any(|candidate| candidate.matches(edge));
                 let (marker, marker_color) = edge_marker(edge, &order, position);
-                let mut row: Line = vec![Span::raw("   "), Span::raw("│ ")];
+                let mut row: Line = vec![Span::raw("   "), Span::raw("| ")];
                 if fired {
-                    row.push(theme.fg_span(ThemeColor::Success, "»".to_string()));
+                    row.push(theme.fg_span(ThemeColor::Success, crate::glyphs::FIRED.to_string()));
                 }
                 row.push(theme.fg_span(
                     if fired {
@@ -914,7 +914,7 @@ impl FactoryView {
                     } else {
                         marker_color
                     },
-                    format!("{marker}▶ "),
+                    format!("{marker}{} ", crate::glyphs::ARROW),
                 ));
                 row.push(theme.fg_span(ThemeColor::MdLink, edge.to.clone()));
                 if edge.from.len() > 1 {

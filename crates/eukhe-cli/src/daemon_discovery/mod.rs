@@ -2,7 +2,7 @@
 //! it for identity and session count (TS `cli/daemon-ps.ts`).
 //!
 //! Discovery merges two sources by socket path: the OS census of listening
-//! unix sockets owned by a product process (the only reliable socket→pid
+//! unix sockets owned by a product process (the only reliable socket->pid
 //! mapping when daemons run on arbitrary `--daemon-socket` paths), and a sweep
 //! of the default socket dir, which also catches orphaned socket files left
 //! by daemons that are no longer running. Worker sockets (tracked by the
@@ -10,7 +10,7 @@
 //! so a supervisor whose own listener vanished is still reachable for
 //! `shutdown --force`.
 //!
-//! Scope: one *state root* — the agent dir, the default socket dir, and the
+//! Scope: one *state root* -- the agent dir, the default socket dir, and the
 //! invocation's own daemon socket (`--daemon-socket`, else
 //! `EUKHE_DAEMON_SOCKET`, else the per-user default). A daemon started under
 //! a different HOME or agent dir is another root's business; stopping it
@@ -210,8 +210,8 @@ pub(crate) fn is_worker_socket_path(socket_path: &Path) -> bool {
 
 /// Listening daemons in this state root (TS `scanListeningDaemons`). The OS
 /// census is filtered to the root inside the scan, before any probe or
-/// uptime lookup touches a pid: a scan run from one root can never see —
-/// let alone stop — a daemon in another root.
+/// uptime lookup touches a pid: a scan run from one root can never see --
+/// let alone stop -- a daemon in another root.
 pub(crate) fn scan_listening_daemons(root: &DaemonStateRoot) -> Vec<DiscoveredDaemonProcess> {
     scan::scan_all_listening_daemons(config::PROCESS_NAME, root)
 }
@@ -651,7 +651,7 @@ mod tests {
         // The ambient mission daemon's workers listen under these dirs and
         // are owned by real `eukhe` processes: root matching alone
         // would find them, the containment guard must not. The loop covers
-        // every guarded dir — the uid-1000 mission paths on a devbox and
+        // every guarded dir -- the uid-1000 mission paths on a devbox and
         // their uid-0 twins on a root-user Linux box.
         for dir in NEVER_TOUCH_SOCKET_DIRS {
             let dir = *dir;
@@ -671,7 +671,7 @@ mod tests {
     fn a_probe_never_connects_to_a_never_touch_path() {
         // When the guard works, this never opens a connection. A regression
         // (guard removed) would probe the live mission daemon once and fail
-        // the assertion — never kill it.
+        // the assertion -- never kill it.
         let probe = probe_daemon(Path::new("/tmp/mission-daemon/daemon.sock"));
         assert!(!probe.reachable);
     }

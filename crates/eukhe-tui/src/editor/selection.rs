@@ -3,7 +3,7 @@
 //! every standard editor).
 //!
 //! SANCTIONED DIVERGENCE from TS (operator ask 2026-09-24, documented per
-//! the #289 precedent): the TS editor has no selection model at all — its
+//! the #289 precedent): the TS editor has no selection model at all -- its
 //! `tui.input.copy` arm returns without acting. The selection here spans
 //! the anchor (`selection_anchor`) to the cursor; rendering highlights it
 //! (view.rs), edits delete it before inserting, and undo/redo carry it.
@@ -17,7 +17,7 @@ impl Editor {
     /// A selection is active: the anchor plus cursor produce a non-empty
     /// range after the hidden-prefix clamp. An anchor whose span the clamp
     /// floors away (a cursor parked inside the bang prefix) is a phantom
-    /// the editor treats as no selection at all — every consumer gates on
+    /// the editor treats as no selection at all -- every consumer gates on
     /// this, so no stale anchor can wedge Backspace or the insert path.
     #[must_use]
     pub fn has_selection(&self) -> bool {
@@ -547,7 +547,7 @@ mod tests {
 
     /// A cursor parked inside the hidden bang prefix leaves a phantom
     /// anchor: the clamp floors its range away, and the editor treats it
-    /// as NO selection at all — Backspace falls through to the normal
+    /// as NO selection at all -- Backspace falls through to the normal
     /// single-character delete and typing inserts, instead of a wedged
     /// selection no-op that swallows keypresses.
     #[test]
@@ -556,7 +556,7 @@ mod tests {
         e.set_text("!cmd");
         // The exact phantom shape: the anchor sits inside the hidden
         // prefix (column 0) and the cursor on the protected start
-        // (column 1) — the clamp floors the range to empty, so this is
+        // (column 1) -- the clamp floors the range to empty, so this is
         // NOT a live selection even though the anchor differs.
         e.selection_anchor = Some((0, 0));
         e.set_cursor_for_tests(0, 1);
@@ -565,7 +565,7 @@ mod tests {
             "the clamped-away span is not a selection"
         );
         // Backspace falls through to the normal path (a no-op at the
-        // protected prefix — NOT a wedged selection delete that pushes
+        // protected prefix -- NOT a wedged selection delete that pushes
         // an undo snapshot and swallows the keypress).
         e.handle_input("backspace");
         assert_eq!(e.get_text(), "!cmd");
@@ -582,7 +582,7 @@ mod tests {
         let mut e = ed();
         e.set_text("!cmd");
         // A backward jump finds the raw `!` at column 0 and parks the
-        // cursor there — inside the hidden prefix.
+        // cursor there -- inside the hidden prefix.
         e.set_cursor_for_tests(0, 4);
         e.handle_input("ctrl+alt+]");
         e.handle_input("!");
@@ -632,7 +632,7 @@ mod tests {
         let _ = e.take_events();
         e.handle_paste("/tmp/x");
         // The insertion point is the selection start (col 0), whose
-        // preceding character is nothing — no leading space.
+        // preceding character is nothing -- no leading space.
         assert_eq!(e.get_text(), "/tmp/x def");
     }
 

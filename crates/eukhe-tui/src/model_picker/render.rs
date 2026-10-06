@@ -36,7 +36,7 @@ pub(super) fn render(
 
     // TS model-selector v0.9.7: the headerHelpContainer (the scope row,
     // :794-807) mounts before the search input, so the scope row renders
-    // ABOVE the search field — one leading space on the row, the active
+    // ABOVE the search field -- one leading space on the row, the active
     // side accented, then the dim toggle key and muted description,
     // truncated with "...".
     let mut lines = Vec::new();
@@ -52,7 +52,7 @@ pub(super) fn render(
             all,
             muted(" | "),
             scoped,
-            muted(" \u{b7} "),
+            muted(crate::glyphs::SEP),
         ];
         if let Some(key) = kb
             .first_key("app.model.toggleScope")
@@ -62,7 +62,11 @@ pub(super) fn render(
             line.push(theme.fg_span(ThemeColor::Dim, key));
             line.push(muted(" scope (all/scoped)"));
         }
-        lines.push(crate::width::truncate_line(&line, width, "..."));
+        lines.push(crate::width::truncate_line(
+            &line,
+            width,
+            crate::glyphs::ELLIPSIS,
+        ));
     }
     lines.extend(search_field_lines(
         theme,
@@ -114,7 +118,7 @@ pub(super) fn render(
     lines.push(hint_line(theme, width, kb));
     // One blank line of spacing below the shortcuts (the operator's
     // 2026-09-24 directive on the `/model` view: the hint is the
-    // frame's last content row, a single blank rides under it — never
+    // frame's last content row, a single blank rides under it -- never
     // a rule).
     lines.push(Vec::new());
     lines
@@ -140,15 +144,11 @@ fn row_primary(
     if levels.is_empty() {
         return vec![Span::raw(name)];
     }
-    let mut primary: Line = vec![Span::raw(truncate_pad(
-        &name,
-        layout.name_column,
-        "\u{2026}",
-    ))];
+    let mut primary: Line = vec![Span::raw(truncate_pad(&name, layout.name_column, "..."))];
     primary.push(Span::raw(" ".repeat(layout.gap)));
     // Arrow slots: only the selected row shows the effort-adjustment arrows.
     if selected {
-        primary.push(theme.fg_span(ThemeColor::Dim, "\u{2190}"));
+        primary.push(theme.fg_span(ThemeColor::Dim, crate::glyphs::LEFT));
     } else {
         primary.push(Span::raw(" "));
     }
@@ -162,7 +162,7 @@ fn row_primary(
     ));
     primary.push(Span::raw(" "));
     if selected {
-        primary.push(theme.fg_span(ThemeColor::Dim, "\u{2192}"));
+        primary.push(theme.fg_span(ThemeColor::Dim, crate::glyphs::RIGHT));
     } else {
         primary.push(Span::raw(" "));
     }
@@ -208,12 +208,12 @@ fn effort_square_spans(
             // elsewhere.
             if selected {
                 let style = theme.effort_square_style();
-                spans.push(Span::styled("\u{25a0}".to_string(), style));
+                spans.push(Span::styled(crate::glyphs::METER_ON.to_string(), style));
             } else {
-                spans.push(theme.fg_span(ThemeColor::Muted, "\u{25a0}"));
+                spans.push(theme.fg_span(ThemeColor::Muted, crate::glyphs::METER_ON));
             }
         } else {
-            spans.push(theme.fg_span(ThemeColor::Dim, "\u{25a1}"));
+            spans.push(theme.fg_span(ThemeColor::Dim, crate::glyphs::METER_OFF));
         }
     }
     let used: usize = spans.iter().map(|span| str_width(&span.content)).sum();
@@ -227,10 +227,10 @@ fn effort_square_spans(
 fn detail_lines(theme: &Theme, width: usize, model: &Model) -> Vec<Line> {
     let price = |value: Option<f64>| -> String {
         let Some(value) = value else {
-            return "\u{2014}".to_string();
+            return "--".to_string();
         };
         if !value.is_finite() || value < 0.0 {
-            return "\u{2014}".to_string();
+            return "--".to_string();
         }
         if value == 0.0 {
             return "$0".to_string();
@@ -294,7 +294,7 @@ fn detail_lines(theme: &Theme, width: usize, model: &Model) -> Vec<Line> {
             if used < width {
                 line.push(Span::raw(" ".repeat(width - used)));
             }
-            crate::width::truncate_line(&line, width, "\u{2026}")
+            crate::width::truncate_line(&line, width, crate::glyphs::ELLIPSIS)
         })
         .collect()
 }
@@ -312,21 +312,29 @@ fn hint_line(theme: &Theme, width: usize, kb: &KeybindingsManager) -> Line {
     let hint = if width >= 70 {
         let navigate = format!(
             "{}/{}",
-            kb.first_key("tui.select.up")
-                .map_or_else(|| "\u{2191}".to_string(), |key| format_key_text(&key)),
-            kb.first_key("tui.select.down")
-                .map_or_else(|| "\u{2193}".to_string(), |key| format_key_text(&key))
+            kb.first_key("tui.select.up").map_or_else(
+                || crate::glyphs::KEY_UP.to_string(),
+                |key| format_key_text(&key)
+            ),
+            kb.first_key("tui.select.down").map_or_else(
+                || crate::glyphs::KEY_DOWN.to_string(),
+                |key| format_key_text(&key)
+            )
         );
         let effort = format!(
             "{}/{}",
-            kb.first_key("tui.editor.cursorLeft")
-                .map_or_else(|| "\u{2190}".to_string(), |key| format_key_text(&key)),
-            kb.first_key("tui.editor.cursorRight")
-                .map_or_else(|| "\u{2192}".to_string(), |key| format_key_text(&key))
+            kb.first_key("tui.editor.cursorLeft").map_or_else(
+                || crate::glyphs::KEY_LEFT.to_string(),
+                |key| format_key_text(&key)
+            ),
+            kb.first_key("tui.editor.cursorRight").map_or_else(
+                || crate::glyphs::KEY_RIGHT.to_string(),
+                |key| format_key_text(&key)
+            )
         );
-        format!("{navigate} model \u{b7} {effort} effort \u{b7} {select_key} select \u{b7} {close_key} close")
+        format!("{navigate} model - {effort} effort - {select_key} select - {close_key} close")
     } else {
-        format!("{select_key} select \u{b7} {close_key} close")
+        format!("{select_key} select - {close_key} close")
     };
     hint_row(theme, width, &hint)
 }

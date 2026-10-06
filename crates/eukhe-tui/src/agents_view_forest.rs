@@ -7,12 +7,12 @@
 //! saved-catalog rows); the view module owns input and painting.
 //!
 //! Operator directive (2026-09-28): a parent with descendants carries ONE
-//! summary line — `"{total} subagents ({running} running)"` — that
+//! summary line -- `"{total} subagents ({running} running)"` -- that
 //! expands to the FULL roster in one group, the running rows first (with
 //! their running state), the inactive after, every child rendering in
 //! place with its own nested line. TS parity: TS
 //! `createSubagentSummaryRow` titles one `"{n} subagents running"` /
-//! `"{n} subagents"` line that expands to every child — the same
+//! `"{n} subagents"` line that expands to every child -- the same
 //! one-line shape, with the operator's both-counts label as a
 //! sanctioned divergence.
 
@@ -126,7 +126,7 @@ pub struct Rollup {
     pub cost: f64,
     /// Every descendant subagent's spend (the running line's aggregate
     /// cost cell): each child's recursive rollup plus this record's
-    /// deleted-descendant bucket. Status-independent — running, idle,
+    /// deleted-descendant bucket. Status-independent -- running, idle,
     /// and inactive descendants all bill.
     pub descendants: f64,
     pub descendant_count: usize,

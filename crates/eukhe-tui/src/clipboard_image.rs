@@ -60,7 +60,7 @@ async fn run_command(program: &str, args: &[&str], timeout: Duration) -> Option<
         .args(args)
         // The timeout arm drops the child mid-wait: without the drop-kill
         // a hung converter (a kitten/magick that never answers) keeps
-        // running past the deadline — an orphaned direct child of the TUI.
+        // running past the deadline -- an orphaned direct child of the TUI.
         .kill_on_drop(true)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -220,7 +220,7 @@ if (!types.containsObject($.NSPasteboardTypePNG)) {{
 /// native-module readers that need a bundled binary are replaced by the
 /// command-line equivalents.
 pub async fn read_clipboard_image() -> Option<ClipboardImage> {
-    // Verification seam (the `script_path` pattern — the product never sets
+    // Verification seam (the `script_path` pattern -- the product never sets
     // it): a harness without a display server cannot drive the real
     // clipboard readers, so a fixture file stands in for the clipboard.
     // Only `read_clipboard_image` honors it; the image travels the exact

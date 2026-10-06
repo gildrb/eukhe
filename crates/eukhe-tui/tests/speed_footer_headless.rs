@@ -276,7 +276,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -344,9 +343,8 @@ fn speed_command_toggles_the_footer_readout() {
     assert!(!frames.is_empty(), "frames were captured");
     let all = frames.join("\n");
     assert!(
-        all.contains(
-            "Speed display on — footer shows output tok/s per model response and a session average"
-        ),
+        all.contains("Speed display on")
+            && all.contains("footer shows output tok/s per model response and a session average"),
         "the enable note rendered:\n{all}"
     );
     assert!(

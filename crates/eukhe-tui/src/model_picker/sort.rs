@@ -1,6 +1,6 @@
 /// The version run parsed from a model id: every digit group of the id,
 /// in order, kept as text so components longer than `u64` still compare
-/// by numeric value. Covers the catalog's id formats — hyphen-joined
+/// by numeric value. Covers the catalog's id formats -- hyphen-joined
 /// (`claude-opus-5-5` -> `["5", "5"]`), dot-joined (`glm-5.3` ->
 /// `["5", "3"]`), letter-glued (`qwen3`, `m2.7`, `glm-5p2` -> `["5", "2"]`),
 /// dated snapshots (`claude-opus-4-5-20251101` -> `["4", "5", "20251101"]`),
@@ -16,8 +16,8 @@ pub(super) fn version_key(id: &str) -> Vec<String> {
 /// Version-descending order for the search sort's recency tier: higher
 /// versions first, over an equal prefix the longer, more specific run
 /// (the dated snapshot over its alias) first, ids without a version last.
-/// Components compare by numeric value — leading zeros aside, digit
-/// length first, then text — so no `u64` bound applies.
+/// Components compare by numeric value -- leading zeros aside, digit
+/// length first, then text -- so no `u64` bound applies.
 pub(super) fn version_desc(a: &[String], b: &[String]) -> std::cmp::Ordering {
     for (a_part, b_part) in a.iter().zip(b.iter()) {
         let a_part = a_part.trim_start_matches('0');

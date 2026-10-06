@@ -1,15 +1,19 @@
 //! The render surface: the frame composer (splash, search prompt,
 //! sectioned list, hints), the row builders, the notice/list/row
-//! renderers, the cell/truncate helpers, and the terminal/
+//! renderers, the cell/truncate helpers, and the inline-terminal/
 //! headless renderer (moved with their concern).
 use super::{
     build_layout, mpsc, pad_line, section_title, str_width, truncate_text, AgentsStep,
     AgentsViewMode, AgentsViewRow, AgentsViewUiMode, Composer, Duration, Line, Result, RowKind,
     RowLayout, Section, Theme, ThemeColor, UiInput, Value,
 };
+use crate::glyphs;
+use crate::inline_term::{InlineFrame, InlineTerminal, LiveCursor};
 
 impl AgentsViewMode {
-    /// Compose one frame (splash, search prompt, sectioned list, hints).
+    /// Compose one frame (splash, search prompt, sectioned list, hints):
+    /// the live area, as tall as its content and never taller than
+    /// `height`.
     pub(super) fn render_frame(
         &mut self,
         width: usize,
@@ -20,7 +24,7 @@ impl AgentsViewMode {
         self.last_height = height;
         let mut lines: Vec<Line> = Vec::new();
         // TS `getAgentCountsText` rides the splash as extra metadata. Like
-        // TS `countRowsBySection`, it counts agent-kind rows only — nested
+        // TS `countRowsBySection`, it counts agent-kind rows only -- nested
         // subagent and summary rows never inflate the header.
         let count_agents = |section: Section| {
             self.rows
@@ -55,8 +59,8 @@ impl AgentsViewMode {
         // the scope label and the search prompt.
         lines.extend(crate::chrome::render_splash(&chrome, theme, width));
         lines.extend(self.render_incident_notice(width));
-        // The scoped view's back label (TS `<back> back · <title> ›
-        // subagents`), dim, over the full width under the splash.
+        // The scoped view's back label (`< back - <title> > subagents`),
+        // dim, over the full width under the splash.
         if self.scope_active {
             if let Some(scope) = &self.options.scope {
                 let title = scope
@@ -65,7 +69,12 @@ impl AgentsViewMode {
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or_else(|| "Untitled agent".to_string());
                 let label = truncate_text(
-                    &format!("\u{2190} back \u{b7} {title} \u{203a} subagents"),
+                    &format!(
+                        "{} back{}{title} {} subagents",
+                        glyphs::LEFT,
+                        glyphs::SEP,
+                        glyphs::RIGHT
+                    ),
                     width,
                 );
                 let mut row = vec![crate::Span::styled(label, theme.fg_style(ThemeColor::Dim))];
@@ -113,18 +122,12 @@ impl AgentsViewMode {
             .map(str::to_string);
         let notice_height = notice_panel.as_ref().map_or(0, Vec::len);
         let list_rows = height.saturating_sub(lines.len() + 1 + notice_height);
-        let list_frame_row = lines.len();
-        lines.extend(self.render_list(width, list_rows, list_frame_row));
+        lines.extend(self.render_list(width, list_rows));
         if let Some(panel) = notice_panel {
             lines.extend(panel);
         }
-        while lines.len() < height.saturating_sub(1) {
-            lines.push(vec![]);
-        }
         lines.push(self.render_hints(width, status_fallback.as_deref()));
-        while lines.len() > height {
-            lines.pop();
-        }
+        lines.truncate(height);
         (lines, cursor)
     }
 
@@ -132,7 +135,7 @@ impl AgentsViewMode {
     /// composer renders the transparent editor shape (the muted `> `
     /// prefix, the dim "Search sessions" placeholder) over the plain
     /// surface; the rename composer renders the real editor box (TS
-    /// `Editor.render` with the background) — the warning header block
+    /// `Editor.render` with the background) -- the warning header block
     /// inside it, the draft in the text color, the dim placeholder
     /// while empty. Returns the lines above the box, the box's rows,
     /// and the cursor's row within the box and its column.
@@ -171,7 +174,7 @@ impl AgentsViewMode {
             // shape): the target's header line rides INSIDE the box, the
             // placeholder names the action by the target's state, and
             // the cursor comes from the box. An open completion renders
-            // its overlay panel above the box — the chat's stacking (TS
+            // its overlay panel above the box -- the chat's stacking (TS
             // draws the same dropdown through the editor's TUI overlay,
             // editor.ts `showOverlay`, anchored over the box).
             Composer::Reply(reply) => {
@@ -192,7 +195,7 @@ impl AgentsViewMode {
             // over `Editor.render`): the warning header rides INSIDE the box
             // (the header block under the top row, TS `getHeaderLine` via
             // `renderHeaderContentLine`), the draft renders through the
-            // editor's own surface, and the cursor comes from the box —
+            // editor's own surface, and the cursor comes from the box --
             // the #3117 SF1 2-row shape closes.
             Composer::Rename(rename) => {
                 let header =
@@ -240,7 +243,11 @@ impl AgentsViewMode {
                 content.truncate(cap - 1);
             }
             content.extend(crate::width::wrap_text(
-                "… the notice continues — a taller pane shows it whole",
+                &format!(
+                    "{} the notice continues {} a taller pane shows it whole",
+                    glyphs::ELLIPSIS,
+                    glyphs::DASH
+                ),
                 inner,
             ));
             content.truncate(cap);
@@ -249,64 +256,61 @@ impl AgentsViewMode {
             "any key dismisses".to_string(),
             theme.fg_style(ThemeColor::Dim),
         )]);
-        let border = |left: &str, right: &str| {
+        let border = || {
             let row = vec![
-                crate::Span::styled(left.to_string(), theme.fg_style(ThemeColor::Dim)),
                 crate::Span::styled(
-                    "─".repeat(width.saturating_sub(2)),
+                    glyphs::TABLE_CROSS.to_string(),
                     theme.fg_style(ThemeColor::Dim),
                 ),
-                crate::Span::styled(right.to_string(), theme.fg_style(ThemeColor::Dim)),
+                crate::Span::styled(
+                    glyphs::TABLE_H.repeat(width.saturating_sub(2)),
+                    theme.fg_style(ThemeColor::Dim),
+                ),
+                crate::Span::styled(
+                    glyphs::TABLE_CROSS.to_string(),
+                    theme.fg_style(ThemeColor::Dim),
+                ),
             ];
             crate::width::pad_line(row, width)
         };
         let mut panel = Vec::with_capacity(content.len() + 2);
-        panel.push(border("┌", "┐"));
+        panel.push(border());
         for line in content {
             let mut row = vec![crate::Span::styled(
-                "│ ".to_string(),
+                format!("{} ", glyphs::TABLE_V),
                 theme.fg_style(ThemeColor::Dim),
             )];
             row.extend(line);
             let used: usize = row.iter().map(|s| str_width(&s.content)).sum();
             row.push(crate::Span::raw(" ".repeat(width.saturating_sub(used + 2))));
             row.push(crate::Span::styled(
-                " │".to_string(),
+                format!(" {}", glyphs::TABLE_V),
                 theme.fg_style(ThemeColor::Dim),
             ));
             panel.push(crate::width::pad_line(row, width));
         }
-        panel.push(border("└", "┘"));
+        panel.push(border());
         panel
     }
 
     /// The sectioned session list (TS `renderSessionRows`): the rows group
-    /// into section blocks behind their headings, and the viewport follows
-    /// the selection — the slice centers on the selected row and clips
-    /// the overflow behind leading/trailing ellipses, so a roster rebuild
-    /// (spawn churn, activity re-sorts) never scrolls the user's position
-    /// off-screen. Nested rows (summary rows and expanded subagents)
-    /// render inside their top-level agent's section block, and the
-    /// headings count top-level agents only (TS `getDisplayRowsForSection`
-    /// / `countRowsBySection`).
-    pub(super) fn render_list(
-        &mut self,
-        width: usize,
-        max_rows: usize,
-        frame_row: usize,
-    ) -> Vec<Line> {
+    /// into section blocks behind their headings, and the window follows
+    /// the selection: the slice centers on the selected row and names the
+    /// clipped overflow in `^ N more` / `v N more` rows, so a roster
+    /// rebuild (spawn churn, activity re-sorts) never moves the user's
+    /// position out of the window. Nested rows (summary rows and expanded
+    /// subagents) render inside their top-level agent's section block,
+    /// and the headings count top-level agents only (TS
+    /// `getDisplayRowsForSection` / `countRowsBySection`).
+    pub(super) fn render_list(&self, width: usize, max_rows: usize) -> Vec<Line> {
         /// One rendered display entry of the sectioned list (TS
         /// `DisplayItem`): the spacer between section blocks, a section
-        /// heading, or one row (carrying its `self.rows` index — the
-        /// click surface's row identity).
+        /// heading, or one row.
         enum DisplayItem<'a> {
             Spacer,
             Heading(Section),
-            Row(usize, &'a AgentsViewRow),
+            Row(&'a AgentsViewRow),
         }
-        // The click surface records this render's visible rows; the
-        // early exits below leave it empty.
-        self.click_rows.clear();
         if max_rows == 0 {
             return Vec::new();
         }
@@ -349,29 +353,24 @@ impl AgentsViewMode {
                 }
                 display.push(DisplayItem::Heading(*section));
                 let mut include = false;
-                for (index, row) in self.rows.iter().enumerate() {
+                for row in &self.rows {
                     if row.depth == 0 {
                         include = row.kind == RowKind::Agent && row.section == *section;
                     }
                     if include {
-                        display.push(DisplayItem::Row(index, row));
+                        display.push(DisplayItem::Row(row));
                     }
                 }
             }
         } else {
-            display.extend(
-                self.rows
-                    .iter()
-                    .enumerate()
-                    .map(|(index, row)| DisplayItem::Row(index, row)),
-            );
+            display.extend(self.rows.iter().map(DisplayItem::Row));
         }
-        // The viewport (TS `renderSessionRows`): reserve the column header
-        // and its spacer, center the slice on the selected row, and clip
-        // the overflow behind ellipsis lines. The selected row's display
-        // index drives the window, so a rebuild that re-sorts the rows
-        // keeps the selection on-screen instead of snapping the window
-        // back to the top of the list.
+        // The window (TS `renderSessionRows`): reserve the column header
+        // and its spacer, center the slice on the selected row, and name
+        // the clipped overflow in the more rows. The selected row's
+        // display index drives the window, so a rebuild that re-sorts the
+        // rows keeps the selection in view instead of snapping the
+        // window back to the top of the list.
         let header_rows = max_rows.saturating_sub(1).min(2);
         let visible_rows = max_rows - header_rows;
         let selected_identity = self
@@ -381,7 +380,7 @@ impl AgentsViewMode {
         let selected_display_index = display
             .iter()
             .position(
-                |item| matches!(item, DisplayItem::Row(_, row) if Some(row.identity.as_str()) == selected_identity),
+                |item| matches!(item, DisplayItem::Row(row) if Some(row.identity.as_str()) == selected_identity),
             )
             .map_or(-1, |index| index as isize);
         let anchor = selected_display_index - (visible_rows / 2) as isize;
@@ -396,14 +395,27 @@ impl AgentsViewMode {
             start
         };
         let slice_end = (slice_start + content_rows).min(display.len());
-        // The viewport's front rows (the leading ellipsis and the
-        // column legend block) shift the session rows down — the click
-        // rows and the hover band carry the shift with them.
-        let shift = header_rows + usize::from(show_leading);
-        let mut lines: Vec<Line> = Vec::with_capacity(content_rows);
-        let mut click_rows: Vec<(usize, usize)> = Vec::new();
+        let mut lines: Vec<Line> = Vec::with_capacity(max_rows);
+        if header_rows > 0 {
+            lines.push(vec![crate::Span::styled(
+                layout.legend.clone(),
+                self.theme
+                    .fg_style(ThemeColor::Text)
+                    .add_modifier(crate::style::Modifier::BOLD),
+            )]);
+        }
+        if header_rows > 1 {
+            lines.push(Vec::new());
+        }
+        let more = |mark: &str, count: usize| {
+            vec![self
+                .theme
+                .fg(ThemeColor::Dim, format!("  {mark} {count} more"))]
+        };
+        if show_leading {
+            lines.push(more(glyphs::UP, slice_start));
+        }
         for item in &display[slice_start..slice_end] {
-            let local = lines.len();
             match item {
                 DisplayItem::Spacer => lines.push(Vec::new()),
                 DisplayItem::Heading(section) => {
@@ -416,79 +428,20 @@ impl AgentsViewMode {
                         truncate_text(&format!("{} ({count})", section_title(*section)), width),
                     )]);
                 }
-                DisplayItem::Row(index, row) => {
-                    // The row's frame position carries the hover
-                    // (operator directive 2026-09-29): the light band
-                    // rides the row the mouse rests on, exactly the
-                    // rows the click grammar covers.
-                    let frame_position = frame_row + local + shift;
-                    let hovered = self.hover_row == Some(frame_position);
-                    lines.push(self.render_row(row, &layout, width, hovered));
-                    // Only selectable rows open on a click (a program
-                    // row is read-only context).
-                    if row.selectable() {
-                        click_rows.push((local, *index));
-                    }
-                }
+                DisplayItem::Row(row) => lines.push(self.render_row(row, &layout, width)),
             }
         }
-        if show_leading {
-            lines.insert(0, vec![self.theme.fg(ThemeColor::Dim, "  ...".to_string())]);
-        }
         if show_trailing {
-            lines.push(vec![self.theme.fg(ThemeColor::Dim, "  ...".to_string())]);
-        }
-        if header_rows > 1 {
-            lines.insert(0, Vec::new());
-        }
-        if header_rows > 0 {
-            lines.insert(
-                0,
-                vec![crate::Span::styled(
-                    layout.legend,
-                    self.theme
-                        .fg_style(ThemeColor::Text)
-                        .add_modifier(ratatui::style::Modifier::BOLD),
-                )],
-            );
-        }
-        self.click_rows = click_rows
-            .into_iter()
-            .map(|(local, index)| (frame_row + local + shift, index))
-            .collect();
-        // The hover revalidates against THIS frame's rows (the session
-        // surface's hover contract): a roster rebuild that moved the
-        // rows re-aims the band at the row that took the hovered
-        // position's place, and a row that scrolled out of the window
-        // clears it — the band can never brighten a row the mouse is
-        // no longer on.
-        if self.hover_row.is_some_and(|row| {
-            !self
-                .click_rows
-                .iter()
-                .any(|(click_row, _)| *click_row == row)
-        }) {
-            self.hover_row = None;
+            lines.push(more(glyphs::DOWN, display.len() - slice_end));
         }
         lines
     }
 
     /// One session row (TS `renderRow`): the summary rows render their
-    /// `▸/▾ title` cell over the full width; agent rows render icon, title
+    /// `+/- title` cell over the full width; agent rows render icon, title
     /// (nested rows indented), model, cost/age. The selected row
-    /// carries the selection background; a hovered unselected row
-    /// carries the light hover band (operator directive 2026-09-29: the
-    /// row is clickable — every row, the summaries and the nested
-    /// children included, opens on a click), and a hovered selected row
-    /// keeps its selection band (the one color the hover shares; the
-    /// focused state is never demoted).
-    pub(super) fn render_row(
-        &self,
-        row: &AgentsViewRow,
-        layout: &RowLayout,
-        width: usize,
-        hovered: bool,
-    ) -> Line {
+    /// carries the selection background.
+    pub(super) fn render_row(&self, row: &AgentsViewRow, layout: &RowLayout, width: usize) -> Line {
         let theme = &self.theme;
         // TS `renderCodeRow`: a muted, truncated program line on the tool-panel
         // background; never selection-painted.
@@ -503,17 +456,21 @@ impl AgentsViewMode {
         let selected = Some(row.identity.as_str())
             == self.rows.get(self.selected).map(|r| r.identity.as_str());
         if row.kind == RowKind::SubagentSummary {
-            // TS: `formatTableCell(`${indent}${expanded ? "▾" : "▸"} ${title}`, width)`.
+            // TS: `formatTableCell(`${indent}${marker} ${title}`, width)`.
             let indent = "  ".repeat(row.depth);
-            let marker = if row.expanded { "\u{25be}" } else { "\u{25b8}" };
+            let marker = if row.expanded {
+                glyphs::EXPANDED
+            } else {
+                glyphs::COLLAPSED
+            };
             let text = format!("{indent}{marker} {}", row.title);
             // BOTH summary lines bill the descendant tree in the Cost
             // column (the operator's 2026-09-26 ask, then the follow-up:
             // an all-done tree renders no running line, so the inactive
-            // line — the row the operator actually sees then — carries
+            // line -- the row the operator actually sees then -- carries
             // the same aggregate; TS renders no cost on the summary
-            // row): each title spans the Session + Model zone — every
-            // row yields its leading cells to the cost column — and the
+            // row): each title spans the Session + Model zone -- every
+            // row yields its leading cells to the cost column -- and the
             // aggregate rides the same right-aligned `${:.2}` cell the
             // agent rows print, leaving the Age column blank behind it.
             if crate::agents_view_forest::is_summary_row_identity(&row.identity) {
@@ -523,7 +480,7 @@ impl AgentsViewMode {
                 let line: Line = vec![
                     crate::Span::raw(title),
                     crate::Span::raw(" ".repeat(pad)),
-                    crate::Span::styled("  ".to_string(), ratatui::style::Style::default()),
+                    crate::Span::styled("  ".to_string(), crate::style::Style::default()),
                     theme.fg(
                         ThemeColor::Dim,
                         layout
@@ -534,19 +491,19 @@ impl AgentsViewMode {
                     ),
                 ];
                 // The summary rows always pad to the full width (their
-                // original shape); the finish adds the affordance bands.
+                // original shape); the finish adds the selection band.
                 let line = pad_line(line, width);
-                return finish_session_row(theme, line, selected, hovered, width);
+                return finish_session_row(theme, line, selected, width);
             }
             let line: Line = vec![crate::Span::raw(crate::agents_view_state::truncate_text(
                 &text, width,
             ))];
             let line = pad_line(line, width);
-            return finish_session_row(theme, line, selected, hovered, width);
+            return finish_session_row(theme, line, selected, width);
         }
         let icon = match row.section {
-            Section::Running => ["\u{25c7}", "\u{25c8}", "\u{25c6}", "\u{25c8}"][self.pulse % 4],
-            _ => "\u{2022}",
+            Section::Running => glyphs::WORKING[self.pulse % glyphs::WORKING.len()],
+            Section::Idle | Section::Inactive => glyphs::BULLET,
         };
         let icon_color = match row.section {
             Section::Running => ThemeColor::Text,
@@ -555,7 +512,7 @@ impl AgentsViewMode {
         };
         let icon_style = theme
             .fg_style(icon_color)
-            .add_modifier(ratatui::style::Modifier::BOLD);
+            .add_modifier(crate::style::Modifier::BOLD);
         // TS `renderRow`: `${"  ".repeat(depth)}${icon} ${title}` padded to
         // the name column, then the model cell, then the dim
         // cost/age details.
@@ -568,14 +525,14 @@ impl AgentsViewMode {
         line.push(crate::Span::styled(icon, icon_style));
         line.push(crate::Span::styled(
             " ".to_string(),
-            ratatui::style::Style::default(),
+            crate::style::Style::default(),
         ));
         // Operator directive (2026-09-29, a sanctioned TS divergence): the
-        // row carries its own session's heartbeat count in the dock's `◷`
-        // vocabulary — TS renders `♥ N·<countdown>` (error/dim) and rolls
-        // descendants' jobs into ancestors; here the count is per-session
-        // (the dock's operator scoping), green while any job is active,
-        // amber when all are paused.
+        // row carries its own session's heartbeat count in the dock's
+        // vocabulary (TS renders a countdown and rolls descendants' jobs
+        // into ancestors); here the count is per-session (the dock's
+        // operator scoping), green while any job is active, amber when
+        // all are paused.
         let session_id = row
             .summary
             .get("sessionId")
@@ -593,7 +550,7 @@ impl AgentsViewMode {
         // and cost/age cells right, so the row renders exactly as a
         // badge-less one instead.
         let badge = (!jobs.is_empty())
-            .then(|| format!("\u{25f7} {}", jobs.len()))
+            .then(|| format!("{} {}", glyphs::HEARTBEAT, jobs.len()))
             .filter(|badge| layout.name_width > 2 + indent_width + str_width(badge));
         let badge_width = badge.as_deref().map_or(0, |badge| str_width(badge) + 1);
         if let Some(badge) = badge {
@@ -605,7 +562,7 @@ impl AgentsViewMode {
             line.push(crate::Span::styled(badge, theme.fg_style(color)));
             line.push(crate::Span::styled(
                 " ".to_string(),
-                ratatui::style::Style::default(),
+                crate::style::Style::default(),
             ));
         }
         // TS `formatTableCell(title, nameWidth)`: the name cell (indent +
@@ -620,7 +577,7 @@ impl AgentsViewMode {
                 .saturating_sub(2 + indent_width + badge_width),
         );
         // Session titles render uniformly (no bold for named sessions);
-        // explicit product decision — differs from TS `styleRowTitle`, which
+        // explicit product decision -- differs from TS `styleRowTitle`, which
         // bolds explicit session names.
         let pad = layout
             .name_width
@@ -629,12 +586,12 @@ impl AgentsViewMode {
         line.push(crate::Span::raw(" ".repeat(pad)));
         line.push(crate::Span::styled(
             "  ".to_string(),
-            ratatui::style::Style::default(),
+            crate::style::Style::default(),
         ));
         line.push(theme.fg(ThemeColor::Muted, cell(&row.model, layout.model_width)));
         line.push(crate::Span::styled(
             "  ".to_string(),
-            ratatui::style::Style::default(),
+            crate::style::Style::default(),
         ));
         let details = layout
             .details
@@ -642,7 +599,7 @@ impl AgentsViewMode {
             .cloned()
             .unwrap_or_default();
         line.push(theme.fg(ThemeColor::Dim, details));
-        finish_session_row(theme, line, selected, hovered, width)
+        finish_session_row(theme, line, selected, width)
     }
 
     /// The bottom hint/status line. `status_override` carries the
@@ -668,7 +625,7 @@ impl AgentsViewMode {
         }
         // The armed stop-or-delete confirm: "Press ctrl+x again to
         // stop|delete" (TS `renderHints`'s delete hint, keyed by the
-        // armed row's CURRENT live work — a row that settles between
+        // armed row's CURRENT live work -- a row that settles between
         // the presses shows the word the confirm now carries).
         if let Some(pending) = &self.pending_delete {
             let stop = self
@@ -686,7 +643,7 @@ impl AgentsViewMode {
         // TS `renderHints`: the status renders in its own tone (a
         // failure reads error, a plain report muted). The truncation
         // keeps the style: the row is one span, clipped to the width
-        // (`truncate_line` re-wraps plain text and would strip it — the
+        // (`truncate_line` re-wraps plain text and would strip it -- the
         // tone is the row's whole point, the #3117 SF6 divergence).
         if let Some(status) = self.status.as_ref() {
             return vec![theme.fg(status.tone().color(), truncate_text(status.text(), width))];
@@ -737,7 +694,7 @@ impl AgentsViewMode {
             return truncate_line(&vec![theme.fg(ThemeColor::Muted, hint)], width);
         }
         // The rename composer's hint (TS :2942-2944): save/cancel over
-        // the confirm/cancel bindings' every key (`keyText` — TS shows
+        // the confirm/cancel bindings' every key (`keyText` -- TS shows
         // "Enter save   Esc/Ctrl+C cancel").
         if let Composer::Rename(_) = &self.composer {
             let hint = format!(
@@ -764,8 +721,8 @@ impl AgentsViewMode {
         };
         // The bar lists every effective action key of the view, so a
         // merged binding can never ship without its slot (the
-        // operator's completeness directive). Every segment — including
-        // navigate, open, parent, and new — renders its bindings' first
+        // operator's completeness directive). Every segment -- including
+        // navigate, open, parent, and new -- renders its bindings' first
         // effective keys and drops entirely when its action is unbound
         // (the same contract as the jump and stop-or-delete slots; the
         // bar never advertises a default key the handler does not
@@ -801,7 +758,7 @@ impl AgentsViewMode {
                 segments.push(format!("{keys} rename"));
             }
             // The reply slot (the operator's completeness directive: TS
-            // shows none — the space arm is undiscoverable without it):
+            // shows none -- the space arm is undiscoverable without it):
             // only while the selected row is replyable.
             if let Some(keys) = all("app.agents.reply").filter(|_| self.reply_target().is_some()) {
                 segments.push(format!("{keys} reply"));
@@ -834,28 +791,12 @@ impl AgentsViewMode {
     }
 }
 
-/// One session row's affordance finish (operator directive
-/// 2026-09-29): the selected row pads to the full width and keeps the
-/// ONE selection band — a hovered selected row keeps it too (the
-/// focused state is never demoted) — while a hovered unselected row
-/// pads and gains the ONE light hover band, the same color the
-/// selection paints (the one-color ruling: the states distinguish by
-/// cue, never by color) and the same "clickable" affordance the
-/// dock's groups carry, and every other row renders exactly as
-/// before.
-pub(super) fn finish_session_row(
-    theme: &Theme,
-    mut line: Line,
-    selected: bool,
-    hovered: bool,
-    width: usize,
-) -> Line {
+/// One session row's selection finish: the selected row pads to the
+/// full width and carries the selection band; every other row renders
+/// as built.
+pub(super) fn finish_session_row(theme: &Theme, line: Line, selected: bool, width: usize) -> Line {
     if selected {
         return theme.selection_paint(pad_line(line, width));
-    }
-    if hovered {
-        line = pad_line(line, width);
-        theme.paint_hover_band(&mut line, 0..width);
     }
     line
 }
@@ -876,12 +817,21 @@ pub(super) fn truncate_line(line: &Line, width: usize) -> Line {
         .unwrap_or_default()
 }
 
+/// How the view leaves the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Leave {
+    /// The chat the view opened takes the terminal over: raw mode stays
+    /// on (no echo in the gap), the cursor stays hidden.
+    Handoff,
+    /// The process is leaving: the one exit restore runs.
+    Exit,
+}
+
 pub(super) enum Renderer {
     Terminal {
-        term: ratatui::Terminal<crate::hyperlinks::LinkBackend>,
+        term: InlineTerminal,
         /// The `showHardwareCursor` setting snapshot the surface mounted
-        /// with (TS constructs the agents-view TUI with the live
-        /// `settingsManager.getShowHardwareCursor()`).
+        /// with: the caret is shown at the prompt only when this is set.
         show_hardware_cursor: bool,
     },
     Headless {
@@ -909,55 +859,31 @@ impl Renderer {
                 // fallible and an error from any of them still owns the
                 // release. The flag arms here, not at the end of setup.
                 surface_mounted.store(true, std::sync::atomic::Ordering::SeqCst);
-                // Adopt the alternate screen the previous surface left in
-                // place (TS `pendingAltScreenHandoff`); only the first
-                // surface of the process enters it, so a view switch never
-                // flashes the primary screen.
-                crate::altscreen::enter()?;
                 // The enhanced-key modes come up with the raw-mode
-                // bracket (TS `ProcessTerminal.start`): pastes arrive as
-                // one chunk, the kitty probe runs before the reader
-                // thread starts polling.
+                // bracket: pastes arrive as one chunk, the kitty probe
+                // runs before the reader thread starts polling.
                 crate::enhanced_keys::enable(&mut std::io::stdout())?;
-                // The view's rows open on a click (the session surface's
-                // mouse grammar): SGR button tracking while the view owns
-                // the terminal, released on every exit path.
-                crate::mouse_tracking::enable(&mut std::io::stdout())?;
                 // One reader thread feeds the view; the reader registry
                 // joins the previous surface's reader (the chat it opened)
                 // before this one starts polling. The reader also observes
                 // Ctrl+C pairs for the exit guard: this thread stays alive
                 // when the view loop is wedged in a daemon request, so the
                 // force-quit contract holds regardless of loop state.
-                // The paste-aware variant (the session surface's reader):
-                // a marker-less multi-line keystroke burst coalesces into
-                // one paste — Enter submits in the composers, so a burst
-                // typed line by line would submit per line.
+                // The paste-aware variant: a marker-less multi-line
+                // keystroke burst coalesces into one paste (Enter submits
+                // in the composers, so a burst typed line by line would
+                // submit per line).
                 crate::input::spawn_paste_aware_reader(move |input| match input {
                     crate::input::ReaderInput::BurstPaste(text) => {
                         ui_tx.send(UiInput::Paste(text)).is_ok()
                     }
-                    // A report the guard reassembled from a sequence the
-                    // reader split at a committed-`ESC` boundary: the same
-                    // contract as the terminal's own mouse events below —
-                    // consumed unless tracking is active.
-                    crate::input::ReaderInput::Mouse(report) => {
-                        if crate::mouse_tracking::active() {
-                            ui_tx.send(UiInput::Mouse(report)).is_ok()
-                        } else {
-                            true
-                        }
-                    }
                     crate::input::ReaderInput::Event(event) => match event {
                         crossterm::event::Event::Key(key) => {
                             exit_guard.observe_key(&key);
-                            // The id door filters the way every session handler
-                            // does (`let Some(id) = key_event_to_id(&key)`): kitty
-                            // Release events and unmappable keys map to no id, and
-                            // a forwarded empty id would run handle_key's "any
-                            // other key" arm — clearing the armed exit hint
-                            // between the presses of a double Ctrl+C, so the
-                            // second press re-arms instead of exiting.
+                            // Kitty Release events and unmappable keys map
+                            // to no id; forwarding an empty id would clear
+                            // the armed exit hint between the presses of
+                            // a double Ctrl+C.
                             let Some(id) = crate::keys::key_event_to_id(&key) else {
                                 return true;
                             };
@@ -966,52 +892,21 @@ impl Renderer {
                         crossterm::event::Event::Paste(text) => {
                             ui_tx.send(UiInput::Paste(text)).is_ok()
                         }
-                        crossterm::event::Event::Mouse(mouse) => {
-                            // Mouse reports are consumed even when tracking is
-                            // off (terminal noise downstream); an active surface
-                            // decodes and dispatches them.
-                            let report = crate::mouse_tracking::active()
-                                .then(|| crate::mouse::from_crossterm(mouse))
-                                .flatten();
-                            match report {
-                                Some(event) => ui_tx.send(UiInput::Mouse(event)).is_ok(),
-                                None => true,
-                            }
-                        }
                         crossterm::event::Event::Resize(..) => ui_tx.send(UiInput::Resize).is_ok(),
-                        _ => true,
+                        crossterm::event::Event::FocusGained
+                        | crossterm::event::Event::FocusLost
+                        | crossterm::event::Event::Mouse(_) => true,
                     },
                 });
-                let terminal = ratatui::Terminal::new(crate::hyperlinks::stdout_backend())?;
-                // The adopted buffer still holds the previous view's frame;
-                // the first draw repaints the same buffer (a fresh alt
-                // screen is already blank). TS paints the new frame
-                // straight over the old one, so the clear escape must
-                // never reach the pane on its own: queue it with the
-                // cursor hide and let the first draw's single flush carry
-                // clear + frame together. A separate clear-and-flush here
-                // shows a blank pane for the whole render gap — a visible
-                // flicker on every surface switch. The cursor hides with
-                // the mount (TS `TUI.start` writes hideCursor, never a
-                // show): a shown cursor here sits visible at a stale
-                // position until the first frame decides the visibility,
-                // the exact window the cursor glitch shows in.
-                crossterm::queue!(
-                    std::io::stdout(),
-                    crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
-                    crossterm::cursor::Hide
-                )?;
+                // The live area starts at the cursor line the previous
+                // surface's `clear_live` (or the shell) left at column 0.
+                let (_, rows) = crossterm::terminal::size()?;
                 Ok(Renderer::Terminal {
-                    term: terminal,
+                    term: InlineTerminal::new(rows),
                     show_hardware_cursor,
                 })
             }
             AgentsViewUiMode::Headless(plan) => {
-                // The click grammar's dispatch gate (the terminal arm's
-                // enable records the same state; a headless stdout only
-                // records it): a headless run's Click steps drive the same
-                // active-tracking branch a terminal's reports take.
-                let _ = crate::mouse_tracking::enable(&mut std::io::stdout());
                 let steps = plan.steps;
                 tokio::spawn(async move {
                     for step in steps {
@@ -1040,32 +935,6 @@ impl Renderer {
                                     return;
                                 }
                             }
-                            AgentsStep::Click { row, col } => {
-                                // The SGR press/release pair a click sends
-                                // (the report cells are one-based):
-                                // decoded by the same parser the terminal
-                                // path feeds.
-                                for sequence in [
-                                    format!("\x1b[<0;{};{}M", col + 1, row + 1),
-                                    format!("\x1b[<0;{};{}m", col + 1, row + 1),
-                                ] {
-                                    if let Some(event) =
-                                        crate::mouse::parse_sgr_mouse_event(&sequence)
-                                    {
-                                        if ui_tx.send(UiInput::Mouse(event)).is_err() {
-                                            return;
-                                        }
-                                    }
-                                }
-                            }
-                            AgentsStep::Mouse(sequence) => {
-                                if let Some(event) = crate::mouse::parse_sgr_mouse_event(&sequence)
-                                {
-                                    if ui_tx.send(UiInput::Mouse(event)).is_err() {
-                                        return;
-                                    }
-                                }
-                            }
                         }
                     }
                     let _ = ui_tx.send(UiInput::Done);
@@ -1079,71 +948,56 @@ impl Renderer {
         }
     }
 
-    pub(super) fn draw(&mut self, mode: &mut AgentsViewMode) -> Option<(usize, usize)> {
+    /// Paint one frame into the live area (terminal) or capture its text
+    /// (headless).
+    pub(super) fn draw(&mut self, mode: &mut AgentsViewMode) -> std::io::Result<()> {
         match self {
             Renderer::Terminal {
                 term,
                 show_hardware_cursor,
             } => {
-                let area = term.size().expect("terminal size");
-                let (lines, cursor) = mode.render_frame(area.width as usize, area.height as usize);
-                crate::hyperlinks::install_frame(&lines);
-                // TS cursor control: the hardware cursor is positioned at
-                // the focused caret for IME on every frame, but only shown
-                // when `showHardwareCursor` is on (default off). ratatui's
-                // `set_cursor_position` shows unconditionally, so only the
-                // show case may hand it the caret; the hidden case queues
-                // the bare MoveTo after the paint instead (TS positions
-                // the caret while the cursor stays hidden).
-                let show = *show_hardware_cursor;
-                term.draw(|f| {
-                    let area = ratatui::layout::Rect::new(0, 0, area.width, area.height);
-                    let rendered: Vec<ratatui::text::Line<'static>> =
-                        lines.iter().map(crate::markdown::to_ratatui_line).collect();
-                    f.render_widget(ratatui::text::Text::from(rendered), area);
-                    if show {
-                        if let Some((row, col)) = cursor {
-                            if row < area.height as usize && col < area.width as usize {
-                                f.set_cursor_position(ratatui::layout::Position::new(
-                                    col as u16, row as u16,
-                                ));
-                            }
-                        }
-                    }
-                })
-                .expect("draw frame");
-                if !show {
-                    if let Some((row, col)) = cursor {
-                        if row < area.height as usize && col < area.width as usize {
-                            // execute! (not queue!): the position write must
-                            // flush now — the paint backend's flush already
-                            // ran inside `draw`, so a queued write would sit
-                            // in the stdout buffer until the next frame.
-                            let _ = crossterm::execute!(
-                                std::io::stdout(),
-                                crossterm::cursor::MoveTo(col as u16, row as u16)
-                            );
-                        }
-                    }
-                }
-                None
+                let (width, height) = crossterm::terminal::size()?;
+                let (lines, cursor) = mode.render_frame(usize::from(width), usize::from(height));
+                // The caret shows at the prompt only with
+                // `showHardwareCursor` on; otherwise the cursor stays
+                // hidden.
+                let cursor = cursor
+                    .filter(|_| *show_hardware_cursor)
+                    .map(|(row, col)| LiveCursor { row, col });
+                term.paint(
+                    &mut std::io::stdout().lock(),
+                    InlineFrame {
+                        history: &[],
+                        live: &lines,
+                        cursor,
+                    },
+                )
             }
             Renderer::Headless {
                 width,
                 height,
                 frames,
             } => {
-                let (lines, _) = mode.render_frame(*width as usize, *height as usize);
-                let text = lines
-                    .iter()
-                    .map(|line| line.iter().map(|s| s.content.as_str()).collect::<String>())
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                let (lines, _) = mode.render_frame(usize::from(*width), usize::from(*height));
+                let text = frame_text(&lines);
                 if frames.last().map(String::as_str) != Some(text.as_str()) {
                     frames.push(text);
                 }
-                None
+                Ok(())
             }
+        }
+    }
+
+    /// The terminal resized: the live area re-fits the new height and is
+    /// erased, so the next frame repaints it whole at the new width.
+    pub(super) fn resize(&mut self) -> std::io::Result<()> {
+        match self {
+            Renderer::Terminal { term, .. } => {
+                let (_, rows) = crossterm::terminal::size()?;
+                term.set_height(rows);
+                term.clear_live(&mut std::io::stdout().lock())
+            }
+            Renderer::Headless { .. } => Ok(()),
         }
     }
 
@@ -1156,53 +1010,37 @@ impl Renderer {
         }
     }
 
-    /// Teardown. `preserve_alt_screen` mirrors TS `ui.stop({ preserveAltScreen })`:
-    /// a handoff to the chat the view just selected keeps the alternate screen
-    /// (and raw mode, so the handoff gap cannot echo into the preserved frame)
-    /// for the adopting surface, hiding the cursor; a real exit releases the
-    /// screen and restores the terminal. `flushFullscreen` stays false either
-    /// way (TS agents-view-mode `finish`): the picker frame is never flushed
-    /// onto the main screen.
-    pub(super) fn finish(self, preserve_alt_screen: bool) -> Vec<String> {
+    /// Teardown. The view is transient: its live area is erased on
+    /// every leave, so it leaves no output. A handoff keeps raw mode for
+    /// the adopting surface (which starts its live area at the erased
+    /// row); an exit runs the one exit restore.
+    pub(super) fn finish(self, leave: Leave) -> std::io::Result<Vec<String>> {
         match self {
-            Renderer::Terminal { term, .. } => {
-                // ratatui's `Terminal` drop restores the cursor its last
-                // frame hid (the `hidden_cursor` flag): run the drop
-                // before the handoff's hide so the hide is the final
-                // word — TS `stop(preserveAltScreen)` leaves the cursor
-                // hidden for the surface taking the screen over. The
-                // real-exit arm ends shown for the shell either way.
-                drop(term);
-                // The view's input reader stands down before the pane is
-                // handed on (TS tears its listener down with the view):
-                // the adopting session's mount joins this reader through
-                // the registry, and a parked reader would hold crossterm's
-                // global event-reader lock indefinitely — the wake makes
-                // the flagged reader exit now instead of parking the
-                // switch on the join.
+            Renderer::Terminal { mut term, .. } => {
+                let cleared = term.clear_live(&mut std::io::stdout().lock());
+                // The view's input reader stands down before the terminal
+                // is handed on: the adopting session's mount joins this
+                // reader through the registry, and a parked reader would
+                // hold crossterm's global event-reader lock.
                 crate::input::request_reader_stop();
-                if preserve_alt_screen {
-                    // The enhanced-key modes release with the raw-mode
-                    // bracket (TS `stop` on every exit, handoffs included).
-                    let mut out = std::io::stdout();
-                    let _ = crate::enhanced_keys::disable(&mut out);
-                    // The adopting surface re-enables tracking through its
-                    // own setting; the view never leaves it on.
-                    let _ = crate::mouse_tracking::disable(&mut out);
-                    let _ = crossterm::execute!(std::io::stdout(), crossterm::cursor::Hide);
-                } else {
-                    // The one exit restore ends the view's real exit: the
-                    // probe standdown, the input drain, the mode releases,
-                    // the alt-screen leave, the sync/SGR tail, and the
-                    // cooked-tty verification — the same whole-terminal
-                    // contract every exit path guarantees. (The view never
-                    // flushes its frame: TS agents-view `finish` passes
-                    // `flushFullscreen: false`.)
-                    crate::exit_restore::restore_terminal();
+                match leave {
+                    Leave::Handoff => {
+                        let _ = crate::enhanced_keys::disable(&mut std::io::stdout());
+                    }
+                    Leave::Exit => crate::exit_restore::restore_terminal(),
                 }
-                Vec::new()
+                cleared.map(|()| Vec::new())
             }
-            Renderer::Headless { frames, .. } => frames,
+            Renderer::Headless { frames, .. } => Ok(frames),
         }
     }
+}
+
+/// The plain text of one frame, rows joined by newlines.
+pub(super) fn frame_text(lines: &[Line]) -> String {
+    lines
+        .iter()
+        .map(|line| line.iter().map(|s| s.content.as_str()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
 }

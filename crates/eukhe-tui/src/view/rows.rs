@@ -1,15 +1,12 @@
 //! The per-entry transcript row builders: the assistant message spacing
 //! classification (TS `getSpacingContent`), the leading-space scan (TS
-//! `shouldAddLeadingSpace`), and `render_entry` — the one producer of a
-//! chat entry's cached layout rows.
+//! `shouldAddLeadingSpace`), and `render_entry` -- the one producer of a
+//! chat entry's rows.
 
 use super::AgentView;
 use crate::chat::{render_assistant, render_text_rows, render_user_block, ChatEntry};
 use crate::theme::ThemeColor;
 use crate::Line;
-
-#[cfg(test)]
-use super::layout;
 
 /// TS `getSpacingContent`: an assistant message's conversation-spacing
 /// classification at the current detail level.
@@ -100,7 +97,7 @@ impl AgentView {
     }
 
     /// Lay out one chat entry's transcript rows (the only producer of
-    /// cached layout rows).
+    /// entry rows).
     pub(super) fn render_entry(
         &self,
         index: usize,
@@ -109,9 +106,7 @@ impl AgentView {
         first: bool,
         preceded_by_tool_activity: bool,
     ) -> Vec<Line> {
-        #[cfg(test)]
-        layout::ENTRY_RENDERS.with(|count| count.set(count.get() + 1));
-        let detail = self.entry_detail(index);
+        let detail = self.detail;
         match entry {
             ChatEntry::Status { text, kind } => {
                 let style = match kind {
@@ -127,7 +122,7 @@ impl AgentView {
             ChatEntry::User { text } => {
                 let mut rows = Vec::new();
                 // TS `addMessageToChat` separates a user submission from
-                // the components above it with `Spacer(1)` — EXCEPT the
+                // the components above it with `Spacer(1)` -- EXCEPT the
                 // skill invocation's own argument text, which joins the
                 // card below it without a spacer.
                 let follows_skill_card =
@@ -188,7 +183,7 @@ impl AgentView {
             ChatEntry::Assistant(message) => {
                 // The per-entry block cache (TS's per-component
                 // `blockCache`): settled blocks of the streaming message
-                // replay instead of re-rendering on every frame — the
+                // replay instead of re-rendering on every frame -- the
                 // cache exists for the streaming case. A settled
                 // message's blocks are final, so its rendered rows live
                 // once in the entry layout and the block-cache copy is
@@ -271,7 +266,7 @@ impl AgentView {
             ),
             // TS `addMessageToChat`'s user case: `Spacer(1)` when the chat
             // is non-empty, then the card (the conversation-spacing scan the
-            // agent-message rows use does not apply — the TS user case is
+            // agent-message rows use does not apply -- the TS user case is
             // the plain children-count check).
             ChatEntry::SkillInvocation(row) => {
                 crate::custom_message::skill_invocation::render_skill_invocation(

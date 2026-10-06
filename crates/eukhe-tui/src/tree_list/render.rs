@@ -1,10 +1,10 @@
 use super::{FilterMode, GutterInfo, TreeList};
+use crate::style::{Modifier, Style};
 use crate::theme::{Theme, ThemeBg, ThemeColor};
 use crate::tree_display;
 use crate::tree_nodes::TreeNode;
 use crate::width::{str_width, truncate_line};
 use crate::{Line, Span};
-use ratatui::style::{Modifier, Style};
 
 impl TreeList {
     /// Render the visible rows plus the counter (TS `TreeList.render`).
@@ -42,9 +42,9 @@ impl TreeList {
             // TS renders the selected row's cursor and path markers inside
             // the selection background with no accent foreground: the the TS TUI
             // row writer drops those interior colors, and the capture shows
-            // only the background escape before `› `.
+            // only the background escape before `> `.
             let cursor = if is_selected {
-                Span::raw("› ".to_string())
+                Span::raw(format!("{} ", crate::glyphs::POINTER))
             } else {
                 Span::raw("  ".to_string())
             };
@@ -55,9 +55,9 @@ impl TreeList {
             };
             let connector = if node.show_connector && !node.is_virtual_root_child {
                 if node.is_last {
-                    "└─ "
+                    crate::glyphs::TREE_LAST
                 } else {
-                    "├─ "
+                    crate::glyphs::TREE_MID
                 }
             } else {
                 ""
@@ -75,21 +75,25 @@ impl TreeList {
                 let gutter = node.gutters.iter().find(|g| g.position == level);
                 if let Some(gutter) = gutter {
                     if pos_in_level == 0 {
-                        prefix.push(if gutter.show { '│' } else { ' ' });
+                        prefix.push_str(if gutter.show { crate::glyphs::BAR } else { " " });
                     } else {
                         prefix.push(' ');
                     }
                 } else if !connector.is_empty() && level == connector_position {
                     match pos_in_level {
-                        0 => prefix.push(if node.is_last { '└' } else { '├' }),
+                        0 => prefix.push_str(if node.is_last {
+                            "`"
+                        } else {
+                            crate::glyphs::BAR
+                        }),
                         1 => {
                             let foldable = self.is_foldable(entry_id);
-                            prefix.push(if self.is_folded(entry_id) {
-                                '⊞'
+                            prefix.push_str(if self.is_folded(entry_id) {
+                                crate::glyphs::COLLAPSED
                             } else if foldable {
-                                '⊟'
+                                crate::glyphs::EXPANDED
                             } else {
-                                '─'
+                                crate::glyphs::RULE
                             });
                         }
                         _ => prefix.push(' '),
@@ -100,15 +104,15 @@ impl TreeList {
             }
             let shows_fold_in_connector = node.show_connector && !node.is_virtual_root_child;
             let fold_marker = if self.is_folded(entry_id) && !shows_fold_in_connector {
-                theme.fg_span(ThemeColor::Accent, "⊞ ".to_string())
+                theme.fg_span(ThemeColor::Accent, format!("{} ", crate::glyphs::COLLAPSED))
             } else {
                 Span::raw("")
             };
             let path_marker = if self.active_path.contains(entry_id) {
                 if is_selected {
-                    Span::raw("• ".to_string())
+                    Span::raw(format!("{} ", crate::glyphs::BULLET))
                 } else {
-                    theme.fg_span(ThemeColor::Accent, "• ".to_string())
+                    theme.fg_span(ThemeColor::Accent, format!("{} ", crate::glyphs::BULLET))
                 }
             } else {
                 Span::raw("")
@@ -149,7 +153,7 @@ impl TreeList {
                 // The selected row keeps only the bold modifier over the
                 // selection background: the the TS TUI writer drops interior
                 // foreground colors under the selection wrap, so the
-                // capture shows `› • ` and the bold role without their
+                // capture shows `> * ` and the bold role without their
                 // accent escapes.
                 for span in &mut row {
                     let bold = span.style.add_modifier.contains(Modifier::BOLD);

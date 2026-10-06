@@ -1,9 +1,7 @@
 //! The settings concern: the `/settings` menu and its row-apply/persist
 //! switches, the `/import` confirm flow, and the fast/rlm-max-depth/
 //! reload command surface, plus the parked `ReloadNote` and
-//! `PendingConfirm` types. The fullscreen toggle is retired (the surface
-//! always renders on the alternate screen; the operator's 2026-09-28
-//! ruling removed the setting and the command).
+//! `PendingConfirm` types.
 use super::{
     key_event_to_id, AgentView, DaemonCommand, Duration, KeyEvent, Map, PathBuf, Result, SessionUi,
     StatusKind, Value, UI_REQUEST_TIMEOUT_MS,
@@ -27,7 +25,7 @@ pub(super) enum PendingConfirm {
 impl SessionUi {
     /// The shipped CHANGELOG.md path (TS `getChangelogPath`): the package
     /// directory (`EUKHE_PACKAGE_DIR` wins, else the directory of the running
-    /// executable — the TS bun-binary layout) plus `CHANGELOG.md`.
+    /// executable -- the TS bun-binary layout) plus `CHANGELOG.md`.
     pub(super) fn changelog_path() -> std::path::PathBuf {
         let package_dir = match std::env::var("EUKHE_PACKAGE_DIR") {
             Ok(dir) if !dir.is_empty() => PathBuf::from(dir),
@@ -178,7 +176,7 @@ impl SessionUi {
         self.rebuild_transcript(view).await;
         self.refresh_stats().await;
         // The transcript rebuild ran before the refresh, so the refreshed
-        // context usage rides the chrome through this tray rebuild —
+        // context usage rides the chrome through this tray rebuild --
         // without it the tray keeps the pre-import usage until the next
         // settled turn.
         self.rebuild_tray(view);
@@ -372,7 +370,7 @@ impl SessionUi {
                 // TS `onEnableSkillCommandsChange` calls
                 // `setupAutocompleteProvider()` immediately: the cached
                 // skill list re-applies under the new setting value
-                // (no daemon round trip — the list the last refresh
+                // (no daemon round trip -- the list the last refresh
                 // fetched is still the session's inventory).
                 let enabled = self
                     .client_settings
@@ -392,13 +390,13 @@ impl SessionUi {
                     value,
                     view,
                 );
-                // TS fires `handleReloadCommand()` — the toggle takes
+                // TS fires `handleReloadCommand()` -- the toggle takes
                 // effect after a reload.
                 let _ = self.handle_reload_command(view);
             }
             "show-hardware-cursor" => {
                 // The show-images shape: a failed persist surfaces the
-                // error and changes nothing — the live flag flips only
+                // error and changes nothing -- the live flag flips only
                 // when the setting actually persisted, so the view and
                 // the on-disk state can never disagree.
                 if let Some(settings) = &self.client_settings {
@@ -500,7 +498,7 @@ impl SessionUi {
             }
             "default-service-tier" => {
                 // TS `onDefaultServiceTierChange`: persist the default tier
-                // (the settings seam — new sessions start on it), then apply
+                // (the settings seam -- new sessions start on it), then apply
                 // it to the running session through the same daemon tier
                 // switch `/tier` uses (the serialized change queue); the
                 // status row reports what the session actually applied.

@@ -77,7 +77,7 @@ fn replayed_image_blocks_render_placeholder_rows() {
     // The result's image block: the metadata row below the tool card
     // (dimensions parsed from the payload).
     assert!(
-        flat.contains("\u{2570}\u{2500} [image/png \u{b7} 64\u{d7}32]"),
+        flat.contains("`- [image/png - 64x32]"),
         "image metadata row: {flat}"
     );
 }
@@ -94,5 +94,5 @@ fn replayed_images_hidden_setting_swaps_the_placeholder_form() {
     // interactive mount sites; the export renderer is the
     // dims-including consumer).
     assert!(flat.contains("[Image: [image/png]]"), "got: {flat}");
-    assert!(!flat.contains("\u{2570}\u{2500} [image/png"), "got: {flat}");
+    assert!(!flat.contains("`- [image/png"), "got: {flat}");
 }

@@ -4,8 +4,8 @@
 //! variable/color layout as the TS JSON themes. Colors resolve to truecolor or
 //! 256-color ANSI depending on `COLORTERM`/`TERM`.
 
+use crate::style::{Color, Modifier, Style};
 use anyhow::{Context, Result};
-use ratatui::style::{Color, Modifier, Style};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -181,7 +181,7 @@ fn resolve_color(value: &serde_json::Value, vars: &BTreeMap<String, String>) -> 
 
 /// TS `parseHexColor` on the theme record's `background` (the onboarding
 /// wash canvas): `^#?([0-9a-f]{6})$` case-insensitive on the trimmed value,
-/// after var resolution — only the 6-hex shape parses; anything else (empty,
+/// after var resolution -- only the 6-hex shape parses; anything else (empty,
 /// 3-hex shorthand, an ANSI index, a var miss) stays `None` so callers fall
 /// back to their hardcoded canvases.
 fn parse_theme_background(
@@ -323,7 +323,7 @@ fn to_terminal_color(color: Color, mode: ColorMode) -> Color {
 }
 
 /// How far a selection wash must stand off the surface it renders on:
-/// TS `SELECTION_MIN_LUMINANCE_DELTA` — "Selection rows must stand out
+/// TS `SELECTION_MIN_LUMINANCE_DELTA` -- "Selection rows must stand out
 /// clearly, much more than passive surfaces" (TS theme.ts). The operator's
 /// 2026-09-26 directive makes the bar binding for the panel redesign's
 /// selection: a wash within a few luminance points of the surface reads as
@@ -374,7 +374,7 @@ pub(crate) fn quantized_luminance(color: Color) -> Option<f64> {
     match color {
         Color::Rgb(r, g, b) => Some(luminance((u16::from(r), u16::from(g), u16::from(b)))),
         Color::Indexed(index) => indexed_to_rgb(index).map(luminance),
-        _ => None,
+        Color::Reset => None,
     }
 }
 
@@ -498,7 +498,7 @@ impl Theme {
             .collect()
     }
 
-    /// Editor surface background (userMessageBg) — in the TS theme the editor
+    /// Editor surface background (userMessageBg) -- in the TS theme the editor
     /// and user messages share the surface color.
     #[must_use]
     pub fn editor_background(&self) -> Option<Style> {
@@ -518,19 +518,19 @@ impl Theme {
 
     /// Row-selection highlight for menu rows (TS
     /// `getSoftSelectionBackgroundColor`): the selection color blended
-    /// halfway toward the editor surface — a softer band than the full
+    /// halfway toward the editor surface -- a softer band than the full
     /// selection block. Non-RGB palettes have no reliable blend base, so
     /// they keep the plain selection background.
     ///
     /// The halfway blend is kept only when it still READS against the
     /// surface: every built-in theme's selection sits a few luminance
     /// points off the editor surface, so the blend used to paint as a
-    /// near-invisible wash — the operator could not tell which row was
+    /// near-invisible wash -- the operator could not tell which row was
     /// selected (the operator's 2026-09-26 directive: the panel redesign's
     /// selection must be unmistakable). When the blend cannot clear
     /// [`SELECTION_MIN_LUMINANCE_DELTA`] over the surface, the wash steps
-    /// toward the contrast endpoint — white when the selection reads
-    /// lighter than the surface, black when it reads darker — until it
+    /// toward the contrast endpoint -- white when the selection reads
+    /// lighter than the surface, black when it reads darker -- until it
     /// clears the bar (TS `getSelectionBackgroundColor`'s endpoint ladder,
     /// anchored to the editor surface because the TUI cannot query the
     /// terminal's own background the way TS's `getDefaultTerminalColors`
@@ -558,7 +558,7 @@ impl Theme {
             match color? {
                 Color::Rgb(r, g, b) => Some((u16::from(r), u16::from(g), u16::from(b))),
                 Color::Indexed(index) => indexed_to_rgb(index),
-                _ => None,
+                Color::Reset => None,
             }
         };
         let (Some(selection), Some(editor_surface)) = (
@@ -584,7 +584,7 @@ impl Theme {
         let surface_render_luminance =
             quantized_luminance(surface_ansi).unwrap_or(luminance(editor_surface));
         // The wash reads when its rendered color clears the visibility bar
-        // over the surface (both after mode quantization — a 256-color
+        // over the surface (both after mode quantization -- a 256-color
         // terminal paints the palette slot, not the blend). A candidate the
         // palette maps to an unknown slot never blocks: showing the wash
         // beats refusing to compute.
@@ -603,9 +603,9 @@ impl Theme {
             }
         }
         // The blend reads too close to the surface (every built-in
-        // theme): step the wash toward the contrast endpoint — the one on
+        // theme): step the wash toward the contrast endpoint -- the one on
         // the selection's side of the surface first, the opposite one
-        // (crossing the surface) second — until the quantized candidate
+        // (crossing the surface) second -- until the quantized candidate
         // clears the bar. The strongest step is tracked across BOTH
         // endpoints like TS: the first candidate to clear the bar wins,
         // and when nothing clears it a step replaces the selection only
@@ -627,7 +627,7 @@ impl Theme {
             let base_alpha = ((target - selection_render_luminance) / spread)
                 .clamp(0.0, f64::from(SELECTION_MAX_BLEND_ALPHA));
             // If the direct hit undershoots the bar, keep stepping toward
-            // the cap — a stronger blend may quantize to a palette slot
+            // the cap -- a stronger blend may quantize to a palette slot
             // that passes.
             let mut alphas = Vec::new();
             let mut alpha = base_alpha as f32;
@@ -668,32 +668,26 @@ impl Theme {
     /// The ONE selected-row style every activity surface paints (the
     /// operator's consistency rule: the selected row's background is
     /// IDENTICAL across the dock's groups, the agents view's rows, the
-    /// heartbeats picker, and the bash view — one style, not
-    /// per-surface copies): the SAME light band the hover paints
-    /// ([`Theme::hover_row_style`] — the operator's 2026-09-29
-    /// one-color ruling: one band color for both states). The two
-    /// states distinguish by their CUES, never by color: the hover is
-    /// transient and rides the mouse position; the selection is
-    /// sticky and rides the keyboard — and where they overlap the
-    /// hover paint skips cells that already carry the selection's
-    /// background, so the focused state is never repainted. Each
-    /// surface keeps its own foreground colors; the style patches
-    /// only the background, with no extra modifiers. A theme whose
-    /// slots resolve to no band (a `selectedBg` that is missing or
-    /// explicitly empty resolves to `Color::Reset`, which paints
-    /// nothing) falls through to the onboarding wash, so a selected
-    /// row always reads as selected (Macroscope PR #2908's contract).
+    /// heartbeats picker, and the bash view -- one style, not
+    /// per-surface copies): the soft wash the menu panels' selected rows
+    /// carry ([`Theme::soft_selection_style`]). Each surface keeps its
+    /// own foreground colors; the style patches only the background,
+    /// with no extra modifiers. A theme whose slots resolve to no band
+    /// (a `selectedBg` that is missing or explicitly empty resolves to
+    /// `Color::Reset`, which paints nothing) falls through to the
+    /// onboarding wash, so a selected row always reads as selected
+    /// (Macroscope PR #2908's contract).
     #[must_use]
     pub fn selection_row_style(&self) -> Style {
         let band = self
-            .hover_row_style()
+            .soft_selection_style()
             .bg
             .filter(|color| *color != Color::Reset)
             .unwrap_or_else(|| crate::onboarding::highlight_wash(self));
         Style::default().bg(band)
     }
 
-    /// Paint one line's spans with [`Theme::selection_row_style`] —
+    /// Paint one line's spans with [`Theme::selection_row_style`] --
     /// the `bg_paint` counterpart for the one selection style: each
     /// span keeps its own foreground, gains the one band.
     #[must_use]
@@ -705,81 +699,6 @@ impl Theme {
                 span
             })
             .collect()
-    }
-
-    /// The ONE hover affordance style every clickable surface paints
-    /// (the operator's 2026-09-29 consistency rule): a LIGHT
-    /// background band — the same soft wash the menu panels' selected
-    /// rows carry — that marks "the mouse can click here" (the dock's
-    /// group segments, the tray's `← manage` hint, the agents view's
-    /// rows). The wash is the established light band: it clears the
-    /// visibility bar over the surfaces it renders on and follows the
-    /// theme in both color modes, so one style serves every surface
-    /// instead of a per-surface copy. The operator's 2026-09-29
-    /// one-color ruling: the keyboard selection paints this SAME band
-    /// ([`Theme::selection_row_style`] reads this very style) — the
-    /// two states distinguish by their cues (the hover is transient,
-    /// rides the mouse position; the selection is sticky, rides the
-    /// keyboard), never by color.
-    #[must_use]
-    pub fn hover_row_style(&self) -> Style {
-        self.soft_selection_style()
-    }
-
-    /// Paint one hover band over the given column span of a composed
-    /// row (the hover affordance's row painter): a span straddling the
-    /// span's edge splits, so the band covers exactly the hovered
-    /// region - a dock group's own segment, the hint's own text - and
-    /// cells that already carry a background keep it (a cell inside
-    /// the selection band keeps the focused state's band: the one
-    /// shared color makes the overlap read as one band, and the hover
-    /// never demotes the selection).
-    ///
-    /// The split walks GRAPHEME CLUSTERS, never scalar values: a
-    /// combining mark stays with its base (`e` + U+0301 is one cell)
-    /// and a wide glyph stays whole, so a title the band crosses
-    /// renders byte-identical on both sides of the edge - the band's
-    /// edges snap to the cluster that starts them, the same integrity
-    /// rule the composition's own truncation keeps.
-    pub fn paint_hover_band(&self, line: &mut crate::Line, cols: std::ops::Range<usize>) {
-        use unicode_segmentation::UnicodeSegmentation;
-        let band = self.hover_row_style();
-        let mut painted: crate::Line = Vec::with_capacity(line.len() + 2);
-        let mut col = 0usize;
-        for span in std::mem::take(line) {
-            let mut before = String::new();
-            let mut covered = String::new();
-            let mut after = String::new();
-            for cluster in span.content.graphemes(true) {
-                if col < cols.start {
-                    before.push_str(cluster);
-                } else if col < cols.end {
-                    covered.push_str(cluster);
-                } else {
-                    after.push_str(cluster);
-                }
-                col += crate::width::grapheme_width(cluster);
-            }
-            let piece = |text: String| {
-                let mut piece = span.clone();
-                piece.content = text;
-                piece
-            };
-            if !before.is_empty() {
-                painted.push(piece(before));
-            }
-            if !covered.is_empty() {
-                let mut hit = piece(covered);
-                if hit.style.bg.is_none() {
-                    hit.style = hit.style.patch(band);
-                }
-                painted.push(hit);
-            }
-            if !after.is_empty() {
-                painted.push(piece(after));
-            }
-        }
-        *line = painted;
     }
 }
 
@@ -938,9 +857,7 @@ mod tests {
         assert_eq!(theme.background_rgb(), Some((0x0a, 0x0b, 0x0c)));
     }
 
-    /// The ONE selection style paints the hover band's own color (the
-    /// operator's 2026-09-29 one-color ruling: one band color for
-    /// both states): the selection IS the hover color in every theme,
+    /// The ONE selection style paints the soft wash in every theme,
     /// never the accent, never a bold modifier. A theme whose slots
     /// resolve to no band (a `selectedBg` that is missing or
     /// explicitly empty resolves to `Color::Reset`, which paints
@@ -948,12 +865,12 @@ mod tests {
     /// 2026-09-28: an unresolvable slot must fall through, not strand
     /// the selection without a band).
     #[test]
-    fn the_selection_style_is_the_hover_color_never_the_accent() {
+    fn the_selection_style_is_the_soft_wash_never_the_accent() {
         let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
         assert_eq!(
             theme.selection_row_style(),
-            theme.hover_row_style(),
-            "prime: the selection paints the hover's own band — the one-color ruling"
+            theme.soft_selection_style(),
+            "prime: the selection paints the soft wash"
         );
         assert_ne!(
             theme.selection_row_style().bg,
@@ -970,7 +887,7 @@ mod tests {
         let loud = Theme::from_json(&json, ColorMode::TrueColor);
         assert_eq!(
             loud.selection_row_style().bg,
-            loud.hover_row_style().bg,
+            loud.soft_selection_style().bg,
             "the accent stays out of the band even when it is loud"
         );
         let bare = serde_json::from_str::<ThemeJson>(
@@ -1004,7 +921,7 @@ mod tests {
     /// The selection wash must READ (the operator's 2026-09-26 directive:
     /// the panel redesign's selection was barely visible): every built-in
     /// theme's wash clears [`SELECTION_MIN_LUMINANCE_DELTA`] over the
-    /// editor surface, in both color modes — a 256-color terminal
+    /// editor surface, in both color modes -- a 256-color terminal
     /// evaluates the palette slots it actually paints.
     #[test]
     fn soft_selection_reads_off_the_editor_surface() {
@@ -1064,7 +981,7 @@ mod tests {
     }
 
     /// No reliable blend base, no ladder: a base-ANSI selection (the
-    /// terminal defines its rendered color) keeps the plain selection —
+    /// terminal defines its rendered color) keeps the plain selection --
     /// TS's ANSI guard.
     #[test]
     fn soft_selection_keeps_the_plain_selection_without_a_blend_base() {
@@ -1100,36 +1017,25 @@ mod tests {
         }
     }
 
-    /// The ONE band color (the operator's 2026-09-29 one-color
-    /// ruling): the hover and the keyboard selection paint the SAME
-    /// light band in every theme and color mode — the states
-    /// distinguish by their cues (the hover is transient and rides the
-    /// mouse position; the selection is sticky and rides the
-    /// keyboard), never by color, and where they overlap the hover
-    /// paint skips cells that already carry the selection's
-    /// background. The selection carries NO modifiers — a selected
-    /// row's own styles stay its own.
+    /// The selection band in every theme and color mode is the soft
+    /// wash, carries NO modifiers (a selected row's own styles stay its
+    /// own), and reads off its surface.
     #[test]
-    fn the_hover_band_and_the_selection_share_one_color() {
+    fn the_selection_band_is_the_wash_and_reads_off_its_surface() {
         for name in ["eukhe", "dark", "light"] {
             for mode in [ColorMode::TrueColor, ColorMode::Color256] {
                 let theme = Theme::builtin(name, mode);
-                let hover = theme.hover_row_style();
                 let selection = theme.selection_row_style();
                 assert_eq!(
-                    hover.bg,
+                    selection.bg,
                     theme.soft_selection_style().bg,
-                    "{name}/{mode:?}: the hover is the one light wash"
-                );
-                assert_eq!(
-                    hover.bg, selection.bg,
-                    "{name}/{mode:?}: the selection paints the hover's own band color"
+                    "{name}/{mode:?}: the selection is the one light wash"
                 );
                 assert!(
                     selection.add_modifier.is_empty(),
                     "{name}/{mode:?}: the selection carries no modifiers"
                 );
-                let band = hover.bg.expect("the hover paints a background");
+                let band = selection.bg.expect("the selection paints a background");
                 let band_lum = quantized_luminance(band)
                     .unwrap_or_else(|| panic!("{name}/{mode:?}: the band must evaluate"));
                 let surface = theme
@@ -1142,100 +1048,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// The band's edges snap to GRAPHEME CLUSTERS (Macroscope: the
-    /// scalar-slice dropped a combining mark and cut wide glyphs): a
-    /// cluster the band crosses stays whole — the content renders
-    /// byte-identical on both sides of the edge, and a combining mark
-    /// keeps its base, a wide glyph its two cells.
-    #[test]
-    fn the_hover_band_splits_on_grapheme_clusters() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-        let combining = "e\u{301}x";
-        let wide = "\u{4e2d}y";
-        let mut line = vec![crate::Span::raw(combining), crate::Span::raw(wide)];
-        // The band starts inside the first span (the combining cluster
-        // rides its base) and ends inside the second (the wide glyph
-        // spans the edge's last cell).
-        theme.paint_hover_band(&mut line, 1..3);
-        assert_eq!(flat(&line), format!("{combining}{wide}"));
-        assert_eq!(
-            line[0].content, "e\u{301}",
-            "the combining mark keeps its base"
-        );
-        assert_eq!(line[1].content, "x");
-        assert_eq!(line[2].content, "\u{4e2d}", "the wide glyph stays whole");
-        assert_eq!(line[3].content, "y");
-        assert_eq!(
-            line[0].style.bg, None,
-            "the cluster before the band stays bare"
-        );
-        assert_eq!(
-            line[1].style.bg,
-            theme.hover_row_style().bg,
-            "the covered plain cell bands"
-        );
-        assert_eq!(
-            line[2].style.bg,
-            theme.hover_row_style().bg,
-            "the wide glyph at the band's end bands with it"
-        );
-        assert_eq!(line[3].style.bg, None, "the tail stays bare");
-    }
-
-    /// The hover band paints only its own column span: a span
-    /// straddling an edge splits, and a cell already carrying the
-    /// selection's band keeps it (both state styles apply where they
-    /// overlap — the hover never demotes the focused band, and the
-    /// one shared color makes the overlap read as one band).
-    #[test]
-    fn the_hover_band_covers_its_columns_and_never_demotes_the_selection() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-        let mut line = vec![
-            crate::Span::raw("plain "),
-            crate::Span::styled("focused".to_string(), theme.selection_row_style()),
-            crate::Span::raw(" tail"),
-        ];
-        theme.paint_hover_band(&mut line, 3..10);
-        let widths = span_width(&line);
-        assert_eq!(
-            widths,
-            vec![3, 3, 4, 3, 5],
-            "the straddling spans split at the band edges"
-        );
-        assert_eq!(flat(&line), "plain focused tail");
-        // The plain cells inside the band carry the light background.
-        assert_eq!(
-            line[0].style.bg, None,
-            "the cells outside the band stay bare"
-        );
-        assert_eq!(
-            line[1].style.bg,
-            theme.hover_row_style().bg,
-            "the covered plain cells gain the light band"
-        );
-        assert_eq!(
-            line[2].style.bg,
-            theme.selection_row_style().bg,
-            "the selection's own cells keep their band under the hover"
-        );
-        assert_eq!(
-            line[3].style.bg,
-            theme.selection_row_style().bg,
-            "the focused cells keep the selection band"
-        );
-        assert_eq!(line[4].style.bg, None, "the tail stays bare");
-    }
-
-    fn flat(line: &crate::Line) -> String {
-        line.iter().map(|s| s.content.as_str()).collect()
-    }
-
-    /// [`str_width`] over one span's content.
-    fn span_width(line: &crate::Line) -> Vec<usize> {
-        line.iter()
-            .map(|s| crate::width::str_width(&s.content))
-            .collect()
     }
 }

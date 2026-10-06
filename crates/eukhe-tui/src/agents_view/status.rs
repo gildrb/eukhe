@@ -2,7 +2,7 @@
 //! agents-view-mode.ts:1436-1473): the text with its tone and lifetime.
 //! The line renders one hint row at the bottom of the frame, in the
 //! tone's color, and clears itself after
-//! [`STATUS_MESSAGE_DURATION_MS`](Self::DURATION) — TS arms a timer; the
+//! [`STATUS_MESSAGE_DURATION_MS`](Self::DURATION) -- TS arms a timer; the
 //! view's run loop holds the expiry deadline instead (no thread, no
 //! sleep, the chat's ctrl-c-hint deadline pattern).
 use std::time::Duration;
@@ -52,7 +52,7 @@ impl Status {
     }
 
     /// TS's tone rule (explicit tone wins, then the `Failed` prefix,
-    /// else muted — `setStatusMessage`'s `options.tone ??`).
+    /// else muted -- `setStatusMessage`'s `options.tone ??`).
     fn default_tone(text: &str) -> StatusTone {
         if text.starts_with("Failed") {
             StatusTone::Error
@@ -77,7 +77,7 @@ impl Status {
     }
 
     /// TS `setStatusMessage(message, { sticky: true })`: the default tone
-    /// rule, no expiry — the line stays until the next keypress.
+    /// rule, no expiry -- the line stays until the next keypress.
     #[must_use]
     pub(super) fn sticky(text: &str) -> Self {
         let text = Self::collapse(text);
@@ -143,7 +143,7 @@ impl super::AgentsViewMode {
     }
 
     /// The timer's callback (TS clears the line only when nothing
-    /// replaced it — a replaced line carries its own new deadline):
+    /// replaced it -- a replaced line carries its own new deadline):
     /// clear the status once its window passed at `now`, and report
     /// whether the frame must repaint.
     pub(super) fn expire_status(&mut self, now: std::time::Instant) -> bool {

@@ -1,6 +1,6 @@
 //! The `/effort` inline picker: the session's thinking levels rendered
 //! through the inline-picker component (TS `ThinkingSelectorComponent`
-//! reduced to this seam — list, select, apply; Esc cancels). Enter applies
+//! reduced to this seam -- list, select, apply; Esc cancels). Enter applies
 //! the picked level through the caller; the picker itself owns only list
 //! state.
 
@@ -158,7 +158,7 @@ impl EffortPicker {
     }
 
     /// Move the selection to one filtered row (the click grammar's row
-    /// select — the arrow keys' exact movement, no apply).
+    /// select -- the arrow keys' exact movement, no apply).
     pub fn select_position(&mut self, position: usize) {
         self.selector.select_position(position);
     }

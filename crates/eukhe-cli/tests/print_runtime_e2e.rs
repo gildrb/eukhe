@@ -492,7 +492,7 @@ fn print_mode_overflow_skip_surfaces_the_warning_row() {
     assert!(stdout.is_empty(), "stdout: {stdout}");
     assert_eq!(
         stderr,
-        "Auto-compaction skipped: Session is too short to compact — try again once it grows\n"
+        "Auto-compaction skipped: Session is too short to compact -- try again once it grows\n"
     );
     assert!(
         !stderr.contains("No response produced."),

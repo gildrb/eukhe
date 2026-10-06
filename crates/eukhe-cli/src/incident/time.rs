@@ -29,7 +29,7 @@ pub(crate) fn parse_incident_time_bound(
             "Invalid time for {flag}: \"{value}\". Use \"2026-09-16T20:02\", \"2026-09-16\", or \"20:02\" (today, UTC)."
         ))
     };
-    // `^(\d{2}):(\d{2})$` — a bare time reads as today, UTC.
+    // `^(\d{2}):(\d{2})$` -- a bare time reads as today, UTC.
     if raw.len() == 5 && raw.as_bytes()[2] == b':' {
         if let (Some(hour), Some(minute)) = (digits(&raw[..2]), digits(&raw[3..])) {
             if hour > 23 || minute > 59 {
@@ -115,7 +115,7 @@ pub(crate) fn parse_incident_time_bound(
         let Some(zone_hour) = take_digits(&mut rest, 2) else {
             return Err(invalid());
         };
-        // `(?::?\d{2})?` — optional minutes behind an optional colon.
+        // `(?::?\d{2})?` -- optional minutes behind an optional colon.
         let zone_minute = if let Some(after_colon) = rest.strip_prefix(':') {
             rest = after_colon;
             i64::from(take_digits(&mut rest, 2).ok_or_else(invalid)?)

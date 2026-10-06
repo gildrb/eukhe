@@ -135,7 +135,7 @@ fn goal_detail_suffix(value: &str, prefix_width: usize, columns: usize) -> Strin
 /// `truncateToWidth` over unstyled text with the default `...` ellipsis.
 fn truncate_plain(text: &str, width: usize) -> String {
     let line: crate::Line = vec![crate::Span::raw(text.to_string())];
-    crate::width::truncate_line(&line, width, "...")
+    crate::width::truncate_line(&line, width, crate::glyphs::ELLIPSIS)
         .iter()
         .map(|span| span.content.as_str())
         .collect::<String>()
@@ -181,14 +181,14 @@ pub fn format_goal_elapsed(seconds: u64) -> String {
 /// The read-only goal panel (the operator's 2026-09-24 directive: the
 /// dock's `Pursuing goal` row opens "what the goal prompt is"): the
 /// objective text wrapped over the frame, the status facts beneath it,
-/// and the same bottom-shortcuts shape as the docked panes — the hint,
+/// and the same bottom-shortcuts shape as the docked panes -- the hint,
 /// one blank line below it, no rule.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GoalPanel {
     pub goal: GoalState,
     /// The panel's row budget (`picker_viewport_rows` at open): the
     /// objective clips to it instead of growing the dock past the frame
-    /// (a front-crop would hide the title and the prompt's start — the
+    /// (a front-crop would hide the title and the prompt's start -- the
     /// content this panel exists to show).
     pub viewport_rows: usize,
 }
@@ -219,9 +219,10 @@ pub fn render_goal_panel(
 
     let goal = &panel.goal;
     let mut lines: Vec<Line> = Vec::new();
-    lines.push(vec![
-        theme.fg_span(ThemeColor::BorderMuted, "\u{2500}".repeat(width.max(1)))
-    ]);
+    lines.push(vec![theme.fg_span(
+        ThemeColor::BorderMuted,
+        crate::glyphs::RULE.repeat(width.max(1)),
+    )]);
     lines.push(crate::width::truncate_line(
         &vec![
             Span::raw("  "),
@@ -250,7 +251,7 @@ pub fn render_goal_panel(
     let objective_width = width.saturating_sub(4).max(1);
     // The frame's fixed rows outside the objective block: rule, title,
     // two blanks around it, the three fact rows, the hint block's blank,
-    // the hint, and the trailing blank (10) — the objective renders in
+    // the hint, and the trailing blank (10) -- the objective renders in
     // whatever the viewport budget leaves, clipping with a marker so the
     // panel never grows past its frame (a multi-screen objective keeps
     // its title and its first lines instead of front-cropping them away).
@@ -271,7 +272,7 @@ pub fn render_goal_panel(
     if clipped {
         lines.push(vec![
             Span::raw("  "),
-            theme.fg_span(ThemeColor::Dim, "\u{2026}".to_string()),
+            theme.fg_span(ThemeColor::Dim, crate::glyphs::ELLIPSIS.to_string()),
         ]);
     }
     lines.push(Vec::new());
@@ -476,10 +477,10 @@ mod tests {
     }
 
     /// The read-only goal panel (the operator's 2026-09-24 directive):
-    /// the dock's `Pursuing goal` row opens "what the goal prompt is" —
+    /// the dock's `Pursuing goal` row opens "what the goal prompt is" --
     /// the wrapped objective over the frame, the status facts beneath
     /// it, the close hint, and one blank line below the hint (never a
-    /// rule — the docked panes' shared shortcuts shape).
+    /// rule -- the docked panes' shared shortcuts shape).
     #[test]
     fn the_goal_panel_renders_the_objective_and_facts() {
         let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
@@ -515,12 +516,12 @@ mod tests {
         assert!(joined.contains("active"), "{joined}");
         assert!(joined.contains("2m 05s"), "{joined}");
         assert!(joined.contains("18000 / 40000 tokens"), "{joined}");
-        // The hint, then exactly one blank below it — no rule.
+        // The hint, then exactly one blank below it -- no rule.
         let hint = text
             .iter()
             .position(|row| row.contains("close"))
             .expect("the hint row");
-        assert!(text[hint].trim() != "\u{2500}");
+        assert!(text[hint].trim() != "-");
         assert_eq!(
             text.len() - hint - 1,
             1,
@@ -551,7 +552,7 @@ mod tests {
         assert!(joined.contains("No objective recorded"), "{joined}");
         // A multi-screen objective clips to the panel's viewport budget
         // with an ellipsis marker: the title and the prompt's first lines
-        // stay on the frame (the bot-round fix — the read-only panel has
+        // stay on the frame (the bot-round fix -- the read-only panel has
         // no scrolling, so a front-cropped dock would hide them forever).
         let mut tall = goal(GoalStatus::Active);
         tall.objective = Some(
@@ -579,7 +580,7 @@ mod tests {
             "the title stays"
         );
         assert!(
-            text.iter().any(|row| row.trim() == "\u{2026}"),
+            text.iter().any(|row| row.trim() == "..."),
             "the clipped objective carries a marker: {text:?}"
         );
         let joined = text.join(" ");
@@ -592,7 +593,7 @@ mod tests {
             "the clipped tail does not render"
         );
         // A narrow frame wraps the objective inside its width: every
-        // rendered row fits (the bot-round fix — the wrap width follows
+        // rendered row fits (the bot-round fix -- the wrap width follows
         // the frame, never a floor wider than it).
         let mut narrow = goal(GoalStatus::Active);
         narrow.objective = Some("check the narrow wrap path".to_string());

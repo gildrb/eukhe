@@ -135,7 +135,7 @@ fn a_fork_of_a_child_stays_a_sibling_row() {
 
 /// The Model column reads every wire shape of the model selector: a
 /// bare string, a live worker's `model.id`, and a seeded or
-/// saved-session row's `model.modelId` — always the full
+/// saved-session row's `model.modelId` -- always the full
 /// `model:thinking` string, never a truncated `provider/` blob.
 #[test]
 fn session_model_reads_every_wire_shape() {
@@ -161,13 +161,13 @@ fn session_model_reads_every_wire_shape() {
     assert_eq!(
         session_model(&json!({"model": {"provider": "p"}, "thinkingLevel": "high"})),
         "-",
-        "an empty id stays empty — never a `p/`-style blob"
+        "an empty id stays empty -- never a `p/`-style blob"
     );
 }
 
 /// The ONE line under a parent (the operator's 2026-09-28 merge):
-/// `1 subagents (1 running)` — the full roster count first, the
-/// running subset in the parenthetical — with the TS-parity
+/// `1 subagents (1 running)` -- the full roster count first, the
+/// running subset in the parenthetical -- with the TS-parity
 /// `subagents:` identity, expanding to the child at depth 1.
 #[test]
 fn parent_with_child_renders_the_summary_row_and_nested_child() {
@@ -209,7 +209,7 @@ fn deeper_descendants_roll_up_and_nest_recursively() {
         roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
         roster_entry("gc", "running", &grandchild),
     ];
-    // Collapsed: the parent's ONE line carries the whole subtree —
+    // Collapsed: the parent's ONE line carries the whole subtree --
     // total 2 (the child and the grandchild), running 1 (the
     // grandchild).
     let rows = rows_for(&roster, None, &[]);
@@ -258,7 +258,7 @@ fn deeper_descendants_roll_up_and_nest_recursively() {
 
 /// The summary row's title is count-only (the operator's 2026-09-26
 /// follow-up): the ONE line reads `"{total} subagents ({running}
-/// running)"` and carries no model mix anymore — the models surface
+/// running)"` and carries no model mix anymore -- the models surface
 /// on the child rows' own Model column. The tally walk still folds
 /// every depth (the dynamic bound a fixed `0..len` range would
 /// strand).
@@ -301,7 +301,7 @@ fn summary_rows_stay_count_only() {
     assert_eq!(nested.title, "1 subagents (0 running)");
     // A FOUR-level chain folds at every depth: the great-grandchild
     // still reaches the root's count (the tally walk's dynamic
-    // bound — a fixed `0..len` range would strand it out of the
+    // bound -- a fixed `0..len` range would strand it out of the
     // rollup).
     let mut gc = child_summary("gc", "c", "grandkid");
     gc["rlmChildId"] = json!("child-gc");
@@ -324,7 +324,7 @@ fn summary_rows_stay_count_only() {
     assert_eq!(rows[0].descendant_count, 3);
 }
 
-/// The ONE line aggregates the whole subtree — every not-running
+/// The ONE line aggregates the whole subtree -- every not-running
 /// descendant counts in the total, at any depth, and the child's
 /// own line keeps the same walk over its subtree.
 #[test]
@@ -349,7 +349,7 @@ fn idle_descendants_aggregate_into_the_summary_row() {
 
 /// A busy subtree runs at any depth: the ONE line's total and its
 /// running parenthetical both count the whole tree (`2 subagents
-/// (2 running)`), and the line renders alone — one group, never a
+/// (2 running)`), and the line renders alone -- one group, never a
 /// second per-status line.
 #[test]
 fn running_descendants_aggregate_into_the_summary_row() {
@@ -366,7 +366,7 @@ fn running_descendants_aggregate_into_the_summary_row() {
 }
 
 /// The operator's 2026-09-28 one-dropdown contract: the ONE line
-/// expands to the FULL roster in one group — a parent with six
+/// expands to the FULL roster in one group -- a parent with six
 /// running and forty inactive children reads `46 subagents (6
 /// running)` and expands to all forty-six rows, the six runners
 /// FIRST (with their running state), the historical workers after.
@@ -420,7 +420,7 @@ fn the_merged_line_expands_to_the_full_roster_running_first() {
 }
 
 /// Both levels expanded on a mixed tree: every agent renders exactly
-/// once — the merged group's in-place nesting is the one visible
+/// once -- the merged group's in-place nesting is the one visible
 /// path to every descendant (the operator's no-duplicates
 /// safeguard).
 #[test]
@@ -463,7 +463,7 @@ fn the_expanded_group_renders_each_agent_once() {
 /// summary row (the `subagents:` prefix; the merged group's
 /// identity scheme). A carried legacy `subagents-inactive:` identity
 /// (the 2026-09-25 two-line scheme) resolves by its session key
-/// onto the PARENT row — the graceful degrade for a selection
+/// onto the PARENT row -- the graceful degrade for a selection
 /// carried across the merge.
 #[test]
 fn selection_pins_the_one_summary_line_identity() {
@@ -859,8 +859,8 @@ fn rollups_sum_costs_over_descendants_only() {
 fn an_active_query_ranks_hits_globally_ancestors_sink_last() {
     // With a query active the list is one flat, globally ranked run:
     // the scored child hit renders by its relevance against every
-    // other hit — not nested after its retained ancestor and the
-    // ancestor's summary — the unscored ancestor sinks below every
+    // other hit -- not nested after its retained ancestor and the
+    // ancestor's summary -- the unscored ancestor sinks below every
     // scored row, and the child keeps its parent linkage for the
     // drill-in open.
     let mut orch_summary = parent_summary("orch");
@@ -1007,7 +1007,7 @@ fn equal_scores_break_ties_by_recency_not_section() {
 
 /// The operator's 2026-09-26 ask, carried by the ONE line: the
 /// summary row's Cost cell aggregates EVERY descendant subagent's
-/// spend — running, idle, and inactive rows all bill — and the
+/// spend -- running, idle, and inactive rows all bill -- and the
 /// parent row keeps the recursive total (own + descendants). The
 /// merged line always renders while any descendant exists, so the
 /// aggregate never loses its row.
@@ -1043,14 +1043,14 @@ fn the_summary_line_bills_every_descendant_status() {
     assert_eq!(summary.title, "4 subagents (2 running)");
     assert!(
         (summary.cost - 4.75).abs() < f64::EPSILON,
-        "runner subtree 1.50 + idle 2.50 + inactive 0.75 — every status bills"
+        "runner subtree 1.50 + idle 2.50 + inactive 0.75 -- every status bills"
     );
 }
 
 /// The deleted-descendant bucket (TS #2506's
 /// `deletedDescendantUsage`) is descendant spend: the ONE line
 /// bills it alongside the live subtree even though no live child
-/// row carries it — a deletion must not erase the money from the
+/// row carries it -- a deletion must not erase the money from the
 /// aggregate any more than from the recursive total.
 #[test]
 fn the_summary_line_bills_the_deleted_descendant_bucket() {
@@ -1099,8 +1099,8 @@ fn the_summary_line_bills_the_deleted_descendant_bucket() {
     );
 }
 
-/// A tree that spends nothing bills its `$0.00` cell — the cost cell
-/// is part of the row, never a value-dependent extra — and a parent
+/// A tree that spends nothing bills its `$0.00` cell -- the cost cell
+/// is part of the row, never a value-dependent extra -- and a parent
 /// with no subagents renders no collapsed row to bill at all.
 #[test]
 fn the_summary_line_cost_is_zero_when_nothing_bills() {
@@ -1118,7 +1118,7 @@ fn the_summary_line_cost_is_zero_when_nothing_bills() {
         .expect("the ONE line");
     assert_eq!(summary.title, "2 subagents (2 running)");
     assert!((summary.cost - 0.0).abs() < f64::EPSILON);
-    // No subagents: no summary row renders — there is no collapsed
+    // No subagents: no summary row renders -- there is no collapsed
     // row to bill.
     let lone = rows_for(
         &[roster_entry("p", "idle", &parent_summary("p"))],
@@ -1149,7 +1149,7 @@ fn a_nested_line_bills_its_own_subtree() {
     ];
     let rows = rows_for(&roster, None, &["file:/x/p.jsonl"]);
     // A subagent row's identity is its first alias (the parent-qualified
-    // `agent:` id), so the line is looked up off the rendered child row —
+    // `agent:` id), so the line is looked up off the rendered child row --
     // the same dynamic lookup the drill-in tests use.
     let child_identity = rows
         .iter()
@@ -1177,8 +1177,8 @@ fn a_nested_line_bills_its_own_subtree() {
     );
 }
 
-/// The operator's acceptance line: a fleet-scale roster — 331
-/// inactive children plus 2 running (333 descendants) — renders ONE
+/// The operator's acceptance line: a fleet-scale roster -- 331
+/// inactive children plus 2 running (333 descendants) -- renders ONE
 /// summary row reading `333 subagents (2 running)`, and expanding
 /// it renders ALL 333 in one group, the two runners first with
 /// their running state, the 331 historical workers after.
@@ -1202,7 +1202,7 @@ fn one_dropdown_renders_the_full_fleet_roster() {
             &child_summary(&format!("i{n}"), "p", &format!("old worker {n}")),
         ));
     }
-    // Collapsed: the parent and its ONE line — one number pair, no
+    // Collapsed: the parent and its ONE line -- one number pair, no
     // second per-status line.
     let rows = rows_for(&roster, None, &[]);
     assert_eq!(rows.len(), 2);

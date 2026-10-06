@@ -27,8 +27,8 @@ fn mode_with_notice(notice: &str) -> AgentsViewMode {
     mode
 }
 
-/// A multi-line notice — the cross-product lease refusal with its two
-/// ways out — renders as the panel: the full text stays visible and
+/// A multi-line notice -- the cross-product lease refusal with its two
+/// ways out -- renders as the panel: the full text stays visible and
 /// wrapped, never truncated to the single hint line, and any key
 /// dismisses it.
 #[test]
@@ -87,7 +87,7 @@ fn a_single_line_notice_keeps_the_status_line() {
 }
 
 /// TS `setStatusMessage`'s tone rule: the explicit tone wins, the
-/// `Failed` prefix reads error, everything else reads muted — and the
+/// `Failed` prefix reads error, everything else reads muted -- and the
 /// rendered hint row carries the tone's color (the #3117 SF6
 /// divergence: every status used to render as an error).
 #[test]
@@ -133,7 +133,7 @@ fn the_status_line_carries_its_tone() {
 }
 
 /// TS's 4.5s status timer, through the accessors the loop drives: the
-/// line arms its expiry, holds before the deadline, clears after it —
+/// line arms its expiry, holds before the deadline, clears after it --
 /// and a line that REPLACED an expired one keeps its own new window
 /// (TS's unchanged-line guard).
 #[test]

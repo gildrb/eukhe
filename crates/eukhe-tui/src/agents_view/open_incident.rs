@@ -31,7 +31,7 @@ impl AgentsViewMode {
     /// `cycleProgramForSelected`'s target + `targetHasSpawnCode`,
     /// :1701-1735): the agent row itself for a top-level selection, its
     /// parent for a summary line or a nested child, resolved to the
-    /// target's summary row — the one place that says whether the
+    /// target's summary row -- the one place that says whether the
     /// program exists (the cycle and the hint slot both read it).
     pub(super) fn program_target(&self) -> Option<&AgentsViewRow> {
         let row = self.rows.get(self.selected)?;
@@ -78,7 +78,7 @@ impl AgentsViewMode {
     /// Toggle the selected parent's subagent list (TS
     /// `toggleSubagentList`, the operator's 2026-09-28 one-line merge):
     /// alt+right and open both land here; the target is the selected
-    /// row's parent for a summary line, the row itself otherwise —
+    /// row's parent for a summary line, the row itself otherwise --
     /// one line, one expansion set. An agent row with no descendants
     /// keeps the insert inert (its line never renders).
     pub(super) fn toggle_subagent_list(&mut self, row: &AgentsViewRow) {
@@ -234,7 +234,7 @@ impl AgentsViewMode {
 
     /// Hand the terminal back to the scope root's session (TS
     /// `finish({ type: "scope_back" })` when `pop`: the scoped view
-    /// detaches and the flow pops the scope frame — the return chat it
+    /// detaches and the flow pops the scope frame -- the return chat it
     /// opened from reopens, and a later agents-back lands in the parent
     /// scope. Escape reopens the same session without popping the frame.
     pub(super) fn open_scope_root(&mut self, pop: bool) {
@@ -320,7 +320,8 @@ impl AgentsViewMode {
         let styled = self.theme.fg(
             crate::theme::ThemeColor::Warning,
             format!(
-                "⚠ {} {}",
+                "{} {} {}",
+                crate::glyphs::WARN,
                 notice.text,
                 crate::incident_notices::INCIDENT_NOTICE_POINTER
             ),

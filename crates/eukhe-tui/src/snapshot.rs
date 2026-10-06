@@ -3,7 +3,7 @@
 //!
 //! Daemon message payloads are raw JSON (`Value`): the session engine owns
 //! their evolution, and the TUI renders what arrives. Message decoding is
-//! therefore lenient — it accepts plain-string content and content-block
+//! therefore lenient -- it accepts plain-string content and content-block
 //! arrays, with or without explicit block `type` tags, covering the shapes
 //! the scripted harness and the real engine both emit.
 
@@ -61,7 +61,7 @@ pub struct Reconstructed {
     /// The worker generation of the attach's event cursor (the resume
     /// protocol's generation): disambiguates event-sequence values
     /// across worker restarts for the cross-view layout handoff's key
-    /// (`view::handoff`) — a restarted worker's sequence restarts, so the
+    /// (`view::handoff`) -- a restarted worker's sequence restarts, so the
     /// generation must match too.
     pub event_generation: String,
     /// The session's goal state (`state.goal`), when the snapshot reports
@@ -81,10 +81,10 @@ pub struct Reconstructed {
     /// user message's `timestamp` in fold order. The rebuilt loader
     /// anchors its elapsed clock here (the operator's 2026-09-28
     /// rule: the waiting/executing timer counts since the last human
-    /// prompt and never resets on a view transition — an agents-view
+    /// prompt and never resets on a view transition -- an agents-view
     /// round trip re-attaches mid-turn and the clock keeps its
     /// anchor). `None` when no user message carries a timestamp (an
-    /// old snapshot or a seeded replay) — the loader then keeps its
+    /// old snapshot or a seeded replay) -- the loader then keeps its
     /// re-attach-instant anchor.
     pub last_user_prompt_ms: Option<u64>,
     /// The session's effective service tier (`state.serviceTier`), the
@@ -208,7 +208,7 @@ struct OrphanResult {
 /// card scan (a replay-scale fold stays linear).
 /// TS `orderMessagesForTranscript`: the wire context is summary-first for
 /// the model, but the transcript presents the compaction summary at its
-/// chronological boundary — after the retained messages
+/// chronological boundary -- after the retained messages
 /// (`retainedMessageCount`), before anything appended after the
 /// compaction. A missing count falls back to the timestamp split (TS
 /// compatibility for pre-count summaries).
@@ -387,7 +387,7 @@ pub fn reconstruct(attach: &AttachData) -> Reconstructed {
         .unwrap_or_default();
     // The cursor-presence gate (`view::handoff`): the handoff's key
     // collapses absent cursor fields to default values, which could
-    // alias across cursor-less attaches of the same entry count — the
+    // alias across cursor-less attaches of the same entry count -- the
     // layout handoff refuses to key on a collapsed identity (the
     // sequence supplied, a non-empty generation, a non-empty session).
     let cursor_present = (snapshot_sequence.is_some() || attach.last_event_sequence.is_some())
@@ -475,7 +475,7 @@ fn message_timestamp_ms(message: &Value) -> Option<u64> {
 /// when no picked-up prompt is preparing (TS #2063
 /// `connectionState.sessionActions.active`: the interactive strip renders
 /// the "Starting" row exactly while the active action is a turn in its
-/// `preparing` phase — the prompt left its lane at pickup, so the strip is
+/// `preparing` phase -- the prompt left its lane at pickup, so the strip is
 /// the only place it shows until the turn renders it).
 fn starting_from_actions(actions: &Value) -> Option<String> {
     let active = actions.get("active")?;
@@ -491,7 +491,7 @@ fn starting_from_actions(actions: &Value) -> Option<String> {
 }
 
 /// One typed-provenance rider of a `sessionActions` wire value (the
-/// parked lane indices it marks — Rust-native provenance with no TS
+/// parked lane indices it marks -- Rust-native provenance with no TS
 /// counterpart; the strip folds exactly the marked rows): `rlmChildStatus`
 /// for the parked child-status notices, `injectedPrompts` for the
 /// engine-minted continuations. A projection without parked marks omits
@@ -535,7 +535,7 @@ fn queue_lane(actions: &Value, key: &str) -> Vec<String> {
 /// The model id and provider from a `state.model` wire value
 /// (`{id, provider}` or a display string): the provider is `None` for the
 /// display-string form and the object form that omits it (older daemons),
-/// and the whole identity is `None` when no id parses — a provider
+/// and the whole identity is `None` when no id parses -- a provider
 /// without an id matches nothing in the catalog.
 fn model_identity_value(model: &Value) -> Option<(String, Option<String>)> {
     match model {

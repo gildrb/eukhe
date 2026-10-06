@@ -4,7 +4,7 @@
 
 /// The interpreted form of one cron field: `*`, `*/n`, a single value,
 /// or anything else the small interpreter below does not cover (lists,
-/// ranges — those keep the raw expression).
+/// ranges -- those keep the raw expression).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CronField {
     Any,
@@ -43,7 +43,7 @@ fn cron_day_name(value: u32) -> Option<&'static str> {
 
 /// The human-readable form of one schedule expression for the interval
 /// column (the operator's 2026-09-24 ruling: "cron format is not human
-/// readable"). The storage format stays the raw cron — this is
+/// readable"). The storage format stays the raw cron -- this is
 /// render-side only, and the drill-in keeps the raw expression beside
 /// the interpretation. The natural-language schedules (`every 10m`,
 /// `in 2h`, `at <date>`) pass through unchanged, the five-field cron

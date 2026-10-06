@@ -26,7 +26,7 @@ impl CompactSkip {
     pub fn user_message(self) -> &'static str {
         match self {
             CompactSkip::AlreadyCompacted => "Already compacted",
-            CompactSkip::TooShort => "Session is too short to compact — try again once it grows",
+            CompactSkip::TooShort => "Session is too short to compact -- try again once it grows",
             CompactSkip::ChatMemory => {
                 "Nothing to compact: the chat memory keeps this chat, and every turn starts fresh from its view"
             }

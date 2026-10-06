@@ -66,7 +66,7 @@ impl SessionUi {
         Ok(())
     }
 
-    /// Run one heartbeat management request (TS `manageHeartbeat` →
+    /// Run one heartbeat management request (TS `manageHeartbeat` ->
     /// `agentConnection.manageHeartbeat`): the daemon owns the job; the
     /// updated job (or the stop's removal) patches the open view locally,
     /// a background refresh reconciles the catalog, and a failure
@@ -139,7 +139,7 @@ impl SessionUi {
 
     /// Scope a fetched catalog to THIS session only (operator scoping:
     /// nested sessions' heartbeats do not surface in the dock, the
-    /// panel, or the `/heartbeats` view — a sanctioned divergence from
+    /// panel, or the `/heartbeats` view -- a sanctioned divergence from
     /// TS `scopeHeartbeatsToSession`, which also kept the RLM children's
     /// jobs; the child ids stay empty here).
     fn scope_heartbeats(&self, heartbeats: Vec<HeartbeatEntry>) -> Vec<HeartbeatEntry> {
@@ -155,7 +155,7 @@ impl SessionUi {
     /// response scopes and sorts into the catalog synchronously with the
     /// attach (bounded like every UI request), so the dock's heartbeat
     /// rows ride the first content frame instead of popping in late. A
-    /// failed or timed-out fetch leaves the just-cleared catalog — the
+    /// failed or timed-out fetch leaves the just-cleared catalog -- the
     /// same empty-open state the background refresh's failure arm
     /// produces, and the next `heartbeats_changed` event refills.
     pub(crate) async fn fetch_heartbeat_catalog(&mut self) {
@@ -184,7 +184,7 @@ impl SessionUi {
 
     /// Fire a background heartbeat-catalog refresh (TS
     /// `refreshHeartbeatCatalog`): the fetch lands through the run loop's
-    /// channel into the open view; failures clear nothing — the next
+    /// channel into the open view; failures clear nothing -- the next
     /// `heartbeats_changed` event retries. At most one refresh runs in
     /// flight with one queued trailing refresh (daemon-wide broadcasts can
     /// burst; stacked concurrent requests would load the supervisor), and
@@ -285,15 +285,15 @@ impl SessionUi {
 
     /// Open the `/heartbeats` view over the CACHED catalog at once (TS
     /// `showHeartbeatManager`'s mount): the keypress never waits on the
-    /// daemon — a non-blocking refresh lands through the update channel,
+    /// daemon -- a non-blocking refresh lands through the update channel,
     /// and stale-while-revalidate keeps the mounted catalog on failure
     /// (the error surfaces inside the open view only). The picker owns
     /// the frame while it is open; its close hands the focus back to the
     /// dock's own group (the operator's 2026-09-26 panel-exit ruling).
     pub(crate) fn open_heartbeats_view(&mut self, view: &mut AgentView) {
         self.subagents_focused = false;
-        // The view IS the dock's Heartbeates item: every entry path —
-        // the dock's Enter or the `/heartbeats` command — leaves the
+        // The view IS the dock's Heartbeates item: every entry path --
+        // the dock's Enter or the `/heartbeats` command -- leaves the
         // panel's own group selected, so the close restores the
         // Heartbeats dock item (the operator's 2026-09-26 panel-exit
         // ruling; the command path would otherwise keep whatever group

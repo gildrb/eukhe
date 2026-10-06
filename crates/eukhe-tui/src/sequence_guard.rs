@@ -6,47 +6,34 @@
 //! every partial-read tail parses `ESC` with no bytes after it, and
 //! `parse_event(b"\x1b", more=false)` yields an `Esc` press. The sequence
 //! that `ESC` opened then arrives in the next read and parses
-//! byte-by-byte as plain `Char` presses — during a mouse drag that is the
+//! byte-by-byte as plain `Char` presses -- during a mouse drag that is the
 //! body of an SGR report (`[<64;20;5M`), the "random escape sequences"
 //! users have seen land inside the editor.
 //!
 //! TS never commits that early: `StdinBuffer` holds a trailing `ESC`
 //! until the next chunk either completes the sequence (within a 10 ms
 //! window) or proves it stood alone, and only complete sequences reach
-//! the key parser — unknown ones are dropped, never typed. This module
+//! the key parser -- unknown ones are dropped, never typed. This module
 //! ports that discipline onto the events crossterm emits:
 //!
 //! - a bare `Esc` press is held for [`HOLD`] (TS `StdinBuffer.timeout`);
 //! - continuation bytes reassemble the sequence; a complete one is
 //!   classified before any text insertion: SGR/X10/rxvt mouse reports
-//!   decode through `mouse`, recognized key sequences synthesize the
-//!   event crossterm's own single-read parse would have produced, and
-//!   everything else is consumed (dropped);
-//! - a sequence still incomplete at the deadline is dropped whole — the
+//!   are consumed whole (the CLI never decodes mouse input), recognized
+//!   key sequences synthesize the event crossterm's own single-read
+//!   parse would have produced, and everything else is consumed
+//!   (dropped);
+//! - a sequence still incomplete at the deadline is dropped whole -- the
 //!   editor never sees escape bytes as text;
 //! - a held `Esc` that nothing continues flushes as the key press.
 
 use std::time::{Duration, Instant};
 
-use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent,
-    MouseEventKind,
-};
-
-use crate::mouse::{self, MouseEvent as Report};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
 /// TS `StdinBuffer.timeout`: how long a lone `ESC` (or a half-assembled
 /// sequence) waits for its continuation before flushing.
 pub(crate) const HOLD: Duration = Duration::from_millis(10);
-
-/// What the guard emits in place of one reader event: a passthrough
-/// event, or a mouse report decoded from a reassembled sequence (the
-/// reader forwards it as [`crate::input::ReaderInput::Mouse`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum GuardOutput {
-    Event(Event),
-    Mouse(Report),
-}
 
 /// One held `ESC` and the sequence reassembled behind it, if any.
 struct PendingEscape {
@@ -65,9 +52,9 @@ impl PendingEscape {
     /// The deadline flush: a bare held `ESC` is the key press it looked
     /// like; a half-assembled sequence is dropped whole (TS flushes the
     /// raw remainder to the parser, which drops the escape form too).
-    fn flush(self) -> Vec<GuardOutput> {
+    fn flush(self) -> Vec<Event> {
         if self.assembled.len() == 1 {
-            vec![GuardOutput::Event(Event::Key(self.head))]
+            vec![Event::Key(self.head)]
         } else {
             Vec::new()
         }
@@ -83,7 +70,7 @@ pub(crate) struct SequenceGuard {
 
 impl SequenceGuard {
     /// Feed one reader event; returns what to deliver in its place.
-    pub(crate) fn feed(&mut self, event: Event, now: Instant) -> Vec<GuardOutput> {
+    pub(crate) fn feed(&mut self, event: Event, now: Instant) -> Vec<Event> {
         match self.pending.take() {
             None => match &event {
                 Event::Key(key) if is_bare_esc_press(key) => {
@@ -95,12 +82,12 @@ impl SequenceGuard {
                     });
                     Vec::new()
                 }
-                _ => vec![GuardOutput::Event(event)],
+                _ => vec![event],
             },
             Some(mut pending) => {
                 // The hold expired before this event arrived: the held
                 // `ESC` already stood alone (TS's timer flushed it), so the
-                // flush goes out first and the event is a fresh input —
+                // flush goes out first and the event is a fresh input --
                 // never a continuation (a late keystroke would otherwise
                 // arrive as Alt+<key>).
                 if now >= pending.deadline {
@@ -110,9 +97,9 @@ impl SequenceGuard {
                 }
                 let Some(bytes) = continuation_bytes(&event) else {
                     // Not a continuation: the held `ESC` stood alone (or
-                    // the sequence broke) — flush it, pass the event on.
+                    // the sequence broke) -- flush it, pass the event on.
                     let mut out = pending.flush();
-                    out.push(GuardOutput::Event(event));
+                    out.push(event);
                     return out;
                 };
                 if pending.first.is_none() {
@@ -133,7 +120,7 @@ impl SequenceGuard {
     }
 
     /// The parking wait: the remaining flush deadline while a partial
-    /// sequence is held, or `None` to park until real input — an idle
+    /// sequence is held, or `None` to park until real input -- an idle
     /// wait has no tick of its own to bound.
     pub(crate) fn poll_deadline(&self, now: Instant) -> Option<Duration> {
         self.pending
@@ -142,7 +129,7 @@ impl SequenceGuard {
     }
 
     /// Flush whatever the deadline released.
-    pub(crate) fn flush_expired(&mut self, now: Instant) -> Vec<GuardOutput> {
+    pub(crate) fn flush_expired(&mut self, now: Instant) -> Vec<Event> {
         match self.pending.take() {
             Some(pending) if now >= pending.deadline => pending.flush(),
             Some(pending) => {
@@ -160,7 +147,7 @@ fn is_bare_esc_press(key: &KeyEvent) -> bool {
     key.code == KeyCode::Esc && key.kind == KeyEventKind::Press && key.modifiers.is_empty()
 }
 
-/// The byte(s) the event stands for in the terminal stream — the
+/// The byte(s) the event stands for in the terminal stream -- the
 /// continuation forms crossterm's byte parser produces after a committed
 /// `ESC`. `None` flushes the held `ESC` and passes the event through.
 fn continuation_bytes(event: &Event) -> Option<Vec<u8>> {
@@ -187,7 +174,7 @@ fn continuation_bytes(event: &Event) -> Option<Vec<u8>> {
 
 /// crossterm's control-byte parse (`parse_event`), reversed: the `Char` a
 /// raw control byte is reported as, with `CONTROL`. Only the forms its
-/// parser produces are inverted — `ESC` itself opens a sequence instead,
+/// parser produces are inverted -- `ESC` itself opens a sequence instead,
 /// and the caret-notation forms (`^[`, `^\\`, ...) never survive it:
 /// 0x1c-0x1f arrive as `Char('4'..='7')`, so without those rows an
 /// Alt+Ctrl+digit combo after a read boundary would split wrong.
@@ -212,7 +199,7 @@ fn is_complete_sequence(data: &[u8]) -> bool {
     match data[1] {
         b'[' => {
             if data.len() >= 3 && data[2] == b'M' {
-                // X10 mouse report: `ESC [ M Cb Cx Cy` — six bytes.
+                // X10 mouse report: `ESC [ M Cb Cx Cy` -- six bytes.
                 return data.len() >= 6;
             }
             is_complete_csi(data)
@@ -225,7 +212,7 @@ fn is_complete_sequence(data: &[u8]) -> bool {
 }
 
 /// TS `isCompleteCsiSequence`: a CSI completes when its final byte is in
-/// the 0x40-0x7E range — except `<` payloads, which only ever complete as
+/// the 0x40-0x7E range -- except `<` payloads, which only ever complete as
 /// an exact SGR mouse report, so a report split mid-numbers stays held
 /// instead of completing on the first stray final byte.
 fn is_complete_csi(data: &[u8]) -> bool {
@@ -266,172 +253,32 @@ fn ends_with_terminator(after_esc: &[u8], bel: bool) -> bool {
 }
 
 /// Classify a complete reassembled sequence before anything can reach the
-/// editor as text: mouse reports decode, recognized keys synthesize their
-/// crossterm event, and everything else — OSC/DCS/APC replies, focus and
-/// cursor reports, kitty replies, paste markers, unknown forms — is
-/// consumed.
-fn classify(pending: &PendingEscape) -> Vec<GuardOutput> {
+/// editor as text: recognized keys synthesize their crossterm event, and
+/// everything else -- mouse reports, OSC/DCS/APC replies, focus and cursor
+/// reports, kitty replies, paste markers, unknown forms -- is consumed.
+fn classify(pending: &PendingEscape) -> Vec<Event> {
     let bytes = pending.assembled.as_slice();
-    // Mouse reports first: the drag stream is a dense run of them.
-    if bytes.starts_with(b"\x1b[<") {
-        return decode_report(bytes, true);
-    }
-    if bytes.starts_with(b"\x1b[M") && bytes.len() == 6 {
-        return decode_report(bytes, false);
-    }
-    // rxvt mouse (`ESC [ cb ; cx ; cy (;) M`, mode 1015): crossterm's own
-    // single-read parse delivers it as a mouse event, so a reassembled
-    // one must decode the same way — the key classifier below would
-    // drop it, and clicks and drags would vanish only when a read
-    // boundary splits the report.
-    if bytes.starts_with(b"\x1b[") && bytes.ends_with(b"M") {
-        return decode_rxvt_report(bytes);
-    }
-    if let Some(event) = classify_key(bytes, pending.first.as_ref()) {
-        return vec![GuardOutput::Event(event)];
-    }
-    Vec::new()
-}
-
-/// An rxvt mouse report (crossterm `parse_csi_rxvt_mouse`): three
-/// semicolon fields behind `ESC [`, `M` at the end — `cb` one-based by
-/// 32 and the coordinates one-based, with no release form (the final
-/// byte is always `M`; the release distinction is SGR-only). Malformed
-/// fields (the same shapes crossterm rejects) decode to nothing.
-fn decode_rxvt_report(bytes: &[u8]) -> Vec<GuardOutput> {
-    let Ok(text) = std::str::from_utf8(&bytes[2..bytes.len() - 1]) else {
+    // Mouse reports (SGR, X10, rxvt `ESC [ cb ; cx ; cy M`) are dropped
+    // whole: their bodies must never reach the editor as text.
+    let mouse = bytes.starts_with(b"\x1b[<")
+        || (bytes.starts_with(b"\x1b[M") && bytes.len() == 6)
+        || (bytes.starts_with(b"\x1b[") && bytes.ends_with(b"M"));
+    if mouse {
         return Vec::new();
-    };
-    let mut fields = text.split(';');
-    let cb = fields
-        .next()
-        .and_then(|field| field.parse::<u8>().ok())
-        .and_then(|cb| cb.checked_sub(32));
-    let column = fields
-        .next()
-        .and_then(|field| field.parse::<u16>().ok())
-        .map(|x| x.saturating_sub(1));
-    let row = fields
-        .next()
-        .and_then(|field| field.parse::<u16>().ok())
-        .map(|y| y.saturating_sub(1));
-    let (Some(cb), Some(column), Some(row)) = (cb, column, row) else {
-        return Vec::new();
-    };
-    let Some(kind) = report_kind(cb, true) else {
-        return Vec::new();
-    };
-    let event = MouseEvent {
-        kind,
-        column,
-        row,
-        modifiers: report_modifiers(cb),
-    };
-    match mouse::from_crossterm(event) {
-        Some(report) => vec![GuardOutput::Mouse(report)],
-        None => Vec::new(),
     }
-}
-
-/// The modifier bits of a report's button byte (crossterm `parse_cb`):
-/// shift, alt (meta), control, above the button bits.
-fn report_modifiers(cb: u8) -> KeyModifiers {
-    let mut modifiers = KeyModifiers::empty();
-    if cb & 0b0000_0100 != 0 {
-        modifiers |= KeyModifiers::SHIFT;
-    }
-    if cb & 0b0000_1000 != 0 {
-        modifiers |= KeyModifiers::ALT;
-    }
-    if cb & 0b0001_0000 != 0 {
-        modifiers |= KeyModifiers::CONTROL;
-    }
-    modifiers
-}
-
-/// Decode a reassembled mouse report into the reader's report type: the
-/// button byte maps through the same table crossterm's parser uses, then
-/// `mouse::from_crossterm` keeps the single dispatch filter (wheel and
-/// left-button classes; hover motion and other buttons are consumed at
-/// the source, exactly like the reports crossterm parses itself).
-fn decode_report(bytes: &[u8], sgr: bool) -> Vec<GuardOutput> {
-    let (cb, column, row, press) = if sgr {
-        let Ok(text) = std::str::from_utf8(&bytes[3..bytes.len() - 1]) else {
-            return Vec::new();
-        };
-        let fields: Vec<&str> = text.split(';').collect();
-        let (Ok(cb), Ok(x), Ok(y)) = (
-            fields[0].parse::<u8>(),
-            fields[1].parse::<u16>(),
-            fields[2].parse::<u16>(),
-        ) else {
-            return Vec::new();
-        };
-        // SGR coordinates are one-based; crossterm reports zero-based.
-        (
-            cb,
-            x.saturating_sub(1),
-            y.saturating_sub(1),
-            bytes[bytes.len() - 1] == b'M',
-        )
-    } else {
-        let cb = bytes[3].wrapping_sub(32);
-        (
-            cb,
-            u16::from(bytes[4].saturating_sub(32)).saturating_sub(1),
-            u16::from(bytes[5].saturating_sub(32)).saturating_sub(1),
-            true,
-        )
-    };
-    let Some(kind) = report_kind(cb, press) else {
-        return Vec::new();
-    };
-    let event = MouseEvent {
-        kind,
-        column,
-        row,
-        modifiers: report_modifiers(cb),
-    };
-    match mouse::from_crossterm(event) {
-        Some(report) => vec![GuardOutput::Mouse(report)],
-        None => Vec::new(),
-    }
-}
-
-/// crossterm's `parse_cb`: the X10/SGR button byte to event kind. An SGR
-/// release (`m`) turns a press report into a release.
-fn report_kind(cb: u8, press: bool) -> Option<MouseEventKind> {
-    let button = (cb & 0b0000_0011) | ((cb & 0b1100_0000) >> 4);
-    let dragging = cb & 0b0010_0000 != 0;
-    let kind = match (button, dragging) {
-        (0, false) => MouseEventKind::Down(MouseButton::Left),
-        (1, false) => MouseEventKind::Down(MouseButton::Middle),
-        (2, false) => MouseEventKind::Down(MouseButton::Right),
-        (0, true) => MouseEventKind::Drag(MouseButton::Left),
-        (1, true) => MouseEventKind::Drag(MouseButton::Middle),
-        (2, true) => MouseEventKind::Drag(MouseButton::Right),
-        (3, false) => MouseEventKind::Up(MouseButton::Left),
-        (3..=5, true) => MouseEventKind::Moved,
-        (4, false) => MouseEventKind::ScrollUp,
-        (5, false) => MouseEventKind::ScrollDown,
-        (6, false) => MouseEventKind::ScrollLeft,
-        (7, false) => MouseEventKind::ScrollRight,
-        _ => return None,
-    };
-    Some(match (kind, press) {
-        (MouseEventKind::Down(button), false) => MouseEventKind::Up(button),
-        (kind, _) => kind,
-    })
+    classify_key(bytes, pending.first.as_ref())
+        .into_iter()
+        .collect()
 }
 
 /// Recognized key sequences: their crossterm event. `None` consumes the
-/// sequence — unknown sequences are dropped, never typed.
+/// sequence -- unknown sequences are dropped, never typed.
 fn classify_key(bytes: &[u8], first: Option<&Event>) -> Option<Event> {
     match bytes {
         // crossterm's parse of a lone `ESC ESC`: one `Esc`.
         b"\x1b\x1b" => Some(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))),
         // `ESC` + one character: crossterm re-parses the character's
-        // bytes and adds `ALT` — a single byte for the ASCII and control
+        // bytes and adds `ALT` -- a single byte for the ASCII and control
         // forms, the whole UTF-8 character otherwise (its parser never
         // splits a character across events, so a longer tail is always
         // one character). `first` is the event that carried it. The
@@ -471,8 +318,8 @@ fn ss3_key(fin: u8) -> Option<Event> {
 }
 
 /// CSI (`ESC [ <payload>`): the key forms crossterm's parser produces,
-/// plus the sequences it consumes internally — focus transitions, cursor
-/// position, kitty replies, paste markers — all consumed here so a
+/// plus the sequences it consumes internally -- focus transitions, cursor
+/// position, kitty replies, paste markers -- all consumed here so a
 /// reassembled one can never reach the editor as text.
 fn csi_key(payload: &[u8]) -> Option<Event> {
     let final_byte = *payload.last()?;
@@ -618,7 +465,7 @@ fn tilde_key(body: &[u8]) -> Option<Event> {
 /// CSI-u / kitty (`ESC [ <cp>(:alt)?(;mods(:kind)?)? u`): printable
 /// codepoints and the control specials, with the shifted alternate
 /// resolving to the produced character. The 57xxx functional range is
-/// consumed — a split keypad report must not leak, and no surface this
+/// consumed -- a split keypad report must not leak, and no surface this
 /// reader feeds dispatches those keys.
 fn csi_u_key(body: &[u8]) -> Option<Event> {
     let text = std::str::from_utf8(body).ok()?;
@@ -644,8 +491,8 @@ fn csi_u_key(body: &[u8]) -> Option<Event> {
     let (mut code, state_from_keycode) = match codepoint {
         // The keypad block of the kitty functional range (crossterm
         // `translate_functional_key_code`): its characters, Enter, and
-        // navigation decode exactly like the unsplit parse — with the
-        // KEYPAD state it stamps on them — instead of vanishing on a
+        // navigation decode exactly like the unsplit parse -- with the
+        // KEYPAD state it stamps on them -- instead of vanishing on a
         // split read. TS maps the same block
         // (keys.ts KITTY_FUNCTIONAL_KEY_EQUIVALENTS).
         57399..=57408 => (
@@ -697,7 +544,7 @@ fn csi_u_key(body: &[u8]) -> Option<Event> {
         0x7f => (KeyCode::Backspace, KeyEventState::empty()),
         // The rest of the kitty functional range: no surface this reader
         // feeds dispatches those keys (F13+, media and modifier
-        // reports — TS drops them too), and a split report must not
+        // reports -- TS drops them too), and a split report must not
         // turn into a text character.
         c if (57344..=63743).contains(&c) => return None,
         c => (KeyCode::Char(char::from_u32(c)?), KeyEventState::empty()),
@@ -721,7 +568,7 @@ fn csi_u_key(body: &[u8]) -> Option<Event> {
 }
 
 /// crossterm's `parse_modifiers_to_state`: the lock bits ride the mask
-/// above the modifier bits — caps lock and num lock, delivered as event
+/// above the modifier bits -- caps lock and num lock, delivered as event
 /// state.
 fn lock_state(mask: u8) -> KeyEventState {
     let mask = mask.saturating_sub(1);

@@ -53,7 +53,7 @@ impl super::SessionUi {
 
     /// Open the factory page: the activity dock's factory group's
     /// destination (the subagents/heartbeats/shells pages' navigation
-    /// family — the dock's Enter and the click both dispatch here). The
+    /// family -- the dock's Enter and the click both dispatch here). The
     /// keypress never waits on the daemon (the heartbeats/bash page
     /// pattern): the poll cycle's cached graph mounts at once and the
     /// refresh cadence keeps it current; a daemon without the lane
@@ -167,15 +167,15 @@ impl super::SessionUi {
 
     /// The session's live factory-run count, the `/factory off` lifecycle
     /// guard's read: the same lane request and the same liveness rule the
-    /// dock's count reads (`is_live` — a live state, or children still in
+    /// dock's count reads (`is_live` -- a live state, or children still in
     /// flight), so the refusal names exactly what the dock shows. The
     /// request rides regardless of the hello's advertisement: a client
     /// started before `/factory on` keeps its unadvertised hello, but the
     /// kernel gate reads the settings live, so runs started after the
-    /// toggle are live in that same client — the guard must see them.
+    /// toggle are live in that same client -- the guard must see them.
     /// `Some(0)` also answers the kernel-not-running refusal: the lane
     /// never builds a kernel, and the kernel owns its run registry in
-    /// memory, so a session without a kernel cannot host live runs — a
+    /// memory, so a session without a kernel cannot host live runs -- a
     /// definitive zero, never an unreadable count (the lane answers the
     /// same refusal until some other action boots the kernel, so leaving
     /// it unreadable would pin the lane-advertised client's off behind a
@@ -221,7 +221,7 @@ impl super::SessionUi {
     }
 
     /// The refresh cadence (the run's collect cycle): a bounded watch on
-    /// the selected run — the kernel returns as soon as it changed —
+    /// the selected run -- the kernel returns as soon as it changed --
     /// then the full graph list. The cycle runs on the bash poll's
     /// always-on 2-second cadence (the dock's factory count stays live
     /// while the page is closed); an open page adds its selected run's
@@ -333,7 +333,7 @@ impl super::SessionUi {
     /// session drops. The refresh slot frees whether the response
     /// landed, failed, or timed out, and a tick's queued refresh runs
     /// next (the heartbeat fold's shape). The changed markers land with
-    /// the snapshot (the repaint hysteresis — only a notice-worthy
+    /// the snapshot (the repaint hysteresis -- only a notice-worthy
     /// run-shape change repaints the diagram). A reply without the
     /// runs list is a malformed lane, not zero runs: the open view
     /// reports it on its error line instead of painting a fake empty

@@ -1,8 +1,9 @@
 //! Terminal app: crossterm event loop driving an [`AgentView`] against a
-//! [`SessionStream`]. Both the interactive product surface and the replay
-//! verifier binary run through this single loop.
+//! [`SessionStream`] (the replay verifier binary), and the one chat paint
+//! both it and the interactive surface use.
 
 use crate::editor::{Editor, EditorEvent};
+use crate::inline_term::{InlineFrame, InlineTerminal};
 use crate::keys::key_event_to_id;
 use crate::session::{SessionEvent, SessionStream};
 use crate::theme::Theme;
@@ -10,7 +11,6 @@ use crate::view::AgentView;
 use anyhow::Result;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{self};
-use ratatui::Terminal;
 use std::io::stdout;
 use std::time::Duration;
 
@@ -57,9 +57,8 @@ pub fn load_theme(name: &str) -> Theme {
 /// # Errors
 ///
 /// Returns `Err` when the surface fails to mount or the replay loop fails
-/// (raw-mode enable, the alternate-screen enter, a stream read, or a
-/// draw); the exit restore runs first, so the shell never keeps a
-/// TUI-state terminal.
+/// (raw-mode enable, a stream read, or a draw); the exit restore runs
+/// first, so the shell never keeps a TUI-state terminal.
 pub fn run_app(
     stream: Box<dyn SessionStream>,
     options: &AppOptions,
@@ -90,14 +89,10 @@ fn run_app_surface(
     // kernel's one trigger for lifting a pending Ctrl+S stop (see the
     // flow e2e's launch route).
     terminal::enable_raw_mode()?;
-    // The alternate screen mounts through the ownership module (the same
-    // `pendingAltScreenHandoff` semantics the session surface uses), so
-    // the surface's alt-screen state is tracked for every exit path.
-    crate::altscreen::enter()?;
     // The replay surface owns the same enhanced-key modes as the session
     // (TS `ProcessTerminal.start`): bracketed pastes arrive as one chunk.
     crate::enhanced_keys::enable(&mut std::io::stdout())?;
-    let mut terminal = Terminal::new(crate::hyperlinks::stdout_backend())?;
+    let mut term = InlineTerminal::new(terminal::size()?.1);
 
     let theme = load_theme(&options.theme);
     let mut view = AgentView::new(theme);
@@ -127,7 +122,7 @@ fn run_app_surface(
 
         let (_w, h) = crossterm::terminal::size()?;
         view.set_terminal_rows(h);
-        draw(&mut terminal, &mut view)?;
+        draw(&mut term, &mut view)?;
         // The verifier's panic driver: the unwind must cross the live
         // surface's unwind guard, not the already-restored exit.
         assert!(
@@ -145,7 +140,10 @@ fn run_app_surface(
                 Event::Paste(text) => {
                     view.editor.handle_paste(&text);
                 }
-                _ => {}
+                // A resize reflows the scrollback the terminal holds: the
+                // next frame replays the history at the new size.
+                Event::Resize(..) => view.request_replay(),
+                Event::FocusGained | Event::FocusLost | Event::Mouse(_) => {}
             }
         }
         // Materialize once per loop turn: a parked request resolves
@@ -171,6 +169,7 @@ fn run_app_surface(
         }
     }
 
+    term.release(&mut stdout())?;
     crate::exit_restore::restore_terminal();
     Ok(())
 }
@@ -208,35 +207,6 @@ fn handle_key(
     let Some(id) = key_event_to_id(&key) else {
         return;
     };
-    // Transcript viewport keys (TS tui.ts consumes them before the editor
-    // in fullscreen): page scroll, top, follow.
-    let (page_up, page_down, to_top, follow) = {
-        let kb = view.editor.keybindings();
-        (
-            kb.matches(&id, "tui.viewport.pageUp"),
-            kb.matches(&id, "tui.viewport.pageDown"),
-            kb.matches(&id, "tui.viewport.top"),
-            kb.matches(&id, "tui.viewport.follow"),
-        )
-    };
-    if page_up {
-        view.scroll_by(-(view.page_size() as isize));
-        return;
-    }
-    if page_down {
-        view.scroll_by(view.page_size() as isize);
-        return;
-    }
-    if to_top {
-        view.scroll_to_top();
-        return;
-    }
-    if follow {
-        view.scroll_to_bottom();
-        return;
-    }
-    let is_paste_marker_key = false;
-    let _ = is_paste_marker_key;
     view.editor.handle_input(&id);
     dispatch_events(&mut view.editor, on_submit);
 }
@@ -257,129 +227,49 @@ pub fn dispatch_events(editor: &mut Editor, on_submit: &mut dyn FnMut(&str)) {
     }
 }
 
-pub(crate) fn draw(
-    terminal: &mut Terminal<crate::hyperlinks::LinkBackend>,
-    view: &mut AgentView,
-) -> Result<()> {
-    // The interactive surface's mount sequences (the alt-screen
-    // adopt/enter for a fresh process, the queued clear, the cursor
-    // hide) ride THIS draw's single flush: the first paint is the mount
-    // (a direct open holds the shell or the previous surface until its
-    // first frame is ready — TS attaches before the chat mounts), and a
-    // mid-gap flush can never carry the clear out early over it.
-    if crate::altscreen::take_first_draw_mount() {
-        let mut out = std::io::stdout();
-        crate::altscreen::enter_queued(&mut out)?;
-        crossterm::queue!(
-            out,
-            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
-            crossterm::cursor::Hide
-        )?;
+/// Paint one chat frame through the inline terminal: a replay frame
+/// clears the screen and the scrollback first. The hardware cursor moves
+/// to the editor caret every frame (IME candidate windows anchor there)
+/// and shows only under `showHardwareCursor`.
+pub(crate) fn draw(term: &mut InlineTerminal, view: &mut AgentView) -> Result<()> {
+    let (width, height) = terminal::size()?;
+    term.set_height(height);
+    term.set_cursor_visible(view.show_hardware_cursor);
+    let frame = view.compose(usize::from(width), usize::from(height));
+    let mut out = stdout().lock();
+    if frame.replay {
+        term.reset(&mut out)?;
     }
-    let area = terminal.size()?;
-    let frame_area = ratatui::layout::Rect::new(0, 0, area.width, area.height);
-    let width = area.width as usize;
-    let height = area.height as usize;
-    let frame = view.render_frame(width, height);
-    let cursor = view.frame_cursor();
-    // The frame's embedded OSC 8 sequences drive the paint backend's
-    // hyperlink injection; install the row/column ranges before the draw
-    // (which strips the sequences from the painted cells).
-    crate::hyperlinks::install_frame(&frame);
-    // Zone markers ride on the composed rows; plan their emission before
-    // the cell paint (which strips them), then write the sequences at their
-    // rows after the frame is painted.
-    let emissions = view.take_osc_emissions(&frame);
-    // TS fullscreen paint brackets the row diff in synchronized output so
-    // terminals never display an intermediate, partly scrolled frame. A
-    // terminal without mode 2026 support ignores the two escape sequences.
-    crossterm::execute!(stdout(), terminal::BeginSynchronizedUpdate)?;
-    // TS cursor control (tui.ts `renderFullscreen`): the hardware cursor
-    // is positioned at the focused caret for IME on every frame, but is
-    // only shown when `showHardwareCursor` is on (default off). ratatui's
-    // `set_cursor_position` shows the cursor unconditionally, so it may
-    // carry the caret only in the show case — handing it the caret with
-    // the setting off would leave the terminal's own cursor visible at
-    // the caret while later paints drag it across every changed row (the
-    // cursor-glitch the operator reported).
-    let show_hardware_cursor = view.show_hardware_cursor;
-    let painted = terminal.draw(|f| {
-        let lines: Vec<ratatui::text::Line<'static>> =
-            frame.iter().map(crate::markdown::to_ratatui_line).collect();
-        f.render_widget(ratatui::text::Text::from(lines), frame_area);
-        if show_hardware_cursor {
-            if let Some((row, col)) = cursor {
-                if row < height && col < width {
-                    f.set_cursor_position(ratatui::layout::Position::new(col as u16, row as u16));
-                }
-            }
-        }
-    });
-    // The hidden case still positions (TS's paint buffer ends with the
-    // caret MoveTo before the synchronized-update release): IME
-    // candidates anchor at the caret whether or not it is visible. The
-    // bare MoveTo rides the same sync bracket, after the paint.
-    if !show_hardware_cursor {
-        if let Some((row, col)) = cursor {
-            if row < height && col < width {
-                use crossterm::cursor::MoveTo;
-                crossterm::queue!(stdout(), MoveTo(col as u16, row as u16))?;
-            }
-        }
-    }
-    let markers = if painted.is_ok() {
-        emit_zone_markers(&emissions, cursor)
-    } else {
-        Ok(())
-    };
-    // Always release the terminal's pending update, including on paint errors.
-    crossterm::execute!(stdout(), terminal::EndSynchronizedUpdate)?;
-    painted?;
-    markers
-}
-
-/// Write OSC 133 zone-marker sequences at their frame rows. The sequences
-/// are zero-width: the grid content is untouched and only the row flags the
-/// terminal shell-integration reads change. The frame cursor is restored
-/// afterwards (the marker writes move it).
-fn emit_zone_markers(
-    emissions: &[(usize, crate::osc133::RowMarkers)],
-    cursor: Option<(usize, usize)>,
-) -> Result<()> {
-    use crossterm::cursor::MoveTo;
-    use std::io::Write;
-    if emissions.is_empty() {
-        return Ok(());
-    }
-    let mut out = stdout();
-    for (row, markers) in emissions {
-        crossterm::queue!(out, MoveTo(0, *row as u16))?;
-        if markers.start {
-            out.write_all(crate::osc133::ZONE_START.as_bytes())?;
-        }
-        if markers.end {
-            out.write_all(crate::osc133::ZONE_END.as_bytes())?;
-            out.write_all(crate::osc133::ZONE_FINAL.as_bytes())?;
-        }
-    }
-    if let Some((row, col)) = cursor {
-        crossterm::queue!(out, MoveTo(col as u16, row as u16))?;
-    }
-    out.flush()?;
+    term.paint(
+        &mut out,
+        InlineFrame {
+            history: &frame.history,
+            live: &frame.live,
+            cursor: frame.cursor,
+        },
+    )?;
     Ok(())
 }
 
-/// Render one frame as plain text (headless structural dump used by the tmux
-/// verifier and diff tests). ANSI styling and OSC zone markers are stripped.
+/// One row as plain text: styling, OSC 133 zone markers, and OSC 8
+/// hyperlinks stripped.
+pub(crate) fn plain_row(line: &crate::Line) -> String {
+    let mut stripped = line.clone();
+    crate::osc133::strip(&mut stripped);
+    crate::hyperlinks::strip_osc8(&mut stripped);
+    stripped.iter().map(|s| s.content.as_str()).collect()
+}
+
+/// Compose one frame as plain text (headless structural dump used by the
+/// tmux verifier and diff tests): the history rows the frame commits,
+/// then the live area. A fresh view's first frame carries the whole
+/// transcript.
 pub fn render_frame_text(view: &mut AgentView, width: u16, height: u16) -> Vec<String> {
-    let frame = view.render_frame(width as usize, height as usize);
+    let frame = view.compose(usize::from(width), usize::from(height));
     frame
+        .history
         .iter()
-        .map(|line| {
-            let mut stripped = line.clone();
-            crate::osc133::strip(&mut stripped);
-            crate::hyperlinks::strip_osc8(&mut stripped);
-            stripped.iter().map(|s| s.content.as_str()).collect()
-        })
+        .chain(&frame.live)
+        .map(plain_row)
         .collect()
 }

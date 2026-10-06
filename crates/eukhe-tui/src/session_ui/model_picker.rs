@@ -6,6 +6,7 @@ use super::{
     DaemonCommand, Duration, KeyEvent, Map, ModelPicker, ModelPickerAction, ModelPickerOptions,
     Result, SessionUi, SetModelOutcome, StatusKind, UI_REQUEST_TIMEOUT_MS,
 };
+use crate::glyphs::WARN;
 use serde_json::Value;
 
 /// How long a fetched model catalog stays fresh (TS
@@ -91,8 +92,8 @@ impl SessionUi {
     }
 
     /// The tray override label (TS `getTrayOverrideLabel`): the Ctrl+C
-    /// exit hint while armed, else — while the agent streams and a draft
-    /// sits in the editor — the streaming follow-up hint
+    /// exit hint while armed, else -- while the agent streams and a draft
+    /// sits in the editor -- the streaming follow-up hint
     /// (`<followUp> to queue message`). The inline pickers never reach
     /// this from the key path (they own the whole dispatch before the
     /// editor, TS `isInlinePickerOpen`), and the dock render skips the
@@ -153,7 +154,7 @@ impl SessionUi {
                 // The Tab path leaves the typed `/model <partial>` behind in
                 // the editor; the command path's submission already drained
                 // it. Applying fulfills the command either way, so the
-                // editor clears (a Cancel keeps the partial for editing) —
+                // editor clears (a Cancel keeps the partial for editing) --
                 // except the browse-restore path, where the editor holds the
                 // user's restored draft, not the partial: the pick fulfills
                 // the command and the draft stays.
@@ -175,14 +176,14 @@ impl SessionUi {
                     SetModelOutcome::Switched => {
                         // A user-edited effort applies after the model
                         // switch (TS `completeModelSelection`: `setModel`,
-                        // then `applyThinkingLevel` — the level row only
+                        // then `applyThinkingLevel` -- the level row only
                         // on success).
                         if let Some(level) = &applied.effort {
                             self.apply_thinking_level(level, view).await;
                         }
                     }
                     // The typed refusal: the model resolved but its
-                    // provider is not signed in — the selection routes to
+                    // provider is not signed in -- the selection routes to
                     // the provider's sign-in flow and applies after the
                     // login lands.
                     SetModelOutcome::NeedsSignIn => {
@@ -313,8 +314,8 @@ impl SessionUi {
 
     /// Apply a picked model (TS `applySelectedModel` + the
     /// `completeModelSelection` status row): the daemon `set_model` command
-    /// switches the live session — the agent, the provider target, and the
-    /// session's settings default follow — then the client refreshes its
+    /// switches the live session -- the agent, the provider target, and the
+    /// session's settings default follow -- then the client refreshes its
     /// model label and records the `Model: <id>` status row. The typed
     /// provider-unauthenticated refusal is the sign-in route (`NeedsSignIn`);
     /// every other failure surfaces as the error note.
@@ -352,9 +353,9 @@ impl SessionUi {
                 if crate::daemon_client::rejected_provider_unauthenticated(&error).is_some() {
                     return SetModelOutcome::NeedsSignIn;
                 }
-                // TS `showError`: the ⚠ Error row with the error tone.
+                // TS `showError`: the ! Error row with the error tone.
                 view.push_entry(ChatEntry::Status {
-                    text: format!("\u{26a0} Error: {error:#}"),
+                    text: format!("{WARN} Error: {error:#}"),
                     kind: StatusKind::Error,
                 });
                 self.dirty = true;
@@ -367,7 +368,7 @@ impl SessionUi {
     /// `prepareForModelSelectionAfterLogin`): the switch runs through the
     /// same `try_set_model` path the model picker uses. A refusal after
     /// the just-completed sign-in keeps the flow moving (TS's post-login
-    /// "still unavailable" row — never a second sign-in route inside the
+    /// "still unavailable" row -- never a second sign-in route inside the
     /// onboarding pane), and every other failure already rendered its
     /// error row, so the caller never branches.
     pub(crate) async fn apply_model_selection(
@@ -451,7 +452,7 @@ impl SessionUi {
                 }
             }
             Err(error) => {
-                // TS `showError`: the ⚠ Error row with the error tone.
+                // TS `showError`: the ! Error row with the error tone.
                 self.error_row(&format!("{error:#}"), view);
             }
         }
@@ -501,7 +502,7 @@ impl SessionUi {
                     // `applyThinkingLevel` patches the requested level into
                     // the connection state (the `thinking_level_changed`
                     // event corrects it later), so render the requested
-                    // level — never the previous model's stale suffix.
+                    // level -- never the previous model's stale suffix.
                     Err(_) => {
                         view.chrome.thinking_suffix =
                             eukhe_types::ai::thinking_level_from_str(level)
@@ -511,9 +512,9 @@ impl SessionUi {
                 self.note(&format!("Thinking level: {level}"), view);
             }
             Err(error) => {
-                // TS `showError`: the ⚠ Error row with the error tone.
+                // TS `showError`: the ! Error row with the error tone.
                 view.push_entry(ChatEntry::Status {
-                    text: format!("\u{26a0} Error: {error:#}"),
+                    text: format!("{WARN} Error: {error:#}"),
                     kind: StatusKind::Error,
                 });
                 self.dirty = true;
@@ -525,7 +526,7 @@ impl SessionUi {
     /// `applySelectedModel` reads the state and patches the footer via
     /// `applyModelSwitchUiState`): the state's model wins, and a state
     /// that omits it falls back to the picked model (`state.model ??
-    /// fallbackModel`) — the switch already succeeded, so the label must
+    /// fallbackModel`) -- the switch already succeeded, so the label must
     /// move even when the worker's summary cannot re-resolve the model.
     /// The provider follows the same ladder (the state's `model.provider`
     /// over the picked provider): the picker resolves the current model by
@@ -589,7 +590,7 @@ pub(crate) fn picker_viewport_rows(terminal_rows: u16) -> usize {
 /// The catalog entry the session's current model resolves to (TS's
 /// `modelsAreEqual` key: provider plus id). The daemon reports the
 /// provider next to the id; when it does, ONLY the session's own
-/// provider's entry matches — two providers can carry the same id
+/// provider's entry matches -- two providers can carry the same id
 /// (prime-inference and openrouter both list `z-ai/glm-5.3`), and the
 /// first same-id entry in the catalog is a different model. A missing
 /// provider (older daemons) falls back to the id alone, and a provider
@@ -631,7 +632,7 @@ mod tests {
     /// The operator's duplicate-id repro: a session on
     /// `prime-inference/z-ai/glm-5.3` must resolve the prime-inference
     /// entry even though openrouter's same-id entry sits FIRST in the
-    /// catalog — the id-only find the picker previously used adopted
+    /// catalog -- the id-only find the picker previously used adopted
     /// openrouter's row as the current model.
     #[test]
     fn the_provider_disambiguates_duplicate_ids() {

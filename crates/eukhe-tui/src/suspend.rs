@@ -2,17 +2,17 @@
 //! resume handler).
 //!
 //! The `app.suspend` action (default ctrl+z) hands the terminal to the
-//! shell: SIGINT is ignored for the suspended window, the TUI stops (SGR
-//! mouse tracking off, alternate screen left and flushed into native
-//! scrollback, raw mode off), and the whole process group is stopped with
-//! SIGTSTP. Execution continues where the signal stopped it once the user
-//! foregrounds the process again (SIGCONT), and the resume re-applies
-//! every terminal mode a suspend cycle can lose: raw mode, the alternate
-//! screen, and SGR mouse tracking (TS `ui.start()` + `applyFullscreen(true)`
-//! inside the one-shot `SIGCONT` handler).
+//! shell: SIGINT is ignored for the suspended window, the TUI stops (the
+//! live area left as output, key modes off, raw mode off), and the whole
+//! process group is stopped with SIGTSTP. Execution continues where the
+//! signal stopped it once the user foregrounds the process again
+//! (SIGCONT), and the resume re-applies every terminal mode a suspend
+//! cycle can lose -- raw mode and the key modes -- and starts a new live
+//! area below the shell's output (TS `ui.start()` inside the one-shot
+//! `SIGCONT` handler).
 //!
 //! The signal and terminal operations sit behind two small traits so the
-//! cycle's sequencing — the part that is easy to get wrong — is verified
+//! cycle's sequencing -- the part that is easy to get wrong -- is verified
 //! by unit tests without stopping the test process.
 
 use anyhow::Result;
@@ -35,7 +35,7 @@ pub(crate) trait SuspendSignals {
 
 /// The terminal handoff of one suspend cycle: `stop` hands the terminal
 /// to the shell, `resume` takes it back after SIGCONT and re-applies the
-/// terminal modes (raw mode, alternate screen, SGR mouse tracking).
+/// terminal modes (raw mode, the key modes).
 pub(crate) trait SuspendTerminal {
     fn stop(&mut self) -> Result<()>;
     fn resume(&mut self) -> Result<()>;
@@ -87,28 +87,14 @@ mod tests {
     use anyhow::bail;
     use std::cell::RefCell;
     use std::rc::Rc;
-    use std::sync::MutexGuard;
-
-    /// The mouse-tracking seam is process-global state, so the tests that
-    /// drive it serialize through the seam's own lock (shared with the
-    /// `mouse_tracking` tests).
-    fn seam_lock() -> MutexGuard<'static, ()> {
-        match crate::mouse_tracking::STATE_TEST_LOCK.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
 
     /// One cycle's time-ordered operation log, shared by the signals and
     /// terminal sides so the full sequence is assertable; optionally fails
-    /// at the named point so the cleanup path is observable. The signals
-    /// side can probe the mouse seam at the SIGTSTP point (the
-    /// "terminal lost" midpoint, between stop and resume).
+    /// at the named point so the cleanup path is observable.
     #[derive(Default)]
     struct Recording {
         calls: Vec<&'static str>,
         fail_at: Option<&'static str>,
-        probe_at_stop: Option<bool>,
     }
 
     type Shared = Rc<RefCell<Recording>>;
@@ -148,15 +134,8 @@ mod tests {
         }
 
         fn stop_process_group(&mut self) -> Result<()> {
-            // The real cycle stops here until SIGCONT; the recording
-            // captures what the terminal looks like at that point.
-            let mut log = self.log.borrow_mut();
-            log.probe_at_stop = Some(crate::mouse_tracking::active());
-            log.calls.push("stop_process_group");
-            if log.fail_at == Some("stop_process_group") {
-                bail!("stop_process_group failed");
-            }
-            Ok(())
+            // The real cycle stops here until SIGCONT.
+            self.record("stop_process_group")
         }
     }
 
@@ -172,9 +151,8 @@ mod tests {
 
     /// The happy-path sequence: SIGINT is ignored before the terminal
     /// handoff, the process group stops after it, SIGINT is restored
-    /// before the resume takes the terminal back — the SIGCONT
-    /// continuation order (TS removeListener -> ui.start ->
-    /// applyFullscreen).
+    /// before the resume takes the terminal back -- the SIGCONT
+    /// continuation order (TS removeListener -> ui.start).
     #[test]
     fn cycle_ignores_sigint_stops_then_resumes() {
         let log = Cycle::shared();
@@ -231,56 +209,5 @@ mod tests {
                 "restore_sigint",
             ]
         );
-    }
-
-    /// The suspend -> resume cycle re-applies SGR mouse tracking through
-    /// the real seam: the handoff releases it, the stopped window observes
-    /// it off, and the resume re-enables it (TS `applyFullscreen(true)` on
-    /// SIGCONT re-enters fullscreen and re-applies tracking). A real
-    /// SIGTSTP/SIGCONT pair cannot run inside `cargo test` (it would stop
-    /// the test process itself), so the cycle runs with the signal point
-    /// recorded and the seam real.
-    #[test]
-    fn a_suspend_cycle_releases_and_re_applies_mouse_tracking() {
-        struct SeamTerminal {
-            out: std::io::Stdout,
-        }
-
-        impl SuspendTerminal for SeamTerminal {
-            fn stop(&mut self) -> Result<()> {
-                crate::mouse_tracking::disable(&mut self.out)
-            }
-
-            fn resume(&mut self) -> Result<()> {
-                crate::mouse_tracking::enable(&mut self.out)
-            }
-        }
-        let _guard = seam_lock();
-        let mut out = std::io::stdout();
-        let was_active = crate::mouse_tracking::active();
-        if !was_active {
-            crate::mouse_tracking::enable(&mut out).expect("enable");
-        }
-
-        let log = Cycle::shared();
-        let mut signals = Cycle::from(&log);
-        let mut terminal = SeamTerminal {
-            out: std::io::stdout(),
-        };
-        suspend_cycle(&mut signals, &mut terminal).expect("cycle");
-        assert_eq!(
-            log.borrow().probe_at_stop,
-            Some(false),
-            "tracking was released while the process group stopped"
-        );
-        assert!(
-            crate::mouse_tracking::active(),
-            "the resume re-applied mouse tracking"
-        );
-
-        // Restore the entry state so other tests observe a clean seam.
-        if !was_active {
-            crate::mouse_tracking::disable(&mut out).expect("disable");
-        }
     }
 }

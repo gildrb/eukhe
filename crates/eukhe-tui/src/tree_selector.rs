@@ -256,7 +256,8 @@ impl TreeSelector {
     /// title, hints, search line, the tree, and any active input.
     #[must_use]
     pub fn render(&self, theme: &Theme, width: usize, kb: &KeybindingsManager) -> Vec<Line> {
-        let border = || vec![theme.fg_span(ThemeColor::Border, "─".repeat(width.max(1)))];
+        let border =
+            || vec![theme.fg_span(ThemeColor::Border, crate::glyphs::RULE.repeat(width.max(1)))];
         let mut lines: Vec<Line> = Vec::new();
         lines.push(Vec::new());
         lines.push(border());
@@ -269,12 +270,12 @@ impl TreeSelector {
         // cycle, and time keys render from the effective bindings, so a
         // user `keybindings.json` override moves the hint with the
         // handler; the move/page/fold arrows stay the literal glyphs TS
-        // renders (`^←/^→ or Alt+←/Alt+→`).
+        // renders (`^<-/^-> or Alt+<-/Alt+->`).
         // Each derived cell keeps only its bound keys' labels (a
         // multi-key binding names its first key, the crate's one-line
         // grammar), an override that empties a binding drops that key,
         // and a part whose every binding is empty drops its whole
-        // segment — the hint never shows a blank slot or an unlabelled
+        // segment -- the hint never shows a blank slot or an unlabelled
         // action.
         let first = |id: &str| {
             kb.first_key(id)
@@ -284,8 +285,10 @@ impl TreeSelector {
             let keys: Vec<String> = ids.iter().filter_map(|id| first(id)).collect();
             (!keys.is_empty()).then(|| keys.join("/"))
         };
-        let mut parts =
-            vec!["  ↑/↓: move. ←/→: page. ^←/^→ or Alt+←/Alt+→: fold/branch.".to_string()];
+        let mut parts = vec![
+            "  up/down: move. left/right: page. ^left/^right or Alt+left/Alt+right: fold/branch."
+                .to_string(),
+        ];
         if let Some(label) = first("app.tree.editLabel") {
             parts.push(format!("{label}: label."));
         }
@@ -388,9 +391,9 @@ impl TreeSelector {
 
 /// The key pair every inner pane's bottom hint renders (the TS selector
 /// component's `keyHint` pair): each segment carries
-/// its binding's first effective key — `tui.select.cancel` defaults to
+/// its binding's first effective key -- `tui.select.cancel` defaults to
 /// two keys, and the one-line hint shows the primary, the crate's
-/// `key_hint` grammar — and a user override that empties a binding
+/// `key_hint` grammar -- and a user override that empties a binding
 /// drops its segment, so the hint never advertises a default key the
 /// pane no longer takes. The action words name what the keys do on that
 /// pane.
@@ -436,7 +439,7 @@ fn render_choice(
     for (index, option) in SUMMARIZE_OPTIONS.iter().enumerate() {
         let row = if index == selected {
             vec![
-                theme.fg_span(ThemeColor::Accent, "› ".to_string()),
+                theme.fg_span(ThemeColor::Accent, format!("{} ", crate::glyphs::POINTER)),
                 crate::Span::raw(option.to_string()),
             ]
         } else {
@@ -490,7 +493,7 @@ mod tests {
         let text = frame_text(&selector().render(&theme, 200, &kb));
         assert!(
             text.contains(
-                "  \u{2191}/\u{2193}: move. \u{2190}/\u{2192}: page. ^\u{2190}/^\u{2192} or Alt+\u{2190}/Alt+\u{2192}: fold/branch. Shift+L: label. Ctrl+D/Ctrl+T/Ctrl+U/Ctrl+L/Ctrl+A: filters (Ctrl+O/Shift+Ctrl+O cycle). Shift+T: label time"
+                "  up/down: move. left/right: page. ^left/^right or Alt+left/Alt+right: fold/branch. Shift+L: label. Ctrl+D/Ctrl+T/Ctrl+U/Ctrl+L/Ctrl+A: filters (Ctrl+O/Shift+Ctrl+O cycle). Shift+T: label time"
             ),
             "{text}"
         );
@@ -511,7 +514,7 @@ mod tests {
     }
 
     /// An override that empties a tree binding drops its key, and a
-    /// part whose every binding is empty drops its whole segment — the
+    /// part whose every binding is empty drops its whole segment -- the
     /// hint never shows a blank slot or an unlabelled action.
     #[test]
     fn tree_hint_drops_unbound_keys_and_segments() {
@@ -615,7 +618,7 @@ mod tests {
             "ctrl+w deletes the trailing word: {text}"
         );
         // The cleared draft saves as the label's removal (TS
-        // `onSubmit`'s empty-label arm — the frame's hint rows would
+        // `onSubmit`'s empty-label arm -- the frame's hint rows would
         // swallow a plain substring check, so the action carries the
         // proof).
         sel.handle_key(&kb, "ctrl+u");
@@ -677,7 +680,7 @@ mod tests {
         );
         // The cancel arm keeps its ladder: escape returns to the choice,
         // and Enter on the choice re-opens the editor with an empty draft
-        // (TS's cancelled editor loops back to the choice — the frame's
+        // (TS's cancelled editor loops back to the choice -- the frame's
         // hint rows would swallow a plain substring check, so the
         // submitted instructions carry the proof).
         let mut sel = selector();
@@ -746,7 +749,7 @@ mod tests {
         let is_caret = |span: &crate::Span| {
             span.style
                 .add_modifier
-                .contains(ratatui::style::Modifier::REVERSED)
+                .contains(crate::style::Modifier::REVERSED)
         };
         let row = frame
             .iter()

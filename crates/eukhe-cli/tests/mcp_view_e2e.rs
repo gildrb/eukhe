@@ -260,7 +260,6 @@ fn headless_options(socket: &Path, dir: &Path) -> eukhe_tui::interactive::Intera
         session: eukhe_tui::interactive::SessionSelection::New,
         show_images: true,
         client_settings: None,
-        fullscreen_mouse: true,
         initial_message: None,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
@@ -495,7 +494,7 @@ async fn mcp_view_lists_the_configured_mock_connection() {
         "status rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("Enter manage accounts \u{b7} Esc close"),
+        rendered.contains("Enter manage accounts - Esc close"),
         "key hint rendered:\n{rendered}"
     );
     // The live tool listing is gone: the picker opens from local state,

@@ -2,12 +2,13 @@
 //! over provider stream events, plus the `/speed` readout and the
 //! streaming/running/resume hint helpers.
 use super::{AgentView, SessionUi, Value, WorkingState};
+use crate::glyphs::WARN;
 
 /// The loader's token accounting (TS `AgentActivityTracker`): the live
 /// count is completed-message output tokens plus max(reported usage, the
 /// content estimate at 4 chars per token), reported monotonically within a
-/// run. The live count derives from the streamed message itself — never
-/// from per-delta sums — because the worker coalesces provider deltas into
+/// run. The live count derives from the streamed message itself -- never
+/// from per-delta sums -- because the worker coalesces provider deltas into
 /// latest-snapshot frames and a delta sum would undercount.
 #[derive(Debug, Default)]
 pub(super) struct LoaderTokenTracker {
@@ -30,7 +31,7 @@ impl LoaderTokenTracker {
     }
 
     /// TS `message_start` (assistant): the new message's live state starts
-    /// empty — its reported usage only counts from the first update.
+    /// empty -- its reported usage only counts from the first update.
     pub(super) fn start_message(&mut self) {
         self.streaming_usage = 0;
         self.streaming_chars = 0;
@@ -105,7 +106,7 @@ impl SessionUi {
     /// pass now (the submit, the engine start); the rebuild path
     /// passes the LAST HUMAN PROMPT's instant (the operator's
     /// 2026-09-28 rule: the timer never resets on a view
-    /// transition — an agents-view round trip re-attaches mid-turn
+    /// transition -- an agents-view round trip re-attaches mid-turn
     /// and the clock keeps counting from the prompt that started the
     /// turn).
     pub(crate) fn start_loader_at(&mut self, view: &mut AgentView, since: std::time::Instant) {
@@ -124,8 +125,8 @@ impl SessionUi {
     /// (TS `AgentActivityTracker`: thinking/text/toolcall events switch the
     /// label and direction). Token counting lives in
     /// [`Self::track_stream_tokens`]: the event's own delta is only the
-    /// last of possibly many coalesced provider deltas, so the message —
-    /// not the delta — carries the token truth.
+    /// last of possibly many coalesced provider deltas, so the message --
+    /// not the delta -- carries the token truth.
     pub(crate) fn track_stream_activity(event: &Value, view: &mut AgentView) {
         let (activity, download) = match event.get("type").and_then(Value::as_str) {
             Some("thinking_start" | "thinking_delta") => ("Thinking", true),
@@ -150,7 +151,7 @@ impl SessionUi {
             view.chrome.speed_text = None;
         }
         let status = if enabled {
-            "Speed display on — footer shows output tok/s per model response and a session average"
+            "Speed display on -- footer shows output tok/s per model response and a session average"
         } else {
             "Speed display off"
         };
@@ -177,7 +178,7 @@ impl SessionUi {
             return;
         }
         // TS reads `Number(message.timestamp)`: a frame without one is NaN
-        // in TS and fails its `> 0` guard, so it is skipped here too — a
+        // in TS and fails its `> 0` guard, so it is skipped here too -- a
         // zero-default would span the epoch and poison the average.
         let Some(timestamp) = message.get("timestamp").and_then(Value::as_i64) else {
             return;
@@ -198,7 +199,7 @@ impl SessionUi {
         let last = format_rate(output_tokens as f64 / (duration_ms as f64 / 1000.0));
         let average = format_rate(stats.average_rate());
         view.chrome.speed_text = Some(if stats.samples > 1 {
-            format!("{last} tok/s · avg {average}")
+            format!("{last} tok/s - avg {average}")
         } else {
             format!("{last} tok/s")
         });
@@ -206,7 +207,7 @@ impl SessionUi {
 }
 
 /// The streaming follow-up hint (TS `getTrayOverrideLabel`'s streaming
-/// arm): `<followUp> to queue message` — the tray override while the agent
+/// arm): `<followUp> to queue message` -- the tray override while the agent
 /// streams and a draft sits in the editor (an empty draft or an idle
 /// session shows nothing; the Ctrl+C exit hint outranks it at the call
 /// site, TS `isCtrlCExitHintVisible()`'s early return).
@@ -234,14 +235,14 @@ pub(super) fn already_running_warning(
         || "Ctrl+C".to_string(),
         |key| crate::keybindings::format_key_text(&key),
     );
-    // TS `showWarning` renders `⚠ ${message}`: the prefix travels with the
+    // TS `showWarning` renders `! ${message}`: the prefix travels with the
     // row text (the StatusKind tier is color only).
-    format!("\u{26a0} A bash command is already running. Press {key} to cancel it first.")
+    format!("{WARN} A bash command is already running. Press {key} to cancel it first.")
 }
 
 /// TS `formatResumeHint` (resume-hint.ts): the post-exit hint names how to
 /// resume the session just left. Ephemeral (no session file) and unflushed
-/// empty sessions are omitted — neither can be resumed. Persistence is
+/// empty sessions are omitted -- neither can be resumed. Persistence is
 /// lazy: a file that does not exist on disk cannot be resumed either.
 pub(crate) fn resume_hint_from_stats(stats: &Value) -> Option<String> {
     let session_id = stats.get("sessionId").and_then(Value::as_str)?;
@@ -277,7 +278,7 @@ mod streaming_tray_hint_tests {
         );
     }
 
-    /// TS `!this.isAgentStreaming() || !text.trim()` — an idle session or
+    /// TS `!this.isAgentStreaming() || !text.trim()` -- an idle session or
     /// an empty (whitespace-only) draft shows no hint.
     #[test]
     fn idle_or_empty_draft_shows_no_hint() {
@@ -311,7 +312,7 @@ mod loader_token_tests {
 
     /// The live count derives from the streamed message, so coalesced
     /// frames (one latest-snapshot wire frame per flush tick) count the
-    /// full streamed size — a per-delta sum would undercount them ~20x.
+    /// full streamed size -- a per-delta sum would undercount them ~20x.
     #[test]
     fn coalesced_frames_count_from_the_message_not_deltas() {
         let mut tracker = LoaderTokenTracker::default();

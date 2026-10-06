@@ -142,7 +142,7 @@ fn the_delete_confirm_hint_and_the_cleared_arm() {
 
 /// The honest-success check: a `success` response whose own outcome
 /// field says nothing happened (`cancelled: false`, `deleted: false`)
-/// never reports Stopped/Deleted — the status says what the wire
+/// never reports Stopped/Deleted -- the status says what the wire
 /// said, not what the button hoped.
 #[test]
 fn a_no_effect_success_response_reports_nothing_changed() {
@@ -269,7 +269,7 @@ fn a_settled_row_re_arms_instead_of_executing_the_stale_word() {
 
 /// The confirm hint rides the armed row's CURRENT live work: a
 /// running row arms as stop, and the same row settled between the
-/// presses reads delete — the word the next press re-confirms,
+/// presses reads delete -- the word the next press re-confirms,
 /// never the stale stop the first press armed with.
 #[test]
 fn the_confirm_hint_rides_the_current_live_work() {
@@ -346,7 +346,7 @@ fn a_deleted_path_survives_a_late_catalog_apply() {
 
 /// A roster replacement retires the arm: the same row identity with
 /// a NEW live session (the worker was replaced) never inherits the
-/// armed confirm — the second press confirms the session it acts
+/// armed confirm -- the second press confirms the session it acts
 /// on (a stale arm must not stop the replacement's new session).
 #[test]
 fn a_roster_replacement_retires_the_armed_confirm() {
@@ -376,7 +376,7 @@ fn a_roster_replacement_retires_the_armed_confirm() {
 
 /// A parent-session replacement retires an armed CHILD confirm:
 /// the child's own session survives the re-parenting, but its
-/// dispatch keys on the parent's session — a second press must never
+/// dispatch keys on the parent's session -- a second press must never
 /// act through a parent the confirmation never saw.
 #[test]
 fn a_parent_replacement_retires_the_armed_child_confirm() {
@@ -412,7 +412,7 @@ fn a_parent_replacement_retires_the_armed_child_confirm() {
 
 /// A deleted saved row leaves the catalog by its own path: the
 /// removal keys on the session PATH (the daemon's key), never the
-/// display name — the old message-contains check would leave the
+/// display name -- the old message-contains check would leave the
 /// row in the Inactive list while the status said Deleted.
 #[test]
 fn a_deleted_saved_row_leaves_the_catalog_by_path() {

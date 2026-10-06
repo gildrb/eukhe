@@ -9,7 +9,7 @@
 //!
 //! The menu rule: a row whose login flow this build does not carry is
 //! marked inline BEFORE selection (dimmed, the "not available"
-//! annotation) and Enter is inert — no row dead-ends in an
+//! annotation) and Enter is inert -- no row dead-ends in an
 //! after-selection error wall.
 
 use std::pin::Pin;
@@ -87,7 +87,7 @@ pub struct ProviderRow {
     /// Whether this build carries the row's login flow (the codex
     /// subscription row does; the not-yet-ported subscription providers
     /// do not). An unavailable row renders dimmed with the "not
-    /// available" annotation and Enter is inert — the menu states the
+    /// available" annotation and Enter is inert -- the menu states the
     /// dead-end BEFORE selection instead of error-walling after it.
     pub available: bool,
 }
@@ -99,7 +99,7 @@ pub enum ProviderAuthOutcome {
     Status(String),
     Error(String),
     /// The flow was cancelled (TS `AuthenticationResult`'s `cancelled`
-    /// state): silent — no status row, no error row.
+    /// state): silent -- no status row, no error row.
     Cancelled,
 }
 
@@ -463,15 +463,16 @@ impl ProviderAuthSelector {
         // header (the rule, the title, the subtitle); the login menu
         // matches the /model and /mcp pickers (the operator's
         // 2026-09-25 directive): the search bar is the frame's first
-        // row — no header block, no leading blank.
+        // row -- no header block, no leading blank.
         let framed = self.is_logout() || !matches!(self.mode, Mode::List);
         if framed {
             // TS `MenuPanel` inline chrome: the borderMuted rule and the
-            // muted one-space title (no leading blank — the content's own
+            // muted one-space title (no leading blank -- the content's own
             // `startContent` blank opens the body).
-            lines.push(vec![
-                theme.fg_span(ThemeColor::BorderMuted, "─".repeat(width.max(1)))
-            ]);
+            lines.push(vec![theme.fg_span(
+                ThemeColor::BorderMuted,
+                crate::glyphs::RULE.repeat(width.max(1)),
+            )]);
             lines.push(vec![
                 theme.fg_span(ThemeColor::Muted, format!(" {}", self.title()))
             ]);
@@ -484,7 +485,7 @@ impl ProviderAuthSelector {
         match &self.mode {
             // TS `showApiKeyLoginDialog` -> `showPrompt("Enter API key:")`:
             // the section-title prompt, the plain `> ` field, the blank
-            // between field and actions, and the auth-actions row last —
+            // between field and actions, and the auth-actions row last --
             // no bottom rule.
             Mode::Prompt { input, .. } => {
                 lines.push(Vec::new());
@@ -536,7 +537,7 @@ impl ProviderAuthSelector {
             // An unavailable row renders dimmed (the menu rule: the
             // missing flow is stated inline, not answered after
             // selection).
-            let label = format!("{} · {}", provider.name, provider.auth_type.label());
+            let label = format!("{} - {}", provider.name, provider.auth_type.label());
             let primary = if provider.available {
                 vec![crate::Span::raw(label)]
             } else {
@@ -597,9 +598,10 @@ impl ProviderAuthSelector {
         .join("  ");
         lines.push(vec![theme.fg_span(ThemeColor::Muted, format!("  {hints}"))]);
         if framed {
-            lines.push(vec![
-                theme.fg_span(ThemeColor::Border, "─".repeat(width.max(1)))
-            ]);
+            lines.push(vec![theme.fg_span(
+                ThemeColor::Border,
+                crate::glyphs::RULE.repeat(width.max(1)),
+            )]);
         } else {
             // One blank line of spacing below the shortcuts (the pickers'
             // grammar): the hint is the frame's last content row, never
@@ -811,7 +813,7 @@ mod tests {
         let text: Vec<String> = rows.iter().map(plain).collect();
         // The signed-in row: the TS row shape with its configured status.
         assert!(text.iter().any(|row| {
-            row.contains("ChatGPT Plus/Pro (Codex Subscription) · subscription")
+            row.contains("ChatGPT Plus/Pro (Codex Subscription) - subscription")
                 && row.contains("configured")
                 && !row.contains("not available")
         }));
@@ -819,7 +821,7 @@ mod tests {
         // raw one) plus the annotation.
         let unavailable_row = rows
             .iter()
-            .find(|line| plain(line).contains("Anthropic · subscription"))
+            .find(|line| plain(line).contains("Anthropic - subscription"))
             .expect("the unavailable row renders");
         assert!(
             plain(unavailable_row).contains("not available"),
@@ -838,7 +840,7 @@ mod tests {
         let available_row = rows
             .iter()
             .find(|line| {
-                plain(line).contains("ChatGPT Plus/Pro (Codex Subscription) · subscription")
+                plain(line).contains("ChatGPT Plus/Pro (Codex Subscription) - subscription")
             })
             .expect("the signed-in row renders");
         let name_span = available_row
@@ -879,7 +881,7 @@ mod tests {
         // The login menu matches the /model and /mcp pickers (the
         // operator's 2026-09-25 directive): the frame opens with the
         // search field itself (its top rule, the placeholder row, its
-        // bottom rule) — no header block, no leading blank — the rows
+        // bottom rule) -- no header block, no leading blank -- the rows
         // follow, and the hint is the last content row with one blank
         // under it.
         let mut selector =
@@ -895,7 +897,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert!(
-            text[0].starts_with('─'),
+            text[0].starts_with('-'),
             "the search field's top rule opens the frame: {text:?}"
         );
         assert!(
@@ -903,7 +905,7 @@ mod tests {
             "the placeholder row rides directly under the top rule: {text:?}"
         );
         assert!(
-            text[2].starts_with('─'),
+            text[2].starts_with('-'),
             "the search field's bottom rule follows: {text:?}"
         );
         assert!(
@@ -914,7 +916,7 @@ mod tests {
             .iter()
             .any(|row| row.contains("Connect with a subscription or API key.")));
         assert!(!text.iter().any(|row| row.contains("MCP Connections")));
-        assert!(text.iter().any(|row| row.contains("OpenAI · api key")));
+        assert!(text.iter().any(|row| row.contains("OpenAI - api key")));
         assert!(
             !text.iter().any(|row| row.contains("tabs")),
             "no tab hint rides the panel: {text:?}"
@@ -922,7 +924,7 @@ mod tests {
         assert_eq!(rows.last(), Some(&Vec::new()), "one blank under the hint");
         let hint_index = text
             .iter()
-            .position(|row| row.contains("\u{2191}/\u{2193} navigate"))
+            .position(|row| row.contains("up/down navigate"))
             .expect("the hint row");
         assert_eq!(
             hint_index,
@@ -959,7 +961,7 @@ mod tests {
     /// borderMuted rule, the muted `Login to {provider}` title, the
     /// `startContent` blank, the text-coloured `Enter API key:` section
     /// title, the plain `> ` field, the blank between field and actions,
-    /// and the auth-actions row last — no bottom rule, no "Sign In"
+    /// and the auth-actions row last -- no bottom rule, no "Sign In"
     /// header, no combined prompt-and-value row.
     #[test]
     fn the_api_key_prompt_renders_the_ts_login_dialog_frame() {
@@ -975,7 +977,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert!(
-            text[0].chars().all(|c| c == '\u{2500}'),
+            text[0].chars().all(|c| c == '-'),
             "the borderMuted rule opens the prompt: {text:?}"
         );
         assert_eq!(text[1], " Login to OpenAI", "the muted one-space title");

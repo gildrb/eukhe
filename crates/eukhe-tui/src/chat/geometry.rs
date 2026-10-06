@@ -1,8 +1,6 @@
-//! Shared chat framing decisions and count-only geometry.
+//! Shared chat framing decisions.
 use super::{AssistantMessage, Detail, MessageBlock};
-use crate::markdown::{
-    markdown_row_count, markdown_row_count_tagged, MarkdownBlockCache, MarkdownStyle,
-};
+use crate::markdown::MarkdownStyle;
 use crate::theme::{Theme, ThemeColor};
 
 pub(super) fn user_mask(text: &str) -> crate::prompt_highlight::PromptTokenMask {
@@ -30,9 +28,7 @@ pub(super) fn trailing_space(
     message.has_tool_calls && (has_visible_content || message.aborted || !preceded_by_tool_activity)
 }
 
-/// The cache tag the dim thinking block renders and counts under: one
-/// definition for `chat.rs`'s render call and the count below, so the
-/// rows the paint caches are exactly the rows the count replays.
+/// The cache tag the dim thinking block renders under.
 pub(super) const THINKING_CACHE_TAG: &str = "dim";
 
 pub(super) fn thinking_style(md: &MarkdownStyle, theme: &Theme) -> MarkdownStyle {
@@ -53,66 +49,4 @@ pub(super) fn thinking_style(md: &MarkdownStyle, theme: &Theme) -> MarkdownStyle
     md.hr = dim;
     md.list_bullet = dim;
     md
-}
-
-pub(crate) fn user_block_row_count(
-    text: &str,
-    theme: &Theme,
-    code_block_indent: &str,
-    width: usize,
-) -> usize {
-    let mut md = MarkdownStyle::from_theme(theme);
-    code_block_indent.clone_into(&mut md.code_block_indent);
-    let mask = user_mask(text);
-    markdown_row_count(&mask.text, width.saturating_sub(4).max(1), &md).max(1) + 2
-}
-
-pub(crate) fn assistant_row_count(
-    message: &AssistantMessage,
-    detail: Detail,
-    theme: &Theme,
-    code_block_indent: &str,
-    width: usize,
-    preceded_by_tool_activity: bool,
-    cache: &MarkdownBlockCache,
-) -> usize {
-    let blocks = visible_blocks(message, detail);
-    let mut count = usize::from(!blocks.is_empty());
-    let mut md = MarkdownStyle::from_theme(theme);
-    code_block_indent.clone_into(&mut md.code_block_indent);
-    let content_width = width.saturating_sub(2).max(1);
-    for (index, block) in blocks.iter().enumerate() {
-        match block {
-            MessageBlock::Text(text) => {
-                count += markdown_row_count_tagged(text.trim(), content_width, &md, "", cache);
-            }
-            MessageBlock::Thinking(text) => {
-                count += markdown_row_count_tagged(
-                    text.trim(),
-                    content_width,
-                    &thinking_style(&md, theme),
-                    THINKING_CACHE_TAG,
-                    cache,
-                );
-                count += usize::from(index + 1 < blocks.len());
-            }
-        }
-    }
-    if let Some(error) = &message.error {
-        // Mirrors the render site: eligible login-recovery errors count as
-        // the merged inline line (TS `createErrorComponent`).
-        let merged = crate::error_summary::format_inline_login_recovery_message(error);
-        count += 1 + crate::error_summary::collapsible_error_row_count(
-            merged.as_deref().unwrap_or(error),
-            None,
-            detail.tool_output_expanded(),
-            width,
-        );
-    }
-    count
-        + usize::from(trailing_space(
-            message,
-            !blocks.is_empty(),
-            preceded_by_tool_activity,
-        ))
 }

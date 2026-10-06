@@ -1,7 +1,7 @@
 //! Reference renderer for full-object differential tests: a second,
 //! independent implementation of the refinement row whose output must
 //! byte-match the production traversal at every width and detail level.
-//! The expanded block hangs off the `◆` header on the `╰─ ` gutter with
+//! The expanded block hangs off the `*` header on the branch (`BRANCH`) gutter with
 //! continuation rows at the branch depth.
 use super::*;
 
@@ -14,7 +14,7 @@ pub(crate) fn render_refinement_outcome(
     let mut out = vec![spacer()];
     let header = text_rows(
         &vec![Span::styled(
-            format!("\u{25c6} {}", row.header),
+            format!("{} {}", crate::glyphs::NOTICE, row.header),
             theme.fg_style(ThemeColor::RefinementHeader),
         )],
         width,
@@ -89,8 +89,11 @@ fn event_summary_rows(
         lines.truncate(2);
         let second = lines.remove(1);
         let mut joined: Line = second;
-        joined.push(Span::raw(" \u{2026}"));
-        lines.insert(1, truncate_line(&joined, content_width, "\u{2026}"));
+        joined.push(Span::raw(" ..."));
+        lines.insert(
+            1,
+            truncate_line(&joined, content_width, crate::glyphs::ELLIPSIS),
+        );
     }
     lines
         .into_iter()
@@ -113,7 +116,7 @@ fn event_summary_rows(
 }
 
 /// The expanded-content row set on the branch grammar: wrap at the branch
-/// content width, first row the dim `╰─ ` gutter, continuation rows the
+/// content width, first row the dim branch (`BRANCH`) gutter, continuation rows the
 /// matching indent, truncated to the full width.
 fn branch_rows_over(line: &Line, theme: &Theme, width: usize) -> Vec<Line> {
     crate::branch::branch_block(line, theme, width)

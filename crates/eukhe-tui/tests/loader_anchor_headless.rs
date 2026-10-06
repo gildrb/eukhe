@@ -239,7 +239,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: false,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -262,7 +261,7 @@ fn options(socket: PathBuf) -> InteractiveOptions {
 
 /// Run one headless leg against a fresh mock whose prompt is
 /// `prompt_age_ms` old, and return the loader's rendered elapsed
-/// seconds (the `Waiting · {elapsed}` readout).
+/// seconds (the `Waiting - {elapsed}` readout).
 fn loader_elapsed_secs(prompt_age_ms: u64) -> u64 {
     // The ambient TMUX variable adds a startup notice to the
     // transcript; scrub it so the run is the same inside tmux and out.
@@ -307,7 +306,7 @@ fn loader_elapsed_secs(prompt_age_ms: u64) -> u64 {
             )
         });
     let elapsed = loader_line
-        .split("·")
+        .split("Waiting - ")
         .nth(1)
         .and_then(|tail| tail.trim().split(|c: char| !c.is_ascii_digit()).next())
         .and_then(|secs| secs.parse::<u64>().ok())

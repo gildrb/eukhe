@@ -1,18 +1,18 @@
 //! The dedicated bash view (the operator's 2026-09-23 redesign, refined
-//! 2026-09-24): the session's kernel bash registry — the background
-//! commands the agent's REPL started — as a columned table (command,
+//! 2026-09-24): the session's kernel bash registry -- the background
+//! commands the agent's REPL started -- as a columned table (command,
 //! duration, pid, status) whose columns hug their content (the columns
 //! never stretch to the terminal edge) while the table surface fills
 //! the full width (the selected row's wash spans the terminal, the
 //! operator's 2026-09-24 ruling), and Enter on a row opens the detail
 //! drill-in (the operator's refined shape): one metadata row (pid,
 //! started, duration, status), the exact command, and the fetched output
-//! tail in a scrollable region — up/down walk the output, and reaching
+//! tail in a scrollable region -- up/down walk the output, and reaching
 //! the top of the loaded window lazily loads more of the tail (the
 //! window starts at [`FIRST_TAIL_LINES`] and doubles on each load up to
 //! the 200-line wire cap). The status colors code the rows (running
 //! green, finished dim, failed red). The pane runs all the way to the
-//! bottom of the screen: no rule rides below the shortcuts hint — one
+//! bottom of the screen: no rule rides below the shortcuts hint -- one
 //! blank line of spacing rides under it (the operator's 2026-09-24
 //! ruling). Pure
 //! presentation and selection: the host owns the 2s registry refresh,
@@ -47,7 +47,7 @@ use render::{
 const PREFERRED_VISIBLE: usize = 8;
 
 /// Rows the list reserves outside its items (the inline geometry: rule,
-/// title, blank, column header, blank, hint, blank — the conditional
+/// title, blank, column header, blank, hint, blank -- the conditional
 /// scroll-indicator row rides `menu_list_layout`'s scroll reservation,
 /// never counted twice). No rule rides below the hint: one blank line of
 /// spacing rides under the shortcuts instead (the operator's 2026-09-24
@@ -176,7 +176,7 @@ pub struct BashView {
     activities: Vec<BashActivity>,
     /// The detail drill-in's open generation: each open increments it,
     /// and the host stamps its tail requests with the generation they
-    /// were issued under — a late response from an earlier open of the
+    /// were issued under -- a late response from an earlier open of the
     /// same row never overwrites the newer one's output.
     detail_generation: u64,
     selected_id: Option<String>,
@@ -200,7 +200,7 @@ pub struct BashView {
     loading_more: bool,
     /// The failed open fetch's retry is in flight (an Up press re-issued
     /// it): further Ups do not stack duplicates, and the retry's landing
-    /// or failure clears the claim — a late duplicate failure can never
+    /// or failure clears the claim -- a late duplicate failure can never
     /// paint an error over output that already arrived.
     open_retry: bool,
     /// The output region's scroll position: how many lines the window
@@ -287,15 +287,15 @@ impl BashView {
     /// bottom-anchors the region; a lazy load-more's larger window keeps
     /// the scroll anchored so the region continues into the newly loaded
     /// older lines, and a window that grew nothing keeps the current one
-    /// (the retained buffer's end — or the wire's byte cap — was
+    /// (the retained buffer's end -- or the wire's byte cap -- was
     /// reached).
     pub fn set_output(&mut self, id: &str, tail: &str, generation: u64) {
         if self.detail_id().as_deref() != Some(id) || self.detail_generation != generation {
             return;
         }
         let lines: Vec<String> = tail.lines().map(clean_line).collect();
-        // A landed window supersedes a shown fetch error (the retry — or
-        // the fresh open — proves the failure gone); a kill error keeps
+        // A landed window supersedes a shown fetch error (the retry -- or
+        // the fresh open -- proves the failure gone); a kill error keeps
         // its registry-refresh lifecycle. A landed window also releases
         // the open retry's in-flight claim.
         self.open_retry = false;
@@ -334,13 +334,13 @@ impl BashView {
 
     /// Surface a fetch or kill failure (the host's error channel). A
     /// fetch failure carries the detail-open generation it was issued
-    /// under — like the tail responses, a late error from an earlier
+    /// under -- like the tail responses, a late error from an earlier
     /// open of the same row never lands on the newer open (and never
     /// releases its in-flight load claim). A landed fetch failure
     /// restores the lazy-load window to the loaded size (so the retry
     /// re-issues instead of reading the wire cap as the end) and
     /// releases the in-flight claim for the retry; a kill error touches
-    /// neither — it knows nothing about the load's fate.
+    /// neither -- it knows nothing about the load's fate.
     pub fn set_error(&mut self, error: String, fetch: bool, generation: Option<u64>) {
         if fetch && generation.is_some_and(|generation| generation != self.detail_generation) {
             return;
@@ -349,7 +349,7 @@ impl BashView {
             // A failed lazy load never leaves its grown window behind:
             // the retry re-issues from the loaded size (a window left at
             // the wire's line cap would read as the end and stop
-            // retrying — the remaining output would be permanently
+            // retrying -- the remaining output would be permanently
             // inaccessible).
             if self.loading_more {
                 self.tail_window = self
@@ -390,7 +390,7 @@ impl BashView {
     }
 
     /// The action rows of one activity: cancel while the process runs
-    /// (the registry's only wire action — a finished row offers none).
+    /// (the registry's only wire action -- a finished row offers none).
     fn available_actions(activity: &BashActivity) -> Vec<(String, String)> {
         if activity.running() {
             vec![(
@@ -402,8 +402,8 @@ impl BashView {
         }
     }
 
-    /// One key id (the picker pattern: up/down move — in the detail they
-    /// scroll the output region — Enter opens or runs, back returns,
+    /// One key id (the picker pattern: up/down move -- in the detail they
+    /// scroll the output region -- Enter opens or runs, back returns,
     /// cancel closes).
     pub fn handle_key(&mut self, key: &str, kb: &KeybindingsManager) -> BashViewAction {
         if key == "ctrl+c" || kb.matches(key, "tui.select.cancel") {
@@ -616,7 +616,7 @@ impl BashView {
         }
         lines.extend(self.pane_footer(theme, width, &Self::list_hint(kb)));
         // The budget math keeps every normal viewport exact; a terminal
-        // shorter than the frame itself degrades by truncation — the
+        // shorter than the frame itself degrades by truncation -- the
         // pane never renders past its allocated rows.
         lines.truncate(self.viewport_rows.max(1));
         lines
@@ -624,8 +624,8 @@ impl BashView {
 
     /// The detail drill-in (the operator's refined shape): one metadata
     /// row (pid, started, duration, status), the exact command, and the
-    /// fetched output in a scrollable region — nothing else. A short
-    /// viewport shrinks the command first, then the output region — the
+    /// fetched output in a scrollable region -- nothing else. A short
+    /// viewport shrinks the command first, then the output region -- the
     /// action row and the hint never yield.
     fn render_detail(
         &self,
@@ -643,8 +643,8 @@ impl BashView {
             lines.extend(self.pane_footer(theme, width, &self.detail_hint(kb)));
             return lines;
         };
-        // The drill-in's command block is the EXACT command — embedded
-        // newlines and spacing stay verbatim — with the non-newline
+        // The drill-in's command block is the EXACT command -- embedded
+        // newlines and spacing stay verbatim -- with the non-newline
         // control characters scrubbed: a command carrying an escape
         // sequence never executes terminal control operations when
         // rendered.
@@ -655,7 +655,7 @@ impl BashView {
         // under the command, the blank over the hint, the hint, the blank
         // below the hint, the actions block (blank + row), and the error
         // block when present. The command and the output region ride the
-        // remaining budget in that order — the output keeps at least one
+        // remaining budget in that order -- the output keeps at least one
         // row, so a long command clips before the region starves.
         let fixed = 6 + if actions.is_empty() { 0 } else { 2 } + error_rows;
         let budget = self.viewport_rows.saturating_sub(fixed);
@@ -669,9 +669,10 @@ impl BashView {
         let command_clipped = command_wrapped.len() > command_rows;
         let output_rows = budget.saturating_sub(command_rows);
         let mut lines = Vec::new();
-        lines.push(vec![
-            theme.fg_span(ThemeColor::BorderMuted, "\u{2500}".repeat(width.max(1)))
-        ]);
+        lines.push(vec![theme.fg_span(
+            ThemeColor::BorderMuted,
+            crate::glyphs::RULE.repeat(width.max(1)),
+        )]);
         lines.push(metadata_row(theme, width, activity));
         if command_rows > 0 {
             let mut shown = command_rows;
@@ -690,14 +691,14 @@ impl BashView {
             if command_clipped {
                 lines.push(vec![
                     Span::raw("  "),
-                    theme.fg_span(ThemeColor::Dim, "\u{2026}".to_string()),
+                    theme.fg_span(ThemeColor::Dim, crate::glyphs::ELLIPSIS.to_string()),
                 ]);
             }
         }
         lines.push(Vec::new());
-        // The output region: the fetched window (scrollable — the newest
-        // lines ride at the bottom, the `\u{2026}` marker rides over the
-        // first row whenever content continues above, the `\u{2193}`
+        // The output region: the fetched window (scrollable -- the newest
+        // lines ride at the bottom, the `...` marker rides over the
+        // first row whenever content continues above, the `v`
         // marker rides under the last row while the window sits lifted
         // off the newest output), a fetching note while the open fetch is
         // in flight, or the empty-output note once it landed.
@@ -733,7 +734,7 @@ impl BashView {
                     let shown = content.min(len - start);
                     let mut rows: Vec<Line> = Vec::with_capacity(output_rows);
                     if more_top {
-                        rows.push(marker_line(theme, width, "\u{2026}"));
+                        rows.push(marker_line(theme, width, crate::glyphs::ELLIPSIS));
                     }
                     for line in &output[start..start + shown] {
                         rows.push(truncate_line(
@@ -749,7 +750,7 @@ impl BashView {
                         rows.push(Vec::new());
                     }
                     if more_bottom {
-                        rows.push(marker_line(theme, width, "\u{2193}"));
+                        rows.push(marker_line(theme, width, crate::glyphs::DOWN));
                     }
                     lines.extend(rows);
                 }
@@ -763,7 +764,7 @@ impl BashView {
                 None => {
                     lines.push(vec![
                         Span::raw("  "),
-                        theme.fg_span(ThemeColor::Dim, "Fetching output\u{2026}".to_string()),
+                        theme.fg_span(ThemeColor::Dim, "Fetching output...".to_string()),
                     ]);
                     lines.extend(std::iter::repeat_n(Vec::new(), output_rows - 1));
                 }
@@ -805,9 +806,9 @@ impl BashView {
             None => key("tui.select.cancel", "Esc"),
         };
         format!(
-            "{}/{} move \u{b7} {} open \u{b7} {close} close",
-            key("tui.select.up", "\u{2191}"),
-            key("tui.select.down", "\u{2193}"),
+            "{}/{} move - {} open - {close} close",
+            key("tui.select.up", crate::glyphs::KEY_UP),
+            key("tui.select.down", crate::glyphs::KEY_DOWN),
             key("tui.select.confirm", "Enter"),
         )
     }
@@ -822,8 +823,8 @@ impl BashView {
         };
         let up_down = format!(
             "{}/{}",
-            key("tui.select.up", "\u{2191}"),
-            key("tui.select.down", "\u{2193}")
+            key("tui.select.up", crate::glyphs::KEY_UP),
+            key("tui.select.down", crate::glyphs::KEY_DOWN)
         );
         let running = self
             .detail_id()
@@ -831,15 +832,15 @@ impl BashView {
             .is_some_and(|activity| !Self::available_actions(activity).is_empty());
         if running {
             format!(
-                "{up_down} scroll \u{b7} {} run \u{b7} {} back \u{b7} {} close",
+                "{up_down} scroll - {} run - {} back - {} close",
                 key("tui.select.confirm", "Enter"),
-                key("app.modal.back", "\u{2190}"),
+                key("app.modal.back", crate::glyphs::KEY_LEFT),
                 key("tui.select.cancel", "Esc"),
             )
         } else {
             format!(
-                "{up_down} scroll \u{b7} {} back \u{b7} {} close",
-                key("app.modal.back", "\u{2190}"),
+                "{up_down} scroll - {} back - {} close",
+                key("app.modal.back", crate::glyphs::KEY_LEFT),
                 key("tui.select.cancel", "Esc"),
             )
         }
@@ -847,7 +848,7 @@ impl BashView {
 
     /// The pane footer: the error block, a blank, the hint line, and one
     /// blank line below the shortcuts (the operator's 2026-09-24 ruling:
-    /// no rule rides under the hint — spacing, not a divider).
+    /// no rule rides under the hint -- spacing, not a divider).
     fn pane_footer(&self, theme: &Theme, width: usize, hint: &str) -> Vec<Line> {
         let mut lines = Vec::new();
         if let Some(error) = &self.error {

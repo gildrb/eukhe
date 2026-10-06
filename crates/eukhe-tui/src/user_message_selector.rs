@@ -1,6 +1,6 @@
 //! The `/fork` user-message selector (TS `UserMessageSelectorComponent`):
 //! the session's user messages, one fork point per row, rendered through
-//! the shared menu grammar (the `›` marker rows, the `(n/m)` scroll row,
+//! the shared menu grammar (the `>` marker rows, the `(n/m)` scroll row,
 //! the key-hint status row every picker renders with).
 
 use crate::keybindings::KeybindingsManager;
@@ -136,7 +136,7 @@ fn hint(kb: &KeybindingsManager) -> String {
     .into_iter()
     .flatten()
     .collect::<Vec<String>>()
-    .join(" · ")
+    .join(crate::glyphs::SEP)
 }
 
 #[cfg(test)]
@@ -195,9 +195,9 @@ mod tests {
         );
     }
 
-    /// The selector renders through the shared menu grammar: the `›`
+    /// The selector renders through the shared menu grammar: the `>`
     /// marker on the selected row, the `(n/m)` scroll row once the window
-    /// cannot hold every message, the hint row — and no per-row metadata
+    /// cannot hold every message, the hint row -- and no per-row metadata
     /// lines.
     #[test]
     fn the_pane_renders_through_the_shared_menu_grammar() {
@@ -205,9 +205,7 @@ mod tests {
         let lines = selector.render(&theme(), 80, &kb());
         let rendered: Vec<String> = lines.iter().map(row_text).collect();
         assert!(
-            rendered
-                .iter()
-                .any(|row| row.starts_with("\u{203a} message 11")),
+            rendered.iter().any(|row| row.starts_with("> message 11")),
             "the preselected latest message carries the menu marker:\n{rendered:?}"
         );
         assert!(
@@ -217,7 +215,7 @@ mod tests {
         assert!(!rendered.iter().any(|row| row.contains("Message 1 of")));
         assert!(rendered
             .iter()
-            .any(|row| row.contains("\u{2191}/\u{2193} navigate · Enter select · Esc close")));
+            .any(|row| row.contains("up/down navigate - Enter select - Esc close")));
     }
 
     /// The hint never advertises an unbound action: with the cancel

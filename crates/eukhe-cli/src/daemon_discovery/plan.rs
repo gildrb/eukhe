@@ -38,7 +38,7 @@ pub(crate) fn plan_reap(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction> 
         .map(|daemon| {
             // An orphan socket file has no owning process, so removing it is
             // safe even on the default path (a stale daemon.sock left by a
-            // crash) — decided before the default guard.
+            // crash) -- decided before the default guard.
             if daemon.status == DaemonStatus::OrphanFile {
                 return ReapAction {
                     kind: ReapActionKind::RemoveFile,

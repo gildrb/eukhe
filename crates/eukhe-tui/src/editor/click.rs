@@ -3,7 +3,7 @@
 //! content rows places the caret at the clicked cell. The click's row
 //! indexes the rendered layout (the visible window), its column maps
 //! through the row's layout chunk into the source line, and grapheme
-//! segments snap by their visible-width midpoint — a click past the
+//! segments snap by their visible-width midpoint -- a click past the
 //! middle of a wide cell or an atomic paste marker lands after it.
 
 use super::{Editor, Segment};

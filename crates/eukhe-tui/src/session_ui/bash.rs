@@ -5,6 +5,7 @@ use super::{
     BashViewAction, ChatEntry, DaemonCommand, Duration, KeyEvent, Map, Result, SessionUi,
     StatusKind, Value, UI_REQUEST_TIMEOUT_MS,
 };
+use crate::glyphs::WARN;
 
 /// Kernel-bash channel frames: list snapshots refresh the dock and the
 /// open bash view, a landed tail feeds the open view's detail row, and
@@ -74,7 +75,7 @@ pub(super) struct SideBashRun {
 
 impl SessionUi {
     /// TS `!command` / `!!command` (interactive-mode `onSubmit`): run the
-    /// command through the daemon's user-bash slot — no model turn. `!`
+    /// command through the daemon's user-bash slot -- no model turn. `!`
     /// output enters the session context (the daemon records the durable
     /// `bashExecution` row, so follow-up prompts answer it); `!!` stays
     /// excluded. Inside a side conversation the run is transient: it
@@ -103,7 +104,7 @@ impl SessionUi {
         if view.side_pane.is_some() && self.active_side_question_id.is_some() {
             view.editor.set_text(text);
             self.note_as(
-                "\u{26a0} Wait for the current side question to finish or cancel it first.",
+                &format!("{WARN} Wait for the current side question to finish or cancel it first."),
                 StatusKind::Warning,
                 view,
             );
@@ -161,7 +162,7 @@ impl SessionUi {
         {
             // The rejection may mean another client's bash run already
             // holds the slot (TS re-syncs from the daemon state; the
-            // settled events patch it either way) — assume idle.
+            // settled events patch it either way) -- assume idle.
             self.user_bash_running = false;
             if run_id.is_some() && self.side_bash.as_ref().map(|run| run.run_id.clone()) == run_id {
                 self.side_bash = None;
@@ -182,7 +183,7 @@ impl SessionUi {
     /// (capability-gated and bounded like the background refresh), so
     /// the dock's bash rows ride the first content frame instead of
     /// popping in late. A failed fetch leaves the just-cleared registry
-    /// — the 2s poll refills.
+    /// -- the 2s poll refills.
     pub(super) async fn fetch_bash_activities(&mut self) {
         if !self.kernel_bash_supported() {
             return;
@@ -211,7 +212,7 @@ impl SessionUi {
     /// Whether the daemon advertises the kernel-bash registry (older
     /// daemons never see the list requests). The run loop's 2s activity
     /// poll keys on the same capability [`spawn_bash_activity_refresh`]
-    /// applies — without it every fire is a no-op, so the arm parks and
+    /// applies -- without it every fire is a no-op, so the arm parks and
     /// an idle surface spends no wakeups on it.
     pub(crate) fn kernel_bash_supported(&self) -> bool {
         self.client
@@ -279,7 +280,7 @@ impl SessionUi {
                 if self.bash_activities == data {
                     return;
                 }
-                // A landed REGISTRY update supersedes a shown error — but
+                // A landed REGISTRY update supersedes a shown error -- but
                 // only when the registry's rows actually moved (a row
                 // settled, started, or left): the running rows' duration
                 // ticks every poll and never clear anything. The
@@ -317,7 +318,7 @@ impl SessionUi {
                 ..
             } => {
                 // An in-view action's failure surfaces in the open bash
-                // view — and only when the failed request's row is the
+                // view -- and only when the failed request's row is the
                 // open detail (a late failure for another row's request
                 // never lands on it); with no view open the transcript
                 // row carries it.
@@ -361,7 +362,7 @@ impl SessionUi {
     /// kernel must not freeze the TUI behind the request bound): the
     /// response lands on the open view through the update channel,
     /// stamped with the detail-open generation it was issued under (the
-    /// open's first window or a later lazy load's grown one — the view
+    /// open's first window or a later lazy load's grown one -- the view
     /// owns the window policy).
     fn spawn_bash_tail_fetch(&self, activity_id: String, generation: u64, lines: u32) {
         let client = self.client.clone();
@@ -558,7 +559,7 @@ impl SessionUi {
     }
 
     /// `bash_output` (TS the `bash_output` case): one streamed chunk
-    /// appends to the active surface — the pane's row for a side run, the
+    /// appends to the active surface -- the pane's row for a side run, the
     /// mounted card's output otherwise. Discarded runs swallow their
     /// chunks.
     pub(super) fn apply_bash_output(&mut self, chunk: &str, view: &mut AgentView) {
@@ -593,7 +594,6 @@ impl SessionUi {
             // pre-append height so the tail-anchored sparse window folds
             // the growth into its bookkeeping (the `prepare` +
             // `mark_stale` pair every other growing entry uses).
-            view.prepare_entry_mutation(index);
             if let Some(ChatEntry::BashExecution(card)) = view.chat.get_mut(index) {
                 card.append_output(chunk);
             }
@@ -604,7 +604,7 @@ impl SessionUi {
     /// `bash_end` (TS the `bash_end` case): the settled run patches the
     /// running flag, completes the mounted row (or surfaces the failure
     /// when no row is mounted), and an own pane-mounted run seeds the
-    /// follow-up side questions (the `!`, not `!!`, variant — unless it
+    /// follow-up side questions (the `!`, not `!!`, variant -- unless it
     /// was cancelled or failed).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn apply_bash_end(
@@ -667,7 +667,7 @@ impl SessionUi {
         }
         // The mounted card settles (an error status when the run failed
         // or exited non-zero, TS `setComplete`/`setFailed`), wherever the
-        // run mounted — the pending hold keeps its place until the turn
+        // run mounted -- the pending hold keeps its place until the turn
         // flushes (TS `bash_end` does not flush the pending container).
         let started_at = self.user_bash_started_at.take();
         if let Some(card_id) = self.user_bash_card.take() {
@@ -675,7 +675,6 @@ impl SessionUi {
             if let Some(index) = view.chat.iter().position(
                 |entry| matches!(entry, ChatEntry::BashExecution(card) if card.id == card_id),
             ) {
-                view.prepare_entry_mutation(index);
                 if let Some(ChatEntry::BashExecution(card)) = view.chat.get_mut(index) {
                     match &error_message {
                         Some(message) => card.set_failed(message),
@@ -708,7 +707,7 @@ impl SessionUi {
             );
         } else if let Some(message) = error_message {
             // Transient failures surface in the owning client's pane,
-            // not here (TS `showError`: the `⚠ Error:` row).
+            // not here (TS `showError`: the `! Error:` row).
             if !transient {
                 self.error_row(&format!("Bash command failed: {message}"), view);
             }
@@ -728,7 +727,7 @@ impl SessionUi {
 
     /// `tui bash bang executed` (event `bash_bang_executed`, the lane's
     /// settle adoption telemetry): a duration bucket and an exit-code
-    /// class, primitives only — never the command or any output.
+    /// class, primitives only -- never the command or any output.
     fn track_bash_bang_executed(
         &self,
         started_at: Option<std::time::Instant>,
@@ -801,8 +800,10 @@ mod bash_bang_tests {
     fn the_running_guard_names_the_clear_key() {
         let warning = already_running_warning(&KeybindingsManager::new());
         assert!(
-            warning.starts_with("\u{26a0} A bash command is already running. Press ")
-                && warning.ends_with(" to cancel it first."),
+            warning.starts_with(&format!(
+                "{} A bash command is already running. Press ",
+                crate::glyphs::WARN
+            )) && warning.ends_with(" to cancel it first."),
             "the guard sentence matches TS: {warning}"
         );
         assert!(warning.contains("Ctrl+C"));

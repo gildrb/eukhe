@@ -69,20 +69,6 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `terminal.fullscreenMouse` setter (the getter lives with the mouse
-    /// surface).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings scope cannot be saved.
-    pub fn set_fullscreen_mouse(&mut self, enabled: bool) -> Result<()> {
-        self.global_mut()
-            .terminal
-            .get_or_insert_with(Default::default)
-            .fullscreen_mouse = Some(enabled);
-        self.save_global_scope()
-    }
-
     /// `images.autoResize` (TS default true).
     #[must_use]
     pub fn get_image_auto_resize(&self) -> bool {

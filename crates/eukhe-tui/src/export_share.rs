@@ -73,7 +73,7 @@ pub enum GhAuthStatus {
 #[must_use]
 pub fn probe_gh_auth() -> GhAuthStatus {
     // No inherited fds: a probe must never hold the terminal the TUI owns
-    // (the fd-set audit's rule — no child holds /dev/tty).
+    // (the fd-set audit's rule -- no child holds /dev/tty).
     let mut command = std::process::Command::new("gh");
     command.stdin(std::process::Stdio::null());
     let Ok(output) = command.args(["auth", "status"]).output() else {

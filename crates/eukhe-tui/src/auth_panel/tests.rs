@@ -161,20 +161,20 @@ fn the_paste_prompt_submits_the_typed_value() {
     );
     let rules = rows
         .iter()
-        .filter(|row| !row.is_empty() && row.chars().all(|c| c == '\u{2500}'))
+        .filter(|row| !row.is_empty() && row.chars().all(|c| c == '-'))
         .count();
     assert_eq!(
         rules, 1,
         "the session panel's top rule alone rides; the field adds none: {rows:?}"
     );
     assert!(
-        rows[0].chars().all(|c| c == '\u{2500}'),
+        rows[0].chars().all(|c| c == '-'),
         "the rule opens the panel"
     );
     // The paste-only panel keeps its own hint row, rendered from the
     // effective bindings (the MCP token surface's grammar); the
     // auth-actions row rides only under a shown URL block (TS
-    // `getAuthActionsText` — pinned by the URL block's tests below).
+    // `getAuthActionsText` -- pinned by the URL block's tests below).
     assert!(rows
         .iter()
         .any(|row| row.contains("Enter submit  Esc cancel")));
@@ -236,7 +236,7 @@ fn an_empty_paste_submit_shows_the_notice_only_on_the_token_panel() {
 /// The cancel keys run through the effective binding (TS
 /// `LoginDialogComponent.handleInput`): the stock bindings cancel on
 /// ctrl+c (the binding's second default key), and an override that
-/// empties the binding takes ctrl+c with it — the panel never
+/// empties the binding takes ctrl+c with it -- the panel never
 /// cancels on a key its binding does not name, so the derived hint
 /// stays truthful.
 #[test]
@@ -317,10 +317,7 @@ fn the_masked_field_renders_bullets_never_the_secret() {
         !joined.contains("ghp_secretvalue"),
         "the secret never renders: {joined:?}"
     );
-    assert!(
-        joined.contains("\u{2022}\u{2022}\u{2022}"),
-        "bullets render"
-    );
+    assert!(joined.contains("***"), "bullets render");
 }
 
 /// The team picker renders the TS `PrimeTeamSelectorComponent`
@@ -352,7 +349,7 @@ fn the_team_picker_renders_the_ts_rows() {
     assert!(
         !rows
             .iter()
-            .any(|row| row.contains("personal account · current")),
+            .any(|row| row.contains("personal account - current")),
         "personal is not current while a team is stored"
     );
 }
@@ -365,7 +362,7 @@ fn the_personal_row_is_current_without_a_stored_selection() {
     let rows = frame_text(&mut panel);
     assert!(rows
         .iter()
-        .any(|row| row.contains("personal account · current")));
+        .any(|row| row.contains("personal account - current")));
 }
 
 /// Down/Enter on the picker answers the selected team (TS
@@ -472,7 +469,7 @@ fn the_picker_navigation_clamps_instead_of_wrapping() {
 async fn a_dropped_prompt_reply_cancels_the_flow() {
     let (tx, rx) = mpsc::unbounded_channel();
     // The receiving side is gone (the run loop's channel died with
-    // the session): the dropped request's reply cancels the flow —
+    // the session): the dropped request's reply cancels the flow --
     // the paste prompt answers `None`, the picker `Cancelled`.
     drop(rx);
     let handle = AuthPanelHandle::new(tx);
@@ -562,7 +559,7 @@ fn the_auth_url_link_carries_the_url_as_display_text() {
 }
 
 /// The session surface's panel chrome is TS `MenuPanel` inline: the
-/// borderMuted rule, the muted one-space title — and NO bottom rule,
+/// borderMuted rule, the muted one-space title -- and NO bottom rule,
 /// NO leading blank (the content's own `startContent` blank opens
 /// the body).
 #[test]
@@ -575,7 +572,7 @@ fn the_session_chrome_is_the_ts_inline_panel() {
         "the empty dialog renders its chrome alone: {rows:?}"
     );
     assert!(
-        rows[0].chars().all(|c| c == '\u{2500}'),
+        rows[0].chars().all(|c| c == '-'),
         "the rule opens the panel: {rows:?}"
     );
     assert_eq!(
@@ -591,15 +588,13 @@ fn the_session_chrome_is_the_ts_inline_panel() {
     );
     // No bottom rule: the last row is the content's.
     assert!(
-        !rows
-            .last()
-            .is_some_and(|row| row.chars().all(|c| c == '\u{2500}')),
+        !rows.last().is_some_and(|row| row.chars().all(|c| c == '-')),
         "the inline panel closes on its content: {rows:?}"
     );
 }
 
 /// The onboarding surface mounts the dialog chrome-less (TS
-/// `loginDialogOptions`: `topRule: false, hideTitle: true` — the
+/// `loginDialogOptions`: `topRule: false, hideTitle: true` -- the
 /// splash's heading names the step): an empty panel renders zero
 /// rows.
 #[test]
@@ -615,7 +610,7 @@ fn the_onboarding_panel_is_chrome_less() {
     assert!(
         !rows
             .iter()
-            .any(|row| !row.is_empty() && row.chars().all(|c| c == '\u{2500}')),
+            .any(|row| !row.is_empty() && row.chars().all(|c| c == '-')),
         "no rule rides the onboarding dialog: {rows:?}"
     );
     assert!(
@@ -666,7 +661,7 @@ fn the_url_block_renders_the_ts_instruction_frames() {
 
 /// TS `addInstructions`' regex (`.` stops at line terminators, `$`
 /// anchors the string's end): a multi-line `Code: 4242-9911\nMore
-/// instructions follow.` payload matches no code arm — the whole
+/// instructions follow.` payload matches no code arm -- the whole
 /// instructions render as provider text, never a verification-code
 /// block over the extra lines.
 #[test]

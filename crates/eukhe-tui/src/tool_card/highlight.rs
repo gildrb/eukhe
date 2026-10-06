@@ -10,9 +10,9 @@
 //! backslash escapes keep the string color (cli-highlight renders those
 //! scopes with the identity function, leaving them in the parent wrap).
 
+use crate::style::Style;
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
-use ratatui::style::Style;
 
 /// The resolved `syntax*` theme colors the scopes render with (TS
 /// `buildCliHighlightTheme`'s mapping of the highlight.js token classes to

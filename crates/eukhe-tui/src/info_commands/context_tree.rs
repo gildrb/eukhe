@@ -108,8 +108,8 @@ struct ModelUsage {
 
 /// One agent row of the context tree (TS `ContextTreeNode`), plus this
 /// port's per-model own-usage breakdown (a deliberate TS delta: a
-/// session that switches models mid-conversation — or hosts subagents on
-/// other models — shows which model billed what).
+/// session that switches models mid-conversation -- or hosts subagents on
+/// other models -- shows which model billed what).
 #[derive(Debug, Clone, PartialEq)]
 struct ContextNode {
     id: String,
@@ -206,18 +206,18 @@ fn walk_tree<'a>(children: &'a [ContextNode], ancestors: &str, rows: &mut Vec<Tr
     for (index, child) in children.iter().enumerate() {
         let is_last = index + 1 == children.len();
         let branch = if is_last {
-            "\u{2514}\u{2500} "
+            crate::glyphs::TREE_LAST
         } else {
-            "\u{251c}\u{2500} "
+            crate::glyphs::TREE_MID
         };
         rows.push(TreeRow {
             node: child,
             prefix: format!("{ancestors}{branch}"),
         });
         let ancestors = if is_last {
-            format!("{ancestors}   ")
+            format!("{ancestors}{}", crate::glyphs::TREE_SPACE)
         } else {
-            format!("{ancestors}\u{2502}  ")
+            format!("{ancestors}{}", crate::glyphs::TREE_PIPE)
         };
         walk_tree(&child.children, &ancestors, rows);
     }
@@ -228,11 +228,11 @@ fn walk_tree<'a>(children: &'a [ContextNode], ancestors: &str, rows: &mut Vec<Tr
 /// cannot produce one).
 fn status_icon(status: &str) -> (&'static str, ThemeColor) {
     match status {
-        "active" => ("\u{25cf}", ThemeColor::Accent),
-        "running" => ("\u{25c6}", ThemeColor::Accent),
-        "done" => ("\u{2713}", ThemeColor::Success),
-        "error" | "cancelled" => ("\u{2717}", ThemeColor::Error),
-        _ => ("\u{25c7}", ThemeColor::Dim),
+        "active" => (crate::glyphs::DOT_ON, ThemeColor::Accent),
+        "running" => (crate::glyphs::RIGHT, ThemeColor::Accent),
+        "done" => (crate::glyphs::OK, ThemeColor::Success),
+        "error" | "cancelled" => (crate::glyphs::FAIL, ThemeColor::Error),
+        _ => (crate::glyphs::DOT_OFF, ThemeColor::Dim),
     }
 }
 
@@ -258,7 +258,7 @@ pub(super) fn truncate_plain(text: &str, max_width: usize) -> String {
     if str_width(text) <= max_width {
         return text.to_string();
     }
-    let ellipsis = "...";
+    let ellipsis = crate::glyphs::ELLIPSIS;
     if str_width(ellipsis) >= max_width {
         let mut out = String::new();
         for c in ellipsis.chars() {
@@ -306,8 +306,8 @@ fn context_column(usage: Option<&ContextUsageSnapshot>, with_bar: bool) -> Vec<C
         ThemeColor::Accent
     };
     let mut row = vec![
-        ClientSpan::colored("\u{2593}".repeat(filled), bar_color),
-        dim("\u{2591}".repeat(CONTEXT_BAR_WIDTH - filled)),
+        ClientSpan::colored(crate::glyphs::METER_ON.repeat(filled), bar_color),
+        dim(crate::glyphs::METER_OFF.repeat(CONTEXT_BAR_WIDTH - filled)),
         raw_span(" "),
     ];
     row.extend(text);
@@ -331,8 +331,8 @@ fn sum_own_usage(node: &ContextNode, total: &mut UsageTotals) {
 
 /// The whole tree's own usage summed per model (the `/context` Cost
 /// section's breakdown): every node's per-model buckets fold into tree
-/// buckets keyed by `provider/id`, so a mid-conversation switch — or
-/// subagents on other models — shows each model's share of the total.
+/// buckets keyed by `provider/id`, so a mid-conversation switch -- or
+/// subagents on other models -- shows each model's share of the total.
 /// `None` when a node with billable own usage carries no per-model fold
 /// (a foreign file): a partial breakdown would not add up to the
 /// displayed total, so the Cost section stays plain.
@@ -377,7 +377,7 @@ struct HiddenAgents {
     cost: String,
 }
 
-/// Which agent rows [`context_tree_rows`] renders — this port's collapse
+/// Which agent rows [`context_tree_rows`] renders -- this port's collapse
 /// knob, a deliberate TS delta (TS `formatContextTree` renders every row):
 /// a fleet session's tree outgrows the terminal, so the default keeps the
 /// display bounded and names the command that renders the whole tree.
@@ -401,8 +401,8 @@ pub fn context_tree_rows(tree: &Value, width: usize, scope: ContextTreeScope) ->
     let mut rows = flatten_tree(&root);
 
     // The collapse (a deliberate TS delta: TS renders every row): a tree
-    // over the row budget keeps its highest-usage rows — spend decides
-    // which agents matter — and folds the rest into the summary row
+    // over the row budget keeps its highest-usage rows -- spend decides
+    // which agents matter -- and folds the rest into the summary row
     // under the table. Ties keep tree order (the sort is stable); the
     // summary and the grand totals still cover the whole tree.
     let mut summary: Option<HiddenAgents> = None;
@@ -457,7 +457,7 @@ pub fn context_tree_rows(tree: &Value, width: usize, scope: ContextTreeScope) ->
         .chain(summary.iter().map(|hidden| hidden.cost.len()))
         .max()
         .unwrap_or_default();
-    // The per-row model column — a deliberate TS delta (TS shows only the
+    // The per-row model column -- a deliberate TS delta (TS shows only the
     // root's `Model:` line): the model decides the cost, so every agent
     // row carries its bare model id, "-" when the node carries no model.
     // The column appears only when at least one node has a model; a tree
@@ -589,7 +589,7 @@ pub fn context_tree_rows(tree: &Value, width: usize, scope: ContextTreeScope) ->
             " {} tokens ",
             crate::chrome::format_token_count(totals.spent_tokens())
         )),
-        dim("\u{b7}"),
+        dim("-"),
         raw_span(format!(" {}", format_cost(totals.cost_total))),
     ];
     if agent_count > 1 {
@@ -630,7 +630,7 @@ pub fn context_tree_rows(tree: &Value, width: usize, scope: ContextTreeScope) ->
         // The per-model breakdown (the model mix decides the cost): the
         // whole tree's per-model buckets, most expensive model first.
         // Rendered only when the daemon sent buckets and the tree used
-        // more than one model — a single-model tree already names its
+        // more than one model -- a single-model tree already names its
         // model in the `Model:` line and renders exactly TS.
         let by_model = tree_own_usage_by_model(&root);
         if let Some(mut by_model) = by_model.filter(|by_model| by_model.len() > 1) {

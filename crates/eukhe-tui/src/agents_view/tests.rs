@@ -8,7 +8,7 @@
 
 use super::*;
 
-mod click_surface;
+mod ascii_frame;
 mod cost_aggregates;
 mod delete_stop;
 mod drill_down;
@@ -16,11 +16,11 @@ mod edge_jumps;
 mod entry_anchor;
 mod heartbeat_badge;
 mod hints_render;
-mod hover_band;
 mod key_bindings;
 mod notices;
 mod render_pulse;
 mod reply;
+mod row_cells;
 mod running_lines;
 mod saved_catalog;
 mod search_selection;
@@ -70,21 +70,6 @@ fn mode_with_row(title: &str, model: &str) -> (AgentsViewMode, usize) {
 
 fn flat(line: &Line) -> String {
     line.iter().map(|s| s.content.as_str()).collect()
-}
-
-/// One SGR left report: a press, a press with the motion bit (a
-/// drag), or a release.
-fn mouse_report(row: usize, press: bool, motion: bool) -> crate::mouse::MouseEvent {
-    crate::mouse::MouseEvent {
-        button: crate::mouse::BUTTON_LEFT,
-        x: 3,
-        y: (row + 1) as u16,
-        press,
-        motion,
-        shift: false,
-        alt: false,
-        ctrl: false,
-    }
 }
 
 fn roster_entry(agent: &str, status: &str, summary: &serde_json::Value) -> serde_json::Value {

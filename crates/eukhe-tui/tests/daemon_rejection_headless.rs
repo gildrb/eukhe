@@ -399,7 +399,6 @@ fn options_with_session(socket: PathBuf, session: SessionSelection) -> Interacti
         session,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: false,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -510,7 +509,7 @@ fn empty_follow_up_is_a_silent_noop_and_the_client_stays_alive() {
         "the empty follow-up never reached the daemon:\n{all}"
     );
     assert!(
-        !all.contains("\u{26a0} Error"),
+        !all.contains("Error: "),
         "the silent no-op renders no error row:\n{all}"
     );
     // The no-op consumed nothing: the next submit is dispatch 0 and its
@@ -554,7 +553,7 @@ fn rejected_mid_turn_submission_renders_the_error_row_and_keeps_running() {
     let flat = all.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
         flat.contains(&format!(
-            "\u{26a0} Error: the daemon rejected the prompt request: {SUSPENDED_ADMISSION}"
+            "Error: the daemon rejected the prompt request: {SUSPENDED_ADMISSION}"
         )),
         "the refusal renders as the error row:\n{all}"
     );
@@ -593,13 +592,13 @@ fn dead_connection_on_prompt_keeps_the_run_mounted_and_arms_the_reconnect() {
     );
     // The TS `showError` row with the transport failure.
     assert!(
-        all.contains("\u{26a0} Error: the daemon connection closed"),
+        all.contains("Error: the daemon connection closed"),
         "the dead connection surfaces as the error row:\n{all}"
     );
     // The reconnect driver owns the recovery (the reader-death watch
     // armed it); the note rides the chat.
     assert!(
-        all.contains("the daemon connection closed — reconnecting"),
+        all.contains("the daemon connection closed") && all.contains("reconnecting"),
         "the reconnect driver is armed for the loss:\n{all}"
     );
     // The draft returns to the editor (TS restores the input).

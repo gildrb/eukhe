@@ -110,12 +110,12 @@ impl SessionUi {
 
     /// The dock's feed state: the live counts, the goal row's label, and
     /// the selection/focus the caller owns. The row render, the focus
-    /// hand-off, and the arrows' traversal all read this one mapping —
+    /// hand-off, and the arrows' traversal all read this one mapping --
     /// a group renders exactly when it stays traversable.
     pub(super) fn activity_dock_state(&self) -> crate::chrome::ActivityDock {
         // The dock is the goal's one chrome surface (the operator's
         // 2026-09-24 directive moved it off the line below the prompt
-        // bar): every live state renders its row — pursuing reads the
+        // bar): every live state renders its row -- pursuing reads the
         // elapsed time ("make it 'Pursuing goal (time)'"), and the
         // paused and budget-limited states keep their persistent label
         // here too (the tray's TS cluster no longer exists to carry
@@ -125,19 +125,19 @@ impl SessionUi {
         // The dock's bash indicator counts only runs actively running
         // right now (operator scoping): finished runs stay as rows inside
         // the bash view, never in the indicator. The feed is the
-        // current session's kernel registry — nested subagents' kernels
+        // current session's kernel registry -- nested subagents' kernels
         // are separate and never appear here.
         let bash_rows = crate::bash_view::parse_bash_activities(&self.bash_activities);
         let bash_running = bash_rows
             .iter()
             .filter(|activity| activity.running())
             .count();
-        // The dock's factory indicator counts live runs only — the
+        // The dock's factory indicator counts live runs only -- the
         // view's one liveness rule (`FactoryRunSnapshot::is_live`: a
-        // live state, or children still in flight — a `done` run whose
+        // live state, or children still in flight -- a `done` run whose
         // resident children still run keeps its count like its panel
         // and its stop control). Fully terminal runs stay as panels
-        // inside the factory page, never in the indicator — the bash
+        // inside the factory page, never in the indicator -- the bash
         // group's running-only scoping, one lane over.
         let factory_runs = crate::factory_view::parse_factory_runs(&self.factory_graph)
             .iter()
@@ -145,7 +145,7 @@ impl SessionUi {
             .count();
         // The dock's subagent count is the live running count only:
         // idle and dead registry rows (passivated children the ledger
-        // still seeds) never bloat the indicator — they render in the
+        // still seeds) never bloat the indicator -- they render in the
         // scoped agents view.
         crate::chrome::ActivityDock {
             subagents_running_direct: self.subagent_counts.running_direct,
@@ -173,7 +173,7 @@ impl SessionUi {
         // The tray override label blocks the hand-off (TS
         // `focusSubagentSummary`'s `getTrayOverrideLabel()` gate): the
         // armed Ctrl+C exit hint, or the streaming follow-up hint over a
-        // non-empty draft — the override covers the streaming arm, so no
+        // non-empty draft -- the override covers the streaming arm, so no
         // separate draft check is needed.
         if self.tray_override(view).is_some() {
             return false;
@@ -183,7 +183,7 @@ impl SessionUi {
                 // The prompt's Down always enters the dock, whatever its
                 // counts (the operator's 2026-10-01 consistency ruling: an
                 // all-zero dock, or one with only shells running, must stay
-                // reachable — TS `SubagentSummaryLine.isSelectable()` gated
+                // reachable -- TS `SubagentSummaryLine.isSelectable()` gated
                 // this on existing subagents, a sanctioned divergence). The
                 // grab lands on the row's first group; Left/Right walk the
                 // rest.
@@ -229,46 +229,10 @@ impl SessionUi {
         }
     }
 
-    /// The dock group a plain click opens (the dock's Enter route,
-    /// operator directive 2026-09-29): the click is an explicit user
-    /// choice, a direction key's peer — it moves the dock's selection
-    /// to the clicked group, takes the focus, and opens the group's
-    /// own view through the focused Enter's exact dispatch.
-    pub(crate) fn open_dock_group_from_click(
-        &mut self,
-        group: crate::chrome::ActivityGroup,
-        view: &mut AgentView,
-    ) {
-        self.activity_group = group;
-        self.subagents_focused = true;
-        self.update_subagent_summary(view);
-        self.open_dock_group_view(view);
-    }
-
-    /// The tray's `← manage` hint click performs the hinted action
-    /// (operator directive 2026-09-29): the left arrow's agents-back
-    /// handoff — the pane goes to the agents view (a `--no-session`
-    /// run has no daemon fleet to browse, so the click reports that
-    /// exactly like the key). The dispatch gates on the empty editor
-    /// exactly like `app.agents.back`, so the click never does more
-    /// than the hint promises.
-    pub(crate) fn open_agents_view_from_hint(&mut self, view: &mut AgentView) {
-        if self.return_to_agents_view {
-            self.open_agents_view = true;
-            self.exit_requested = true;
-        } else {
-            self.note(
-                "The agents view needs a daemon-hosted session; start normally (without --no-session) to browse sessions",
-                view,
-            );
-        }
-        self.dirty = true;
-    }
-
     /// The dock's Enter hand-off (the operator's direct-navigation
-    /// redesign): the focused group opens its own view directly — the
+    /// redesign): the focused group opens its own view directly -- the
     /// scoped agents view for subagents, the heartbeats view, or the
-    /// bash view — with no intermediate grouped list.
+    /// bash view -- with no intermediate grouped list.
     pub(super) fn open_dock_group_view(&mut self, view: &mut AgentView) {
         match self.activity_group {
             crate::chrome::ActivityGroup::Subagents => {
@@ -322,9 +286,9 @@ impl SessionUi {
     }
 
     /// Open the read-only info panel over the editor dock (the
-    /// operator's 2026-09-26 directive: the client info displays —
+    /// operator's 2026-09-26 directive: the client info displays --
     /// `/context`, `/session`, `/system-prompt`, `/logs`, `/changelog`,
-    /// `/hotkeys`, the `/traces` blocks, and `/list` — render as the
+    /// `/hotkeys`, the `/traces` blocks, and `/list` -- render as the
     /// docked popup panel, the `/mcp` and `/model` panel grammar,
     /// instead of flooding the transcript with rows that persist). The
     /// content is whatever the command already built; ESC closes and
@@ -372,7 +336,7 @@ impl SessionUi {
 
     /// The info panel owns the frame while open: the navigation keys
     /// scroll its window, the close keys dismiss it, and every other key
-    /// is consumed — the read-only document never leaks a key back to
+    /// is consumed -- the read-only document never leaks a key back to
     /// the editor, and the transcript gains nothing while it is open.
     pub(super) fn handle_info_panel_key(
         &mut self,
@@ -474,7 +438,7 @@ mod activity_dock_counts_tests {
     /// Operator scoping: the session wrapper passes no child session ids,
     /// so a nested session's heartbeat drops while the session's own
     /// rows stay (TS `scopeHeartbeatsToSession` kept the children's jobs
-    /// — the divergence lives in the caller).
+    /// -- the divergence lives in the caller).
     #[test]
     fn dock_heartbeats_scope_to_the_current_session_only() {
         let own = entry(&job("own", "active"));
@@ -495,7 +459,7 @@ mod activity_dock_counts_tests {
     }
 
     /// Operator scoping: the dock's bash indicator counts only runs
-    /// actively running right now — finished runs stay in the bash view
+    /// actively running right now -- finished runs stay in the bash view
     /// as rows, never in the indicator.
     #[test]
     fn dock_bash_counts_only_running_runs() {
@@ -549,7 +513,7 @@ mod retry_collapse_tests {
     }
 
     /// The 429-storm single-line collapse (operator ruling 2026-09-23): the
-    /// trailing failed-attempt error row pops when its retry supersedes it —
+    /// trailing failed-attempt error row pops when its retry supersedes it --
     /// and only that row (an abort, a settled reply, or a tool-carrying
     /// failure stays).
     #[test]

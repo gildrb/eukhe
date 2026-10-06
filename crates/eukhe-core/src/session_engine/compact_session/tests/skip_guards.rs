@@ -128,7 +128,7 @@ async fn execute_compaction_skips_short_sessions() {
     .unwrap();
     assert_eq!(
         outcome,
-        CompactOutcome::Skipped("Session is too short to compact — try again once it grows")
+        CompactOutcome::Skipped("Session is too short to compact -- try again once it grows")
     );
     assert!(session
         .get_entries()

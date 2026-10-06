@@ -1,11 +1,10 @@
 //! The `!`/`!!` execution card (TS `BashExecutionComponent`,
-//! bash-execution.ts): the bordered run box — the `$ command` header, the
+//! bash-execution.ts): the bordered run box -- the `$ command` header, the
 //! `Running...` loader, the 20-line tail preview, and the settled status
-//! rows — shared by the live `bash_start`/`bash_output`/`bash_end` mount,
+//! rows -- shared by the live `bash_start`/`bash_output`/`bash_end` mount,
 //! the replayed durable `bashExecution` row, and the pending-while-streaming
 //! hold (TS mounts the same component class in all three spots).
 
-use crate::chat::LOADER_FRAMES;
 use crate::error_summary::strip_ansi;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::wrap_text;
@@ -27,7 +26,7 @@ pub struct BashExecutionCard {
     /// bash-mode color (TS `excludeFromContext` picks the color key).
     pub excluded: bool,
     /// The accumulated output (ANSI-stripped, newlines normalized), kept
-    /// to its last `TAIL_MAX_BYTES + 1` bytes — all `truncate_tail` needs
+    /// to its last `TAIL_MAX_BYTES + 1` bytes -- all `truncate_tail` needs
     /// for the same window and truncation flag.
     pub output: String,
     /// Whether the run is still going (the loader owns the status row).
@@ -122,8 +121,8 @@ impl BashExecutionCard {
 
 /// The card's rows (TS the component's render): the full-width borders,
 /// the `$ command` header, the output preview, and the loader or status
-/// rows. The leading spacer and the click-to-expand affordance live with
-/// the caller (the chat entry spacing and the mouse surface own them).
+/// rows. The leading spacer lives with the caller (the chat entry
+/// spacing owns it).
 #[must_use]
 pub fn render_bash_execution(
     card: &BashExecutionCard,
@@ -139,8 +138,8 @@ pub fn render_bash_execution(
         theme.fg_style(ThemeColor::BashMode)
     };
     // TS's constructor renders the command row through the color key (dim
-    // for `!!`); the first `updateDisplay` — any output chunk, the settle,
-    // a failure — re-renders it bash-mode (bash-execution.ts), so that is
+    // for `!!`); the first `updateDisplay` -- any output chunk, the settle,
+    // a failure -- re-renders it bash-mode (bash-execution.ts), so that is
     // the row a run shows in flight with output or at rest.
     let command_style = if card.running && card.output.is_empty() {
         key_style
@@ -148,8 +147,12 @@ pub fn render_bash_execution(
         theme.fg_style(ThemeColor::BashMode)
     };
     let muted = theme.fg_style(ThemeColor::Muted);
-    let border =
-        |width: usize| -> Line { vec![Span::styled("\u{2500}".repeat(width.max(1)), key_style)] };
+    let border = |width: usize| -> Line {
+        vec![Span::styled(
+            crate::glyphs::RULE.repeat(width.max(1)),
+            key_style,
+        )]
+    };
     // TS `Text(..., 1, 0)`: content wraps two columns inside the box.
     let content_width = width.saturating_sub(2).max(1);
     let mut rows: Vec<Line> = Vec::new();
@@ -167,7 +170,7 @@ pub fn render_bash_execution(
     }
     // The output block: the context-truncated tail (the same 2000-line /
     // 50KB budget the bash tool applies), then either the full muted text
-    // or the preview — the LAST twenty logical lines, wrapped, then cut
+    // or the preview -- the LAST twenty logical lines, wrapped, then cut
     // to twenty VISUAL lines keeping the tail (TS `truncateToVisualLines`
     // over the 20-logical-line slice).
     let (context, context_truncated) = crate::bash_bang::truncate_tail(&card.output);
@@ -215,7 +218,7 @@ pub fn render_bash_execution(
         // The loader (TS `Loader`: a blank row, then the spinner and the
         // message, both muted around an unstyled gap).
         rows.push(Vec::new());
-        let spinner = LOADER_FRAMES[frame % LOADER_FRAMES.len()];
+        let spinner = crate::glyphs::SPINNER[frame % crate::glyphs::SPINNER.len()];
         rows.push(vec![
             Span::raw(" ".to_string()),
             Span::styled(spinner.to_string(), muted),
@@ -225,7 +228,7 @@ pub fn render_bash_execution(
     } else {
         // The status rows (TS `statusParts`, each on its own padded row
         // after a leading blank).
-        let mut parts: Vec<(String, ratatui::style::Style)> = Vec::new();
+        let mut parts: Vec<(String, crate::style::Style)> = Vec::new();
         if !expanded {
             let hidden = logical.len().saturating_sub(PREVIEW_LINES);
             if hidden > 0 {
@@ -303,7 +306,7 @@ mod tests {
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert_eq!(
             flat.first().map(String::as_str),
-            Some("\u{2500}".repeat(80).as_str())
+            Some("-".repeat(80).as_str())
         );
         assert!(flat.contains(&" $ seq".to_string()), "header: {flat:?}");
         assert!(flat.contains(&" line-40".to_string()), "tail: {flat:?}");
@@ -317,7 +320,7 @@ mod tests {
         );
         assert_eq!(
             flat.last().map(String::as_str),
-            Some("\u{2500}".repeat(80).as_str())
+            Some("-".repeat(80).as_str())
         );
     }
 

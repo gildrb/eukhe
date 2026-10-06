@@ -68,7 +68,7 @@ fn tolerates_malformed_lines_and_reports_them_as_skipped() {
 /// A torn multi-byte write at the live log's tail must not cost the whole
 /// scan (Cursor Bugbot: the CLI's `read_to_string` dropped the file on
 /// invalid UTF-8; TS readFile + toString keeps the tear as replacement
-/// characters — the agents-view reader's own lossy rule). The complete
+/// characters -- the agents-view reader's own lossy rule). The complete
 /// lines around the tear still classify; the torn line itself fails the
 /// parse like any non-line.
 #[test]

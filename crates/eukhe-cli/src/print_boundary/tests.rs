@@ -214,7 +214,7 @@ async fn admit_with_harness_dir(
 /// is consumed at that same turn's settled boundary (TS `compact.run`
 /// refuses to schedule on an idle session, so a pending request never
 /// survives to a pre-turn check in the product flow). No `run_pre_turn`
-/// precedes the prompt — the schedule happened after the turn's
+/// precedes the prompt -- the schedule happened after the turn's
 /// admission, mid-turn.
 async fn admit_turn_with_scheduled_request(
     boundary: &mut TurnBoundary,
@@ -295,7 +295,7 @@ async fn last_assistant(engine: &SessionEngine) -> Option<eukhe_types::ai::Assis
 /// The compact-and-retry recovery (TS `_checkCompaction` Case 1): an
 /// overflow error drops the failed turn from the loop context, runs one
 /// compaction, and re-issues the turn; when the retried turn overflows
-/// too, the turn ends with the reported failure surface — the durable
+/// too, the turn ends with the reported failure surface -- the durable
 /// `compaction_outcome` row with the TS failure text, exactly once.
 #[tokio::test]
 async fn overflow_compacts_retries_once_then_reports_the_failure() {
@@ -345,7 +345,7 @@ async fn overflow_compacts_retries_once_then_reports_the_failure() {
     );
     // The retried turn settled after the compaction (the serve-time
     // pacing puts its timestamp past the compaction boundary), and the
-    // live context ends with the second overflow error — the surface
+    // live context ends with the second overflow error -- the surface
     // the headless terminal result reads (the row trails it).
     let last = last_assistant(&engine).await.expect("a settled error turn");
     assert_eq!(last.stop_reason, eukhe_types::ai::StopReason::Error);
@@ -444,7 +444,7 @@ async fn overflow_recovery_skip_surfaces_the_warning_row() {
     let rows = outcome_rows(&engine).await;
     assert_eq!(rows.len(), 1);
     let skipped =
-        "Auto-compaction skipped: Session is too short to compact — try again once it grows";
+        "Auto-compaction skipped: Session is too short to compact -- try again once it grows";
     assert_eq!(rows[0].content.text(), skipped);
     assert_eq!(
         rows[0].details,
@@ -472,7 +472,7 @@ async fn overflow_recovery_skip_surfaces_the_warning_row() {
 /// A stale overflow error from a previous run gets its recovery attempt
 /// before the next admitted prompt (TS `_runPreTurnCompaction` runs the
 /// same Case 1): the resumed session compacts first, then the prompt
-/// runs on the compacted context — the flow a `--continue` print run
+/// runs on the compacted context -- the flow a `--continue` print run
 /// exhibits, verified against the TS binary.
 #[tokio::test]
 async fn stale_overflow_error_recovers_before_the_next_prompt_after_a_resume() {
@@ -508,7 +508,7 @@ async fn stale_overflow_error_recovers_before_the_next_prompt_after_a_resume() {
     assert!(outcome_rows(&engine_a).await.is_empty());
 
     // Run two: a fresh boundary over the persisted session (the
-    // `--continue` shape) with compaction enabled — the pre-turn arm
+    // `--continue` shape) with compaction enabled -- the pre-turn arm
     // recovers before the admitted prompt. The faux queue carries the
     // remaining responses (the summarizer, then the recovered turn).
     let session_file = dir_a
@@ -569,7 +569,7 @@ async fn stale_overflow_error_recovers_before_the_next_prompt_after_a_resume() {
 /// The in-run autonomous continuation loop (the composed
 /// natural-turn-end hook) still crosses the boundary arms where TS
 /// runs them inside the loop: a continuation turn that overflows gets
-/// its compact-and-retry at the settled boundary — the run ends on the
+/// its compact-and-retry at the settled boundary -- the run ends on the
 /// error turn, the boundary recovers it (the #229 reconciliation
 /// under the in-run shape). The limit stop writes no row: the durable
 /// store carries no `autonomous_status` stop entry, and the headless
@@ -827,7 +827,7 @@ async fn requested_compaction_skip_streams_the_warning_row_and_end_event() {
     assert_eq!(events[end_at]["willRetry"], false);
     assert_eq!(
         events[end_at]["errorMessage"],
-        "Requested compaction skipped: Session is too short to compact — try again once it grows"
+        "Requested compaction skipped: Session is too short to compact -- try again once it grows"
     );
     assert_eq!(events[end_at]["errorSeverity"], "warning");
 }
@@ -1057,7 +1057,7 @@ async fn multi_compaction_run_counts_every_arm() {
 }
 
 /// The threshold arm (TS `_checkCompaction` Case 3): a settled turn whose
-/// usage crosses the reserve headroom emits the `threshold` event pair —
+/// usage crosses the reserve headroom emits the `threshold` event pair --
 /// the start without instructions, the end with the client-facing
 /// result and `willRetry: false`. The faux provider estimates usage
 /// from the serialized context, so the headroom is measured from a
@@ -1157,8 +1157,8 @@ async fn threshold_compaction_streams_the_ts_event_pair() {
 
 /// The pre-turn requested arm (TS `_runPreTurnCompaction` ->
 /// `_checkCompaction`'s pending-request branch): a request left pending
-/// before an admitted prompt consumes at the pre-turn check — the
-/// `requested` event pair with the request's instructions — so the
+/// before an admitted prompt consumes at the pre-turn check -- the
+/// `requested` event pair with the request's instructions -- so the
 /// prompt runs on the compacted context, and no second compaction
 /// fires at its settled boundary.
 #[tokio::test]
@@ -1260,7 +1260,7 @@ async fn pre_turn_check_consumes_a_pending_request_before_the_prompt() {
 /// The pre-turn threshold arm (TS `_runPreTurnCompaction` Case 3): a
 /// session that ended above the reserve headroom (run one, compaction
 /// disabled) compacts before its first resumed prompt (run two, the
-/// `--continue` shape with compaction enabled) — the `threshold` event
+/// `--continue` shape with compaction enabled) -- the `threshold` event
 /// pair streams, and the admitted prompt runs on the compacted
 /// context.
 #[tokio::test]
@@ -1298,7 +1298,7 @@ async fn pre_turn_threshold_arm_compacts_a_resumed_session_before_the_prompt() {
     assert!(outcome_rows(&engine_a).await.is_empty());
 
     // Run two: a fresh boundary over the persisted session with
-    // compaction enabled — the pre-turn arm compacts above the
+    // compaction enabled -- the pre-turn arm compacts above the
     // headroom before the admitted prompt.
     let session_file = dir_a
         .path()
@@ -1357,8 +1357,8 @@ async fn pre_turn_threshold_arm_compacts_a_resumed_session_before_the_prompt() {
 
 /// The pre-turn abort arm (TS `_checkCompaction`'s aborted branch with
 /// `skipAbortedCheck=false`): an aborted trailing turn drops any
-/// pending model-requested compaction and refinement — the turn that
-/// would service them never ran — and the check continues without
+/// pending model-requested compaction and refinement -- the turn that
+/// would service them never ran -- and the check continues without
 /// firing (no compaction entries, no outcome rows); the next prompt
 /// proceeds normally.
 #[tokio::test]
@@ -1532,7 +1532,7 @@ async fn requested_refinement_streams_rows_and_refine_complete() {
 /// The compact-trigger auto-refine at the next serialized checkpoint (TS
 /// `_runSerializedRefineCheckpointAfterBackground`'s compact arm): a
 /// compaction at one boundary schedules the review, and the next
-/// boundary's checkpoint consumes it — the review gate first (an LLM
+/// boundary's checkpoint consumes it -- the review gate first (an LLM
 /// call), then the approved refinement run streaming the durable rows'
 /// pairs and `refine_complete` exactly like the requested path.
 #[tokio::test]
@@ -1573,7 +1573,7 @@ async fn compact_trigger_auto_refine_streams_at_the_next_boundary() {
     // The mid-turn-request shape (#223's contract: a `compact.run`
     // scheduled during a turn consumes at that turn's settled boundary;
     // a pending request never survives to a pre-turn check in the
-    // product flow — the pre-turn arm would skip it here, the seed
+    // product flow -- the pre-turn arm would skip it here, the seed
     // turn alone is too short to compact).
     admit_turn_with_scheduled_request(
         &mut boundary,
@@ -1634,7 +1634,7 @@ async fn compact_trigger_auto_refine_streams_at_the_next_boundary() {
 
 /// The overflow compact-and-retry's checkpoint (the observed TS surface):
 /// the compaction schedules the trigger, the retried turn settles, and
-/// its serialized checkpoint runs the review and — on approval — the
+/// its serialized checkpoint runs the review and -- on approval -- the
 /// refinement, streaming mid-run before the boundary re-checks the
 /// retried turn.
 #[tokio::test]
@@ -1749,7 +1749,7 @@ async fn compact_trigger_drains_at_disposal_off_the_stream() {
     // The mid-turn-request shape (#223's contract: a `compact.run`
     // scheduled during a turn consumes at that turn's settled boundary;
     // a pending request never survives to a pre-turn check in the
-    // product flow — the pre-turn arm would skip it here, the seed
+    // product flow -- the pre-turn arm would skip it here, the seed
     // turn alone is too short to compact).
     admit_turn_with_scheduled_request(
         &mut boundary,
@@ -1823,7 +1823,7 @@ async fn auto_refine_review_decline_surfaces_nothing() {
     // The mid-turn-request shape (#223's contract: a `compact.run`
     // scheduled during a turn consumes at that turn's settled boundary;
     // a pending request never survives to a pre-turn check in the
-    // product flow — the pre-turn arm would skip it here, the seed
+    // product flow -- the pre-turn arm would skip it here, the seed
     // turn alone is too short to compact).
     admit_turn_with_scheduled_request(
         &mut boundary,
@@ -1899,7 +1899,7 @@ async fn auto_refine_disabled_settings_drop_the_trigger() {
     // The mid-turn-request shape (#223's contract: a `compact.run`
     // scheduled during a turn consumes at that turn's settled boundary;
     // a pending request never survives to a pre-turn check in the
-    // product flow — the pre-turn arm would skip it here, the seed
+    // product flow -- the pre-turn arm would skip it here, the seed
     // turn alone is too short to compact).
     admit_turn_with_scheduled_request(
         &mut boundary,

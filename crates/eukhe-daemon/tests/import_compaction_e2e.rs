@@ -313,7 +313,9 @@ fn grown_fixture(dir: &Path, turns: usize) -> PathBuf {
 }
 
 /// The durable session rows of `type`, re-read from the session dir's
-/// imported copy.
+/// imported copy (the `.jsonl` file: the store writes an
+/// `.info-cache.json` sidecar with the same stem beside it, and the
+/// directory order decides nothing).
 fn session_rows(harness: &Harness, type_: &str) -> Vec<Value> {
     let session_dir = harness.dir.path().join("agent").join("sessions");
     let file = std::fs::read_dir(&session_dir)
@@ -321,9 +323,12 @@ fn session_rows(harness: &Harness, type_: &str) -> Vec<Value> {
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .find(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("grown-import"))
+            path.extension()
+                .is_some_and(|extension| extension == "jsonl")
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("grown-import"))
         })
         .expect("the imported session's copy in the session dir");
     std::fs::read_to_string(file)

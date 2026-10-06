@@ -60,20 +60,22 @@ fn replayed_table_renders_boxed_aligned_rows() {
     // column fits `beta 数据` (9 display columns: 5 + two double-width
     // glyphs), the third `wraps when narrow`.
     assert!(
-        flat.contains("┌───────────┬─────────┬───────────────────┐"),
+        flat.contains("+-----------+---------+-------------------+"),
         "top border: {flat}"
     );
     assert!(
-        flat.contains("│ Task      │ State   │ Notes             │"),
+        flat.contains("| Task      | State   | Notes             |"),
         "header row: {flat}"
     );
     assert!(
-        flat.contains("│ beta 数据 │ running │ wraps when narrow │"),
+        flat.contains("| beta 数据 | running | wraps when narrow |"),
         "mixed-width row: {flat}"
     );
     assert!(
-        flat.contains("└───────────┴─────────┴───────────────────┘"),
-        "bottom border: {flat}"
+        flat.matches("+-----------+---------+-------------------+")
+            .count()
+            == 4,
+        "top, header, row, and bottom borders: {flat}"
     );
     // Links render the legacy observability form under the gate (tmux
     // parity): the label, then the bracketed URL in the dim slot.
@@ -93,7 +95,7 @@ fn replayed_table_narrow_terminal_falls_back_to_raw() {
     // 3 columns need 10 border columns; at 12 terminal columns the block
     // cannot fit a stable box, so it renders the raw markdown (wrapped),
     // never a broken one.
-    assert!(!flat.contains('┌'), "no box at 12 columns: {flat}");
+    assert!(!flat.contains("+-"), "no box at 12 columns: {flat}");
     assert!(
         flat.contains("State"),
         "raw fallback keeps the source: {flat}"

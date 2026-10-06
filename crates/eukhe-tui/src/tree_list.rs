@@ -85,7 +85,7 @@ pub fn filter_mode_from_str(value: &str) -> FilterMode {
 }
 
 /// Gutter info: the display-indent level where a connector was shown and
-/// whether the vertical bar continues (`│` vs spaces).
+/// whether the vertical bar continues (`|` vs spaces).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GutterInfo {
     position: usize,
@@ -182,7 +182,7 @@ impl TreeList {
         self.tool_calls = tree_display::collect_tool_calls(&entries);
     }
 
-    /// The ids on the root-to-current-leaf path (the `•` markers).
+    /// The ids on the root-to-current-leaf path (the `*` markers).
     fn build_active_path(&mut self) {
         self.active_path.clear();
         let Some(leaf) = self.current_leaf_id.clone() else {
@@ -706,7 +706,7 @@ impl TreeList {
             .and_then(|node| node.data.label.clone())
     }
 
-    /// Fold or unfold state for one entry id (the connector's ⊟/⊞ marker).
+    /// Fold or unfold state for one entry id (the connector's -/+ marker).
     fn is_folded(&self, id: &str) -> bool {
         self.folded.contains(id)
     }

@@ -49,7 +49,7 @@ pub async fn write_browse_page(dir: &Path, out: &Path) -> anyhow::Result<BrowseS
         if first == last {
             first.to_string()
         } else {
-            format!("{first} → {last}")
+            format!("{first} -> {last}")
         }
     };
 
@@ -64,7 +64,7 @@ pub async fn write_browse_page(dir: &Path, out: &Path) -> anyhow::Result<BrowseS
     ));
     let _ = write!(
         html,
-        "<h1>Chat memory</h1><p>{} messages · {} summaries · view: {} lines ({}) · {}</p>",
+        "<h1>Chat memory</h1><p>{} messages - {} summaries - view: {} lines ({}) - {}</p>",
         chat.total(),
         chat.nodes().len(),
         parts.len(),

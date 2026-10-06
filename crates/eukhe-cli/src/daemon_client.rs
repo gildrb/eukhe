@@ -419,8 +419,8 @@ mod tests {
         let socket = dir.path().join("daemon.sock");
         let _listener = UnixListener::bind(&socket).unwrap();
         let mut client = DaemonClient::connect(&socket).unwrap();
-        let line: &'static [u8] = "{\"type\":\"daemon_hello\",\"name\":\"é\"}\n".as_bytes();
-        let split = line.len() - 4; // between the two bytes of "é"
+        let line: &'static [u8] = "{\"type\":\"daemon_hello\",\"name\":\"\u{e9}\"}\n".as_bytes();
+        let split = line.len() - 4; // between the two bytes of U+00E9
         client.reader = BufReader::new(Box::new(ScriptedReads(
             [
                 Some(&line[..10]),

@@ -9,7 +9,7 @@
 //! runs one compaction, and re-issues the turn on the compacted context
 //! without re-adding the user message (TS `agent.continue()`). One attempt
 //! per overflow; a retry that still overflows ends the turn with the TS
-//! failure surface — the durable `compaction_outcome` row plus the
+//! failure surface -- the durable `compaction_outcome` row plus the
 //! `compaction_end` event carrying the TS failure text. The arm also runs
 //! before the next admitted prompt, so a stale overflow error left by a
 //! previous run gets its recovery attempt on the resumed context.
@@ -18,7 +18,7 @@
 //! overflow arm: an aborted trailing turn drops any pending
 //! model-requested compaction/refinement (the `skipAbortedCheck=false`
 //! pass), and when Case 1 stays silent the requested and threshold arms
-//! run too — a session resumed above the reserve headroom compacts before
+//! run too -- a session resumed above the reserve headroom compacts before
 //! its first admitted prompt, and a pending model request consumes the
 //! check. A pre-turn compaction never re-issues: the admitted prompt
 //! continues the loop on the compacted context.
@@ -27,12 +27,12 @@
 //! the CLI prompts: the autonomous continuation loop admits its follow-up
 //! turns through [`TurnBoundary::admit_continuation`] (TS: the session
 //! admits an owed continuation through its own turn loop, so the arms
-//! fire on continuation turns exactly like on prompt turns — #229's
+//! fire on continuation turns exactly like on prompt turns -- #229's
 //! print flag was reconciled here).
 //!
 //! Output surfaces: json mode streams the TS session events (the
 //! `compaction_start`/`compaction_end` pair and the outcome row's message
-//! pair) on stdout; text mode stays quiet here — the durable rows surface
+//! pair) on stdout; text mode stays quiet here -- the durable rows surface
 //! through the headless terminal result (stderr plus the exit code).
 
 use std::path::PathBuf;
@@ -90,15 +90,15 @@ pub(crate) struct TurnBoundary {
     /// the compact-trigger auto-refine review for the next serialized
     /// checkpoint (or the disposal drain).
     compact_auto_refine_pending: bool,
-    /// TS `_lastAutoRefineReviewAt` (millis): every review attempt —
-    /// decline, success, or failure — stamps the cooldown window.
+    /// TS `_lastAutoRefineReviewAt` (millis): every review attempt --
+    /// decline, success, or failure -- stamps the cooldown window.
     last_auto_refine_review_at: Option<u64>,
     /// TS `_assistantTurnsSinceAutoRefine`: the settled non-error,
     /// non-aborted assistant turns since the run's start or the last
     /// review, the count the review prompt's trigger line carries.
     assistant_turns_since_review: u32,
     /// The entry-count baseline the turn counter diffs against (set at the
-    /// first pre-turn check, so resumed history never counts — the TS
+    /// first pre-turn check, so resumed history never counts -- the TS
     /// counter is per-session-instance).
     entry_baseline: Option<usize>,
     /// json mode streams the TS session events on stdout; text mode reads
@@ -142,7 +142,7 @@ impl TurnBoundary {
     /// turn that would service it never ran); then the same arm order as
     /// the settled boundary: the overflow recovery first (a stale overflow
     /// error from a previous run gets its compact-and-retry attempt here),
-    /// and — only when Case 1 stayed silent — the model-requested
+    /// and -- only when Case 1 stayed silent -- the model-requested
     /// compaction and the threshold arm (a resumed session above the
     /// reserve headroom compacts before its first admitted prompt). A
     /// pre-turn compaction never re-issues (TS
@@ -158,7 +158,7 @@ impl TurnBoundary {
     ) -> Result<(), String> {
         // TS abort arm (skipAbortedCheck=false): an aborted trailing
         // assistant drops any pending model-requested compaction and
-        // refinement — the turn that would service them never ran, and a
+        // refinement -- the turn that would service them never ran, and a
         // stale request must not leak into the admitted turn. The check
         // then continues to the later arms (the pre-prompt path never
         // returns early).
@@ -194,7 +194,7 @@ impl TurnBoundary {
     /// an earlier boundary scheduled, then the overflow arm with its retry
     /// loop (a retry's newly settled turn drains its own trigger at the
     /// TS `shouldStopAfterTurn` position, before the arm re-checks), then
-    /// — when the arm did not fire — the model-requested compaction and
+    /// -- when the arm did not fire -- the model-requested compaction and
     /// the threshold arm (the order TS keeps inside `_checkCompaction`: a
     /// requested run consumes the check, so the threshold is not
     /// re-evaluated after it), then the requested refinement (TS
@@ -265,7 +265,7 @@ impl TurnBoundary {
     /// pair the CLI prompts run (TS: the session admits an owed
     /// continuation through `_createPreparedTurnAction("followUp", ...)`,
     /// so it crosses `_prepareForCommit` -> `_runPreTurnCompaction` before
-    /// the prompt and the `agent_end` checks after it — the arms are part
+    /// the prompt and the `agent_end` checks after it -- the arms are part
     /// of the session loop, not the CLI prompt loop). The `followUp`
     /// streaming behavior and the queue-if-busy admission match the
     /// autonomous driver seam the print loop calls.

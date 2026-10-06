@@ -282,7 +282,6 @@ fn options(socket: PathBuf, catalog: Vec<Model>) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -356,7 +355,7 @@ fn the_picker_marks_the_sessions_own_provider_current() {
         "the session's own provider's row is the current model: {prime_row}"
     );
     assert!(
-        prime_row.starts_with("\u{203a}"),
+        prime_row.starts_with('>'),
         "the selection band lands on the session's own provider's row: {prime_row}"
     );
     let open_row = rows
@@ -368,7 +367,7 @@ fn the_picker_marks_the_sessions_own_provider_current() {
         "another provider's same-id row is NOT the current model: {open_row}"
     );
     assert!(
-        !open_row.starts_with("\u{203a}"),
+        !open_row.starts_with('>'),
         "another provider's same-id row is NOT selected: {open_row}"
     );
 }

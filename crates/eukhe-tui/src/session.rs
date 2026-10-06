@@ -205,7 +205,7 @@ fn message_to_items(message: &AgentMessage) -> Vec<TranscriptItem> {
         }
         // TS `buildConversationComponents`: one assistant component per
         // message (text and thinking blocks together, in wire order), then
-        // the message's tool cards. Thinking blocks keep their type —
+        // the message's tool cards. Thinking blocks keep their type --
         // `AssistantMessageComponent` renders them gated on the detail
         // level (hidden at `overview`, dim at `details`/`all`), so a
         // replayed thinking trace renders exactly like a live one.
@@ -423,7 +423,7 @@ mod tests {
     fn replay_keeps_thinking_blocks_and_tool_flags() {
         // A replayed assistant message keeps its thinking blocks' type (the
         // dim/gated treatment) alongside the text, and flags its tool calls
-        // for the trailing spacer — one Assistant item before the ToolCall
+        // for the trailing spacer -- one Assistant item before the ToolCall
         // items, TS `buildConversationComponents` order.
         let line = r#"{"type":"message","message":{"role":"assistant","content":[{"type":"thinking","thinking":"probe the replay trace","thinkingSignature":"sig-1"},{"type":"text","text":"body after thinking"},{"type":"toolCall","id":"toolu_1","name":"bash","arguments":{"command":"ls"}}],"api":"openai-completions","provider":"prime-inference","model":"m","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"toolUse","timestamp":1},"id":"e1"}"#;
         let entries = parse_jsonl(line).unwrap();

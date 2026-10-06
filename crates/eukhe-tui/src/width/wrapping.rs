@@ -1,7 +1,7 @@
 //! Shared wrap boundaries for styled output and counts without output row allocation.
 use super::{char_width, is_whitespace_char, str_width};
+use crate::style::Style;
 use crate::{Line, Span};
-use ratatui::style::Style;
 
 #[derive(Clone, Copy)]
 enum Ending {
@@ -107,17 +107,6 @@ pub(super) fn render(line: &Line, width: usize) -> Vec<Line> {
     rows
 }
 
-pub(super) fn count_line(line: &Line, width: usize) -> usize {
-    if width == 0 || super::line_width(line) <= width {
-        return 1;
-    }
-    traverse(
-        line.iter().map(|span| (span.content.as_str(), span.style)),
-        width,
-        |_| {},
-    )
-}
-
 pub(super) fn count_text(text: &str, width: usize) -> usize {
     text.split('\n')
         .map(|paragraph| {
@@ -132,16 +121,4 @@ pub(super) fn count_text(text: &str, width: usize) -> usize {
             }
         })
         .sum()
-}
-
-pub(super) fn count_runs<'a>(runs: impl IntoIterator<Item = &'a str>, width: usize) -> usize {
-    let runs: Vec<&str> = runs.into_iter().collect();
-    if width == 0 || runs.iter().map(|run| str_width(run)).sum::<usize>() <= width {
-        return 1;
-    }
-    traverse(
-        runs.into_iter().map(|run| (run, Style::default())),
-        width,
-        |_| {},
-    )
 }

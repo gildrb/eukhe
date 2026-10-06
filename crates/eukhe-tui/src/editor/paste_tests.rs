@@ -169,7 +169,7 @@ fn typed_marker_like_text_is_not_atomic() {
 
 #[test]
 fn oversized_marker_never_exceeds_the_render_width() {
-    // (before, pasted lines, after, width) — TS `overflowCases`.
+    // (before, pasted lines, after, width) -- TS `overflowCases`.
     let cases: [(&str, usize, &str, usize); 3] = [
         ("", 47, "", 8),
         (&"b".repeat(35), 27, "bbbb", 54),

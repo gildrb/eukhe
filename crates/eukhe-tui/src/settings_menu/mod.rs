@@ -1,4 +1,4 @@
-//! The `/settings` inline menu — a tabbed settings surface (Claude Code's
+//! The `/settings` inline menu -- a tabbed settings surface (Claude Code's
 //! `/config` groups its settings into tab categories; ours adapts the
 //! grouping to our rows, inline in the shared menu-panel grammar): a tab
 //! strip under the bordered search field, each tab a list of label/value
@@ -9,9 +9,6 @@
 //! labels. The caller owns the row data (daemon state + settings seam
 //! reads) and executes the change actions; this module owns navigation,
 //! filtering, and rendering, and `tabs` owns the grouping and the strip.
-//! The fullscreen row is retired: the surface always renders on the
-//! alternate screen, so a fullscreen toggle advertised a mode the product
-//! no longer has (the operator's 2026-09-28 retirement ruling).
 
 mod tabs;
 
@@ -95,7 +92,7 @@ pub enum SettingsMenuAction {
     PreviewTheme {
         name: String,
     },
-    /// Esc inside a submenu closed it (TS `onCancel` → `done()`); the menu
+    /// Esc inside a submenu closed it (TS `onCancel` -> `done()`); the menu
     /// itself stays open (a top-level Esc is the menu [`Cancel`]).
     SubmenuClosed,
     /// The theme submenu closed with Esc: restore the row's theme.
@@ -128,7 +125,7 @@ pub struct SettingsMenu {
 
 /// One tab: the settings rows it groups (as indices into
 /// `SettingsMenu::rows`) with its own search input, filtered window, and
-/// selection — switching tabs moves the focus only (the TS
+/// selection -- switching tabs moves the focus only (the TS
 /// `ConfigurationMenuComponent` keeps each tab's body, search input
 /// included, alive the same way), so coming back restores where the user
 /// was.
@@ -441,7 +438,7 @@ impl SettingsMenu {
             _ => {}
         }
         // The value cycling (the operator's 2026-09-28 directive): the
-        // arrows cycle the focused setting's value in place — left the
+        // arrows cycle the focused setting's value in place -- left the
         // previous option, right the next (toggles flip true/false,
         // multi-option rows walk their list; a submenu row has no inline
         // values, so the arrows no-op there). Enter keeps its own
@@ -587,7 +584,7 @@ impl SettingsMenu {
         SettingsMenuAction::Change { id: row.id, value }
     }
 
-    /// One key inside an open submenu (TS `SelectSubmenu.handleInput` —
+    /// One key inside an open submenu (TS `SelectSubmenu.handleInput` --
     /// the `SelectList` gets every key; Enter selects, Esc goes back).
     fn handle_submenu_key(
         &mut self,
@@ -675,7 +672,7 @@ impl SettingsMenu {
         SettingsMenuAction::None
     }
 
-    /// The selection-change side effect (TS `onSelectionChange` — only the
+    /// The selection-change side effect (TS `onSelectionChange` -- only the
     /// theme submenu previews live).
     fn submenu_selection_change(sub: &SubmenuState) -> SettingsMenuAction {
         match &sub.kind {
@@ -695,13 +692,13 @@ impl SettingsMenu {
             SettingsSubmenu::Theme { .. } => SettingsMenuAction::RestoreTheme {
                 name: self.rows[sub.row].current.clone(),
             },
-            // Every other submenu just goes back (TS `onCancel` →
+            // Every other submenu just goes back (TS `onCancel` ->
             // `done()`); the menu itself stays open.
             _ => SettingsMenuAction::SubmenuClosed,
         }
     }
 
-    /// Switch to a tab: a pure focus move — every tab keeps its own
+    /// Switch to a tab: a pure focus move -- every tab keeps its own
     /// search input, filtered window, and selection, so nothing resets
     /// on the way back.
     fn switch_tab(&mut self, tab: usize) {
@@ -737,7 +734,7 @@ impl SettingsMenu {
     }
 
     /// Render (TS `render`): the shared menu panel over the settings rows
-    /// — the bordered search field, the windowed label/value rows, the
+    /// -- the bordered search field, the windowed label/value rows, the
     /// scroll indicator, the selected row's description, and the hint
     /// line; a submenu replaces the whole list.
     #[must_use]
@@ -873,8 +870,8 @@ impl SettingsMenu {
                 ),
             };
         let mut lines: Vec<crate::Line> = Vec::new();
-        // The top bar the menu's list view opens with — the full-width
-        // rule under the prompt-context row — stays over the submenu too
+        // The top bar the menu's list view opens with -- the full-width
+        // rule under the prompt-context row -- stays over the submenu too
         // (the operator's 2026-09-28 regression pin): the settings
         // surface keeps its bar separating it from the chat view.
         lines.push(crate::menu_panel::rule_row(theme, width));
@@ -930,7 +927,7 @@ impl SettingsMenu {
 /// The settings page's own key-hint row (the operator's 2026-09-28
 /// padding pass): the shared `menu_panel::hint_row` rides one space, but
 /// this surface's keyboard-shortcuts row carries the description's
-/// padding-x — the two-space inner column the detail block and the menu
+/// padding-x -- the two-space inner column the detail block and the menu
 /// rows align on.
 fn hint_row(theme: &Theme, width: usize, hint: &str) -> crate::Line {
     let line = vec![
@@ -958,7 +955,7 @@ fn hint(kb: &KeybindingsManager, tabs: usize) -> String {
     if let Some(close) = crate::menu_panel::key_hint(kb, &["tui.select.cancel"], "close") {
         segments.push(close);
     }
-    segments.join(" · ")
+    segments.join(crate::glyphs::SEP)
 }
 
 /// The submenu's key hint (TS `SelectSubmenu`'s back row): the selected
@@ -972,7 +969,7 @@ fn submenu_hint(kb: &KeybindingsManager) -> String {
     .into_iter()
     .flatten()
     .collect::<Vec<String>>()
-    .join(" · ")
+    .join(crate::glyphs::SEP)
 }
 
 // The inline unit battery lives in the child module (settings_menu::menu_tests);

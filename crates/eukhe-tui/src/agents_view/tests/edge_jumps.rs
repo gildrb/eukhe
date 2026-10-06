@@ -99,7 +99,7 @@ fn the_viewport_follows_the_edge_jump() {
     let mut mode = fresh_mode(forest_roster(80));
     mode.handle_key("end");
     let texts: Vec<String> = mode
-        .render_list(120, 10, 0)
+        .render_list(120, 10)
         .iter()
         .map(|line| line.iter().map(|s| s.content.as_str()).collect())
         .collect();

@@ -1,5 +1,5 @@
 //! The entry anchor: the wait for the opened-from session, its
-//! cancellations (keys, clicks, jumps), and the fetch failures that
+//! cancellations (keys, jumps), and the fetch failures that
 //! settle it.
 
 use super::*;
@@ -91,65 +91,10 @@ fn anchor_wait_cancels_on_the_first_user_move() {
     assert_eq!(mode.rows[mode.selected].summary["sessionId"], "s1");
 }
 
-/// A plain click during the entry anchor's wait is an explicit user
-/// choice too — the clicked row IS the pick — so it cancels the wait
-/// and opens that row; the keyboard Enter's loading hint never stands
-/// between a visible row and its open (Macroscope: the click grammar
-/// must not inherit Enter's wait).
-#[test]
-fn a_click_cancels_the_anchor_wait_and_opens_the_clicked_row() {
-    let _guard = match crate::mouse_tracking::STATE_TEST_LOCK.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    crate::mouse_tracking::enable(&mut std::io::stdout()).expect("enable");
-    let mut mode = mode_with_anchor(
-        Some("s2"),
-        vec![
-            roster_entry("s1", "idle", &parent_summary("s1")),
-            roster_entry("s3", "idle", &parent_summary("s3")),
-        ],
-    );
-    assert!(mode.anchor_selection_pending, "the anchor waits on its row");
-    // Enter during the wait arms the loading hint (the default row is
-    // not the user's pick); the user then clicks a different row.
-    mode.handle_key("enter");
-    assert!(mode.opened.is_none(), "the wait still holds the open");
-    mode.render_frame(120, 24);
-    let clicked = mode
-        .rows
-        .iter()
-        .position(|row| row.summary["sessionId"] == "s3")
-        .expect("the other row renders");
-    let (row, _) = mode
-        .click_rows
-        .iter()
-        .find(|(_, index)| *index == clicked)
-        .copied()
-        .expect("the clicked row is on screen");
-    mode.handle_mouse(&mouse_report(row, true, false));
-    mode.handle_mouse(&mouse_report(row, false, false));
-    assert_eq!(mode.selected, clicked, "the click selected the row");
-    assert!(
-        !mode.anchor_selection_pending,
-        "the click ends the entry anchor's wait"
-    );
-    assert!(
-        mode.status_text().is_none(),
-        "the click drops the loading hint with the wait"
-    );
-    let opened = mode.opened.expect("the click opened the row");
-    assert_eq!(
-        opened.selection,
-        SessionSelection::Attach("s3-live".to_string())
-    );
-    crate::mouse_tracking::disable(&mut std::io::stdout()).expect("disable");
-}
-
 /// A terminal saved-catalog failure settles the entry anchor's wait (TS
 /// `resolveMissingSelectionAnchor`'s finally arm): the anchor's row can
 /// only arrive through THIS fetch, so the wait must not outlive the
-/// fetch's own failure — the loading hint would re-arm on every open
+/// fetch's own failure -- the loading hint would re-arm on every open
 /// behind an error the status line already showed.
 #[test]
 fn a_saved_catalog_failure_settles_the_anchor_wait() {
@@ -297,7 +242,7 @@ fn the_saved_catalog_fetch_uses_the_long_running_budget() {
 }
 
 /// A nested anchor (a subagent session the user was attached to) arrives
-/// with its ancestors' lists expanded so its row is reachable — the
+/// with its ancestors' lists expanded so its row is reachable -- the
 /// same expansion the drilled-in return path uses.
 #[test]
 fn nested_anchor_expands_its_ancestors() {

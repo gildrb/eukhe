@@ -50,7 +50,7 @@ impl SessionUi {
         // The single prompt-submit worker (see [`PromptOrder`]): it owns
         // the ordered drain, so submit order on the wire is submit order
         // at the channel, and no per-submit task can reorder two rapid
-        // submissions. The worker lives with the orders channel — the
+        // submissions. The worker lives with the orders channel -- the
         // session drops its sender and the worker's recv() ends, so the
         // task never outlives the run (the agents-view handoff and the
         // exit both drop the session).
@@ -83,7 +83,6 @@ impl SessionUi {
             branch_summary_skip_prompt: options.branch_summary_skip_prompt,
             last_status_index: None,
             show_images: options.show_images,
-            fullscreen_mouse: options.fullscreen_mouse,
             service_tier: None,
             speed_display_enabled: false,
             speed_stats: None,
@@ -172,7 +171,6 @@ impl SessionUi {
             prompt_in_flight: 0,
             transcript_stale: false,
             telemetry: options.telemetry.clone(),
-            scroll_adoption_emitted: false,
             exit_reason: "daemon_closed",
             daemon_closing_notice: None,
             transport_lost: None,
@@ -196,14 +194,6 @@ impl SessionUi {
             pending_mcp_auth: None,
             picker_restored_draft: false,
             suspend_adoption_emitted: false,
-            selection_auto_scroll: None,
-            selection_adoption_emitted: false,
-            copies: Vec::new(),
-            pressed_hyperlink: None,
-            left_mouse_dragged: false,
-            opened_urls: Vec::new(),
-            pressed_click: None,
-            click_adoption_emitted: false,
         };
         session
             .attach_session(&active_session_id, DockFold::FirstFrame)
@@ -227,9 +217,9 @@ impl SessionUi {
         view: &mut AgentView,
     ) -> Result<ReattachOutcome> {
         // One reattach attempt's budget (a queued attach can legitimately
-        // wait out a slow restore — the budget's expiry is a RETRY
+        // wait out a slow restore -- the budget's expiry is a RETRY
         // outcome, never a fatal one). The bound lives INSIDE this
-        // function — a caller-side timeout would cancel this future
+        // function -- a caller-side timeout would cancel this future
         // mid-attach and skip the failure-path `close()` below, leaking
         // the half-installed client's supervisor connection and reader.
         const REATTACH_BUDGET: Duration = Duration::from_secs(30);
@@ -264,7 +254,7 @@ impl SessionUi {
             Err(_) => {
                 // A wedged attach outlived the budget (a queued attach can
                 // legitimately wait out a slow restore): same
-                // disposal, but the expiry is a RETRY outcome — the
+                // disposal, but the expiry is a RETRY outcome -- the
                 // driver's next attempt owns the recovery, never a fatal
                 // exit.
                 self.client.hard_close();
@@ -324,7 +314,7 @@ impl SessionUi {
         }
         // The primary interactive connection sends its Herdr pane identity
         // with attach so an env-less session (e.g. cron-created) can adopt
-        // it (adopt-if-absent, never rebind — the daemon owns that rule);
+        // it (adopt-if-absent, never rebind -- the daemon owns that rule);
         // a client outside a Herdr pane sends nothing (the wire keeps its
         // tip shape).
         let client_env = {
@@ -382,7 +372,7 @@ impl SessionUi {
         // `applyConnectionStateSnapshot` patches `isBashRunning`): the
         // captured state drives the next rebuild's resync edge. The
         // mounted card id survives the patch (TS keeps
-        // `activeBashComponent` tracked) — the rebuild's kind decides
+        // `activeBashComponent` tracked) -- the rebuild's kind decides
         // its fate.
         let state = attach.snapshot.get("state");
         let resync_bash = ResyncBash {
@@ -448,7 +438,7 @@ impl SessionUi {
         self.subscribe_roster().await;
         // The dock's heartbeat rows follow `dock_fold` (the enum's
         // contract): a first-content-frame attach folds the fresh fetch
-        // BEFORE the attach returns — the first content frame reads the
+        // BEFORE the attach returns -- the first content frame reads the
         // final counts, never a late repaint (the operator's
         // 2026-09-26 zero-shift ruling). TS guarantees the same for its
         // dock: the counts seed from the attach snapshot
@@ -495,9 +485,9 @@ impl SessionUi {
         }
         // The refilled factory cache is a background refresh away on
         // every fold (the poll's serialization makes an immediate
-        // request safe — the in-flight slot frees on its own cycle).
+        // request safe -- the in-flight slot frees on its own cycle).
         self.spawn_factory_refresh();
-        // The chat memory's view (`OptChat` spec §10's startup print) lands as a
+        // The chat memory's view (`OptChat` spec section 10's startup print) lands as a
         // transcript block after the rebuild that follows this attach;
         // the fetch runs in the background, after the first-frame fetches
         // above, so neither the attach nor the first paint waits on it.
@@ -536,7 +526,7 @@ impl SessionUi {
         // The turn-end watermark restarts only when the mounted session
         // CHANGES: the ends the new stream will see belong to the newly
         // mounted session, and an end owed by the detached session's stream
-        // (a turn whose submit outlived the switch — the daemon keeps
+        // (a turn whose submit outlived the switch -- the daemon keeps
         // running it, and its end never arrives on this stream) must not
         // pin the watermark. Without the reset a later prompt's ack would
         // re-arm `turn_active` against an end count that can never catch
@@ -544,7 +534,7 @@ impl SessionUi {
         // come (the submit-outlived wedge). A SAME-SESSION rebind
         // (recovery, reconnect) keeps the counters: its stream counts ends
         // for the same session, and a prompt note that straddled the
-        // recovery still carries comparable values — resetting there would
+        // recovery still carries comparable values -- resetting there would
         // orphan in-flight acks the same way (a turn that already ended
         // before the idle snapshot would re-arm `turn_active` with no
         // `TurnEnded` left to clear it). The mounted snapshot's
@@ -565,7 +555,7 @@ impl SessionUi {
         // return their freed heap to the OS instead of keeping the load's
         // peak resident for the TUI's lifetime.
         eukhe_types::memory_release::trim_freed_heap();
-        // The rebuild's first frame materializes the visible window —
+        // The rebuild's first frame materializes the visible window --
         // its wrap/render churn is the TUI's own transient on top of the
         // fold's; arm the post-frame trim so that churn returns too
         // instead of riding the arenas for the process lifetime.
@@ -576,7 +566,7 @@ impl SessionUi {
     /// The instant a rebuilt loader anchors at, from the LAST HUMAN
     /// PROMPT's wall-clock time (unix ms). The operator's 2026-09-28
     /// rule: the waiting/executing timer never resets on a view
-    /// transition — it counts since the prompt that started the live
+    /// transition -- it counts since the prompt that started the live
     /// turn, however long ago that was. TS
     /// `restoreTurnStartFromMessages` anchors at the run-start
     /// message's timestamp the same way, with no plausibility cap: a
@@ -611,10 +601,10 @@ impl SessionUi {
         // stats and clears the readout left over from the previous session.
         if matches!(kind, RebuildKind::Rebind) {
             view.bash_view = None;
-            // The factory view dies the same death — it snapshots the
+            // The factory view dies the same death -- it snapshots the
             // previous session's kernel runs, and its refresh lane must
             // not keep polling the new session's kernel for a view
-            // nobody mounted — but ONLY when a different session actually
+            // nobody mounted -- but ONLY when a different session actually
             // took the view's place. A same-session rebind (the `Unknown
             // active session` reattach in `prompt.rs` replays over the
             // same durable session) keeps the view mounted: the user
@@ -623,7 +613,7 @@ impl SessionUi {
             // the next tick.
             // The page dies only when it was mounted under a DIFFERENT
             // session: a same-session rebind (the `Unknown active session`
-            // reattach) keeps the page and its count — the kernel and its
+            // reattach) keeps the page and its count -- the kernel and its
             // runs did not change. A page that was never mounted owns no
             // state here; the attach fold owns the cache's cross-session
             // reset (every rebind path attaches first, so a switch's
@@ -651,10 +641,8 @@ impl SessionUi {
             view.chrome.speed_text = None;
         }
         view.clear_chat();
-        // The rebuilt transcript invalidates the tracked status row and
-        // a pending click's entry index.
+        // The rebuilt transcript invalidates the tracked status row.
         self.last_status_index = None;
-        self.pressed_click = None;
         // The rebuild drops the previous run's pending-tool map (TS
         // `resetPendingToolState` at the rebuild boundary).
         self.pending_tools.clear();
@@ -706,11 +694,11 @@ impl SessionUi {
         view.pending_bash = held_bash;
         // The rebuild decides the mounted card's fate: a rebind drops it
         // with the old transcript (TS `resetCurrentSessionRenderState`
-        // settles it cancelled and clears the hold — invisible after the
+        // settles it cancelled and clears the hold -- invisible after the
         // clear), a resync runs the `renderResyncedSession` bashFinished
         // edge: a run that ended behind the dead link settles its card
         // with an unknown exit, flushes the hold when no turn is live,
-        // and releases the pane's side run (its bash_end never arrives —
+        // and releases the pane's side run (its bash_end never arrives --
         // a transient run is not in the snapshot).
         match kind {
             RebuildKind::Rebind => {
@@ -762,7 +750,7 @@ impl SessionUi {
         // `renderResyncedSession`), and no stale loader survives a rebuild.
         // The re-mounted loader anchors at the LAST HUMAN PROMPT (the
         // operator's 2026-09-28 rule: the waiting/executing timer never
-        // resets on a view transition — an agents-view round trip
+        // resets on a view transition -- an agents-view round trip
         // re-attaches mid-turn and the clock keeps counting from the
         // prompt that started the turn), so the elapsed readout picks up
         // where it left off instead of restarting at the re-attach
@@ -777,7 +765,6 @@ impl SessionUi {
         } else {
             view.working = None;
         }
-        view.follow();
         // An open `/heartbeats` picker follows the rebuilt session's
         // catalog (the channel fold's `apply_catalog` path): without this
         // a rebind leaves the picker showing the previous session's rows
@@ -787,10 +774,10 @@ impl SessionUi {
         }
         // The brand splash is the EMPTY chat's header (TS mounts
         // `BrandSplashHeader` in `ui.start()`): a rebuild that folds a
-        // non-empty transcript suppresses it — the chat opened or
+        // non-empty transcript suppresses it -- the chat opened or
         // switched directly into content, where TS's own direct opens
         // attach before mount and the tail-anchored viewport scrolls the
-        // splash out of reach — while every rebuild into an empty chat
+        // splash out of reach -- while every rebuild into an empty chat
         // keeps it (a new session shows its header; the incremental
         // first-turn growth never passes through here, so a new chat's
         // splash scrolls away exactly like TS).
@@ -800,7 +787,7 @@ impl SessionUi {
 
     /// Refresh context usage from `get_session_stats` (the TS tray's
     /// connection refresh): tokens, context window, and percent. The
-    /// title's spend never comes from here — the roster pushes that
+    /// title's spend never comes from here -- the roster pushes that
     /// `update_subagent_summary` folds keep it live.
     pub(crate) async fn refresh_stats(&mut self) {
         let Ok(data) = self

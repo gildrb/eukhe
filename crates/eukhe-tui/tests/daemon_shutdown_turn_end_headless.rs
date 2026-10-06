@@ -237,7 +237,7 @@ impl SuccessorDaemon {
     fn serve(self) {
         let stream = accept(
             &self.listener,
-            "the successor never saw the client — the loop stalled inside the post-turn refresh past the accept bound",
+            "the successor never saw the client -- the loop stalled inside the post-turn refresh past the accept bound",
         );
         let mut writer = stream.try_clone().expect("clone successor socket");
         let mut reader = BufReader::new(stream);
@@ -390,7 +390,6 @@ fn options_with_session(socket: PathBuf, session: SessionSelection) -> Interacti
         session,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: false,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -485,7 +484,7 @@ fn a_turn_settling_with_the_shutdown_does_not_stall_the_recovery() {
     // The hiccup loop never fired: the announced closing owns the
     // recovery.
     assert!(
-        !all.contains("the daemon connection closed — reconnecting"),
+        !all.contains("reconnecting"),
         "the announced closing must not fall back to the hiccup loop:\n{all}"
     );
     assert!(

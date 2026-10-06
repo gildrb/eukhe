@@ -2,7 +2,7 @@
 //! agents-view-mode.ts:1585-2108): the space-key composer over the
 //! prompt, its arm/disarm and key routing, the headline fetch the arm
 //! fires, the send/resume/kill dispatches, and the landed outcomes'
-//! statuses — moved with its concern.
+//! statuses -- moved with its concern.
 use serde_json::Value;
 
 use super::delete::PendingDelete;
@@ -130,8 +130,8 @@ impl ReplyComposer {
     }
 
     /// The header line (TS `renderReplyHeaderLine`, :1950-1961): the
-    /// warning time and the headline — the first non-empty,
-    /// whitespace-collapsed line of the last assistant text — or the
+    /// warning time and the headline -- the first non-empty,
+    /// whitespace-collapsed line of the last assistant text -- or the
     /// dim loading/no-response line.
     pub(super) fn header_line(&self, theme: &Theme) -> Line {
         let headline = match &self.headline {
@@ -163,7 +163,7 @@ fn reply_headline(text: &str) -> Option<String> {
 }
 
 /// The replyable row's key (TS `toggleReplyTarget`'s
-/// `activeSessionId ?? id` — the same derivation `moveSelection`'s
+/// `activeSessionId ?? id` -- the same derivation `moveSelection`'s
 /// disarm guard compares against).
 fn reply_key(summary: &Value) -> String {
     summary
@@ -210,7 +210,7 @@ pub(super) struct KillRequest {
 impl AgentsViewMode {
     /// The selected row's reply target (TS `toggleReplyTarget`'s gates:
     /// a top-level agent with a live session or a saved file, never the
-    /// row an armed delete sits on) — the arm key and the hint slot's
+    /// row an armed delete sits on) -- the arm key and the hint slot's
     /// one "replyable" predicate.
     pub(super) fn reply_target(&self) -> Option<ReplyTarget> {
         let row = self
@@ -248,7 +248,7 @@ impl AgentsViewMode {
     }
 
     /// TS `toggleReplyTarget` (:1795-1838): arm the reply composer over
-    /// the selected agent row — the same target disarms.
+    /// the selected agent row -- the same target disarms.
     pub(super) fn toggle_reply(&mut self) {
         let Some(target) = self.reply_target() else {
             return;
@@ -261,7 +261,7 @@ impl AgentsViewMode {
     }
 
     /// TS `setReplyTarget(target)`: the composer owns a fresh editor
-    /// (the search field's query stays untouched — the filter keeps it,
+    /// (the search field's query stays untouched -- the filter keeps it,
     /// exactly as TS filters on its saved query); a live target arms the
     /// headline fetch, a saved one starts from its recap; the header's
     /// time is the summary's relative age at arm.
@@ -323,7 +323,7 @@ impl AgentsViewMode {
     }
 
     /// TS `moveSelection`'s reply guard (:1487-1493): the reply stays
-    /// armed only while the selection sits on the targeted agent row —
+    /// armed only while the selection sits on the targeted agent row --
     /// a move off it (a nested row, another agent, a re-keyed runtime)
     /// disarms.
     pub(super) fn disarm_reply_off_selected(&mut self) {
@@ -341,7 +341,7 @@ impl AgentsViewMode {
     /// The target's CURRENT summary at send time (TS
     /// `resolveCurrentReplyTargetSummary`, :826-842): the unified
     /// records by identity/alias, then the live roster by active id,
-    /// then the captured summary — with its stale runtime id dropped
+    /// then the captured summary -- with its stale runtime id dropped
     /// when a persisted target left the live catalog but still has its
     /// file.
     pub(super) fn current_reply_summary(&self, target: &ReplyTarget) -> Value {
@@ -352,7 +352,7 @@ impl AgentsViewMode {
             .find(|record| record.identity == identity || record.aliases.contains(&identity))
         {
             // TS `summaryForUnifiedRecord`: the merged summary a row
-            // acts on — the live summary with saved fields filling the
+            // acts on -- the live summary with saved fields filling the
             // gaps, saved-only records in their synthesized archived
             // shape (the raw catalog row carries `path`, not
             // `sessionFile`).
@@ -376,7 +376,7 @@ impl AgentsViewMode {
         if summary.get("sessionFile").is_some() && summary.get("activeSessionId").is_some() {
             // A persisted target missing from the live catalog can still
             // resume from its captured file, but its captured runtime id
-            // is stale (TS drops it with the archived lifecycle) — the key
+            // is stale (TS drops it with the archived lifecycle) -- the key
             // leaves entirely, so the presence checks (the steer gate, the
             // resuming status) read it as saved.
             if let Some(object) = summary.as_object_mut() {
@@ -405,7 +405,7 @@ impl AgentsViewMode {
         if key == "ctrl+c" {
             self.exit_guard.note_ctrl_c_handled();
         }
-        // TS `app.clear` (ctrl+c) disarms — the composer's hints
+        // TS `app.clear` (ctrl+c) disarms -- the composer's hints
         // advertise it as cancel, so it never starts the exit flow.
         if self.keybindings.matches(key, "app.clear") {
             self.disarm_reply();
@@ -419,7 +419,7 @@ impl AgentsViewMode {
                 self.enter_rename_mode();
                 return;
             }
-            // TS :1157: the stop-or-delete two-press grammar — the
+            // TS :1157: the stop-or-delete two-press grammar -- the
             // reply stays armed behind the confirm (TS's gates never
             // touch the reply target).
             if self.keybindings.matches(key, "app.agents.delete") {
@@ -427,13 +427,13 @@ impl AgentsViewMode {
                 self.composer = Composer::Reply(reply);
                 return;
             }
-            // TS :1164: the reply key toggles — the same target disarms.
+            // TS :1164: the reply key toggles -- the same target disarms.
             if self.keybindings.matches(key, "app.agents.reply") {
                 self.composer = Composer::Reply(reply);
                 self.toggle_reply();
                 return;
             }
-            // TS :1176: the program toggle — the reply stays armed.
+            // TS :1176: the program toggle -- the reply stays armed.
             if self.keybindings.matches(key, "app.agents.program") {
                 self.cycle_program_for_selected();
                 self.composer = Composer::Reply(reply);
@@ -443,7 +443,7 @@ impl AgentsViewMode {
         // TS :1168: alt+enter queues the reply as a follow-up (the blank
         // draft is a no-op, `handleReplyFollowUp`).
         if self.keybindings.matches(key, "app.message.followUp") {
-            // Unlike Enter, this path skips the editor's clear — the
+            // Unlike Enter, this path skips the editor's clear -- the
             // send arm clears the buffer itself (TS `handleReplyFollowUp`
             // expands the paste markers here and submits).
             let text = reply.editor.get_expanded_text();
@@ -456,8 +456,8 @@ impl AgentsViewMode {
         }
         // The editor's own app checks (TS `CustomEditor.handleInput`,
         // :194-224): agents-back disarms before the editor's cursor
-        // motions — Left never moves the cursor in the TS reply composer
-        // (a surprising TS behavior, ported for parity) — and escape
+        // motions -- Left never moves the cursor in the TS reply composer
+        // (a surprising TS behavior, ported for parity) -- and escape
         // disarms (the editor's `onEscape`).
         if self.keybindings.matches(key, "app.agents.back") {
             self.disarm_reply();
@@ -555,7 +555,7 @@ impl AgentsViewMode {
     }
 
     /// The `/name` view command (TS `runAgentsViewCommand`'s name arm):
-    /// the rename flow against the CURRENT summary — the wire statuses
+    /// the rename flow against the CURRENT summary -- the wire statuses
     /// ride the rename dispatch; on success the reply disarms, on
     /// failure the draft restores.
     fn submit_name_command(&mut self, reply: &mut Box<ReplyComposer>, value: &str, args: &str) {
@@ -577,7 +577,7 @@ impl AgentsViewMode {
     }
 
     /// The `/kill` view command (TS `runAgentsViewCommand`'s kill arm):
-    /// an inactive target warns; a live one dispatches the kill — an
+    /// an inactive target warns; a live one dispatches the kill -- an
     /// already-finished agent counts as stopped.
     fn submit_kill_command(&mut self, reply: &mut Box<ReplyComposer>, value: &str) {
         let current = self.current_reply_summary(&reply.target);
@@ -602,7 +602,7 @@ impl AgentsViewMode {
 
     /// TS `createAgentsViewResumeConfig` + `resolveAgentsViewOpenCwd`
     /// (:225-236 + :493-504): the view's create config with the saved
-    /// session's cwd removed — or overridden with the view's cwd (and
+    /// session's cwd removed -- or overridden with the view's cwd (and
     /// its notice) when the saved directory no longer exists.
     fn resume_config(&self, summary: &Value) -> (Value, Option<String>) {
         let mut config = self.options.create_config.clone();
@@ -630,7 +630,7 @@ impl AgentsViewMode {
     }
 
     /// One landed headline (TS `toggleReplyTarget`'s fetch arms): the
-    /// header renders the first line of the fetched text — a
+    /// header renders the first line of the fetched text -- a
     /// re-targeted or disarmed composer drops the result (the key
     /// comparison, TS's `replyTarget?.key === key` guard).
     pub(super) fn headline_result(&mut self, key: &str, result: Result<Option<String>, String>) {
@@ -803,7 +803,7 @@ fn reply_command_rejection(text: &str) -> Option<String> {
 
 /// The rename target a `/name` dispatches against (TS `renameSession`'s
 /// order: the live session first, the saved file second): the CURRENT
-/// summary's runtime or file — `None` is the cannot-rename warning.
+/// summary's runtime or file -- `None` is the cannot-rename warning.
 fn rename_target_from_summary(summary: &Value) -> Option<RenameTarget> {
     let active = summary
         .get("activeSessionId")
@@ -824,7 +824,7 @@ fn rename_target_from_summary(summary: &Value) -> Option<RenameTarget> {
 }
 
 /// One headline fetch (TS `getLastAssistantText`): the call runs off the
-/// key loop with a client clone, detached — the exit drain never waits
+/// key loop with a client clone, detached -- the exit drain never waits
 /// on it, and its keyed result drops when the composer is gone or
 /// re-targeted.
 pub(super) fn spawn_headline_fetch(
@@ -866,7 +866,7 @@ pub(super) fn spawn_headline_fetch(
 
 /// One reply send (TS `sendReply`, :1981-2026): the saved target resumes
 /// into the daemon first (`create` with the resume config), then the
-/// prompt delivers through the same path as a live reply — the
+/// prompt delivers through the same path as a live reply -- the
 /// "Sending reply..." progress rides the wire between the two.
 pub(super) fn spawn_reply_dispatch(
     client: &DaemonClient,
@@ -917,7 +917,7 @@ async fn send_reply(
             .map(|_| true);
         // The resumed session runs in THIS pane: the create carries the
         // client's Herdr pane identity like every create (a client
-        // outside a Herdr pane sends nothing — the wire keeps its shape).
+        // outside a Herdr pane sends nothing -- the wire keeps its shape).
         let client_env = {
             let env =
                 eukhe_types::daemon::herdr_env::collect_client_env(|key| std::env::var(key).ok());

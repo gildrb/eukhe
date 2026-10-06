@@ -6,7 +6,7 @@
 //! the surfaces this product renders: every tool-result image row is the
 //! textual fallback (TS `tool-execution.ts` mounts its `Image` components
 //! with `fallbackOnly`), so the TUI never places graphics and never
-//! decodes a whole image payload — the render-path skip (the
+//! decodes a whole image payload -- the render-path skip (the
 //! image-heavy session-open fix) reads dimensions from a bounded base64
 //! prefix only (see [`get_image_dimensions_prefix`]); the terminal
 //! graphics-protocol encoders the TS package carries for non-fallback
@@ -323,7 +323,7 @@ mod tests {
     fn the_prefix_read_never_touches_the_payload_past_the_budget() {
         // The budget's behavioral proof: a payload whose PREFIX decodes and
         // parses but whose tail (past the budget) is invalid base64 still
-        // reports its dimensions — a full decode would fail. The row's
+        // reports its dimensions -- a full decode would fail. The row's
         // dimension therefore came from the bounded prefix alone: the
         // poison sits beyond the 1368-character prefix window.
         let header = tiny_png(640, 480);

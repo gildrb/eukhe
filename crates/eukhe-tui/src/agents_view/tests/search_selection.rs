@@ -123,7 +123,7 @@ fn ctrl_w_deletes_the_query_s_trailing_word() {
 
 /// The word walk is punctuation-aware like the shared editor's
 /// `delete_word_backward` (TS `moveWordBackwards`): a dotted query
-/// loses its trailing word run only — "error.rs" keeps "error." —
+/// loses its trailing word run only -- "error.rs" keeps "error." --
 /// never the whole dotted word a whitespace-only scan would take.
 #[test]
 fn ctrl_w_loses_only_the_trailing_word_run_in_a_dotted_query() {

@@ -70,10 +70,6 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
         key_display(kb, "app.message.moveLater")
     );
     let paste_image = key_display(kb, "app.clipboard.pasteImage");
-    let viewport_page_up = key_display(kb, "tui.viewport.pageUp");
-    let viewport_page_down = key_display(kb, "tui.viewport.pageDown");
-    let viewport_top = key_display(kb, "tui.viewport.top");
-    let viewport_follow = key_display(kb, "tui.viewport.follow");
     let suspend = key_display(kb, "app.suspend");
     let select_paragraph_up = key_display(kb, "tui.editor.selectParagraphUp");
     let select_paragraph_down = key_display(kb, "tui.editor.selectParagraphDown");
@@ -139,28 +135,18 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
         r"| `{exit}` | Exit (when editor is empty) |
 | `{suspend}` | Suspend to background |
 | `{select_model}` | Open model selector |
-| `{expand_tools}` | Cycle overview → thinking + diffs → all output |"
+| `{expand_tools}` | Cycle overview -> thinking + diffs -> all output |"
     );
     let _ = writeln!(
         hotkeys,
-        r"| `{focus_subagents}` | Focus activity (←/→ select group, Enter open) |
+        r"| `{focus_subagents}` | Focus activity (left/right select group, Enter open) |
 | `{external_editor}` | Edit message in external editor |
 | `{prompt_stash}` | Stash or restore draft prompt |
 | `{follow_up}` | Queue follow-up message |
 | `{browse_queue}` / `{browse_queue_newer}` | Browse and edit queued messages |
 | `{reorder_queue}` | Reorder the selected queued message |
 | `{paste_image}` | Paste image from clipboard |
-| `/` | Slash commands |
-
-**Transcript navigation (the always-fullscreen surface)**
-| Key | Action |
-|-----|--------|
-| `{viewport_page_up}` / `{viewport_page_down}` | Scroll transcript by page |
-| `{viewport_top}` | Scroll to top |
-| `{viewport_follow}` | Scroll to bottom and follow output |
-| mouse wheel | Scroll transcript |
-| mouse drag | Select and copy text |
-| mouse click on link | Open link in browser |"
+| `/` | Slash commands |"
     );
     hotkeys
 }
@@ -183,15 +169,6 @@ mod tests {
         // The `?` quick-shortcut overlay is removed (the operator's
         // 2026-09-26 directive): the guide keeps no reference to it.
         assert!(!guide.contains("quick shortcuts"), "{guide}");
-        // The fullscreen toggle is retired (the surface is
-        // fullscreen-only, the operator's 2026-09-28 ruling): the guide's
-        // navigation section keeps the transcript keys under the plain
-        // heading and never advertises `/fullscreen`.
-        assert!(
-            guide.contains("**Transcript navigation (the always-fullscreen surface)**"),
-            "{guide}"
-        );
-        assert!(!guide.contains("/fullscreen"), "{guide}");
         // The completeness audit's additions: the suspend binding and
         // the paragraph/doc selection pairs gained rows, and the queue
         // browse row names both of its keys.
@@ -200,14 +177,12 @@ mod tests {
             "{guide}"
         );
         assert!(
-            guide.contains(
-                "| `Shift+Ctrl+\u{2191}` / `Shift+Alt+\u{2193}` | Select one paragraph |"
-            ),
+            guide.contains("| `Shift+Ctrl+up` / `Shift+Ctrl+down` | Select one paragraph |"),
             "{guide}"
         );
         assert!(guide.contains("Select to start / end of text"), "{guide}");
         assert!(
-            guide.contains("| `Alt+\u{2191}` / `Alt+\u{2193}` | Browse and edit queued messages |"),
+            guide.contains("| `Alt+up` / `Alt+down` | Browse and edit queued messages |"),
             "{guide}"
         );
     }

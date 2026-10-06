@@ -71,7 +71,7 @@ use std::time::{Duration, Instant};
 
 use harness::{
     child_options, find_subsequence, harness_lock, quiet_child_epilogue, spawn_child, view_options,
-    ChildSpec, DifferentialHarness, PtyReader, Termios,
+    ChildSession, ChildSpec, DifferentialHarness, PtyReader, Termios,
 };
 use ledger::ModeLedger;
 
@@ -95,8 +95,13 @@ const KITTY_QUERY: &[u8] = b"\x1b[?u";
 /// The harness's answer: flags `1|2|4` supported, then the primary
 /// device attributes (what a kitty terminal replies with).
 const KITTY_ANSWER: &[u8] = b"\x1b[?7u\x1b[?62;c";
-/// The alt-screen leave: every route that ends the process writes it.
-const ALT_SCREEN_LEAVE: &[u8] = b"\x1b[?1049l";
+/// The exit restore tail (sync-output off, SGR reset): every route that
+/// ends the process writes it.
+const EXIT_TAIL: &[u8] = b"\x1b[?2026l\x1b[0m";
+/// Bracketed paste off / on: the suspend's release and the resume's
+/// re-arm.
+const PASTE_OFF: &[u8] = b"\x1b[?2004l";
+const PASTE_ON: &[u8] = b"\x1b[?2004h";
 
 /// The child-mode env: which surface this re-executed binary runs.
 const CHILD_MODE_ENV: &str = "EUKHE_DIFF_CHILD_MODE";
@@ -263,8 +268,8 @@ fn write_replay_fixture() -> String {
 // ---------------------------------------------------------------------------
 
 /// Route: the parity exit through the `/exit` slash command. The normal
-/// quit: the drain, the mode releases, the alt-screen leave with the
-/// inline transcript flush, and the shared release tail.
+/// quit: the drain, the mode releases, the live-area release, and the
+/// shared release tail.
 #[test]
 fn parity_exit_through_slash_command_restores_every_mode() {
     let _lock = harness_lock();
@@ -274,11 +279,7 @@ fn parity_exit_through_slash_command_restores_every_mode() {
 
     let mark = harness.mark();
     harness.write(b"/exit\r");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the parity exit left the alt screen",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the parity exit wrote the restore tail");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(
         exit,
@@ -303,7 +304,7 @@ fn parity_exit_through_the_ctrl_c_pair_restores_every_mode() {
     harness.write(b"\x03");
     harness.drain_until_quiet(4);
     harness.write(b"\x03");
-    harness.wait_from(mark, ALT_SCREEN_LEAVE, "the ctrl+c pair exited the surface");
+    harness.wait_from(mark, EXIT_TAIL, "the ctrl+c pair exited the surface");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(
         exit,
@@ -315,8 +316,7 @@ fn parity_exit_through_the_ctrl_c_pair_restores_every_mode() {
 }
 
 /// Route: the detach handoff to the agents view — the pane hands to a
-/// second surface of the same process (the alt screen and raw mode stay
-/// by design), and the VIEW's exit then releases everything. The
+/// second surface of the same process (raw mode stays by design), and the VIEW's exit then releases everything. The
 /// differential runs over the whole chain: the process exits with the
 /// terminal it launched with.
 #[test]
@@ -336,11 +336,7 @@ fn the_detach_handoff_then_the_view_exit_restores_every_mode() {
     );
     // The view's exit: Esc with an empty query.
     harness.write(b"\x1b[27u");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the view's exit released the terminal",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the view's exit released the terminal");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(
         exit,
@@ -368,10 +364,7 @@ fn the_force_quit_watchdog_restores_every_mode() {
     harness.drain_until_quiet(4);
     harness.write(b"\x03");
     harness.write(b"\x03");
-    harness.wait_from_start(
-        ALT_SCREEN_LEAVE,
-        "the force-quit restore left the alt screen",
-    );
+    harness.wait_from_start(EXIT_TAIL, "the force-quit restore wrote the restore tail");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(
         exit,
@@ -393,11 +386,7 @@ fn the_agents_view_fresh_exit_restores_every_mode() {
 
     let mark = harness.mark();
     harness.write(b"\x1b[27u");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the view's exit released the terminal",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the view's exit released the terminal");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(
         exit,
@@ -425,11 +414,7 @@ fn the_agents_view_roster_failure_behind_a_handoff_restores_every_mode() {
 
     let mark = harness.mark();
     harness.write(b"\x1b[D");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the failed handoff released the terminal",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the failed handoff released the terminal");
     let exit = harness.wait_child_exit(Duration::from_secs(30));
     assert_eq!(exit, Some(0), "the child exited after the roster failure");
 
@@ -449,8 +434,8 @@ fn the_config_selector_esc_close_restores_every_mode() {
     harness.write(b"\x1b");
     harness.wait_from(
         mark,
-        ALT_SCREEN_LEAVE,
-        "the selector's close left the alt screen",
+        EXIT_TAIL,
+        "the selector's close wrote the restore tail",
     );
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(exit, Some(0), "the child exited cleanly through the close");
@@ -474,8 +459,8 @@ fn the_config_selector_remapped_exit_action_restores_every_mode() {
     harness.write(b"\x11");
     harness.wait_from(
         mark,
-        ALT_SCREEN_LEAVE,
-        "the selector's exit left the alt screen",
+        EXIT_TAIL,
+        "the selector's exit wrote the restore tail",
     );
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(
@@ -501,11 +486,7 @@ fn the_config_selector_toggle_error_restores_every_mode() {
 
     let mark = harness.mark();
     harness.write(b" ");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the error return left the alt screen",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the error return wrote the restore tail");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(exit, Some(0), "the child exited after the toggle error");
 
@@ -513,7 +494,7 @@ fn the_config_selector_toggle_error_restores_every_mode() {
 }
 
 /// Route: the replay surface's clean exit (ctrl+c): the replay mount's
-/// modes (raw, alt screen, enhanced keys) release through the replay
+/// modes (raw, enhanced keys) release through the replay
 /// loop's own exit restore.
 #[test]
 fn the_replay_surface_clean_exit_restores_every_mode() {
@@ -526,11 +507,7 @@ fn the_replay_surface_clean_exit_restores_every_mode() {
 
     let mark = harness.mark();
     harness.write(b"\x03");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the replay exit left the alt screen",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the replay exit wrote the restore tail");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(exit, Some(0), "the replay child exited cleanly");
 
@@ -561,8 +538,8 @@ fn the_panic_unwind_restores_every_mode() {
     harness.wait_from_start(b"replay row 0", "the replay surface mounted");
 
     harness.wait_from_start(
-        ALT_SCREEN_LEAVE,
-        "the unwind guard's restore left the alt screen",
+        EXIT_TAIL,
+        "the unwind guard's restore wrote the restore tail",
     );
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(
@@ -711,7 +688,7 @@ fn wait_for_stopped(pid: u32, what: &str) {
 /// the differential asserts twice: the ledger at the stop point (the
 /// state the shell sees) must be empty, and the resumed session's
 /// final exit must land in the same empty state. The resume's re-arm
-/// (mouse, kitty, raw, alt screen) rides the same balance as the mount.
+/// (bracketed paste, kitty, raw) rides the same balance as the mount.
 #[test]
 fn the_suspend_cycle_hands_a_whole_terminal_to_the_shell_and_back() {
     if !sigtstp_session_runner() || !sigtstp_stops_processes() {
@@ -722,20 +699,20 @@ fn the_suspend_cycle_hands_a_whole_terminal_to_the_shell_and_back() {
         Err(error) => panic!("the harness could not start a fresh session: {error}"),
     }
     let _lock = harness_lock();
-    let mut harness = DifferentialHarness::start(&ChildSpec::new("chat"));
+    // The child's group must not be orphaned, or the kernel discards the
+    // suspend's SIGTSTP: it runs in the runner's (fresh) session.
+    let mut harness =
+        DifferentialHarness::start(&ChildSpec::new("chat").session(ChildSession::RunnerGroup));
     harness.answer_kitty_query();
     harness.wait_from_start(b"row 0", "the attach snapshot rendered");
     let child_id = harness.child.id();
 
-    // The suspend: the release tail leaves the alt screen and shows
-    // the cursor for the shell, then SIGTSTP stops the group.
+    // The suspend: the release leaves the live area as output, turns
+    // the modes off, and shows the cursor for the shell, then SIGTSTP
+    // stops the group.
     let mark = harness.mark();
     harness.write(b"\x1a");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the suspend release left the alt screen",
-    );
+    harness.wait_from(mark, PASTE_OFF, "the suspend released bracketed paste");
     wait_for_stopped(child_id, "the suspend cycle stopped the group");
 
     // The mid-process differential: the shell's terminal equals the
@@ -756,17 +733,13 @@ fn the_suspend_cycle_hands_a_whole_terminal_to_the_shell_and_back() {
     // The resume re-arms the surface (SIGCONT), then the parity exit.
     kill(Pid::from_raw(child_id as i32), Signal::SIGCONT).expect("SIGCONT");
     let resume_mark = harness.mark();
-    harness.wait_from(
-        resume_mark,
-        b"\x1b[?1002h",
-        "the resume re-armed mouse tracking",
-    );
+    harness.wait_from(resume_mark, PASTE_ON, "the resume re-armed bracketed paste");
     harness.drain_until_quiet(6);
     let mark = harness.mark();
     harness.write(b"/exit\r");
     harness.wait_from(
         mark,
-        ALT_SCREEN_LEAVE,
+        EXIT_TAIL,
         "the resumed session exited through the parity exit",
     );
     let exit = harness.wait_child_exit(Duration::from_secs(20));
@@ -804,11 +777,7 @@ fn the_late_kitty_answer_inside_the_exit_window_is_stood_down() {
     harness.write(b"/exit\r");
     harness.wait_from(mark, b"\x1b[>4;0m", "the exit's first teardown byte");
     harness.try_write(KITTY_ANSWER);
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the parity exit left the alt screen",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the parity exit wrote the restore tail");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(
         exit,

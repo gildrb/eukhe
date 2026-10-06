@@ -57,14 +57,14 @@ fn seeded_assistant() -> SessionAgentMessage {
 #[test]
 fn outcome_row_shape_matches_ts() {
     let row = create_compaction_outcome_message(
-        "Auto-compaction skipped: Session is too short to compact — try again once it grows",
+        "Auto-compaction skipped: Session is too short to compact -- try again once it grows",
         CompactionOutcomeReason::Threshold,
         CompactionOutcomeKind::Skipped,
     );
     assert_eq!(row.custom_type, "compaction_outcome");
     assert_eq!(
         row.content.text(),
-        "Auto-compaction skipped: Session is too short to compact — try again once it grows"
+        "Auto-compaction skipped: Session is too short to compact -- try again once it grows"
     );
     assert!(row.display);
     assert_eq!(

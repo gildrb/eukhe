@@ -1,38 +1,81 @@
-use super::frame::{composite_follow_hint, indicator_row};
+use super::frame::indicator_row;
 use super::*;
 use crate::chat::{AssistantMessage, MessageBlock};
-use crate::osc133::RowMarkers;
+use crate::style::Modifier;
 use crate::theme::{ColorMode, Theme, ThemeBg, ThemeColor};
 use crate::tool_card::{ToolCallCard, ToolResultView};
 use crate::width::str_width;
 use crate::Line;
-use ratatui::style::Modifier;
 
 fn view() -> AgentView {
     AgentView::new(Theme::builtin("eukhe", ColorMode::TrueColor))
 }
 
+fn view_with(entries: Vec<ChatEntry>) -> AgentView {
+    let mut view = AgentView::new(crate::theme::Theme::builtin(
+        "eukhe",
+        crate::theme::ColorMode::Color256,
+    ));
+    for entry in entries {
+        view.push_entry(entry);
+    }
+    view
+}
+
+fn settled_tool_card(id: &str) -> ChatEntry {
+    ChatEntry::Tool(Box::new(ToolCallCard {
+        id: id.to_string(),
+        name: "bash".to_string(),
+        args: serde_json::json!({"command": "echo done"}),
+        started: true,
+        started_at: Some(std::time::Instant::now()),
+        ended_at: Some(std::time::Instant::now()),
+        result: Some(ToolResultView {
+            content: vec![serde_json::json!({"type": "text", "text": "done"})],
+            details: serde_json::Value::Null,
+            is_error: false,
+        }),
+        result_partial: false,
+        aborted: false,
+    }))
+}
+
+fn transcript_text(view: &mut AgentView, width: usize) -> String {
+    let rows = view.render_transcript(width);
+    rows.iter()
+        .map(|line| line.iter().map(|span| span.content.as_str()).collect())
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+fn row_text(line: &Line) -> String {
+    line.iter().map(|s| s.content.as_str()).collect::<String>()
+}
+
+/// One composed frame as rows: the history it commits, then the live
+/// area (a fresh view's first frame carries the whole transcript).
+fn composed_rows(v: &mut AgentView, width: usize, height: usize) -> Vec<Line> {
+    let composed = v.compose(width, height);
+    composed.history.into_iter().chain(composed.live).collect()
+}
+
 /// The hardware caret never sits over the factory page: the page is an
-/// input-less replacement view, so `frame_cursor` suppresses the stale
-/// editor dock position while it is open (the settings menu's guard
-/// family — Macroscope review finding: the factory page left the caret
-/// parked at the previous editor position over the panel).
+/// input-less replacement view, so the frame carries no caret while it
+/// is open, and the editor's caret returns once it closes.
 #[test]
 fn the_factory_page_suppresses_the_stale_editor_cursor() {
     let mut v = view();
-    v.dock_cursor = Some((10, 3));
     v.factory_view = Some(crate::factory_view::FactoryView::from_reply(
         &serde_json::json!({ "runs": [] }),
         12,
     ));
-    assert!(
-        v.frame_cursor().is_none(),
+    assert_eq!(
+        v.compose(80, 24).cursor,
+        None,
         "the open factory page is an input-less overlay"
     );
-    // ...and the editor's position reports again once the page closes
-    // (`frame_cursor` maps the dock row through the window offset).
     v.factory_view = None;
-    assert_eq!(v.frame_cursor(), Some((11, 3)));
+    assert!(v.compose(80, 24).cursor.is_some());
 }
 
 /// A paste never reaches the editor behind an overlay (the key
@@ -82,8 +125,8 @@ fn text_of(line: &Line) -> String {
 
 /// A rendered hint row carries the platform's alt label: the queue
 /// browse header quotes `app.message.navigateOlder` and friends through
-/// the shared `format_key_text`, so the row shows `Alt+\u{2191}` on
-/// Linux hosts and `Option+\u{2191}` on macOS (TS
+/// the shared `format_key_text`, so the row shows `Alt+up` on
+/// Linux hosts and `Option+up` on macOS (TS
 /// `formatKeyPart`'s darwin branch).
 /// A fresh chat starts at the collapsed conversation-detail level
 /// (operator directive 2026-09-28): the collapse mode renders every
@@ -156,7 +199,7 @@ fn autocomplete_dropdown_rows_carry_the_popup_background() {
     let frame = v.render_dock(80);
     let marker_row = frame
         .iter()
-        .find(|line| text_of(line).contains("\u{203a}"))
+        .find(|line| text_of(line).contains('>'))
         .expect("the dropdown renders its marker row");
     assert!(
         marker_row.iter().all(|span| span.style.bg.is_some()),
@@ -165,8 +208,8 @@ fn autocomplete_dropdown_rows_carry_the_popup_background() {
 }
 
 /// The dropdown opens with its top border (the operator's 2026-09-26
-/// directive): the panel's first row is the full-width muted `─`
-/// rule — the one every inline menu panel opens with — drawn on the
+/// directive): the panel's first row is the full-width muted `-`
+/// rule -- the one every inline menu panel opens with -- drawn on the
 /// popup surface directly above the menu rows, so an open slash menu
 /// reads as a panel instead of loose transcript rows.
 #[test]
@@ -178,14 +221,14 @@ fn autocomplete_panel_opens_with_the_top_border_rule() {
     let frame = v.render_dock(80);
     let marker_row = frame
         .iter()
-        .position(|line| text_of(line).trim_start().starts_with('\u{203a}'))
+        .position(|line| text_of(line).trim_start().starts_with('>'))
         .expect("the dropdown renders its selected marker row");
     let rule = frame
         .get(marker_row.checked_sub(1).expect("a row above the menu"))
         .expect("the top border row");
     assert_eq!(
         text_of(rule),
-        "\u{2500}".repeat(80),
+        "-".repeat(80),
         "the panel opens with the full-width rule:\n{}",
         frame.iter().map(text_of).collect::<Vec<_>>().join("\n")
     );
@@ -215,7 +258,7 @@ fn autocomplete_selected_row_washes_the_full_panel_width() {
     let selection_bg = v.theme.soft_selection_style().bg;
     let marker_row = frame
         .iter()
-        .position(|line| text_of(line).trim_start().starts_with('\u{203a}'))
+        .position(|line| text_of(line).trim_start().starts_with('>'))
         .expect("the dropdown renders its selected marker row");
     let selected = &frame[marker_row];
     assert_eq!(
@@ -246,116 +289,17 @@ fn hint_rows_carry_the_platform_alt_label() {
         text: "turn right".to_string(),
         internal: false,
     });
-    let frame = v.render_frame(80, 24);
+    let frame = composed_rows(&mut v, 80, 24);
     let joined = frame.iter().map(text_of).collect::<Vec<_>>().join("\n");
     assert!(
         joined.contains("browse"),
         "the queue browse header renders: {joined}"
     );
     if std::env::consts::OS == "macos" {
-        assert!(
-            joined.contains("Option+\u{2191}"),
-            "macOS hint row: {joined}"
-        );
+        assert!(joined.contains("Option+up"), "macOS hint row: {joined}");
     } else {
-        assert!(joined.contains("Alt+\u{2191}"), "hint row: {joined}");
+        assert!(joined.contains("Alt+up"), "hint row: {joined}");
     }
-}
-
-#[test]
-fn frame_is_exactly_height_rows() {
-    let mut v = view();
-    v.chrome.version = "0.0.0".to_string();
-    v.chrome.cwd = "/tmp/project".to_string();
-    v.chrome.chat_name = "project".to_string();
-    let frame = v.render_frame(80, 24);
-    assert_eq!(frame.len(), 24);
-    assert!(frame.iter().all(|l| str_width(&text_of(l)) <= 80));
-    let joined = frame.iter().map(text_of).collect::<Vec<_>>().join("\n");
-    assert!(joined.contains("eukhe v0.0.0"));
-    assert!(joined.contains("Collapsed mode (Ctrl+O to expand)"));
-    assert!(joined.contains('>'));
-}
-
-#[test]
-fn osc_emissions_reemit_only_changed_rows() {
-    let mut v = view();
-    v.chrome.version = "0.0.0".to_string();
-    v.chrome.cwd = "/w".to_string();
-    v.chrome.chat_name = "w".to_string();
-    v.push(TranscriptItem::UserMessage {
-        text: "hello".to_string(),
-    });
-    let frame = v.render_frame(80, 24);
-    let first = v.take_osc_emissions(&frame);
-    let marked: Vec<usize> = first.iter().map(|(row, _)| *row).collect();
-    assert!(!marked.is_empty());
-    // Re-emitting an unchanged frame rewrites no rows.
-    let again = v.take_osc_emissions(&frame);
-    assert!(again.is_empty());
-}
-
-/// Fill the transcript past one window so there is scrollable history.
-fn filled(mut v: AgentView, turns: usize) -> AgentView {
-    v.chrome.version = "0.0.0".to_string();
-    v.chrome.cwd = "/w".to_string();
-    v.chrome.chat_name = "w".to_string();
-    v.onboarding = None;
-    for index in 0..turns {
-        v.push(TranscriptItem::UserMessage {
-            text: format!("user line {index}"),
-        });
-        v.push(TranscriptItem::Assistant {
-            blocks: vec![crate::chat::MessageBlock::Text(format!(
-                "assistant reply {index}"
-            ))],
-            has_tool_calls: false,
-        });
-    }
-    v
-}
-
-fn row_text(line: &Line) -> String {
-    line.iter().map(|s| s.content.as_str()).collect::<String>()
-}
-
-#[test]
-fn scroll_pages_from_tail_and_resumes_at_bottom() {
-    let mut v = filled(view(), 30);
-    let frame = v.render_frame(80, 24);
-    // Fresh render follows the tail.
-    assert!(v.is_following());
-    let info = v.scroll_info();
-    assert_eq!(info.lines_below, 0);
-    assert!(frame.iter().any(|l| row_text(l).contains("reply 29")));
-
-    // PageUp pauses following and moves the window up a page: `page`
-    // rows remain below the window (`ScrollInfo` reports the tail
-    // distance in `lines_below`, the transcript-top offset in
-    // `lines_above`).
-    let page = v.page_size();
-    v.scroll_by(-(page as isize));
-    assert!(!v.is_following());
-    assert_eq!(v.scroll_info().lines_below, page);
-
-    // Scrolling back down reaches the tail and resumes following.
-    v.scroll_by(page as isize);
-    assert!(v.is_following());
-    assert_eq!(v.scroll_info().lines_below, 0);
-}
-
-#[test]
-fn scroll_offset_is_visible_in_frames() {
-    let mut v = filled(view(), 30);
-    let following = v.render_frame(80, 24);
-    v.scroll_to_top();
-    let top = v.render_frame(80, 24);
-    // The top frame shows the earliest history the following frame
-    // scrolled past: distinct window content for the same transcript.
-    assert!(top.iter().any(|l| row_text(l).contains("reply 0")));
-    assert!(!following.iter().any(|l| row_text(l).contains("reply 0")));
-    assert!(following.iter().any(|l| row_text(l).contains("reply 29")));
-    assert!(!top.iter().any(|l| row_text(l).contains("reply 29")));
 }
 
 #[test]
@@ -375,7 +319,7 @@ fn compaction_loader_replaces_the_working_loader() {
         custom_instructions: None,
         summary: String::new(),
     });
-    let frame = v.render_frame(80, 24);
+    let frame = composed_rows(&mut v, 80, 24);
     let flat: Vec<String> = frame.iter().map(row_text).collect();
     assert!(
         flat.iter()
@@ -394,11 +338,10 @@ fn compaction_loader_replaces_the_working_loader() {
         tokens_before: 1234,
         custom_instructions: None,
     });
-    let frame = v.render_frame(80, 24);
+    let frame = composed_rows(&mut v, 80, 24);
     let flat: Vec<String> = frame.iter().map(row_text).collect();
     assert!(
-        flat.iter()
-            .any(|l| l.trim() == "\u{25c6} Context compacted"),
+        flat.iter().any(|l| l.trim() == "* Context compacted"),
         "{flat:?}"
     );
     assert!(
@@ -422,7 +365,7 @@ fn compaction_streams_the_summary_under_the_loader_in_expanded_detail() {
         custom_instructions: None,
         summary: "The session covered the fleet work.".to_string(),
     });
-    let frame = v.render_frame(80, 24);
+    let frame = composed_rows(&mut v, 80, 24);
     let flat: Vec<String> = frame.iter().map(row_text).collect();
     let loader = flat
         .iter()
@@ -441,10 +384,10 @@ fn compaction_streams_the_summary_under_the_loader_in_expanded_detail() {
         gutter.contains("The session covered the fleet work."),
         "{flat:?}"
     );
-    // Collapsed detail (`overview`): the loader stands alone — no
+    // Collapsed detail (`overview`): the loader stands alone -- no
     // streamed block (TS keeps the loader plain outside `all`).
     v.detail = crate::chat::Detail::Overview;
-    let frame = v.render_frame(80, 24);
+    let frame = composed_rows(&mut v, 80, 24);
     let flat: Vec<String> = frame.iter().map(row_text).collect();
     assert!(
         flat.iter().any(|l| l.contains("Auto-compacting...")),
@@ -465,7 +408,7 @@ fn compaction_streams_the_summary_under_the_loader_in_expanded_detail() {
         tokens_before: 1234,
         custom_instructions: None,
     });
-    let frame = v.render_frame(80, 24);
+    let frame = composed_rows(&mut v, 80, 24);
     let flat: Vec<String> = frame.iter().map(row_text).collect();
     assert!(
         !flat.iter().any(|l| l.contains("Auto-compacting...")),
@@ -473,154 +416,38 @@ fn compaction_streams_the_summary_under_the_loader_in_expanded_detail() {
     );
     assert!(
         flat.iter()
-            .any(|l| l.trim() == "\u{25c6} Context compacted \u{b7} Compacted from 1,234 tokens"),
+            .any(|l| l.trim() == "* Context compacted - Compacted from 1,234 tokens"),
         "the durable summary row replaced the streamed block: {flat:?}"
     );
 }
 
-#[test]
-fn follow_hint_shows_when_paused_and_hides_when_following() {
-    let mut v = filled(view(), 30);
-    let following_frame = v.render_frame(80, 24);
-    assert!(!following_frame
-        .iter()
-        .any(|l| row_text(l).contains("to follow")));
-    v.scroll_by(-(v.page_size() as isize));
-    let paused_frame = v.render_frame(80, 24);
-    assert!(paused_frame
-        .iter()
-        .any(|l| row_text(l).contains("ctrl+shift+down to follow")));
-    // The follow key resumes: the hint disappears.
-    v.scroll_to_bottom();
-    let resumed_frame = v.render_frame(80, 24);
-    assert!(v.is_following());
-    assert!(!resumed_frame
-        .iter()
-        .any(|l| row_text(l).contains("to follow")));
-    // scrollToTop pins the top; the hint shows again (TS shows it for
-    // every non-following window, even at the very top).
-    v.scroll_to_top();
-    let top_frame = v.render_frame(80, 24);
-    assert!(!v.is_following());
-    assert!(top_frame.iter().any(|l| row_text(l).contains("to follow")));
-}
-
-/// A transcript with thinking blocks: long in `all`/`details` (the
-/// thinking renders, far past a page above the tail), and short
-/// enough in `overview` (thinking hidden) that the whole
-/// conversation fits the window.
-fn thinking_filled(v: AgentView, turns: usize) -> AgentView {
-    let mut v = filled(v, 0);
-    for index in 0..turns {
-        v.push(TranscriptItem::UserMessage {
-            text: format!("user line {index}"),
-        });
-        v.push(TranscriptItem::Assistant {
-            blocks: vec![crate::chat::MessageBlock::Thinking(format!(
-                "thinking {index} {} the expanded mode dwarfs the collapsed one",
-                "reasoning word ".repeat(56)
-            ))],
-            has_tool_calls: false,
-        });
-    }
-    v
-}
-
 /// The mode-exit follow recompute (operator directive 2026-09-26):
 /// pausing in an expanded mode and collapsing back to `overview`
-/// when the collapsed transcript fits the window resumes following —
+/// when the collapsed transcript fits the window resumes following --
 /// the view already shows the transcript tail, so the follow hint
 /// does not render and the tail keeps following new content.
-#[test]
-fn collapse_resumes_following_when_the_tail_is_in_view() {
-    let mut v = thinking_filled(view(), 2);
-    v.detail = Detail::All;
-    v.render_frame(80, 24);
-    assert!(v.is_following());
-    // Pause a page up in the expanded mode (thinking rows on end).
-    v.scroll_by(-(v.page_size() as isize));
-    assert!(!v.is_following());
-    // Collapse: the hidden thinking shrinks the transcript below the
-    // window — the re-walked window shows the tail.
-    v.detail = Detail::Overview;
-    let collapsed = v.render_frame(80, 24);
-    assert!(v.is_following(), "the collapse re-derived the follow state");
-    assert!(
-        !collapsed.iter().any(|l| row_text(l).contains("to follow")),
-        "the tail-in-view window carries no follow hint: {collapsed:?}"
-    );
-    assert_eq!(v.scroll_info().lines_below, 0);
-}
-
 /// The height-exact boundary (the review bots' finding): a window
-/// whose bottom lands exactly on the transcript's final chat row —
-/// with the empty tail section below it — is at the bottom, not
+/// whose bottom lands exactly on the transcript's final chat row --
+/// with the empty tail section below it -- is at the bottom, not
 /// paused above new content: the follow state re-derives and the
 /// hint does not render.
-#[test]
-fn a_window_ending_exactly_at_the_tail_shows_no_hint() {
-    let mut v = thinking_filled(view(), 8);
-    v.render_frame(80, 24);
-    // The scroll distance to the exact bottom (a following window
-    // sits at `last_max_scroll`, which `lines_above` reports; the
-    // resolve happens before the top pin, so the walked window below
-    // stays sparse).
-    let bottom = v.scroll_info().lines_above;
-    v.scroll_to_top();
-    // The render establishes the walked top window; each row step
-    // keeps the walk (the sparse path), so the final window is a
-    // walked Top anchor sitting exactly on the bottom.
-    v.render_frame(80, 24);
-    for _ in 0..bottom {
-        v.scroll_by(1);
-    }
-    let frame = v.render_frame(80, 24);
-    assert_eq!(
-        v.scroll_info().lines_below,
-        0,
-        "the window sits exactly at the bottom"
-    );
-    assert!(
-        !frame.iter().any(|l| row_text(l).contains("to follow")),
-        "the at-the-bottom window carries no follow hint (following \
-         would scroll nothing)"
-    );
-}
-
 /// The recompute is not a blanket un-pause: a collapse that leaves
 /// real rows below the window keeps following paused and the hint
 /// rendered (following would actually scroll).
-#[test]
-fn collapse_keeps_the_hint_when_rows_remain_below() {
-    let mut v = filled(view(), 30);
-    v.render_frame(80, 24);
-    v.scroll_by(-2);
-    assert!(!v.is_following());
-    v.detail = Detail::Overview;
-    let collapsed = v.render_frame(80, 24);
-    assert!(!v.is_following());
-    assert!(
-        collapsed
-            .iter()
-            .any(|l| row_text(l).contains("ctrl+shift+down to follow")),
-        "the paused window with rows below keeps the hint"
-    );
-}
-
 /// The prompt bar's scroll indicators paint on the editor surface's
-/// background (operator directive 2026-09-26): the `↑ N more` row
+/// background (operator directive 2026-09-26): the `up N more` row
 /// reads as part of the bar, not as text floating on the terminal's
 /// bare background.
 #[test]
 fn the_more_indicator_carry_the_bar_background() {
-    let bg = ratatui::style::Style::default().bg(ratatui::style::Color::Rgb(10, 11, 12));
-    let border = ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(1, 2, 3));
-    for label in [" ↑ 14 more", " ↓ 3 more"] {
+    let bg = crate::style::Style::default().bg(crate::style::Color::Rgb(10, 11, 12));
+    let border = crate::style::Style::default().fg(crate::style::Color::Rgb(1, 2, 3));
+    for label in [" ^ 14 more", " v 3 more"] {
         let row = indicator_row(label, bg, border, 20);
         for span in &row {
             assert_eq!(
                 span.style.bg,
-                Some(ratatui::style::Color::Rgb(10, 11, 12)),
+                Some(crate::style::Color::Rgb(10, 11, 12)),
                 "every span of {label:?} carries the bar background"
             );
         }
@@ -628,308 +455,15 @@ fn the_more_indicator_carry_the_bar_background() {
 }
 
 /// The hover affordance (operator directive 2026-09-26): a
-/// buttonless motion over a clickable card row brightens that row —
-/// Muted spans to the theme's foreground, Dim to Muted — and only
+/// buttonless motion over a clickable card row brightens that row --
+/// Muted spans to the theme's foreground, Dim to Muted -- and only
 /// the state change costs a render; a motion across the same row
 /// re-styles nothing.
-#[test]
-fn the_hover_affordance_brightens_the_hovered_card_row() {
-    // A settled tool card paints its header row Muted (the tool
-    // name) with the separator Dim — the affordance's exact input.
-    let mut view = collapsed_view(settled_cards(1));
-    let plain = view.render_frame(80, 24);
-    let muted = view.theme.fg_style(crate::theme::ThemeColor::Muted).fg;
-    let text = view.theme.fg_style(crate::theme::ThemeColor::Text).fg;
-    // The card's header row (the "bash \u{b7} done" row), not the
-    // entry's leading spacer: the affordance's visible surface.
-    // The header's spans are split (name, separator, status), so the
-    // search joins each row's spans first.
-    let row_text = |row: usize| -> String {
-        plain[row]
-            .iter()
-            .map(|span| span.content.as_str())
-            .collect()
-    };
-    let card_row = (0..plain.len())
-        .find(|&row| row_text(row).contains("bash \u{b7} done"))
-        .expect("the card's header row renders");
-    assert!(
-        plain[card_row].iter().any(|span| span.style.fg == muted),
-        "the card's header row paints muted: {:?}",
-        plain[card_row]
-    );
-    // Hovering onto the card row changes the state and the paint.
-    assert!(view.note_hover(card_row, 2));
-    assert_eq!(view.hover_pos, Some((card_row, 2)));
-    let hovered = view.render_frame(80, 24);
-    let dim = view.theme.fg_style(crate::theme::ThemeColor::Dim).fg;
-    let bright = view.theme.fg_style(crate::theme::ThemeColor::Muted);
-    for (hovered_span, plain_span) in hovered[card_row].iter().zip(&plain[card_row]) {
-        if plain_span.style.fg == muted {
-            assert_eq!(
-                hovered_span.style.fg, text,
-                "the hovered row's muted span brightened to the theme fg"
-            );
-        } else if plain_span.style.fg == dim {
-            assert_eq!(
-                hovered_span.style.fg, bright.fg,
-                "the hovered row's dim span stepped up to muted"
-            );
-        }
-    }
-    // A motion across the same row changes nothing (the cell rides
-    // along; the affordance is row-level).
-    assert!(!view.note_hover(card_row, 5));
-    assert_eq!(view.hover_pos, Some((card_row, 5)));
-    // Moving onto a non-clickable row clears the hover and restores
-    // the paint with the next frame.
-    assert!(view.note_hover(0, 2));
-    assert_eq!(view.hover_pos, None);
-    let restored = view.render_frame(80, 24);
-    assert!(
-        restored[card_row].iter().any(|span| span.style.fg == muted),
-        "the card's muted paint returns with the hover"
-    );
-}
-
 /// The render-side revalidation (the review bots' finding): the
-/// hover is a screen coordinate, and the layout moves — a scroll
+/// hover is a screen coordinate, and the layout moves -- a scroll
 /// that brings other content onto the hovered row clears the
 /// affordance with the next frame instead of brightening whatever
 /// landed there.
-#[test]
-fn a_scrolled_layout_revalidates_the_hover() {
-    // A transcript TALLER than the window (tool cards at the top,
-    // user rows below): the window can actually scroll, so the
-    // revalidation is exercised by a real layout move, not a clamp.
-    let mut entries = settled_cards(3);
-    for index in 0..10 {
-        entries.push(crate::chat::ChatEntry::User {
-            text: format!("later user line {index}"),
-        });
-    }
-    let mut view = collapsed_view(entries);
-    view.render_frame(80, 24);
-    view.scroll_to_top();
-    let plain = view.render_frame(80, 24);
-    let muted = view.theme.fg_style(crate::theme::ThemeColor::Muted).fg;
-    let row_text = |row: usize| -> String {
-        plain[row]
-            .iter()
-            .map(|span| span.content.as_str())
-            .collect()
-    };
-    let card_row = (0..plain.len())
-        .find(|&row| row_text(row).contains("bash \u{b7} done"))
-        .expect("the card's header row renders");
-    assert!(view.note_hover(card_row, 2));
-    let text = view.theme.fg_style(crate::theme::ThemeColor::Text).fg;
-    let hovered = view.render_frame(80, 24);
-    for (hovered_span, plain_span) in hovered[card_row].iter().zip(&plain[card_row]) {
-        if plain_span.style.fg == muted {
-            assert_eq!(
-                hovered_span.style.fg, text,
-                "the muted spans brightened on the hovered row"
-            );
-        }
-    }
-    // Scroll down past every card's span (the three cards stack 24+
-    // rows): user rows land on the recorded screen row, and the
-    // revalidation clears the hover with the next frame (a stale
-    // coordinate never brightens the user content that moved onto
-    // it).
-    view.scroll_by(24);
-    let scrolled = view.render_frame(80, 24);
-    assert_eq!(
-        view.hover_pos, None,
-        "the scroll cleared the stale hover coordinate"
-    );
-    let scrolled_text: String = scrolled[card_row]
-        .iter()
-        .map(|span| span.content.as_str())
-        .collect();
-    assert!(
-        !scrolled_text.contains("bash \u{b7} done"),
-        "the card's rows vacated the recorded position: {:?}",
-        scrolled[card_row]
-    );
-    assert!(
-        (0..scrolled.len()).any(|row| scrolled[row]
-            .iter()
-            .any(|span| span.content.contains("user line"))),
-        "the user rows moved into the window with the scroll"
-    );
-}
-
-#[test]
-fn follow_hint_keeps_zone_markers_on_the_composited_row() {
-    // A marked row composited with the hint keeps its zone flags at
-    // the head (the marker plan keeps flagging the row) and keeps the
-    // visible text around the centered label.
-    let mut row = vec![crate::Span::raw("x".repeat(80))];
-    crate::osc133::mark_end(&mut row);
-    let mut out = composite_follow_hint(&row, " ctrl+shift+down to follow ", 80);
-    let markers = crate::osc133::row_markers(&out);
-    assert!(markers.end && !markers.start);
-    assert!(row_text(&out).contains("to follow"));
-    assert_eq!(str_width(&row_text(&out)), 80);
-    // Stripping the markers leaves the hint visible.
-    crate::osc133::strip(&mut out);
-    assert!(row_text(&out).contains("to follow"));
-    // An unmarked row stays unmarked.
-    let plain = vec![crate::Span::raw(" ".repeat(80))];
-    let out = composite_follow_hint(&plain, " ctrl+shift+down to follow ", 80);
-    assert_eq!(crate::osc133::row_markers(&out), RowMarkers::default());
-}
-
-/// Flush the inline frame into a byte sink, returning the exact bytes
-/// the terminal would receive.
-fn flush_bytes(v: &mut AgentView, width: usize, screen_height: usize) -> Vec<u8> {
-    let mut sink: Vec<u8> = Vec::new();
-    v.stream_flush_to(&mut sink, width, screen_height)
-        .expect("the flush streams");
-    sink
-}
-
-#[test]
-fn flush_streams_append_then_repaints_the_changed_tail() {
-    let mut v = view();
-    v.chrome.version = "0.0.0".to_string();
-    v.chrome.cwd = "/w".to_string();
-    v.chrome.chat_name = "w".to_string();
-    v.push(TranscriptItem::UserMessage {
-        text: "first turn".to_string(),
-    });
-    // The first flush appends the whole inline frame (splash,
-    // transcript, dock) and keeps the zero-width zone markers embedded
-    // in the rows — they must survive into scrollback for
-    // shell-integration jumps.
-    let first = flush_bytes(&mut v, 80, 24);
-    let joined = String::from_utf8_lossy(&first);
-    // The encoded bytes carry SGR styling between spans: assert on
-    // single-span fragments, not strings spanning a style boundary.
-    assert!(joined.contains("0.0.0"));
-    assert!(joined.contains("first turn"));
-    assert!(first
-        .windows(crate::osc133::ZONE_START.len())
-        .any(|w| w == crate::osc133::ZONE_START.as_bytes()));
-    // Every appended row starts at column 0 and ends CRLF.
-    assert!(first.starts_with(b"\r") && first.ends_with(b"\r\n"));
-
-    // An unchanged frame flushes nothing.
-    assert!(flush_bytes(&mut v, 80, 24).is_empty());
-
-    // New transcript rows land ABOVE the flushed dock, so the flush
-    // repaints the visible window: the changed region is rewritten, not
-    // appended below the stale dock (which would duplicate it).
-    v.push(TranscriptItem::UserMessage {
-        text: "second turn".to_string(),
-    });
-    let repaint = flush_bytes(&mut v, 80, 24);
-    assert!(
-        repaint.starts_with(b"\x1b[2J\x1b[H"),
-        "a repaint erases first"
-    );
-    let joined = String::from_utf8_lossy(&repaint);
-    assert!(joined.contains("second turn"));
-    assert!(joined.contains("first turn"));
-    // The repaint covers at most one screenful: a long transcript
-    // repaints only the tail.
-    let mut long = filled(view(), 30);
-    let appended = flush_bytes(&mut long, 80, 10);
-    assert!(
-        !appended.is_empty() && !appended.starts_with(b"\x1b[2J"),
-        "first flush appends"
-    );
-    long.push(TranscriptItem::UserMessage {
-        text: "late turn".to_string(),
-    });
-    let repaint = flush_bytes(&mut long, 80, 10);
-    assert!(repaint.starts_with(b"\x1b[2J\x1b[H"));
-    // One screenful of rows: at most `screen_height` CRLFs.
-    // The count is a bounded test assertion over one screen buffer;
-    // the SIMD bytecount dependency would be pointless here.
-    #[allow(clippy::naive_bytecount)]
-    let newline_rows = repaint.iter().filter(|b| **b == b'\n').count();
-    assert!(newline_rows <= 10);
-    let joined = String::from_utf8_lossy(&repaint);
-    assert!(joined.contains("late turn"));
-    assert!(!joined.contains("reply 0"));
-
-    // A shrinking rebuild never rewinds into a rewrite of scrollback:
-    // the changed region repaints the visible window only.
-    v.clear_chat();
-    let repaint = flush_bytes(&mut v, 80, 24);
-    assert!(repaint.starts_with(b"\x1b[2J\x1b[H"));
-    let joined = String::from_utf8_lossy(&repaint);
-    assert!(!joined.contains("second turn"));
-}
-
-#[test]
-fn inline_frame_is_transcript_plus_dock_without_padding() {
-    let mut v = filled(view(), 30);
-    // The inline layout is the unpinned frame: every transcript row is
-    // present (no window slicing) and no height padding rows follow.
-    let frame = v.render_frame(80, 24);
-    let inline = v.render_inline_frame(80);
-    assert!(inline.iter().any(|l| text_of(l).contains("reply 0")));
-    assert!(inline.iter().any(|l| text_of(l).contains("reply 29")));
-    assert!(frame.len() == 24 && inline.len() != frame.len());
-    // The dock rows ride at the end (prompt context, editor, tray).
-    let joined = inline.iter().map(text_of).collect::<Vec<_>>().join("\n");
-    assert!(joined.contains("Collapsed mode"));
-}
-
-#[test]
-fn dock_pads_window_between_splash_and_editor() {
-    let mut v = view();
-    v.chrome.version = "0.0.0".to_string();
-    v.chrome.cwd = "/w".to_string();
-    v.chrome.chat_name = "w".to_string();
-    let frame = v.render_frame(60, 40);
-    assert_eq!(frame.len(), 40);
-    // The editor prompt sits above the (empty) tray row.
-    let joined = frame.iter().map(text_of).collect::<Vec<_>>().join("\n");
-    assert!(joined.contains("Collapsed mode"));
-}
-
-fn view_with(entries: Vec<ChatEntry>) -> AgentView {
-    let mut view = AgentView::new(crate::theme::Theme::builtin(
-        "eukhe",
-        crate::theme::ColorMode::Color256,
-    ));
-    for entry in entries {
-        view.push_entry(entry);
-    }
-    view
-}
-
-fn settled_tool_card(id: &str) -> ChatEntry {
-    ChatEntry::Tool(Box::new(ToolCallCard {
-        id: id.to_string(),
-        name: "bash".to_string(),
-        args: serde_json::json!({"command": "echo done"}),
-        started: true,
-        started_at: Some(std::time::Instant::now()),
-        ended_at: Some(std::time::Instant::now()),
-        result: Some(ToolResultView {
-            content: vec![serde_json::json!({"type": "text", "text": "done"})],
-            details: serde_json::Value::Null,
-            is_error: false,
-        }),
-        result_partial: false,
-        aborted: false,
-    }))
-}
-
-fn transcript_text(view: &mut AgentView, width: usize) -> String {
-    let rows = view.render_transcript(width);
-    rows.iter()
-        .map(|line| line.iter().map(|span| span.content.as_str()).collect())
-        .collect::<Vec<String>>()
-        .join("\n")
-}
-
 /// A settled transcript renders identically from the layout cache and
 /// from a fresh layout: caching must never change the frame.
 #[test]
@@ -1086,7 +620,7 @@ fn compaction_summary_block_toggles_with_the_detail_cycle() {
     // the header plus the whitespace-collapsed EventSummary, never
     // the token metadata.
     let collapsed = transcript_text(&mut view, 80);
-    assert!(collapsed.contains("\u{25c6} Context compacted"));
+    assert!(collapsed.contains("* Context compacted"));
     assert!(collapsed.contains("## Summary the session story, first line"));
     assert!(!collapsed.contains("Compacted from"));
     // The row is cacheable; the first render stored it. A detail
@@ -1104,7 +638,7 @@ fn compaction_summary_block_toggles_with_the_detail_cycle() {
     view.detail = view.detail.next();
     let expanded = transcript_text(&mut view, 80);
     assert!(
-        expanded.contains("Compacted from 12,345 tokens \u{b7} focus: the goal"),
+        expanded.contains("Compacted from 12,345 tokens - focus: the goal"),
         "the expanded metadata row renders: {expanded}"
     );
     // The expanded body is markdown, not the EventSummary collapse:
@@ -1299,7 +833,7 @@ fn conversation_leading_matches_ts_spacing_rules() {
 /// TS `AgentMessageComponent` is a compact neighbor
 /// (`isCompactAgentMessageNeighbor`): the hidden thinking of a
 /// tool-carrying assistant after an agent message renders ZERO rows
-/// — no leading spacer, no trailing tool separator — so the tool
+/// -- no leading spacer, no trailing tool separator -- so the tool
 /// card sits flush under the agent-message row (the collapsed
 /// thinking never leaves a visual gap).
 #[test]
@@ -1316,13 +850,13 @@ fn hidden_thinking_after_an_agent_message_renders_zero_height() {
     let lines: Vec<&str> = text.lines().collect();
     let agent_row = lines
         .iter()
-        .position(|line| line.contains("Agent message \u{b7} \u{2193} lane"))
+        .position(|line| line.contains("Agent message - v lane"))
         .expect("the agent-message row renders");
     // The card's panel header is its FIRST row; the seam check must
     // look above it, never inside the panel's own padding.
     let header_row = lines
         .iter()
-        .position(|line| line.contains("bash \u{b7} done"))
+        .position(|line| line.contains("bash - done"))
         .expect("the tool card header renders");
     // Flush: the row directly above the card header is the agent
     // message block's own last row (its body), never the hidden
@@ -1332,7 +866,7 @@ fn hidden_thinking_after_an_agent_message_renders_zero_height() {
         "the card renders after the agent message:\n{text}"
     );
     assert!(
-        lines[header_row - 1].contains("Agent message \u{b7} \u{2193} lane"),
+        lines[header_row - 1].contains("Agent message - v lane"),
         "the agent message header sits directly above the card header:\n{text}"
     );
 }
@@ -1373,7 +907,7 @@ fn hidden_thinking_after_a_bash_card_renders_zero_height() {
     // The tool panel's header is its first row; the seam sits above it.
     let header_row = lines
         .iter()
-        .position(|line| line.contains("bash \u{b7} done"))
+        .position(|line| line.contains("bash - done"))
         .expect("the tool card header renders");
     // Flush: the row directly above the tool card header is the bash
     // card's own closing border, never a hidden-thinking spacer.
@@ -1382,7 +916,7 @@ fn hidden_thinking_after_a_bash_card_renders_zero_height() {
         "the card renders after the bash card:\n{text}"
     );
     assert!(
-        lines[header_row - 1].contains("\u{2500}"),
+        lines[header_row - 1].contains('-'),
         "the bash card's border sits directly above the card header:\n{text}"
     );
 }
@@ -1408,7 +942,7 @@ fn a_visible_assistant_after_an_agent_message_keeps_its_spacers() {
     let lines: Vec<&str> = text.lines().collect();
     let agent_row = lines
         .iter()
-        .position(|line| line.contains("Agent message \u{b7} \u{2193} lane"))
+        .position(|line| line.contains("Agent message - v lane"))
         .expect("the agent-message row renders");
     // In overview the agent message renders its header alone; the
     // visible assistant body then leads with its blank, renders, and
@@ -1417,7 +951,7 @@ fn a_visible_assistant_after_an_agent_message_keeps_its_spacers() {
     assert!(lines[agent_row + 1].trim().is_empty(), "{text}");
     assert!(lines[agent_row + 2].contains("answer body"), "{text}");
     assert!(lines[agent_row + 3].trim().is_empty(), "{text}");
-    assert!(lines[agent_row + 4].contains("bash \u{b7} done"), "{text}");
+    assert!(lines[agent_row + 4].contains("bash - done"), "{text}");
 }
 
 /// The custom rows render through the transcript path: the agent
@@ -1427,8 +961,8 @@ fn custom_rows_render_in_the_transcript() {
     let mut view = view_with(vec![agent_message_row(), shell_completion_row()]);
     view.detail = Detail::All;
     let text = transcript_text(&mut view, 80);
-    assert!(text.contains("Agent message \u{b7} \u{2193} lane"));
-    assert!(text.contains("\u{2570}\u{2500} hi"));
+    assert!(text.contains("Agent message - v lane"));
+    assert!(text.contains("`- hi"));
     assert!(text.contains("Background shell command finished"));
     assert!(text.contains("[bash-done]"));
 }
@@ -1454,16 +988,14 @@ fn streaming_assistant_updates_across_frames() {
     assert!(frame1.contains("and more"));
 }
 
-/// The action toast renders as a compact right-aligned pill over the
-/// top transcript rows — the covered row keeps its own content, the
-/// toast never spans the row — and auto-dismisses once its TTL passes.
-/// Consecutive identical actions coalesce into one refreshed toast
-/// (the count bump), never stacked duplicate rows.
+/// The action toast renders as a compact pill row in the live area and
+/// auto-dismisses once its TTL passes. Consecutive identical actions
+/// coalesce into one refreshed toast (the count bump), never stacked
+/// duplicate rows.
 #[test]
 fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
-    // A transcript taller than the window puts real content on the
-    // window's top row (the tail-aligned window), so the pill lands
-    // over a covered row that has content to keep.
+    // A transcript taller than the window: the toast still renders in
+    // the live area.
     let mut view = view_with(
         (0..40)
             .map(|index| ChatEntry::Status {
@@ -1473,29 +1005,19 @@ fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
             .collect(),
     );
     view.toasts.push("Copied to clipboard");
-    let frame = view.render_frame(60, 24);
+    let frame = composed_rows(&mut view, 60, 24);
     let rows: Vec<String> = frame
         .iter()
         .map(|line| line.iter().map(|span| span.content.as_str()).collect())
         .collect();
-    let toast_row = rows
-        .iter()
-        .position(|row| row.contains("Copied to clipboard"))
-        .expect("the toast renders");
-    // Right-aligned: the top bar stays above the overlay (fullscreen:
-    // row 0).
-    assert!(toast_row >= 1, "the toast sits below the top bar");
-    // The pill is compact: the covered transcript row keeps its own
-    // content beside the toast (the toast never spans the row).
     assert!(
-        rows[toast_row].contains("covered line"),
-        "the covered row keeps its content: {:?}",
-        rows[toast_row]
+        rows.iter().any(|row| row.contains("Copied to clipboard")),
+        "the toast renders"
     );
     // The pill reads as a toast chip: the brand-purple Accent color
     // flipped onto the pill's background (REVERSED), not a bare dim
     // line.
-    let frame = view.render_frame(60, 24);
+    let frame = composed_rows(&mut view, 60, 24);
     let pill = frame
         .iter()
         .flatten()
@@ -1507,8 +1029,8 @@ fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
         pill.style
     );
     // Regression (the operator's brand-purple directive): the pill's
-    // color is the theme's Accent token — the brand purple the brand
-    // visuals carry — never the completed-action Success green it
+    // color is the theme's Accent token -- the brand purple the brand
+    // visuals carry -- never the completed-action Success green it
     // replaced.
     assert_eq!(
         pill.style.fg,
@@ -1526,7 +1048,7 @@ fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
     // toast with the count bump, not stacked duplicate rows.
     view.toasts.push("Copied to clipboard");
     view.toasts.push("Copied to clipboard");
-    let frame = view.render_frame(60, 24);
+    let frame = composed_rows(&mut view, 60, 24);
     let joined: String = frame
         .iter()
         .map(|line| {
@@ -1551,7 +1073,7 @@ fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
     // The overlay expires with its TTL.
     view.toasts
         .age_by(crate::toast::TOAST_TTL + std::time::Duration::from_millis(1));
-    let frame = view.render_frame(60, 24);
+    let frame = composed_rows(&mut view, 60, 24);
     let joined: String = frame
         .iter()
         .map(|line| {
@@ -1579,7 +1101,7 @@ fn browse_header_pair_sits_below_the_editor_top_row() {
         text: "turn right".to_string(),
         internal: false,
     });
-    let frame = v.render_frame(80, 24);
+    let frame = composed_rows(&mut v, 80, 24);
     let joined: Vec<String> = frame.iter().map(text_of).collect();
     // The header truncates at the content width; `browse` sits inside
     // the visible prefix (the strip hint row is absent - the queue is
@@ -1652,11 +1174,11 @@ fn the_collapsed_view_renders_every_activity_item_as_details_does() {
     let mut view = collapsed_view(entries);
     let text = transcript_text(&mut view, 80);
     assert!(
-        text.matches("bash \u{b7} done").count() == 5,
+        text.matches("bash - done").count() == 5,
         "every tool card renders its own panel rows: {text}"
     );
     assert!(
-        text.contains("Agent message \u{b7} \u{2193} lane"),
+        text.contains("Agent message - v lane"),
         "the agent-message notice keeps its own row: {text}"
     );
     assert!(
@@ -1678,11 +1200,11 @@ fn the_collapsed_view_renders_every_activity_item_as_details_does() {
     assert_eq!(view.detail, Detail::Details);
     let details = transcript_text(&mut view, 80);
     assert!(
-        details.matches("bash \u{b7} done").count() == 5,
+        details.matches("bash - done").count() == 5,
         "every card keeps its own rows at details: {details}"
     );
     assert!(
-        details.contains("Agent message \u{b7} \u{2193} lane"),
+        details.contains("Agent message - v lane"),
         "the notice keeps its own row at details: {details}"
     );
     assert!(
@@ -1787,7 +1309,6 @@ fn a_landing_result_with_receipts_settles_the_card() {
         ..Default::default()
     })));
     let index = view.chat.len() - 1;
-    view.prepare_entry_mutation(index);
     if let Some(ChatEntry::Tool(card)) = view.chat.get_mut(index) {
         card.result = Some(ToolResultView {
             content: vec![serde_json::json!({"type": "text", "text": "done"})],
@@ -1802,7 +1323,7 @@ fn a_landing_result_with_receipts_settles_the_card() {
     view.mark_entry_stale(index);
     let text = transcript_text(&mut view, 80);
     assert!(
-        text.contains("python \u{b7} print(1)"),
+        text.contains("python - print(1)"),
         "the settled cell renders its own rows: {text}"
     );
     assert!(

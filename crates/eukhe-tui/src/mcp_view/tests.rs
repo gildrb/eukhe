@@ -26,7 +26,7 @@ fn frame_text(view: &mut McpView) -> Vec<String> {
 
 /// A resolved-catalog response (the daemon's `services` array, in the
 /// daemon's TS-rank order: connected-first, then label): the daemon
-/// answers from local state — the connected row's tool count comes
+/// answers from local state -- the connected row's tool count comes
 /// from the connection record, not a live listing.
 fn catalog_response() -> serde_json::Value {
     json!({
@@ -69,24 +69,24 @@ fn catalog_response() -> serde_json::Value {
 
 /// The inline panel shape (TS `updateList` + `render`): the bordered
 /// search field, the row window with the trailing status, ONE blank
-/// row plus ONE fixed detail line, the hint — never a growing block.
+/// row plus ONE fixed detail line, the hint -- never a growing block.
 #[test]
 fn renders_the_ts_inline_panel_shape() {
     let mut view = McpView::from_response(&catalog_response(), 19);
     let rows = frame_text(&mut view);
-    let border = "\u{2500}".repeat(110);
+    let border = "-".repeat(110);
     assert_eq!(rows[0], border, "top rule");
     assert_eq!(rows[1], " >  Search MCP connections", "search field");
     assert_eq!(rows[2], border, "bottom rule");
     // The connected row leads (the daemon's TS rank); its status
     // reads the honest state. The record-carried tool count reads
-    // `Connected · N tools` (TS) on the notion row.
+    // `Connected * N tools` (TS) on the notion row.
     let selected = rows
         .iter()
-        .find(|row| row.starts_with("\u{203a}"))
+        .find(|row| row.starts_with('>'))
         .expect("selected row");
     assert!(
-        selected.starts_with("\u{203a} fixture-echo"),
+        selected.starts_with("> fixture-echo"),
         "row primary: {selected}"
     );
     assert!(
@@ -107,7 +107,7 @@ fn renders_the_ts_inline_panel_shape() {
     );
     assert_eq!(
         rows[detail + 1],
-        " \u{2191}/\u{2193} navigate \u{b7} Enter manage accounts \u{b7} Esc close",
+        " up/down navigate - Enter manage accounts - Esc close",
         "the hint row"
     );
     // The notion row carries the record's tool count.
@@ -115,10 +115,10 @@ fn renders_the_ts_inline_panel_shape() {
     let rows = frame_text(&mut view);
     let selected = rows
         .iter()
-        .find(|row| row.starts_with("\u{203a}"))
+        .find(|row| row.starts_with('>'))
         .expect("selected row");
     assert!(
-        selected.ends_with("Connected \u{b7} 12 tools"),
+        selected.ends_with("Connected - 12 tools"),
         "the record tool count: {selected}"
     );
     assert!(
@@ -163,14 +163,14 @@ fn the_frame_height_stays_within_the_viewport_budget() {
     // field: the frame only shrinks.
     let mut view = McpView::from_response(&data, 7);
     let rows = frame_text(&mut view);
-    assert_eq!(rows[0], "\u{2500}".repeat(110), "the search field stays");
+    assert_eq!(rows[0], "-".repeat(110), "the search field stays");
     assert!(
         !rows.iter().any(|row| row.contains("A catalog service.")),
         "the detail line dropped in the short viewport: {rows:?}"
     );
     assert!(rows.len() <= 7, "the short frame stays within budget");
     // A viewport the search field and hint alone fill renders the
-    // skeleton only: no service row, no scroll indicator, no detail —
+    // skeleton only: no service row, no scroll indicator, no detail --
     // the empty row window is never raised back to one row (the
     // panel cannot draw past its viewport).
     let mut view = McpView::from_response(&data, 4);
@@ -188,7 +188,7 @@ fn the_frame_height_stays_within_the_viewport_budget() {
     // hint (TS `actionText`): no `Enter select` filler.
     assert_eq!(
         rows.last().map(String::as_str),
-        Some(" \u{2191}/\u{2193} navigate \u{b7} Enter connect \u{b7} Esc close"),
+        Some(" up/down navigate - Enter connect - Esc close"),
         "the hint rides the skeleton's last row"
     );
 }
@@ -210,8 +210,7 @@ fn pasteable_rows_keep_the_honest_status() {
     );
     assert!(
         rows.iter()
-            .any(|row| row
-                == " \u{2191}/\u{2193} navigate \u{b7} Enter paste token \u{b7} Esc close"),
+            .any(|row| row == " up/down navigate - Enter paste token - Esc close"),
         "the paste action hint names the step: {rows:?}"
     );
     assert!(
@@ -285,10 +284,10 @@ fn credential_rows_render_and_route() {
     let rows = frame_text(&mut view);
     let selected = rows
         .iter()
-        .find(|row| row.starts_with("\u{203a}"))
+        .find(|row| row.starts_with('>'))
         .expect("selected row");
     assert!(
-        selected.starts_with("\u{203a} Serper (web search)"),
+        selected.starts_with("> Serper (web search)"),
         "the credential row renders its label: {selected}"
     );
     assert!(
@@ -303,7 +302,7 @@ fn credential_rows_render_and_route() {
     );
     assert_eq!(
         rows.last().map(String::as_str),
-        Some(" \u{2191}/\u{2193} navigate \u{b7} Enter add key \u{b7} Esc close"),
+        Some(" up/down navigate - Enter add key - Esc close"),
         "the hint names the add-key step"
     );
     assert_eq!(
@@ -330,7 +329,7 @@ fn a_configured_credential_names_the_replace_step() {
     let rows = frame_text(&mut view);
     let selected = rows
         .iter()
-        .find(|row| row.starts_with("\u{203a}"))
+        .find(|row| row.starts_with('>'))
         .expect("selected row");
     assert!(
         selected.ends_with("Configured"),
@@ -338,7 +337,7 @@ fn a_configured_credential_names_the_replace_step() {
     );
     assert_eq!(
         rows.last().map(String::as_str),
-        Some(" \u{2191}/\u{2193} navigate \u{b7} Enter replace key \u{b7} Esc close"),
+        Some(" up/down navigate - Enter replace key - Esc close"),
         "the hint names the replace-key step"
     );
 }
@@ -359,7 +358,7 @@ fn the_credential_rows_join_the_search() {
     assert_eq!(view.selected_server(), None);
 }
 
-/// The TS navigation: arrows clamp at the list's bounds — up at the
+/// The TS navigation: arrows clamp at the list's bounds -- up at the
 /// first row stays there, down at the last row stays there (never the
 /// wrap-around the port had).
 #[test]
@@ -422,10 +421,10 @@ fn search_ranks_identity_fields_before_descriptions() {
     let rows = frame_text(&mut view);
     let selected = rows
         .iter()
-        .find(|row| row.starts_with("\u{203a}"))
+        .find(|row| row.starts_with('>'))
         .expect("selected row");
     assert!(
-        selected.starts_with("\u{203a} GitHub"),
+        selected.starts_with("> GitHub"),
         "identity ranks first: {selected} (all: {rows:?})"
     );
     // The alias band: "linear-app" finds Linear.
@@ -535,7 +534,7 @@ fn the_empty_roster_renders_the_empty_message() {
     assert_eq!(rows[message + 1], "", "the blank row before the hint");
     assert_eq!(
         rows[message + 2],
-        " \u{2191}/\u{2193} navigate \u{b7} Esc close",
+        " up/down navigate - Esc close",
         "no action filler in the hint (TS)"
     );
     // A query with no matches.
@@ -580,7 +579,7 @@ fn typing_filters_by_label_and_alias() {
     view.paste("-app");
     let rows = frame_text(&mut view);
     assert!(
-        rows.iter().any(|row| row.starts_with("\u{203a} Linear")),
+        rows.iter().any(|row| row.starts_with("> Linear")),
         "the alias still matches after the paste: {rows:?}"
     );
 }
@@ -592,7 +591,7 @@ fn typing_filters_by_label_and_alias() {
 #[test]
 fn scoring_measures_utf16_units_like_ts() {
     // The prefix tiebreak: the rest after the emoji prefix is one
-    // more emoji — TWO UTF-16 units, not one char (TS `.length`).
+    // more emoji -- TWO UTF-16 units, not one char (TS `.length`).
     assert_eq!(
         identity_match_score("\u{1f600}\u{1f600}", "\u{1f600}"),
         Some(SCORE_PREFIX + 2.0 * 0.01),
@@ -600,7 +599,7 @@ fn scoring_measures_utf16_units_like_ts() {
     );
     // The substring tiebreak: inside "xy" (a word the emoji split
     // keeps whole) the token "y" is NOT a word start, so the
-    // substring position after the two-unit emoji is 3 — a UTF-16
+    // substring position after the two-unit emoji is 3 -- a UTF-16
     // unit index, not the byte offset 6.
     assert_eq!(
         identity_match_score("\u{1f600}xy", "y"),
@@ -655,7 +654,7 @@ fn narrow_rows_shorten_the_trailing_status() {
         &theme,
         24,
         vec![Span::raw("CockroachDB")],
-        &[(ThemeColor::Success, "Connected \u{b7} 12 tools")],
+        &[(ThemeColor::Success, "Connected - 12 tools")],
         true,
     );
     let text = row
@@ -668,7 +667,7 @@ fn narrow_rows_shorten_the_trailing_status() {
         "the row stays exactly the width: {text:?}"
     );
     assert!(
-        text.contains('\u{2026}'),
+        text.contains("..."),
         "the status shortens with the ellipsis: {text:?}"
     );
     assert!(

@@ -179,7 +179,7 @@ fn legacy_migration(id: &str) -> Option<&'static str> {
 }
 
 /// The config object as an ordered entry list (`serde_json` maps sort keys,
-/// so the TS object order — definition ids first, extras sorted after — is
+/// so the TS object order -- definition ids first, extras sorted after -- is
 /// carried by this vector; [`write_json_object`] renders it in order).
 pub type OrderedConfig = Vec<(String, serde_json::Value)>;
 
@@ -226,7 +226,7 @@ fn order_keybindings_config(mut config: OrderedConfig) -> OrderedConfig {
 
 /// TS `toKeybindingsConfig`: a value is a key list only when it is a string
 /// or an array whose every entry is a string (an empty array disables the
-/// binding); anything else drops. Unknown ids survive — they never
+/// binding); anything else drops. Unknown ids survive -- they never
 /// resolve, but stay in the round-tripped config.
 fn to_keybindings_config(value: &serde_json::Value) -> Option<Vec<String>> {
     match value {
@@ -514,7 +514,7 @@ impl KeybindingsManager {
 
     /// Whether `data` is the macOS option-composed form of one of the id's
     /// bound keys (TS `matches(keyData, id, { optionComposed: true })`:
-    /// Option+S types `ß` on layouts without option-as-meta, and the
+    /// Option+S types U+00DF (sharp s) on layouts without option-as-meta, and the
     /// composed character must toggle like Alt+S; only an alt-only
     /// binding composes).
     #[must_use]
@@ -633,16 +633,16 @@ fn format_key_text_on(key: &str, platform: LabelPlatform) -> String {
                 .split('+')
                 .map(|part| match part {
                     "escape" => "Esc".to_string(),
-                    "up" => "\u{2191}".to_string(),
-                    "down" => "\u{2193}".to_string(),
-                    "left" => "\u{2190}".to_string(),
-                    "right" => "\u{2192}".to_string(),
+                    "up" => crate::glyphs::KEY_UP.to_string(),
+                    "down" => crate::glyphs::KEY_DOWN.to_string(),
+                    "left" => crate::glyphs::KEY_LEFT.to_string(),
+                    "right" => crate::glyphs::KEY_RIGHT.to_string(),
                     "pageUp" => "PageUp".to_string(),
                     "pageDown" => "PageDown".to_string(),
                     // macOS labels the modifier after the keyboard row
                     // (Option), like TS formatKeyPart's darwin branch.
                     "alt" if platform.is_macos() => "Option".to_string(),
-                    // The macOS Cmd key — a prompt-editor-keybinds label
+                    // The macOS Cmd key -- a prompt-editor-keybinds label
                     // addition (TS never renders a super binding).
                     "super" if platform.is_macos() => "Cmd".to_string(),
                     other => {

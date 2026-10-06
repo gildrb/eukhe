@@ -244,8 +244,8 @@ impl SearchInput {
     }
 
     /// A whole-word paste (bracketed paste, newlines stripped like TS).
-    /// Control bytes never reach the value — the editor's `handle_paste`
-    /// filters them — so an ESC/OSC sequence riding a paste cannot be
+    /// Control bytes never reach the value -- the editor's `handle_paste`
+    /// filters them -- so an ESC/OSC sequence riding a paste cannot be
     /// stored in the query and re-emitted to the terminal on the next
     /// render of the field.
     pub(crate) fn paste(&mut self, text: &str) {
@@ -613,7 +613,7 @@ mod tests {
 
     /// A prefill from a typed partial (`/model gp` + Tab) continues where
     /// the user stopped: the caret sits at the end, typing extends the
-    /// filter, and Backspace deletes the tail — unlike `set_value`, which
+    /// filter, and Backspace deletes the tail -- unlike `set_value`, which
     /// leaves the caret at its old column (0 on a fresh input).
     #[test]
     fn prefill_places_the_caret_at_the_end() {

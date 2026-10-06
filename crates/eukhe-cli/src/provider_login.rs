@@ -2,7 +2,7 @@
 //! and `/logout` (TS `ProviderAuthFlows`): the provider catalog rows with
 //! their auth status, the API-key store, the MCP device flow, the Prime
 //! Inference terminal login (`prime_inference_login`), and the four
-//! subscription logins — the Codex Subscription login
+//! subscription logins -- the Codex Subscription login
 //! (`codex_subscription_login`) and the Anthropic, GitHub Copilot, and
 //! xAI logins (`subscription_login`: the PKCE callback flow, the device
 //! flows, the token exchanges, and the credential writes). The Prime
@@ -192,7 +192,7 @@ fn ts_row_order(a: &ProviderRow, b: &ProviderRow) -> std::cmp::Ordering {
 /// TS `ANTHROPIC_SUBSCRIPTION_AUTH_WARNING` (#2645): subscription
 /// requests identify as Claude Code, which may violate Anthropic's
 /// terms; an API key avoids the risk.
-const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Usage draws from your plan limits, but Eukhe identifies as Claude Code and this may violate Anthropic's terms — your account can be restricted or banned. An Anthropic API key avoids the risk. Manage usage at https://claude.ai/settings/usage.";
+const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Usage draws from your plan limits, but Eukhe identifies as Claude Code and this may violate Anthropic's terms -- your account can be restricted or banned. An Anthropic API key avoids the risk. Manage usage at https://claude.ai/settings/usage.";
 
 /// The provider auth surface against one daemon's shared directories.
 #[derive(Clone)]
@@ -224,7 +224,7 @@ impl ProviderAuth {
     /// TS `getAnthropicSubscriptionAuthWarning` (#2645, blocking body):
     /// the ban-risk warning applies when the stored Anthropic credential
     /// is an OAuth login, or the resolved key is a subscription token
-    /// (`sk-ant-oat...` — the same prefix the provider layer treats as
+    /// (`sk-ant-oat...` -- the same prefix the provider layer treats as
     /// OAuth). `None` = the auth is not a subscription.
     fn anthropic_subscription_warning_blocking(&self) -> Option<&'static str> {
         let mut auth = self.auth_storage();
@@ -506,7 +506,7 @@ fn login_blocking(
     if provider_row.auth_type == AuthType::Oauth {
         // The panel-driven flows (the MCP logins, the Prime Inference
         // login) run on the panel. An OAuth row reaching this
-        // non-panel body answers the silent cancel — the session
+        // non-panel body answers the silent cancel -- the session
         // routes the panel rows to the panel body, and no row dead-ends
         // in an after-selection error wall.
         return ProviderAuthOutcome::Cancelled;
@@ -537,7 +537,7 @@ fn login_blocking(
 
 /// The login flow body for the panel-driven rows (the MCP OAuth logins,
 /// the Prime Inference login, the four subscription logins): blocking on
-/// the dedicated thread — the
+/// the dedicated thread -- the
 /// flow awaits its transport AND the panel's prompt/picker replies (the
 /// answers arrive from the TUI loop's thread), and the inline auth panel
 /// carries every surface the plain terminal used to.
@@ -715,7 +715,7 @@ fn login_blocking_on_panel(
             );
     }
     // Any other row that reaches the panel body answers the silent
-    // cancel (the session routes only the ported rows here — never an
+    // cancel (the session routes only the ported rows here -- never an
     // error wall).
     ProviderAuthOutcome::Cancelled
 }

@@ -3,13 +3,13 @@
 //! stderr before a mode's output starts (TS
 //! `deferTelemetryNoticeForOnboarding: executionMode === "interactive"`).
 //! The interactive mode renders the same disclosure inside the TUI as a
-//! session info row (eukhe-tui's attach) — the alt screen hides a pre-TUI
-//! stderr print, so a stderr notice would never be seen there.
+//! session info row (eukhe-tui's attach), so it lands in the transcript
+//! with the rest of the session instead of above it on stderr.
 
 use crate::mode::RuntimeConfig;
 
 /// Print the once-per-installation telemetry notice when it is due:
-/// telemetry enabled (env override, then settings — the `RunOptions`
+/// telemetry enabled (env override, then settings -- the `RunOptions`
 /// resolution) and not yet shown.
 pub(crate) fn print_if_due(config: &RuntimeConfig) {
     if config.telemetry_disabled {

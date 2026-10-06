@@ -106,8 +106,8 @@ fn logs_rows_match_ts_shape() {
             String::new(),
             // 2048/1024 = 2.0 KB; the 1-byte file rounds to 0.0 KB;
             // rows sort by name; dot-entries stay hidden.
-            "• a-second.log (0.0 KB)".to_string(),
-            "• client-errors.log (2.0 KB)".to_string(),
+            "* a-second.log (0.0 KB)".to_string(),
+            "* client-errors.log (2.0 KB)".to_string(),
             String::new(),
             "Daemon crashes log to <socket>.log; agent-open failures log to client-errors.log."
                 .to_string(),
@@ -176,9 +176,9 @@ fn context_tree_root_only_matches_ts() {
             "Context",
             "",
             "  agent             tokens   cost  context",
-            "\u{25cf} main agent          1.0k  $0.03  \u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591} 1% (1.0k/200k)",
+            "* main agent          1.0k  $0.03  .......... 1% (1.0k/200k)",
             "",
-            "Total: 1.0k tokens \u{b7} $0.03",
+            "Total: 1.0k tokens - $0.03",
             "",
             "Tokens",
             "Input: 900",
@@ -256,12 +256,12 @@ fn context_tree_full_shape_matches_ts() {
             "Model: prime-inference/z-ai/glm-5.3",
             "",
             "  agent                                         model            tokens   cost  context",
-            "\u{25cf} my session                                    glm-5.3            1.2M  $1.23  \u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2593} 95% (1.2M/131k)",
-            "\u{251c}\u{2500} \u{2713} run the verifier suite for parity          claude-opus-4-6     660  $0.01  0% (600/131k)",
-            "\u{2514}\u{2500} \u{25c6} a very long child label that must tr...    -                  1.5k  $0.02  -",
-            "   \u{2514}\u{2500} \u{2717} grandkid                                -                    11  $0.00  unknown after compaction",
+            "* my session                                    glm-5.3            1.2M  $1.23  ########## 95% (1.2M/131k)",
+            "|- ok run the verifier suite for parity         claude-opus-4-6     660  $0.01  0% (600/131k)",
+            "`- > a very long child label that must tr...    -                  1.5k  $0.02  -",
+            "   `- x grandkid                                -                    11  $0.00  unknown after compaction",
             "",
-            "Total: 1.3M tokens \u{b7} $1.26 across 4 agents",
+            "Total: 1.3M tokens - $1.26 across 4 agents",
             "",
             "Tokens",
             "Input: 1,236,272",
@@ -279,7 +279,7 @@ fn context_tree_full_shape_matches_ts() {
     );
     // The per-model breakdown STAYS OFF here: the root and sub-1
     // carry buckets, but the two billed children without them would
-    // leave lines that do not add up to the displayed total — a
+    // leave lines that do not add up to the displayed total -- a
     // partial breakdown degrades to the plain TS totals.
 }
 
@@ -289,10 +289,10 @@ fn context_tree_full_shape_matches_ts() {
 /// Every node's row carries its model, and the Cost section breaks
 /// the total down per model, most expensive first. The fixture's
 /// cost blocks are the provider-computed records (sol turn:
-/// 100k\u{d7}$4/M + 2k\u{d7}$20/M = $0.44; the opus switch burst:
-/// 5k\u{d7}$5/M + 1k\u{d7}$25/M + 104k cache-write\u{d7}$6.25/M =
-/// $0.70; the opus cache-hit turn: 500\u{d7}$5/M + 800\u{d7}$25/M +
-/// 110k cache-read\u{d7}$0.5/M = $0.0775; the glm subagent:
+/// 100kx$4/M + 2kx$20/M = $0.44; the opus switch burst:
+/// 5kx$5/M + 1kx$25/M + 104k cache-writex$6.25/M =
+/// $0.70; the opus cache-hit turn: 500x$5/M + 800x$25/M +
+/// 110k cache-readx$0.5/M = $0.0775; the glm subagent:
 /// $0.023).
 #[test]
 fn context_tree_shows_per_model_costs_across_a_switch() {
@@ -339,10 +339,10 @@ fn context_tree_shows_per_model_costs_across_a_switch() {
             "Model: anthropic/claude-opus-4-6",
             "",
             "  agent                         model            tokens   cost  context",
-            "\u{25cf} switched session              claude-opus-4-6    323k  $1.22  \u{2593}\u{2593}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591} 22% (221k/1.0M)",
-            "\u{2514}\u{2500} \u{2713} scan the pricing tables    glm-5.3-fast       1.4k  $0.02  -",
+            "* switched session              claude-opus-4-6    323k  $1.22  ##........ 22% (221k/1.0M)",
+            "`- ok scan the pricing tables   glm-5.3-fast       1.4k  $0.02  -",
             "",
-            "Total: 325k tokens \u{b7} $1.24 across 2 agents",
+            "Total: 325k tokens - $1.24 across 2 agents",
             "",
             "Tokens",
             "Input: 106,500",
@@ -378,7 +378,7 @@ fn context_bar_color_follows_the_percent() {
     // The root row carries the bar: warning at >= 80 percent.
     let bar = rows[3]
         .iter()
-        .find(|span| span.text.contains("\u{2593}"))
+        .find(|span| span.text.contains('#'))
         .expect("the bar cell");
     assert_eq!(bar.color, Some(ThemeColor::Warning));
     // Under 80 the bar is the accent color (fixture A covers it at
@@ -386,7 +386,7 @@ fn context_bar_color_follows_the_percent() {
 }
 
 /// The collapse boundary: a tree of exactly the row budget (root + 9
-/// runners) renders the full TS shape — every row in tree order, no
+/// runners) renders the full TS shape -- every row in tree order, no
 /// summary row, no expand hint. The runner usages are deliberately
 /// unsorted, so a leaked ranking would reorder the rows.
 #[test]
@@ -467,18 +467,18 @@ fn context_tree_ten_rows_render_the_full_shape() {
             "Model: prime-inference/z-ai/glm-5.3",
             "",
             "  agent             model    tokens   cost  context",
-            "\u{25cf} fleet lead        glm-5.3     10k  $0.50  \u{2593}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591} 6% (12k/200k)",
-            "\u{251c}\u{2500} \u{2713} runner-1       -           300  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} runner-2       -           100  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} runner-3       -           500  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} runner-4       -           200  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} runner-5       -           900  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} runner-6       -           400  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} runner-7       -           700  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} runner-8       -           600  $0.00  -",
-            "\u{2514}\u{2500} \u{2713} runner-9       -           800  $0.00  -",
+            "* fleet lead        glm-5.3     10k  $0.50  #......... 6% (12k/200k)",
+            "|- ok runner-1      -           300  $0.00  -",
+            "|- ok runner-2      -           100  $0.00  -",
+            "|- ok runner-3      -           500  $0.00  -",
+            "|- ok runner-4      -           200  $0.00  -",
+            "|- ok runner-5      -           900  $0.00  -",
+            "|- ok runner-6      -           400  $0.00  -",
+            "|- ok runner-7      -           700  $0.00  -",
+            "|- ok runner-8      -           600  $0.00  -",
+            "`- ok runner-9      -           800  $0.00  -",
             "",
-            "Total: 15k tokens \u{b7} $0.50 across 10 agents",
+            "Total: 15k tokens - $0.50 across 10 agents",
             "",
             "Tokens",
             "Input: 13,500",
@@ -496,8 +496,8 @@ fn context_tree_ten_rows_render_the_full_shape() {
 }
 
 /// The collapsed shape: a fleet tree of 13 agent rows (root + 12
-/// workers) renders its ten highest-usage rows — the root first, then
-/// the workers by own spend — folds the three cheapest into the `...`
+/// workers) renders its ten highest-usage rows -- the root first, then
+/// the workers by own spend -- folds the three cheapest into the `...`
 /// summary row (their spend fills the token and cost cells, so the
 /// table still adds up), and names the `/context all` command that
 /// renders the whole tree. The trailing totals still cover all 13
@@ -599,20 +599,20 @@ fn context_tree_collapses_over_the_budget_to_top_usage_rows() {
             "Model: prime-inference/z-ai/glm-5.3",
             "",
             "  agent             model         tokens   cost  context",
-            "\u{25cf} fleet lead        glm-5.3         100k  $0.90  \u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591} 50% (100k/200k)",
-            "\u{2514}\u{2500} \u{2713} worker-12      glm-5.3-fast     20k  $0.20  -",
-            "\u{251c}\u{2500} \u{25c6} worker-06      -               6.0k  $0.06  -",
-            "\u{251c}\u{2500} \u{2713} worker-08      -               4.2k  $0.04  -",
-            "\u{251c}\u{2500} \u{2713} worker-02      -               3.0k  $0.03  -",
-            "\u{251c}\u{2500} \u{2713} worker-04      -               2.4k  $0.02  -",
-            "\u{251c}\u{2500} \u{2713} worker-10      -               1.5k  $0.01  -",
-            "\u{251c}\u{2500} \u{2713} worker-01      -               1.2k  $0.01  -",
-            "\u{251c}\u{2500} \u{2713} worker-05      -                900  $0.01  -",
-            "\u{251c}\u{2500} \u{2713} worker-09      -                800  $0.01  -",
+            "* fleet lead        glm-5.3         100k  $0.90  #####..... 50% (100k/200k)",
+            "`- ok worker-12     glm-5.3-fast     20k  $0.20  -",
+            "|- > worker-06      -               6.0k  $0.06  -",
+            "|- ok worker-08     -               4.2k  $0.04  -",
+            "|- ok worker-02     -               3.0k  $0.03  -",
+            "|- ok worker-04     -               2.4k  $0.02  -",
+            "|- ok worker-10     -               1.5k  $0.01  -",
+            "|- ok worker-01     -               1.2k  $0.01  -",
+            "|- ok worker-05     -                900  $0.01  -",
+            "|- ok worker-09     -                800  $0.01  -",
             "... 3 more agents   -               1.3k  $0.01  -",
             "Use /context all to show every agent.",
             "",
-            "Total: 141k tokens \u{b7} $1.31 across 13 agents",
+            "Total: 141k tokens - $1.31 across 13 agents",
             "",
             "Tokens",
             "Input: 131,300",
@@ -630,7 +630,7 @@ fn context_tree_collapses_over_the_budget_to_top_usage_rows() {
 }
 
 /// The expanded shape (`/context all`): the same 13-agent tree renders
-/// every row in tree order — no ranking, no summary row, no hint.
+/// every row in tree order -- no ranking, no summary row, no hint.
 #[test]
 fn context_tree_all_renders_every_row() {
     let tree = json(
@@ -728,21 +728,21 @@ fn context_tree_all_renders_every_row() {
             "Model: prime-inference/z-ai/glm-5.3",
             "",
             "  agent             model         tokens   cost  context",
-            "\u{25cf} fleet lead        glm-5.3         100k  $0.90  \u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591} 50% (100k/200k)",
-            "\u{251c}\u{2500} \u{2713} worker-01      -               1.2k  $0.01  -",
-            "\u{251c}\u{2500} \u{2713} worker-02      -               3.0k  $0.03  -",
-            "\u{251c}\u{2500} \u{2713} worker-03      -                500  $0.01  -",
-            "\u{251c}\u{2500} \u{2713} worker-04      -               2.4k  $0.02  -",
-            "\u{251c}\u{2500} \u{2713} worker-05      -                900  $0.01  -",
-            "\u{251c}\u{2500} \u{25c6} worker-06      -               6.0k  $0.06  -",
-            "\u{251c}\u{2500} \u{2713} worker-07      -                100  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} worker-08      -               4.2k  $0.04  -",
-            "\u{251c}\u{2500} \u{2713} worker-09      -                800  $0.01  -",
-            "\u{251c}\u{2500} \u{2713} worker-10      -               1.5k  $0.01  -",
-            "\u{251c}\u{2500} \u{2713} worker-11      -                700  $0.01  -",
-            "\u{2514}\u{2500} \u{2713} worker-12      glm-5.3-fast     20k  $0.20  -",
+            "* fleet lead        glm-5.3         100k  $0.90  #####..... 50% (100k/200k)",
+            "|- ok worker-01     -               1.2k  $0.01  -",
+            "|- ok worker-02     -               3.0k  $0.03  -",
+            "|- ok worker-03     -                500  $0.01  -",
+            "|- ok worker-04     -               2.4k  $0.02  -",
+            "|- ok worker-05     -                900  $0.01  -",
+            "|- > worker-06      -               6.0k  $0.06  -",
+            "|- ok worker-07     -                100  $0.00  -",
+            "|- ok worker-08     -               4.2k  $0.04  -",
+            "|- ok worker-09     -                800  $0.01  -",
+            "|- ok worker-10     -               1.5k  $0.01  -",
+            "|- ok worker-11     -                700  $0.01  -",
+            "`- ok worker-12     glm-5.3-fast     20k  $0.20  -",
             "",
-            "Total: 141k tokens \u{b7} $1.31 across 13 agents",
+            "Total: 141k tokens - $1.31 across 13 agents",
             "",
             "Tokens",
             "Input: 131,300",
@@ -845,20 +845,20 @@ fn context_tree_collapse_can_fold_the_root_into_the_summary() {
             "Context",
             "",
             "  agent             tokens   cost  context",
-            "\u{251c}\u{2500} \u{2713} scout-01         2.0k  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} scout-02         1.9k  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} scout-03         1.8k  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} scout-04         1.7k  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} scout-05         1.6k  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} scout-06         1.5k  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} scout-07         1.4k  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} scout-08         1.3k  $0.00  -",
-            "\u{251c}\u{2500} \u{2713} scout-09         1.2k  $0.00  -",
-            "\u{2514}\u{2500} \u{2713} scout-10         1.1k  $0.00  -",
+            "|- ok scout-01        2.0k  $0.00  -",
+            "|- ok scout-02        1.9k  $0.00  -",
+            "|- ok scout-03        1.8k  $0.00  -",
+            "|- ok scout-04        1.7k  $0.00  -",
+            "|- ok scout-05        1.6k  $0.00  -",
+            "|- ok scout-06        1.5k  $0.00  -",
+            "|- ok scout-07        1.4k  $0.00  -",
+            "|- ok scout-08        1.3k  $0.00  -",
+            "|- ok scout-09        1.2k  $0.00  -",
+            "`- ok scout-10        1.1k  $0.00  -",
             "... 1 more agent        50  $0.00  -",
             "Use /context all to show every agent.",
             "",
-            "Total: 16k tokens \u{b7} $0.00 across 11 agents",
+            "Total: 16k tokens - $0.00 across 11 agents",
             "",
             "Tokens",
             "Input: 15,550",

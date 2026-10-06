@@ -537,7 +537,6 @@ fn command_options(
         session: eukhe_tui::interactive::SessionSelection::Attach(session_id.to_string()),
         show_images: false,
         client_settings: None,
-        fullscreen_mouse: true,
         initial_message: None,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
@@ -937,7 +936,7 @@ async fn tui_prime_login_renders_the_inline_team_picker() {
         "the personal-account row renders:\n{rendered}"
     );
     assert!(
-        rendered.contains("personal account · current"),
+        rendered.contains("personal account - current"),
         "the personal row carries its meta and the current marker:\n{rendered}"
     );
     assert!(
@@ -963,14 +962,10 @@ async fn tui_prime_login_renders_the_inline_team_picker() {
         "the panel flow ran"
     );
     // No terminal takeover anywhere: the flow never clears the screen
-    // (the old numbered prompt and the alt-screen leave are gone).
+    // (the old numbered prompt is gone).
     assert!(
         !rendered.contains("\u{1b}[2J"),
         "no clear-screen escape in any frame:\n{rendered}"
-    );
-    assert!(
-        !rendered.contains("\u{1b}[?1049l"),
-        "no alternate-screen leave in any frame:\n{rendered}"
     );
     assert!(
         !rendered.contains("Enter a team number"),
@@ -1704,7 +1699,7 @@ async fn tui_login_and_logout_run_the_provider_flows() {
         "the login menu's search bar renders (the picker grammar, no title):\n{rendered}"
     );
     assert!(
-        rendered.contains("OpenAI · api key"),
+        rendered.contains("OpenAI - api key"),
         "the provider row renders:\n{rendered}"
     );
     assert!(

@@ -1,14 +1,13 @@
 //! The data assembly and the input surface: the unified records,
 //! the row rebuild (the reconciled roster+catalog with the query
 //! filter), the roster update apply, the saved-catalog stream
-//! reconcile, and the selection/key/mouse dispatch residue
+//! reconcile, and the selection/key dispatch residue
 //! (moved with their concern).
 use super::{
     build_rows, compute_rollups, filter_empty_sessions, filter_unified_sessions,
     parse_search_query, reconcile_unified_sessions, resolve_selection, scope_ancestors, scope_root,
     scope_to_subtree, AgentsViewMode, AgentsViewRow, AgentsViewScope, Composer, OpenedRow, PathBuf,
-    PressedMouseClick, RowKind, ScopeRoot, SelectionEdge, SelectionKey, SessionSelection, Value,
-    ANCHOR_LOADING_HINT,
+    RowKind, ScopeRoot, SelectionEdge, SelectionKey, SessionSelection, Value, ANCHOR_LOADING_HINT,
 };
 
 impl AgentsViewMode {
@@ -84,8 +83,8 @@ impl AgentsViewMode {
         );
         // The entry anchor's row may be nested: arm the same ancestor
         // expansion below so this pass reveals it (a top-level anchor has
-        // no ancestors, and a scoped view never lists the anchor at all —
-        // the scope root is excluded — so the wait just stands by).
+        // no ancestors, and a scoped view never lists the anchor at all --
+        // the scope root is excluded -- so the wait just stands by).
         if let (true, Some(anchor)) = (
             self.anchor_selection_pending
                 && self.options.scope.is_none()
@@ -296,12 +295,12 @@ impl AgentsViewMode {
     ///
     /// While the entry anchor still waits on its row (the saved catalog
     /// streams in), the selection is the rebuild's default, not the
-    /// user's — opening it would confirm an arbitrary row (on a
+    /// user's -- opening it would confirm an arbitrary row (on a
     /// continue-recent launch that can be an unrelated live session). The
     /// open waits instead: the anchor lands the selection once its row
-    /// appears, and any direction key or row click cancels the wait for
+    /// appears, and any direction key cancels the wait for
     /// an explicit manual pick. A scoped view never lists its anchor
-    /// (the scope root is excluded), so its wait never resolves — it
+    /// (the scope root is excluded), so its wait never resolves -- it
     /// keeps the open.
     /// End the entry anchor's wait (the anchor row landed).
     pub(super) fn end_anchor_wait(&mut self) {
@@ -353,7 +352,7 @@ impl AgentsViewMode {
     /// anchor's wait ends with it (TS `resolveMissingSelectionAnchor`'s
     /// finally arm). The anchor's row can only arrive through this fetch,
     /// so a pending wait behind the failure would keep re-arming the
-    /// loading hint on every open — an open the failed catalog can never
+    /// loading hint on every open -- an open the failed catalog can never
     /// satisfy. The selection stands on the rebuild's default row, and the
     /// status line keeps the fetch's own honest error.
     pub(super) fn settle_anchor_wait_on_saved_failure(&mut self) {
@@ -434,8 +433,8 @@ impl AgentsViewMode {
 
     /// The loading hint belongs to the wait alone: ending the wait by
     /// either arm (the anchor landing or the user's first move) drops it
-    /// so the status line returns to the flow's own notice — the error
-    /// catalog-failure message included — instead of a stale loading
+    /// so the status line returns to the flow's own notice -- the error
+    /// catalog-failure message included -- instead of a stale loading
     /// message.
     pub(super) fn clear_anchor_loading_hint(&mut self) {
         if self.status_text() == Some(ANCHOR_LOADING_HINT) {
@@ -445,8 +444,8 @@ impl AgentsViewMode {
 
     /// The selection page step (TS `handleListNavigation`: the page keys
     /// move by `Math.max(1, visibleListRows())`, where `visibleListRows()`
-    /// is the terminal rows minus the fixed frame chrome — splash, search
-    /// prompt, hints — floored at 4 rows).
+    /// is the terminal rows minus the fixed frame chrome -- splash, search
+    /// prompt, hints -- floored at 4 rows).
     pub(super) fn page_step(&self) -> usize {
         self.last_height.saturating_sub(9).max(4).max(1)
     }
@@ -454,7 +453,7 @@ impl AgentsViewMode {
     /// Handle one key id. Every action dispatches through the effective
     /// keybindings in TS dispatch order (`AgentsViewMode.handleInput`,
     /// then `CustomEditor.handleInput`/`Editor.handleInput`), so a user
-    /// `keybindings.json` override moves both the handler and the hint —
+    /// `keybindings.json` override moves both the handler and the hint --
     /// the same contract as the session view (#184).
     pub(super) fn handle_key(&mut self, key: &str) {
         // TS `handleInput`'s first call: a sticky line clears on any
@@ -479,7 +478,7 @@ impl AgentsViewMode {
         let has_query = !self.query.is_empty();
         // TS `handleInput`'s composer branches (:1119-1126 and the
         // armed-reply gates before `editor.handleInput`): the armed
-        // composer owns every key before the app-level handlers — the
+        // composer owns every key before the app-level handlers -- the
         // draft comes out owned, and an unarmed Search parks nothing.
         match std::mem::replace(&mut self.composer, Composer::Search) {
             Composer::Rename(rename) => {
@@ -526,22 +525,22 @@ impl AgentsViewMode {
             return;
         }
         // TS `app.agents.rename` (default ctrl+r, empty editor only,
-        // before the delete arm — TS :1153): enter the rename composer.
+        // before the delete arm -- TS :1153): enter the rename composer.
         if !has_query && self.keybindings.matches(key, "app.agents.rename") {
             self.enter_rename_mode();
             return;
         }
-        // TS `app.agents.delete` (default ctrl+x, empty editor only — TS
+        // TS `app.agents.delete` (default ctrl+x, empty editor only -- TS
         // `handleInput`'s gate): stop or delete the selected row. The
         // first press arms the confirm over the row (the hint reads
-        // "stop" while the row has live work, "delete" otherwise — TS
+        // "stop" while the row has live work, "delete" otherwise -- TS
         // `hasLiveWork`), the second press on the same row executes, and
         // any other key clears the arm.
         if !has_query && self.keybindings.matches(key, "app.agents.delete") {
             self.confirm_delete_for_selected(was_delete_armed);
             return;
         }
-        // TS `app.agents.reply` (default space, empty editor only —
+        // TS `app.agents.reply` (default space, empty editor only --
         // TS :1164): arm the reply composer over the selected agent row;
         // the same target disarms. A space with a query is search text.
         if !has_query && self.keybindings.matches(key, "app.agents.reply") {
@@ -608,7 +607,7 @@ impl AgentsViewMode {
         }
         // TS `app.agents.open` (right) and the editor submit (enter, the
         // `tui.select.confirm` slot) both open the selection (a non-empty
-        // query still opens while the cursor sits at its end — always
+        // query still opens while the cursor sits at its end -- always
         // true for this editor); the summary row toggles its list instead.
         if self.keybindings.matches(key, "app.agents.open")
             || self.keybindings.matches(key, "tui.select.confirm")
@@ -672,7 +671,7 @@ impl AgentsViewMode {
             }
             return;
         }
-        // TS `app.exit` (default ctrl+d, empty editor — the editor's
+        // TS `app.exit` (default ctrl+d, empty editor -- the editor's
         // `onCtrlD`): leave the view without opening a session.
         if !has_query && self.keybindings.matches(key, "app.exit") {
             self.running = false;
@@ -725,7 +724,7 @@ impl AgentsViewMode {
 
     /// Materialize the armed composer's parked suggestion request (TS's
     /// editor contract: `getSuggestions` resolves after the keystroke
-    /// batch, so the host materializes it — the chat's
+    /// batch, so the host materializes it -- the chat's
     /// `materialize_editor_autocomplete`). The search field and the
     /// provider-less editors park nothing.
     pub(super) fn materialize_composer_autocomplete(&mut self) {
@@ -737,7 +736,7 @@ impl AgentsViewMode {
     }
 
     /// One paste (bracketed, or the paste-aware reader's coalesced
-    /// marker-less burst — tmux ≤3.2 forwards pastes without markers,
+    /// marker-less burst -- tmux <=3.2 forwards pastes without markers,
     /// and Enter submits in the composers, so a burst typed line by
     /// line would submit per line): the armed composer's editor takes
     /// it through TS's paste path (inline, or an atomic marker for a
@@ -757,115 +756,13 @@ impl AgentsViewMode {
             }
         }
     }
-
-    /// One mouse report (the session surface's click grammar, scoped to
-    /// the view's rows): a plain left press always re-records the row
-    /// under it (a release lost to a focus change or a touch cancel
-    /// never pins the next tap to the old row), a drag kills the
-    /// pending click, and a plain release on the same row selects and
-    /// opens that row — the Enter action with its own preamble (a
-    /// showing notice panel consumes the click, the exit hint and the
-    /// stop-or-delete confirm clear with it), so the selection's own
-    /// feedback (the band moves, the session opens) is the click's.
-    /// The clicked row is an explicit user choice, a direction key's
-    /// peer: it ends the entry anchor's wait, so the open targets the
-    /// clicked row, never the loading hint. Wheel turns and other
-    /// buttons are consumed without a dispatch: the view's window is
-    /// selection-centered, not scroll-driven.
-    pub(super) fn handle_mouse(&mut self, event: &crate::mouse::MouseEvent) {
-        if !crate::mouse_tracking::active() {
-            return;
-        }
-        // A buttonless motion report is the hover (operator directive
-        // 2026-09-29, `?1003` any-event tracking): the row under the
-        // mouse carries the light hover band while it resolves to a
-        // session row — the render revalidates the row against each
-        // frame's click surface, so a roster rebuild that moves the
-        // rows re-aims the band and a row that scrolled away clears
-        // it. Motion never disturbs the click grammar: a pending
-        // press keeps its row (only a left-button drag marks it).
-        if event.button == crate::mouse::BUTTON_NONE && event.motion {
-            let row = event.y.saturating_sub(1) as usize;
-            let hover = self
-                .click_rows
-                .iter()
-                .any(|(click_row, _)| *click_row == row)
-                .then_some(row);
-            self.hover_row = hover;
-            return;
-        }
-        if event.button != crate::mouse::BUTTON_LEFT {
-            return;
-        }
-        // Modifier presses stay inert — the session surface treats them
-        // as selection-only, and this view has no selection surface to
-        // offer (a stale pending click dies with them).
-        if event.shift || event.alt || event.ctrl {
-            self.pressed_click = None;
-            return;
-        }
-        let row = event.y.saturating_sub(1) as usize;
-        if event.press {
-            // A fresh plain press always re-records its row (the session
-            // surface's `fullscreenPressedClick` always assigns): a
-            // release lost to a focus change or a touch cancel must
-            // never pin the next tap to the old row. A motion report
-            // while pressed only marks the drag.
-            if event.motion {
-                if let Some(pressed) = self.pressed_click.as_mut() {
-                    pressed.dragged = true;
-                }
-            } else {
-                self.pressed_click = Some(PressedMouseClick {
-                    row,
-                    dragged: false,
-                });
-            }
-            return;
-        }
-        let Some(pressed) = self.pressed_click.take() else {
-            return;
-        };
-        if pressed.dragged || pressed.row != row {
-            return;
-        }
-        let Some((_, index)) = self.click_rows.iter().find(|(r, _)| *r == row) else {
-            return;
-        };
-        // The click is an input like any key, so the open runs the Enter
-        // action's own preamble (`handle_key`'s): a showing notice panel
-        // consumes the click — the close is its whole action — and the
-        // exit hint and the stop-or-delete confirm clear with it, so a
-        // later ctrl+x re-arms over the clicked row instead of executing
-        // a stale arm.
-        if self.notice.is_some() {
-            self.notice = None;
-            return;
-        }
-        self.exit_armed = false;
-        self.pending_delete = None;
-        self.selected = *index;
-        self.search_return = None;
-        // A click is an explicit user choice like a direction key: it
-        // ends the entry anchor's wait, so the open below targets the
-        // clicked row, never the loading hint.
-        self.anchor_selection_pending = false;
-        self.clear_anchor_loading_hint();
-        self.sync_selected_row_state();
-        // The click moves the selection like a direction key, so the
-        // keyboard rule applies before the open: a toggle-click (a
-        // subagent summary or code row) stays in the view, and the
-        // composer never stays armed against a row the highlight left.
-        self.disarm_reply_off_selected();
-        self.open_selected();
-    }
 }
 
 /// Delete the query's trailing word run plus the whitespace before it
-/// (TS `Editor.deleteWordBackwards` with the caret at the text's end —
+/// (TS `Editor.deleteWordBackwards` with the caret at the text's end --
 /// this view's query is append-only, so the caret always sits there):
 /// the search input's punctuation-aware walk, so a dotted query
-/// ("error.rs") loses its trailing word run and keeps "error." — a
+/// ("error.rs") loses its trailing word run and keeps "error." -- a
 /// whitespace-only scan would take the whole dotted word. Returns
 /// whether anything was deleted: a no-op edit re-arms nothing.
 fn truncate_trailing_word(query: &mut String) -> bool {

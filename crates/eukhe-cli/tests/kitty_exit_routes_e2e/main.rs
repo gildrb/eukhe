@@ -62,20 +62,13 @@ use serde_json::{json, Value};
 const KITTY_FLAGS_PUSH: &[u8] = b"\x1b[>7u";
 /// The kitty flags pop (TS `ProcessTerminal.stop` / `drainInput`).
 const KITTY_FLAGS_POP: &[u8] = b"\x1b[<u";
-/// The alternate-screen leave: the boundary a mode-counting relay
-/// discards keyboard-protocol writes across (writes before it, made
-/// while the pane's alt screen is up, never land on the relay's
-/// stack).
-const ALT_SCREEN_LEAVE: &[u8] = b"\x1b[?1049l";
 /// The exit-tail stale-level drain (eukhe-tui `enhanced_keys`'s
-/// `STALE_LEVEL_DRAIN`): the bare pops the exit writes AFTER the last
-/// alt-screen leave. A mode-counting relay (herdr's pane emulator
-/// re-encodes pane input from its own count of the push/pop pairs in
-/// the pane output and never resets the count on foreground-program
-/// exit) discards the pair's writes made inside the alt screen, so
-/// only the post-leave drain lands — and the leftover level it clears
-/// would otherwise turn every later Ctrl+C/Ctrl+D in the pane's shell
-/// into a dead kitty CSI-u keypress.
+/// `STALE_LEVEL_DRAIN`): the bare pops the exit writes after the pair's
+/// own pop. A mode-counting relay (herdr's pane emulator re-encodes pane
+/// input from its own count of the push/pop pairs in the pane output and
+/// never resets the count on foreground-program exit) can miss the pair's
+/// pop, and the leftover level would otherwise turn every later
+/// Ctrl+C/Ctrl+D in the pane's shell into a dead kitty CSI-u keypress.
 const EXIT_POP_DRAIN: usize = 3;
 /// The probe's capability query.
 const KITTY_QUERY: &[u8] = b"\x1b[?u";
@@ -107,7 +100,6 @@ enum Route {
     ConfigSelector,
     ReplayAuto,
     ReplayPanic,
-    ForceQuit,
     LateAnswer,
     SuspendResume,
 }
@@ -123,7 +115,6 @@ impl Route {
             Route::ConfigSelector => "config_selector",
             Route::ReplayAuto => "replay_auto",
             Route::ReplayPanic => "replay_panic",
-            Route::ForceQuit => "force_quit",
             Route::LateAnswer => "late_answer",
             Route::SuspendResume => "suspend_resume",
         }
@@ -141,16 +132,14 @@ impl Route {
             // The `/exit` command typed into the editor with Enter.
             Route::SlashExit => b"/exit\r",
             // The double Ctrl+C inside the hint window: the loop-driven
-            // exit (the watchdog stays disarmed — both presses handled);
-            // the force-quit route arms the watchdog with the same pair
-            // (its exit is the watchdog's restore).
-            Route::CtrlCTwice | Route::ForceQuit => b"\x03\x03",
+            // exit (the watchdog stays disarmed -- both presses handled).
+            Route::CtrlCTwice => b"\x03\x03",
             // The agents view, the view's chat handoff, and the config
             // selector all close on Esc with an empty query.
             Route::HandoffViewExit | Route::ViewChatExit | Route::ConfigSelector => b"\x1b",
             // The replay, panic, and late-answer routes self-terminate
             // (auto-exit, the post-paint assert, the parity exit key).
-            _ => b"",
+            Route::ReplayAuto | Route::ReplayPanic | Route::LateAnswer => b"",
         }
     }
 
@@ -159,7 +148,15 @@ impl Route {
     fn expect_exit_code(self) -> Option<i32> {
         match self {
             Route::ReplayPanic => None,
-            _ => Some(0),
+            Route::CtrlD
+            | Route::SlashExit
+            | Route::CtrlCTwice
+            | Route::HandoffViewExit
+            | Route::ViewChatExit
+            | Route::ConfigSelector
+            | Route::ReplayAuto
+            | Route::LateAnswer
+            | Route::SuspendResume => Some(0),
         }
     }
 }
@@ -179,7 +176,9 @@ fn kitty_exit_child_mode() {
     child_run(&route, PathBuf::from(socket));
 }
 
-/// flag push with no query — the operator's kitty/Ghostty shape).
+/// Every exit route hands the pane back with the kitty-mode stack empty,
+/// on the known-terminal axis (the capability table names the terminal:
+/// a flag push with no query -- the operator's kitty/Ghostty shape).
 #[test]
 fn every_exit_route_restores_the_kitty_mode() {
     let _lock = match HARNESS_LOCK.lock() {
@@ -197,7 +196,6 @@ fn every_exit_route_restores_the_kitty_mode() {
         Route::CtrlD,
         Route::SlashExit,
         Route::CtrlCTwice,
-        Route::ForceQuit,
         Route::SuspendResume,
         Route::HandoffViewExit,
         Route::ViewChatExit,
@@ -237,9 +235,7 @@ impl Stage {
 
 /// The stage list per route, from spawn to exit. The late-answer route
 /// answers the probe only after the exit's pop (the release standdown
-/// window); the force-quit route stalls the drain so the watchdog is
-/// the exit. Returns the stage list plus whether the harness should
-/// read at all while the force-quit window passes.
+/// window).
 fn route_stages(route: Route, known_terminal: bool) -> Vec<Stage> {
     let arm: Vec<Stage> = if known_terminal {
         // The known-terminal axis: the flags arm with no query at all.
@@ -263,15 +259,6 @@ fn route_stages(route: Route, known_terminal: bool) -> Vec<Stage> {
             let mut s = mount(b"row 0");
             s.push(Stage::Write(route.exit_keys()));
             s
-        }
-        Route::ForceQuit => {
-            // The watchdog is the exit: the pair arms it, the second
-            // press drives the loop's exit, and the stalled drain (no
-            // reads) starves the exit's progress feed until the watchdog
-            // fires its own restore. The pair and the stall live in
-            // run_route's last stage (the reads must stop, not just
-            // wait); the big transcript paints only its tail rows.
-            mount(b"row 1598")
         }
         Route::LateAnswer => {
             // No answer at the arm: the probe stays in flight through
@@ -328,9 +315,7 @@ fn run_route(route: Route, known_terminal: bool) {
     let mut harness = RouteHarness::start(route, known_terminal);
     let stages = route_stages(route, known_terminal);
 
-    // Drive the stages. The force-quit route stalls its own reads
-    // between the pair's second press and the exit window (the drain
-    // starves the exit's progress feed; the watchdog fires).
+    // Drive the stages.
     for (index, stage) in stages.iter().enumerate() {
         match *stage {
             Stage::Wait(needle, what) => {
@@ -344,17 +329,7 @@ fn run_route(route: Route, known_terminal: bool) {
                     harness.drive_suspend_cycle();
                 }
                 let last = index == stages.len() - 1;
-                if last && route == Route::ForceQuit {
-                    // The pair lands inside the hint window; then the
-                    // reads stop so the exit's progress feed starves and
-                    // the watchdog fires its own restore (the stall
-                    // window covers the 1500ms deadline plus the 500ms
-                    // grace).
-                    harness.write(b"\x03");
-                    std::thread::sleep(Duration::from_millis(400));
-                    harness.write(b"\x03");
-                    std::thread::sleep(Duration::from_millis(2_500));
-                } else if last && route == Route::CtrlCTwice {
+                if last && route == Route::CtrlCTwice {
                     // Two presses inside the hint window read as one
                     // gesture to the loop: split them.
                     harness.write(b"\x03");
@@ -392,20 +367,6 @@ fn run_route(route: Route, known_terminal: bool) {
         harness.finish();
         return;
     }
-    // The force-quit route's structural proof: the watchdog's restore
-    // ran ON TOP of the exit path's own teardown (its force-leave adds a
-    // second `?1049l` — a clean exit leaves exactly once).
-    if route == Route::ForceQuit {
-        let leaves = stream
-            .windows(b"\x1b[?1049l".len())
-            .filter(|window| *window == b"\x1b[?1049l")
-            .count();
-        assert!(
-            leaves >= 2,
-            "{}: the watchdog never fired (alt-screen leaves {leaves}, expected the forced restore on top of the exit path's)",
-            route.name(),
-        );
-    }
     // The shadow emulator's kitty-mode stack: every push is popped.
     if std::env::var_os("EUKHE_KITTY_DEBUG_DUMP").is_some() {
         eprintln!("== {} stream len {} ==", route.name(), stream.len());
@@ -414,7 +375,6 @@ fn run_route(route: Route, known_terminal: bool) {
             ("pop", KITTY_FLAGS_POP),
             ("mok-reset", MODIFY_OTHER_KEYS_RESET),
             ("paste-off", BRACKETED_PASTE_OFF),
-            ("alt-leave", b"\x1b[?1049l"),
         ] {
             let mut at = 0;
             while let Some(hit) = find_subsequence_from(&stream, at, needle) {
@@ -457,93 +417,25 @@ fn run_route(route: Route, known_terminal: bool) {
             route.name(),
         );
     }
-    // The force-quit route's structural proof: the watchdog's restore
-    // ran ON TOP of the exit path's own teardown (its force-leave adds a
-    // second `?1049l` — a clean exit leaves exactly once).
-    if route == Route::ForceQuit {
-        let leaves = stream
-            .windows(b"\x1b[?1049l".len())
-            .filter(|window| *window == b"\x1b[?1049l")
-            .count();
-        assert!(
-            leaves >= 2,
-            "{}: the watchdog never fired (alt-screen leaves {leaves}, expected the forced restore on top of the exit path's)",
-            route.name(),
-        );
-    }
-    // The shadow emulator's kitty-mode stack: every push is popped.
-    // The late-answer route pins the standdown: the mode never armed,
-    // and the probe's answer — delivered around the exit — must not
-    // push the flags onto the shell (the release guard is the only
-    // thing standing between the answer and the parent shell).
-    if route == Route::LateAnswer {
-        assert!(
-            !contains(&stream, KITTY_FLAGS_PUSH),
-            "{}: the late probe answer pushed the kitty flags — the release standdown failed",
-            route.name(),
-        );
-        harness.finish();
-        return;
-    }
-    // (1) The exit wrote the kitty pop — and the pop is the LAST
-    // kitty-mode write on the stream: no push can follow it (a probe
-    // answer landing around the exit re-arming CSI-u on the shell is
-    // the reported leak).
-    let last_push = find_subsequence_last(&stream, KITTY_FLAGS_PUSH)
-        .unwrap_or_else(|| panic!("{}: the flags push never landed", route.name()));
-    let last_pop = find_subsequence_last(&stream, KITTY_FLAGS_POP).unwrap_or_else(|| {
-        panic!(
-            "{}: the flags pop never landed — the exit left the kitty mode armed",
-            route.name()
-        )
-    });
-    assert!(
-        last_pop > last_push,
-        "{}: the stream's last kitty-mode write is a push at {last_push} after the last pop at {last_pop} — the exit left CSI-u reporting armed",
-        route.name(),
-    );
-    // The modifyOtherKeys reset and the bracketed-paste disable land
-    // with the exit, after the last push (the TS `stop` byte order).
-    for (needle, what) in [
-        (MODIFY_OTHER_KEYS_RESET, "the modifyOtherKeys reset"),
-        (BRACKETED_PASTE_OFF, "the bracketed-paste disable"),
-    ] {
-        let at = find_subsequence_last(&stream, needle)
-            .unwrap_or_else(|| panic!("{}: {what} never landed", route.name()));
-        assert!(
-            at > last_push,
-            "{}: {what} landed at {at} before the last push at {last_push}",
-            route.name(),
-        );
-    }
     let depth = kitty_stack_depth(&stream);
     assert_eq!(
         depth, 0,
         "{}: the terminal's kitty-mode stack is {depth} deep after the exit — the shell receives CSI-u keys",
         route.name(),
     );
-    // (1b) The exit-tail stale-level drain: the pops written after the
-    // LAST alt-screen leave must cover the drain depth. A
-    // mode-counting relay (herdr's pane emulator re-encodes pane input
-    // from its own count of the push/pop pairs in the pane output and
-    // never resets the count on foreground-program exit) discards the
-    // pair's writes that land while the pane's alt screen is up — so
-    // the teardown's own pop, written inside the alt screen, never
-    // lands on the relay, and only post-leave pops (clamped no-ops at
-    // spec depth zero) repair the leftover level that would otherwise
-    // turn every later Ctrl+C/Ctrl+D in the pane's shell into a dead
-    // kitty CSI-u keypress.
-    let last_leave = find_subsequence_last(&stream, ALT_SCREEN_LEAVE)
-        .unwrap_or_else(|| panic!("{}: the alt-screen leave never landed", route.name()));
-    let mut pops_after_leave = 0usize;
-    let mut at = last_leave;
+    // (1b) The exit-tail stale-level drain: the pair's pop plus the bare
+    // drain pops all land after the last push (clamped no-ops at spec
+    // depth zero on a real terminal; the repair for a relay that missed
+    // the pair's pop).
+    let mut pops_after_push = 0usize;
+    let mut at = last_push;
     while let Some(hit) = find_subsequence_from(&stream, at, KITTY_FLAGS_POP) {
-        pops_after_leave += 1;
+        pops_after_push += 1;
         at = hit + 1;
     }
     assert!(
-        pops_after_leave >= EXIT_POP_DRAIN,
-        "{}: the exit wrote {pops_after_leave} pops after the last alt-screen leave — the stale-level drain never ran past the leave",
+        pops_after_push > EXIT_POP_DRAIN,
+        "{}: the exit wrote {pops_after_push} pops after the last push -- the stale-level drain never ran",
         route.name(),
     );
     // The exit code (the panic route dies on the unwind; everything
@@ -610,20 +502,10 @@ struct RouteHarness {
 }
 
 impl RouteHarness {
-    /// The force-quit route's transcript size: enough rows to fill the
-    /// pty (the slow-drain e2e's calibration, 1600 rows) so the exit
-    /// flush stalls mid-write and the watchdog is the exit.
-    const FORCE_QUIT_SEED_MESSAGES: usize = 1_600;
-
     fn start(route: Route, known_terminal: bool) -> RouteHarness {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let socket = dir.path().join("tui.sock");
-        let seed_messages = if route == Route::ForceQuit {
-            Self::FORCE_QUIT_SEED_MESSAGES
-        } else {
-            4
-        };
-        let supervisor = MockSupervisor::bind(&socket, seed_messages);
+        let supervisor = MockSupervisor::bind(&socket);
         let server = std::thread::spawn(move || supervisor.serve());
 
         let pty = openpty(

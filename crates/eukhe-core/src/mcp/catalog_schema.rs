@@ -308,7 +308,7 @@ pub enum OauthKind {
 /// (possibly secret-ish) input.
 fn safe_entry_id(entry_id: &str) -> String {
     if entry_id.len() > 64 {
-        format!("{}\u{2026}", &entry_id[..64])
+        format!("{}...", &entry_id[..entry_id.floor_char_boundary(64)])
     } else {
         entry_id.to_string()
     }
@@ -582,6 +582,14 @@ mod tests {
 
     fn parse(bytes: &[u8]) -> PluginsCatalog {
         parse_plugins_catalog(bytes).expect("catalog parses")
+    }
+
+    /// A long id whose 64th byte falls inside a multi-byte char truncates
+    /// at the char boundary instead of panicking.
+    #[test]
+    fn safe_entry_id_cuts_long_ids_on_a_char_boundary() {
+        let id = format!("{}{}", "a".repeat(63), "\u{e9}".repeat(4));
+        assert_eq!(safe_entry_id(&id), format!("{}...", "a".repeat(63)));
     }
 
     /// Parity gate: the real 68-service payload parses with zero failures.

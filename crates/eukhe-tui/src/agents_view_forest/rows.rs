@@ -33,8 +33,8 @@ struct BaseRow {
 
 /// Build the session-list rows (TS `buildAgentsViewRows`, plus the
 /// operator's one-line subagent summary): top-level agents, each with
-/// its ONE subagents line (`N subagents (M running)` — N = the full
-/// roster, M = the running subset — expanding to the whole roster in
+/// its ONE subagents line (`N subagents (M running)` -- N = the full
+/// roster, M = the running subset -- expanding to the whole roster in
 /// one group, running rows first). `expanded` holds the parent row
 /// identities whose lines are open; `program_shown` holds the parent
 /// identities whose spawn programs render inside the open list (TS
@@ -167,8 +167,8 @@ pub(crate) fn build_rows<S: std::hash::BuildHasher + Default>(
     }
     // Busy-descendant tally from the live rows, iterative over the parent
     // forest so deep chains cannot overflow (TS `runningSubagentCount`).
-    // The traversal is dynamically bounded — every row appended during the
-    // walk is itself traversed — so a chain of any depth folds before its
+    // The traversal is dynamically bounded -- every row appended during the
+    // walk is itself traversed -- so a chain of any depth folds before its
     // parent (TS's `index < tallyOrder.length` loop; a fixed `0..len` range
     // would strand grandchildren and their descendants out of every fold:
     // the busy tally, the descendant counts, and the cost rollups).
@@ -266,9 +266,9 @@ struct RowForest<'a, S: std::hash::BuildHasher + Default> {
 impl<S: std::hash::BuildHasher + Default> RowForest<'_, S> {
     /// Emit one row, then its ONE summary line, then its expanded
     /// children (TS `emit`): depth and parent identity come from the
-    /// walk. The line expands to the FULL roster in one group — the
+    /// walk. The line expands to the FULL roster in one group -- the
     /// running children first (each carrying its own running state and
-    /// its own nested line), the not-running children after — so every
+    /// its own nested line), the not-running children after -- so every
     /// descendant is reachable through the nesting alone.
     fn emit(
         &self,
@@ -297,8 +297,8 @@ impl<S: std::hash::BuildHasher + Default> RowForest<'_, S> {
         let mut sorted = children.clone();
         sorted.sort_by(|a, b| compare_base(&self.base[*a], &self.base[*b], self.anchor));
         // One group, one order (the operator's contract): the running
-        // rows first — `compare_base`'s section rank already sinks the
-        // not-running rows below them — so the partition is explicit
+        // rows first -- `compare_base`'s section rank already sinks the
+        // not-running rows below them -- so the partition is explicit
         // rather than left to the comparator's section ordering.
         let (running_kids, other_kids): (Vec<usize>, Vec<usize>) = sorted
             .iter()
@@ -355,21 +355,21 @@ fn agents_row(row: &BaseRow, depth: usize, parent_identity: Option<&str>) -> Age
 }
 
 /// The subagents line under one agent (the operator's 2026-09-28
-/// one-dropdown directive): `"{total} subagents ({running} running)"` —
+/// one-dropdown directive): `"{total} subagents ({running} running)"` --
 /// `total` = the FULL descendant roster (running + inactive), `running`
-/// = the running subset — expanding to the whole roster in one group,
+/// = the running subset -- expanding to the whole roster in one group,
 /// the running rows first. TS parity: TS `createSubagentSummaryRow`
 /// titles one `"{n} subagents running"` / `"{n} subagents"` line that
-/// expands to every child — this is the same one-line shape with the
+/// expands to every child -- this is the same one-line shape with the
 /// operator's both-counts label, a sanctioned divergence. The title
 /// stays count-only (the expanded children render their own Model
 /// column).
 ///
 /// The line reuses its parent's summary so the open action and selection
 /// keys resolve the parent. The `cost` cell is the whole descendant
-/// tree's spend — the line always renders while any descendant exists,
+/// tree's spend -- the line always renders while any descendant exists,
 /// so the aggregate never loses its row (TS `createSubagentSummaryRow`
-/// pins `recursiveCost: 0` there, a deliberate divergence) — and the
+/// pins `recursiveCost: 0` there, a deliberate divergence) -- and the
 /// line carries no age.
 fn merged_summary_row(parent: &BaseRow, depth: usize, expanded: bool) -> AgentsViewRow {
     let total = parent.descendant_count;
@@ -393,7 +393,7 @@ fn merged_summary_row(parent: &BaseRow, depth: usize, expanded: bool) -> AgentsV
 }
 
 /// TS `hasSpawnCode` (agents-view-state.ts:1021-1023): the summary's
-/// `spawnCode` is a string with a non-blank trim. The ONE predicate —
+/// `spawnCode` is a string with a non-blank trim. The ONE predicate --
 /// and the value the program rows render, never a second read.
 fn spawn_code(summary: &Value) -> Option<&str> {
     let code = summary.get("spawnCode").and_then(Value::as_str)?;
@@ -405,7 +405,7 @@ fn spawn_code(summary: &Value) -> Option<&str> {
 const MAX_SPAWN_CODE_LINES: usize = 10;
 
 /// TS `buildSpawnCodeRows` (agents-view-state.ts:1051-1083): one spawn
-/// cell's program as read-only rows — the code's lines (trailing
+/// cell's program as read-only rows -- the code's lines (trailing
 /// whitespace stripped, capped, the remainder counted), wrapped in
 /// blank pad rows. Each row reuses the parent's section and summary and
 /// carries the code line in `title` (code rows are never selected,
@@ -433,7 +433,7 @@ fn spawn_code_rows(
         has_spawn_code: false,
     };
     // TS `spawnCode.replace(/\s+$/, "")`: strip the trailing whitespace
-    // editors leave, then split the program into its lines — the cap
+    // editors leave, then split the program into its lines -- the cap
     // reads the first lines and counts the rest from the one iterator,
     // with no intermediate collection.
     let mut lines = code.trim_end().split('\n');
@@ -448,7 +448,8 @@ fn spawn_code_rows(
     if hidden > 0 {
         rows.push(make_row(
             &format!(
-                "\u{2026} +{hidden} more {}",
+                "{} +{hidden} more {}",
+                crate::glyphs::ELLIPSIS,
                 if hidden == 1 { "line" } else { "lines" }
             ),
             "more",

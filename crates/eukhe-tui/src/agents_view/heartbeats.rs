@@ -1,4 +1,4 @@
-//! The heartbeat-catalog fetch for the agents-view rows' `◷ N` badges.
+//! The heartbeat-catalog fetch for the agents-view rows' `@ N` badges.
 use super::{mpsc, DaemonClient, DaemonCommand, UiInput};
 
 /// The heartbeat-catalog fetch (TS `refreshHeartbeats` over

@@ -21,8 +21,8 @@ impl ModelPicker {
     }
 
     /// Whether the session holds a scope (the scope row renders and the
-    /// toggle only runs then; TS keys it off the session's list —
-    /// `scopedModels.length > 0`, model-selector.ts:231/:253-255 — never
+    /// toggle only runs then; TS keys it off the session's list --
+    /// `scopedModels.length > 0`, model-selector.ts:231/:253-255 -- never
     /// off what the loaded catalog happens to resolve: an unresolvable
     /// snapshot still scopes, and a refresh that empties the positions
     /// never strands the scoped side).

@@ -2,7 +2,7 @@
 //! through the `InteractionTelemetry` trait. Interactions only count into
 //! the session run's counters, which ride its one `tui exit` event. Two
 //! standalone events remain their own (TS parity, plus one upstream
-//! addition): `agent command used`, and `tui ipython bash rendered` —
+//! addition): `agent command used`, and `tui ipython bash rendered` --
 //! the settled-shell-cell metric upstream #3307 tracks per render, kept
 //! intact from main.
 
@@ -12,9 +12,9 @@ use std::sync::Mutex;
 use super::{Future, PathBuf, Pin};
 
 /// The interactive client's telemetry: per-session-run adoption counters
-/// flushed with `tui exit`, plus the two standalone events — the TS
+/// flushed with `tui exit`, plus the two standalone events -- the TS
 /// `agent command used`, and the upstream #3307 `tui ipython bash
-/// rendered` — each on a one-shot client. Telemetry must never fail the
+/// rendered` -- each on a one-shot client. Telemetry must never fail the
 /// session: opt-out or a broken install id drops the events.
 pub(super) struct CliInteractionTelemetry {
     pub(super) cwd: PathBuf,
@@ -173,25 +173,6 @@ impl eukhe_tui::interactive::InteractionTelemetry for CliInteractionTelemetry {
         })
     }
 
-    fn scroll_used(
-        &self,
-        _action: &'static str,
-        _resumed_following: bool,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        self.count("tui_scroll_count");
-        Box::pin(std::future::ready(()))
-    }
-
-    fn selection_used(&self, _lines: usize) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        self.count("tui_selection_count");
-        Box::pin(std::future::ready(()))
-    }
-
-    fn click_used(&self, _surface: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        self.count("tui_click_count");
-        Box::pin(std::future::ready(()))
-    }
-
     fn activity_opened(
         &self,
         _kind: &'static str,
@@ -348,7 +329,7 @@ mod tests {
             .set_telemetry_enabled(false)
             .unwrap();
         let telemetry = CliInteractionTelemetry::new(dir.path().to_path_buf(), agent_dir);
-        telemetry.scroll_used("page", false).await;
+        telemetry.activity_opened("bash").await;
         telemetry
             .input_stage(String::new(), "received", "ok", 5)
             .await;
@@ -361,9 +342,9 @@ mod tests {
         eukhe_core::settings::SettingsManager::create(dir.path(), dir.path().join("agent"))
             .set_telemetry_enabled(true)
             .unwrap();
-        telemetry.scroll_used("page", false).await;
+        telemetry.activity_opened("bash").await;
         let counters = telemetry.counters.lock().unwrap();
-        assert_eq!(counters.counts.get("tui_scroll_count"), Some(&1));
+        assert_eq!(counters.counts.get("tui_activity_open_count"), Some(&1));
     }
 
     /// The agents view shares one telemetry handle across the sessions it
@@ -382,7 +363,7 @@ mod tests {
         let agent_dir = dir.path().join("agent");
         std::fs::create_dir_all(&agent_dir).unwrap();
         let telemetry = CliInteractionTelemetry::new(dir.path().to_path_buf(), agent_dir.clone());
-        telemetry.scroll_used("page", false).await;
+        telemetry.activity_opened("bash").await;
         telemetry.hyperlinks_active(true).await;
         telemetry.client_exit("session_request", false).await;
         telemetry.client_exit("ctrl_d", false).await;
@@ -393,9 +374,11 @@ mod tests {
             .filter(|event: &serde_json::Value| event["name"] == "tui exit")
             .collect();
         assert_eq!(exits.len(), 2);
-        assert_eq!(exits[0]["properties"]["tui_scroll_count"], 1);
+        assert_eq!(exits[0]["properties"]["tui_activity_open_count"], 1);
         assert_eq!(exits[0]["properties"]["tui_hyperlinks_enabled"], true);
-        assert!(exits[1]["properties"].get("tui_scroll_count").is_none());
+        assert!(exits[1]["properties"]
+            .get("tui_activity_open_count")
+            .is_none());
         assert!(exits[1]["properties"]
             .get("tui_hyperlinks_enabled")
             .is_none());

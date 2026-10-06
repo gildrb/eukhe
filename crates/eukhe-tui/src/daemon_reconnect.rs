@@ -1,5 +1,5 @@
 //! The daemon-reconnect concern (TS #2458): a window that survived a daemon
-//! restart reports it version-honestly — when the restarted daemon is NEWER
+//! restart reports it version-honestly -- when the restarted daemon is NEWER
 //! than this window's binary, the recovered row says so instead of
 //! pretending the window is updated.
 //!
@@ -13,7 +13,7 @@ use crate::chat::StatusKind;
 /// decides the backoff and the expiry row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RecoveryKind {
-    /// An unexpected connection loss with no notice: a daemon hiccup —
+    /// An unexpected connection loss with no notice: a daemon hiccup --
     /// doubling backoff inside the reconnect window, its own expiry row.
     Lost,
     /// TS #2458 `reconnectAfterShutdown`: the daemon announced its
@@ -27,8 +27,8 @@ pub(crate) enum RecoveryKind {
 /// shows. `daemon_version` is the restarted daemon's hello `appVersion`
 /// (`None` when the daemon did not report one); `client_version` is this
 /// window's binary. The row is version-honest: a daemon NEWER than this
-/// window names the mismatch — the user restarts the window to pick the
-/// update up — while an older or unorderable daemon reports without the
+/// window names the mismatch -- the user restarts the window to pick the
+/// update up -- while an older or unorderable daemon reports without the
 /// advice (restarting this window would pick up nothing).
 pub(crate) fn reconnect_banner(
     daemon_version: Option<&str>,

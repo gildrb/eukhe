@@ -221,7 +221,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -334,7 +333,7 @@ fn info_commands_open_inline_panels_that_esc_closes_without_transcript_rows() {
         submit("/hotkeys"),
         wait_render("Move cursor / browse history"),
         key(KeyCode::End),
-        wait_render("mouse click on link"),
+        wait_render("Slash commands"),
         key(KeyCode::Esc),
         wait_gone(PANEL_HINT),
         // `/list`: the live-sessions listing (the mock daemon answers an
@@ -355,13 +354,13 @@ fn info_commands_open_inline_panels_that_esc_closes_without_transcript_rows() {
 
     // The panel grammar rendered: the scroll keys and the close key.
     assert!(
-        rendered.contains("\u{2191}/\u{2193} scroll \u{b7} Esc close"),
+        rendered.contains("up/down scroll - Esc close"),
         "the panel hint rendered:\n{rendered}"
     );
     // The scrollable window scrolled: End put the guide's last rows on
     // the screen (the first window never shows them).
     assert!(
-        rendered.contains("mouse click on link"),
+        rendered.contains("Slash commands"),
         "the End key jumped the panel to the guide's bottom:\n{rendered}"
     );
     // The `?` quick-shortcut guide never mounted anywhere in the run

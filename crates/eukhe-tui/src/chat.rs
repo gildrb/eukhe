@@ -6,13 +6,12 @@
 //! Tool-call cards live in `crate::tool_card`.
 
 mod geometry;
-pub(crate) use geometry::{assistant_row_count, user_block_row_count};
 
 use crate::snapshot::RetryStartReason;
+use crate::style::{Modifier, Style};
 use crate::theme::{Theme, ThemeBg, ThemeColor};
 use crate::width::str_width;
 use crate::{Line, Span};
-use ratatui::style::{Modifier, Style};
 
 /// How much detail the conversation shows (TS `setChatDetail` levels).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,7 +104,7 @@ pub enum ChatEntry {
     /// the command as typed, laid out like a user message.
     SlashCommand { text: String },
     /// The compaction summary row (TS `CompactionSummaryMessageComponent`):
-    /// `◆ Context compacted` with the summary below.
+    /// `* Context compacted` with the summary below.
     CompactionSummary {
         /// The summarizer's summary text.
         summary: String,
@@ -140,7 +139,7 @@ pub enum ChatEntry {
     RefinementOutcome(Box<crate::custom_message::RefinementOutcomeRow>),
     /// One generic custom row (TS `CustomMessageComponent` box).
     CustomPanel(Box<crate::custom_message::CustomPanelRow>),
-    /// The chat memory's view at session open (`OptChat` spec §10's startup
+    /// The chat memory's view at session open (`OptChat` spec section 10's startup
     /// print; rendered by the `chat_view_block` module): one collapsed
     /// summary row, the full `<chat>` text when expanded.
     ChatView(Box<eukhe_types::daemon::ChatViewSnapshot>),
@@ -208,13 +207,13 @@ pub struct WorkingState {
     pub elapsed_secs: u64,
 }
 
-/// TS `message_end`'s aborted arm: the live abort row's text — the retry
+/// TS `message_end`'s aborted arm: the live abort row's text -- the retry
 /// count and the working-elapsed suffix ride the client, never the wire
 /// (the rebuild path keeps the stored "Operation aborted").
 #[must_use]
 pub fn live_abort_text(retry_attempt: u32, elapsed_secs: Option<u64>) -> String {
     let elapsed_suffix = elapsed_secs
-        .map(|secs| format!(" \u{00b7} {}", format_working_elapsed(secs)))
+        .map(|secs| format!("{}{}", crate::glyphs::SEP, format_working_elapsed(secs)))
         .unwrap_or_default();
     if retry_attempt > 0 {
         format!(
@@ -260,32 +259,23 @@ impl WorkingState {
             parts.push(format!(
                 "{} {} tokens",
                 if self.download {
-                    "\u{2193}"
+                    crate::glyphs::DOWN
                 } else {
-                    "\u{2191}"
+                    crate::glyphs::UP
                 },
                 crate::chrome::format_token_count(self.tokens)
             ));
         }
-        parts.join(" \u{00b7} ")
+        parts.join(crate::glyphs::SEP)
     }
 }
 
-/// Spinner frames (TS `Loader` `DEFAULT_FRAMES`).
-pub(crate) const LOADER_FRAMES: [&str; 10] = [
-    "\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283c}", "\u{2834}", "\u{2826}", "\u{2827}",
-    "\u{2807}", "\u{280f}",
-];
-
-/// The working pulse icon frames (TS `theme/working-icon.ts`
-/// `WORKING_ICON_FRAMES`, 250ms interval): the shared "still working"
-/// marker across the agents view, the subagent tray, and in-progress
-/// tool markers.
-pub const WORKING_ICON_FRAMES: [&str; 4] = ["\u{25c7}", "\u{25c8}", "\u{25c6}", "\u{25c8}"];
-
+/// The working pulse icon at `frame` ([`crate::glyphs::WORKING`], TS
+/// `theme/working-icon.ts`): the shared "still working" marker across
+/// the agents view, the subagent tray, and in-progress tool markers.
 #[must_use]
 pub fn working_icon_frame(frame: usize) -> &'static str {
-    WORKING_ICON_FRAMES[frame % WORKING_ICON_FRAMES.len()]
+    crate::glyphs::WORKING[frame % crate::glyphs::WORKING.len()]
 }
 
 /// A blank line (`Spacer(1)`).
@@ -538,7 +528,7 @@ pub fn render_loader(
 ) -> Vec<Line> {
     let accent = theme.fg_style(ThemeColor::Accent);
     let muted = theme.fg_style(ThemeColor::Muted);
-    let spinner = LOADER_FRAMES[frame % LOADER_FRAMES.len()];
+    let spinner = crate::glyphs::SPINNER[frame % crate::glyphs::SPINNER.len()];
     let message = working.label();
     let mut row: Line = vec![Span::styled(" ".to_string(), Style::default())];
     row.push(Span::styled(spinner.to_string(), accent));
@@ -579,21 +569,21 @@ impl RetryState {
 
     /// The loader message for this retry. (SANCTIONED DIVERGENCE from the
     /// TS `auto_retry_start` rendering, operator ruling 2026-09-23: the
-    /// quick-retry line names the ERROR too, not just the attempt — this
+    /// quick-retry line names the ERROR too, not just the attempt -- this
     /// one transient line is the only error the chat shows while the
     /// episode runs, updated in place with the retry count and the
     /// time-until-next-retry countdown.)
     fn message(&self) -> String {
         match &self.reason {
             RetryStartReason::Quick => format!(
-                "{} — retrying ({}/{}) in {}s...",
+                "{} -- retrying ({}/{}) in {}s...",
                 self.error_message,
                 self.attempt,
                 self.max_attempts,
                 self.seconds_left()
             ),
             RetryStartReason::Backup { backup_model } => format!(
-                "Primary model unavailable ({}) — retrying on backup model {backup_model}...",
+                "Primary model unavailable ({}) -- retrying on backup model {backup_model}...",
                 self.error_message
             ),
         }
@@ -605,12 +595,12 @@ impl RetryState {
 #[must_use]
 pub fn render_retry(retry: &RetryState, frame: usize, theme: &Theme, width: usize) -> Vec<Line> {
     let muted = theme.fg_style(ThemeColor::Muted);
-    let spinner = LOADER_FRAMES[frame % LOADER_FRAMES.len()];
+    let spinner = crate::glyphs::SPINNER[frame % crate::glyphs::SPINNER.len()];
     let message = retry.message();
     let mut row: Line = vec![Span::styled(" ".to_string(), Style::default())];
     row.push(Span::styled(spinner.to_string(), muted));
     // The gap between the spinner and the label is unstyled (the TS
-    // `Loader` pen reset — see `render_loader`).
+    // `Loader` pen reset -- see `render_loader`).
     row.push(Span::raw(" ".to_string()));
     row.push(Span::styled(message, muted));
     vec![spacer(), pad_to(row, width, Style::default())]

@@ -3,10 +3,11 @@
 //! alignment/delimiter row, and data rows, sized so every column fits the
 //! available width, with cells wrapped and padded per column.
 
-use crate::markdown::{render_inline, wrap_spans, wrapped_span_count, MarkdownStyle};
+use crate::glyphs::{TABLE_CROSS, TABLE_H, TABLE_V};
+use crate::markdown::{render_inline, wrap_spans, MarkdownStyle};
+use crate::style::Style;
 use crate::width::str_width;
 use crate::{Line, Span};
-use ratatui::style::Style;
 
 /// A parsed pipe table: header cells, data rows (normalized to the header
 /// width like marked's `splitCells(row, header.length)`), and the raw
@@ -255,36 +256,6 @@ fn table_layout(
     })
 }
 
-/// Count table rows without constructing wrapped cells, padding, or borders.
-pub(crate) fn count_table(
-    header: &[String],
-    rows: &[Vec<String>],
-    raw: &[String],
-    width: usize,
-    style: &MarkdownStyle,
-) -> usize {
-    if header.is_empty() {
-        return 0;
-    }
-    let Some(layout) = table_layout(header, rows, width, style) else {
-        return raw
-            .iter()
-            .map(|line| wrapped_span_count(&[Span::raw(line.clone())], width))
-            .sum();
-    };
-    let content_rows: usize = std::iter::once(&layout.header_spans)
-        .chain(&layout.row_spans)
-        .map(|row| {
-            row.iter()
-                .zip(&layout.column_widths)
-                .map(|(spans, &width)| wrapped_span_count(spans, width.max(1)).max(1))
-                .max()
-                .unwrap_or(0)
-        })
-        .sum();
-    content_rows + 3 + rows.len().saturating_sub(1)
-}
-
 /// Render the table (TS `renderTable`): compute per-column widths from the
 /// natural cell widths and the longest unbroken word (capped at 30), wrap
 /// cells that overflow their column, pad every cell to the column width,
@@ -314,12 +285,17 @@ pub(crate) fn render_table(
         return;
     };
 
-    let dashes = |w: usize| "─".repeat(w);
-    let join = |left: char, mid: char, right: char| -> String {
-        let inner: Vec<String> = column_widths.iter().map(|&w| dashes(w)).collect();
-        format!("{left}─{}─{right}", inner.join(&format!("─{mid}─")))
+    let border = || -> String {
+        let inner: Vec<String> = column_widths
+            .iter()
+            .map(|&w| TABLE_H.repeat(w + 2))
+            .collect();
+        format!("{TABLE_CROSS}{}{TABLE_CROSS}", inner.join(TABLE_CROSS))
     };
-    out.push(vec![Span::raw(join('┌', '┬', '┐'))]);
+    let cell_open = format!("{TABLE_V} ");
+    let cell_sep = format!(" {TABLE_V} ");
+    let cell_close = format!(" {TABLE_V}");
+    out.push(vec![Span::raw(border())]);
 
     // The observed TS binary output (0.9.5, the parity ground truth) draws
     // the header row exactly like the data rows: inline-rendered cell text
@@ -337,10 +313,10 @@ pub(crate) fn render_table(
         .collect();
     let header_lines = header_cells.iter().map(Vec::len).max().unwrap_or(0);
     for line_idx in 0..header_lines {
-        let mut row: Line = vec![Span::raw("│ ")];
+        let mut row: Line = vec![Span::raw(cell_open.clone())];
         for (col, cell) in header_cells.iter().enumerate() {
             if col > 0 {
-                row.push(Span::raw(" │ "));
+                row.push(Span::raw(cell_sep.clone()));
             }
             let text = cell.get(line_idx).cloned().unwrap_or_default();
             let pad = column_widths[col].saturating_sub(spans_width(&text));
@@ -349,11 +325,11 @@ pub(crate) fn render_table(
                 row.push(Span::raw(" ".repeat(pad)));
             }
         }
-        row.push(Span::raw(" │"));
+        row.push(Span::raw(cell_close.clone()));
         out.push(row);
     }
 
-    let separator = join('├', '┼', '┤');
+    let separator = border();
     out.push(vec![Span::raw(separator.clone())]);
 
     for (row_idx, row) in row_spans.iter().enumerate() {
@@ -364,10 +340,10 @@ pub(crate) fn render_table(
             .collect();
         let row_lines = cells.iter().map(Vec::len).max().unwrap_or(0);
         for line_idx in 0..row_lines {
-            let mut row_line: Line = vec![Span::raw("│ ")];
+            let mut row_line: Line = vec![Span::raw(cell_open.clone())];
             for (col, cell) in cells.iter().enumerate() {
                 if col > 0 {
-                    row_line.push(Span::raw(" │ "));
+                    row_line.push(Span::raw(cell_sep.clone()));
                 }
                 let text = cell.get(line_idx).cloned().unwrap_or_default();
                 let pad = column_widths[col].saturating_sub(spans_width(&text));
@@ -376,7 +352,7 @@ pub(crate) fn render_table(
                     row_line.push(Span::raw(" ".repeat(pad)));
                 }
             }
-            row_line.push(Span::raw(" │"));
+            row_line.push(Span::raw(cell_close.clone()));
             out.push(row_line);
         }
         if row_idx + 1 < row_spans.len() {
@@ -384,7 +360,7 @@ pub(crate) fn render_table(
         }
     }
 
-    out.push(vec![Span::raw(join('└', '┴', '┘'))]);
+    out.push(vec![Span::raw(border())]);
 }
 
 /// Wrap a cell's spans to its column width (TS `wrapCellText`, which
@@ -418,7 +394,7 @@ fn longest_word_width(spans: &Line, max_width: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::style::Modifier;
+    use crate::style::Modifier;
 
     fn rows(out: &[Line]) -> Vec<String> {
         out.iter()
@@ -449,11 +425,11 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                "┌───┬───┐",
-                "│ a │ b │",
-                "├───┼───┤",
-                "│ 1 │ 2 │",
-                "└───┴───┘",
+                "+---+---+",
+                "| a | b |",
+                "+---+---+",
+                "| 1 | 2 |",
+                "+---+---+",
             ]
         );
     }
@@ -488,11 +464,11 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                "┌───────┬───┐",
-                "│ col   │ x │",
-                "├───────┼───┤",
-                "│ alpha │ 1 │",
-                "└───────┴───┘",
+                "+-------+---+",
+                "| col   | x |",
+                "+-------+---+",
+                "| alpha | 1 |",
+                "+-------+---+",
             ]
         );
     }
@@ -504,11 +480,11 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                "┌──────┬───┐",
-                "│ 列   │ n │",
-                "├──────┼───┤",
-                "│ 数据 │ 1 │",
-                "└──────┴───┘",
+                "+------+---+",
+                "| 列   | n |",
+                "+------+---+",
+                "| 数据 | 1 |",
+                "+------+---+",
             ]
         );
     }
@@ -522,12 +498,12 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                "┌─────────┬─────┐",
-                "│ a       │ b   │",
-                "├─────────┼─────┤",
-                "│ aa bb   │ one │",
-                "│ cc dd   │     │",
-                "└─────────┴─────┘",
+                "+---------+-----+",
+                "| a       | b   |",
+                "+---------+-----+",
+                "| aa bb   | one |",
+                "| cc dd   |     |",
+                "+---------+-----+",
             ]
         );
     }
@@ -535,8 +511,8 @@ mod tests {
     #[test]
     fn delimiter_colons_are_accepted_and_left_aligned() {
         let out = plain("| a | b |\n| :-: | ---: |\n| 1 | 2 |", 40);
-        assert_eq!(out[1], "│ a │ b │");
-        assert_eq!(out[3], "│ 1 │ 2 │");
+        assert_eq!(out[1], "| a | b |");
+        assert_eq!(out[3], "| 1 | 2 |");
     }
 
     #[test]
@@ -553,7 +529,8 @@ mod tests {
             }
         }
         assert!(
-            !out.iter().any(|l| l.contains('│')),
+            !out.iter()
+                .any(|l| l.starts_with(crate::glyphs::TABLE_CROSS)),
             "fallback must not draw a box: {joined}"
         );
         for l in &out {
@@ -575,13 +552,13 @@ mod tests {
     #[test]
     fn escaped_pipes_stay_inside_cells() {
         let out = plain("| a\\|b | c |\n| --- | --- |\n| 1 | 2 |", 40);
-        assert_eq!(out[1], "│ a|b │ c │");
+        assert_eq!(out[1], "| a|b | c |");
     }
 
     #[test]
     fn rows_shorter_than_the_header_are_padded() {
         let out = plain("| a | b |\n| --- | --- |\n| 1 |", 40);
-        assert_eq!(out[3], "│ 1 │   │");
+        assert_eq!(out[3], "| 1 |   |");
     }
 
     #[test]

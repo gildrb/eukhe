@@ -634,7 +634,7 @@ mod tests {
                     / elapsed.as_secs_f64()
                     / (1024.0 * 1024.0);
                 println!(
-                    "{label} {kind:>12} frame={frame_len:>9} bytes iters={iters:>6} per-frame={per_frame_us:>12.1} µs throughput={throughput:8.1} MiB/s",
+                    "{label} {kind:>12} frame={frame_len:>9} bytes iters={iters:>6} per-frame={per_frame_us:>12.1} us throughput={throughput:8.1} MiB/s",
                     frame_len = frame.len(),
                     per_frame_us = per_frame.as_secs_f64() * 1e6,
                 );

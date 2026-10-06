@@ -30,6 +30,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -456,7 +457,9 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
     )
     .expect("open pty");
     let slave = pty.slave;
-    let mut child = Command::new(std::env::current_exe().expect("test binary"))
+    let slave_fd = slave.as_raw_fd();
+    let mut command = Command::new(std::env::current_exe().expect("test binary"));
+    command
         .arg("--exact")
         .arg("interactive_fork_child_mode")
         .env(
@@ -477,9 +480,24 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
         .env_remove("RLM_DEPTH")
         .stdin(slave.try_clone().expect("clone pty slave"))
         .stdout(slave.try_clone().expect("clone pty slave"))
-        .stderr(slave)
-        .spawn()
-        .expect("spawn the interactive client child");
+        .stderr(slave.try_clone().expect("clone pty slave"));
+    // The pty slave is the child's CONTROLLING terminal (setsid +
+    // TIOCSCTTY): the renderer sizes itself from `/dev/tty`, which must be
+    // the harness pty, never the runner's own terminal.
+    // SAFETY: the pre_exec hook runs post-fork pre-exec in the child only
+    // and makes no allocation.
+    unsafe {
+        command.pre_exec(move || {
+            nix::unistd::setsid()?;
+            if libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().expect("spawn the interactive client child");
+    drop(command);
+    drop(slave);
     let mut pty_reader = PtyReader::new(pty.master);
 
     // The TUI renders the forked transcript: the source's exchange.

@@ -1,5 +1,5 @@
 //! The `/mcp` view: the TS `ServiceCatalogPickerComponent`'s catalog
-//! surface — the resolved service catalog's cards (catalog services plus
+//! surface -- the resolved service catalog's cards (catalog services plus
 //! user-declared servers, connected-first) and the api-key credential
 //! rows (the stored keys, e.g. the web-search key) over the daemon's
 //! `get_mcp_connections` response, with the TS picker's search bands,
@@ -7,7 +7,7 @@
 //! the connection's login flow (TS `onSelect` -> `authenticate`) or the
 //! credential's paste-the-key prompt; Esc closes. The panel is the same
 //! inline shape as the `/model` picker (the bordered search field over
-//! `›`-marker rows), and its frame is budgeted so the dock can never
+//! `>`-marker rows), and its frame is budgeted so the dock can never
 //! overflow the terminal (the detail line drops when the viewport is too
 //! short, never the search field).
 
@@ -122,9 +122,9 @@ fn identity_match_score(text: &str, token: &str) -> Option<f64> {
 }
 
 /// Identity-only subsequence fallback (TS `subsequenceMatchScore`,
-/// over UTF-16 code units — the TS walk indexes units, so a surrogate
-/// pair is two). The consecutive-run floor — half the query, minimum
-/// two units — keeps the fallback for tight abbreviations ("crdb"
+/// over UTF-16 code units -- the TS walk indexes units, so a surrogate
+/// pair is two). The consecutive-run floor -- half the query, minimum
+/// two units -- keeps the fallback for tight abbreviations ("crdb"
 /// finds cockroachdb) while rejecting the scattered matches; the span
 /// tiebreak spreads matches.
 fn subsequence_match_score(haystack: &[u16], token: &[u16]) -> Option<f64> {
@@ -164,7 +164,7 @@ fn subsequence_match_score(haystack: &[u16], token: &[u16]) -> Option<f64> {
 }
 
 /// Description text matches only as a word start or substring (plus the
-/// UTF-16 position tiebreak, like TS `indexOf`) — never a subsequence.
+/// UTF-16 position tiebreak, like TS `indexOf`) -- never a subsequence.
 fn description_match_score(text: &str, token: &str) -> Option<f64> {
     let haystack = text.to_lowercase();
     if words(&haystack).iter().any(|word| word.starts_with(token)) {
@@ -234,7 +234,7 @@ pub enum McpViewAction {
 }
 
 /// The `/mcp` service-catalog view: the resolved catalog's cards (the
-/// TS `ServiceCatalogPickerComponent`'s catalog surface — every resolved
+/// TS `ServiceCatalogPickerComponent`'s catalog surface -- every resolved
 /// service plus user-declared servers, connected-first) and the api-key
 /// credential rows, with the TS picker's search bands and one fixed
 /// detail line.
@@ -253,7 +253,7 @@ impl McpView {
     /// Build the view over the daemon's `get_mcp_connections` response:
     /// the resolved `services` cards (the catalog surface) plus the
     /// `credentials` rows (the api-key entries the view manages alongside
-    /// the connections). The response carries no live tool listing — the
+    /// the connections). The response carries no live tool listing -- the
     /// picker opens from this local state exactly like TS, so the open is
     /// instant.
     pub fn from_response(data: &Value, viewport_rows: usize) -> Self {
@@ -322,7 +322,7 @@ impl McpView {
     /// One key press (TS `ServiceCatalogPickerComponent.handleInput`):
     /// arrows clamp at the list's bounds (never wrap), page keys step by
     /// the visible window, Enter routes by the selected row, Esc closes,
-    /// and everything else edits the search field — including the left
+    /// and everything else edits the search field -- including the left
     /// arrow (the catalog surface has no parent to go back to, so it
     /// stays inert instead of cancelling).
     pub fn handle_key(&mut self, key: &str, kb: &KeybindingsManager) -> McpViewAction {
@@ -544,7 +544,7 @@ impl McpView {
     }
 
     /// The visible row window centered on the selection. A frame too
-    /// short for any row carries the EMPTY window — never raised back
+    /// short for any row carries the EMPTY window -- never raised back
     /// to one row (`list_layout`'s reserved-height guard owns the 0).
     fn window(&self) -> (usize, usize) {
         if self.visible_items == 0 {
@@ -562,7 +562,7 @@ impl McpView {
     /// Rebuild the filtered view (TS `filterServices`): an empty query
     /// shows everything; a query scores every row against the query's
     /// tokens (identity fields first, then the description band), every
-    /// token must match, and rows rank by their summed score — stable,
+    /// token must match, and rows rank by their summed score -- stable,
     /// so equal scores keep the catalog's connected-first order.
     fn refilter(&mut self) {
         let query = self.search.value().to_string();
@@ -601,7 +601,7 @@ fn trailing_menu_row(
 ) -> Line {
     let inner_width = width.saturating_sub(2).max(1);
     // TS `getInlineTrailing`: the trailing cluster lives on a budget of
-    // the inner width minus five — segments reduce from the front until
+    // the inner width minus five -- segments reduce from the front until
     // the cluster fits, then the joined text truncates with the
     // ellipsis, so a narrow row keeps a SHORTENED status instead of
     // losing it to the row's right-edge truncation.
@@ -615,7 +615,7 @@ fn trailing_menu_row(
             .iter()
             .map(|(_, text)| *text)
             .collect::<Vec<_>>()
-            .join(" \u{b7} ")
+            .join(crate::glyphs::SEP)
     };
     while reduced.len() > 1 && crate::width::str_width(&cluster(&reduced)) > budget {
         reduced.remove(0);
@@ -626,14 +626,15 @@ fn trailing_menu_row(
         let mut spans: Vec<Span> = Vec::with_capacity(reduced.len() * 2);
         for (index, (color, text)) in reduced.iter().enumerate() {
             if index > 0 {
-                spans.push(Span::raw(" \u{b7} "));
+                spans.push(Span::raw(crate::glyphs::SEP));
             }
             spans.push(theme.fg_span(*color, *text));
         }
         spans
     };
     if !trailing_spans.is_empty() {
-        trailing_spans = crate::width::truncate_line(&trailing_spans, budget, "\u{2026}");
+        trailing_spans =
+            crate::width::truncate_line(&trailing_spans, budget, crate::glyphs::ELLIPSIS);
     }
     let trailing_width = crate::width::spans_width(&trailing_spans);
     let gap = if trailing_width > 0 { 2 } else { 0 };
@@ -643,17 +644,21 @@ fn trailing_menu_row(
         primary = primary
             .into_iter()
             .map(|mut span| {
-                span.style = span.style.add_modifier(ratatui::style::Modifier::BOLD);
+                span.style = span.style.add_modifier(crate::style::Modifier::BOLD);
                 span
             })
             .collect();
     }
-    let primary = crate::width::truncate_line(&primary, primary_width, "\u{2026}");
+    let primary = crate::width::truncate_line(&primary, primary_width, crate::glyphs::ELLIPSIS);
     let filler_width = inner_width
         .saturating_sub(crate::width::spans_width(&primary))
         .saturating_sub(trailing_width);
     let mut row: Line = Vec::with_capacity(primary.len() + trailing_spans.len() + 4);
-    row.push(Span::raw(if selected { "\u{203a}" } else { " " }));
+    row.push(Span::raw(if selected {
+        crate::glyphs::POINTER
+    } else {
+        " "
+    }));
     row.push(Span::raw(" "));
     row.extend(primary);
     if filler_width > 0 {
@@ -679,7 +684,7 @@ fn trailing_menu_row(
 }
 
 /// The trailing key hint (TS `ServiceCatalogPickerComponent.render`, the
-/// shortcuts row): navigate · Enter <action> · close — the action
+/// shortcuts row): navigate * Enter <action> * close -- the action
 /// segment appears only when a row is selected (TS renders no `Enter
 /// select` filler).
 fn hint_line(theme: &Theme, width: usize, kb: &KeybindingsManager, action: Option<&str>) -> Line {
@@ -690,15 +695,19 @@ fn hint_line(theme: &Theme, width: usize, kb: &KeybindingsManager, action: Optio
         .first_key("tui.select.cancel")
         .map_or_else(|| "Esc".to_string(), |key| format_key_text(&key));
     let action_segment = action
-        .map(|action| format!("{select_key} {action} \u{b7} "))
+        .map(|action| format!("{select_key} {action} - "))
         .unwrap_or_default();
     let hint = if width >= 70 {
         let navigation = format!(
-            "{}/{} navigate \u{b7} ",
-            kb.first_key("tui.select.up")
-                .map_or_else(|| "\u{2191}".to_string(), |key| format_key_text(&key)),
-            kb.first_key("tui.select.down")
-                .map_or_else(|| "\u{2193}".to_string(), |key| format_key_text(&key))
+            "{}/{} navigate - ",
+            kb.first_key("tui.select.up").map_or_else(
+                || crate::glyphs::KEY_UP.to_string(),
+                |key| format_key_text(&key)
+            ),
+            kb.first_key("tui.select.down").map_or_else(
+                || crate::glyphs::KEY_DOWN.to_string(),
+                |key| format_key_text(&key)
+            )
         );
         format!("{navigation}{action_segment}{close_key} close")
     } else {

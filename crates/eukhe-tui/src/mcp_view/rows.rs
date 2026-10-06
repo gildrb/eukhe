@@ -1,7 +1,7 @@
 //! The `/mcp` view's row model: the two row classes the daemon's
-//! `get_mcp_connections` response carries — the service-catalog cards
+//! `get_mcp_connections` response carries -- the service-catalog cards
 //! (TS `McpPluginView`) and the api-key credential rows (the stored keys
-//! the view manages alongside the connections) — with their shared
+//! the view manages alongside the connections) -- with their shared
 //! render/search projection (the label line, the trailing status, the
 //! detail copy, the Enter action hint, and the search-band fields).
 
@@ -173,7 +173,7 @@ impl McpServiceRow {
             "connected" => (
                 ThemeColor::Success,
                 match self.tool_count {
-                    Some(tool_count) => format!("Connected \u{b7} {tool_count} tools"),
+                    Some(tool_count) => format!("Connected - {tool_count} tools"),
                     None => "Connected".to_string(),
                 },
             ),
@@ -307,7 +307,7 @@ impl McpCredentialRow {
 #[derive(Debug, Clone, PartialEq)]
 // The service card is the wide row (its catalog metadata); the credential
 // row is deliberately small. The rows are a per-open rendered list (a
-// handful of entries), never a hot data structure — boxing would spend a
+// handful of entries), never a hot data structure -- boxing would spend a
 // deref on every render path for no measurable size win.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum McpRow {
@@ -344,7 +344,7 @@ impl McpRow {
 
     /// The selected row's detail copy (TS `secondaryText`): the honest
     /// setup guidance for setup-required/error rows, the description
-    /// otherwise. A credential row carries none — the detail falls back
+    /// otherwise. A credential row carries none -- the detail falls back
     /// to its status (TS `secondaryText ?? statusText`).
     pub(super) fn detail_text(&self) -> Option<String> {
         match self {

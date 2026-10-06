@@ -52,7 +52,7 @@ pub fn resolve_daemon_socket_path(daemon_socket: Option<&str>) -> PathBuf {
 
 /// [`expand_tilde_path`] over a raw environment value: a tilde-prefixed
 /// value expands against the home dir; anything else passes through as
-/// the original bytes — a `to_string_lossy` here would silently rewrite a
+/// the original bytes -- a `to_string_lossy` here would silently rewrite a
 /// non-UTF-8 socket path (U+FFFD) and point the CLI at a socket nobody
 /// is serving.
 pub fn expand_tilde_path_os(value: &std::ffi::OsStr) -> PathBuf {
@@ -82,7 +82,7 @@ pub fn version() -> &'static str {
 }
 
 /// The packaged package-dir (`EUKHE_PACKAGE_DIR` wins, else the directory of
-/// the executable — the TS `getPackageDir` bun-binary layout).
+/// the executable -- the TS `getPackageDir` bun-binary layout).
 fn package_dir() -> PathBuf {
     if let Ok(env_dir) = std::env::var("EUKHE_PACKAGE_DIR") {
         if !env_dir.is_empty() {

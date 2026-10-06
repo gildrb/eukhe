@@ -42,7 +42,7 @@ mod open_incident;
 mod render;
 #[cfg(test)]
 use render::cell;
-use render::Renderer;
+use render::{Leave, Renderer};
 
 mod delete;
 mod heartbeats;
@@ -123,7 +123,7 @@ pub struct AgentsViewOptions {
 
 /// The open action the run ended with (TS `AgentsViewRunResult`'s
 /// `open`/`scope_back` arms, unified): the session the flow opens plus
-/// the row metadata it carries across the view/session loop — the new
+/// the row metadata it carries across the view/session loop -- the new
 /// sessions open the same way (TS `createNewSession`'s
 /// `finish({ type: "open" })`).
 #[derive(Debug, Clone, PartialEq)]
@@ -138,7 +138,7 @@ pub struct OpenedRow {
     /// The opened session's own directory (the roster summary's `cwd`):
     /// the session run rides it as its cwd (the completion base and the
     /// session chrome browse the attached session's directory, not the
-    /// view's launch directory — TS `getCurrentCwd`).
+    /// view's launch directory -- TS `getCurrentCwd`).
     pub cwd: Option<String>,
 }
 
@@ -170,14 +170,6 @@ pub enum AgentsStep {
     /// rows (the saved catalog's rows), which arrive on the event
     /// cadence rather than a known wall-clock delay.
     WaitRender { needle: String, timeout_ms: u64 },
-    /// A plain left click on one screen cell (zero-based): the verifier
-    /// drives the click grammar with the same SGR press/release pair a
-    /// terminal sends.
-    Click { row: usize, col: usize },
-    /// A raw SGR mouse sequence, decoded by the same parser the
-    /// terminal's reports flow through (the drag report between a
-    /// click's press and release).
-    Mouse(String),
 }
 
 /// The result of one agents-view run.
@@ -198,7 +190,7 @@ pub struct AgentsViewOutcome {
     /// scope frame.
     pub scope_dropped: bool,
     /// The scoped panel handed the pane back to its scope root's chat
-    /// (the parent key with pop, escape without — TS `scope_back` in
+    /// (the parent key with pop, escape without -- TS `scope_back` in
     /// both arms): the reopened chat starts with the dock focused on the
     /// panel's own group (the Subagents item), not the prompt bar.
     pub scope_back: bool,
@@ -249,13 +241,14 @@ const SAVED_CATALOG_RECONCILE_INTERVAL_MS: u64 = 75;
 /// The transient status hint while the entry anchor still waits on its
 /// row (see [`AgentsViewMode::open_selected`]); dropped once the anchor
 /// lands.
-const ANCHOR_LOADING_HINT: &str = "Still loading sessions — press ↓ or ↑ to pick a session now.";
+const ANCHOR_LOADING_HINT: &str =
+    "Still loading sessions -- press down or up to pick a session now.";
 
 /// The saved-catalog fetch's request budget: the LONG-RUNNING class, never
 /// the 30s default. The scan is the known-slow whole-file re-parse of every
 /// saved session (the operator's ~130-session dir takes over a minute), so
 /// the default class turned every large dir into a false `Saved sessions
-/// unavailable` timeout — the loading state that never completes. The
+/// unavailable` timeout -- the loading state that never completes. The
 /// scan-state-cache lane owns the scan's speed; this is the lifecycle's
 /// budget so the state can complete at all.
 fn saved_catalog_timeout_ms() -> u64 {
@@ -276,8 +269,6 @@ enum UiInput {
         needle: String,
         timeout_ms: u64,
     },
-    /// A decoded SGR mouse report (the click grammar's input).
-    Mouse(crate::mouse::MouseEvent),
     Resize,
     Settled,
     Done,
@@ -315,7 +306,7 @@ enum UiInput {
         result: Result<Option<String>, String>,
     },
     /// The saved-resume path's mid-send status (TS `sendReply`: the
-    /// "Sending reply..." after "Resuming session..." — the loop paints
+    /// "Sending reply..." after "Resuming session..." -- the loop paints
     /// each as it lands, never both at once).
     ReplyProgress(String),
     /// One reply send landed: the resumed summary and the sticky cwd
@@ -330,7 +321,7 @@ enum UiInput {
         outcome: Result<(), String>,
     },
     /// A heartbeat-catalog fetch landed (TS `refreshHeartbeats`'s apply):
-    /// rows re-render their `◷` counts.
+    /// rows re-render their `@` counts.
     HeartbeatsLoaded {
         generation: u64,
         heartbeats: Vec<crate::heartbeats_picker::HeartbeatEntry>,
@@ -409,7 +400,7 @@ struct AgentsViewMode {
     /// A multi-line notice from the previous run (a daemon refusal whose
     /// ways out span lines, like the cross-product lease hold): rendered
     /// as a dismissible panel above the hint line instead of the one-line
-    /// status truncation, so the full text — both ways out included —
+    /// status truncation, so the full text -- both ways out included --
     /// stays readable.
     notice: Option<String>,
     /// The armed stop-or-delete confirm (TS `pendingDeleteAgent` /
@@ -432,7 +423,7 @@ struct AgentsViewMode {
     /// flow's shape): the keyed outcome re-enters as a `KillResult`.
     pending_kill: Option<KillRequest>,
     /// The armed target whose headline fetch runs (its key and active
-    /// id): the loop dispatches the fetch, detached — its keyed result
+    /// id): the loop dispatches the fetch, detached -- its keyed result
     /// drops when the composer is gone or re-targeted.
     pending_headline: Option<(String, String)>,
     /// The executed delete the run loop takes (the dispatch runs off the
@@ -461,7 +452,7 @@ struct AgentsViewMode {
     /// Parent row identities whose spawn programs render inside their
     /// open list (TS `programShownParents`). Like `expanded_parents`,
     /// it never carries across view runs (a shown program without its
-    /// expansion is meaningless — TS persists both, an inherited
+    /// expansion is meaningless -- TS persists both, an inherited
     /// divergence).
     program_shown_parents: std::collections::HashSet<String>,
     /// Session ids to expand on the next rebuild (TS
@@ -475,8 +466,8 @@ struct AgentsViewMode {
     selected_key: Option<SelectionKey>,
     /// Whether the entry selection still waits on the anchor session's row:
     /// a fresh open (the agents-back handoff opens the view on the session
-    /// just left) lands the selection there once the row appears — a nested
-    /// anchor arrives with its ancestors' lists expanded — and the first
+    /// just left) lands the selection there once the row appears -- a nested
+    /// anchor arrives with its ancestors' lists expanded -- and the first
     /// user move cancels the wait. A scoped view never lists the anchor
     /// (the scope root is excluded), so the first-row default stands there.
     anchor_selection_pending: bool,
@@ -513,7 +504,7 @@ struct AgentsViewMode {
     /// retry (TS `rearmSavedSearchFetch`).
     saved_fetch_failed: bool,
     /// The incident notice state (TS `persistentState.incidentNoticeState`
-    /// — `??=` lazily initialized on first access, materialized here):
+    /// -- `??=` lazily initialized on first access, materialized here):
     /// windowed log entries, the consumed log offset, dismissal horizons,
     /// and the collapsed notice line.
     incident_notice_state: crate::incident_notices::IncidentNoticeState,
@@ -534,25 +525,9 @@ struct AgentsViewMode {
     /// fetch while it holds, and the exit link carries it so the flow's
     /// next view run skips its own fetch.
     saved_catalog_loaded: bool,
-    /// The screen rows of the rendered session rows, in frame order: a
-    /// plain left click selects and opens the row under it (the Enter
-    /// action), so the recorded span is exactly the rows the last frame
-    /// painted. Rebuilt on every render; empty while no row is visible.
-    click_rows: Vec<(usize, usize)>,
-    /// The frame row under the mouse (the hover affordance, operator
-    /// directive 2026-09-29): a row that resolves against the last
-    /// frame's click surface, `None` over anything else. Revalidated
-    /// against each render's click rows, so content that moves under
-    /// the mouse re-aims the band and a row that scrolled away clears
-    /// it.
-    hover_row: Option<usize>,
-    /// The left press a release may fire (TS's press/release click
-    /// grammar): the pressed row and whether the press turned into a
-    /// drag — a dragged release never opens.
-    pressed_click: Option<PressedMouseClick>,
     /// The view actions this run performed (reported on the outcome so
     /// the composition root emits the adoption events at the run's
-    /// end — the view owns no telemetry handle): `program_shown`,
+    /// end -- the view owns no telemetry handle): `program_shown`,
     /// `renamed`.
     actions: Vec<&'static str>,
     /// The daemon's heartbeat catalog (the dock's source, TS
@@ -560,18 +535,9 @@ struct AgentsViewMode {
     heartbeats: Vec<crate::heartbeats_picker::HeartbeatEntry>,
 }
 
-/// The press state of one left click on the agents view (TS
-/// `fullscreenPressedClick`'s grammar, row-scoped: the release must land
-/// on the same row).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct PressedMouseClick {
-    row: usize,
-    dragged: bool,
-}
-
 /// The prompt's composition state (TS the editor's composer modes): the
 /// plain search field, or one action's composer that owns the prompt
-/// and the key routing. Each composer owns its [`Editor`] — the text,
+/// and the key routing. Each composer owns its [`Editor`] -- the text,
 /// the provider, and the history can never leak between modes, and an
 /// editor while searching cannot be represented. [`Box`] keeps the
 /// variant against the unit `Search` under clippy's large-enum-variant.
@@ -600,7 +566,7 @@ impl AgentsViewMode {
         let selected_identity = options.selected_row_identity.clone();
         let selected_key = options.selected_key.clone();
         let keybindings = options.keybindings.clone();
-        // A fresh open (no carried identity or usable key — the scope-back
+        // A fresh open (no carried identity or usable key -- the scope-back
         // handoff leaks an empty identity and a key with no session ids,
         // neither restores anything) waits on the anchor: the session the
         // view was opened from, the agents-back handoff's anchor.
@@ -662,9 +628,6 @@ impl AgentsViewMode {
             saved_stream: Vec::new(),
             saved_catalog_loaded: false,
             incident_notice_state,
-            click_rows: Vec::new(),
-            hover_row: None,
-            pressed_click: None,
             actions: Vec::new(),
             heartbeats: Vec::new(),
         }
@@ -745,10 +708,10 @@ async fn open_roster_link(
 /// The saved-catalog fetch (TS `armSavedSearchFetch`): one request whose
 /// result (or failure) re-enters the loop as a `UiInput`, while the scan's
 /// `session_list_item` stream re-enters as events under the fetch's own
-/// request id — the id the loop compares against (TS's connection routes
+/// request id -- the id the loop compares against (TS's connection routes
 /// the stream to the originating `listDaemonSavedSessions` callbacks). The
-/// scan is the known-slow path — the whole-file re-parse of every saved
-/// session — so it rides the LONG-RUNNING request budget: the default 30s
+/// scan is the known-slow path -- the whole-file re-parse of every saved
+/// session -- so it rides the LONG-RUNNING request budget: the default 30s
 /// class would turn every large sessions dir into a false
 /// `Saved sessions unavailable` and leave the entry anchor's row
 /// permanently unloaded (the loading state that outlives the scan). A
@@ -839,12 +802,11 @@ pub async fn run_agents_view(
         Err(error) => {
             // Same rule as the session surface: restore when this run
             // changed the terminal state (the flag arms at the raw-mode
-            // entry) OR when it entered on a pane already in TUI state
-            // (the preserve handoff it must release even on a pre-mount
-            // failure).
+            // entry) OR when it entered on a pane already in raw mode
+            // (a handoff it must release even on a pre-mount failure).
             if owns_terminal
                 && (surface_mounted.load(std::sync::atomic::Ordering::SeqCst)
-                    || crate::altscreen::active())
+                    || crossterm::terminal::is_raw_mode_enabled().unwrap_or(false))
             {
                 crate::exit_restore::restore_terminal();
             }
@@ -861,12 +823,9 @@ async fn run_agents_view_surface(
 ) -> Result<AgentsViewRun> {
     crossterm::style::force_color_output(true);
     // The connection and its first snapshot precede every surface state:
-    // this pane was handed over already in TUI state (raw mode on, the
-    // alternate screen up, the cursor hidden — the chat's teardown
-    // preserves them for this view), so a failure here must hand the
-    // terminal back before the error escapes (TS `returnToAgentsView`'s
-    // `finally` runs the same release on a failed handoff); nothing below
-    // runs to do it.
+    // the pane may arrive in raw mode from the chat's handoff, so a
+    // failure here hands the terminal back before the error escapes;
+    // nothing below runs to do it.
     let (client, mut events, roster, saved_sessions, saved_catalog_loaded) =
         match open_roster_link(&options, link).await {
             Ok(open) => open,
@@ -913,7 +872,7 @@ async fn run_agents_view_surface(
     // mounts (TS `applySessionList(this.rosterStore.summaries(), true)`
     // before its first `requestRender`): the saved-catalog fetch below
     // applies as an input when it lands instead of holding the frame.
-    renderer.draw(&mut mode);
+    renderer.draw(&mut mode)?;
     // The saved catalog feeds the Inactive section (cwd + sessionDir
     // scope). TS `armSavedSearchFetch` runs the scan while the view is
     // already interactive, so a large catalog never delays the first
@@ -938,7 +897,7 @@ async fn run_agents_view_surface(
     let mut catalog_request = (!mode.saved_catalog_loaded).then(|| {
         spawn_saved_catalog_fetch(&client, ui_tx.clone(), cwd.clone(), session_dir.clone())
     });
-    // The heartbeat catalog feeds the rows' `◷ N` badges: the same
+    // The heartbeat catalog feeds the rows' `@ N` badges: the same
     // selector-less `heartbeats_list` the activity dock reads, fetched
     // open-time like TS `refreshHeartbeats` and re-read on every
     // `heartbeats_changed` (the loop local below is the generation gate:
@@ -958,7 +917,7 @@ async fn run_agents_view_surface(
     let mut last_pulse = tokio::time::Instant::now();
     // TS `setInterval(refreshIncidentNotices, INCIDENT_NOTICE_POLL_INTERVAL_MS)`:
     // the re-read of appended agent.jsonl bytes, re-derived and re-rendered
-    // only when the collapsed line changed (`.unref()` — it never keeps the
+    // only when the collapsed line changed (`.unref()` -- it never keeps the
     // app alive; here the deadline simply stops firing with the loop).
     let mut incident_poll_at = tokio::time::Instant::now()
         + Duration::from_millis(crate::incident_notices::INCIDENT_NOTICE_POLL_INTERVAL_MS);
@@ -974,7 +933,7 @@ async fn run_agents_view_surface(
     // deadline, and the frames captured at arming (the condition scans
     // only frames rendered after the barrier reached the queue head, so
     // a needle that already scrolled out of an older frame still
-    // satisfies it — except the newest frame at arming time, which pops
+    // satisfies it -- except the newest frame at arming time, which pops
     // immediately instead of stalling on a repaint that may never
     // come).
     let mut wait_render_deadline: Option<tokio::time::Instant> = None;
@@ -984,7 +943,7 @@ async fn run_agents_view_surface(
         let mut redraw = false;
         // The headless plan's render barrier: `WaitRender` holds the
         // queued PLAN batch behind it until a frame rendered after
-        // arming contains the needle — daemon-driven rows (the saved
+        // arming contains the needle -- daemon-driven rows (the saved
         // catalog's rows) land on the event cadence rather than a known
         // wall-clock delay, so the condition wait rides out any load
         // latency where a fixed sleep only wins on an idle machine. The
@@ -1023,7 +982,7 @@ async fn run_agents_view_surface(
                     // The hold's honest failure bound: the deadline
                     // pops it and the plan proceeds; the status note
                     // reports the wait that never satisfied (never the
-                    // needle itself — the note renders into frames, and
+                    // needle itself -- the note renders into frames, and
                     // quoting the needle would satisfy the very
                     // condition that failed).
                     mode.set_status("timed out waiting for the headless render condition");
@@ -1078,7 +1037,7 @@ async fn run_agents_view_surface(
                     }
                     // The executed stop-or-delete dispatch (the second
                     // ctrl+x): the wire call runs off the key loop with
-                    // the client — the saved-catalog fetch's pattern —
+                    // the client -- the saved-catalog fetch's pattern --
                     // and its outcome lands as a `DeleteResult` status
                     // line (the roster push refreshes the rows behind
                     // it).
@@ -1123,19 +1082,17 @@ async fn run_agents_view_surface(
                         spawn_headline_fetch(&client, ui_tx.clone(), key, active_session_id);
                     }
                 }
-                // A plain click opens the row under it (the Enter
-                // action); drags and wheel turns are consumed inside.
-                UiInput::Mouse(event) => {
-                    mode.handle_mouse(&event);
-                }
                 UiInput::Paste(text) => {
                     mode.handle_paste(&text);
                 }
                 // `Settled` is the plan's own settle no-op;
                 // `WaitRender` never reaches the batch pop (the
-                // pre-pass at the loop head owns it — an armed hold
+                // pre-pass at the loop head owns it -- an armed hold
                 // skips this pop entirely).
-                UiInput::Resize | UiInput::Settled | UiInput::WaitRender { .. } => {}
+                UiInput::Settled | UiInput::WaitRender { .. } => {}
+                // The live area re-fits the new height; the next frame
+                // repaints it whole.
+                UiInput::Resize => renderer.resize()?,
                 UiInput::DeleteResult {
                     message,
                     tone,
@@ -1275,7 +1232,7 @@ async fn run_agents_view_surface(
                                     }
                                 }
                             }
-                            // TS `heartbeats_changed` → `refreshHeartbeats`:
+                            // TS `heartbeats_changed` -> `refreshHeartbeats`:
                             // the daemon-global broadcast re-reads the
                             // catalog; the landed answer redraws, not this.
                             Some(DaemonClientEvent::HeartbeatsChanged) => {
@@ -1325,8 +1282,8 @@ async fn run_agents_view_surface(
                     // the wait (the pulse arm's shape).
                     () = tokio::time::sleep_until(incident_poll_at) => {}
                     // The render barrier's deadline: an armed hold whose
-                    // needle never lands still pops here — the plan proceeds
-                    // and the assertion then reports the actual frame — so a
+                    // needle never lands still pops here -- the plan proceeds
+                    // and the assertion then reports the actual frame -- so a
                     // quiet daemon (a catalog answer that never comes)
                     // cannot wedge the loop waiting on events that never
                     // arrive.
@@ -1348,7 +1305,7 @@ async fn run_agents_view_surface(
                 }
         }
         // The status line's timer (TS's `setTimeout`): an expired line
-        // clears here after every arm — the wake's own and any input's —
+        // clears here after every arm -- the wake's own and any input's --
         // so a status that aged out mid-batch never survives the
         // redraw that follows.
         redraw |= mode.expire_status(std::time::Instant::now());
@@ -1362,7 +1319,7 @@ async fn run_agents_view_surface(
             redraw |= mode.refresh_incident_notices();
         }
         if redraw {
-            renderer.draw(&mut mode);
+            renderer.draw(&mut mode)?;
         }
     }
 
@@ -1372,9 +1329,14 @@ async fn run_agents_view_surface(
     // consumes the renderer, so the terminal check is read first.
     let handing_off = mode.opened.is_some();
     let terminal_exit = matches!(renderer, Renderer::Terminal { .. }) && !handing_off;
-    // A selection hands the pane to the chat it opened (TS `result.type !== "exit"`);
-    // exiting releases the alternate screen.
-    let frames = renderer.finish(mode.opened.is_some());
+    // A selection hands the pane to the chat it opened (TS
+    // `result.type !== "exit"`); exiting restores the terminal. Either
+    // way the view's live area is erased: it leaves no output.
+    let frames = renderer.finish(if handing_off {
+        Leave::Handoff
+    } else {
+        Leave::Exit
+    })?;
     // TS `AgentsViewRosterStore.dispose` fires the roster unsubscribe
     // fire-and-forget ("nobody needs the ack"; the supervisor also drops
     // the subscription with the socket), so no handoff ever waits on it.
@@ -1392,7 +1354,7 @@ async fn run_agents_view_surface(
     let opened = mode.opened.take();
     // A handoff retires the watchdog before the drain wait: the reader
     // keeps observing Ctrl+C through that window, and a double-press
-    // must not force-quit a process that is merely switching views —
+    // must not force-quit a process that is merely switching views --
     // the retirement never affects the in-flight dispatches.
     if handing_off {
         exit_guard.cancel();
@@ -1428,7 +1390,7 @@ async fn run_agents_view_surface(
             // The reply outcomes apply on the exit path too (an
             // Enter-then-exit): the statuses paint nothing on a run
             // that ended, but the adoption actions (`reply_sent`,
-            // `killed`) must still reach the outcome — and a `/name`
+            // `killed`) must still reach the outcome -- and a `/name`
             // result still disarms or restores the composer's draft for
             // the run's final state.
             UiInput::HeadlineResult { key, result } => {
@@ -1443,7 +1405,17 @@ async fn run_agents_view_surface(
             UiInput::KillResult { key, outcome } => {
                 mode.kill_result(&key, outcome);
             }
-            _ => {}
+            // The run ended: input, render barriers, and catalog
+            // answers have nothing left to apply to.
+            UiInput::Key(_)
+            | UiInput::Paste(_)
+            | UiInput::WaitRender { .. }
+            | UiInput::Resize
+            | UiInput::Settled
+            | UiInput::Done
+            | UiInput::SavedLoaded { .. }
+            | UiInput::SavedFailed { .. }
+            | UiInput::HeartbeatsLoaded { .. } => {}
         }
     }
     // The force-quit deadline arms only after the drain: the drain
@@ -1521,7 +1493,7 @@ fn advance_running_pulse(
 /// The daemon-driven answers that jump an armed render barrier: the
 /// saved catalog's landing (or its terminal failure), the heartbeat
 /// catalog's landing, and the stop-or-delete dispatch results are the
-/// events the plan's needles wait on — they must never queue behind the
+/// events the plan's needles wait on -- they must never queue behind the
 /// hold they satisfy.
 fn is_daemon_answer(input: &UiInput) -> bool {
     matches!(

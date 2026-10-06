@@ -199,7 +199,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: false,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -256,7 +255,7 @@ fn a_quiet_turn_keeps_the_loader_animating() {
     let elapsed: Vec<u64> = loader_lines
         .iter()
         .filter_map(|line| {
-            line.split('·')
+            line.split("Waiting - ")
                 .nth(1)?
                 .trim()
                 .split(|c: char| !c.is_ascii_digit())

@@ -116,7 +116,7 @@ pub struct Editor {
     undo_stack: Vec<EditorSnapshot>,
     redo_stack: Vec<EditorSnapshot>,
     /// The selection anchor (TS has no editor selection; this is the
-    /// prompt-editor-keybinds forward feature — the selection spans the
+    /// prompt-editor-keybinds forward feature -- the selection spans the
     /// anchor to the cursor). `None` = no selection.
     selection_anchor: Option<(usize, usize)>,
     last_action: Option<LastAction>,
@@ -266,7 +266,7 @@ impl Editor {
     /// Replace the provider's `skill:` commands (TS
     /// `setupAutocompleteProvider` rebuilds the command list with the
     /// session's skills; this port swaps the list on the installed
-    /// provider). The open dropdown — if any — drops, because its rows
+    /// provider). The open dropdown -- if any -- drops, because its rows
     /// came from the old catalog (TS `setAutocompleteProvider` cancels
     /// too), but a PARKED request stays: the host loop materializes it
     /// against the new provider, so a `/` typed while the catalog
@@ -571,7 +571,7 @@ impl Editor {
     }
 
     /// Redo the last undone edit (standard editor semantics; no TS
-    /// counterpart — the TS editor has no redo). Each undone edit lands
+    /// counterpart -- the TS editor has no redo). Each undone edit lands
     /// on the redo stack, and any new edit clears it.
     fn redo(&mut self) {
         self.history_index = -1;
@@ -705,7 +705,7 @@ impl Editor {
         let mut filtered = filtered_raw;
         // A payload that filters to nothing (control-only bytes, empty
         // bracketed paste) changes nothing: no undo step, no selection
-        // removal — the editor stays exactly as it was.
+        // removal -- the editor stays exactly as it was.
         if filtered.is_empty() {
             return PasteDisposition::Inline;
         }
@@ -979,7 +979,7 @@ mod tests {
     }
 
     /// TS `CustomEditor.isCursorAtEnd`: the move-below-prompt hook fires
-    /// only from the last logical line's end — the common just-typed
+    /// only from the last logical line's end -- the common just-typed
     /// position (and the empty prompt), never mid-line or above the last
     /// line.
     #[test]
@@ -1033,8 +1033,8 @@ mod tests {
     }
 
     /// One paste is one undo unit (TS `handlePaste` pushes a single undo
-    /// snapshot before inserting): one undo removes the whole paste — the
-    /// collapsed marker AND the stored content — never a fragment.
+    /// snapshot before inserting): one undo removes the whole paste -- the
+    /// collapsed marker AND the stored content -- never a fragment.
     #[test]
     fn undo_removes_a_whole_paste_in_one_step() {
         let mut e = ed();

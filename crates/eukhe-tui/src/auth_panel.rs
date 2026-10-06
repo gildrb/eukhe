@@ -2,8 +2,8 @@
 //! `PrimeTeamSelectorComponent`, the surfaces `host.showAuthPanel`
 //! mounts): the ONE TUI surface the interactive login flows render
 //! through. A flow runs in the background and drives the panel through
-//! [`AuthPanelHandle`] — progress lines, the browser URL block, a paste
-//! prompt, or the Prime team picker — while the TUI run loop folds each
+//! [`AuthPanelHandle`] -- progress lines, the browser URL block, a paste
+//! prompt, or the Prime team picker -- while the TUI run loop folds each
 //! request into the mounted panel and answers the prompt/picker requests
 //! from the keyboard. No login path ever takes over the plain terminal
 //! (the TS auth flows never drop out of the TUI either): no
@@ -17,7 +17,7 @@
 //!
 //! TS carries an abort signal on its login dialog (Esc cancels a running
 //! check). The cooperative mirror (#2770): every handle shares one
-//! cancel flag — the driving surface marks it when the panel exits and
+//! cancel flag -- the driving surface marks it when the panel exits and
 //! a running flow checks it between its poll steps and before its
 //! credential writes (a `JoinHandle::abort` cannot reach a started
 //! blocking login body, so the flag is the seam). The paste prompt and
@@ -25,7 +25,7 @@
 //! within their request timeouts; a settled flow always unmounts the
 //! panel.
 
-use ratatui::style::Modifier;
+use crate::style::Modifier;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::fuzzy::fuzzy_filter;
@@ -105,9 +105,9 @@ pub enum PasteStyle {
 /// prompt "Enter API key:").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PastePromptTone {
-    /// TS `addMutedText(prompt)` — `showManualInput`'s arm-prompt.
+    /// TS `addMutedText(prompt)` -- `showManualInput`'s arm-prompt.
     Muted,
-    /// TS `addSectionTitle(message)` — `showPrompt`'s "Enter API key:".
+    /// TS `addSectionTitle(message)` -- `showPrompt`'s "Enter API key:".
     Text,
 }
 
@@ -115,11 +115,11 @@ pub enum PastePromptTone {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PanelSurface {
     /// The session's prompt dock (TS the non-onboarding shape):
-    /// `topRule: true, hideTitle: false` — the borderMuted rule and the
+    /// `topRule: true, hideTitle: false` -- the borderMuted rule and the
     /// muted one-space title open the panel.
     Session,
     /// The first-run onboarding block (TS the onboarding shape):
-    /// `topRule: false, hideTitle: true` — the splash names the step, so
+    /// `topRule: false, hideTitle: true` -- the splash names the step, so
     /// the panel carries no chrome of its own.
     Onboarding,
 }
@@ -132,13 +132,13 @@ pub enum AuthPanelRequest {
     /// TS `dialog.showProgress`: a muted progress line joins the panel.
     /// `chatter` marks the line as the `onProgress` callback's step
     /// chatter (TS `runPrimeInferenceLogin`'s guarded arm): the
-    /// onboarding surface drops it — "onboarding narrates itself; step
+    /// onboarding surface drops it -- "onboarding narrates itself; step
     /// chatter stays in the chat flows" (TS `if (!this.isOnboarding())`)
-    /// — while a direct `showProgress` line (the browser-fallback arm,
+    /// -- while a direct `showProgress` line (the browser-fallback arm,
     /// the OAuth dialogs' chatter) renders on every surface.
     Progress { message: String, chatter: bool },
     /// TS `dialog.showWaiting`: the polling device flow's waiting line
-    /// (the Copilot browser authentication pend) — the accent row that
+    /// (the Copilot browser authentication pend) -- the accent row that
     /// joins above the actions row. It renders on every surface: the
     /// dialog's own method carries no onboarding guard, unlike the
     /// `onProgress` chatter arm.
@@ -155,7 +155,7 @@ pub enum AuthPanelRequest {
     /// and `dialog.showPrompt` (the section-title prompt, TS text
     /// colour): the prompt above the panel's paste field. Enter submits
     /// the trimmed value (a blank submit resolves when the prompt allows
-    /// it — TS `OAuthPrompt.allowEmpty` — else the field stays mounted:
+    /// it -- TS `OAuthPrompt.allowEmpty` -- else the field stays mounted:
     /// the token panel shows its notice, the login dialog waits
     /// silently); Esc cancels the flow (`None`).
     PastePrompt {
@@ -198,7 +198,7 @@ pub enum AuthPanelRequest {
 /// polls before its auth-store writes, and the watch that wakes every
 /// pending panel prompt (a prompt's answer can only come from the pane
 /// that is exiting, so a pending prompt waits on the watch instead of
-/// hanging the exit — the watch keeps the marked value, so a mark that
+/// hanging the exit -- the watch keeps the marked value, so a mark that
 /// races a wait is never lost).
 #[derive(Clone)]
 pub struct FlowCancel {
@@ -263,7 +263,7 @@ pub struct AuthPanelHandle {
     tx: mpsc::UnboundedSender<AuthPanelRequest>,
     /// The flow's cooperative cancel signal: the driving surface marks
     /// it when the panel or pane exits, and a blocking login body
-    /// checks it before its auth-store writes — a `JoinHandle::abort`
+    /// checks it before its auth-store writes -- a `JoinHandle::abort`
     /// cannot reach a started `spawn_blocking` closure (#2770).
     cancel: FlowCancel,
 }
@@ -293,7 +293,7 @@ impl AuthPanelHandle {
     }
 
     /// The bare cancel flag (the #2790 codex login's shape): the
-    /// same storage the [`FlowCancel`] arms — loads observe every mark.
+    /// same storage the [`FlowCancel`] arms -- loads observe every mark.
     #[must_use]
     pub fn cancel_flag(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
         self.cancel.flag_arc()
@@ -307,7 +307,7 @@ impl AuthPanelHandle {
 
     /// TS the `onProgress` callback's step chatter (TS `dialog.showProgress`
     /// behind the `if (!this.isOnboarding())` guard): the onboarding
-    /// surface drops the line — the flow narrates itself there.
+    /// surface drops the line -- the flow narrates itself there.
     pub fn progress(&self, message: impl Into<String>) {
         self.send(AuthPanelRequest::Progress {
             message: message.into(),
@@ -326,7 +326,7 @@ impl AuthPanelHandle {
     }
 
     /// TS `dialog.showWaiting`: the polling device flow's waiting line
-    /// — the accent row above the actions row, rendered on every
+    /// -- the accent row above the actions row, rendered on every
     /// surface (onboarding included; the dialog's own method, never the
     /// `onProgress` chatter arm the onboarding block drops).
     pub fn waiting(&self, message: impl Into<String>) {
@@ -452,7 +452,7 @@ const TEAM_PANEL_SUBTITLE: &str = "Choose which account pays for Prime Inference
 const TEAM_SEARCH_PLACEHOLDER: &str = "Search teams";
 
 /// The login dialog's paste field placeholder (TS
-/// `MenuSearchInput("Paste value")` — the session's API-key prompt uses
+/// `MenuSearchInput("Paste value")` -- the session's API-key prompt uses
 /// the same field).
 pub(crate) const PASTE_PLACEHOLDER: &str = "Paste value";
 
@@ -513,7 +513,7 @@ pub struct AuthPanel {
     copy_status: Option<CopyStatus>,
     /// The flow's cooperative cancel signal (TS the dialog's
     /// `abortController`): Esc/ctrl+c on a URL screen with no mounted
-    /// input cancels the running login — the actions row's cancel hint
+    /// input cancels the running login -- the actions row's cancel hint
     /// is never a dead key.
     flow_cancel: Option<FlowCancel>,
 }
@@ -522,7 +522,7 @@ pub struct AuthPanel {
 #[derive(Debug)]
 enum PanelInput {
     /// No input mounted: the flow works between requests (its progress
-    /// lines stay; Esc has nothing to cancel — the flow settles within
+    /// lines stay; Esc has nothing to cancel -- the flow settles within
     /// its request timeouts).
     Working,
     /// The paste prompt (TS `showManualInput` / `showPrompt`).
@@ -566,7 +566,7 @@ impl AuthPanel {
 
     /// Mount the panel inside the first-run onboarding block (TS the
     /// onboarding `loginDialogOptions`: `topRule: false, hideTitle:
-    /// true` — the splash renders the step's heading, the panel carries
+    /// true` -- the splash renders the step's heading, the panel carries
     /// no chrome of its own). The title stays for the flow's identity;
     /// it never renders on this surface.
     pub fn onboarding(title: impl Into<String>) -> Self {
@@ -604,7 +604,7 @@ impl AuthPanel {
     }
 
     /// TS `showWaiting` (the polling device flow's status): the accent
-    /// line replaces any earlier waiting status — one line, the flow's
+    /// line replaces any earlier waiting status -- one line, the flow's
     /// current state. One request-fold entry (the session's channel arm
     /// calls it).
     pub fn push_waiting(&mut self, message: &str) {
@@ -677,7 +677,7 @@ impl AuthPanel {
         self.subtitle = Some(TEAM_PANEL_SUBTITLE.to_string());
         self.progress.clear();
         // The picker is its own panel (TS `PrimeTeamSelectorComponent`):
-        // the login dialog's whole content state goes with it — a stale
+        // the login dialog's whole content state goes with it -- a stale
         // section title, actions row, or copy status must never bleed
         // into the frame the pick leaves behind.
         self.progress_open = false;
@@ -716,7 +716,7 @@ impl AuthPanel {
         sink: &mut crate::clipboard::OscSink,
     ) {
         // TS `cancel()` on a URL screen (no mounted input): the dialog's
-        // abort signal ends the running login — the actions row's cancel
+        // abort signal ends the running login -- the actions row's cancel
         // hint is never a dead key.
         if matches!(self.input, PanelInput::Working) && kb.matches(key, "tui.select.cancel") {
             self.mark_flow_cancelled();
@@ -724,7 +724,7 @@ impl AuthPanel {
         }
         // TS `handleInput`'s copy arm: the copy binding copies the shown
         // URL, except a single-character key while the paste field is
-        // visible — that one types into the field, so only the binding's
+        // visible -- that one types into the field, so only the binding's
         // non-text-entry keys (TS's `alt+c` default) copy then.
         if self.auth_url.is_some()
             && kb.matches(key, "app.clipboard.copyLoginUrl")
@@ -813,8 +813,8 @@ impl AuthPanel {
     /// TS `copyAuthUrl`: copy the shown URL through the platform
     /// clipboard chain and remember the outcome for the actions row (the
     /// status text replaces the hint until the next URL replaces both).
-    /// The payload carries exactly what the row renders — the same
-    /// control-byte scrub and single-line fold the render applies — so a
+    /// The payload carries exactly what the row renders -- the same
+    /// control-byte scrub and single-line fold the render applies -- so a
     /// provider-supplied URL cannot ride the clipboard channel as a
     /// second input source.
     fn copy_auth_url(&mut self, sink: &mut crate::clipboard::OscSink) {
@@ -830,8 +830,8 @@ impl AuthPanel {
 
     /// One paste payload while the panel owns the frame (TS the dialog's
     /// field and the selector's search accept pasted text): the payload
-    /// lands in the mounted input — the paste field or the picker's
-    /// search — never in the hidden editor behind the panel.
+    /// lands in the mounted input -- the paste field or the picker's
+    /// search -- never in the hidden editor behind the panel.
     pub fn handle_paste(&mut self, text: &str) {
         match &mut self.input {
             PanelInput::Working => {}

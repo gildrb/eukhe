@@ -108,8 +108,7 @@ fn the_list_renders_columned_rows_and_one_hint() {
     );
     assert!(text
         .iter()
-        .any(|row| row
-            .contains("\u{2191}/\u{2193} move \u{b7} Enter open \u{b7} \u{2190}/Esc close")));
+        .any(|row| row.contains("up/down move - Enter open - left/Esc close")));
     for line in &frame {
         assert!(crate::width::spans_width(line) <= 70);
     }
@@ -128,14 +127,14 @@ fn the_list_hint_drops_unbound_keys() {
     let text = frame_text(&frame);
     assert!(
         text.iter()
-            .any(|row| row.contains("\u{2191}/\u{2193} move \u{b7} Enter open \u{b7} Esc close")),
+            .any(|row| row.contains("up/down move - Enter open - Esc close")),
         "the emptied back binding drops the arrow: {text:?}"
     );
 }
 
 /// The columns distribute across the full TUI width (the operator's
 /// 2026-09-25 ruling): the command column carries the remaining
-/// width, so the header and every row — selected or plain — span
+/// width, so the header and every row -- selected or plain -- span
 /// the terminal edge to edge; the fixed fact columns (duration,
 /// pid, status) keep their content-hug geometry inside it.
 #[test]
@@ -201,7 +200,7 @@ fn the_selection_wash_spans_the_whole_width() {
 /// operator's 2026-09-28 consistency rule: the shell-runs selection's
 /// background is IDENTICAL to the agents view's and the heartbeats
 /// picker's selected rows and the dock's group band): the hover
-/// band's own color, no modifiers — one style constant
+/// band's own color, no modifiers -- one style constant
 /// (`Theme::selection_row_style`), not a per-surface copy.
 #[test]
 fn the_selected_row_paints_the_shared_selection_style() {
@@ -218,14 +217,14 @@ fn the_selected_row_paints_the_shared_selection_style() {
     );
     assert_eq!(
         band.bg,
-        theme.hover_row_style().bg,
-        "the shared selection paints the hover's own color — the one-color ruling"
+        theme.soft_selection_style().bg,
+        "the shared selection paints the soft wash"
     );
 }
 
 /// The status column color-codes the rows (the operator's
-/// color-coding directive): running green, a nonzero exit red — the
-/// failed state — a clean exit dim. The selected row's wash patches a
+/// color-coding directive): running green, a nonzero exit red -- the
+/// failed state -- a clean exit dim. The selected row's wash patches a
 /// background onto its spans, so the color check compares the
 /// foreground only.
 #[test]
@@ -236,22 +235,22 @@ fn the_status_column_color_codes_the_states() {
 
     let view = BashView::new(activities(), 24);
     let frame = view.render(&theme(), 90, &kb());
-    let running = row_text(&frame, "\u{25cf} running").expect("the running row");
+    let running = row_text(&frame, "* running").expect("the running row");
     assert!(running.iter().any(|span| span.style.fg == success));
-    let finished = row_text(&frame, "\u{25cb} finished").expect("the finished row");
+    let finished = row_text(&frame, "o finished").expect("the finished row");
     assert!(finished.iter().any(|span| span.style.fg == dim));
     assert!(finished.iter().all(|span| span.style.fg != error));
 
     let view = BashView::new(failed_activities(), 24);
     let frame = view.render(&theme(), 90, &kb());
-    let failed = row_text(&frame, "\u{25cb} finished").expect("the failed row");
+    let failed = row_text(&frame, "o finished").expect("the failed row");
     assert!(failed.iter().any(|span| span.style.fg == error));
     assert!(failed.iter().all(|span| span.style.fg != success));
 }
 
 /// The pane runs all the way to the bottom of the screen (the
 /// operator's 2026-09-24 directive): no rule rides below the
-/// shortcuts hint — exactly one blank line of spacing rides under
+/// shortcuts hint -- exactly one blank line of spacing rides under
 /// it, the same treatment as the `/model` view. A tall catalog fills
 /// the whole budget (the truncate keeps exactly the viewport rows),
 /// and a short catalog still ends on the blank (the dock's frame
@@ -279,7 +278,7 @@ fn the_pane_runs_to_the_bottom() {
         let text = frame_text(&frame);
         let last_row = text.last().expect("the trailing blank row");
         assert!(
-            last_row.trim().is_empty() && !last_row.contains("\u{2500}"),
+            last_row.trim().is_empty() && !last_row.contains('-'),
             "one blank line rides below the shortcuts, never a rule: {last_row}"
         );
         let second_to_last = &text[text.len() - 2];
@@ -300,7 +299,7 @@ fn the_pane_runs_to_the_bottom() {
     let text = frame_text(&frame);
     let last_row = text.last().expect("the trailing blank row");
     assert!(last_row.trim().is_empty());
-    assert!(!last_row.contains("\u{2500}"));
+    assert!(!last_row.contains('-'));
     // The detail pane too.
     let mut view = BashView::new(activities(), 16);
     view.handle_key("enter", &kb());
@@ -351,7 +350,7 @@ fn enter_opens_the_detail_and_the_cancel_action() {
 
 /// The drill-in is the operator's refined shape: ONE metadata row
 /// (pid, started, duration together with the status), then the exact
-/// command, then the output — no labeled-pair blocks, no section
+/// command, then the output -- no labeled-pair blocks, no section
 /// labels, no duplicated title.
 #[test]
 fn the_detail_is_one_metadata_row_the_command_and_the_output() {
@@ -404,9 +403,9 @@ fn the_detail_is_one_metadata_row_the_command_and_the_output() {
     assert!(!joined.contains('\x1b'));
     // The cancel action and the scroll hint.
     assert!(text.iter().any(|row| row.contains("Cancel command")));
-    assert!(text.iter().any(|row| row.contains(
-        "\u{2191}/\u{2193} scroll \u{b7} Enter run \u{b7} \u{2190} back \u{b7} Esc close"
-    )));
+    assert!(text
+        .iter()
+        .any(|row| row.contains("up/down scroll - Enter run - left back - Esc close")));
 }
 
 /// The metadata row's status rides in its state color: the running
@@ -442,8 +441,7 @@ fn the_finished_detail_has_no_action_and_no_run_hint() {
     assert!(!text.iter().any(|row| row.contains("Cancel command")));
     assert!(
         text.iter()
-            .any(|row| row
-                .contains("\u{2191}/\u{2193} scroll \u{b7} \u{2190} back \u{b7} Esc close")),
+            .any(|row| row.contains("up/down scroll - left back - Esc close")),
         "no run key without an action: {text:?}"
     );
 }
@@ -518,7 +516,7 @@ fn short_viewports_never_clip_the_panes() {
     assert!(text.iter().any(|row| row.contains("Cancel command")));
 }
 
-/// A short viewport shrinks the command first, then the output — the
+/// A short viewport shrinks the command first, then the output -- the
 /// action row and the hint never yield.
 #[test]
 fn a_tight_viewport_keeps_the_output_minimum_over_the_command() {
@@ -554,7 +552,7 @@ fn the_region_anchors_on_the_newest_output() {
     // The leading marker rides over the first region row.
     let marker = text
         .iter()
-        .position(|row| row.trim() == "\u{2026}")
+        .position(|row| row.trim() == "...")
         .expect("the leading marker");
     let newest = text
         .iter()
@@ -563,7 +561,7 @@ fn the_region_anchors_on_the_newest_output() {
     assert!(marker < newest, "the marker rides above the content");
 }
 
-/// Up scrolls the region toward the older lines (a `\u{2193}` marker
+/// Up scrolls the region toward the older lines (a `v` marker
 /// rides under the last row), and down walks back to the newest.
 #[test]
 fn the_region_scrolls_up_and_down() {
@@ -593,10 +591,10 @@ fn the_region_scrolls_up_and_down() {
         "the lifted window's newest edge hides under the trailing marker"
     );
     assert!(
-        text.iter().any(|row| row.trim() == "\u{2193}"),
+        text.iter().any(|row| row.trim() == crate::glyphs::DOWN),
         "the trailing marker rides under a lifted window"
     );
-    assert!(text.iter().any(|row| row.contains("\u{2026}")));
+    assert!(text.iter().any(|row| row.contains("...")));
 
     view.handle_key("down", &kb());
     frame = view.render(&theme(), 70, &kb());
@@ -606,7 +604,7 @@ fn the_region_scrolls_up_and_down() {
         "down walks back to the newest output"
     );
     assert!(
-        !text.iter().any(|row| row.trim() == "\u{2193}"),
+        !text.iter().any(|row| row.trim() == crate::glyphs::DOWN),
         "bottom-anchored again: no trailing marker"
     );
 }
@@ -755,7 +753,7 @@ fn a_short_window_completes_the_tail() {
         "the retained beginning renders once scrolled to the top"
     );
     assert!(
-        !text.iter().any(|row| row.trim() == "\u{2026}"),
+        !text.iter().any(|row| row.trim() == "..."),
         "no continuation marker over a complete tail"
     );
 }
@@ -766,7 +764,7 @@ fn a_short_window_completes_the_tail() {
 /// instead of reading the wire cap as the end), and the retried
 /// load's success supersedes the shown fetch error. A kill error
 /// touches neither the window nor the claim (it knows nothing about
-/// the load's fate) and never clears on a tail landing — only the
+/// the load's fate) and never clears on a tail landing -- only the
 /// registry refresh clears it.
 #[test]
 fn an_error_releases_the_load_claim_and_a_success_clears_it() {
@@ -816,7 +814,7 @@ fn an_error_releases_the_load_claim_and_a_success_clears_it() {
             } => {
                 assert_eq!(lines, FIRST_TAIL_LINES * 2);
                 // The grown window lands: the shown fetch error is
-                // stale — the fetch just succeeded.
+                // stale -- the fetch just succeeded.
                 let grown: Vec<String> = (1..=FIRST_TAIL_LINES * 2)
                     .map(|n| format!("line-{n:03}"))
                     .collect();
@@ -1058,7 +1056,7 @@ fn an_up_press_retries_a_failed_open_fetch() {
     );
     view.set_output("a", "line two", reopened);
     assert!(!view.open_retry);
-    // The kill error survives the landing — its lifecycle is the
+    // The kill error survives the landing -- its lifecycle is the
     // registry refresh, never a fetch success.
     assert!(view.error.is_some());
     view.clear_error();
@@ -1184,7 +1182,7 @@ fn a_clipped_command_trails_the_marker_inside_the_budget() {
     );
     let text_idx = text
         .iter()
-        .position(|row| row.trim() == "\u{2026}")
+        .position(|row| row.trim() == "...")
         .expect("the marker renders");
     let word_idx = text
         .iter()
@@ -1214,7 +1212,7 @@ fn a_sub_frame_viewport_never_overflows() {
 
 #[test]
 fn durations_format_compactly() {
-    assert_eq!(format_duration(None), "\u{2014}");
+    assert_eq!(format_duration(None), "--");
     assert_eq!(format_duration(Some(780)), "780ms");
     assert_eq!(format_duration(Some(3_412)), "3.4s");
     assert_eq!(format_duration(Some(125_000)), "2m 05s");

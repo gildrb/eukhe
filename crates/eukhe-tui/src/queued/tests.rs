@@ -22,7 +22,7 @@ fn empty_queue_renders_no_rows() {
 
 /// TS #2063 (RES-1306): a picked-up prompt leaves its lane at
 /// delivery, so while its turn is still preparing the strip is the
-/// only place it is visible — it renders as the "Starting" row, the
+/// only place it is visible -- it renders as the "Starting" row, the
 /// first row of the strip, and never carries the browse hint (nothing
 /// is parked to browse).
 #[test]
@@ -102,7 +102,7 @@ fn queue_renders_labels_and_hint() {
         vec![
             crate::Span::raw(" "),
             crate::Span::styled(
-                "\u{2570}\u{2500} alt+up to browse and edit queued messages".to_string(),
+                "`- alt+up to browse and edit queued messages".to_string(),
                 theme().fg_style(ThemeColor::Dim),
             ),
         ],
@@ -280,9 +280,7 @@ fn human_prompts_render_before_the_condensed_row() {
         "the counts name the queued origins only - no agent message queued"
     );
     assert!(
-        texts[4]
-            .trim()
-            .starts_with("\u{2570}\u{2500} alt+up to browse"),
+        texts[4].trim().starts_with("`- alt+up to browse"),
         "the hint stays the strip's last row"
     );
 }
@@ -543,13 +541,13 @@ fn browse_header_quotes_lane_index_and_keys() {
     };
     assert_eq!(
         browse_header_text(&selected, &keys),
-        "steering 1 \u{00b7} alt+up/alt+down browse \u{00b7} ctrl+alt+up/ctrl+alt+down reorder \u{00b7} enter steers \u{00b7} alt+enter queues \u{00b7} empty deletes"
+        "steering 1 - alt+up/alt+down browse - ctrl+alt+up/ctrl+alt+down reorder - enter steers - alt+enter queues - empty deletes"
     );
 }
 
 /// The read-only header (the operator's edit-scope directive): an
 /// internal item browses, but the header never offers the edit
-/// affordances — no reorder, no steer, no queue, no delete.
+/// affordances -- no reorder, no steer, no queue, no delete.
 #[test]
 fn an_internal_item_headers_read_only() {
     let internal_notice = QueueSelectionItem {
@@ -567,14 +565,14 @@ fn an_internal_item_headers_read_only() {
     };
     assert_eq!(
         browse_header_text(&internal_notice, &keys),
-        "follow-up 2 \u{00b7} alt+up/alt+down browse \u{00b7} read-only internal prompt"
+        "follow-up 2 - alt+up/alt+down browse - read-only internal prompt"
     );
 }
 
 /// The queue-fold bug (operator 2026-09-25): many child exits parked
 /// behind one busy turn rendered as that many user-like rows. The
 /// wire-typed provenance marks them, so they fold into the counted
-/// row instead — one row however many notices queue, with the
+/// row instead -- one row however many notices queue, with the
 /// human-typed previews untouched.
 #[test]
 fn child_status_notices_condense_by_wire_provenance() {
@@ -652,9 +650,9 @@ fn a_steering_lane_notice_condenses_too() {
 
 /// The spoof regression the operator's plan demands: provenance is
 /// the ONLY classifier for child status. A user-typed message that
-/// merely looks like a notice — the raw notice text, a string
+/// merely looks like a notice -- the raw notice text, a string
 /// starting with the notice family's own header, or any internal-
-/// looking label — stays a human preview row and never counts.
+/// looking label -- stays a human preview row and never counts.
 #[test]
 fn user_typed_rows_that_look_like_notices_stay_human() {
     let queue = QueuedMessages {
@@ -671,7 +669,7 @@ fn user_typed_rows_that_look_like_notices_stay_human() {
     assert_eq!(
         rows.len(),
         5,
-        "spacer + three previews + hint — no condensed row"
+        "spacer + three previews + hint -- no condensed row"
     );
     let texts: Vec<String> = rows
         .iter()
@@ -692,7 +690,7 @@ fn user_typed_rows_that_look_like_notices_stay_human() {
     assert_eq!(
         texts[3].trim(),
         "Follow-up: RLM child status: typed by hand",
-        "the lane label prepends — no label suppression without the four TS prefixes"
+        "the lane label prepends -- no label suppression without the four TS prefixes"
     );
 }
 
@@ -741,7 +739,7 @@ fn mixed_origins_count_child_status_in_the_fixed_order() {
     );
     assert_eq!(
         texts[3].trim(),
-        "╰─ alt+up to browse and edit queued messages"
+        "`- alt+up to browse and edit queued messages"
     );
     assert_eq!(
         texts
@@ -760,7 +758,7 @@ fn mixed_origins_count_child_status_in_the_fixed_order() {
     );
 }
 
-/// The browse affordance still walks the parked notices — the queue
+/// The browse affordance still walks the parked notices -- the queue
 /// stays inspectable with the child/status detail (the operator's
 /// requirement): the selection walks every item, internal prompts
 /// and notices included, oldest-first down the follow-up lane.
@@ -797,7 +795,7 @@ fn browse_still_walks_the_parked_notices() {
 /// The operator's mission case (2026-09-28), stated exactly: seven
 /// child-exited follow-ups parked behind one busy turn plus one user
 /// steering message render as the user message's row plus the one
-/// summary row — NO child-exit item rows.
+/// summary row -- NO child-exit item rows.
 #[test]
 fn seven_child_exits_render_as_one_counted_row() {
     let mut follow_ups = Vec::new();
@@ -856,7 +854,7 @@ fn seven_child_exits_render_as_one_counted_row() {
 /// threshold-compaction continuations) park preview-less: without the
 /// rider they rendered as user-like rows (TS's projection filters them
 /// out entirely). The `injectedPrompts` wire-typed provenance folds
-/// them into the counted row's "other internal prompt" bucket — they
+/// them into the counted row's "other internal prompt" bucket -- they
 /// never render their own rows.
 #[test]
 fn injected_continuations_condense_into_the_counted_row() {
@@ -905,7 +903,7 @@ fn injected_continuations_condense_into_the_counted_row() {
 }
 
 /// A queue of ONLY internal items renders just the summary row (no
-/// item rows at all) — the strip never shows an internal prompt as a
+/// item rows at all) -- the strip never shows an internal prompt as a
 /// preview row.
 #[test]
 fn an_only_internal_queue_renders_just_the_summary_row() {
@@ -934,8 +932,8 @@ fn an_only_internal_queue_renders_just_the_summary_row() {
 
 /// The spoof regression for the second rider (the child-status
 /// precedent's contract): provenance is the ONLY classifier. A
-/// user-typed prompt with a continuation's exact text — without the
-/// wire mark — stays the human preview row it is.
+/// user-typed prompt with a continuation's exact text -- without the
+/// wire mark -- stays the human preview row it is.
 #[test]
 fn a_same_text_user_row_never_rides_the_injected_rider() {
     let queue = QueuedMessages {
@@ -949,13 +947,13 @@ fn a_same_text_user_row_never_rides_the_injected_rider() {
     assert_eq!(
         rows.len(),
         3,
-        "spacer + the human preview row + hint — no condensed row"
+        "spacer + the human preview row + hint -- no condensed row"
     );
     let text: String = rows[1].iter().map(|span| span.content.as_str()).collect();
     assert_eq!(
         text.trim(),
         "Steering: [goal: continuation]",
-        "the lane label prepends and the first line renders — the human row it is"
+        "the lane label prepends and the first line renders -- the human row it is"
     );
 }
 

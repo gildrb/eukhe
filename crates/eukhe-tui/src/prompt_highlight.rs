@@ -4,7 +4,7 @@
 //! applies them:
 //!
 //! - the queued-message preview strip (`styleQueuedMessagePreview`): dim base, accent on the recognized command's `/name`, arg tokens colored;
-//! - the live editor's styled display text (`CustomEditor.styleDisplayText` + `ArgTokenHighlighter`): arg tokens colored on every line, the command token of the first layout line in accent (any recognized builtin command, aliases included — operator ruling 2026-09-29, a deliberate divergence from the TS argument-taking-only gate; suppressed while the cursor sits inside it).
+//! - the live editor's styled display text (`CustomEditor.styleDisplayText` + `ArgTokenHighlighter`): arg tokens colored on every line, the command token of the first layout line in accent (any recognized builtin command, aliases included -- operator ruling 2026-09-29, a deliberate divergence from the TS argument-taking-only gate; suppressed while the cursor sits inside it).
 //!
 //! - the user-message transcript block (`UserMessageComponent` +
 //!   `PromptTokenMask`): the row's accent command segment and argument
@@ -15,10 +15,10 @@
 //!   `styleSlashCommandText`): the accent command segment and the
 //!   argument tokens of the typed text ([`slash_command_source_spans`]).
 
+use crate::style::{Modifier, Style};
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
 use eukhe_types::slash_commands::{parse_slash_command, SlashCommandRegistry};
-use ratatui::style::{Modifier, Style};
 use std::sync::OnceLock;
 
 /// One highlighted argument token (TS `ArgTokenSpan`): a half-open char
@@ -175,7 +175,7 @@ pub fn style_queued_message_preview(theme: &Theme, message: &str, label: &str) -
 }
 
 /// TS `parseSlashCommand` (core/slash-commands.ts): the leading `/name` of
-/// a submitted line — the slash at char 0, the name a non-empty
+/// a submitted line -- the slash at char 0, the name a non-empty
 /// non-whitespace run, the arguments the trimmed rest.
 pub fn leading_slash_command(text: &str) -> Option<(&str, &str)> {
     let rest = text.strip_prefix('/')?;
@@ -190,7 +190,7 @@ pub fn leading_slash_command(text: &str) -> Option<(&str, &str)> {
 }
 
 /// TS `UserMessageComponent`'s mask span: the accent command segment of a
-/// transcript user row — its length (the leading `/name` when it names a
+/// transcript user row -- its length (the leading `/name` when it names a
 /// recognized builtin command, else 0) and whether the argument-token scan
 /// admits a bare `--` separator. The TS recognition predicate also admits
 /// daemon-registered connection commands; this client recognizes builtins
@@ -217,7 +217,7 @@ pub struct SourceSpan {
     pub color: ThemeColor,
 }
 
-/// TS `styleSlashCommandText`: the echo row's color spans — the accent
+/// TS `styleSlashCommandText`: the echo row's color spans -- the accent
 /// command segment (the leading `/name`, or the whole text when the row is
 /// not a slash command) plus the argument tokens after it. The command
 /// segment accents for any leading `/name`, recognized or not; a bare `--`
@@ -423,10 +423,10 @@ pub fn command_token(line: &str) -> Option<CommandToken> {
 
 /// The highlight ranges of one laid-out editor chunk (TS
 /// `ArgTokenHighlighter.highlightLine` + `CustomEditor.styleCommandToken`):
-/// the source line's argument tokens clipped to the chunk, plus — when the
+/// the source line's argument tokens clipped to the chunk, plus -- when the
 /// chunk is the first layout line and opens with a recognized builtin
-/// command (aliases included; TS accents argument-taking commands only —
-/// the operator's 2026-09-29 divergence) the cursor does not sit inside —
+/// command (aliases included; TS accents argument-taking commands only --
+/// the operator's 2026-09-29 divergence) the cursor does not sit inside --
 /// the command token in accent. Char offsets over the chunk, in order.
 pub fn editor_chunk_highlights(
     chunk: &str,

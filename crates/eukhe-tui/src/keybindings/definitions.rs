@@ -93,7 +93,7 @@ pub const TUI_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
         def!(&["ctrl+-", "super+z"], "Undo", scope "editor"),
     ),
     // SANCTIONED DIVERGENCE from TS (operator ask 2026-09-24, documented
-    // per the #289 precedent): the ids below have no TS counterpart — the
+    // per the #289 precedent): the ids below have no TS counterpart -- the
     // TS editor's key set stops at the bindings above. The prompt bar
     // carries the full standard text-editing set instead: redo, selection
     // (shift+arrow families, select-all), document/paragraph jumps, word
@@ -183,14 +183,7 @@ pub const TUI_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
     ),
     (
         "tui.editor.selectParagraphDown",
-        // `shift+ctrl+down` is `tui.viewport.follow` (the fullscreen
-        // transcript key the session dispatch consumes before the editor),
-        // so the paragraph-select default is `shift+alt+down` instead.
-        def!(
-            &["shift+alt+down"],
-            "Select down one paragraph",
-            scope "editor"
-        ),
+        def!(&["shift+ctrl+down"], "Select down one paragraph", scope "editor"),
     ),
     (
         "tui.editor.selectDocStart",
@@ -243,25 +236,6 @@ pub const TUI_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
     (
         "tui.input.copy",
         def!(&["ctrl+c"], "Copy selection", scope "editor"),
-    ),
-    (
-        "tui.viewport.pageUp",
-        def!(&["pageUp"], "Scroll transcript up a page (fullscreen)"),
-    ),
-    (
-        "tui.viewport.pageDown",
-        def!(&["pageDown"], "Scroll transcript down a page (fullscreen)"),
-    ),
-    (
-        "tui.viewport.top",
-        def!(&["shift+alt+up"], "Scroll transcript to top (fullscreen)"),
-    ),
-    (
-        "tui.viewport.follow",
-        def!(
-            &["ctrl+shift+down"],
-            "Scroll to bottom and follow output (fullscreen)"
-        ),
     ),
     ("tui.select.up", def!(&["up"], "Move selection up")),
     ("tui.select.down", def!(&["down"], "Move selection down")),

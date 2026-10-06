@@ -218,7 +218,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: false,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -296,8 +295,7 @@ fn run_plan(
 }
 
 /// The all-zero dock row.
-const ALL_ZERO_DOCK: &str =
-    " \u{25c6} 0 subagents  \u{b7}  \u{25f7} 0 heartbeats  \u{b7}  \u{25b8} 0 shells";
+const ALL_ZERO_DOCK: &str = " 0 subagents  -  0 heartbeats  -  0 shells";
 
 /// Bug 1: with zero subagents (every count zero), the prompt's Down
 /// enters the dock on its subagents group, and Enter opens the scoped
@@ -366,8 +364,7 @@ fn prompt_down_reaches_every_empty_group() {
 fn prompt_down_reaches_the_shells_group_with_zero_subagents() {
     let steps = vec![
         HeadlessStep::WaitRender {
-            needle: "\u{25c6} 0 subagents  \u{b7}  \u{25f7} 0 heartbeats  \u{b7}  \u{25b8} 1 shell"
-                .to_string(),
+            needle: "0 subagents  -  0 heartbeats  -  1 shell".to_string(),
             timeout_ms: 5_000,
         },
         HeadlessStep::Key(down()),

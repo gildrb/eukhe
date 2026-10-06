@@ -64,7 +64,7 @@ pub struct HeartbeatEntry {
 pub fn parse_heartbeat_job(job: &Value) -> Option<HeartbeatJob> {
     // Every daemon-supplied string renders somewhere in the view (the
     // table cells, the subtitle, the detail pairs): control characters
-    // scrub at the parse boundary — an ANSI/OSC sequence in catalog data
+    // scrub at the parse boundary -- an ANSI/OSC sequence in catalog data
     // can never execute terminal control operations when rendered.
     let text = |field: &str| {
         job.get(field)
@@ -224,14 +224,14 @@ pub fn format_timestamp(value: &str) -> String {
 /// The unit rules mirror TS `formatHeartbeatCountdown`: rounded seconds
 /// under a minute, then rounded minutes, hours, and days, with a
 /// one-second floor so a due or overdue run reads "in 1s". The `in `
-/// prefix is the operator's wording (2026-09-26 directive) — TS renders
+/// prefix is the operator's wording (2026-09-26 directive) -- TS renders
 /// the bare countdown in its agents view and a raw timestamp in its
-/// manager, both superseded here. A missing next run keeps the `—`
+/// manager, both superseded here. A missing next run keeps the `--`
 /// placeholder; a value the clock cannot parse renders raw.
 #[must_use]
 pub fn next_run_label(next_run_at: Option<&str>, now_ms: u64) -> String {
     let Some(value) = next_run_at else {
-        return "\u{2014}".to_string();
+        return "--".to_string();
     };
     let Some(at) = crate::agents_view_state::iso_to_unix_ms(value) else {
         return value.to_string();

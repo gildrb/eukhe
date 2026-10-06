@@ -1,20 +1,30 @@
-//! Shared refinement rendering traversal and count-only geometry.
+//! Refinement-outcome rendering traversal.
 use super::{
     line_diff, pad_with, spacer, str_width, text_rows, truncate_line, wrap_line, wrap_text,
     ColorMode, Detail, DiffOp, Line, RefinementEditRow, RefinementOutcomeRow, Span, Theme, ThemeBg,
     ThemeColor,
 };
 
-enum Output {
-    Paint(Vec<Line>),
-    Count(usize),
+/// The painted rows of one refinement outcome.
+struct Output(Vec<Line>);
+
+/// Style `parts` into one line: each run in its color, or unstyled.
+fn styled_line<'a>(
+    parts: impl IntoIterator<Item = (&'a str, Option<ThemeColor>)>,
+    theme: &Theme,
+) -> Line {
+    parts
+        .into_iter()
+        .map(|(text, color)| match color {
+            Some(color) => Span::styled(text, theme.fg_style(color)),
+            None => Span::raw(text),
+        })
+        .collect()
 }
+
 impl Output {
     fn blank(&mut self) {
-        match self {
-            Self::Paint(rows) => rows.push(spacer()),
-            Self::Count(count) => *count += 1,
-        }
+        self.0.push(spacer());
     }
     fn text<'a>(
         &mut self,
@@ -22,33 +32,13 @@ impl Output {
         theme: &Theme,
         width: usize,
     ) {
-        match self {
-            Self::Paint(rows) => {
-                let line = parts
-                    .into_iter()
-                    .map(|(text, color)| match color {
-                        Some(color) => Span::styled(text, theme.fg_style(color)),
-                        None => Span::raw(text),
-                    })
-                    .collect();
-                rows.extend(text_rows(&line, width));
-            }
-            Self::Count(count) => {
-                let runs: Vec<_> = parts.into_iter().map(|(text, _)| text).collect();
-                if runs.iter().any(|text| !text.trim().is_empty()) {
-                    *count += crate::width::wrapped_runs_count(
-                        runs.iter().copied(),
-                        width.saturating_sub(2).max(1),
-                    );
-                }
-            }
-        }
+        self.0.extend(text_rows(&styled_line(parts, theme), width));
     }
 
     /// One expanded-content row set on the branch grammar: the first row
-    /// carries the dim `╰─ ` gutter hanging off the event's header, every
-    /// continuation row the three-space indent — both after the
-    /// one-column chat margin (the same geometry the expanded ipython
+    /// carries the dim branch (`BRANCH`) gutter hanging off the event's
+    /// header, every continuation row the three-space indent -- both after
+    /// the one-column chat margin (the same geometry the expanded ipython
     /// cell code and the agent-message body use).
     fn branch_text<'a>(
         &mut self,
@@ -56,31 +46,14 @@ impl Output {
         theme: &Theme,
         width: usize,
     ) {
-        match self {
-            Self::Paint(rows) => {
-                let line: Line = parts
-                    .into_iter()
-                    .map(|(text, color)| match color {
-                        Some(color) => Span::styled(text, theme.fg_style(color)),
-                        None => Span::raw(text),
-                    })
-                    .collect();
-                rows.extend(crate::branch::branch_block(&line, theme, width));
-            }
-            Self::Count(count) => {
-                let joined = parts
-                    .into_iter()
-                    .map(|(text, _)| text)
-                    .collect::<Vec<_>>()
-                    .join("");
-                *count += crate::branch::branch_block_count(&joined, width);
-            }
-        }
+        let line = styled_line(parts, theme);
+        self.0
+            .extend(crate::branch::branch_block(&line, theme, width));
     }
 
     /// One continuation row set on the branch depth: every row starts
     /// four plain spaces (the chat margin plus the gutter's width) and
-    /// wraps at the branch content width — the expanded block's non-head
+    /// wraps at the branch content width -- the expanded block's non-head
     /// rows (the meta annotation, the edit-section interiors).
     fn continuation_text<'a>(
         &mut self,
@@ -89,37 +62,16 @@ impl Output {
         width: usize,
     ) {
         let content_width = crate::branch::branch_content_width(width);
-        match self {
-            Self::Paint(rows) => {
-                let line: Line = parts
-                    .into_iter()
-                    .map(|(text, color)| match color {
-                        Some(color) => Span::styled(text, theme.fg_style(color)),
-                        None => Span::raw(text),
-                    })
-                    .collect();
-                let flat: String = line.iter().map(|span| span.content.as_str()).collect();
-                if flat.trim().is_empty() {
-                    return;
-                }
-                for source in crate::branch::split_line_on_newlines(&line) {
-                    for wrapped in crate::width::wrap_line(&source, content_width) {
-                        let mut row: Line =
-                            vec![Span::raw(crate::branch::BRANCH_INDENT.to_string())];
-                        row.extend(wrapped);
-                        rows.push(crate::width::truncate_line(&row, width, ""));
-                    }
-                }
-            }
-            Self::Count(count) => {
-                let joined = parts
-                    .into_iter()
-                    .map(|(text, _)| text)
-                    .collect::<Vec<_>>()
-                    .join("");
-                if !joined.trim().is_empty() {
-                    *count += crate::width::wrapped_text_count(&joined, content_width);
-                }
+        let line = styled_line(parts, theme);
+        let flat: String = line.iter().map(|span| span.content.as_str()).collect();
+        if flat.trim().is_empty() {
+            return;
+        }
+        for source in crate::branch::split_line_on_newlines(&line) {
+            for wrapped in crate::width::wrap_line(&source, content_width) {
+                let mut row: Line = vec![Span::raw(crate::branch::BRANCH_INDENT.to_string())];
+                row.extend(wrapped);
+                self.0.push(crate::width::truncate_line(&row, width, ""));
             }
         }
     }
@@ -131,26 +83,9 @@ pub(crate) fn render_refinement_outcome(
     theme: &Theme,
     width: usize,
 ) -> Vec<Line> {
-    let mut out = Output::Paint(Vec::new());
+    let mut out = Output(Vec::new());
     traverse(row, detail, theme, width, &mut out);
-    match out {
-        Output::Paint(rows) => rows,
-        Output::Count(_) => unreachable!(),
-    }
-}
-
-pub(crate) fn count_refinement_outcome(
-    row: &RefinementOutcomeRow,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-) -> usize {
-    let mut out = Output::Count(0);
-    traverse(row, detail, theme, width, &mut out);
-    match out {
-        Output::Count(rows) => rows,
-        Output::Paint(_) => unreachable!(),
-    }
+    out.0
 }
 
 fn traverse(
@@ -163,7 +98,7 @@ fn traverse(
     out.blank();
     out.text(
         [(
-            format!("\u{25c6} {}", row.header).as_str(),
+            format!("{} {}", crate::glyphs::NOTICE, row.header).as_str(),
             Some(ThemeColor::RefinementHeader),
         )],
         theme,
@@ -195,11 +130,11 @@ fn traverse(
     }
 }
 
-/// The summary row set: collapsed (TS `EventSummary`) keeps the TS shape —
+/// The summary row set: collapsed (TS `EventSummary`) keeps the TS shape --
 /// whitespace-collapsed, wrapped at `width - 1` with the one-column inset
 /// (the inset space colored inside the summary span), clamped to two
 /// lines. Expanded hangs the raw summary on the branch grammar instead
-/// (the product improvement beyond TS): first row `╰─ `, continuation rows
+/// (the product improvement beyond TS): first row branch (`BRANCH`), continuation rows
 /// the matching indent.
 fn event_summary_rows(
     summary: &str,
@@ -219,11 +154,6 @@ fn event_summary_rows(
         return;
     }
     let content_width = width.saturating_sub(1).max(1);
-    if let Output::Count(count) = out {
-        let rows = crate::width::wrapped_text_count(&text, content_width).max(1);
-        *count += rows.min(2);
-        return;
-    }
     let style = theme.fg_style(color);
     let mut lines: Vec<Line> = Vec::new();
     for source in text.split('\n') {
@@ -237,8 +167,11 @@ fn event_summary_rows(
         lines.truncate(2);
         let second = lines.remove(1);
         let mut joined: Line = second;
-        joined.push(Span::raw(" \u{2026}"));
-        lines.insert(1, truncate_line(&joined, content_width, "\u{2026}"));
+        joined.push(Span::raw(" ..."));
+        lines.insert(
+            1,
+            truncate_line(&joined, content_width, crate::glyphs::ELLIPSIS),
+        );
     }
     let rows = lines
         .into_iter()
@@ -258,13 +191,11 @@ fn event_summary_rows(
             row
         })
         .collect::<Vec<Line>>();
-    if let Output::Paint(output) = out {
-        output.extend(rows);
-    }
+    out.0.extend(rows);
 }
 
 /// One edit section (TS `RefinementEditSection`): the label row hangs off
-/// the event's branch (`╰─ ` head), then one muted field-label row per
+/// the event's branch (branch (`BRANCH`) head), then one muted field-label row per
 /// field with plain value rows or -/+ change rows on the continuation
 /// indent.
 fn edit_section_rows(edit: &RefinementEditRow, theme: &Theme, width: usize, out: &mut Output) {
@@ -346,10 +277,6 @@ fn rich_change_rows(
         let gutter = format!(" {num:>line_num_width$} {prefix} ");
         let content = line.replace('\t', "   ");
         let content_width = block_width.saturating_sub(str_width(&gutter)).max(1);
-        if let Output::Count(count) = out {
-            *count += crate::width::wrapped_text_count(&content, content_width);
-            continue;
-        }
         let (bg, gutter_color, content_color) = match prefix {
             '+' => {
                 if theme.mode == ColorMode::TrueColor {
@@ -417,9 +344,7 @@ fn rich_change_rows(
             // viewport, so clip before paint: `pad_with` only pads, never
             // truncates.
             let inset = crate::width::truncate_line(&inset, width, "");
-            if let Output::Paint(rows) = out {
-                rows.push(inset);
-            }
+            out.0.push(inset);
         }
     }
 }
@@ -430,7 +355,7 @@ mod tests {
     #[test]
     fn change_rows_render_full_context_diff() {
         let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-        let mut out = Output::Paint(Vec::new());
+        let mut out = Output(Vec::new());
         rich_change_rows(
             &["alpha".to_string(), "beta".to_string()],
             &["alpha".to_string(), "gamma".to_string()],
@@ -438,9 +363,7 @@ mod tests {
             40,
             &mut out,
         );
-        let Output::Paint(rows) = out else {
-            unreachable!()
-        };
+        let rows = out.0;
         let text: Vec<String> = rows
             .iter()
             .map(|r| {
@@ -486,7 +409,7 @@ mod tests {
     fn change_rows_never_overflow_tiny_viewports() {
         let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
         for width in 0..=8 {
-            let mut out = Output::Paint(Vec::new());
+            let mut out = Output(Vec::new());
             rich_change_rows(
                 &["one".to_string()],
                 &["two".to_string()],
@@ -494,9 +417,7 @@ mod tests {
                 width,
                 &mut out,
             );
-            let Output::Paint(rows) = out else {
-                unreachable!()
-            };
+            let rows = out.0;
             for row in &rows {
                 let total: usize = row.iter().map(|s| str_width(&s.content)).sum();
                 assert!(total <= width, "width {width} painted {total}");

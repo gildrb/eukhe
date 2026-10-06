@@ -1,5 +1,5 @@
 //! `eukhe model list [search]`: the models catalog table. Port of
-//! `cli/list-models.ts` — registry refresh, fuzzy search, and the
+//! `cli/list-models.ts` -- registry refresh, fuzzy search, and the
 //! provider/model/context/max-out/thinking/images table.
 
 use crate::mode::RunOptions;

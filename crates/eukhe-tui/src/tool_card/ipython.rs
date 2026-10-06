@@ -80,20 +80,6 @@ impl CardStatus {
     }
 }
 
-/// Whether the cell's final result carries a still-running background
-/// shell (the renderer's own `Running` case): the cell itself settled,
-/// but the spawned shell keeps working, so the summary line keeps
-/// animating (the working icon) - the card's rows must not cache.
-pub(crate) fn background_shell_running(card: &ToolCallCard) -> bool {
-    if card.result_partial {
-        return false;
-    }
-    card.result
-        .as_ref()
-        .and_then(|result| read_background_shell(cell_code(card), &result.details))
-        .is_some_and(|background| background.exit_code.is_none())
-}
-
 fn cell_code(card: &ToolCallCard) -> &str {
     card.args
         .get("code")
@@ -112,22 +98,9 @@ pub fn render(
     width: usize,
     show_images: bool,
 ) -> Vec<Line> {
-    let mut lines = RowOutput::paint();
+    let mut lines = RowOutput::new();
     layout(card, frame, detail, theme, width, show_images, &mut lines);
     lines.into_lines()
-}
-
-pub(super) fn count(
-    card: &ToolCallCard,
-    frame: usize,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-    show_images: bool,
-) -> usize {
-    let mut lines = RowOutput::count();
-    layout(card, frame, detail, theme, width, show_images, &mut lines);
-    lines.len()
 }
 
 fn layout(
@@ -151,17 +124,15 @@ fn layout(
 
     // The top line is identical collapsed or expanded, so detail toggles
     // never shift the layout or indentation.
-    lines.push(|| {
-        collapsed_line(
-            card,
-            &details,
-            background.as_ref(),
-            frame,
-            theme,
-            width,
-            code,
-        )
-    });
+    lines.push(collapsed_line(
+        card,
+        &details,
+        background.as_ref(),
+        frame,
+        theme,
+        width,
+        code,
+    ));
     // TS renders the sent-message receipt rows below the code (and below
     // the diff rows, which this card does not render) even when the cell
     // is collapsed; the body opens up only when expanded.
@@ -202,21 +173,21 @@ fn collapsed_line(
         "bash".to_string()
     } else {
         match (is_bash_cell, &preview.language) {
-            (true, CodePreviewLanguage::Python) => "bash \u{00b7} python".to_string(),
+            (true, CodePreviewLanguage::Python) => "bash - python".to_string(),
             (true | false, CodePreviewLanguage::Bash) => "bash".to_string(),
             (false, CodePreviewLanguage::Python) => "python".to_string(),
         }
     };
 
     let marker: Line = match CardStatus::of(card, details) {
-        CardStatus::Error => vec![Span::styled("\u{2717}".to_string(), error)],
-        CardStatus::Aborted => vec![Span::styled("\u{2717}".to_string(), warning)],
-        CardStatus::Done => vec![Span::styled("\u{2713}".to_string(), success)],
+        CardStatus::Error => vec![Span::styled(crate::glyphs::FAIL.to_string(), error)],
+        CardStatus::Aborted => vec![Span::styled(crate::glyphs::FAIL.to_string(), warning)],
+        CardStatus::Done => vec![Span::styled(crate::glyphs::OK.to_string(), success)],
         CardStatus::Running => vec![Span::styled(
             super::working_icon(frame).to_string(),
             bash_mode,
         )],
-        CardStatus::Queued => vec![Span::styled("\u{25c7}".to_string(), muted)],
+        CardStatus::Queued => vec![Span::styled(crate::glyphs::DOT_OFF.to_string(), muted)],
     };
 
     let mut parts: Vec<Line> = Vec::new();
@@ -267,7 +238,7 @@ fn collapsed_line(
     let mut row: Line = vec![Span::raw(" ")];
     for (index, part) in parts.iter().enumerate() {
         if index > 0 {
-            row.push(Span::styled(" \u{00b7} ".to_string(), dim));
+            row.push(Span::styled(crate::glyphs::SEP.to_string(), dim));
         }
         row.extend(part.iter().cloned());
     }
@@ -312,7 +283,7 @@ pub(crate) fn bash_dominated_stats(card: &ToolCallCard) -> Option<BashCellStats>
     })
 }
 
-/// `\u{2191}in \u{2193}out lines` (TS `lineCounts`): non-empty input
+/// `^in vout lines` (TS `lineCounts`): non-empty input
 /// lines, output lines from the structured fields (edits show the diff, so
 /// their output counts zero).
 fn line_counts(card: &ToolCallCard, details: &IpythonDetails, code: &str) -> Option<String> {
@@ -356,10 +327,10 @@ fn line_counts(card: &ToolCallCard, details: &IpythonDetails, code: &str) -> Opt
 
     let mut segments: Vec<String> = Vec::new();
     if input > 0 {
-        segments.push(format!("\u{2191} {input}"));
+        segments.push(format!("{} {input}", crate::glyphs::UP));
     }
     if output > 0 {
-        segments.push(format!("\u{2193} {output}"));
+        segments.push(format!("{} {output}", crate::glyphs::DOWN));
     }
     if segments.is_empty() {
         None
@@ -395,14 +366,14 @@ fn is_magic_line(statement: &str) -> bool {
 }
 
 /// The expanded source rows (TS `renderCode`): the first line guttered
-/// `\u{2570}\u{2500}`, continuation lines indented; bash cells and magic
+/// `BRANCH`, continuation lines indented; bash cells and magic
 /// lines render in bashMode, python lines syntax highlighted.
 fn render_code(lines: &mut RowOutput, code: &str, theme: &Theme, width: usize) -> bool {
     if code.is_empty() {
         add_wrapped(
             lines,
             &vec![Span::styled(
-                "\u{2570}\u{2500} ".to_string(),
+                crate::glyphs::BRANCH.to_string(),
                 theme.fg_style(ThemeColor::Dim),
             )],
             &vec![Span::styled(
@@ -424,7 +395,7 @@ fn render_code(lines: &mut RowOutput, code: &str, theme: &Theme, width: usize) -
     for (index, raw_line) in raw_lines.iter().enumerate() {
         let prefix: Line = if index == 0 {
             vec![Span::styled(
-                "\u{2570}\u{2500} ".to_string(),
+                crate::glyphs::BRANCH.to_string(),
                 theme.fg_style(ThemeColor::Dim),
             )]
         } else {
@@ -456,7 +427,7 @@ fn render_code(lines: &mut RowOutput, code: &str, theme: &Theme, width: usize) -
 }
 
 /// TS `renderSentAgentMessages`: one summary row per sent receipt below
-/// the code (blank-separated when expanded), the `╰─`-guttered body only
+/// the code (blank-separated when expanded), the `BRANCH`-guttered body only
 /// in the expanded view. The summary carries no body preview (the TS
 /// sent rows are the receipt summary alone).
 fn render_sent_agent_messages(
@@ -478,34 +449,25 @@ fn render_sent_agent_messages(
         } else {
             AgentMessageDirection::Queued
         };
-        // TS: truncateToWidth(summary, max(1, width - 1), "…") then the
+        // TS: truncateToWidth(summary, max(1, width - 1), "...") then the
         // one-space `addPlain` margin.
-        lines.push(|| {
-            let summary = crate::custom_message::render::agent_message_summary_line(
-                direction,
-                &sent.counterpart,
-                theme,
-            );
-            let mut row: Line = vec![Span::raw(" ")];
-            row.extend(truncate_line(
-                &summary,
-                width.saturating_sub(1).max(1),
-                "\u{2026}",
-            ));
-            row
-        });
+        let summary = crate::custom_message::render::agent_message_summary_line(
+            direction,
+            &sent.counterpart,
+            theme,
+        );
+        let mut row: Line = vec![Span::raw(" ")];
+        row.extend(truncate_line(
+            &summary,
+            width.saturating_sub(1).max(1),
+            crate::glyphs::ELLIPSIS,
+        ));
+        lines.push(row);
         if expanded {
-            if lines.is_counting() {
-                lines.add_count(crate::custom_message::agent_message_body_count(
-                    &sent.message,
-                    width,
-                ));
-            } else {
-                for row in
-                    crate::custom_message::render::agent_message_body(&sent.message, theme, width)
-                {
-                    lines.push(|| row);
-                }
+            for row in
+                crate::custom_message::render::agent_message_body(&sent.message, theme, width)
+            {
+                lines.push(row);
             }
         }
     }
@@ -517,10 +479,6 @@ fn render_sent_agent_messages(
 fn add_wrapped(lines: &mut RowOutput, prefix: &Line, body: &Line, width: usize) {
     let prefix_width: usize = prefix.iter().map(|s| str_width(&s.content)).sum();
     let available = width.saturating_sub(1 + prefix_width).max(1);
-    if lines.is_counting() {
-        lines.add_count(crate::width::wrapped_line_count(body, available).max(1));
-        return;
-    }
     let wrapped = wrap_line(body, available);
     let mut rows: Vec<Line> = Vec::new();
     if wrapped.is_empty() {
@@ -536,7 +494,7 @@ fn add_wrapped(lines: &mut RowOutput, prefix: &Line, body: &Line, width: usize) 
             line.push(Span::raw(" ".repeat(prefix_width)));
         }
         line.append(&mut row);
-        lines.push(|| truncate_line(&line, width, ""));
+        lines.push(truncate_line(&line, width, ""));
     }
 }
 

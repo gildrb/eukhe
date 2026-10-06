@@ -276,8 +276,8 @@ fn print_continue_refuses_an_active_daemon_session() {
     );
 }
 
-/// A session file held by a live FOREIGN lease holder — this test process
-/// stands in for the other product's holder on the shared session store —
+/// A session file held by a live FOREIGN lease holder -- this test process
+/// stands in for the other product's holder on the shared session store --
 /// refuses `--resume` with the session-hold refusal. No daemon runs: the
 /// roster probe has nothing to answer, and the guard's lease probe is what
 /// must catch a holder no roster of this product's daemon can see. The
@@ -336,17 +336,17 @@ fn print_resume_refuses_a_foreign_lease_holder() {
     let expected = format!(
         concat!(
             "Error: This session is currently open in another instance of Eukhe ",
-            "(active in foreign01ab3c) — another daemon or window of this product holds the file's ",
+            "(active in foreign01ab3c) -- another daemon or window of this product holds the file's ",
             "runtime lease.\n",
             "\n",
-            "• Continue where you left off:\n",
+            "* Continue where you left off:\n",
             "  eukhe --daemon-socket <socket> --resume 'foreign01ab3c'\n",
             "  (<socket> is that instance's daemon socket, from the shell where you started ",
-            "it — that daemon owns this session)\n",
+            "it -- that daemon owns this session)\n",
             "\n",
-            "• Take over on this daemon:\n",
+            "* Take over on this daemon:\n",
             "  kill {} # the holder is {}\n",
-            "  Then retry — the file unlocks when the holder exits.\n",
+            "  Then retry -- the file unlocks when the holder exits.\n",
             "\n",
             "Session: foreign01ab3c\n"
         ),

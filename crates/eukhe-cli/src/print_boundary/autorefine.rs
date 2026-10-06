@@ -1,7 +1,7 @@
 //! The compact-trigger auto-refine machine: the TS
 //! `_compactAutoRefinePending` flow of the print runtime's turn
-//! boundary — the review gates, the durable-row surface, the
-//! requested-refinement streaming, and the disposal drain — the child
+//! boundary -- the review gates, the durable-row surface, the
+//! requested-refinement streaming, and the disposal drain -- the child
 //! cut of the `print_boundary` facade.
 
 use super::{json, Model, PathBuf, SessionAgentMessage, SessionEngine, TurnBoundary};
@@ -17,7 +17,7 @@ fn now_millis() -> u64 {
 /// Where the compact-trigger auto-refine surfaces (TS: the serialized
 /// checkpoint runs mid-run, so its events stream; the disposal drain runs
 /// after the print client tore its subscription down, so its events land
-/// nowhere — only the durable rows persist).
+/// nowhere -- only the durable rows persist).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RefineSurface {
     /// The serialized checkpoint at a turn boundary (`shouldStopAfterTurn`).
@@ -55,7 +55,7 @@ impl TurnBoundary {
     }
 
     /// The disposal drain (TS `dispose`: "a serialized compaction can finish
-    /// without another model turn — drain its pending review here so
+    /// without another model turn -- drain its pending review here so
     /// disposal does not silently lose the trigger"). The print client's
     /// event subscription is already torn down at this point, so the
     /// round's surface stays off the stream: only the durable rows and
@@ -80,13 +80,13 @@ impl TurnBoundary {
 
     /// The compact-trigger auto-refine consumption (TS
     /// `_runSerializedRefineCheckpointAfterBackground`'s compact arm plus
-    /// `_runSerializedAutoRefineReview`): gates first — the session's
+    /// `_runSerializedAutoRefineReview`): gates first -- the session's
     /// refine surface, the `enabled`/`compact` settings, and the review
-    /// cooldown — then the review, and only an approving review runs the
+    /// cooldown -- then the review, and only an approving review runs the
     /// refinement. The checkpoint surface preserves the trigger while the
     /// cooldown runs (TS keeps it for a later boundary); the disposal
-    /// surface clears it. Every review attempt — decline, success, or
-    /// failure — stamps the cooldown and resets the turn counter.
+    /// surface clears it. Every review attempt -- decline, success, or
+    /// failure -- stamps the cooldown and resets the turn counter.
     pub(super) async fn consume_compact_auto_refine(
         &mut self,
         engine: &SessionEngine,
@@ -156,7 +156,7 @@ impl TurnBoundary {
     /// One refinement outcome's TS surface: the durable rows' message
     /// pairs plus `refine_complete` on success, the `refine_failed` event
     /// on failure. `emit` false (the disposal drain) keeps the stream
-    /// quiet — the rows still persist. Text mode prints the failure's
+    /// quiet -- the rows still persist. Text mode prints the failure's
     /// stderr diagnostic.
     pub(super) async fn stream_refinement_outcome(
         &self,

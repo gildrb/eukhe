@@ -185,7 +185,7 @@ async fn a_request_after_the_reader_died_refuses_instead_of_riding_the_budget() 
     let (client, _events) = DaemonClient::connect(&socket).await.unwrap();
     // Observable readiness: wait for the reader's death watch before
     // sending (the failure pass has run by then, so the request would
-    // register after it — the exact race the refusal closes).
+    // register after it -- the exact race the refusal closes).
     let mut reader_dead = client.reader_dead();
     tokio::time::timeout(Duration::from_secs(5), async {
         while !*reader_dead.borrow_and_update() {
@@ -329,7 +329,7 @@ fn plain_errors_are_not_rejections() {
 /// The session-addressed lanes' kernel-not-running refusal (the
 /// `/factory off` guard's definitive-zero class): the exact wire string
 /// classifies through the plain-message predicate, and no other refusal
-/// does — the guard's zero read must not fire on an unknown-command or
+/// does -- the guard's zero read must not fire on an unknown-command or
 /// initializing refusal, which stay unreadable and fail closed.
 #[test]
 fn kernel_not_running_refusal_round_trips_the_wire() {

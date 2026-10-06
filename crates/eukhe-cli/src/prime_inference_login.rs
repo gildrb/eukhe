@@ -48,7 +48,7 @@ const FALLBACK_PROMPT: &str = "Paste a Prime API key below:";
 /// boxed arms are `Send`.
 pub(crate) trait PrimeLoginUi: Send + Sync {
     /// TS the `onProgress` callback's step chatter (`dialog.showProgress`
-    /// behind the `if (!this.isOnboarding())` guard — "onboarding
+    /// behind the `if (!this.isOnboarding())` guard -- "onboarding
     /// narrates itself; step chatter stays in the chat flows").
     fn progress(&self, message: &str);
     /// TS a direct `dialog.showProgress` line (the browser-sign-in
@@ -58,7 +58,7 @@ pub(crate) trait PrimeLoginUi: Send + Sync {
     }
     /// The driving surface's cooperative cancel state: `true` once the
     /// pane that mounted the login exited. The flow checks it before
-    /// its auth-store writes — a `JoinHandle::abort` cannot reach a
+    /// its auth-store writes -- a `JoinHandle::abort` cannot reach a
     /// started `spawn_blocking` body, so the pane marks this instead.
     /// The default (`false`) serves the surfaces that never cancel
     /// mid-flow (the scripted tests, the plain terminal).
@@ -150,7 +150,7 @@ pub(crate) async fn run_prime_inference_login(
         // TS `Promise.race([browserLoginOrFallback, manualKeyEntry,
         // dialogCancelled])`: whichever settles first wins; the loser is
         // dropped (the browser poll on a manual key, the paste read on a
-        // browser key — the pane exit tears the whole flow down).
+        // browser key -- the pane exit tears the whole flow down).
         enum Step {
             Login(Result<PrimeInferenceLoginResult, String>),
             Armed,
@@ -172,7 +172,7 @@ pub(crate) async fn run_prime_inference_login(
                 // TS the browser-unavailable fallback: keep the dialog
                 // open and fall back to plain API key entry.
                 login_dead = true;
-                // TS the fallback arm's direct `dialog.showProgress` —
+                // TS the fallback arm's direct `dialog.showProgress` --
                 // the one progress line the onboarding narration keeps
                 // (it explains the paste prompt under it).
                 ui.direct_progress(&format!("Browser sign-in unavailable ({error})."));
@@ -221,7 +221,7 @@ pub(crate) async fn run_prime_inference_login(
                 return complete_login(
                     &inputs,
                     &api_key,
-                    // TS: a manual entry carries no team — the stored
+                    // TS: a manual entry carries no team -- the stored
                     // selection of the same key survives.
                     PrimeTeamAssignment::PreserveWhenKeyMatches,
                     ui,
@@ -252,7 +252,7 @@ async fn complete_login(
     team: PrimeTeamAssignment,
     ui: &dyn PrimeLoginUi,
 ) -> ProviderAuthOutcome {
-    // The pane exited while the login ran: no credential write lands —
+    // The pane exited while the login ran: no credential write lands --
     // the exit ends the flow (TS the dialog's abort signal).
     if ui.is_cancelled() {
         return ProviderAuthOutcome::Cancelled;
@@ -310,7 +310,7 @@ async fn select_team(
         return default_team_status(auth, inputs.prime_team_id);
     };
     // The pane exited while the fetch ran: the stored key keeps its
-    // standing selection — the write below never lands.
+    // standing selection -- the write below never lands.
     if ui.is_cancelled() {
         return default_team_status(auth, inputs.prime_team_id);
     }
@@ -327,7 +327,7 @@ async fn select_team(
     };
     let picked = ui.select_team(&teams, current.as_deref()).await;
     // The pane exited while the picker waited: the stored key keeps its
-    // standing selection — the binding writes below never land.
+    // standing selection -- the binding writes below never land.
     if ui.is_cancelled() {
         return default_team_status(auth, inputs.prime_team_id);
     }
@@ -466,7 +466,7 @@ mod tests {
     /// A scripted transport: exact URL -> response, in call order; the
     /// served requests land in the log. With `dynamic_generate` (the
     /// default) the generate POST answers with a fixed challenge and the
-    /// status poll answers pending once, then the encrypted fixture key —
+    /// status poll answers pending once, then the encrypted fixture key --
     /// the flow's poll interval genuinely yields mid-flow, so the armed
     /// paste wins the race deterministically.
     struct ScriptedHttp {

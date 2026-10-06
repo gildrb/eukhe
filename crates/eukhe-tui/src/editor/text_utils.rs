@@ -138,7 +138,7 @@ pub(crate) fn decode_printable(input: &str) -> Option<String> {
 fn split_key_id(input: &str) -> (String, String) {
     // `+` is itself a key id (shift+= on a US layout): a TRAILING
     // separator is the literal plus key, never an empty segment (`+` ->
-    // key `+`, `ctrl++` -> ctrl + `+`). TS needs no such rule — its
+    // key `+`, `ctrl++` -> ctrl + `+`). TS needs no such rule -- its
     // printable insert reads the raw character before key-id parsing.
     let parts: Vec<&str> = input.split('+').collect();
     if parts.len() > 1 && parts[parts.len() - 1].is_empty() {

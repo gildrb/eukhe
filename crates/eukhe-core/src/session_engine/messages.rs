@@ -113,14 +113,14 @@ pub fn provider_retry_recovered_text(attempts: u32, last_error: &str) -> String 
 /// live one read identically. A zero-attempt failure (the
 /// failure-scoped disclosure of a permanent classification on the first
 /// attempt) never retried, so it reads as the plain provider failure it
-/// is — TS never emits this shape (that omission is the silent empty
+/// is -- TS never emits this shape (that omission is the silent empty
 /// message the disclosure now covers).
 #[must_use]
 pub fn provider_retry_exhausted_text(attempts: u32, final_error: &str) -> String {
     if attempts == 0 {
-        format!("\u{26a0} Error: {final_error}")
+        format!("! Error: {final_error}")
     } else {
-        format!("\u{26a0} Error: Retry failed after {attempts} attempts: {final_error}")
+        format!("! Error: Retry failed after {attempts} attempts: {final_error}")
     }
 }
 
@@ -496,9 +496,7 @@ mod tests {
         let exhausted = create_provider_retry_outcome_message(false, 2, "provider down");
         assert_eq!(
             exhausted.content,
-            UserContent::Text(
-                "\u{26a0} Error: Retry failed after 2 attempts: provider down".to_string()
-            )
+            UserContent::Text("! Error: Retry failed after 2 attempts: provider down".to_string())
         );
         // The disclosure never enters the model context.
         let converted = convert_to_llm(&[AgentMessage::Custom(recovered)]);

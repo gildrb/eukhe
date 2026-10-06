@@ -130,8 +130,8 @@ const SESSION_NAME_COLUMN_MAX_CELLS: usize = 28;
 /// render strictly less).
 const SESSION_TITLE_MAX_CELLS: usize = SESSION_NAME_COLUMN_MAX_CELLS - 2;
 
-/// The picker's name target: the SESSION column's own title — the same
-/// `session_title` ladder over the same merged summary the row renders —
+/// The picker's name target: the SESSION column's own title -- the same
+/// `session_title` ladder over the same merged summary the row renders --
 /// clipped by the column's own truncation rule at the column's own cap.
 /// The corpus never carries text the column cannot display: a
 /// prompt-derived title is searchable exactly as far as the column shows
@@ -366,7 +366,7 @@ fn json_model(model: &Value) -> Value {
 /// an inactive row with no messages, name, usage, or transcript stays out
 /// unless the session is the view's anchor.
 pub fn filter_empty_sessions(records: &[UnifiedRecord], preserved: &[&str]) -> Vec<UnifiedRecord> {
-    // Ancestors of every kept row stay visible (TS filterEmpty… retains the
+    // Ancestors of every kept row stay visible (TS filterEmpty... retains the
     // parent chain): nesting must never orphan a child whose parent record
     // looks empty.
     let by_alias: HashMap<&str, usize> = records
@@ -714,7 +714,7 @@ mod tests {
         assert_eq!(summary["sessionName"], "Bug fix");
     }
 
-    /// TS `shouldShowAgentsViewSession`: only live roster rows render — a
+    /// TS `shouldShowAgentsViewSession`: only live roster rows render -- a
     /// message-less top-level draft (lifecycle "draft") never surfaces a
     /// roster row, and a message-less subagent worker is live and visible.
     #[test]
@@ -874,8 +874,8 @@ mod tests {
     #[test]
     fn search_matches_the_restricted_corpus_case_insensitively() {
         // The picker corpus is the session NAME, the durable ID, and the
-        // CWD; the TS corpus fields — first message, transcript text,
-        // file paths — never match.
+        // CWD; the TS corpus fields -- first message, transcript text,
+        // file paths -- never match.
         let saved = vec![json!({
             "id": "sess-alpha",
             "path": "/x/alpha.jsonl",
@@ -1134,7 +1134,7 @@ mod tests {
     #[test]
     fn an_unnamed_sessions_prompt_derived_title_matches() {
         // The SESSION column titles an unnamed session by its first
-        // prompt ("hey"), so searching "hey" must surface it — the
+        // prompt ("hey"), so searching "hey" must surface it -- the
         // corpus once carried only `sessionName` and missed it.
         let roster = vec![roster_entry(
             "hey",
@@ -1260,7 +1260,7 @@ mod tests {
     #[test]
     fn a_named_sessions_first_message_stays_out_of_the_corpus() {
         // The explicit name wins the title ladder, so a named session's
-        // first prompt never enters the corpus — the over-match side of
+        // first prompt never enters the corpus -- the over-match side of
         // the report: queries matching only prompt text stay misses.
         let roster = vec![roster_entry(
             "named",

@@ -1,18 +1,18 @@
 //! The agents-view session search: a picker over the session's identity
-//! fields — the display NAME (primary), the durable session ID, and the
-//! CWD. The name target is the SESSION column's own title — the
+//! fields -- the display NAME (primary), the durable session ID, and the
+//! CWD. The name target is the SESSION column's own title -- the
 //! `session_title` ladder over the merged summary, clipped to the
-//! column's width cap — so a prompt-derived title is searchable exactly
-//! as far as the column displays it. The TS corpus fields — the full
-//! first message, the transcript text, file paths — never match (a
+//! column's width cap -- so a prompt-derived title is searchable exactly
+//! as far as the column displays it. The TS corpus fields -- the full
+//! first message, the transcript text, file paths -- never match (a
 //! deliberate divergence from TS `session-view-search.ts`, which joined
 //! them; the query language stays TS-shaped).
 //!
 //! Matching follows the session/command-picker standard (VS Code
 //! quick-open `fuzzyScorer.ts` + `filters.ts`; Zed's project switcher;
-//! tmux choose-tree): tiered and ranked — identity paste > name exact >
+//! tmux choose-tree): tiered and ranked -- identity paste > name exact >
 //! name prefix > name substring > name fuzzy (the TS subsequence scorer
-//! with its strict ceiling) > id prefix/substring > cwd basename/path —
+//! with its strict ceiling) > id prefix/substring > cwd basename/path --
 //! with recency as the tiebreaker. Every token must match some target,
 //! and a record's rank follows its WORST token's tier (a multi-token
 //! search never trades one token's weak tier away for another's strong
@@ -154,7 +154,7 @@ fn push_token(tokens: &mut Vec<SearchToken>, buffer: &mut String, kind: fn(Strin
     }
 }
 
-/// One token's match: the tier it reached (lower ranks first — the
+/// One token's match: the tier it reached (lower ranks first -- the
 /// documented tier ladder) and its within-tier quality (lower ranks
 /// better). `score_search` bounds the quality aggregate inside one tier
 /// stride, so quality can never reorder records across tiers.
@@ -164,13 +164,13 @@ struct TokenMatch {
 }
 
 /// Score one record's targets against the query: `Some(score)` when the
-/// query matches (lower is better — the `fuzzy_match` convention), `None`
+/// query matches (lower is better -- the `fuzzy_match` convention), `None`
 /// otherwise. Every token must match at least one target (VS Code
 /// `doScoreItemFuzzyMultiple`: "we require all queries to match"), and a
 /// record's rank follows its WORST token's tier: the quality sums are
 /// clamped inside one tier stride before the tier offset is added, so no
-/// within-tier difference — however long the name or however sprawling
-/// the fuzzy match — can cross a tier boundary.
+/// within-tier difference -- however long the name or however sprawling
+/// the fuzzy match -- can cross a tier boundary.
 #[must_use]
 pub fn score_search(targets: &SessionSearchText, query: &ParsedSearchQuery) -> Option<f64> {
     if query.matches_never {
@@ -225,7 +225,7 @@ fn token_score(token: &str, targets: &SessionSearchText) -> Option<TokenMatch> {
 
 /// One contiguous token (or the contiguous phase of a fuzzy token). The
 /// tiers mirror VS Code quick-open scoring: the identity match is highest
-/// (`PATH_IDENTITY_SCORE` — a pasted full id is unambiguous), then the
+/// (`PATH_IDENTITY_SCORE` -- a pasted full id is unambiguous), then the
 /// name ranks exact > prefix > substring, then the id prefix and
 /// substring (paste-a-fragment targeting), then the CWD basename and
 /// full path.
@@ -508,7 +508,7 @@ mod tests {
     #[test]
     fn pathological_re_patterns_stop_at_the_backtrack_budget() {
         // A catastrophic-backtracking pattern over a near-miss corpus
-        // stops at the budget and simply does not match — the keystroke
+        // stops at the budget and simply does not match -- the keystroke
         // rebuild can never stall on it.
         let near_miss = SessionSearchText {
             name: format!("{}b", "a".repeat(40)),

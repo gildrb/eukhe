@@ -162,7 +162,7 @@ fn session_label(hold: &HoldIdentity, session_path: Option<&Path>) -> String {
 /// refusal). A bounded-cost scan, not a full load: the refusal fires
 /// while the holder is live and the file may be large or still growing,
 /// so this reads line by line (constant memory) and parses only the
-/// `session_info` candidates — the latest one wins, exactly like
+/// `session_info` candidates -- the latest one wins, exactly like
 /// `SessionFile::session_name`.
 fn session_name_of(session_path: Option<&Path>) -> Option<String> {
     use std::io::BufRead;
@@ -215,7 +215,7 @@ fn shell_quote(value: &str) -> String {
 /// (`eukhe shutdown --force`, which stops every daemon it discovers) is
 /// the honest fallback.
 fn take_over_lines(hold: &HoldIdentity, holder_exe: Option<&Path>) -> Vec<String> {
-    let mut lines = vec!["• Take over on this daemon:".to_string()];
+    let mut lines = vec!["* Take over on this daemon:".to_string()];
     if let Some(pid) = hold.pid {
         // The kill line names what would be killed when the resolved
         // image is known: a stale pid could belong to a reused pid by
@@ -237,10 +237,10 @@ fn take_over_lines(hold: &HoldIdentity, holder_exe: Option<&Path>) -> Vec<String
             None => format!("  kill {pid}"),
         };
         lines.push(kill);
-        lines.push("  Then retry — the file unlocks when the holder exits.".to_string());
+        lines.push("  Then retry -- the file unlocks when the holder exits.".to_string());
     } else {
         lines.push("  eukhe shutdown --force".to_string());
-        lines.push("  Then retry — it stops every daemon in the state root.".to_string());
+        lines.push("  Then retry -- it stops every daemon in the state root.".to_string());
     }
     lines
 }
@@ -280,11 +280,11 @@ pub fn refusal_for_flavor(
         HolderFlavor::ThisBuild => {
             lines.push(format!(
                 "This session is currently open in another instance of Eukhe \
-(active in {holder_id}) — another daemon or window of this product holds the file's \
+(active in {holder_id}) -- another daemon or window of this product holds the file's \
 runtime lease."
             ));
             lines.push(String::new());
-            lines.push("• Continue where you left off:".to_string());
+            lines.push("* Continue where you left off:".to_string());
             if let Some(id) = id {
                 lines.push(format!(
                     "  eukhe --daemon-socket <socket> --resume {}",
@@ -292,13 +292,13 @@ runtime lease."
                 ));
                 lines.push(
                     "  (<socket> is that instance's daemon socket, from the shell where \
-you started it — that daemon owns this session)"
+you started it -- that daemon owns this session)"
                         .to_string(),
                 );
             } else {
                 lines.push("  eukhe --resume".to_string());
                 lines.push(
-                    "  (switch to the window or shell where that instance is running — its \
+                    "  (switch to the window or shell where that instance is running -- its \
 daemon owns this session)"
                         .to_string(),
                 );
@@ -309,7 +309,7 @@ daemon owns this session)"
         HolderFlavor::AnotherProcess => {
             lines.push(format!(
                 "This session is currently open in another process \
-(active in {holder_id}) — a live process this daemon does not host holds the file's \
+(active in {holder_id}) -- a live process this daemon does not host holds the file's \
 runtime lease."
             ));
             lines.push(String::new());
@@ -363,17 +363,17 @@ mod tests {
             Some(Path::new("/home/k/.local/bin/eukhe")),
         );
         let expected = "This session is currently open in another instance of Eukhe \
-(active in rs01ab) — another daemon or window of this product holds the file's \
+(active in rs01ab) -- another daemon or window of this product holds the file's \
 runtime lease.
 
-• Continue where you left off:
+* Continue where you left off:
   eukhe --daemon-socket <socket> --resume 'rs01ab'
-  (<socket> is that instance's daemon socket, from the shell where you started it — \
+  (<socket> is that instance's daemon socket, from the shell where you started it -- \
 that daemon owns this session)
 
-• Take over on this daemon:
+* Take over on this daemon:
   kill 4242 # the holder is eukhe
-  Then retry — the file unlocks when the holder exits.
+  Then retry -- the file unlocks when the holder exits.
 
 Session: rs01ab";
         assert_eq!(message, expected);
@@ -423,7 +423,7 @@ Session: rs01ab";
         );
     }
 
-    /// An anonymous holder gets the take-over path only — no product is
+    /// An anonymous holder gets the take-over path only -- no product is
     /// claimed for a process the classifier cannot name.
     #[test]
     fn the_anonymous_refusal_stays_actionable() {

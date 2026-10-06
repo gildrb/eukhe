@@ -1,4 +1,4 @@
-//! The apply concern: the streamed-event pump — client events, turn
+//! The apply concern: the streamed-event pump -- client events, turn
 //! updates, assistant/tool rows, compaction aborts, and the telemetry seams.
 use super::{
     assistant_message_parts, event_to_update, pop_superseded_attempt_row, AgentView, ChatEntry,
@@ -6,10 +6,11 @@ use super::{
     MessageBlock, Result, RetryState, SessionUi, StatusKind, ToolResultView, TurnUpdate, Value,
     UI_REQUEST_TIMEOUT_MS,
 };
+use crate::glyphs::WARN;
 
 /// One backgrounded compaction-abort outcome (the abort supervision's UI
 /// recovery): a failed abort request surfaces as the transcript note and
-/// clears the stuck compaction loader locally — when even the abort could
+/// clears the stuck compaction loader locally -- when even the abort could
 /// not reach the daemon, the loader must not hang waiting for a
 /// `compaction_end` that will never come. The session id keeps a stale
 /// outcome from touching another session after `/switch` or `/new`.
@@ -17,7 +18,7 @@ pub(crate) struct CompactionAbortNote {
     pub(crate) active_session_id: String,
     /// The loader generation the abort addressed: an outcome applies only
     /// to the exact `compaction_start` that was on screen when the abort
-    /// was sent — a newer run's loader is never cleared by a stale one.
+    /// was sent -- a newer run's loader is never cleared by a stale one.
     pub(crate) compaction_generation: u64,
     pub(crate) outcome: Result<(), String>,
 }
@@ -26,7 +27,7 @@ impl SessionUi {
     /// Abort the active turn off the UI loop (TS `interruptOrClearInput`
     /// fires `void abortAndSendQueued()` when streaming, schema 29): the
     /// daemon aborts the run and the queue keeps flowing behind the
-    /// settled turn — parked steering delivers as one batched turn, then
+    /// settled turn -- parked steering delivers as one batched turn, then
     /// the follow-up lane drains one turn per completed turn; a plain
     /// abort when the abort leaves nothing queued. A daemon without the
     /// schema-29 capability gets the plain abort (TS
@@ -76,7 +77,7 @@ impl SessionUi {
 
     /// Cancel the in-flight compaction off the UI loop (TS
     /// `interruptOrClearInput` fires `abortCompaction()` when the
-    /// compaction loader is up — the agent is not streaming during a
+    /// compaction loader is up -- the agent is not streaming during a
     /// compaction, so the interrupt cancels the run, not a turn): the
     /// request never blocks key handling. A failure surfaces later as a
     /// transcript note and clears the stuck loader locally (the abort
@@ -109,7 +110,7 @@ impl SessionUi {
     }
 
     /// Apply one backgrounded compaction-abort outcome: the failed note
-    /// surfaces as a transcript row and the compaction loader clears —
+    /// surfaces as a transcript row and the compaction loader clears --
     /// the local recovery when the abort never reached the daemon. An
     /// outcome from a session this UI no longer shows (`/switch`, `/new`
     /// mid-request), or addressed to a loader a newer `compaction_start`
@@ -137,14 +138,12 @@ impl SessionUi {
 
     /// A compaction succeeded and the durable transcript was rebuilt (it
     /// now starts at the compaction summary): re-fetch it and replace the
-    /// view's chat (TS `rebuildChatFromMessages`). Best effort — a failed
+    /// view's chat (TS `rebuildChatFromMessages`). Best effort -- a failed
     /// fetch keeps the pushed outcome row instead of an empty transcript.
     pub(crate) async fn rebuild_transcript(&mut self, view: &mut AgentView) {
         self.transcript_stale = false;
-        // The rebuilt transcript invalidates the tracked status row and
-        // a pending click's entry index.
+        // The rebuilt transcript invalidates the tracked status row.
         self.last_status_index = None;
-        self.pressed_click = None;
         let Ok(data) = self
             .bounded_request(
                 Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
@@ -166,51 +165,7 @@ impl SessionUi {
         for entry in entries {
             view.push_entry(entry);
         }
-        view.follow();
         self.dirty = true;
-    }
-
-    /// Report the first scroll action of the run (`tui_scroll_count`),
-    /// fire-and-forget so the keypress never waits on the telemetry flush.
-    pub(super) fn track_scroll(&mut self, action: &'static str, resumed_following: bool) {
-        if self.scroll_adoption_emitted {
-            return;
-        }
-        self.scroll_adoption_emitted = true;
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.scroll_used(action, resumed_following).await;
-            });
-        }
-    }
-
-    /// Report the run's first selection copy (`tui selection used`),
-    /// fire-and-forget like the scroll event: the release never waits on
-    /// the telemetry flush. `lines` is the copied text's line count.
-    pub(super) fn track_selection(&mut self, lines: usize) {
-        if self.selection_adoption_emitted {
-            return;
-        }
-        self.selection_adoption_emitted = true;
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.selection_used(lines).await;
-            });
-        }
-    }
-
-    /// The run's first click-driven interaction (`tui click used`,
-    /// adoption; later clicks in the same run are not reported).
-    pub(crate) fn track_click(&mut self, surface: &'static str) {
-        if self.click_adoption_emitted {
-            return;
-        }
-        self.click_adoption_emitted = true;
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.click_used(surface).await;
-            });
-        }
     }
 
     /// Take a pending `app.suspend` request (TS `handleCtrlZ`): the
@@ -285,7 +240,7 @@ impl SessionUi {
                 }
                 // The live event-sequence tracker (`view::handoff`): the
                 // run's stash keys the LATEST sequence the worker has
-                // reported — a turn during this run advances it, so the
+                // reported -- a turn during this run advances it, so the
                 // unchanged-sojourn re-entry matches the post-turn value
                 // the next attach reports instead of this run's own stale
                 // attach sequence. Monotonic max: a replayed event's
@@ -317,7 +272,7 @@ impl SessionUi {
             }
             DaemonClientEvent::DirectLinkLost { active_session_id } => {
                 // TS `handleTransportClose`: a direct-transport loss is
-                // never itself a session loss — the interactive loop
+                // never itself a session loss -- the interactive loop
                 // re-attaches through the supervisor. Only the active
                 // session arms the loop; a replaced link (session switch)
                 // reports its old session and is ignored here.
@@ -346,7 +301,7 @@ impl SessionUi {
             // A heartbeat catalog change anywhere in the daemon (TS
             // `broadcastGlobal`): the scoped catalog refreshes in the
             // background through the update channel (TS
-            // `refreshHeartbeatCatalog`) — an open `/heartbeats` view
+            // `refreshHeartbeatCatalog`) -- an open `/heartbeats` view
             // re-renders from the landed update, and the activity dock's
             // counts follow the catalog even with the view closed
             // (another client's pause/resume reaches the dock at once).
@@ -355,8 +310,8 @@ impl SessionUi {
             }
             // A background daemon-side catalog refresh changed the served
             // snapshot (the Rust-only no-stall picker-open extension):
-            // every client re-fetches instantly — the daemon answers from
-            // the warm caches, no stall — and an open `/model` picker
+            // every client re-fetches instantly -- the daemon answers from
+            // the warm caches, no stall -- and an open `/model` picker
             // folds the fresh catalog through its stable update path
             // (`apply_model_catalog` keeps the selection), no flicker.
             DaemonClientEvent::ModelCatalogChanged => {
@@ -535,7 +490,7 @@ impl SessionUi {
                 // the switch re-issues immediately).
                 //
                 // SANCTIONED DIVERGENCE (operator ruling 2026-09-23): the
-                // just-failed attempt's error row leaves the chat — the
+                // just-failed attempt's error row leaves the chat -- the
                 // transient loader line (error + attempt + countdown,
                 // updated in place) is the ONE error the chat shows while
                 // the episode runs, and the episode's durable outcome row
@@ -569,7 +524,7 @@ impl SessionUi {
                 // `restoredModel` status line).
                 if let Some(restored_model) = restored_model {
                     view.push_entry(ChatEntry::Status {
-                        text: format!("Primary provider recovered — back on {restored_model}"),
+                        text: format!("Primary provider recovered -- back on {restored_model}"),
                         kind: StatusKind::Info,
                     });
                 }
@@ -601,7 +556,7 @@ impl SessionUi {
                 // text under the loader, nested like the expanded
                 // summary row that settles it). A delta without a live
                 // loader (a late attach mid-run, a stale frame after
-                // `compaction_end`) drops — the settling end still
+                // `compaction_end`) drops -- the settling end still
                 // carries the full summary.
                 if let Some(compaction) = view.compaction.as_mut() {
                     compaction.summary.push_str(&delta);
@@ -639,21 +594,21 @@ impl SessionUi {
                     // TS `compaction_end` handling: aborts and error
                     // messages surface only for user-issued compactions,
                     // through `showError`/`showWarning` (whose rows carry
-                    // the `⚠ Error: ` / `⚠ ` prefixes).
+                    // the `! Error: ` / `! ` prefixes).
                     if aborted {
                         view.push_entry(ChatEntry::Status {
-                            text: "\u{26a0} Error: Compaction cancelled".to_string(),
+                            text: format!("{WARN} Error: Compaction cancelled"),
                             kind: StatusKind::Error,
                         });
                     } else if let Some(message) = error_message {
                         if error_severity.as_deref() == Some("warning") {
                             view.push_entry(ChatEntry::Status {
-                                text: format!("\u{26a0} {message}"),
+                                text: format!("{WARN} {message}"),
                                 kind: StatusKind::Warning,
                             });
                         } else {
                             view.push_entry(ChatEntry::Status {
-                                text: format!("\u{26a0} Error: {message}"),
+                                text: format!("{WARN} Error: {message}"),
                                 kind: StatusKind::Error,
                             });
                         }
@@ -760,7 +715,7 @@ impl SessionUi {
     /// Escape interrupts: a compacting session aborts the compaction run,
     /// a streaming turn aborts through `abort_and_send_queued` (schema 29),
     /// and a running user bash aborts alongside. The side-question abort
-    /// stays at the call sites — the two keys dispose of its pane
+    /// stays at the call sites -- the two keys dispose of its pane
     /// differently.
     pub(super) fn interrupt_running_work(&self, view: &AgentView) {
         // TS `interruptOrClearInput` aborts the trace upload sweep first
@@ -770,7 +725,7 @@ impl SessionUi {
         }
         if view.compaction.is_some() {
             // The compaction loader is up (TS `isAgentCompacting()`):
-            // the interrupt cancels the compaction run only — the agent
+            // the interrupt cancels the compaction run only -- the agent
             // is not streaming, so no turn abort goes out, exactly like
             // the TS interrupt key.
             self.abort_compaction(view.compaction_generation);
@@ -850,7 +805,6 @@ impl SessionUi {
         }
         match self.streaming_index {
             Some(index) => {
-                view.prepare_entry_mutation(index);
                 if let Some(ChatEntry::Assistant(open)) = view.chat.get_mut(index) {
                     open.blocks = blocks;
                     open.has_tool_calls = has_tool_calls;
@@ -888,7 +842,7 @@ impl SessionUi {
                 // fresh pending component for the new invocation); a late
                 // `message_update` from a failed run must not. The re-armed
                 // invocation's next streamed frame pushes its own fresh card
-                // — the settled card is skipped by its `aborted` flag, the
+                // -- the settled card is skipped by its `aborted` flag, the
                 // way TS's cleared pending map forces a new component.
                 self.aborted_tools.remove(id);
             }
@@ -910,7 +864,7 @@ impl SessionUi {
     /// (TS renders it inside the assistant component): `aborted` always
     /// shows, `error` only when the message carries no tool calls (the
     /// pending cards carry the failure then). The row renders inside the
-    /// message's own component — the open streaming entry when one exists,
+    /// message's own component -- the open streaming entry when one exists,
     /// otherwise a fresh entry: TS creates one component per assistant
     /// message (`message_start`), so a content-less provider failure stacks
     /// its own error row per failed attempt instead of decorating the
@@ -923,9 +877,9 @@ impl SessionUi {
         view: &mut AgentView,
     ) {
         // TS `message_end`'s failed-frame block: an aborted run's row text
-        // is the client's own — the retry count and the working-elapsed
+        // is the client's own -- the retry count and the working-elapsed
         // suffix never ride the wire (the rebuild keeps the stored
-        // "Operation aborted") — and every still-pending tool card settles
+        // "Operation aborted") -- and every still-pending tool card settles
         // with the failure text; late result frames land on nothing.
         let stop_reason = message.get("stopReason").and_then(Value::as_str);
         let abort_text = if stop_reason == Some("aborted") {
@@ -964,7 +918,6 @@ impl SessionUi {
         };
         self.turn_error_shown = true;
         if let Some(index) = open {
-            view.prepare_entry_mutation(index);
             if let Some(ChatEntry::Assistant(entry)) = view.chat.get_mut(index) {
                 entry.error = Some(error.text);
                 entry.aborted = error.aborted;
@@ -988,7 +941,7 @@ impl SessionUi {
 
     /// Attach a (partial or final) tool result to the matching card.
     /// Returns whether the result landed (a card exists and is not
-    /// aborted): the caller's loader work rides the same gate — the
+    /// aborted): the caller's loader work rides the same gate -- the
     /// aborted card's late frames must leave the loader untouched too
     /// (TS `tool_execution_end` does nothing without a pending
     /// component).
@@ -1018,7 +971,6 @@ impl SessionUi {
             .iter()
             .rposition(|entry| matches!(entry, ChatEntry::Tool(card) if card.id == tool_call_id));
         if let Some(index) = card_index {
-            view.prepare_entry_mutation(index);
             if let Some(ChatEntry::Tool(card)) = view.chat.get_mut(index) {
                 // The failed frame's sweep owns the call: the tool's late
                 // result frames land on nothing (TS `tool_execution_end`

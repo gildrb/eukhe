@@ -7,9 +7,9 @@ use super::{PathBuf, Result, RunOptions};
 
 /// The startup-model resolution inputs (TS `findInitialModel`'s chain),
 /// captured at task construction: the onboarding flow re-resolves the
-/// model state at its own boundaries — the branch (TS
+/// model state at its own boundaries -- the branch (TS
 /// `isOnboardingModelReady` at flow start) and the completion gate (TS
-/// re-reads `getOnboardingState` before `markOnboardingShown`) — because
+/// re-reads `getOnboardingState` before `markOnboardingShown`) -- because
 /// the flow's own sign-in can change the answer.
 #[derive(Clone)]
 pub(super) struct StartupModelProbe {
@@ -73,7 +73,7 @@ impl StartupModelProbe {
     /// stale credentials; a model the storage cannot explain is ready
     /// through a models.json provider key (the registry's request-auth
     /// resolves it) or the `--api-key` flag (a runtime key the daemon
-    /// installs — the flag is the client's evidence). Best-effort — a
+    /// installs -- the flag is the client's evidence). Best-effort -- a
     /// resolution failure reports the unknown columns.
     fn telemetry_categories(&self) -> (String, String) {
         use eukhe_core::auth::AuthSource;
@@ -290,13 +290,13 @@ impl eukhe_tui::interactive::OnboardingSink for SettingsOnboardingSink {
 }
 
 /// TS `shouldRunOnboarding`: first launch is defined by the settings flag
-/// alone — credentials found on disk (a Prime CLI token, an API key in
+/// alone -- credentials found on disk (a Prime CLI token, an API key in
 /// the environment) never skip the flow, they only make the sign-in step
 /// instant. The task carries the startup model state (the resolved model
 /// is TS `getCurrentModel` at flow time; the readiness probe decides the
 /// branch and gates the completion marker), and the provider auth surface
 /// the full flow signs in through. The startup model follows the TS
-/// `findInitialModel` chain — explicit flags, the `--models` scope, the
+/// `findInitialModel` chain -- explicit flags, the `--models` scope, the
 /// saved settings default, the featured default, the first available
 /// model.
 pub(super) fn onboarding_task(

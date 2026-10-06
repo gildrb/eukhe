@@ -1,5 +1,5 @@
 use super::*;
-use ratatui::style::{Color, Style};
+use crate::style::{Color, Style};
 
 #[test]
 fn shared_wrap_matches_original_output_and_counts() {
@@ -29,7 +29,7 @@ fn shared_wrap_matches_original_output_and_counts() {
             {
                 variants.push(vec![
                     Span::raw(&text[..boundary]),
-                    Span::styled(&text[boundary..], Style::default().fg(Color::Red)),
+                    Span::styled(&text[boundary..], Style::default().fg(Color::Indexed(1))),
                 ]);
             }
             for line in variants {
@@ -38,11 +38,6 @@ fn shared_wrap_matches_original_output_and_counts() {
                     wrap_line(&line, width),
                     reference,
                     "text {text:?}, width {width}"
-                );
-                assert_eq!(wrapped_line_count(&line, width), reference.len());
-                assert_eq!(
-                    wrapped_runs_count(line.iter().map(|span| span.content.as_str()), width),
-                    reference.len()
                 );
             }
             let reference_count: usize = text

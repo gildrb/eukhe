@@ -86,8 +86,8 @@ impl Env {
     }
 }
 
-/// TS `execSyncHidden`'s helper deadline: a tool that wedges — `wl-copy`
-/// waiting on a compositor that never focuses — dies at the deadline
+/// TS `execSyncHidden`'s helper deadline: a tool that wedges -- `wl-copy`
+/// waiting on a compositor that never focuses -- dies at the deadline
 /// instead of hanging the input loop that copied.
 const HELPER_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(5_000);
 /// The bounded wait's poll cadence.
@@ -161,7 +161,7 @@ fn copy_on_linux(text: &str, env: &Env) -> bool {
         let wl_copy_exists = Command::new("which")
             .arg("wl-copy")
             // No inherited fds: a probe must never hold the terminal the
-            // TUI owns (the fd-set audit's rule — no child holds
+            // TUI owns (the fd-set audit's rule -- no child holds
             // /dev/tty).
             .stdin(Stdio::null())
             .stdout(Stdio::null())

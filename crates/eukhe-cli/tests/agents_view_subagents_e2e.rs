@@ -281,7 +281,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
     // through the line.
     let collapsed = first_frame_of(&view.frames, "orchestrator chat");
     assert!(
-        collapsed.contains("\u{25b8} 2 subagents (0 running)"),
+        collapsed.contains("+ 2 subagents (0 running)"),
         "the collapsed parent shows its ONE tree-aggregated summary row:\n{collapsed}"
     );
     assert!(
@@ -294,7 +294,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
     // row keeps the grandchild hidden until the child expands too.
     let expanded = first_frame_of(&view.frames, "worker alpha");
     assert!(
-        expanded.contains("\u{25be} 2 subagents (0 running)"),
+        expanded.contains("- 2 subagents (0 running)"),
         "the expanded summary row keeps the tree aggregate and flips its marker:\n{expanded}"
     );
     assert!(
@@ -338,7 +338,6 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
         session: SessionSelection::Resume(child_path.clone()),
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -360,7 +359,6 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
     let child_plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 15_000 },
-            eukhe_tui::interactive::HeadlessStep::ScrollTop,
             eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
                 crossterm::event::KeyCode::Left,
                 crossterm::event::KeyModifiers::NONE,
@@ -375,7 +373,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
             .expect("child session run");
     let child_frame = frame_of(&child_run.frames, "work complete alpha");
     assert!(
-        child_frame.contains("\u{2190} manage  depth 1"),
+        child_frame.contains("left to manage  depth 1"),
         "the drilled-in child tray shows the manage hint and its depth:\n{child_frame}"
     );
     assert!(
@@ -425,7 +423,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
     // mount frame predates the saved rows and their summary markers).
     let returned = first_frame_of(&back.frames, "orchestrator chat");
     assert!(
-        returned.contains("\u{25b8} 2 subagents (0 running)"),
+        returned.contains("+ 2 subagents (0 running)"),
         "the opened child rides the parent's ONE aggregate (a top-level flip would leave the grandchild alone behind the summary):\n{returned}"
     );
     assert!(
@@ -434,7 +432,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
     );
     let expanded = frame_of(&back.frames, "worker alpha");
     assert!(
-        expanded.contains("\u{25be} 2 subagents (0 running)"),
+        expanded.contains("- 2 subagents (0 running)"),
         "the expanded parent tree carries the live child:\n{expanded}"
     );
     assert!(
@@ -442,7 +440,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
         "the grandchild stays hidden until the resumed child expands:\n{expanded}"
     );
     assert!(
-        expanded.contains("\u{25b8} 1 subagents (0 running)"),
+        expanded.contains("+ 1 subagents (0 running)"),
         "the resumed child's own subtree stays behind its collapsed summary row:\n{expanded}"
     );
     assert!(
@@ -526,7 +524,7 @@ async fn agents_view_fires_user_keybindings_from_settings() {
         "the hint row renders the override key:\n{hints}"
     );
     assert!(
-        !hints.contains("Enter/\u{2192} open"),
+        !hints.contains("Enter/right open"),
         "the default open hint is gone after the override:\n{hints}"
     );
 

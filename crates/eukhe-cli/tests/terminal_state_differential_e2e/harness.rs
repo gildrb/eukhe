@@ -537,13 +537,28 @@ pub(crate) fn attach_data(id: &str) -> Value {
 // The child modes (this binary re-executed as the product under test)
 // ---------------------------------------------------------------------------
 
+/// Where the child sits in the job-control tree.
+#[derive(Clone, Copy)]
+pub(crate) enum ChildSession {
+    /// Its own session with the pty slave as the controlling terminal.
+    OwnTerminal,
+    /// Its own process group inside the runner's session, the pty slave
+    /// as its stdio only: the group's parent sits in another group of
+    /// the same session, so the group is not orphaned and SIGTSTP stops
+    /// it (a session leader's group is orphaned and the kernel discards
+    /// the stop).
+    RunnerGroup,
+}
+
 /// One child route's spawn spec: the surface mode, the daemon commands
-/// the mock answers by silence (the force-quit wedge), and the extra
-/// env the mode reads (the replay fixture, the selector flags).
+/// the mock answers by silence (the force-quit wedge), the extra env the
+/// mode reads (the replay fixture, the selector flags), and the child's
+/// place in the job-control tree.
 pub(crate) struct ChildSpec {
     mode: &'static str,
     stall: &'static [&'static str],
     env: Vec<(&'static str, String)>,
+    session: ChildSession,
 }
 
 impl ChildSpec {
@@ -552,6 +567,7 @@ impl ChildSpec {
             mode,
             stall: &[],
             env: Vec::new(),
+            session: ChildSession::OwnTerminal,
         }
     }
 
@@ -564,12 +580,18 @@ impl ChildSpec {
         self.env.push((key, value.into()));
         self
     }
+
+    pub(crate) fn session(mut self, session: ChildSession) -> ChildSpec {
+        self.session = session;
+        self
+    }
 }
 
 /// A child of this very binary, re-executed with the pty slave as its
-/// terminal — and its CONTROLLING terminal (`setsid` + `TIOCSCTTY`):
-/// crossterm's raw-mode and event reads go through `/dev/tty`, which
-/// must be the pty regardless of the runner's own session.
+/// terminal. [`ChildSession::OwnTerminal`] also makes the pty its
+/// CONTROLLING terminal (`setsid` + `TIOCSCTTY`): crossterm's raw-mode
+/// and event reads go through `/dev/tty`, which must be the pty
+/// regardless of the runner's own session.
 pub(crate) fn spawn_child(spec: &ChildSpec, socket: &Path, slave: &OwnedFd) -> Child {
     // Runs between fork and exec in the child: become a session leader
     // and claim the pty slave as the controlling terminal.
@@ -605,11 +627,16 @@ pub(crate) fn spawn_child(spec: &ChildSpec, socket: &Path, slave: &OwnedFd) -> C
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
         .stderr(slave_as_stdio(slave));
-    // SAFETY: the pre_exec hook is the supported std seam for
-    // session/terminal setup; it runs post-fork pre-exec in the child
-    // only and cannot allocate.
-    unsafe {
-        command.pre_exec(move || claim_controlling_tty(slave_fd));
+    match spec.session {
+        // SAFETY: the pre_exec hook is the supported std seam for
+        // session/terminal setup; it runs post-fork pre-exec in the child
+        // only and cannot allocate.
+        ChildSession::OwnTerminal => unsafe {
+            command.pre_exec(move || claim_controlling_tty(slave_fd));
+        },
+        ChildSession::RunnerGroup => {
+            command.process_group(0);
+        }
     }
     command.spawn().expect("spawn pty child")
 }
@@ -664,7 +691,6 @@ pub(crate) fn child_options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),

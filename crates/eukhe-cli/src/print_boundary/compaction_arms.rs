@@ -1,7 +1,7 @@
 //! The divider logic: the TS `_checkCompaction` arms of the print
-//! runtime's turn boundary — the overflow compact-and-retry machine
+//! runtime's turn boundary -- the overflow compact-and-retry machine
 //! (Case 1) with its three state enums, and the requested/threshold
-//! compaction arms — the child cut of the `print_boundary` facade.
+//! compaction arms -- the child cut of the `print_boundary` facade.
 
 use super::{
     compaction_end_success_event, compaction_start_event, is_context_overflow_failure,
@@ -50,7 +50,7 @@ pub(super) enum OverflowOutcome {
 
 impl TurnBoundary {
     /// Reset the overflow recovery state (TS: a message that starts an
-    /// agent run — the admitted prompt — and every settled non-error
+    /// agent run -- the admitted prompt -- and every settled non-error
     /// assistant turn reset `_overflowRecovery`).
     pub(crate) fn reset(&mut self) {
         self.recovery = OverflowRecovery::Idle;
@@ -58,8 +58,8 @@ impl TurnBoundary {
 
     /// The requested and threshold arms (TS `_checkCompaction` after Case
     /// 1 stayed silent): a pending model-requested compaction consumes the
-    /// check — TS `_runAutoCompaction` emits the start event before the
-    /// summarizer runs, carrying the pending instructions — else the
+    /// check -- TS `_runAutoCompaction` emits the start event before the
+    /// summarizer runs, carrying the pending instructions -- else the
     /// threshold arm compacts when the live context crossed the reserve
     /// headroom (Case 3: the settled turn's usage at `agent_end`, or the
     /// resumed context before an admitted prompt). Both boundaries share
@@ -194,7 +194,7 @@ impl TurnBoundary {
     /// the TS one: a settled non-error turn resets the recovery state, the
     /// message must come from the session's current model, may not predate
     /// the latest compaction boundary, compaction must be enabled (or a
-    /// pending model request covers it — the run consumes it), and the
+    /// pending model request covers it -- the run consumes it), and the
     /// shared overflow classifier must recognize it. On a retry the
     /// settled-turn arm re-issues the turn without a new user message (TS
     /// `agent.continue()`); the pre-turn arm leaves the loop to the
@@ -252,9 +252,9 @@ impl TurnBoundary {
         match self.recovery {
             OverflowRecovery::Attempted => {
                 self.recovery = OverflowRecovery::Reported;
-                // The retry still overflows: report once — the durable
+                // The retry still overflows: report once -- the durable
                 // outcome row plus the `compaction_end` failure (no error
-                // severity on the wire — TS passes none for the auto arms).
+                // severity on the wire -- TS passes none for the auto arms).
                 self.end_unsuccessfully(
                     engine,
                     CompactionOutcomeReason::Overflow,

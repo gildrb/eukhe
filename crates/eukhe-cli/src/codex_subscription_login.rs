@@ -10,7 +10,7 @@
 //! subscription models resolvable (the request path extracts the
 //! account id from the token itself, like TS).
 //!
-//! Cancellation (#2770): the panel handle's shared flag is the seam —
+//! Cancellation (#2770): the panel handle's shared flag is the seam --
 //! the driving pane marks it on exit and this flow checks it after the
 //! flow returns and before the credential write, so an exited pane never
 //! lands a credential (a task abort cannot reach the started blocking
@@ -96,7 +96,7 @@ pub(crate) async fn run_codex_subscription_login(
         }
     };
     // The pane exited while the login ran: no credential write lands (TS
-    // the dialog's abort signal; #2770 — the flag is the seam, the
+    // the dialog's abort signal; #2770 -- the flag is the seam, the
     // blocking body checks it before the store).
     if ui.is_cancelled() {
         return ProviderAuthOutcome::Cancelled;
@@ -298,7 +298,7 @@ mod tests {
     }
 
     /// A cancelled pane never receives the credential (#2770: no write
-    /// after the exit) — the regression test for the abort-cleanup
+    /// after the exit) -- the regression test for the abort-cleanup
     /// contract.
     #[tokio::test]
     async fn a_cancelled_pane_writes_no_credential() {

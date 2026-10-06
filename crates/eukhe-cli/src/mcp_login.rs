@@ -4,7 +4,7 @@
 //! the settings + builtin catalog, run the eukhe-core OAuth login against
 //! the inline auth panel (the authorization URL block and the paste
 //! fallbacks render in the TUI; the browser launch rides the request),
-//! and persist the endpoint-bound credential in the shared auth store —
+//! and persist the endpoint-bound credential in the shared auth store --
 //! the api-key credentials store their key in the auth slot the runtime
 //! reads (the web-search key). The TS interactive client runs the same
 //! flow in its own process (auth-flows.ts `runMcpLogin`) and reloads the
@@ -24,7 +24,7 @@ use eukhe_tui::client_auth::{AuthFuture, ClientAuthCommands};
 
 /// The CLI's live MCP manager: the shared auth store, settings-declared
 /// user servers (`mcpServers`), and local service-catalog sources
-/// (`mcpCatalogSources`) all re-read per resolve — the same closures TS
+/// (`mcpCatalogSources`) all re-read per resolve -- the same closures TS
 /// `createAgentSessionServices` wires into every CLI session. No
 /// interactive login: hosts with a login UI call `set_begin_login`
 /// before the session registers host handlers; headless surfaces keep
@@ -175,7 +175,7 @@ impl TerminalMcpAuth {
 
     /// The api-key credential flow (the `/mcp` view's key rows): prompt
     /// for the ONE key the credential collects (the masked field never
-    /// renders the secret) and store it in the credential's auth slot —
+    /// renders the secret) and store it in the credential's auth slot --
     /// the exact contract the runtime reads (auth.json's `serper` key,
     /// the `AuthCredential::ApiKey` form).
     async fn api_key_inner(
@@ -270,7 +270,7 @@ struct PanelMcpLoginUi {
 
 impl McpLoginUi for PanelMcpLoginUi {
     fn on_progress(&self, message: &str) {
-        // TS `showLoginDialog`'s `onProgress` arm is unguarded chatter —
+        // TS `showLoginDialog`'s `onProgress` arm is unguarded chatter --
         // a direct `dialog.showProgress` line: renders on every surface.
         self.panel.progress_line(message);
     }

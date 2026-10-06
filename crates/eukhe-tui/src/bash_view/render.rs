@@ -48,7 +48,7 @@ impl Columns {
         // The command column carries the full remaining width (the
         // operator's width-distribution ruling, 2026-09-25): the fixed
         // fact columns hug their content, the command prose column
-        // absorbs the rest, so the columns together span the terminal —
+        // absorbs the rest, so the columns together span the terminal --
         // no dead space past the last column.
         let command = width.saturating_sub(fixed);
         Self {
@@ -74,7 +74,7 @@ impl Columns {
 
     /// One columned row: the command, the duration, the pid, and the
     /// status word in its status color (running green, a nonzero exit
-    /// red — failed — everything else dim). The selected row's wash
+    /// red -- failed -- everything else dim). The selected row's wash
     /// spans the full frame width (the operator's "table fills the
     /// width" ruling) while the columns keep their content-hug
     /// geometry.
@@ -86,7 +86,11 @@ impl Columns {
         selected: bool,
     ) -> Line {
         let status_color = status_state_color(activity);
-        let mut row = vec![Span::raw(if selected { "\u{203a}" } else { " " })];
+        let mut row = vec![Span::raw(if selected {
+            crate::glyphs::POINTER
+        } else {
+            " "
+        })];
         row.push(Span::raw(" "));
         let command = plain_cell(
             &single_line(&scrub_controls(&activity.command)),
@@ -109,7 +113,7 @@ impl Columns {
                 plain_cell(
                     &activity
                         .pid
-                        .map_or_else(|| "\u{2014}".to_string(), |pid| pid.to_string()),
+                        .map_or_else(|| "--".to_string(), |pid| pid.to_string()),
                     self.pid,
                 ),
             ),
@@ -128,7 +132,7 @@ impl Columns {
     }
 }
 
-/// One action row (the `/mcp` view's control pattern): the `›`-marker
+/// One action row (the `/mcp` view's control pattern): the `>`-marker
 /// label with its dim description trailing, the selected row washed over
 /// its hug.
 pub(super) fn action_row(
@@ -138,7 +142,11 @@ pub(super) fn action_row(
     description: &str,
     selected: bool,
 ) -> Line {
-    let mut row = vec![Span::raw(if selected { "\u{203a}" } else { " " })];
+    let mut row = vec![Span::raw(if selected {
+        crate::glyphs::POINTER
+    } else {
+        " "
+    })];
     row.push(Span::raw(" "));
     if selected {
         row.push(theme.bold(Span::raw(label.to_string())));
@@ -157,7 +165,7 @@ pub(super) fn action_row(
 
 /// The status state's color (the operator's color-coding directive, on
 /// the existing status vocabulary): running green, a settled nonzero
-/// exit red — the failed state — everything else dim.
+/// exit red -- the failed state -- everything else dim.
 fn status_state_color(activity: &BashActivity) -> ThemeColor {
     if activity.running() {
         ThemeColor::Success
@@ -170,7 +178,7 @@ fn status_state_color(activity: &BashActivity) -> ThemeColor {
 
 /// The drill-in's one metadata row (the operator's refined shape): pid,
 /// started, and duration joined by dim dots, with the status dot and
-/// word trailing in its state color — the facts that frame the command,
+/// word trailing in its state color -- the facts that frame the command,
 /// one row, not a block of labeled pairs.
 pub(super) fn metadata_row(theme: &Theme, width: usize, activity: &BashActivity) -> Line {
     let mut row = vec![Span::raw("  ")];
@@ -189,7 +197,7 @@ pub(super) fn metadata_row(theme: &Theme, width: usize, activity: &BashActivity)
     }
     for (index, (label, value)) in items.iter().enumerate() {
         if index > 0 {
-            row.push(theme.fg_span(ThemeColor::Dim, " \u{b7} ".to_string()));
+            row.push(theme.fg_span(ThemeColor::Dim, crate::glyphs::SEP.to_string()));
         }
         row.push(theme.fg_span(ThemeColor::Dim, label.to_string()));
         row.push(theme.fg_span(ThemeColor::Muted, value.clone()));
@@ -198,7 +206,7 @@ pub(super) fn metadata_row(theme: &Theme, width: usize, activity: &BashActivity)
     // status vocabulary and the current subtitle word (`running`, `exit
     // N`, or the wire's own status).
     if !items.is_empty() {
-        row.push(theme.fg_span(ThemeColor::Dim, " \u{b7} ".to_string()));
+        row.push(theme.fg_span(ThemeColor::Dim, crate::glyphs::SEP.to_string()));
     }
     let (dot, _) = status_dot(&activity.status);
     let status_word = if activity.running() {
@@ -213,8 +221,8 @@ pub(super) fn metadata_row(theme: &Theme, width: usize, activity: &BashActivity)
     truncate_line(&row, width, "")
 }
 
-/// A dim region marker row (`\u{2026}` over the region's first row while
-/// output continues above it, `\u{2193}` under the last while the window
+/// A dim region marker row (`...` over the region's first row while
+/// output continues above it, `v` under the last while the window
 /// sits lifted off the newest output).
 pub(super) fn marker_line(theme: &Theme, width: usize, marker: &str) -> Line {
     let line = vec![
@@ -230,7 +238,7 @@ fn single_line(value: &str) -> String {
 }
 
 /// Keep every fetched line inert as terminal text: process-provided
-/// strings never forward control characters into the UI — but the
+/// strings never forward control characters into the UI -- but the
 /// line's own leading and trailing spacing stays exactly as the kernel
 /// wrote it (indented logs and fixed-width rows keep their shape).
 pub(super) fn clean_line(value: &str) -> String {
@@ -238,10 +246,10 @@ pub(super) fn clean_line(value: &str) -> String {
 }
 
 /// The duration cell: whole milliseconds read as a compact human word
-/// (`780ms`, `3.4s`, `2m 05s`), `—` when the wire carries none.
+/// (`780ms`, `3.4s`, `2m 05s`), `--` when the wire carries none.
 pub(super) fn format_duration(duration_ms: Option<u64>) -> String {
     let Some(ms) = duration_ms else {
-        return "\u{2014}".to_string();
+        return "--".to_string();
     };
     if ms < 1_000 {
         return format!("{ms}ms");
@@ -255,7 +263,7 @@ pub(super) fn format_duration(duration_ms: Option<u64>) -> String {
     format!("{minutes}m {seconds:02}s")
 }
 
-/// The pane's header block: a muted separator rule, then the title row —
+/// The pane's header block: a muted separator rule, then the title row --
 /// the title in plain text, the status counts trailing flush right, an
 /// optional muted subtitle, and a blank line.
 pub(super) fn pane_header_lines(
@@ -281,13 +289,16 @@ pub(super) fn pane_header_lines(
         title_row.push(Span::raw(" ".repeat(gap)));
         for (index, (color, text)) in counts.iter().enumerate() {
             if index > 0 {
-                title_row.push(theme.fg_span(ThemeColor::Muted, " \u{b7} ".to_string()));
+                title_row.push(theme.fg_span(ThemeColor::Muted, crate::glyphs::SEP.to_string()));
             }
             title_row.push(theme.fg_span(*color, text.clone()));
         }
     }
     let mut lines = vec![
-        vec![theme.fg_span(ThemeColor::BorderMuted, "\u{2500}".repeat(width.max(1)))],
+        vec![theme.fg_span(
+            ThemeColor::BorderMuted,
+            crate::glyphs::RULE.repeat(width.max(1)),
+        )],
         truncate_line(&title_row, width, ""),
     ];
     if let Some(subtitle) = subtitle {

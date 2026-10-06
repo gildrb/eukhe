@@ -5,6 +5,7 @@ use super::{
     format_goal_status, terminal_columns, AgentView, ChatEntry, DaemonCommand, Duration, Map,
     SessionUi, StatusKind, Value, ANTHROPIC_SUBSCRIPTION_AUTH_WARNING, UI_REQUEST_TIMEOUT_MS,
 };
+use crate::glyphs::WARN;
 
 impl SessionUi {
     /// One `goal_update` session event (TS `handleGoalUpdate`): store the
@@ -49,7 +50,7 @@ impl SessionUi {
     }
 
     /// The goal's dock row follows the current goal state (the tray's
-    /// TS `getTrayGoalLabel` cluster is deliberately not ported — the
+    /// TS `getTrayGoalLabel` cluster is deliberately not ported -- the
     /// operator's 2026-09-24 directive moves "Pursuing goal" off the
     /// line below the prompt bar; the dock's row below carries it).
     pub(crate) fn sync_goal_tray(&mut self, view: &mut AgentView) {
@@ -72,7 +73,7 @@ impl SessionUi {
     }
 
     /// Show an ephemeral action toast (the top-right auto-dismiss overlay;
-    /// a sanctioned divergence from TS — see `toast`): the confirmation
+    /// a sanctioned divergence from TS -- see `toast`): the confirmation
     /// never lands in the transcript, and the frame repaints so the
     /// overlay appears at once (its expiry repaints it away).
     pub(crate) fn toast(&mut self, text: &str, view: &mut AgentView) {
@@ -81,7 +82,7 @@ impl SessionUi {
     }
 
     /// A plain appended dim row (TS `chatContainer.addChild(new
-    /// Markdown/Text(...))` — `/name` and `/rlm-max-depth` report rows):
+    /// Markdown/Text(...))` -- `/name` and `/rlm-max-depth` report rows):
     /// unlike `note` it never rewrites the previous status in place, so
     /// back-to-back rows stack like the TS plain rows.
     pub(crate) fn plain_row(&mut self, text: &str, view: &mut AgentView) {
@@ -118,19 +119,19 @@ impl SessionUi {
     /// TS `maybeWarnAboutAnthropicSubscriptionAuth`'s login-completed
     /// slice (`onLoginCompleted`): a COMPLETED Anthropic subscription
     /// login draws the ban-risk warning, gated by the settings toggle
-    /// (`warnings.anthropicExtraUsage`, TS default true — an absent
+    /// (`warnings.anthropicExtraUsage`, TS default true -- an absent
     /// settings seam keeps the warning ENABLED).
     ///
     /// Operator directive 2026-09-29 (the TS delta this arm carries): a
-    /// fresh auth landing RE-WARNS — the login-completed slice is NOT
+    /// fresh auth landing RE-WARNS -- the login-completed slice is NOT
     /// gated by the once-per-session-lifecycle marker (each completed
     /// subscription login is its own landing, the user just re-proved the
     /// credential shape), so the per-instance dedup flag drops out of this
     /// arm's gate. The marker is still marked
     /// ([`Self::mark_anthropic_warning_shown`]), so a later open of this
     /// session does not draw a second copy.
-    /// The warning STACKS — `note_as` would rewrite the just-shown
-    /// login-success row in place — and carries the same `⚠` prefix as
+    /// The warning STACKS -- `note_as` would rewrite the just-shown
+    /// login-success row in place -- and carries the same `!` prefix as
     /// the credential-detection arm.
     pub(crate) fn maybe_warn_anthropic_subscription_auth(
         &mut self,
@@ -148,7 +149,7 @@ impl SessionUi {
         self.anthropic_subscription_warning_shown = true;
         self.mark_anthropic_warning_shown();
         view.push_entry(ChatEntry::Status {
-            text: format!("\u{26a0} {ANTHROPIC_SUBSCRIPTION_AUTH_WARNING}"),
+            text: format!("{WARN} {ANTHROPIC_SUBSCRIPTION_AUTH_WARNING}"),
             kind: StatusKind::Warning,
         });
         self.last_status_index = None;
@@ -158,33 +159,31 @@ impl SessionUi {
     /// The credential-detection arm of TS
     /// `maybeWarnAboutAnthropicSubscriptionAuth` (#2645): the startup,
     /// model-selection, and api-key-save triggers need the ACTIVE
-    /// CREDENTIAL's shape — the composition root's
+    /// CREDENTIAL's shape -- the composition root's
     /// [`ProviderAuthCommands::anthropic_subscription_warning`] resolves
     /// it (a stored `Oauth` credential or an `sk-ant-oat` key is the
     /// subscription; a plain API key never warns). The login-completed
-    /// slice — where the just-settled subscription OAuth login itself
-    /// proves the shape — lives in
+    /// slice -- where the just-settled subscription OAuth login itself
+    /// proves the shape -- lives in
     /// [`Self::maybe_warn_anthropic_subscription_auth`]. Both share the
     /// `warnings.anthropicExtraUsage` setting.
     ///
     /// Operator directive 2026-09-29 (the TS delta this arm carries): the
     /// warning fires once per SESSION LIFECYCLE, not once per TUI
-    /// instance — the per-instance flag stays as this view's own dedup,
+    /// instance -- the per-instance flag stays as this view's own dedup,
     /// but the real gate is the session's persisted marker read from the
     /// daemon ([`Self::anthropic_warning_already_shown`]): a reattach or
     /// a resume of a session that already drew the warning skips it, a
     /// genuinely new session draws it once (and marks it shown). The
-    /// check runs LAST — after the settings toggle, the provider, and
-    /// the credential shape resolved an actual pending warning — so the
+    /// check runs LAST -- after the settings toggle, the provider, and
+    /// the credential shape resolved an actual pending warning -- so the
     /// extra `get_state` round trip never happens for sessions that
     /// would not warn anyway, and it fails OPEN (an absent field from an
     /// older daemon, or an unreadable state, draws the warning rather
     /// than suppressing it).
     /// The once-per-installation telemetry disclosure (TS
     /// agent-session-services): the interactive session renders it as an
-    /// info row — the alt screen hides any pre-TUI stderr print, so the
-    /// row is the only shape the user actually sees — and the shown
-    /// marker persists the moment the row renders (TS
+    /// info row in the transcript, and the shown marker persists the moment the row renders (TS
     /// `setTelemetryNoticeShown`).
     pub(crate) fn maybe_show_telemetry_notice(&mut self, view: &mut AgentView) {
         let Some(settings) = self.client_settings.clone() else {
@@ -239,7 +238,7 @@ impl SessionUi {
             // plain pushed row keeps both, and clearing the status index
             // keeps the NEXT status from rewriting the warning either.
             view.push_entry(ChatEntry::Status {
-                text: format!("\u{26a0} {warning}"),
+                text: format!("{WARN} {warning}"),
                 kind: StatusKind::Warning,
             });
             self.last_status_index = None;
@@ -249,12 +248,12 @@ impl SessionUi {
 
     /// The session's persisted once-per-lifecycle gate (operator
     /// directive 2026-09-29): whether THIS session has already drawn the
-    /// Anthropic subscription ban-risk warning — the daemon's `get_state`
+    /// Anthropic subscription ban-risk warning -- the daemon's `get_state`
     /// carries `anthropicWarningShown`, hydrated from the session file's
     /// marker row, so every view of the session (a reattach, a resume, a
     /// fresh process) reads the same truth. Best-effort and fail-open: an
     /// unreadable state, or a field an older daemon never emits, answers
-    /// `false` — the warning shows rather than being suppressed by a
+    /// `false` -- the warning shows rather than being suppressed by a
     /// failed read.
     async fn anthropic_warning_already_shown(&mut self) -> bool {
         self.bounded_request(
@@ -276,7 +275,7 @@ impl SessionUi {
     }
 
     /// Persist the session's once-per-lifecycle marker with the daemon
-    /// (`mark_anthropic_warning_shown`): fire-and-forget and bounded — the
+    /// (`mark_anthropic_warning_shown`): fire-and-forget and bounded -- the
     /// durable row is never a render dependency; a failed or
     /// unacknowledged mark costs one repeated warning on this session's
     /// next open, never a suppressed one.
@@ -301,17 +300,17 @@ impl SessionUi {
 
     /// Whether the session's `mark_anthropic_warning_shown` write is still
     /// in flight (the headless exit gate holds the run until the durable
-    /// write resolves — the mark is never a render dependency, but a
+    /// write resolves -- the mark is never a render dependency, but a
     /// scripted run must not end with it un-acked).
     pub(crate) fn anthropic_warning_mark_pending(&self) -> bool {
         self.anthropic_warning_mark_pending
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// The TS `showError` row: `⚠ Error: <message>` in the error color.
+    /// The TS `showError` row: `! Error: <message>` in the error color.
     pub(crate) fn error_row(&mut self, message: &str, view: &mut AgentView) {
         view.push_entry(ChatEntry::Status {
-            text: format!("\u{26a0} Error: {message}"),
+            text: format!("{WARN} Error: {message}"),
             kind: StatusKind::Error,
         });
         self.dirty = true;

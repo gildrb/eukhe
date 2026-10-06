@@ -1,7 +1,7 @@
 //! The rename flow (TS `enterRenameMode`/`confirmRename`/
 //! `renameSession`, agents-view-mode.ts:1868-1944): the ctrl+r composer
 //! over the prompt, the wire dispatch the confirm executes, and the
-//! landed outcome's status — moved with its concern.
+//! landed outcome's status -- moved with its concern.
 use serde_json::Value;
 
 use super::{AgentsViewMode, Composer, DaemonClient, UiInput};
@@ -19,9 +19,9 @@ pub(super) struct Rename {
 }
 
 /// The rename composer's state (TS `renameTarget` + the editor): the
-/// editor owns the draft — the full cursor/word/kill/undo grammar, no
+/// editor owns the draft -- the full cursor/word/kill/undo grammar, no
 /// autocomplete (TS's provider answers only while a reply is armed)
-/// — and the confirm dispatches the trimmed text.
+/// -- and the confirm dispatches the trimmed text.
 pub(super) struct RenameComposer {
     pub(super) target: RenameTarget,
     pub(super) editor: Editor,
@@ -39,7 +39,7 @@ pub(super) enum RenameTarget {
 impl AgentsViewMode {
     /// The selected row's rename target and name prefill (TS
     /// `enterRenameMode`'s gate, :1868-1888): a top-level agent row with
-    /// a live session or a saved file. One definition of "renameable" —
+    /// a live session or a saved file. One definition of "renameable" --
     /// the enter arm and the hint slot both read it.
     pub(super) fn rename_target(&self) -> Option<(RenameTarget, String)> {
         let row = self
@@ -78,7 +78,7 @@ impl AgentsViewMode {
     /// TS `enterRenameMode`: enter the rename composer over the prompt.
     /// The search query stays untouched (the filter keeps using it,
     /// exactly as TS filters on its saved query); the armed
-    /// stop-or-delete confirm is already cleared — the key router's
+    /// stop-or-delete confirm is already cleared -- the key router's
     /// preamble took it before the rename arm ran.
     pub(super) fn enter_rename_mode(&mut self) {
         let Some((target, name)) = self.rename_target() else {
@@ -104,7 +104,7 @@ impl AgentsViewMode {
     /// :1119-1126): the cancel key exits back to search, the editor's
     /// submit (Enter) dispatches the trimmed, paste-expanded draft,
     /// and every other key goes to the editor's own grammar (TS's
-    /// `editor.handleInput` — the full cursor/word/kill/undo editing,
+    /// `editor.handleInput` -- the full cursor/word/kill/undo editing,
     /// not the search field's subset).
     /// The composer comes in owned (the caller hands it over) and goes
     /// back only where the mode continues.
@@ -144,14 +144,14 @@ impl AgentsViewMode {
 
     /// One landed rename outcome (TS `renameSession`'s report): the
     /// status names the success or the failure; a saved target's catalog
-    /// row patches its name in place (the delete precedent — saved rows
+    /// row patches its name in place (the delete precedent -- saved rows
     /// get no push; a live row's roster flush rides the rename's
     /// `session_info_changed` broadcast).
     pub(super) fn rename_result(&mut self, rename: Rename, outcome: Result<(), String>) {
         // The reply composer's `/name` view command (TS
         // `runAgentsViewCommand`'s name arm): the in-flight draft marks
         // the composer that dispatched the rename (TS's
-        // `armedAtStart === replyTarget` object guard — a re-armed
+        // `armedAtStart === replyTarget` object guard -- a re-armed
         // composer carries no in-flight draft). Success disarms it
         // (`disarmIfUnchanged`, no editor check); failure restores the
         // draft under the empty-editor guard.
@@ -194,7 +194,7 @@ impl AgentsViewMode {
 /// One rename wire dispatch (TS `renameSession`'s branches,
 /// :1914-1944): the call runs off the key loop with a client clone and
 /// its outcome re-enters the loop as a `RenameResult` status line.
-/// TS's unknown-command "older build" arm (:1938-1940) is not ported —
+/// TS's unknown-command "older build" arm (:1938-1940) is not ported --
 /// the daemon has always had `rename`.
 pub(super) fn spawn_rename_dispatch(
     client: &DaemonClient,

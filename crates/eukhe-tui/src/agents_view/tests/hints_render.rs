@@ -9,16 +9,18 @@ fn hints_render_the_effective_bindings() {
     // stop-or-delete slot the selected live row arms and the rename
     // slot the renameable agent row arms.
     let mode = mode_with_parent_and_child();
+    let key = crate::keybindings::format_key_text;
+    let (up, down, right) = (key("up"), key("down"), key("right"));
     assert_eq!(
         flat(&mode.render_hints(120, None)),
-        "\u{2191}/\u{2193} navigate   Home/End first/last   Enter/\u{2192} open   Ctrl+R rename   Space reply   Ctrl+X stop   Ctrl+N new"
+        format!("{up}/{down} navigate   Home/End first/last   Enter/{right} open   Ctrl+R rename   Space reply   Ctrl+X stop   Ctrl+N new")
     );
     // A user override moves the hint with the handler.
     let mode = mode_with_user_bindings(&[("app.agents.new", "ctrl+t")]);
     let hints = flat(&mode.render_hints(120, None));
     assert_eq!(
         hints,
-        "\u{2191}/\u{2193} navigate   Home/End first/last   Enter/\u{2192} open   Ctrl+R rename   Space reply   Ctrl+X stop   Ctrl+T new"
+        format!("{up}/{down} navigate   Home/End first/last   Enter/{right} open   Ctrl+R rename   Space reply   Ctrl+X stop   Ctrl+T new")
     );
     assert!(!hints.contains("Ctrl+N"), "the default new hint is gone");
     // An override on the delete binding moves its slot too.
@@ -82,7 +84,7 @@ fn hints_delete_slot_rides_the_selected_row() {
     );
 }
 
-/// Every bar segment drops when its action is unbound — navigate,
+/// Every bar segment drops when its action is unbound -- navigate,
 /// open, parent, and new follow the jump and stop-or-delete slots'
 /// contract; a two-key segment keeps whichever of the pair is
 /// bound.
@@ -100,7 +102,7 @@ fn hints_drop_segments_for_unbound_actions() {
     let hints = flat(&mode.render_hints(120, None));
     assert!(!hints.contains("navigate"), "{hints}");
     assert!(hints.contains("Enter open"), "{hints}");
-    assert!(!hints.contains("Enter/\u{2192}"), "{hints}");
+    assert!(!hints.contains("Enter/"), "{hints}");
     assert!(!hints.contains("new"), "{hints}");
     assert!(hints.contains("Ctrl+X stop"), "{hints}");
     assert!(hints.contains("Home/End first/last"), "{hints}");

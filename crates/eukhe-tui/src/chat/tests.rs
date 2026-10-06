@@ -10,7 +10,7 @@ fn theme() -> Theme {
 
 #[test]
 fn backup_switch_loader_renders_the_failover_message() {
-    // TS reason "backup": no countdown — the switch re-issues
+    // TS reason "backup": no countdown -- the switch re-issues
     // immediately on the backup provider.
     let retry = RetryState {
         attempt: 3,
@@ -28,7 +28,7 @@ fn backup_switch_loader_renders_the_failover_message() {
         .collect::<String>();
     assert!(
         text.contains(
-            "Primary model unavailable (Connection failed) — retrying on backup model prime-backup/mock-1..."
+            "Primary model unavailable (Connection failed) -- retrying on backup model prime-backup/mock-1..."
         ),
         "got: {text}"
     );
@@ -51,7 +51,7 @@ fn retry_loader_renders_countdown() {
     // The quick-retry line names the error too (the one line the
     // chat shows while the episode runs, updated in place).
     assert!(
-        text.contains("provider down — retrying (1/2) in 1s..."),
+        text.contains("provider down -- retrying (1/2) in 1s..."),
         "got: {text}"
     );
 }
@@ -75,9 +75,9 @@ fn retry_loader_spans_carry_the_ts_sgr_boundaries() {
         rows[1][..4],
         [
             Span::styled(" ", Style::default()),
-            Span::styled(LOADER_FRAMES[0], muted),
+            Span::styled(crate::glyphs::SPINNER[0], muted),
             Span::raw(" "),
-            Span::styled("provider down — retrying (1/2) in 1s...", muted),
+            Span::styled("provider down -- retrying (1/2) in 1s...", muted),
         ]
     );
 }
@@ -145,7 +145,7 @@ fn user_block_styles() -> (Style, Style, Style, Style, Style) {
 
 /// One row's runs with adjacent same-style spans merged: the
 /// markdown renderer splits words and the restore keeps token runs,
-/// so the styled runs — not the span segmentation — are the contract.
+/// so the styled runs -- not the span segmentation -- are the contract.
 fn row_runs(row: &Line) -> Vec<(String, Style)> {
     let mut runs: Vec<(String, Style)> = Vec::new();
     for span in row {
@@ -164,7 +164,7 @@ fn row_runs(row: &Line) -> Vec<(String, Style)> {
 fn user_block_keeps_the_link_affordance() {
     // A markdown link in the user block: the label underlines over the
     // user-message color, the URL bracket keeps the dim link slot, and
-    // the OSC 8 wrap rides the label — all on the block background.
+    // the OSC 8 wrap rides the label -- all on the block background.
     crate::hyperlinks::set_hyperlinks_override(Some(true));
     let (bg, body, _, _, _) = user_block_styles();
     let link_url = bg.patch(theme().fg_style(ThemeColor::MdLinkUrl));
@@ -181,7 +181,7 @@ fn user_block_keeps_the_link_affordance() {
                     crate::hyperlinks::osc8_open("https://x.dev/a"),
                     crate::hyperlinks::OSC8_CLOSE
                 ),
-                body.add_modifier(ratatui::style::Modifier::UNDERLINED)
+                body.add_modifier(crate::style::Modifier::UNDERLINED)
             ),
             (" [https://x.dev/a]".to_string(), link_url),
             (" ".repeat(60 - 28), bg),
@@ -438,7 +438,7 @@ fn ipython_card_done_line() {
         .map(|s| s.content.as_str())
         .collect::<String>();
     assert!(
-        text.contains("\u{2713} python \u{00b7} print('visual parity ok') \u{00b7} \u{2191} 1 \u{2193} 1 lines"),
+        text.contains("ok python - print('visual parity ok') - ^ 1 v 1 lines"),
         "got: {text}"
     );
 }
@@ -513,7 +513,7 @@ fn assistant_error_row_and_spacers() {
 
 /// TS `createErrorComponent` + `formatInlineLoginRecoveryMessage`: an
 /// error whose text ends with the login-recovery suffix renders as ONE
-/// merged inline line (`{base} · Run /login to update credentials.`),
+/// merged inline line (`{base} - Run /login to update credentials.`),
 /// error-colored and one-space indented like every other error row, and
 /// identical across detail modes (a plain row, never the collapsible
 /// component).
@@ -546,7 +546,7 @@ fn login_recovery_error_renders_one_merged_inline_line() {
                     Span::raw(crate::osc133::ZONE_END_PREFIX),
                     Span::raw(" "),
                     Span::styled(
-                        "Auth failed. · Run /login to update credentials.",
+                        "Auth failed. - Run /login to update credentials.",
                         error_style
                     ),
                     Span::raw(" ".repeat(11)),
@@ -574,7 +574,7 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
         ),
         aborted: false,
     };
-    let merged = "Authentication failed for \"prime-inference\". Credentials may have expired or network is unavailable. · Run /login to update credentials.";
+    let merged = "Authentication failed for \"prime-inference\". Credentials may have expired or network is unavailable. - Run /login to update credentials.";
     let rows = render_assistant(
         &message,
         Detail::Overview,
@@ -624,7 +624,7 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
                 " Authentication failed for \"prime-inference\". Credentials{}",
                 " ".repeat(3)
             ),
-            " may have expired or network is unavailable. · Run /login to".to_string(),
+            " may have expired or network is unavailable. - Run /login to".to_string(),
             format!(" update credentials.{}", " ".repeat(40)),
         ]
     );
@@ -663,7 +663,7 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
             Span::raw(" ".repeat(47)),
         ]
     );
-    // Multi-line base: the collapsible path applies to the full error —
+    // Multi-line base: the collapsible path applies to the full error --
     // the summary row while collapsed, the suffix as its own block while
     // expanded.
     let multi = "Auth failed\nfor provider.\n\nRun /login to update credentials.";
@@ -695,7 +695,7 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
             // The error's empty line pads to a full-width spaces row
             // (TS `collapsible-error.ts` renderText: `rawLine || " "`
             // then pad to width); `render_collapsible_error` matches
-            // that — never a truly blank row inside the error body.
+            // that -- never a truly blank row inside the error body.
             " ".repeat(60),
             format!(" Run /login to update credentials.{}", " ".repeat(26)),
         ]
@@ -811,10 +811,10 @@ fn loader_line_shape() {
         .iter()
         .map(|s| s.content.as_str())
         .collect::<String>();
-    assert!(text.contains("\u{283c} Writing \u{00b7} 1s \u{00b7} \u{2193} 72 tokens"));
+    assert!(text.contains("| Writing - 1s - v 72 tokens"));
 }
 
-/// TS `Loader`: `${spinnerColorFn(frame)} ${messageColorFn(msg)}` —
+/// TS `Loader`: `${spinnerColorFn(frame)} ${messageColorFn(msg)}` --
 /// the gap between the spinner and the label sits between chalk's two
 /// colored runs, so the emitted row resets to default fg there instead
 /// of carrying the label color over the gap.
@@ -835,9 +835,9 @@ fn loader_gap_between_spinner_and_label_is_unstyled() {
         rows[1][..4],
         [
             Span::styled(" ", Style::default()),
-            Span::styled(LOADER_FRAMES[0], accent),
+            Span::styled(crate::glyphs::SPINNER[0], accent),
             Span::raw(" "),
-            Span::styled("Writing \u{00b7} 1s \u{00b7} \u{2193} 72 tokens", muted),
+            Span::styled("Writing - 1s - v 72 tokens", muted),
         ]
     );
 }
@@ -860,7 +860,7 @@ fn loader_working_message_replaces_the_activity_label() {
         .map(|s| s.content.as_str())
         .collect::<String>();
     assert!(
-        text.contains("\u{283c} \u{203a} setting up python kernel (one-time, ~30s)\u{2026} 3s"),
+        text.contains("| \u{203a} setting up python kernel (one-time, ~30s)\u{2026} 3s"),
         "got: {text}"
     );
     assert!(!text.contains("Executing"));
@@ -883,13 +883,13 @@ fn elapsed_label_formats_like_ts() {
 #[test]
 fn live_abort_text_matches_ts() {
     assert_eq!(live_abort_text(0, None), "Operation aborted");
-    assert_eq!(live_abort_text(0, Some(3)), "Operation aborted \u{00b7} 3s");
+    assert_eq!(live_abort_text(0, Some(3)), "Operation aborted - 3s");
     assert_eq!(
         live_abort_text(1, Some(2)),
-        "Aborted after 1 retry attempt \u{00b7} 2s"
+        "Aborted after 1 retry attempt - 2s"
     );
     assert_eq!(
         live_abort_text(2, Some(65)),
-        "Aborted after 2 retry attempts \u{00b7} 1m 05s"
+        "Aborted after 2 retry attempts - 1m 05s"
     );
 }

@@ -17,7 +17,7 @@ const SHUTDOWN_CONVERGENCE_TIMEOUT_MS: u128 = 10_000;
 /// Verified force-kill (TS `forceKillDaemon`, hardened): SIGTERM, a 1s
 /// grace, then SIGKILL, then a poll loop (25ms slices, 1s deadline) that
 /// reports the kill only once the process is confirmed gone (zombies count
-/// as dead — [`is_process_alive`]'s lease semantics). TS fires the
+/// as dead -- [`is_process_alive`]'s lease semantics). TS fires the
 /// SIGKILL and returns without verifying; the supervisor-side stop paths
 /// here must not claim a stop a D-state process never performed, so the
 /// verdict is the divergence.
@@ -128,7 +128,7 @@ pub(super) fn stop_tracked_process(pid: u32, expected_start_id: Option<&str>) ->
 /// whatever product listeners remain in the invocation's state root until
 /// the set quiets down or proves stuck; report the survivors as failures.
 /// The sweep re-scans with the same root it was given, so daemons in any
-/// other root — or on the never-touch list — are never candidates.
+/// other root -- or on the never-touch list -- are never candidates.
 pub(super) fn terminate_verified_residuals(
     root: &DaemonStateRoot,
     stopped: &mut Vec<(String, String)>,

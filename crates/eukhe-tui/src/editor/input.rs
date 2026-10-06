@@ -51,7 +51,7 @@ impl Editor {
             return;
         }
         // The selection families (standard editors' shift+arrow set; no TS
-        // counterpart — see selection.rs): every plain motion below
+        // counterpart -- see selection.rs): every plain motion below
         // collapses the selection, so these arms run first.
         if self.kb_matches(input, "tui.editor.selectAll") {
             self.select_all();
@@ -432,7 +432,7 @@ mod tests {
 
     /// Once the parked request materializes (the input queue drained), a
     /// typed-exact command with an open dropdown completes into the
-    /// argument position on Enter instead of submitting — the TS
+    /// argument position on Enter instead of submitting -- the TS
     /// async-suggestion behavior for a command typed character-by-character
     /// with pauses.
     #[test]

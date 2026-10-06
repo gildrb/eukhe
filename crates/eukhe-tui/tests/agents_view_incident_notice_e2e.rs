@@ -307,14 +307,14 @@ async fn renders_the_collapsed_worker_crash_notice_line() {
         frames_text.contains("run eukhe incident for the timeline"),
         "{frames_text}"
     );
-    assert!(frames_text.contains("⚠"), "{frames_text}");
-    // The notice rides under the splash, above the search prompt.
+    // The notice rides under the splash, above the search prompt, behind
+    // the one-column gutter and the warning mark.
     let notice_line = frames_text
         .lines()
         .find(|line| line.contains("crashed at"))
         .expect("the notice line");
     assert!(
-        notice_line.starts_with(" ⚠"),
+        notice_line.starts_with(" ! worker"),
         "the one-column gutter prefix: {notice_line:?}"
     );
     let _ = server.join();

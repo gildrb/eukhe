@@ -278,7 +278,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: false,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -442,9 +441,7 @@ fn dock_arrows_visit_each_empty_section_in_order_both_directions() {
     // The dock row itself: every section renders, empty ones included,
     // with its live count.
     assert!(
-        all.contains(
-            " \u{25c6} 0 subagents  \u{b7}  \u{25f7} 0 heartbeats  \u{b7}  \u{25b8} 0 shells  \u{b7}  Pursuing goal (0s)"
-        ),
+        all.contains(" 0 subagents  -  0 heartbeats  -  0 shells  -  Pursuing goal (0s)"),
         "the dock renders every section with its zero count:\n{all}"
     );
     // Entering an empty section opens its view, and the empty state is
@@ -477,7 +474,7 @@ fn dock_arrows_visit_the_same_sections_when_one_has_rows() {
         // The dock row shows the filled section's live count beside the
         // other sections' zeros.
         HeadlessStep::WaitRender {
-            needle: "\u{25f7} 1 heartbeat".to_string(),
+            needle: " 1 heartbeat".to_string(),
             timeout_ms: 5_000,
         },
         // The identical right-walk: one press to the heartbeats section.
@@ -530,9 +527,7 @@ fn dock_arrows_visit_the_same_sections_when_one_has_rows() {
     let outcome = run_plan(steps, Some(canary_heartbeats()), Some(live_goal()));
     let all = outcome.frames.join("\n");
     assert!(
-        all.contains(
-            " \u{25c6} 0 subagents  \u{b7}  \u{25f7} 1 heartbeat  \u{b7}  \u{25b8} 0 shells  \u{b7}  Pursuing goal (0s)"
-        ),
+        all.contains(" 0 subagents  -  1 heartbeat  -  0 shells  -  Pursuing goal (0s)"),
         "the dock row reads the live counts:\n{all}"
     );
     assert!(
@@ -576,7 +571,7 @@ fn left_from_the_subagents_selection_opens_the_agents_view() {
     );
     let all = outcome.frames.join("\n");
     assert!(
-        all.contains("\u{25c6} 0 subagents"),
+        all.contains(" 0 subagents"),
         "the dock row mounted before the handoff:\n{all}"
     );
 }
@@ -590,9 +585,7 @@ fn left_from_the_subagents_selection_opens_the_agents_view() {
 fn an_all_zero_dock_renders_and_opens_the_empty_scoped_agents_view() {
     let steps = vec![
         HeadlessStep::WaitRender {
-            needle:
-                " \u{25c6} 0 subagents  \u{b7}  \u{25f7} 0 heartbeats  \u{b7}  \u{25b8} 0 shells"
-                    .to_string(),
+            needle: " 0 subagents  -  0 heartbeats  -  0 shells".to_string(),
             timeout_ms: 5_000,
         },
         HeadlessStep::Key(alt_a()),
@@ -601,9 +594,7 @@ fn an_all_zero_dock_renders_and_opens_the_empty_scoped_agents_view() {
     let outcome = run_plan(steps, None, None);
     let all = outcome.frames.join("\n");
     assert!(
-        all.contains(
-            " \u{25c6} 0 subagents  \u{b7}  \u{25f7} 0 heartbeats  \u{b7}  \u{25b8} 0 shells"
-        ),
+        all.contains(" 0 subagents  -  0 heartbeats  -  0 shells"),
         "the all-zero dock renders:\n{all}"
     );
     assert!(

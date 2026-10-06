@@ -61,7 +61,7 @@ impl Editor {
                 .map_or(1, |g| g.segment.chars().count());
             // Drop the first atomic segment after the cursor (TS
             // `handleForwardDelete`: before + after with the segment
-            // removed — an atomic marker goes whole).
+            // removed -- an atomic marker goes whole).
             let (before, after) = split_at_char(&current_line, self.cursor_col);
             let after = char_suffix(&after, first_len);
             self.lines[self.cursor_line] = format!("{before}{after}");

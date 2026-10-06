@@ -1,4 +1,4 @@
-//! The heartbeat badge: the row's `◷ N` count between the status icon and
+//! The heartbeat badge: the row's `@ N` count between the status icon and
 //! the title, in the dock's active/paused colors.
 
 use super::*;
@@ -26,9 +26,9 @@ fn job(id: &str, status: &str, session_id: &str, active_session_id: &str) -> ser
 
 /// The row's own session's jobs count before its title: the passivated
 /// stale-active-id match lands via the durable session id, another
-/// session's job stays out, and the count is active plus paused — green
+/// session's job stays out, and the count is active plus paused: green
 /// while any job is active (the dock's `running_color`), amber when all
-/// are paused (the dock's `◐ N paused`).
+/// are paused.
 #[test]
 fn a_rows_heartbeat_count_renders_before_its_title() {
     for (jobs_json, badge, color) in [
@@ -38,12 +38,12 @@ fn a_rows_heartbeat_count_renders_before_its_title() {
                 job("hb-2", "paused", "s", "stale-live"),
                 job("hb-3", "active", "other", "other-live"),
             ],
-            "\u{25f7} 2",
+            "@ 2",
             ThemeColor::Success,
         ),
         (
             vec![job("hb-1", "paused", "s", "s-live")],
-            "\u{25f7} 1",
+            "@ 1",
             ThemeColor::Warning,
         ),
     ] {
@@ -55,26 +55,26 @@ fn a_rows_heartbeat_count_renders_before_its_title() {
         });
         mode.heartbeats = jobs_json.iter().map(entry).collect();
         let layout = build_layout(&mode.rows, 120);
-        let line = mode.render_row(&mode.rows[index], &layout, 120, false);
+        let line = mode.render_row(&mode.rows[index], &layout, 120);
         let expected: crate::Line = vec![
             crate::Span::styled(
-                "\u{2022}".to_string(),
+                crate::glyphs::BULLET.to_string(),
                 mode.theme
                     .fg_style(ThemeColor::Warning)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
+                    .add_modifier(crate::style::Modifier::BOLD),
             ),
-            crate::Span::styled(" ".to_string(), ratatui::style::Style::default()),
+            crate::Span::styled(" ".to_string(), crate::style::Style::default()),
             crate::Span::styled(badge.to_string(), mode.theme.fg_style(color)),
-            crate::Span::styled(" ".to_string(), ratatui::style::Style::default()),
+            crate::Span::styled(" ".to_string(), crate::style::Style::default()),
             crate::Span::styled("worker".to_string(), mode.theme.fg_style(ThemeColor::Text)),
             crate::Span::styled(
                 " ".repeat(layout.name_width.saturating_sub(2 + 4 + 6)),
-                ratatui::style::Style::default(),
+                crate::style::Style::default(),
             ),
-            crate::Span::styled("  ".to_string(), ratatui::style::Style::default()),
+            crate::Span::styled("  ".to_string(), crate::style::Style::default()),
             mode.theme
                 .fg(ThemeColor::Muted, cell("mock-1", layout.model_width)),
-            crate::Span::styled("  ".to_string(), ratatui::style::Style::default()),
+            crate::Span::styled("  ".to_string(), crate::style::Style::default()),
             mode.theme.fg(
                 ThemeColor::Dim,
                 layout.details.get("worker").cloned().unwrap_or_default(),
@@ -87,9 +87,9 @@ fn a_rows_heartbeat_count_renders_before_its_title() {
     let (mut mode, index) = mode_with_row("worker", "mock-1");
     mode.heartbeats = vec![entry(&job("hb-none", "active", "", ""))];
     let layout = build_layout(&mode.rows, 120);
-    let line = mode.render_row(&mode.rows[index], &layout, 120, false);
+    let line = mode.render_row(&mode.rows[index], &layout, 120);
     assert!(
-        !flat(&line).contains('\u{25f7}'),
+        !flat(&line).contains(crate::glyphs::HEARTBEAT),
         "the id-less row renders no badge for the id-less job: {line:?}"
     );
     // A name column too narrow for the row's fixed prefix plus the badge
@@ -110,21 +110,21 @@ fn a_rows_heartbeat_count_renders_before_its_title() {
     .map(entry)
     .collect();
     let layout = build_layout(&mode.rows, 19);
-    let line = mode.render_row(&mode.rows[index], &layout, 19, false);
+    let line = mode.render_row(&mode.rows[index], &layout, 19);
     let expected: crate::Line = vec![
         crate::Span::styled(
-            "\u{2022}".to_string(),
+            crate::glyphs::BULLET.to_string(),
             mode.theme
                 .fg_style(ThemeColor::Warning)
-                .add_modifier(ratatui::style::Modifier::BOLD),
+                .add_modifier(crate::style::Modifier::BOLD),
         ),
-        crate::Span::styled(" ".to_string(), ratatui::style::Style::default()),
+        crate::Span::styled(" ".to_string(), crate::style::Style::default()),
         crate::Span::styled("wor".to_string(), mode.theme.fg_style(ThemeColor::Text)),
-        crate::Span::styled(String::new(), ratatui::style::Style::default()),
-        crate::Span::styled("  ".to_string(), ratatui::style::Style::default()),
+        crate::Span::styled(String::new(), crate::style::Style::default()),
+        crate::Span::styled("  ".to_string(), crate::style::Style::default()),
         mode.theme
             .fg(ThemeColor::Muted, cell("mock-1", layout.model_width)),
-        crate::Span::styled("  ".to_string(), ratatui::style::Style::default()),
+        crate::Span::styled("  ".to_string(), crate::style::Style::default()),
         mode.theme.fg(
             ThemeColor::Dim,
             layout.details.get("worker").cloned().unwrap_or_default(),

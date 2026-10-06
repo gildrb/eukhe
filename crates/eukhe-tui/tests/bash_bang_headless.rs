@@ -544,7 +544,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: false,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -645,7 +644,7 @@ fn bang_runs_the_command_and_mounts_the_bash_card() {
     // The BashExecutionComponent renders no status row for a clean
     // exit-0 run (only cancelled/error runs mark themselves).
     assert!(
-        !all.contains("bash \u{b7} done") && !all.contains("bash · done"),
+        !all.contains("bash - done"),
         "the settled card renders no generic tool-card done row:\n{all}"
     );
     assert!(

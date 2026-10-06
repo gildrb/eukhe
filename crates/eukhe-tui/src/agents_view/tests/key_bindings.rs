@@ -110,8 +110,8 @@ fn new_key_in_a_scoped_view_creates_under_the_scope_root() {
 
 /// TS `cycleProgramForSelected` (the `app.agents.program` key, default
 /// ctrl+o): the parent with a code-carrying child expands its list with
-/// the program's rows above the child — the code block capped and
-/// padded — and a second press hides them while the list stays open;
+/// the program's rows above the child -- the code block capped and
+/// padded -- and a second press hides them while the list stays open;
 /// the code rows never take the selection; a parent whose children
 /// carry no code reports instead.
 #[test]
@@ -135,7 +135,7 @@ fn program_key_shows_and_hides_the_spawn_program() {
     for index in 0..10 {
         expected.push((RowKind::Code, format!("line{index}")));
     }
-    expected.push((RowKind::Code, "\u{2026} +2 more lines".to_string()));
+    expected.push((RowKind::Code, "... +2 more lines".to_string()));
     expected.push((RowKind::Code, String::new()));
     expected.push((RowKind::Subagent, "worker one".to_string()));
     assert_eq!(
@@ -167,7 +167,7 @@ fn program_key_shows_and_hides_the_spawn_program() {
 }
 
 /// TS `enterRenameMode`/`confirmRename` (the `app.agents.rename` key,
-/// default ctrl+r): the composer owns the prompt and the key routing —
+/// default ctrl+r): the composer owns the prompt and the key routing --
 /// the header and the save/cancel hint render, the prefill is the
 /// session's name, the editing grammar matches the search field, Enter
 /// submits the trimmed name with the live target, a large paste saves
@@ -239,7 +239,7 @@ fn rename_key_composes_edits_and_dispatches() {
     mode.rename_result(rename.expect("the dispatched rename"), Ok(()));
     assert_eq!(mode.status_text(), Some("Renamed to new"));
     // Esc exits back to search; the query stays untouched. Ctrl+C
-    // cancels too (TS :1120 — the default cancel binding includes it;
+    // cancels too (TS :1120 -- the default cancel binding includes it;
     // the force-quit guard's handled note rides the routing).
     mode.handle_key("ctrl+r");
     mode.handle_key("escape");
@@ -295,7 +295,7 @@ fn second_ctrl_c_exits_and_other_keys_clear_the_hint() {
 
 /// Kitty-protocol key releases map to no key id: the reader filters
 /// them the way every session handler does, so a release never runs
-/// `handle_key`'s "any other key" arm — which would clear the armed
+/// `handle_key`'s "any other key" arm -- which would clear the armed
 /// exit hint between the presses of a double Ctrl+C, and the second
 /// press would re-arm the hint instead of exiting.
 #[test]

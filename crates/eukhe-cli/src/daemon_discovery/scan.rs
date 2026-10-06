@@ -59,7 +59,7 @@ pub(crate) fn parse_ss_listeners(stdout: &str, app_name: &str) -> Vec<Discovered
     daemons
 }
 
-/// `users:(("name",pid=123,...))` — the first owner of a listening socket.
+/// `users:(("name",pid=123,...))` -- the first owner of a listening socket.
 fn ss_listener_owner(line: &str) -> Option<(&str, u32)> {
     let marker = line.find("users:((\"")?;
     let rest = &line[marker + "users:((\"".len()..];
@@ -131,7 +131,7 @@ pub(crate) fn parse_eukhe_process_ids(stdout: &str, app_name: &str) -> Vec<u32> 
     pids
 }
 
-/// Parse `ps -o pid=,etimes=` output into a pid → uptime-seconds map
+/// Parse `ps -o pid=,etimes=` output into a pid -> uptime-seconds map
 /// (TS `parsePsEtimes`).
 pub(crate) fn parse_ps_etimes(stdout: &str) -> HashMap<u32, u64> {
     let mut uptimes = HashMap::new();
@@ -182,7 +182,7 @@ pub(crate) fn merge_discovered(
 /// Format: `Num RefCount Protocol Flags Type St Inode Path`.
 ///
 /// Byte-level on purpose: a unix socket pathname may contain any byte
-/// sequence (unix(7) — one non-UTF-8 name anywhere in the file must not
+/// sequence (unix(7) -- one non-UTF-8 name anywhere in the file must not
 /// reject the whole census), and it may contain spaces. The kernel pads
 /// the fixed columns with runs of spaces, so the seven columns scan with
 /// padding collapsed and the path keeps the whole row remainder. A row
@@ -304,7 +304,7 @@ pub(super) fn proc_socket_inodes() -> Vec<(u32, String, std::collections::HashSe
 /// for tool-less root-user systems): map
 /// `/proc/net/unix` listeners to their owning pids and keep those whose
 /// comm name is this product. Visibility matches `ss -lxp`: uid 0 sees
-/// every daemon on the machine, an unprivileged user only its own — other
+/// every daemon on the machine, an unprivileged user only its own -- other
 /// users' `/proc/<pid>/fd` is unreadable, exactly the pid info `ss` hides
 /// from non-root callers. TS has no equivalent fallback (`daemon-ps.ts`
 /// yields nothing without `ss`/`lsof`), so the three discovery e2e tests
@@ -363,8 +363,8 @@ fn enrich_uptimes(mut daemons: Vec<DiscoveredDaemonProcess>) -> Vec<DiscoveredDa
 
 /// Every listening product daemon the OS reports inside the given state
 /// root (TS `scanAllListeningDaemons`): `ss -lxp` on Linux; `lsof` (by name
-/// and by pid) on macOS. The root filter runs here — before the uptime
-/// enrichment and before any caller sees a result — so a daemon outside the
+/// and by pid) on macOS. The root filter runs here -- before the uptime
+/// enrichment and before any caller sees a result -- so a daemon outside the
 /// root an invocation was handed is never enumerated as a target, probed,
 /// or signaled. Paths on the never-touch list are excluded even when the
 /// root itself points at them (see the module docs).

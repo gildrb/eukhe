@@ -1,7 +1,7 @@
 //! OSC 52 clipboard writes: the terminal-escape clipboard channel used by
 //! explicit copy commands (TS `emitOsc52` in `utils/clipboard.ts`). The
 //! sequence is zero-width and needs no terminal state, so it can be written
-//! while the alternate screen and raw mode are active.
+//! while raw mode is active and the live area is up.
 
 /// The encoded-payload cap (TS `MAX_OSC52_ENCODED_LENGTH`): a payload
 /// above it is refused rather than desynchronizing the terminal render.

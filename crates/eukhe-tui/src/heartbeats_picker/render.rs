@@ -188,7 +188,11 @@ impl Columns {
         } else {
             ThemeColor::Warning
         };
-        let mut row = vec![Span::raw(if selected { "\u{203a}" } else { " " })];
+        let mut row = vec![Span::raw(if selected {
+            crate::glyphs::POINTER
+        } else {
+            " "
+        })];
         row.push(Span::raw(" "));
         row.push(theme.fg_span(
             ThemeColor::Muted,
@@ -225,7 +229,7 @@ impl Columns {
     }
 }
 
-/// One action row (the `/mcp` view's control pattern): the `›`-marker
+/// One action row (the `/mcp` view's control pattern): the `>`-marker
 /// label with its dim description trailing, the selected row washed over
 /// its hug.
 pub(super) fn action_row(
@@ -235,7 +239,11 @@ pub(super) fn action_row(
     description: &str,
     selected: bool,
 ) -> Line {
-    let mut row = vec![Span::raw(if selected { "\u{203a}" } else { " " })];
+    let mut row = vec![Span::raw(if selected {
+        crate::glyphs::POINTER
+    } else {
+        " "
+    })];
     row.push(Span::raw(" "));
     if selected {
         row.push(theme.bold(Span::raw(label.to_string())));
@@ -252,7 +260,7 @@ pub(super) fn action_row(
     )
 }
 
-/// The pane's header block: a muted separator rule, then the title row —
+/// The pane's header block: a muted separator rule, then the title row --
 /// the title in plain text (the `/model` picker carries no accent color),
 /// the status counts trailing flush right, an optional muted subtitle,
 /// and a blank line.
@@ -279,13 +287,16 @@ pub(super) fn pane_header_lines(
         title_row.push(Span::raw(" ".repeat(gap)));
         for (index, (color, text)) in counts.iter().enumerate() {
             if index > 0 {
-                title_row.push(theme.fg_span(ThemeColor::Muted, " \u{b7} ".to_string()));
+                title_row.push(theme.fg_span(ThemeColor::Muted, crate::glyphs::SEP.to_string()));
             }
             title_row.push(theme.fg_span(*color, text.clone()));
         }
     }
     let mut lines = vec![
-        vec![theme.fg_span(ThemeColor::BorderMuted, "\u{2500}".repeat(width.max(1)))],
+        vec![theme.fg_span(
+            ThemeColor::BorderMuted,
+            crate::glyphs::RULE.repeat(width.max(1)),
+        )],
         truncate_line(&title_row, width, ""),
     ];
     if let Some(subtitle) = subtitle {

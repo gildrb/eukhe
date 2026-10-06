@@ -26,17 +26,16 @@
 //! content over a mock supervisor that delays the dock's data
 //! responses — the loaded-daemon repro.
 //!
-//! The pinned contract: a direct open paints ONE complete frame — the
-//! transcript, the pinned title row, and the activity dock together —
-//! and never paints the brand splash at any point. A splash-first
-//! startup frame (the flash and the one-row shift under the title) or a
-//! late dock repaint (the layout shift: the transcript rows repaint two
-//! rows up when the panel pops in) both fail the byte audit.
+//! The pinned contract: a direct open paints ONE complete frame -- the
+//! transcript, the prompt-context row with the chat name, and the
+//! activity dock together -- and never paints the brand splash at any
+//! point. A splash-first startup frame or a late dock repaint (the
+//! transcript rows painted twice when the panel pops in) both fail the
+//! byte audit.
 //!
-//! The harness reuses the cursor-visibility e2e's structure (child in
-//! its own process group inside this runner's session, mock supervisor
-//! socket, non-blocking pty master); the byte-level waits serialize
-//! through the same static lock.
+//! The harness runs the child in its own process group inside this
+//! runner's session, with a mock supervisor socket and a non-blocking pty
+//! master; the byte-level waits serialize through a static lock.
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -99,14 +98,14 @@ fn chat_open_first_frame_pins_the_first_paint() {
     };
     let mut harness = ChatOpenHarness::start();
 
-    // The one complete frame: the transcript content, the pinned title
-    // row, and the dock's panel row all land. Each wait is an
-    // observable-readiness barrier — the mock's delayed responses ride
-    // the attach's own round trip, so the waits measure the fold, not a
-    // wall-clock window.
+    // The one complete frame: the transcript content, the chat name in
+    // the prompt-context row, and the dock's panel row all land. Each
+    // wait is an observable-readiness barrier -- the mock's delayed
+    // responses ride the attach's own round trip, so the waits measure
+    // the fold, not a wall-clock window.
     harness.wait_from_start("settled answer", "the transcript painted");
-    harness.wait_from_start("layout probe", "the pinned title row painted");
-    harness.wait_from_start("\u{25f7} 1 heartbeat", "the dock panel painted");
+    harness.wait_from_start("layout probe", "the chat name painted");
+    harness.wait_from_start("1 heartbeat", "the dock panel painted");
 
     // Let the surface settle so the audit covers every repaint the
     // open can produce, then read the whole byte stream.
@@ -114,8 +113,7 @@ fn chat_open_first_frame_pins_the_first_paint() {
     let collected = harness.output();
     let stream: &[u8] = &collected;
 
-    // The brand splash never paints: no splash-first startup frame (the
-    // flash), so the splash never shifts a row under the title bar.
+    // The brand splash never paints: no splash-first startup frame.
     assert!(
         find_subsequence(stream, b"eukhe").is_none(),
         "the brand splash never paints for a direct open into content — \
@@ -123,8 +121,7 @@ fn chat_open_first_frame_pins_the_first_paint() {
     );
 
     // The transcript painted exactly once: a late dock repaint would
-    // shift the window two rows up and repaint every transcript row —
-    // the operator's layout shift.
+    // repaint the transcript rows.
     let content_paints = count_occurrences(stream, b"settled answer");
     assert_eq!(
         content_paints, 1,
@@ -135,7 +132,7 @@ fn chat_open_first_frame_pins_the_first_paint() {
     // The divider rule and the panel row are part of the same first
     // paint: the dock data folded with the attach, never after it.
     assert!(
-        find_subsequence(stream, "\u{25f7} 1 heartbeat".as_bytes()).is_some(),
+        find_subsequence(stream, "1 heartbeat".as_bytes()).is_some(),
         "the dock's heartbeat panel row painted"
     );
 
@@ -343,7 +340,6 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::Attach("s1".to_string()),
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),

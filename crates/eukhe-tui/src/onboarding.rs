@@ -12,7 +12,7 @@
 //! The two first-run shapes both live here: a home whose startup model
 //! is ready skips to the question (the splash mounts it immediately, TS
 //! `immediate: true`), while a home with no usable model runs the full
-//! flow (TS `runOnboardingFlow`'s not-ready branch) — the welcome
+//! flow (TS `runOnboardingFlow`'s not-ready branch) -- the welcome
 //! screen's description and login action, then the flow panels in
 //! [`crate::onboarding_flow`], one at a time.
 
@@ -20,9 +20,9 @@ use crate::keybindings::KeybindingsManager;
 use crate::keys::KeyId;
 use crate::onboarding_choice::{OnboardingChoice, OnboardingChoiceOption, OnboardingChoiceOptions};
 use crate::onboarding_flow::{welcome_action_row, welcome_rows, OnboardingPanel};
+use crate::style::{Color, Modifier, Style};
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
-use ratatui::style::{Color, Modifier, Style};
 
 /// The trace-sharing question (TS `askOnboardingTraceOptIn`).
 pub const TRACE_OPT_IN_PROMPT: &str = "Upload agent traces to Prime Intellect Traces?";
@@ -57,7 +57,7 @@ pub(crate) fn trace_question_config() -> OnboardingChoiceOptions {
 /// onboarding arm mounts `OnboardingChoiceComponent` with this prompt).
 pub const TEAM_QUESTION_PROMPT: &str = "Which account should Eukhe use?";
 /// The onboarding team question's first row (TS the `Personal account`
-/// option, index 0 — the personal answer).
+/// option, index 0 -- the personal answer).
 pub const PERSONAL_ACCOUNT_LABEL: &str = "Personal account";
 
 /// The onboarding team question's rows (TS the options: the personal
@@ -85,7 +85,7 @@ pub(crate) fn team_question_options(
     options
 }
 
-/// The onboarding team question's copy (TS the config: the prompt alone —
+/// The onboarding team question's copy (TS the config: the prompt alone --
 /// no description, no note).
 pub(crate) fn team_question_config() -> OnboardingChoiceOptions {
     OnboardingChoiceOptions {
@@ -115,7 +115,7 @@ pub enum OnboardingDecision {
     Pick(crate::onboarding_flow::ProviderPick),
 }
 
-/// The onboarding pane state: the started flag (TS `flowStarted` — the
+/// The onboarding pane state: the started flag (TS `flowStarted` -- the
 /// welcome text and action never return once a flow owns the block),
 /// and the mounted flow panel.
 #[derive(Debug)]
@@ -158,7 +158,7 @@ impl OnboardingScreen {
         }
     }
 
-    /// TS `setPanel`: mount one flow panel — the flow has started from
+    /// TS `setPanel`: mount one flow panel -- the flow has started from
     /// here on, and the welcome text never comes back.
     pub fn mount_panel(&mut self, panel: OnboardingPanel) {
         self.flow_started = true;
@@ -183,7 +183,7 @@ impl OnboardingScreen {
             return panel.handle_key(key, kb, osc_sink);
         }
         // The welcome screen binds one key: Enter starts the flow (TS:
-        // cancel is deliberately unbound — signing in is the only way
+        // cancel is deliberately unbound -- signing in is the only way
         // forward).
         if !self.flow_started && kb.matches(key, "tui.select.confirm") {
             return Some(OnboardingDecision::Begin);
@@ -200,7 +200,7 @@ impl OnboardingScreen {
     }
 
     /// Fold one auth-panel request into the mounted login dialog (the
-    /// onboarding phase's channel arm — the same folding the run loop's
+    /// onboarding phase's channel arm -- the same folding the run loop's
     /// `apply_auth_panel_request` does for the session view): the render
     /// requests mount into the panel, and a request with no mounted
     /// dialog cancels its flow (the dropped oneshot reply, the same
@@ -211,7 +211,7 @@ impl OnboardingScreen {
         use crate::auth_panel::AuthPanelRequest;
         match request {
             // TS `runPrimeInferenceLogin`'s guarded arm: "onboarding
-            // narrates itself; step chatter stays in the chat flows" —
+            // narrates itself; step chatter stays in the chat flows" --
             // the callback's step lines never render on this surface,
             // while a direct `showProgress` line (the browser-sign-in
             // fallback) does.
@@ -224,7 +224,7 @@ impl OnboardingScreen {
                 }
             }
             // TS `showWaiting`: the dialog's own method carries no
-            // onboarding guard — the polling device flow's waiting line
+            // onboarding guard -- the polling device flow's waiting line
             // renders on this surface too.
             AuthPanelRequest::Waiting { message } => {
                 let Some(OnboardingPanel::Auth { panel, .. }) = self.panel.as_mut() else {
@@ -252,7 +252,7 @@ impl OnboardingScreen {
             }
             // TS `showPrimeTeamSelector`'s onboarding arm: the team
             // selection is a question in the onboarding selection
-            // language (`OnboardingChoiceComponent`, no heading — the
+            // language (`OnboardingChoiceComponent`, no heading -- the
             // brand line returns), not the `/login` surface's team
             // picker.
             AuthPanelRequest::SelectTeam {
@@ -295,7 +295,7 @@ impl OnboardingScreen {
         // The welcome text and action render only before the flow starts;
         // once a panel owns the block, its rows mount directly under the
         // heading (TS: the panel brings its own leading padding, and it
-        // indents its own content by one column — panelLeft =
+        // indents its own content by one column -- panelLeft =
         // contentLeft - 1; contentLeft = PADDING_X = 1).
         match self.panel.as_mut() {
             None if !self.flow_started => {
@@ -348,19 +348,19 @@ impl OnboardingScreen {
 /// The selected-row wash (TS `onboardingHighlightBackground`): the canvas
 /// lifted a few percent toward the text colour. The canvas is the theme
 /// record's parseable `background` (TS `parseHexColor(colors.background)`),
-/// else the hardcoded dark/light canvas by the text luma — "on dark" follows
+/// else the hardcoded dark/light canvas by the text luma -- "on dark" follows
 /// TS `isLightColor` (luma > 128) with the terminal-default text counting
 /// as light. The built-in themes carry no `background` key, so they keep
 /// the hardcoded canvases.
 pub(crate) fn highlight_wash(theme: &Theme) -> Color {
     let text = theme.fg_style(ThemeColor::Text).fg;
-    // TS: `onDark = !text || isLightColor(text)` — undefined (empty theme
+    // TS: `onDark = !text || isLightColor(text)` -- undefined (empty theme
     // value) or a light colour both mean light text over a dark canvas.
     let on_dark = match text {
         Some(Color::Rgb(r, g, b)) => {
             0.299 * f64::from(r) + 0.587 * f64::from(g) + 0.114 * f64::from(b) > 128.0
         }
-        None | Some(Color::Reset | _) => true,
+        None | Some(Color::Reset | Color::Indexed(_)) => true,
     };
     let lift = if on_dark {
         (255u16, 255, 255)
@@ -476,7 +476,7 @@ mod tests {
     #[test]
     fn wash_falls_back_to_the_hardcoded_canvas() {
         // The built-in themes carry no background key: dark canvas (16,16,16)
-        // lifted toward white — blend(255, 16) = 35.
+        // lifted toward white -- blend(255, 16) = 35.
         let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
         assert_eq!(highlight_wash(&theme), Color::Rgb(35, 35, 35));
         let theme = Theme::builtin("eukhe", ColorMode::Color256);
@@ -560,7 +560,7 @@ mod tests {
 
     /// TS `showWaiting` (the Copilot device flow's status): the dialog's
     /// own method carries no onboarding guard, so the waiting line
-    /// renders on this surface too — below the browser URL block (the
+    /// renders on this surface too -- below the browser URL block (the
     /// `onProgress` chatter the fold drops never reaches the panel).
     #[test]
     fn the_onboarding_fold_renders_the_device_flow_waiting_line() {
@@ -604,7 +604,7 @@ mod tests {
 
     /// TS `showPrimeTeamSelector`'s onboarding arm: the `SelectTeam`
     /// request mounts the onboarding choice question (the brand line
-    /// returns — no heading) with the personal account first and the
+    /// returns -- no heading) with the personal account first and the
     /// teams' slugs as their dim identifiers, seeded on the stored
     /// selection; Enter answers the request's oneshot.
     #[test]

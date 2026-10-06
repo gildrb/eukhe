@@ -1,4 +1,4 @@
-//! The autonomous run state for headless print/json runs — the verifier and
+//! The autonomous run state for headless print/json runs -- the verifier and
 //! eval composition surface. CLI autonomous flags build the run state (TS
 //! `runtimeAutonomousConfigFromArgs`); after every settled model turn the
 //! [`ShellAutonomousDriver`] runs the configured gate commands in the
@@ -157,7 +157,7 @@ impl HeadlessAutonomous {
     /// loop, the TS queued `followUp` admission): each held continuation
     /// runs as this invocation's follow-up turn through the boundary pair
     /// (the pre-turn compaction arm runs before it, the settled-turn arms
-    /// after it), and its own natural end churns the in-run hook again —
+    /// after it), and its own natural end churns the in-run hook again --
     /// a re-crossing threshold holds the next continuation for the next
     /// drain.
     #[allow(clippy::too_many_arguments)]
@@ -184,7 +184,7 @@ impl HeadlessAutonomous {
     }
 
     /// The TS print-mode exit contract: stderr text when the run must exit
-    /// non-zero — a configured gate still failing (after its retry window,
+    /// non-zero -- a configured gate still failing (after its retry window,
     /// or with an autonomous limit reached), or an autonomous run without
     /// gates that stopped before terminal evidence.
     pub async fn exit_stderr(&self) -> Option<String> {

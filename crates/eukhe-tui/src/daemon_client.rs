@@ -79,7 +79,7 @@ pub fn outdated_daemon_notice(daemon_version: &str) -> String {
 pub enum DaemonClientEvent {
     /// `session_event`: one streamed agent/turn event for an attached
     /// session. The frame's `meta.sequence` (the worker's monotonic
-    /// event counter — the same counter the attach cursor rides) rides
+    /// event counter -- the same counter the attach cursor rides) rides
     /// along: the cross-view layout handoff's stash keys the LATEST
     /// sequence the run has seen (`view::handoff`), so a turn during
     /// the run advances the stash's key to the value the next attach
@@ -96,7 +96,7 @@ pub enum DaemonClientEvent {
     },
     /// The direct worker link for `active_session_id` died (the worker
     /// process exited). TS `handleTransportClose` with a direct-transport
-    /// loss: "a direct-transport loss is never itself a session loss" —
+    /// loss: "a direct-transport loss is never itself a session loss" --
     /// the UI re-attaches through the supervisor, which respawns the
     /// worker and hands out a fresh peer ticket.
     DirectLinkLost { active_session_id: String },
@@ -131,7 +131,7 @@ pub enum DaemonClientEvent {
     HeartbeatsChanged,
     /// `model_catalog_changed`: a background daemon-side catalog refresh
     /// changed the served snapshot (the Rust-only no-stall picker-open
-    /// extension; TS has no counterpart event — it awaits the refresh on
+    /// extension; TS has no counterpart event -- it awaits the refresh on
     /// the request path). Every client re-fetches instantly; an open
     /// `/model` picker folds the fresh catalog through its stable update
     /// path.
@@ -250,7 +250,7 @@ pub(crate) fn client_event_from_value(value: &Value) -> Option<DaemonClientEvent
 pub(crate) struct Shared {
     /// Pending requests keyed by envelope id. `Ok` is a daemon answer
     /// (including a `success: false` refusal); `Err` is a transport
-    /// failure — the two must stay distinguishable, because a refusal is
+    /// failure -- the two must stay distinguishable, because a refusal is
     /// recoverable UI data while a dead connection is fatal.
     pending: Mutex<HashMap<String, oneshot::Sender<Result<DaemonResponse, anyhow::Error>>>>,
 }
@@ -267,14 +267,14 @@ impl Shared {
     /// transport error: the connection that carried them died.
     ///
     /// This is what keeps a dead supervisor or worker from leaving the UI
-    /// waiting out the full request timeout — the exit-hang class of bugs:
+    /// waiting out the full request timeout -- the exit-hang class of bugs:
     /// the abort was accepted, but the client then hung on a request whose
     /// socket peer was already gone. The reader task of each connection
     /// calls this when its socket closes (supervisor reader fails the
     /// `daemon_`-routed requests, a direct worker pump the `direct_` ones,
     /// so a live link keeps serving its own in-flight requests). The
-    /// failure resolves on the `Err` half of the channel — never as a
-    /// synthetic response — so a dead connection can never be mistaken
+    /// failure resolves on the `Err` half of the channel -- never as a
+    /// synthetic response -- so a dead connection can never be mistaken
     /// for a daemon refusal.
     pub(crate) fn fail_pending(&self, prefix: &str, error: &str) {
         let mut pending = self.pending.lock().unwrap();
@@ -353,7 +353,7 @@ impl DaemonClient {
         // The supervisor reader's death signal: the retained event sender
         // keeps the event channel open after the reader exits (direct
         // reader pumps may still feed it), so a channel close can never
-        // observe a supervisor socket loss — the watch is the observable
+        // observe a supervisor socket loss -- the watch is the observable
         // signal the UI loop arms its reconnect driver on.
         let (reader_dead_tx, reader_dead_rx) = tokio::sync::watch::channel(false);
         let (hello_tx, hello_rx) = oneshot::channel::<std::result::Result<Value, String>>();
@@ -493,7 +493,7 @@ impl DaemonClient {
     }
 
     /// A fresh receiver for the supervisor reader's death watch: fires
-    /// (`true`) when the supervisor socket's reader task ends — a daemon
+    /// (`true`) when the supervisor socket's reader task ends -- a daemon
     /// hiccup the UI loop's reconnect driver observes (the event channel
     /// itself stays open: the retained sender keeps it alive for direct
     /// reader pumps). Poll it with `watch::Receiver::changed`.
@@ -509,7 +509,7 @@ impl DaemonClient {
 
     /// [`Self::connect`] with bounded retries and doubling backoff: a
     /// missed hello (a loaded daemon mid-fanout, a supervisor coming up
-    /// after a restart) is a hiccup, not a fatal condition — the one-shot
+    /// after a restart) is a hiccup, not a fatal condition -- the one-shot
     /// connect cost the operator their TUI twice on 2026-09-24 ("Timed
     /// out after 15000ms waiting for the Eukhe daemon handshake").
     /// The caller's error path (fatal exit or view fallback) only runs
@@ -679,7 +679,7 @@ impl DaemonClient {
 
     /// The refusal for a supervisor reader that already ended: its
     /// close-time failure pass has run (or is imminent), so nothing can
-    /// ever answer a request registered now — TS `requestWire` refuses
+    /// ever answer a request registered now -- TS `requestWire` refuses
     /// a destroyed socket the same way.
     fn dead_reader_error(&self) -> anyhow::Error {
         anyhow!(
@@ -729,7 +729,7 @@ impl DaemonClient {
         self.shared.pending.lock().unwrap().insert(id.clone(), tx);
         // The reader runs on another worker: it can die (and run its
         // failure sweep) between the entry check and this registration,
-        // and the writer channel outlives the reader's EOF — an entry
+        // and the writer channel outlives the reader's EOF -- an entry
         // the sweep missed would ride the caller's whole timeout.
         // Re-check after inserting: a death the sweep already served
         // resolves the oneshot on the Err half, a death it missed is
@@ -938,7 +938,7 @@ impl DaemonClient {
     /// Dispose the connection outright: like [`Self::close`], but the
     /// writer sender is DROPPED too (a replacement dummy takes its
     /// place), so the writer task finishes its queue, shuts the socket's
-    /// write half down, and the reader EOFs — a half-attached client is
+    /// write half down, and the reader EOFs -- a half-attached client is
     /// never left running through the reconnect window. The failure
     /// paths that replace an installed client use this (the plain
     /// `close` keeps the writer alive for teardown-order cases).

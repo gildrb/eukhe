@@ -1,6 +1,6 @@
 //! `eukhe factory`: the machine library commands.
 //!
-//! Every subcommand — list included — is one `rlm.factory.cli_dispatch`
+//! Every subcommand -- list included -- is one `rlm.factory.cli_dispatch`
 //! payload through the kernel Python. The kernel owns the whole library
 //! contract: the bundled seeds ship as wheel package data inside the
 //! runtime, the personal library lives under the agent dir, the strict
@@ -145,7 +145,7 @@ pub fn run_factory_command(args: &[String]) -> i32 {
     }
 }
 
-/// The `list` payload: the op alone — the kernel resolves every library
+/// The `list` payload: the op alone -- the kernel resolves every library
 /// directory itself.
 fn list_payload() -> Value {
     json!({"op": "list"})
@@ -327,7 +327,7 @@ fn run_export(name: &str, out: &str, json: bool) -> i32 {
 }
 
 /// The failed dispatch's error sentences (the validator's exact text,
-/// unwrapped from the JSON envelope — printing the `Value` would show the
+/// unwrapped from the JSON envelope -- printing the `Value` would show the
 /// JSON quoting around every sentence).
 fn dispatch_error_sentences(result: &Value) -> Vec<&str> {
     result

@@ -17,10 +17,6 @@ ignore = [
   # timing oracle exists. Reviewed 2026-09-17; drop rsa (eukhe-ai lane) or
   # re-triage when rsa publishes a fix.
   { id = "RUSTSEC-2023-0071", reason = "unpatched upstream; rsa is an unused eukhe-ai dep, no signing path executes it (reviewed 2026-09-17)" },
-  # `paste` proc-macro is unmaintained; pulled by ratatui (build-time only,
-  # no vulnerable code path). Reviewed 2026-09-17; revisit when ratatui
-  # drops the dep.
-  { id = "RUSTSEC-2024-0436", reason = "unmaintained proc-macro via ratatui, build-time only (reviewed 2026-09-17)" },
 ]
 
 [licenses]

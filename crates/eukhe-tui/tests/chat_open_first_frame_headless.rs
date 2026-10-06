@@ -2,7 +2,7 @@
 //! 2026-09-26 layout-shift report): opening a chat view must paint its
 //! final geometry in the FIRST frame. The activity dock — the muted
 //! divider rule plus the panel row that render under the prompt bar —
-//! and the pinned title bar ride the first content frame together with
+//! and the session title on the prompt context row ride the first content frame together with
 //! the transcript, and a chat that opens directly into content never
 //! renders the brand splash at all.
 //!
@@ -248,7 +248,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::Attach("s1".to_string()),
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -307,9 +306,9 @@ fn run_open(transcript: &OpeningTranscript) -> Vec<String> {
     outcome.frames
 }
 
-/// The dock's divider rule: one full-width row of box-drawing heavies.
+/// The dock's divider rule: one full-width row of rule cells.
 fn is_divider_row(line: &str, width: usize) -> bool {
-    !line.is_empty() && line.chars().count() == width && line.chars().all(|c| c == '\u{2500}')
+    !line.is_empty() && line.len() == width && line.chars().all(|c| c == '-')
 }
 
 /// The dock's counts (the activity panel row under the prompt bar) are
@@ -325,8 +324,7 @@ fn the_activity_dock_is_in_every_frame_from_the_first() {
         .iter()
         .enumerate()
         .filter(|(_, frame)| {
-            !frame.contains("\u{25f7} 1 heartbeat")
-                || !frame.lines().any(|line| is_divider_row(line, 100))
+            !frame.contains(" 1 heartbeat") || !frame.lines().any(|line| is_divider_row(line, 100))
         })
         .map(|(index, _)| index)
         .collect();
@@ -340,9 +338,9 @@ fn the_activity_dock_is_in_every_frame_from_the_first() {
 }
 
 /// A chat that opens directly into content paints its first frame from
-/// the snapshot: the transcript, the pinned title row, and the dock all
-/// ride that same frame, and the brand splash (the new chat's header)
-/// never renders — no splash flash above the title, no one-row shift.
+/// the snapshot: the transcript, the session title on the prompt context
+/// row, and the dock all ride that same frame, and the brand splash (the
+/// new chat's header) never renders.
 #[test]
 fn a_direct_open_into_content_never_renders_the_splash() {
     let frames = run_open(&OpeningTranscript::Content);
@@ -354,7 +352,7 @@ fn a_direct_open_into_content_never_renders_the_splash() {
     );
     assert!(
         first.contains("layout probe"),
-        "the pinned title row rides the first content frame:\n{first}"
+        "the session title rides the first content frame:\n{first}"
     );
     assert!(
         frames.iter().all(|frame| !frame.contains("eukhe")),

@@ -1,13 +1,13 @@
-//! The startup chat-view block (`OptChat` spec §10: "On start, print the view, so
+//! The startup chat-view block (`OptChat` spec S10: "On start, print the view, so
 //! you see what the agent sees"): when a session opens, the chat memory's
-//! current view lands in the transcript as one collapsed summary row —
-//! `Chat view: N lines, M messages, X KB` — that expands (Ctrl+O, or a
+//! current view lands in the transcript as one collapsed summary row --
+//! `Chat view: N lines, M messages, X KB` -- that expands (Ctrl+O, or a
 //! click on the row) to the full `<chat>` text under the branch gutter.
 //! The text is raw: view lines are `id+n|text`, never markdown.
 
 use eukhe_types::daemon::ChatViewSnapshot;
 
-use crate::branch::{branch_block, branch_block_count};
+use crate::branch::branch_block;
 use crate::chat::Detail;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::truncate_line;
@@ -28,8 +28,8 @@ pub(crate) fn chat_view_summary(view: &ChatViewSnapshot) -> String {
     )
 }
 
-/// The block's rows: an optional leading blank, the one-row summary, and —
-/// expanded — the whole `<chat>` text under the branch gutter.
+/// The block's rows: an optional leading blank, the one-row summary, and --
+/// expanded -- the whole `<chat>` text under the branch gutter.
 pub(crate) fn render_chat_view(
     view: &ChatViewSnapshot,
     detail: Detail,
@@ -43,7 +43,7 @@ pub(crate) fn render_chat_view(
     }
     out.push(truncate_line(
         &vec![Span::styled(
-            format!(" \u{25c6} {}", chat_view_summary(view)),
+            format!(" {} {}", crate::glyphs::NOTICE, chat_view_summary(view)),
             theme.fg_style(ThemeColor::Muted),
         )],
         width,
@@ -57,22 +57,6 @@ pub(crate) fn render_chat_view(
         ));
     }
     out
-}
-
-/// The row count of [`render_chat_view`].
-pub(crate) fn chat_view_row_count(
-    view: &ChatViewSnapshot,
-    detail: Detail,
-    width: usize,
-    leading: bool,
-) -> usize {
-    usize::from(leading)
-        + 1
-        + if detail.tool_output_expanded() {
-            branch_block_count(&view.text, width)
-        } else {
-            0
-        }
 }
 
 #[cfg(test)]
@@ -132,23 +116,19 @@ mod tests {
         let collapsed = render_chat_view(&view, Detail::Details, &theme, 80, false);
         assert_eq!(
             plain(&collapsed),
-            vec![" \u{25c6} Chat view: 2 lines, 3 messages, 0.0 KB"]
+            vec![" * Chat view: 2 lines, 3 messages, 0.0 KB"]
         );
         let expanded = render_chat_view(&view, Detail::All, &theme, 80, true);
         assert_eq!(
             plain(&expanded),
             vec![
                 String::new(),
-                " \u{25c6} Chat view: 2 lines, 3 messages, 0.0 KB".to_string(),
-                " \u{2570}\u{2500} <chat>".to_string(),
+                " * Chat view: 2 lines, 3 messages, 0.0 KB".to_string(),
+                " `- <chat>".to_string(),
                 "    0+2|user: hi | bot: hello".to_string(),
                 "    2+1|plan".to_string(),
                 "    </chat>".to_string(),
             ]
-        );
-        assert_eq!(
-            chat_view_row_count(&view, Detail::All, 80, true),
-            expanded.len()
         );
     }
 }

@@ -24,14 +24,12 @@
 //! Divergence (the operator's 2026-10-01 directive: "the factory child
 //! status notices should be like subagent messages not user messages"): the
 //! RLM child status notices (`rlm_child_terminal_notice` /
-//! `rlm_child_failure`) render in the `agent_message` component's class —
-//! child-originated mail, attributed to the exited subagent — where the TS
+//! `rlm_child_failure`) render in the `agent_message` component's class --
+//! child-originated mail, attributed to the exited subagent -- where the TS
 //! dispatch classes them as injected-prompt rows (turn prompts). The
 //! notices still drive their turn (the daemon's `followUp` notice action is
 //! unchanged); only the transcript row's class moves.
 
-pub(crate) mod geometry;
-pub(crate) use geometry::agent_message_body_count;
 pub(crate) mod injected_prompt;
 pub(crate) mod refinement;
 pub(crate) mod render;
@@ -73,7 +71,7 @@ pub const PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE: &str = "provider_retry_outcome";
 /// sent/queued receipts of the ipython cell output (TS
 /// `renderSentAgentMessages`). The variants carry no label of their own:
 /// the operator's 2026-09-25 arrow directive folds the direction word into
-/// the viewer-relative arrow (received `↓`, sent/queued `↑`) that renders
+/// the viewer-relative arrow (received `down`, sent/queued `up`) that renders
 /// next to the shared `AGENT_MESSAGE_LABEL`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentMessageDirection {
@@ -91,18 +89,18 @@ pub enum AgentMessageDirection {
 pub(crate) const AGENT_MESSAGE_LABEL: &str = "Agent message";
 
 /// One agent-message summary row:
-/// `✉ Agent message · <arrow> <counterpart>` plus the guttered body when
+/// `mail Agent message * <arrow> <counterpart>` plus the guttered body when
 /// expanded (TS `AgentMessageComponent` for received rows; the sent/queued
-/// directions feed the ipython cell receipt rows). The `✉` mail envelope
-/// is the row's icon — a sanctioned divergence (Kevin directive 2026-09-24)
-/// from the TS `◆` diamond; the TS side is expected to adopt the same
+/// directions feed the ipython cell receipt rows). The `mail` mail envelope
+/// is the row's icon -- a sanctioned divergence (Kevin directive 2026-09-24)
+/// from the TS `*` diamond; the TS side is expected to adopt the same
 /// glyph. The collapsed row carries no body preview (the operator's
 /// 2026-09-25 directive: display only `Agent message`, the viewer-relative
 /// arrow, and the counterpart agent's name).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentMessageRow {
-    /// Which side renders: it drives the viewer-relative arrow (`↑`
-    /// sent/queued, `↓` received).
+    /// Which side renders: it drives the viewer-relative arrow (`up`
+    /// sent/queued, `down` received).
     pub direction: AgentMessageDirection,
     /// The counterpart agent's display name (session name, then the id
     /// fallbacks, then `unknown`): the other end of the mail the row
@@ -129,11 +127,11 @@ pub struct ShellCompletionRow {
 /// One refinement outcome row (TS `RefinementOutcomeMessageComponent`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RefinementOutcomeRow {
-    /// `◆ <header>` (`Harness refined` or the full outcome line).
+    /// `* <header>` (`Harness refined` or the full outcome line).
     pub header: String,
     /// Summary text (collapsed: two-line clamp).
     pub summary: String,
-    /// `<outcome> · Refinement <id> · <scope>[ · rollback of <id>]` (dim).
+    /// `<outcome> * Refinement <id> * <scope>[ * rollback of <id>]` (dim).
     pub meta: String,
     pub edits: Vec<RefinementEditRow>,
 }
@@ -236,8 +234,8 @@ pub fn custom_message_entries(message: &Value) -> Vec<ChatEntry> {
                 details,
             )))]
         }
-        // The RLM child status notices are child-originated mail — the
-        // spawned subagent's exit status (a factory's children included) —
+        // The RLM child status notices are child-originated mail -- the
+        // spawned subagent's exit status (a factory's children included) --
         // so they render in the same quiet, counterpart-attributed
         // `Agent message` class the children's own `agent_message` rows
         // use (the operator's 2026-10-01 directive: "the factory child
@@ -667,7 +665,7 @@ mod tests {
     /// notices should be like subagent messages not user messages"): the
     /// row carries the child as its counterpart and the notice text as
     /// the body, and it never renders as a turn-prompt (injected) or
-    /// user row — the class assertion is the mutation pin (routing the
+    /// user row -- the class assertion is the mutation pin (routing the
     /// types back through the injected-prompt arm fails it).
     #[test]
     fn rlm_child_notice_rows_decode_to_the_agent_message_class() {
@@ -934,18 +932,18 @@ mod tests {
             (
                 Some((
                     injected_prompt::render_injected_prompt(&goal, Detail::Overview, &theme, 60),
-                    vec!["", " Goal continuation \u{b7} Ship."],
+                    vec!["", " Goal continuation - Ship."],
                 )),
                 injected_prompt::render_injected_prompt(&goal, Detail::All, &theme, 60),
-                vec!["", " Goal continuation \u{b7} Ship."],
+                vec!["", " Goal continuation - Ship."],
             ),
             (
                 Some((
                     render::render_shell_completion(&shell, Detail::Overview, &theme, 60, false),
-                    vec![" \u{2713} Background shell command finished"],
+                    vec![" ok Background shell command finished"],
                 )),
                 render::render_shell_completion(&shell, Detail::All, &theme, 60, false),
-                vec![" \u{2713} Background shell command finished"],
+                vec![" ok Background shell command finished"],
             ),
             (
                 None,
@@ -955,10 +953,10 @@ mod tests {
             (
                 Some((
                     render_compaction_summary(&body, 480, None, false, &theme, 60),
-                    vec![" \u{25c6} Context compacted", compacted.as_str()],
+                    vec![" * Context compacted", compacted.as_str()],
                 )),
                 render_compaction_summary(&body, 480, None, true, &theme, 60),
-                vec![" \u{25c6} Context compacted \u{b7} Compacted from 480 tokens"],
+                vec![" * Context compacted - Compacted from 480 tokens"],
             ),
         ];
         for (collapsed, expanded, header) in cases {

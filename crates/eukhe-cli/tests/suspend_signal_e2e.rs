@@ -57,15 +57,13 @@ use eukhe_tui::interactive::{
     run_interactive, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
 
-/// The SGR tracking sequences the seam writes (the exact byte order of
-/// `mouse_tracking`: enable is `?1002h`, `?1003h` (the #2918 hover
-/// affordance's any-event tracking), then `?1006h`; disable the reverse).
-/// The needles were stale from #2918 through 2026-09-29 — the `?1003`
-/// halves sat between the old pairs — and the e2e's runner-session gate
-/// skips in gate/CI shapes, so the mismatch surfaced only when the
-/// verdict-time lane's raced-suspend oracle exercised the same bytes.
-const MOUSE_ENABLE: &str = "\x1b[?1002h\x1b[?1003h\x1b[?1006h";
-const MOUSE_DISABLE: &str = "\x1b[?1006l\x1b[?1003l\x1b[?1002l";
+/// Bracketed paste on/off: the inline surface arms it at mount and on
+/// resume, and the suspend releases it before the process group stops.
+const PASTE_ENABLE: &str = "\x1b[?2004h";
+const PASTE_DISABLE: &str = "\x1b[?2004l";
+/// The activity dock's row: every session renders it (all-zero counts
+/// included), so it marks the first complete frame.
+const DOCK_ROW: &str = "0 subagents";
 
 /// The kitty capability query crossterm's support check writes (`\x1b[?u`
 /// then the primary-device-attributes query in one write). The port runs
@@ -165,7 +163,7 @@ fn lead_fresh_session() -> bool {
 }
 
 #[test]
-fn ctrl_z_releases_tracking_stops_and_sigcont_re_applies() {
+fn ctrl_z_releases_the_modes_stops_and_sigcont_re_applies() {
     if !lead_fresh_session() {
         return;
     }
@@ -181,26 +179,25 @@ fn ctrl_z_releases_tracking_stops_and_sigcont_re_applies() {
     };
     let mut harness = SuspendHarness::start(/*editor*/ None);
 
-    // The startup contract: the fullscreen surface enables SGR mouse
-    // tracking (the seam bytes) before any input is handled.
-    harness.wait_from_start(MOUSE_ENABLE, "startup mouse enable");
+    // The startup contract: the inline surface arms bracketed paste
+    // before any input is handled.
+    harness.wait_from_start(PASTE_ENABLE, "startup bracketed-paste enable");
 
     // The first mount runs the kitty capability query once (the
     // once-per-process contract's positive side: the probe exists).
     harness.wait_from_start(KITTY_QUERY, "the first mount's kitty query");
-    // The prompt row is derived from the frame's final caret park (the
-    // frame's layout is environment-dependent, see the ctrl+g harness
-    // method): the typed-text park below keys off it, never off a
-    // hard-coded row.
-    harness.wait_from_start(" >  ", "the first frame's prompt row rendered");
-    let prompt_row = harness.wait_caret_row_from(0, 5, "the first frame's empty editor rendered");
+    harness.wait_from_start(DOCK_ROW, "the first frame rendered");
 
-    // Ctrl+Z: the app.suspend binding. The renderer releases tracking
+    // Ctrl+Z: the app.suspend binding. The renderer releases the modes
     // before the process group stops, so the disable bytes arrive while
     // the process is still running.
     let mark_suspend = harness.mark();
     harness.write(&[0x1a]);
-    harness.wait_from(mark_suspend, MOUSE_DISABLE, "suspend mouse release");
+    harness.wait_from(
+        mark_suspend,
+        PASTE_DISABLE,
+        "suspend bracketed-paste release",
+    );
 
     // SIGTSTP (from the app's own kill(0)) stops the process group.
     wait_for_stopped(
@@ -208,46 +205,37 @@ fn ctrl_z_releases_tracking_stops_and_sigcont_re_applies() {
         "the app.suspend cycle stopped the group",
     );
 
-    // SIGCONT (`fg`): the resume re-applies the terminal modes — raw
-    // mode, the alternate screen, SGR mouse tracking — and repaints; the
-    // mouse-tracking seam bytes come back on the pty.
-    // Drain the suspend's scrollback flush to silence first (see
+    // SIGCONT (`fg`): the resume re-applies the terminal modes and paints
+    // a fresh live area below the released one.
+    // Drain the suspend's release to silence first (see
     // `drain_until_quiet`): the resume's writes must find room in the pty
     // buffer instead of being dropped by a full one.
     harness.drain_until_quiet(8);
     let mark_resume = harness.mark();
     kill(Pid::from_raw(harness.child_id() as i32), Signal::SIGCONT).expect("SIGCONT");
-    // The post-continue repaint (the resume's `term.clear` plus the fresh
-    // frame) is the deterministic marker on this harness: the resumed
-    // child writes the alt-screen-enter and mouse-tracking sequences first
-    // (verified under strace, and the seam's release/re-apply order is
-    // unit-locked in eukhe-tui), but this sandbox's pty drops the first
-    // post-continue writes nondeterministically, so the harness pins the
-    // assertion on the repaint that always arrives.
+    // The post-continue repaint is the deterministic marker on this
+    // harness: this sandbox's pty drops the first post-continue writes
+    // nondeterministically, and the fresh live area always repaints the
+    // dock row.
     harness.wait_from(
         mark_resume,
-        "\x1b[1;33Hsuspend",
-        "the SIGCONT resume repaints the terminal",
+        DOCK_ROW,
+        "the SIGCONT resume repaints the live area",
     );
 
-    // The resumed app still runs: typing renders in the editor line.
-    // Ratatui's diff renderer repaints only the changed cells, so the
-    // typed text never appears as a contiguous "> hi" byte string: the
-    // editor draws the typed cells at their positions and parks the
-    // cursor right after them — the prompt row, column 7 ("hi" after
-    // the "> " prompt).
+    // The resumed app still runs: typing renders in the editor row (the
+    // inline writer rewrites the whole row, so the text is contiguous).
     //
     // The wait is bounded tight: a resume that re-queried kitty leaves
     // the app reader starved behind crossterm's support check for the
     // check's whole 2s budget, and the typed bytes only render when it
-    // expires — the fixed resume leaves the reader free and renders in
-    // well under a second even on a loaded VM (the pre-fix run took
-    // 2.0s here, 10/10, strace-verified).
+    // expires -- the fixed resume leaves the reader free and renders in
+    // well under a second even on a loaded VM.
     let mark_typed = harness.mark();
-    harness.write(b"hi");
+    harness.write(b"typed-after-resume");
     harness.wait_from_bounded(
         mark_typed,
-        &format!("\x1b[{prompt_row};7H"),
+        "typed-after-resume",
         "the resumed editor renders the typed text",
         Duration::from_millis(1500),
     );
@@ -305,30 +293,17 @@ fn ctrl_g_hands_the_terminal_to_the_external_editor() {
         .expect("chmod editor script");
     let mut harness = SuspendHarness::start(Some(&editor));
 
-    harness.wait_from_start(MOUSE_ENABLE, "startup mouse enable");
+    harness.wait_from_start(PASTE_ENABLE, "startup bracketed-paste enable");
 
-    // The first content frame is the readiness marker: keystrokes that
+    // The first complete frame is the readiness marker: keystrokes that
     // arrive earlier race the child's kitty capability probe, which
-    // still owns the event reader in the startup window. The frame's
-    // layout follows the chrome the build carries — #3036 made the
-    // activity dock render in every session (all-zero counts included),
-    // and its rule-plus-row pushed the prompt dock up by two rows —
-    // so the prompt row is DERIVED from the frame's final caret park
-    // and the assertions below key off it, never off a hard-coded row.
-    harness.wait_from_start(" >  ", "the first frame's prompt row rendered");
-    let prompt_row = harness.wait_caret_row_from(0, 5, "the first frame's empty editor rendered");
+    // still owns the event reader in the startup window.
+    harness.wait_from_start(DOCK_ROW, "the first frame rendered");
 
-    // A draft in the editor, painted at the prompt row: each typed key
-    // paints its own cell, so the draft's arrival is the caret's park
-    // position after its five characters (the same position-escape
-    // marker the suspend test pins its typed "hi" with).
+    // A draft in the editor row.
     let mark_draft = harness.mark();
     harness.write(b"draft");
-    harness.wait_from(
-        mark_draft,
-        &format!("\x1b[{prompt_row};10H"),
-        "the draft rendered in the editor",
-    );
+    harness.wait_from(mark_draft, "draft", "the draft rendered in the editor");
 
     // ctrl+g: the editor child runs on the handed-over terminal and the
     // resumed repaint shows the saved text.
@@ -340,17 +315,15 @@ fn ctrl_g_hands_the_terminal_to_the_external_editor() {
         "the editor child's text replaced the draft",
     );
 
-    // The strip proof: one trailing newline was removed, so the caret
-    // parks at the end of the edited line (the prompt row, column after
-    // the 17-char text — the same col-5 text start the suspend test's
-    // typed "hi" parks at column 7 from). A leftover newline parks it
-    // on the wrapped second line and this wait misses its bound.
+    // The strip proof: one trailing newline was removed, so a typed key
+    // lands on the edited line itself. A leftover newline puts it on a
+    // second editor row and this wait misses its bound.
     let mark_typed = harness.mark();
     harness.write(b"x");
     harness.wait_from_bounded(
         mark_typed,
-        &format!("\x1b[{prompt_row};22H"),
-        "the editor parked the caret after the single-line edit",
+        "edited externallyx",
+        "the typed key joined the single-line edit",
         Duration::from_secs(10),
     );
 
@@ -418,14 +391,6 @@ impl SuspendHarness {
 
     fn wait_from_bounded(&mut self, mark: usize, needle: &str, what: &str, bound: Duration) {
         self.master.wait_from_bounded(mark, needle, what, bound);
-    }
-
-    /// Wait until the stream parks a caret at `column` and return the row
-    /// it painted on: the frame's layout is environment-dependent (a
-    /// detached CI run renders more rows than a terminal-attached one),
-    /// so cursor assertions DERIVE the prompt row instead of assuming it.
-    fn wait_caret_row_from(&mut self, mark: usize, column: u16, what: &str) -> String {
-        self.master.wait_caret_row_from(mark, column, what)
     }
 
     fn region_since(&self, mark: usize) -> Vec<u8> {
@@ -547,60 +512,12 @@ impl PtyReader {
             std::thread::sleep(Duration::from_millis(10));
         }
     }
-
-    /// Wait (the plain wait's 30s bound) until a caret paints at `column`
-    /// and return its row: the harness method above states the why.
-    fn wait_caret_row_from(&mut self, mark: usize, column: u16, what: &str) -> String {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            if let Some(row) = caret_row_at_column(&self.output[mark..], column) {
-                return row;
-            }
-            let mut buffer = [0u8; 8192];
-            let result = self.file.read(&mut buffer);
-            match result {
-                Ok(0) | Err(_) => {}
-                Ok(n) => self.output.extend_from_slice(&buffer[..n]),
-            }
-            if Instant::now() > deadline {
-                let text = String::from_utf8_lossy(&self.output[mark..]);
-                panic!(
-                    "timeout waiting for {what} (a caret at column {column}); \
-                     pty tail since mark:\n{text}"
-                );
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
-}
-
-/// The row of the LAST caret the stream parks at `column`, as the
-/// digits of its `ESC[<row>;<column>H` escape: startup paints transient
-/// carets, and the frame's final park is the editor's.
-fn caret_row_at_column(stream: &[u8], column: u16) -> Option<String> {
-    let suffix = format!(";{column}H").into_bytes();
-    let mut from = 0;
-    let mut row = None;
-    while let Some(at) = find_subsequence(&stream[from..], &suffix) {
-        let head = &stream[from..from + at];
-        let digits_start = head
-            .iter()
-            .rposition(|byte| !byte.is_ascii_digit())
-            .map_or(0, |last_non_digit| last_non_digit + 1);
-        let digits = &head[digits_start..];
-        let esc = head[..digits_start].ends_with(b"\x1b[");
-        if esc && !digits.is_empty() {
-            row = Some(String::from_utf8_lossy(digits).into_owned());
-        }
-        from += at + suffix.len();
-    }
-    row
 }
 
 /// A child process group of this very binary, re-executed in child mode
@@ -663,7 +580,6 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),

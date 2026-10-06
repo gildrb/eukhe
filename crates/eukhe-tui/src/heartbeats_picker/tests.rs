@@ -114,7 +114,7 @@ fn a_carried_selection_opens_on_that_row() {
 
 /// The list is a columned table: a dim column header naming the
 /// operator's columns (interval, label, next run, status), the rows
-/// aligned under it, and one bottom hint line — no text blobs.
+/// aligned under it, and one bottom hint line -- no text blobs.
 #[test]
 fn the_list_renders_columned_rows_and_one_hint() {
     let picker = HeartbeatsPicker::new(entries(), None, None, 24);
@@ -122,7 +122,7 @@ fn the_list_renders_columned_rows_and_one_hint() {
     let text = frame_text(&frame);
     assert!(text.iter().any(|row| row.contains("Heartbeats")));
     // The title line carries the status counts in the status colors.
-    assert!(text.iter().any(|row| row.contains("1 active · 1 paused")));
+    assert!(text.iter().any(|row| row.contains("1 active - 1 paused")));
     // The dim column header names the four columns.
     let header = text
         .iter()
@@ -152,7 +152,7 @@ fn the_list_renders_columned_rows_and_one_hint() {
     );
     assert!(text
         .iter()
-        .any(|row| row.contains("↑/↓ move · Enter/→ open · ←/Esc close")));
+        .any(|row| row.contains("up/down move - Enter/right open - left/Esc close")));
     for line in &frame {
         assert!(
             crate::width::spans_width(line) <= 70,
@@ -174,7 +174,7 @@ fn the_list_hint_drops_unbound_keys() {
     let text = frame_text(&frame);
     assert!(
         text.iter()
-            .any(|row| row.contains("↑/↓ move · Enter/→ open · Esc close")),
+            .any(|row| row.contains("up/down move - Enter/right open - Esc close")),
         "the emptied back binding drops the arrow: {text:?}"
     );
     let mut cfg = crate::keybindings::KeybindingsConfig::new();
@@ -185,7 +185,7 @@ fn the_list_hint_drops_unbound_keys() {
     let text = frame_text(&frame);
     assert!(
         text.iter()
-            .any(|row| row.contains("↑/↓ move · Enter open · ←/Esc close")),
+            .any(|row| row.contains("up/down move - Enter open - left/Esc close")),
         "the emptied open binding drops the arrow: {text:?}"
     );
 }
@@ -193,7 +193,7 @@ fn the_list_hint_drops_unbound_keys() {
 /// The table fills the full width of the TUI (the operator's
 /// 2026-09-24 ruling): the selected row's wash spans the whole
 /// terminal width, while the columns keep their content-hug geometry
-/// — the column text never stretches to the edge.
+/// -- the column text never stretches to the edge.
 #[test]
 fn the_table_fills_the_full_width() {
     let picker = HeartbeatsPicker::new(entries(), None, None, 24);
@@ -227,7 +227,7 @@ fn the_table_fills_the_full_width() {
 /// operator's 2026-09-28 consistency rule: the heartbeats selection's
 /// background is IDENTICAL to the agents view's and the shell view's
 /// selected rows and the dock's group band): the hover band's own
-/// color, no modifiers — one style constant
+/// color, no modifiers -- one style constant
 /// (`Theme::selection_row_style`), not a per-surface copy.
 #[test]
 fn the_selected_row_paints_the_shared_selection_style() {
@@ -244,14 +244,14 @@ fn the_selected_row_paints_the_shared_selection_style() {
     );
     assert_eq!(
         band.bg,
-        theme.hover_row_style().bg,
-        "the shared selection paints the hover's own color — the one-color ruling"
+        theme.soft_selection_style().bg,
+        "the shared selection paints the soft wash"
     );
 }
 
 /// The shortcuts ride the pane's last rows with no rule below them
 /// (the operator's 2026-09-24 /model ruling): one blank line of
-/// spacing rides under the hint, never a `─` divider.
+/// spacing rides under the hint, never a `-` divider.
 #[test]
 fn the_footer_is_a_blank_below_the_shortcuts_never_a_rule() {
     let picker = HeartbeatsPicker::new(entries(), None, None, 24);
@@ -266,7 +266,7 @@ fn the_footer_is_a_blank_below_the_shortcuts_never_a_rule() {
         last.trim().is_empty(),
         "one blank line rides below the shortcuts: {last:?} ({text:?})"
     );
-    assert!(!last.contains("\u{2500}"), "no rule below the hint");
+    assert!(!last.contains('-'), "no rule below the hint");
     // The rows below the hint are exactly one blank (the detail
     // pane's footer shares the shape).
     assert_eq!(
@@ -312,7 +312,7 @@ fn the_next_run_label_is_natural_language() {
     assert_eq!(label("2026-06-01T11:59:30.000Z"), "in 1s");
     // A missing next run keeps the placeholder; a value the clock
     // cannot parse renders raw.
-    assert_eq!(next_run_label(None, now), "\u{2014}");
+    assert_eq!(next_run_label(None, now), "--");
     assert_eq!(label("soon-ish"), "soon-ish");
 }
 
@@ -440,7 +440,7 @@ fn the_detail_renders_the_full_prompt_created_by_and_actions() {
         .any(|row| row.contains("Continue scheduled deliveries")));
     assert!(text
         .iter()
-        .any(|row| row.contains("↑/↓ move · Enter run · ← back · Esc close")));
+        .any(|row| row.contains("up/down move - Enter run - left back - Esc close")));
 }
 
 #[test]
@@ -608,7 +608,7 @@ fn a_long_prompt_clips_with_a_marker() {
     assert!(frame.len() <= 23, "the drill-in fits: {}", frame.len());
     let text = frame_text(&frame);
     assert!(
-        text.iter().any(|row| row.trim() == "…"),
+        text.iter().any(|row| row.trim() == "..."),
         "the clipped tail carries a marker: {text:?}"
     );
     // The first words render; the last ones do not.
@@ -618,7 +618,7 @@ fn a_long_prompt_clips_with_a_marker() {
 }
 
 /// A missing next-run pads its cell like the header: the status
-/// column stays under its header when the `—` placeholder renders.
+/// column stays under its header when the `--` placeholder renders.
 #[test]
 fn a_missing_next_run_keeps_the_columns_aligned() {
     let mut catalog = entries();
@@ -641,7 +641,7 @@ fn a_missing_next_run_keeps_the_columns_aligned() {
     // row as misaligned).
     let column_of =
         |text: &str, needle: &str| text.find(needle).map(|byte| text[..byte].chars().count());
-    let (Some(h), Some(r)) = (column_of(header, "Status"), column_of(row, "\u{25d0}")) else {
+    let (Some(h), Some(r)) = (column_of(header, "Status"), column_of(row, "~")) else {
         panic!("header and row status cells: {header:?} {row:?}");
     };
     assert_eq!(h, r, "the status column aligns: {header:?} vs {row:?}");
@@ -677,7 +677,7 @@ fn the_pairs_shrink_before_the_prompt_starves() {
 
 /// The schedule pair never displaces the error row (the bot-round
 /// fix): a heartbeat carrying both a schedule fact and a last error
-/// renders every pair — `MAX_DETAIL_ROWS` covers the seven base pairs.
+/// renders every pair -- `MAX_DETAIL_ROWS` covers the seven base pairs.
 #[test]
 fn the_schedule_pair_never_hides_the_error_row() {
     let mut catalog = entries();
@@ -720,7 +720,7 @@ fn a_one_row_prompt_budget_renders_the_first_line() {
     let text = frame_text(&frame);
     assert!(text.join(" ").contains("word-01"), "a prompt line renders");
     assert!(
-        text.iter().filter(|row| row.trim() == "\u{2026}").count() == 0,
+        text.iter().filter(|row| row.trim() == "...").count() == 0,
         "no lone marker: {text:?}"
     );
 }

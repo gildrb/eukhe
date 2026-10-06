@@ -309,7 +309,7 @@ pub fn entry_status(entry: &Value) -> AgentRosterStatus {
 /// `countRosterSubagentStatuses`: rows of any lifecycle count on the live
 /// roster; callers that mix saved catalog rows filter their input). The
 /// running split rides the descendant depths: depth 1 counts direct,
-/// deeper counts nested — the two addends the dock's single running
+/// deeper counts nested -- the two addends the dock's single running
 /// total sums (the operator's 2026-09-28 one-number readout).
 #[must_use]
 pub fn count_descendants(roster: &[Value], parent: &SessionIdentity) -> SubagentCounts {
@@ -482,7 +482,7 @@ mod tests {
             Some("/sessions/root.jsonl".to_string()),
         );
         assert_eq!(family_cost(&roster, &identity), Some(2.30));
-        // The same number the agents view bills the root's row — pinned
+        // The same number the agents view bills the root's row -- pinned
         // against the row itself, not a second copy of the formula.
         let records = crate::agents_view_state::reconcile_unified_sessions(&roster, &[]);
         let rollups = crate::agents_view_forest::compute_rollups(&records);

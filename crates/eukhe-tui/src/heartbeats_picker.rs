@@ -2,13 +2,13 @@
 //! redesigned per the operator's 2026-09-23 directive): the current
 //! session's heartbeats as a columned table (interval, label, next run,
 //! status) instead of text blobs, and Enter on a row opens the detail
-//! drill-in — the full prompt text, which agent created it, and the
+//! drill-in -- the full prompt text, which agent created it, and the
 //! management actions (pause/resume, stop) as up/down-selectable rows in
 //! the same control pattern as the `/mcp` view. The table fills the full
 //! width of the TUI (the operator's 2026-09-24 ruling): the selected
 //! row's wash spans the terminal width while the columns keep their
 //! content-hug geometry. Rendered inline-picker style (the `/model`
-//! geometry — a plain-text title line with the status counts, the
+//! geometry -- a plain-text title line with the status counts, the
 //! shortcuts at the bottom with no rule below them, one blank line of
 //! spacing under the hint).
 
@@ -56,7 +56,7 @@ use render::{
 const PREFERRED_VISIBLE: usize = 8;
 
 /// Rows the list reserves outside its items (the inline geometry: rule,
-/// title, blank, column header, blank, hint, blank — the shortcuts ride
+/// title, blank, column header, blank, hint, blank -- the shortcuts ride
 /// the pane's last row with no rule below them, one blank line of
 /// spacing under them instead (the operator's 2026-09-24 /model ruling);
 /// the conditional scroll-indicator row rides `menu_list_layout`'s
@@ -65,7 +65,7 @@ const LIST_FRAME_ROWS: usize = 7;
 
 /// The detail pane's labeled-pair row budget: the seven base pairs
 /// (created, session, delivery, schedule, next run, runs, last error)
-/// all fit — the schedule fact (item 3) must never displace the error
+/// all fit -- the schedule fact (item 3) must never displace the error
 /// row to the clipped tail.
 const MAX_DETAIL_ROWS: usize = 7;
 
@@ -455,7 +455,7 @@ impl HeartbeatsPicker {
         }
         lines.extend(self.pane_footer(theme, width, &Self::list_hint(kb)));
         // The budget math keeps every normal viewport exact; a terminal
-        // shorter than the frame itself degrades by truncation — the
+        // shorter than the frame itself degrades by truncation -- the
         // pane never renders past its allocated rows.
         lines.truncate(self.viewport_rows.max(1));
         lines
@@ -509,7 +509,7 @@ impl HeartbeatsPicker {
             .filter(|label| !label.is_empty())
             .map_or_else(|| default_heartbeat_name(entry).to_string(), str::to_string);
         let subtitle = format!(
-            "{} \u{b7} {}",
+            "{} - {}",
             human_schedule(&entry.job.schedule_expression),
             entry.job.status
         );
@@ -528,7 +528,7 @@ impl HeartbeatsPicker {
         let fixed = 4 + 1 + actions.len() + 3 + error_rows;
         // The created-by pairs shrink first (they summarize; the full
         // prompt text is the drill-in's content), then the prompt clips
-        // its tail — the action rows never yield. The prompt block's own
+        // its tail -- the action rows never yield. The prompt block's own
         // leading blank and label ride the budget too, and the pairs
         // block's blank renders only with its rows.
         let prompt_width = width.saturating_sub(4).max(10);
@@ -547,7 +547,7 @@ impl HeartbeatsPicker {
             .viewport_rows
             .saturating_sub(fixed + 1 + pairs_rows + 2);
         // The prompt is the drill-in's content: when the default math
-        // starves it, the pairs shrink first (they summarize — the
+        // starves it, the pairs shrink first (they summarize -- the
         // documented order) until at least one prompt row renders. A
         // heartbeat without prompt text never trades pairs away.
         let has_prompt = !entry.job.prompt.trim().is_empty();
@@ -577,7 +577,7 @@ impl HeartbeatsPicker {
             if clipped {
                 lines.push(vec![
                     Span::raw("  "),
-                    theme.fg_span(ThemeColor::Dim, "\u{2026}".to_string()),
+                    theme.fg_span(ThemeColor::Dim, crate::glyphs::ELLIPSIS.to_string()),
                 ]);
             }
         }
@@ -606,9 +606,9 @@ impl HeartbeatsPicker {
 
     /// The list's bottom hint line: every shortcut in one line (the close
     /// key never repeats). The open and close segments carry both of
-    /// their keys while both are bound — the confirm/openSelected pair
+    /// their keys while both are bound -- the confirm/openSelected pair
     /// opens the detail drill-in, the back/cancel pair closes from the
-    /// list — and an override that empties one of the pair drops that
+    /// list -- and an override that empties one of the pair drops that
     /// key (the hint never advertises a key the handler does not take;
     /// the confirm/cancel fallbacks are the pane's core keys).
     fn list_hint(kb: &KeybindingsManager) -> String {
@@ -626,9 +626,9 @@ impl HeartbeatsPicker {
             None => key("tui.select.cancel", "Esc"),
         };
         format!(
-            "{}/{} move \u{b7} {open} open \u{b7} {close} close",
-            key("tui.select.up", "\u{2191}"),
-            key("tui.select.down", "\u{2193}"),
+            "{}/{} move - {open} open - {close} close",
+            key("tui.select.up", crate::glyphs::KEY_UP),
+            key("tui.select.down", crate::glyphs::KEY_DOWN),
         )
     }
 
@@ -639,18 +639,18 @@ impl HeartbeatsPicker {
                 .map_or_else(|| fallback.to_string(), |key| format_key_text(&key))
         };
         format!(
-            "{}/{} move \u{b7} {} run \u{b7} {} back \u{b7} {} close",
-            key("tui.select.up", "\u{2191}"),
-            key("tui.select.down", "\u{2193}"),
+            "{}/{} move - {} run - {} back - {} close",
+            key("tui.select.up", crate::glyphs::KEY_UP),
+            key("tui.select.down", crate::glyphs::KEY_DOWN),
             key("tui.select.confirm", "Enter"),
-            key("app.modal.back", "\u{2190}"),
+            key("app.modal.back", crate::glyphs::KEY_LEFT),
             key("tui.select.cancel", "Esc"),
         )
     }
 
     /// The pane footer: the fetch and action errors, a blank, the hint
     /// line, and one blank line below the shortcuts (the operator's
-    /// 2026-09-24 ruling: no rule rides under the hint — the /model
+    /// 2026-09-24 ruling: no rule rides under the hint -- the /model
     /// geometry, with the same single blank of spacing below).
     fn pane_footer(&self, theme: &Theme, width: usize, hint: &str) -> Vec<Line> {
         let mut lines = Vec::new();

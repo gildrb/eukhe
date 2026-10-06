@@ -511,7 +511,7 @@ fn push_unique(attrs: &mut Vec<String>, name: &str) {
 }
 
 /// The `;`-separated mode numbers of a DEC private mode write
-/// (`ESC[?1002h`, `ESC[?1002;1006h`).
+/// (`ESC[?2004h`, `ESC[?2026;7h`).
 fn split_mode_params(params: &[u8]) -> Vec<u32> {
     String::from_utf8_lossy(params)
         .split(';')
@@ -544,27 +544,14 @@ fn the_ledger_passes_the_balanced_restore() {
     // The exact write set of a whole mount/exit session: every mode
     // armed, every mode restored, the kitty push popped, the SGR reset.
     let stream = concat!(
-        "\x1b[?1049h\x1b[?2004h\x1b[>4;0m\x1b[?u\x1b[c\x1b[>7u", // mount + probe
-        "\x1b[?1002h\x1b[?1003h\x1b[?1006h",                     // mouse
-        "\x1b[?2026h\x1b[38;5;1mrow\x1b[0m\x1b[?25l\x1b[?2026l", // one frame
-        "\x1b[<u\x1b[>4;0m\x1b[?2004l",                          // drain
-        "\x1b[?1006l\x1b[?1003l\x1b[?1002l",                     // mouse off
-        "\x1b[?1049l\x1b[?2026l\x1b[0m\x1b[?25h",                // the tail
+        "\x1b[?2004h\x1b[>4;0m\x1b[?u\x1b[c\x1b[>7u", // mount + probe
+        "\x1b[?25l\x1b[?2026h\x1b[?7l\x1b[2K\x1b[38;5;1mrow\x1b[0m\x1b[?7h\x1b[?2026l", // one frame
+        "\x1b[<u\x1b[>4;0m\x1b[?2004l",               // drain
+        "\r\n\x1b[?25h\x1b[?2026l\x1b[0m\x1b[?25h",   // release + the tail
     );
     assert!(
         findings_of(stream.as_bytes()).is_empty(),
         "the balanced session leaked"
-    );
-}
-
-#[test]
-fn the_ledger_catches_a_leaked_mouse_mode() {
-    // The mouse enable with NO disable: the classic leak.
-    let stream = b"\x1b[?1002h\x1b[?1003h\x1b[?1006h";
-    let findings = findings_of(stream);
-    assert!(
-        findings.iter().any(|f| f.contains("?1002")),
-        "the leaked mouse mode went unnoticed: {findings:?}"
     );
 }
 

@@ -4,7 +4,7 @@
 use super::*;
 
 /// The scoped view (the subagents summary line's open action) never
-/// lists the anchor — the scope root is excluded — so the first-row
+/// lists the anchor -- the scope root is excluded -- so the first-row
 /// default stands there.
 #[test]
 fn scoped_view_keeps_the_first_row_default() {
@@ -164,9 +164,9 @@ fn mode_with_mixed_children() -> AgentsViewMode {
 }
 
 /// The operator's 2026-09-28 one-dropdown directive: Enter on the
-/// ONE line expands to the FULL roster in one group — the two runners
+/// ONE line expands to the FULL roster in one group -- the two runners
 /// first (with their running state), the two historical workers after
-/// — and the historical agents stay discoverable in the SAME group
+/// -- and the historical agents stay discoverable in the SAME group
 /// (the two separate expansions are gone).
 #[test]
 fn enter_expands_the_one_line_to_the_full_roster_running_first() {
@@ -260,7 +260,7 @@ fn live_transitions_update_the_one_line_and_keep_the_selection() {
 }
 
 /// The rendered frame carries the ONE summary line: the full-roster
-/// count with the running parenthetical — no per-status pair, no
+/// count with the running parenthetical -- no per-status pair, no
 /// second line.
 #[test]
 fn frame_renders_the_one_line() {
@@ -279,7 +279,7 @@ fn frame_renders_the_one_line() {
     let (lines, _) = mode.render_frame(120, 36);
     let frame = lines.iter().map(flat).collect::<Vec<_>>().join("\n");
     assert!(
-        frame.contains("\u{25b8} 3 subagents (2 running)"),
+        frame.contains("+ 3 subagents (2 running)"),
         "frame: {frame}"
     );
     assert!(

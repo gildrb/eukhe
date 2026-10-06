@@ -803,7 +803,7 @@ fn threshold_skip_records_the_durable_outcome_row() {
         "the crossing turn answered"
     );
     let skip_message =
-        "Auto-compaction skipped: Session is too short to compact — try again once it grows";
+        "Auto-compaction skipped: Session is too short to compact -- try again once it grows";
     let (row_index, _) =
         outcome_row_and_end_event(&events, "threshold", "skipped", skip_message, "warning");
     let start_index = events
@@ -886,7 +886,7 @@ fn requested_compaction_skip_records_the_durable_outcome_row() {
         &events,
         "requested",
         "skipped",
-        "Requested compaction skipped: Session is too short to compact — try again once it grows",
+        "Requested compaction skipped: Session is too short to compact -- try again once it grows",
         "warning",
     );
     assert!(outcome_row_in_entries(&engine));
@@ -1169,7 +1169,7 @@ fn compact_session_command_emits_the_ts_event_pair_on_a_skip() {
             "reason": "manual",
             "aborted": false,
             "willRetry": false,
-            "errorMessage": "Session is too short to compact \u{2014} try again once it grows",
+            "errorMessage": "Session is too short to compact -- try again once it grows",
             "errorSeverity": "warning",
         })
     );

@@ -138,7 +138,7 @@ pub fn load_local_service_catalog(
         }
         if let Some(label) = reserved.get(&id) {
             return Err(format!(
-                "{at}: id \"{id}\" collides with the bundled catalog entry for \"{label}\"; local sources cannot shadow or rebind built-ins — pick another id"
+                "{at}: id \"{id}\" collides with the bundled catalog entry for \"{label}\"; local sources cannot shadow or rebind built-ins -- pick another id"
             ));
         }
         entries.push(entry.clone());

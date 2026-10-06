@@ -217,7 +217,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -263,6 +262,15 @@ fn run_plan(steps: Vec<HeadlessStep>) -> Vec<String> {
     outcome.frames
 }
 
+/// The menu's selected row: the `>` marker before a command name (the
+/// editor's own `> ` prompt row is followed by the typed `/`).
+fn is_selected_menu_row(line: &str) -> bool {
+    line.trim_start()
+        .strip_prefix("> ")
+        .and_then(|rest| rest.chars().next())
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+}
+
 /// Typing `/` opens the slash-command panel with its top border: the
 /// full-width muted rule renders directly above the selected marker row —
 /// no blank row between them — so the panel reads as open against the
@@ -281,16 +289,12 @@ fn slash_menu_opens_with_the_top_border_rule() {
     let frame = frames
         .iter()
         .rev()
-        .find(|frame| {
-            frame
-                .split('\n')
-                .any(|line| line.trim_start().starts_with('\u{203a}'))
-        })
+        .find(|frame| frame.split('\n').any(is_selected_menu_row))
         .expect("a frame renders the open slash menu");
     let lines: Vec<&str> = frame.split('\n').collect();
     let marker = lines
         .iter()
-        .position(|line| line.trim_start().starts_with('\u{203a}'))
+        .position(|line| is_selected_menu_row(line))
         .expect("the selected marker row");
     assert!(
         marker > 0,
@@ -298,7 +302,7 @@ fn slash_menu_opens_with_the_top_border_rule() {
     );
     assert_eq!(
         lines[marker - 1],
-        "\u{2500}".repeat(WIDTH),
+        "-".repeat(WIDTH),
         "the panel's top border sits directly above the menu rows:\n{frame}"
     );
 }

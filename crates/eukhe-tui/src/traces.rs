@@ -70,7 +70,7 @@ fn dim(text: impl Into<String>) -> crate::info_commands::ClientSpan {
 }
 
 /// The status block (TS "status" arm): the flag, the credential, the
-/// endpoint, and the session file — one structured line per source line
+/// endpoint, and the session file -- one structured line per source line
 /// (the info panel renders them like every other info display).
 #[must_use]
 pub fn status_block(
@@ -328,7 +328,7 @@ pub struct TraceUploadAllReport {
 }
 
 /// One upload-all note the run loop folds in: the live progress (TS
-/// `onProgress` → `showStatus`) and the settled run.
+/// `onProgress` -> `showStatus`) and the settled run.
 #[derive(Debug, Clone)]
 pub enum TraceUploadAllNote {
     Progress {
@@ -406,12 +406,12 @@ pub trait TracesCommands: Send + Sync {
     /// `prime-traces` key, and the stored prime-inference
     /// credential, in that order).
     fn credential(&self) -> TracesFuture<Option<String>>;
-    /// TS `previewCurrentTrace` → `previewAgentTraceFile`.
+    /// TS `previewCurrentTrace` -> `previewAgentTraceFile`.
     fn preview(&self, session_file: Option<&str>) -> TracesFuture<TracePreviewOutcome>;
-    /// TS `uploadCurrentTraceOnce` → `uploadAgentTraceFile` (the
+    /// TS `uploadCurrentTraceOnce` -> `uploadAgentTraceFile` (the
     /// one-shot upload; `requireEnabled: false`).
     fn upload_current(&self, session_file: Option<&str>) -> TracesFuture<TraceUploadReport>;
-    /// TS `uploadAllTraces` → `uploadAllAgentTraces` (the spawned sweep:
+    /// TS `uploadAllTraces` -> `uploadAllAgentTraces` (the spawned sweep:
     /// progress notes through the channel, cancellation through the
     /// handle, the tally when it settles).
     fn upload_all(

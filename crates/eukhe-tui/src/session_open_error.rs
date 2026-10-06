@@ -5,7 +5,7 @@
 //! The TS refusal (`SessionAlreadyActiveError`) stops at the holder id:
 //! "Session is already active in {id}: {path}". The Rust product keeps
 //! that first line byte-identical (the print-mode e2e and the daemon wire
-//! shape both pin it) and appends the holder's identity and next steps —
+//! shape both pin it) and appends the holder's identity and next steps --
 //! a sanctioned divergence documented per the #289 precedent.
 
 use serde_json::Value;
@@ -153,13 +153,13 @@ pub fn already_active_error(holder: &SessionHolder, session_path: &Path) -> Stri
     let mut lines = vec![already_active_line(&holder.id, session_path)];
     let mut identity = format!("Holder: session {}", holder.id);
     if let Some(name) = &holder.name {
-        let _ = write!(identity, " \u{201c}{name}\u{201d}");
+        let _ = write!(identity, " \"{name}\"");
     }
     if let Some(cwd) = &holder.cwd {
-        let _ = write!(identity, " \u{b7} cwd {cwd}");
+        let _ = write!(identity, " - cwd {cwd}");
     }
     if let Some(model) = &holder.model {
-        let _ = write!(identity, " \u{b7} model {model}");
+        let _ = write!(identity, " - model {model}");
     }
     lines.push(identity);
     lines.push(format!(
@@ -173,7 +173,7 @@ pub fn already_active_error(holder: &SessionHolder, session_path: &Path) -> Stri
 /// Decorate the daemon's ORIGINAL refusal for the interactive create
 /// path: the original message stays verbatim (never reconstructed from a
 /// possibly-relative caller path), and the holder guidance rides the SAME
-/// line — the agents-view handoff renders the refusal on a single status
+/// line -- the agents-view handoff renders the refusal on a single status
 /// line, so a multiline decoration would hide the holder and the next
 /// steps behind the first paragraph.
 #[must_use]
@@ -187,21 +187,21 @@ pub fn decorate_interactive_refusal(
         Some(h) => {
             let mut identity = format!("Holder: session {}", h.id);
             if let Some(name) = &h.name {
-                let _ = write!(identity, " \u{201c}{name}\u{201d}");
+                let _ = write!(identity, " \"{name}\"");
             }
             if let Some(cwd) = &h.cwd {
-                let _ = write!(identity, " \u{b7} cwd {cwd}");
+                let _ = write!(identity, " - cwd {cwd}");
             }
             if let Some(model) = &h.model {
-                let _ = write!(identity, " \u{b7} model {model}");
+                let _ = write!(identity, " - model {model}");
             }
             format!(
-                "{identity} \u{b7} Attach instead: eukhe {} \u{b7} The file unlocks when that session exits",
+                "{identity} - Attach instead: eukhe {} - The file unlocks when that session exits",
                 quoted_resume_arg(&h.id)
             )
         }
         None if owner.starts_with("another process") => format!(
-            "The holder is {owner} \u{b7} It unlocks when that process exits \u{b7} Browse live sessions: eukhe agents"
+            "The holder is {owner} - It unlocks when that process exits - Browse live sessions: eukhe agents"
         ),
         // A session-id holder the roster cannot see (a leftover worker of a
         // dead daemon holding the runtime lease, or another daemon's
@@ -211,10 +211,10 @@ pub fn decorate_interactive_refusal(
         // around it (the holder's exit unlocks the file; a daemon boot
         // reaps same-socket leftovers, clearing the stale lease).
         None => format!(
-            "Holder: session {owner} (no worker on this daemon serves it - another daemon's worker or a leftover process holds the file) \u{b7} Restarting this daemon reaps same-socket leftovers \u{b7} The file unlocks when that process exits"
+            "Holder: session {owner} (no worker on this daemon serves it - another daemon's worker or a leftover process holds the file) - Restarting this daemon reaps same-socket leftovers - The file unlocks when that process exits"
         ),
     };
-    format!("{first} \u{b7} {guidance}")
+    format!("{first} - {guidance}")
 }
 
 /// The canonical form of a session path matching
@@ -279,7 +279,7 @@ mod tests {
             "Session is already active in holder-1: {}\n",
             file.display()
         )));
-        assert!(text.contains("Holder: session holder-1 \u{201c}lane work\u{201d} \u{b7} cwd /w"));
+        assert!(text.contains("Holder: session holder-1 \"lane work\" - cwd /w"));
         assert!(text.contains("Attach to it instead: eukhe --resume 'holder-1'"));
         assert!(text.contains("the file unlocks when that session exits"));
     }
@@ -337,7 +337,7 @@ mod tests {
             holder_from_roster(std::slice::from_ref(&row), &file).expect("the row answers");
         assert_eq!(holder.model.as_deref(), Some("z-ai/glm-5.3"));
         let text = already_active_error(&holder, &file);
-        assert!(text.contains("\u{b7} model z-ai/glm-5.3"), "{text}");
+        assert!(text.contains("- model z-ai/glm-5.3"), "{text}");
     }
 
     /// Roster-controlled fields cannot inject lines: every interpolated
@@ -399,7 +399,7 @@ mod decorate_tests {
             "the original line is verbatim: {text}"
         );
         assert!(
-            text.contains("Holder: session abc123 \u{201c}lane work\u{201d} \u{b7} cwd /w"),
+            text.contains("Holder: session abc123 \"lane work\" - cwd /w"),
             "{text}"
         );
         assert!(

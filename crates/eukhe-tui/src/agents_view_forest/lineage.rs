@@ -69,7 +69,7 @@ fn parent_reference_keys(record: &UnifiedRecord) -> Vec<String> {
 }
 
 /// The `parent` record's session file, live summary first, saved catalog
-/// row second (both serve absolute paths; an empty string is absent — a
+/// row second (both serve absolute paths; an empty string is absent -- a
 /// `--no-session` worker's in-memory store publishes one, and every other
 /// TUI accessor of the fact reads it the same way).
 fn parent_record_file(parent: &UnifiedRecord) -> Option<&str> {
@@ -110,7 +110,7 @@ pub(super) fn depth_consistent_parent(daemon: &Value, parent: &UnifiedRecord) ->
 }
 
 /// Whether `child` rolls up under `parent` (TS `isSubagentDescendantRecord`):
-/// agent lineage only — a branched/forked session links to its source but
+/// agent lineage only -- a branched/forked session links to its source but
 /// is a sibling chat, so it never nests or double-books totals. Resident
 /// children carry the subagent runtime kind; saved children go by depth.
 /// A live `top-level` runtime counts too when its opened file carries a
@@ -175,10 +175,10 @@ pub fn compute_rollups(records: &[UnifiedRecord]) -> HashMap<String, Rollup> {
         // The deleted-descendant bucket is read INDEPENDENTLY of the own
         // cost: an orchestrator parent with no own billable work (the
         // own-zero gate omits `usage` entirely) still bills its deleted
-        // descendants' spend — the bucket carried inside the own-cost
+        // descendants' spend -- the bucket carried inside the own-cost
         // Option would drop with it. The roster row (daemon) is the
-        // fresher writer between the two — the same `daemon ?? saved`
-        // precedence as the own cost below — so the title (roster rows
+        // fresher writer between the two -- the same `daemon ?? saved`
+        // precedence as the own cost below -- so the title (roster rows
         // only) and the agents view bill the same bucket.
         let deleted_descendants = records[*position]
             .daemon
@@ -266,7 +266,7 @@ fn scope_root_index(records: &[UnifiedRecord], scope: &AgentsViewScope) -> Optio
 }
 
 /// Restrict records to the scoped root and every descendant (TS
-/// `scopeToSessionSubtree`; the root itself is included — row building
+/// `scopeToSessionSubtree`; the root itself is included -- row building
 /// excludes it from the visible roots). `None` when the scope root is not
 /// in the record set.
 #[must_use]
@@ -347,7 +347,7 @@ pub fn has_session_children(records: &[UnifiedRecord], key: &SelectionKey) -> bo
 }
 
 /// The scope root's facts the scoped view renders and creates with:
-/// `child_depth` is the root's `rlmDepth + 1` (TS `getAgentsViewDepth`) —
+/// `child_depth` is the root's `rlmDepth + 1` (TS `getAgentsViewDepth`) --
 /// the view's depth label and the depth a session created in this scope
 /// runs at; `session_file` is the root's file exactly as the forest links
 /// children to it ([`parent_record_file`]); `cwd` is the root's directory.

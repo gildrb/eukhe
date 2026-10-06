@@ -798,7 +798,7 @@ fn pane_socket_acceptable_blocking(socket_target: &str) -> bool {
         // Log once per process (the pane state API is best-effort; a
         // hostile or misconfigured target must not spam the daemon log).
         eprintln!(
-            "herdr: the pane socket target {socket_target} failed the ownership fence — this session stays unreported"
+            "herdr: the pane socket target {socket_target} failed the ownership fence -- this session stays unreported"
         );
     }
     acceptable

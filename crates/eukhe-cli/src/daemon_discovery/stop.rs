@@ -50,7 +50,7 @@ pub(crate) fn run_ps(json: bool, root: &DaemonStateRoot) {
 }
 
 /// `doctor --fix` (TS `runReap`): clean up clearly-safe daemons. Returns the
-/// process exit code (always 0 — failures are reported as kept lines).
+/// process exit code (always 0 -- failures are reported as kept lines).
 pub(crate) fn run_reap(json: bool, root: &DaemonStateRoot) -> i32 {
     let daemons = discover_daemons(root);
     let mut reaped: Vec<(String, String)> = Vec::new();
@@ -179,7 +179,7 @@ pub(crate) fn run_shutdown_all(json: bool, force: bool, root: &DaemonStateRoot) 
         }
         ShutdownConfirmationPlan::TtyError => {
             // TS throws this out of `runShutdownAll` and the public-command
-            // wrapper turns the throw into the standard `Error: …` failure
+            // wrapper turns the throw into the standard `Error: ...` failure
             // (stderr + exit 1); only reachable once there are daemons to
             // stop, so an empty machine shuts down cleanly without a TTY.
             eprintln!(
@@ -385,7 +385,7 @@ fn stop_background_service(
 
 /// Verified force-kill for one daemon (the supervisor-side contract the
 /// worker-side `stop_tracked_process` already implements): the pid joins
-/// `handled_pids` and the socket file is removed only on confirmed death —
+/// `handled_pids` and the socket file is removed only on confirmed death --
 /// a daemon that survives SIGKILL is reported as failed, with its socket
 /// file deliberately kept so the invisible listener stays discoverable
 /// for the `--force` residual sweep and the doctor's re-probe.

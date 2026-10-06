@@ -218,7 +218,6 @@ fn options(
         session: SessionSelection::Attach("s1".to_string()),
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),

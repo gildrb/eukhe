@@ -1,15 +1,15 @@
-//! The print run's autonomous continuation loop — the in-run drive (the
+//! The print run's autonomous continuation loop -- the in-run drive (the
 //! #254 ambiguity, resolved against the TS binary).
 //!
 //! TS ruling (probed over the shared faux-provider harness,
 //! `eukhe --mode json`): the autonomous continuation rides the agent
 //! loop's natural-turn-end hook (`getContinuationMessages` -> the
 //! autonomous arm of `_getContinuationMessages`), so the continuation
-//! churns INSIDE the one prompt wait — `turn_end -> turn_start` with the
+//! churns INSIDE the one prompt wait -- `turn_end -> turn_start` with the
 //! continuation user row's message pair between them, no
 //! `agent_start`/`agent_end` between continuation turns, one
 //! `agent_end` per prompt wait. What ends the loop: the driver's stop
-//! decisions (a passing gate, an exhausted limit) or `/autonomous off` —
+//! decisions (a passing gate, an exhausted limit) or `/autonomous off` --
 //! the stop never writes a row or a stream frame (the headless exit
 //! contract reports it); a threshold compaction due at the settled turn
 //! queues the continuation as a `followUp` admission (TS
@@ -34,8 +34,8 @@ use crate::headless_autonomous::HeadlessAutonomous;
 use crate::print_goal::{NaturalContinuation, PrintGoalSurface};
 
 /// Install the composed natural-turn-end continuation hook (TS
-/// `_getContinuationMessages`): the goal arm runs first — an active goal's
-/// mint owns the turn, its gates end the run — and the autonomous arm
+/// `_getContinuationMessages`): the goal arm runs first -- an active goal's
+/// mint owns the turn, its gates end the run -- and the autonomous arm
 /// consults only on the fall-through. The gates (queued input, a pending
 /// requested compaction, a threshold compaction due) apply to both arms;
 /// the threshold arm mints the owed continuation (the goal's, or the

@@ -151,7 +151,7 @@ pub async fn mcp_login(
                 config.label
             );
         };
-        ui.on_progress("Registering OAuth client…");
+        ui.on_progress("Registering OAuth client...");
         register_client(http, registration_endpoint, &config.label).await?
     };
 
@@ -265,7 +265,7 @@ pub async fn mcp_login(
         bail!("OAuth state mismatch");
     }
 
-    ui.on_progress("Exchanging authorization code for tokens…");
+    ui.on_progress("Exchanging authorization code for tokens...");
     let mut token_params: Vec<(String, String)> = vec![
         ("grant_type".to_string(), "authorization_code".to_string()),
         ("code".to_string(), result.code),

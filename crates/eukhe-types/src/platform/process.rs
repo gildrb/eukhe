@@ -154,18 +154,68 @@ pub fn process_executable_path(pid: u32) -> Option<std::path::PathBuf> {
 /// process in the group stops, and execution continues after SIGCONT.
 /// Errors when the signal could not be delivered.
 ///
+/// The group signal alone does not stop the CALLING thread before
+/// `kill` returns: the kernel hands a process-directed stop to any one
+/// thread, and in a multi-threaded process the caller can run on (into
+/// the resume path, re-arming raw mode on the shell's terminal) until the
+/// group stop reaches it. So the caller blocks SIGTSTP around the group
+/// signal, queues a thread-directed SIGTSTP on itself, and unblocks: the
+/// unblock cannot return before this thread stops (it either joins the
+/// group stop already in progress or starts it with its own signal).
+/// SIGCONT discards every stop signal still pending, so the process
+/// stops once.
+///
 /// # Errors
 ///
-/// Returns an error when delivering `SIGTSTP` to the process group fails;
-/// the error carries the last OS error.
+/// Returns an error when delivering `SIGTSTP` to the process group or to
+/// the calling thread fails, or when the thread's signal mask cannot be
+/// changed; the error carries the OS error.
 pub fn stop_own_process_group() -> anyhow::Result<()> {
+    // SAFETY: plain sigset construction and a thread-mask change on the
+    // calling thread; `previous` receives the mask restored below.
+    let previous = unsafe {
+        let mut tstp: libc::sigset_t = std::mem::zeroed();
+        let mut previous: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&raw mut tstp);
+        libc::sigaddset(&raw mut tstp, libc::SIGTSTP);
+        let rc = libc::pthread_sigmask(libc::SIG_BLOCK, &raw const tstp, &raw mut previous);
+        if rc != 0 {
+            anyhow::bail!(
+                "blocking SIGTSTP failed: {}",
+                std::io::Error::from_raw_os_error(rc)
+            );
+        }
+        previous
+    };
     // SAFETY: delivers SIGTSTP to the caller's own process group; the
     // default disposition stops it, exactly like the terminal's own
-    // Ctrl+Z (ISIG) would.
-    if unsafe { libc::kill(0, libc::SIGTSTP) } != 0 {
-        anyhow::bail!(
+    // Ctrl+Z (ISIG) would. On success, queues SIGTSTP on the calling
+    // thread itself (a valid handle from `pthread_self`); it stays
+    // pending until the unblock below.
+    let delivered = if unsafe { libc::kill(0, libc::SIGTSTP) } != 0 {
+        Err(anyhow::anyhow!(
             "stopping the process group failed: {}",
             std::io::Error::last_os_error()
+        ))
+    } else {
+        match unsafe { libc::pthread_kill(libc::pthread_self(), libc::SIGTSTP) } {
+            0 => Ok(()),
+            rc => Err(anyhow::anyhow!(
+                "stopping the calling thread failed: {}",
+                std::io::Error::from_raw_os_error(rc)
+            )),
+        }
+    };
+    // SAFETY: restores the caller's previous thread mask; a queued stop
+    // lands before this call returns.
+    let restore = unsafe {
+        libc::pthread_sigmask(libc::SIG_SETMASK, &raw const previous, std::ptr::null_mut())
+    };
+    delivered?;
+    if restore != 0 {
+        anyhow::bail!(
+            "restoring the signal mask failed: {}",
+            std::io::Error::from_raw_os_error(restore)
         );
     }
     Ok(())

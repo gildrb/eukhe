@@ -239,7 +239,7 @@ async fn ensure_kernel_python_uncached(
             return Ok(python);
         }
         let had_venv = venv.exists();
-        options.report("› setting up python kernel (one-time, ~30s)…");
+        options.report("> setting up python kernel (one-time, ~30s)...");
         if had_venv {
             options.report("rebuilding kernel venv");
             std::fs::remove_dir_all(&venv)
@@ -251,7 +251,7 @@ async fn ensure_kernel_python_uncached(
     .await;
     drop(release_lock);
     if result.is_ok() {
-        options.report("✓ ready");
+        options.report("ok ready");
     }
     result.map_err(|error| format_bootstrap_failure(&error))
 }

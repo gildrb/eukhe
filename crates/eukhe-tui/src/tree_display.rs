@@ -107,7 +107,7 @@ pub fn user_entry_text(entry: &FileEntry) -> Option<String> {
     }
 }
 
-/// One tool-call row: `[edit: ~/path]`, `[bash: cmd…]`, `[ipython: code…]`,
+/// One tool-call row: `[edit: ~/path]`, `[bash: cmd...]`, `[ipython: code...]`,
 /// or the truncated-JSON fallback (TS `formatToolCall`).
 fn format_tool_call(theme: &Theme, name: &str, arguments: &Value) -> Line {
     let shorten_path = |p: &str| -> String {

@@ -8,7 +8,7 @@
 //! `auth.json` wire shape, and a stored credential makes the
 //! provider's subscription models resolvable.
 //!
-//! Cancellation (#2770): the panel handle's shared flag is the seam —
+//! Cancellation (#2770): the panel handle's shared flag is the seam --
 //! the driving pane marks it on exit and each flow checks it between
 //! its own poll steps (the flows check it again before the credential
 //! write), so an exited pane never lands a credential (a task abort
@@ -61,7 +61,7 @@ impl OAuthLoginUi for PanelSubscriptionLoginUi {
         eukhe_core::platform::browser::open_in_browser(url);
         if self.provider_id == GITHUB_COPILOT_PROVIDER_ID {
             // TS `showWaiting` (the dialog's own method, no onboarding
-            // guard — never the `onProgress` chatter arm the onboarding
+            // guard -- never the `onProgress` chatter arm the onboarding
             // block drops).
             self.panel.waiting(COPILOT_WAITING);
         }
@@ -97,7 +97,7 @@ impl OAuthLoginUi for PanelSubscriptionLoginUi {
     }
 
     fn on_progress(&self, message: &str) {
-        // TS `showLoginDialog`'s `onProgress` arm is unguarded chatter —
+        // TS `showLoginDialog`'s `onProgress` arm is unguarded chatter --
         // a direct `dialog.showProgress` line: renders on every surface.
         self.panel.progress_line(message);
     }
@@ -329,7 +329,7 @@ mod tests {
         }
     }
 
-    /// One scripted prompt answer: a value (blank included — TS
+    /// One scripted prompt answer: a value (blank included -- TS
     /// `allowEmpty`'s blank entry) or a cancel.
     enum Answer {
         Value(String),
@@ -525,7 +525,7 @@ mod tests {
     }
 
     /// The Anthropic login's run: the flow binds its registered callback
-    /// port. Skip when another process holds the port — the flow-level
+    /// port. Skip when another process holds the port -- the flow-level
     /// tests cover the race; this test covers the store's wire shape.
     #[tokio::test]
     async fn the_anthropic_login_stores_the_credential_and_reports_the_ts_status() {
@@ -572,7 +572,7 @@ mod tests {
     }
 
     /// A cancelled pane never receives the credential (#2770: no write
-    /// after the exit) — the regression test for the abort-cleanup
+    /// after the exit) -- the regression test for the abort-cleanup
     /// contract.
     #[tokio::test]
     async fn a_cancelled_pane_writes_no_credential() {

@@ -14,7 +14,7 @@ mod wrapping;
 mod wrapping_tests;
 
 /// Truncate to a display-width budget and pad with spaces to exactly
-/// `width` columns — grapheme-aware (multi-codepoint clusters such as
+/// `width` columns -- grapheme-aware (multi-codepoint clusters such as
 /// `\u{1f468}\u{200d}\u{1f469}...` measure as one cell through
 /// [`grapheme_width`], never per scalar): the table cells stay aligned.
 #[must_use]
@@ -234,7 +234,7 @@ fn is_invisible(c: char) -> bool {
 }
 
 /// TS `\p{Mark}` (Mn|Mc|Me). unicode-width only zeroes Mn/Me, so spacing
-/// marks (Devanagari U+0903, Bengali U+0983, …) need the category lookup to
+/// marks (Devanagari U+0903, Bengali U+0983, ...) need the category lookup to
 /// measure zero like TS's zeroWidthRegex.
 fn is_mark(c: char) -> bool {
     c.general_category_group() == GeneralCategoryGroup::Mark
@@ -277,14 +277,14 @@ fn is_zero_class_char(c: char) -> bool {
 
 /// Char classes of the TS `leadingNonPrintingRegex` strip set:
 /// `\p{DIC}|\p{Control}|\p{Format}|\p{Mark}|\p{Surrogate}`. The Format
-/// term contributes the prepended concatenation marks (U+0600, …), the only
+/// term contributes the prepended concatenation marks (U+0600, ...), the only
 /// width-1 format chars unicode-width reports.
 fn is_leading_nonprinting(c: char) -> bool {
     is_zero_class_char(c) || c.general_category() == GeneralCategory::Format
 }
 
 /// Single-codepoint RGI emoji: TS `\p{RGI_Emoji}` matches a bare codepoint
-/// exactly when `Emoji_Presentation=Yes` (`⭐`, `⌚`, `🀄`, the flag RIs, …).
+/// exactly when `Emoji_Presentation=Yes` (`⭐`, `⌚`, `🀄`, the flag RIs, ...).
 fn is_emoji_presentation(c: char) -> bool {
     matches!(
         c.emoji_status(),
@@ -371,7 +371,7 @@ fn is_rgi_emoji_cluster(first: char, g: &str) -> bool {
     if g.contains('\u{fe0f}') {
         // VS16 presentation / keycap sequence (`™️`, `©️`, `#️⃣`, `😀️`):
         // RGI contains base+VS16 exactly for Emoji=YES bases. Non-emoji
-        // bases with a stray VS16 (`☐️`) fall through to the base width.
+        // bases with a stray VS16 (`[ ]️`) fall through to the base width.
         return first.is_emoji_char() || keycap_base(first);
     }
     // Emoji + skin tone modifier (no VS16, no ZWJ).
@@ -391,7 +391,7 @@ pub fn line_width(line: &[Span]) -> usize {
 pub fn is_whitespace_char(c: char) -> bool {
     // TS `isWhitespaceChar` tests JS /\s/: same set as Unicode White_Space
     // except the BOM (U+FEFF) counts as whitespace and NEL (U+0085) does
-    // not — the wrap-opportunity logic in wordWrapLine depends on the
+    // not -- the wrap-opportunity logic in wordWrapLine depends on the
     // distinction (a FEFF cluster records a break opportunity).
     c == '\u{feff}' || (c != '\u{0085}' && c.is_whitespace())
 }
@@ -409,10 +409,10 @@ pub fn is_punctuation_char(c: char) -> bool {
 /// compatibility decompositions have the same cell width but avoid
 /// stale-cell artifacts; tabs expand to three spaces at paint.
 #[must_use]
-pub fn normalize_terminal_output(s: &str) -> String {
+pub fn normalize_terminal_output(s: &str) -> std::borrow::Cow<'_, str> {
     let has_thai_lao_am = s.contains('\u{0e33}') || s.contains('\u{0eb3}');
     if !has_thai_lao_am && !s.contains('\t') {
-        return s.to_string();
+        return std::borrow::Cow::Borrowed(s);
     }
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
@@ -423,7 +423,7 @@ pub fn normalize_terminal_output(s: &str) -> String {
             c => out.push(c),
         }
     }
-    out
+    std::borrow::Cow::Owned(out)
 }
 
 /// Strip a leading run of zero-width/format chars (approximation of the TS
@@ -494,11 +494,11 @@ pub fn truncate_line(line: &Line, max_width: usize, ellipsis: &str) -> Line {
     out
 }
 
-fn ellipsis_span_style(line: &Line) -> ratatui::style::Style {
+fn ellipsis_span_style(line: &Line) -> crate::style::Style {
     line.last().map(|s| s.style).unwrap_or_default()
 }
 
-fn push_char(out: &mut Line, style: ratatui::style::Style, c: char) {
+fn push_char(out: &mut Line, style: crate::style::Style, c: char) {
     if let Some(last) = out.last_mut() {
         if last.style == style {
             last.content.push(c);
@@ -515,20 +515,6 @@ fn push_char(out: &mut Line, style: ratatui::style::Style, c: char) {
 #[must_use]
 pub fn wrap_line(line: &Line, width: usize) -> Vec<Line> {
     wrapping::render(line, width)
-}
-
-/// Exact row count of [`wrap_line`] without constructing output lines or spans.
-pub(crate) fn wrapped_line_count(line: &Line, width: usize) -> usize {
-    wrapping::count_line(line, width)
-}
-
-/// Count wrapping over borrowed span contents, preserving run boundaries.
-/// Newlines are not split, matching [`wrap_line`] rather than [`wrap_text`].
-pub(crate) fn wrapped_runs_count<'a>(
-    runs: impl IntoIterator<Item = &'a str>,
-    width: usize,
-) -> usize {
-    wrapping::count_runs(runs, width)
 }
 
 /// Exact row count of [`wrap_text`] without constructing output lines or spans.
@@ -551,7 +537,7 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<Line> {
 }
 
 /// Slice a line by visible columns `[start, start+length)` (the TS
-/// `sliceByColumn` default): whole grapheme clusters in or out — a cluster
+/// `sliceByColumn` default): whole grapheme clusters in or out -- a cluster
 /// whose start column is in range is included even when it straddles the
 /// end boundary.
 #[must_use]
@@ -623,7 +609,7 @@ mod tests {
     #[test]
     fn halfwidth_sound_marks_count_one_column() {
         // TS `graphemeWidth` counts U+FF9E/U+FF9F (EastAsianWidth H) as
-        // one column each — the prompt-token mask pads its placeholders
+        // one column each -- the prompt-token mask pads its placeholders
         // with FF9E per extra column, so the layout wrap must count it.
         assert_eq!(char_width('\u{FF9E}'), 1);
         assert_eq!(char_width('\u{FF9F}'), 1);
@@ -648,22 +634,24 @@ mod tests {
     #[test]
     fn truncate_to_width_keeps_the_ellipsis_inside_the_budget() {
         // Fits: unchanged.
-        assert_eq!(truncate_to_width("hello", 8, "…"), "hello");
-        assert_eq!(truncate_to_width("", 8, "…"), "");
-        assert_eq!(truncate_to_width("x", 0, "…"), "");
-        // The kept prefix leaves room for the ellipsis: 16 + 43 + 1 = 60.
-        let recap = format!("running tools \u{b7} {}", "a".repeat(100));
+        let ellipsis = crate::glyphs::ELLIPSIS;
+        assert_eq!(truncate_to_width("hello", 8, ellipsis), "hello");
+        assert_eq!(truncate_to_width("", 8, ellipsis), "");
+        assert_eq!(truncate_to_width("x", 0, ellipsis), "");
+        // The kept prefix leaves room for the ellipsis: 16 + 41 + 3 = 60.
+        let recap = format!("running tools - {}", "a".repeat(100));
         assert_eq!(
-            truncate_to_width(&recap, 60, "…"),
-            format!("running tools \u{b7} {}…", "a".repeat(43))
+            truncate_to_width(&recap, 60, ellipsis),
+            format!("running tools - {}...", "a".repeat(41))
         );
-        // Wide glyphs count their terminal columns: 29 rockets (58) + "…".
+        // Wide glyphs count their terminal columns: 28 rockets (56) + "..."
+        // = 59; a 29th rocket would overflow.
         assert_eq!(
-            truncate_to_width(&"\u{1f680}".repeat(40), 60, "…"),
-            format!("{}…", "\u{1f680}".repeat(29))
+            truncate_to_width(&"\u{1f680}".repeat(40), 60, ellipsis),
+            format!("{}...", "\u{1f680}".repeat(28))
         );
         // A budget too small for the ellipsis clips the ellipsis.
-        assert_eq!(truncate_to_width("abcdef", 1, "…"), "\u{2026}");
+        assert_eq!(truncate_to_width("abcdef", 1, ellipsis), ".");
         assert_eq!(truncate_to_width("abcdef", 2, "..."), "..");
         // An empty ellipsis is a hard truncate at the budget.
         assert_eq!(truncate_to_width("abcdef", 4, ""), "abcd");

@@ -131,7 +131,7 @@ async fn login_options_list_providers_only() {
     let rows = auth.login_options().await;
     // The TS OAuth registry rows render; every subscription flow is
     // ported, so every row selects (the flows answer through the
-    // panel — never an after-selection error wall).
+    // panel -- never an after-selection error wall).
     for (id, name) in SUBSCRIPTION_PROVIDERS {
         let row = rows
             .iter()
@@ -142,7 +142,7 @@ async fn login_options_list_providers_only() {
             "the {id} row's flow is ported and selectable"
         );
     }
-    // The operator's 2026-09-24 directive: /login is providers only —
+    // The operator's 2026-09-24 directive: /login is providers only --
     // the service rows (MCP OAuth integrations, the web search
     // credential) never appear; the /mcp view owns MCP logins.
     assert!(!rows.iter().any(|row| row.id == "serper"));

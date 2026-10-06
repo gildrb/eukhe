@@ -264,7 +264,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -343,7 +342,7 @@ fn heartbeats_exit_plan(exit: KeyCode) -> Vec<HeadlessStep> {
         // The barrier pins the panel's content (its row label); the
         // navigation itself steps the rendered groups, empty ones
         // included, so it never depends on the feed's landing order.
-        wait_render("\u{25f7} 1 heartbeat"),
+        wait_render(" 1 heartbeat"),
         alt_a(),
         HeadlessStep::WaitMs(150),
         // The dock's focus starts on the subagents section (the default
@@ -366,7 +365,7 @@ fn shells_exit_plan(exit: KeyCode) -> Vec<HeadlessStep> {
     vec![
         // The barrier pins the panel's content (its row); the
         // navigation steps the rendered groups, empty ones included.
-        wait_render("\u{25b8} 1 shell"),
+        wait_render(" 1 shell"),
         alt_a(),
         HeadlessStep::WaitMs(150),
         // Subagents -> Heartbeates -> the Shells item: one press, one

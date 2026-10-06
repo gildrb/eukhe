@@ -65,7 +65,7 @@ impl PromptStashState {
 
     /// Take the head draft whatever its restore semantics, promoting the
     /// next queued draft to the head (TS `restorePromptStashIfEditorEmpty`
-    /// with the default `stash` argument — the manual `app.prompt.stash`
+    /// with the default `stash` argument -- the manual `app.prompt.stash`
     /// arm and the post-submit restore: the key or an admitted submit
     /// returns whatever draft the session holds, manual or auto). The
     /// caller owns the editor-empty condition.
@@ -81,7 +81,7 @@ impl PromptStashState {
 
     /// Take the head draft when it is a restore-on-open auto-stash (TS
     /// `restorePromptStashOnOpen`'s `restoreOnOpen` gate: a manual stash
-    /// never lands on an open or a switch — only its own key restores
+    /// never lands on an open or a switch -- only its own key restores
     /// it), promoting the next queued draft to the head. The caller owns
     /// the editor-empty condition.
     pub fn take_head_restore_on_open(&mut self) -> Option<PromptStash> {
@@ -99,7 +99,7 @@ impl PromptStashState {
 /// The per-process store (TS `ClientPromptStashStore`): each chat binds the
 /// state of the session it renders; a binding that ends up empty releases
 /// with it. Entry identity is the map slot, so a release can only drop the
-/// state the binding created — never a draft another view stashed.
+/// state the binding created -- never a draft another view stashed.
 #[derive(Debug, Default)]
 pub struct PromptStashStore {
     states: HashMap<String, PromptStashState>,
@@ -211,7 +211,7 @@ mod tests {
     fn take_head_restores_a_manual_stash_and_promotes_the_queue() {
         // TS `restorePromptStashIfEditorEmpty`'s manual arm (the
         // `app.prompt.stash` key): the head returns whatever its restore
-        // semantics — a manual stash (restore_on_open unset) restores
+        // semantics -- a manual stash (restore_on_open unset) restores
         // here, while `take_head_restore_on_open` leaves it waiting.
         let mut store = PromptStashStore::default();
         let state = store.for_session("a");

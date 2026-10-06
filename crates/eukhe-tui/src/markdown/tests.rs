@@ -3,7 +3,7 @@ use super::*;
 /// The pre-fix overlong-word break loop, verbatim from origin/rust
 /// (the quadratic re-measure version): the output oracle for
 /// [`wrap_spans_into`]'s arithmetic-tracked rewrite. Every corpus below
-/// must wrap to byte- and style-identical `Line`s on both algorithms —
+/// must wrap to byte- and style-identical `Line`s on both algorithms --
 /// the rewrite is a complexity fix, never a layout change. The oracle
 /// stays quadratic, so differential corpora are bounded (~4KiB
 /// tokens); the linear rewrite gets its own unbounded stress test.
@@ -109,9 +109,8 @@ fn legacy_wrap_spans(spans: &[Span], width: usize, out: &mut Vec<Line>) {
     legacy_wrap_spans_into(spans, width, &mut geometry::WrapOutput::render(out));
 }
 
-/// Full-structure parity: every span's content AND style, and the row
-/// count the layout caches must equal the rendered rows on both the
-/// legacy oracle and the rewrite.
+/// Full-structure parity: every span's content AND style must equal the
+/// rendered rows on both the legacy oracle and the rewrite.
 fn assert_wrap_parity(spans: &[Span], widths: &[usize]) {
     for &width in widths {
         let mut legacy: Vec<Line> = Vec::new();
@@ -121,13 +120,6 @@ fn assert_wrap_parity(spans: &[Span], widths: &[usize]) {
         assert_eq!(
             legacy, current,
             "wrap parity (styled spans) broke at width {width}: spans={spans:?}"
-        );
-        let mut counter = geometry::WrapOutput::count();
-        wrap_spans_into(spans, width, &mut counter);
-        assert_eq!(
-            counter.rows,
-            current.len(),
-            "row count vs render broke at width {width}: spans={spans:?}"
         );
     }
 }
@@ -220,8 +212,8 @@ fn wrap_stress_megabyte_monoword_candidate_only() {
     // The rewrite must wrap a 1MiB unbroken token in one linear pass:
     // content round-trips exactly (hard breaks never trim) and the
     // ASCII row count is exact. This test finishes only because the
-    // rewrite is linear — the legacy loop needed ~30s for this input
-    // (the first-frame transcript blow-up) — but the speed evidence
+    // rewrite is linear -- the legacy loop needed ~30s for this input
+    // (the first-frame transcript blow-up) -- but the speed evidence
     // belongs to the recorded benchmark pair, not a wall-clock assert
     // in a deterministic unit test.
     let token = "x".repeat(1 << 20);
@@ -277,8 +269,8 @@ fn heading_link_wraps_keeps_the_affordance_and_counts() {
         .map(|s| crate::hyperlinks::strip_osc8_content(&s.content))
         .collect();
     assert_eq!(visible, "docs [https://x.dev/a]");
-    // A narrow heading wraps like any row: the bracket — closing `]`
-    // included — lands on its own row instead of clipping, and the
+    // A narrow heading wraps like any row: the bracket -- closing `]`
+    // included -- lands on its own row instead of clipping, and the
     // count==paint row math holds at every width.
     let rows = render_markdown("# [docs](https://x.dev/a)", 20, &style);
     assert_eq!(rows.len(), 2, "rows: {rows:?}");
@@ -294,13 +286,6 @@ fn heading_link_wraps_keeps_the_affordance_and_counts() {
         visible,
         vec!["docs".to_string(), "[https://x.dev/a]".to_string()]
     );
-    for width in 1..40 {
-        assert_eq!(
-            markdown_row_count("# [docs](https://x.dev/a)", width, &style),
-            render_markdown("# [docs](https://x.dev/a)", width, &style).len(),
-            "count==paint at width {width}"
-        );
-    }
     // The clickable region survives the wrap: the label cells only.
     let ranges = crate::hyperlinks::frame_link_ranges(&rows);
     assert_eq!(ranges.len(), 1, "one clickable region: {ranges:?}");
@@ -380,7 +365,7 @@ fn consecutive_blank_lines_render_one_space_row() {
 fn soft_breaks_render_one_row_per_line() {
     // TS ground truth (marked + `applyTextWithNewlines`): the soft
     // newlines survive into the paragraph's rendered string and the
-    // width pass breaks there — "one\ntwo" is one paragraph, two rows
+    // width pass breaks there -- "one\ntwo" is one paragraph, two rows
     // (verified against the TS product's `?` quick-shortcut guide).
     let style = MarkdownStyle::default();
     let lines = render_markdown("one\ntwo", 40, &style);
@@ -503,7 +488,7 @@ fn streaming_frames_cache_only_settled_blocks() {
 
 /// The key must cover every `render_block` input: list `ordered`/
 /// `start` (the markers are stripped from `block.lines`), the code
-/// fence lang, and the following block's trailing-blank decision —
+/// fence lang, and the following block's trailing-blank decision --
 /// a hole would replay one doc's rows under another. One shared
 /// cache across all docs, so a collision can actually serve, and
 /// each cached render compared against the uncached one.
@@ -566,7 +551,6 @@ fn long_code_rows_wrap_at_the_width() {
         );
         assert!(code_rows.iter().all(|row| str_width(row) <= 40), "{rows:?}");
         assert_eq!(code_rows.concat().replace(' ', ""), code.replace(' ', ""));
-        assert_eq!(markdown_row_count(&text, 40, &style), rows.len());
     }
 }
 
@@ -690,7 +674,7 @@ fn balanced_parens_in_a_link_destination_stay_intact() {
 fn escaped_parens_never_open_or_close_the_link_destination() {
     // A backslash-escaped paren rides through the destination verbatim
     // without counting toward the paren balance (CommonMark): `\(` does
-    // not swallow the real closer, and `\)` alone never closes —
+    // not swallow the real closer, and `\)` alone never closes --
     // `[a](b\)` is plain text, exactly like the reference parser.
     crate::hyperlinks::set_hyperlinks_override(Some(false));
     let style = MarkdownStyle::default();
@@ -735,18 +719,10 @@ fn the_url_bracket_scrubs_terminal_control_bytes() {
 }
 
 #[test]
-fn link_url_bracket_wraps_and_counts_like_text() {
+fn link_url_bracket_wraps_like_text() {
     crate::hyperlinks::set_hyperlinks_override(Some(true));
     let style = MarkdownStyle::default();
     let text = "see [docs](https://x.dev/a) tail";
-    // The bracketed URL is visible text: the width accounting includes
-    // it, so the row count and the painted rows agree at every width
-    // (the count==paint invariant, the layout math).
-    for width in 1..48 {
-        let rows = markdown_row_count(text, width, &style);
-        let painted = render_markdown(text, width, &style);
-        assert_eq!(painted.len(), rows, "count==paint at width {width}");
-    }
     // At width 18 the bracket cannot share the row with "see docs"
     // (8 + 17 > 18), so it wraps onto its own row; the tail follows it.
     let rows = render_markdown(text, 18, &style);
@@ -802,14 +778,6 @@ fn long_link_url_wraps_without_breaking_the_clickable_region() {
     // leading/trailing space), so the bracket word begins at the row
     // start: `docs` then the bracketed URL across the rows.
     assert_eq!(visible, format!("docs[{url}]"));
-    // Count==paint with the long bracket at every wrap width.
-    for width in 1..40 {
-        assert_eq!(
-            markdown_row_count(&format!("[docs]({url})"), width, &style),
-            render_markdown(&format!("[docs]({url})"), width, &style).len(),
-            "count==paint at width {width}"
-        );
-    }
     crate::hyperlinks::set_hyperlinks_override(None);
 }
 
@@ -1043,11 +1011,11 @@ fn table_block_renders_boxed_rows() {
     assert_eq!(
         flat,
         vec![
-            "┌───┬───┐".to_string(),
-            "│ a │ b │".to_string(),
-            "├───┼───┤".to_string(),
-            "│ 1 │ 2 │".to_string(),
-            "└───┴───┘".to_string(),
+            "+---+---+".to_string(),
+            "| a | b |".to_string(),
+            "+---+---+".to_string(),
+            "| 1 | 2 |".to_string(),
+            "+---+---+".to_string(),
             String::new(),
             "after".to_string(),
         ]
@@ -1064,7 +1032,7 @@ fn styled_span_boundaries_keep_their_spaces() {
     // Whitespace runs keep their length across spans: TS
     // `splitIntoTokensWithAnsi` holds each run as ONE token and a
     // fitting line passes through unchanged (wrapSingleLine's
-    // visibleLength early return) — verified against the TS dist
+    // visibleLength early return) -- verified against the TS dist
     // (wrapTextWithAnsi renders "a b   c ...").
     let spans = render_inline("a **b**   c", &style);
     let wrapped = wrap_spans_to_text(&spans, 40);
@@ -1095,6 +1063,6 @@ fn wrapping() {
 fn quote_block() {
     let style = MarkdownStyle::default();
     let lines = render_markdown("> wisdom", 40, &style);
-    assert_eq!(lines[0][0].content, "▐ ");
+    assert_eq!(lines[0][0].content, "| ");
     assert_eq!(lines[0][1].content, "wisdom");
 }

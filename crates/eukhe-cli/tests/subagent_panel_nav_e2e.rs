@@ -236,7 +236,6 @@ fn session_options(
         session,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -339,7 +338,7 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
     // because the child remains browsable history.
     let attached = first_frame_of(&parent_run.frames, "subagent");
     assert!(
-        attached.contains("\u{25c6} 0 subagents"),
+        attached.contains("0 subagents"),
         "the unfocused dock shows the consolidated subagents segment:\n{attached}"
     );
     // The single Enter opened the scoped agents view directly: no
@@ -430,7 +429,6 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
     let child_plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 15_000 },
-            eukhe_tui::interactive::HeadlessStep::ScrollTop,
             eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
                 crossterm::event::KeyCode::Left,
                 crossterm::event::KeyModifiers::NONE,
@@ -445,7 +443,7 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
             .expect("child session run");
     let child_frame = frame_of(&child_run.frames, "work complete alpha");
     assert!(
-        child_frame.contains("\u{2190} manage  depth 1"),
+        child_frame.contains("left to manage  depth 1"),
         "the drilled-in child tray shows the manage hint and its depth:\n{child_frame}"
     );
     assert!(
@@ -454,10 +452,10 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
     );
 }
 
-/// The attached parent's top bar bills the ledger-seeded passive child's
+/// The attached parent's prompt-context row bills the ledger-seeded passive child's
 /// spend: the parent's own $1.00 plus the child's $0.30.
 #[tokio::test]
-async fn the_title_bills_a_passive_subagents_spend() {
+async fn the_prompt_context_bills_a_passive_subagents_spend() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
@@ -490,7 +488,7 @@ async fn the_title_bills_a_passive_subagents_spend() {
     }
 
     // The durable spawn edge: the roster surfaces the child as the
-    // parent's passive descendant, so the attached parent's title rolls
+    // parent's passive descendant, so the attached parent's chat label rolls
     // the child's spend up from the real daemon's seeded row.
     let ledger = eukhe_daemon::rlm_ledger::RlmSpawnLedger::new(&agent_dir, &session_dir, |_m| {});
     ledger
@@ -524,28 +522,28 @@ async fn the_title_bills_a_passive_subagents_spend() {
     let run = eukhe_tui::interactive::run_interactive(options, UiMode::Headless(plan))
         .await
         .expect("parent session run");
-    // The top bar row (render_top_bar): the chat name plus one cost span,
+    // The prompt-context row: the chat name plus one cost span,
     // the family rollup - the parent's own $1.00 plus the passive child's
     // $0.30 - with no split.
-    let top_bar = frame_of(&run.frames, "$1.30")
+    let context_row = frame_of(&run.frames, "$1.30")
         .lines()
-        .next()
-        .expect("the top bar row")
+        .find(|line| line.contains("$1.30"))
+        .expect("the prompt-context row")
         .to_string();
     assert!(
-        top_bar.contains("title bill parent") && top_bar.contains("$1.30"),
-        "the top bar bills the family rollup beside the chat name:\n{top_bar}"
+        context_row.contains("title bill parent"),
+        "the prompt-context row bills the family rollup beside the chat name:\n{context_row}"
     );
 }
 
-/// The attached parent's top bar bills a deleted subagent's spend: the
+/// The attached parent's prompt-context row bills a deleted subagent's spend: the
 /// RLM-deleted child keeps its transcript under session-artifacts (no
 /// catalog row exists for it), so its captured spend rides the parent's
 /// roster row through the deleted-descendant bucket. This test asserts
-/// the top bar; the agents-view row reads the same row through the same
+/// the prompt-context row; the agents-view row reads the same row through the same
 /// `compute_rollups`, so it bills the same number.
 #[tokio::test]
-async fn the_title_bills_a_deleted_subagents_spend() {
+async fn the_prompt_context_bills_a_deleted_subagents_spend() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
@@ -627,16 +625,16 @@ async fn the_title_bills_a_deleted_subagents_spend() {
     let run = eukhe_tui::interactive::run_interactive(options, UiMode::Headless(plan))
         .await
         .expect("parent session run");
-    // The top bar row (render_top_bar): the parent's own $1.00 plus the
+    // The prompt-context row: the parent's own $1.00 plus the
     // deleted child's $0.30, the family rollup - the child's spend
     // bills through the bucket even though no row exists for it.
-    let top_bar = frame_of(&run.frames, "$1.30")
+    let context_row = frame_of(&run.frames, "$1.30")
         .lines()
-        .next()
-        .expect("the top bar row")
+        .find(|line| line.contains("$1.30"))
+        .expect("the prompt-context row")
         .to_string();
     assert!(
-        top_bar.contains("title del parent") && top_bar.contains("$1.30"),
-        "the top bar bills the family rollup beside the chat name:\n{top_bar}"
+        context_row.contains("title del parent"),
+        "the prompt-context row bills the family rollup beside the chat name:\n{context_row}"
     );
 }

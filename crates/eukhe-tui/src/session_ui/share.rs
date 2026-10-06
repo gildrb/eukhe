@@ -1,5 +1,5 @@
 //! The share concern: the `/traces`, `/copy`, `/export`, and `/share`
-//! runs — the spawned one-way tasks and their note outcomes.
+//! runs -- the spawned one-way tasks and their note outcomes.
 use super::{
     export_share, key_event_to_id, AgentView, DaemonCommand, Duration, GhAuthStatus, GistOutcome,
     InfoContent, KeyEvent, Map, Result, SessionUi, ShareLoader, StatusKind, Value,
@@ -29,7 +29,7 @@ pub(super) struct TraceUploadAllRun {
     /// The sweep task; aborting it drops the engine's requests mid-flight
     /// (the engine's own cancel keeps the sleeps and workers bounded).
     task: tokio::task::JoinHandle<()>,
-    /// The cancel handle the clear key fires (TS `app.clear` → abort).
+    /// The cancel handle the clear key fires (TS `app.clear` -> abort).
     pub(super) cancel: crate::traces::TraceUploadCancel,
 }
 
@@ -49,7 +49,7 @@ impl SessionUi {
     /// `/traces [status|on|off|preview|upload|upload-current|upload-all|
     /// login]` (TS `handleTracesCommand`): the status block, the
     /// enable/disable settings writes, the preview, the one-shot upload,
-    /// the upload-all sweep, and the terminal login — the full TS command
+    /// the upload-all sweep, and the terminal login -- the full TS command
     /// family over the composition root's trace engine.
     pub(crate) async fn handle_traces_command(
         &mut self,
@@ -86,7 +86,7 @@ impl SessionUi {
                     &crate::traces::traces_base_url(),
                 );
                 // The info-display rows the `/session`-style commands
-                // share — in the read-only info panel (the operator's
+                // share -- in the read-only info panel (the operator's
                 // 2026-09-26 directive), never as transcript rows.
                 self.open_info_panel(view, None, InfoContent::Rows(rows));
                 self.track_menu_opened("traces", "command");
@@ -434,8 +434,8 @@ impl SessionUi {
     // ------------------------------------------------------------------
 
     /// `/export [path]` (TS `handleExportCommand`): export the session to
-    /// HTML — or, for an explicit `.jsonl` path, the current branch as a
-    /// JSONL file — and report the written path. The daemon owns the
+    /// HTML -- or, for an explicit `.jsonl` path, the current branch as a
+    /// JSONL file -- and report the written path. The daemon owns the
     /// export; failures surface as the TS error row.
     pub(crate) async fn handle_export_command(
         &mut self,
@@ -551,7 +551,7 @@ impl SessionUi {
     }
 
     /// A `/share` upload settled: drop the loader, clean the temp file, and
-    /// surface the TS rows — the share URL, or the failure. A late outcome
+    /// surface the TS rows -- the share URL, or the failure. A late outcome
     /// after a cancel is ignored (the run is gone, the cancel showed its
     /// own row).
     pub(crate) fn apply_share_outcome(&mut self, outcome: ShareNote, view: &mut AgentView) {

@@ -9,7 +9,7 @@ use super::{
 /// The armed stop-or-delete row (TS `pendingDeleteAgent` /
 /// `pendingKillSubagent`): which row waits on the second press, and the
 /// word its hint renders (`stop` while the row has live work, `delete`
-/// otherwise — TS `hasLiveWork`). The session key rides along so a
+/// otherwise -- TS `hasLiveWork`). The session key rides along so a
 /// roster replacement (the same identity, a NEW live session) retires
 /// the arm: the second press must confirm the session it will act on,
 /// never silently act on its replacement.
@@ -23,7 +23,7 @@ pub(super) struct PendingDelete {
 }
 
 /// One stop-or-delete dispatch the run loop executes (the wire variant
-/// follows the row kind — TS `handleDeleteSelected`'s branches).
+/// follows the row kind -- TS `handleDeleteSelected`'s branches).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum DeleteAction {
     /// A running subagent: stop it via its parent's session
@@ -79,7 +79,7 @@ impl DeleteAction {
     /// Whether the wire's own outcome fields say the effect actually
     /// happened (the honest-success check: a `cancelled: false` or a
     /// `deleted: false` in a `success` response means the command ran
-    /// but changed nothing — reported as such, never as success).
+    /// but changed nothing -- reported as such, never as success).
     pub(super) fn effect_happened(&self, response: &eukhe_types::daemon::DaemonResponse) -> bool {
         let Some(data) = response.data.as_ref() else {
             return true;
@@ -121,7 +121,7 @@ pub(super) fn no_effect_summary(data: Option<&serde_json::Value>) -> String {
 
 /// One stop-or-delete wire dispatch (TS `handleDeleteSelected`'s arms):
 /// the call runs off the key loop with a client clone and its outcome
-/// re-enters the loop as a `DeleteResult` status line — the live roster
+/// re-enters the loop as a `DeleteResult` status line -- the live roster
 /// push refreshes the rows behind it, so the stopped or deleted row
 /// leaves the list on the next roster event, not on the status itself.
 pub(super) fn spawn_delete_dispatch(
@@ -170,7 +170,7 @@ pub(super) fn spawn_delete_dispatch(
         };
         // The outcome's tone (TS `setStatusMessage`'s explicit tones):
         // a success reads muted, a no-effect stop warning, a failure
-        // error — the status line never re-derives it from the text.
+        // error -- the status line never re-derives it from the text.
         let (outcome, tone) = match client.request(request).await {
             Ok(response) if response.success && action.effect_happened(&response) => {
                 (action.success_message(), StatusTone::Muted)
@@ -219,8 +219,8 @@ pub(super) fn spawn_delete_dispatch(
 
 impl AgentsViewMode {
     /// The ctrl+x two-press grammar (TS `handleDeleteSelected`'s confirm
-    /// arms): a second press on the same row — with the same live-work
-    /// word it armed with — executes the stop-or-delete dispatch;
+    /// arms): a second press on the same row -- with the same live-work
+    /// word it armed with -- executes the stop-or-delete dispatch;
     /// anything else (re-)arms the confirm over the selected row.
     pub(super) fn confirm_delete_for_selected(&mut self, was_armed: Option<PendingDelete>) {
         let executes = was_armed.is_some_and(|pending| {
@@ -243,7 +243,7 @@ impl AgentsViewMode {
         match row.kind {
             RowKind::SubagentSummary | RowKind::Code => None,
             // An agent with a live session stops (TS `stopAgentForDeletion`
-            // keys on the session's existence — an idle-but-live row still
+            // keys on the session's existence -- an idle-but-live row still
             // stops, never deletes its file); a saved-only row deletes.
             RowKind::Agent if row.summary.get("activeSessionId").is_some() => row
                 .summary
@@ -296,7 +296,7 @@ impl AgentsViewMode {
 
     /// The session a child dispatch targets: the summary's
     /// parentActiveSessionId, else the parent row's live session (the
-    /// daemon scopes the child lookup by the parent's session — the
+    /// daemon scopes the child lookup by the parent's session -- the
     /// child's own activeSessionId is never the target).
     fn child_parent_session_key(&self, row: &AgentsViewRow) -> Option<String> {
         if let Some(parent_id) = row
@@ -318,7 +318,7 @@ impl AgentsViewMode {
             .map(str::to_string)
     }
 
-    /// The arm's session key: the session the execution itself targets —
+    /// The arm's session key: the session the execution itself targets --
     /// a child rides its parent's session, a live agent its own, a saved
     /// row its file. A roster change that swaps the key (a re-parented
     /// child above all) retires the confirm: the second press acts on
@@ -342,7 +342,7 @@ impl AgentsViewMode {
         if row.summary.get("rlmChildId").is_some() {
             // A child rides its own activity (TS `hasLiveWork` over the
             // child): the running section is its live work, an idle
-            // child deletes — the retained activeSessionId on an idle
+            // child deletes -- the retained activeSessionId on an idle
             // child is not live work.
             row.section == crate::agents_view_state::Section::Running
         } else {
@@ -395,7 +395,7 @@ impl AgentsViewMode {
                 name,
             });
         }
-        // Agent rows: a live session stops (idle-but-live included — TS
+        // Agent rows: a live session stops (idle-but-live included -- TS
         // `stopAgentForDeletion` keys on the session's existence); a
         // saved-only row deletes its file.
         match row.kind {

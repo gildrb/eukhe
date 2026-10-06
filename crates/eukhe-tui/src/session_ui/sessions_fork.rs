@@ -351,7 +351,6 @@ impl SessionUi {
             theme: String::new(),
             code_block_indent: self.code_block_indent.clone(),
             show_images: self.show_images,
-            fullscreen_mouse: self.fullscreen_mouse,
             tree_filter_mode: self.tree_filter_mode.wire_name().to_string(),
             branch_summary_skip_prompt: self.branch_summary_skip_prompt,
             version: String::new(),
@@ -397,7 +396,7 @@ impl SessionUi {
         // The listing renders in the read-only info panel (the
         // operator's 2026-09-26 directive): it no longer lands in the
         // transcript as a multi-line status row. The row content is
-        // unchanged — `/switch <n|id>` still resolves against the same
+        // unchanged -- `/switch <n|id>` still resolves against the same
         // cached rows.
         let raw = |text: String| vec![info_commands::ClientSpan { text, color: None }];
         let mut rows = vec![raw("live sessions:".to_string())];
@@ -464,7 +463,7 @@ impl SessionUi {
                 // stashed earlier) lands after the switch note, so the
                 // restore status is the row the back-to-back rewrite keeps
                 // (TS `showStatus` last-wins). Like a chat's opening
-                // restore, only an auto restore-on-open head lands here —
+                // restore, only an auto restore-on-open head lands here --
                 // a manually stashed draft waits for its own key.
                 self.restore_prompt_stash_if_editor_empty(view, true);
             }
@@ -531,7 +530,7 @@ pub(super) async fn create_session(
     // The client's Herdr pane identity (the allowlisted `HERDR_*` env this
     // process runs with, e.g. inside a Herdr-managed pane) travels on the
     // create ONLY: the session it creates reports for THIS pane, whatever
-    // tab the daemon booted in (attach adopts-if-absent instead — never
+    // tab the daemon booted in (attach adopts-if-absent instead -- never
     // rebinds).
     let client_env = {
         let env = eukhe_types::daemon::herdr_env::collect_client_env(|key| std::env::var(key).ok());
@@ -543,7 +542,7 @@ pub(super) async fn create_session(
             session_path,
             // A create names its session (`sessionPath`) or opens one
             // through the agents view; `continueRecent` stays absent
-            // (TS wire shape — the supervisor refuses it).
+            // (TS wire shape -- the supervisor refuses it).
             continue_recent: None,
             no_session: options.no_session.then_some(true),
             name: None,
@@ -585,7 +584,7 @@ async fn describe_session_open_failure(
 ) -> anyhow::Error {
     // Only a typed daemon rejection decorates (transport failures pass
     // through unchanged), and the RAW rejection message is what gets
-    // decorated — the typed wrapper's own display adds the framing
+    // decorated -- the typed wrapper's own display adds the framing
     // prefix exactly once.
     let Some((rejected, error_info)) = error
         .downcast_ref::<crate::daemon_client::RequestRejected>()
@@ -600,7 +599,7 @@ async fn describe_session_open_failure(
         return error;
     };
     // The live-roster probe is best-effort and BOUNDED: a stalled `list`
-    // must not hold the refusal for the daemon's full request timeout —
+    // must not hold the refusal for the daemon's full request timeout --
     // the startup hands off to the agents view promptly either way.
     let rows: Vec<Value> = tokio::time::timeout(
         std::time::Duration::from_secs(3),
@@ -624,7 +623,7 @@ async fn describe_session_open_failure(
         .or_else(|| crate::session_open_error::holder_by_id(&rows, &owner));
     // The daemon's ORIGINAL refusal line stays verbatim (never
     // reconstructed from a possibly-relative caller path) and the holder
-    // guidance rides the same line — the agents-view handoff renders the
+    // guidance rides the same line -- the agents-view handoff renders the
     // notice on a single status line, so a multiline decoration would
     // hide the holder and the next steps.
     let message =

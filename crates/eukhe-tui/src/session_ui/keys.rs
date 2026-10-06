@@ -1,30 +1,18 @@
-//! The keys concern: the terminal input grammar — key dispatch, mouse
-//! reports, paste, selection/auto-scroll, and the input-state seams.
+//! The keys concern: the terminal input grammar -- key dispatch, paste,
+//! and the input-state seams.
 use super::{
     key_event_to_id, AgentView, ChatEntry, DaemonCommand, DockFocusSource, Duration,
     EffortPickerAction, Instant, KeyEvent, Map, QueueBrowseDirection, QueueLane, Result, SessionUi,
     StatusKind, SubmitBehavior,
 };
+use crate::glyphs::WARN;
 
 /// How long the Ctrl+C exit hint arms the second-press exit (TS
 /// `EXIT_HINT_DURATION_MS`).
 const CTRL_C_EXIT_HINT_MS: u64 = 2_000;
-/// TS `SELECTION_AUTO_SCROLL_DELAY_MS`: how long a drag must hold the
-/// window edge before the auto-scroll starts.
-const SELECTION_AUTO_SCROLL_DELAY: Duration = Duration::from_millis(150);
 
 /// The double-Escape repeat window (TS `ESCAPE_REPEAT_WINDOW_MS`).
 const ESCAPE_REPEAT_WINDOW_MS: std::time::Duration = std::time::Duration::from_millis(500);
-
-/// One armed auto-scroll (TS `selectionAutoScrollTimer` state): the drag's
-/// last position and when the scroll window opened.
-#[derive(Debug, Clone)]
-pub(super) struct SelectionAutoScroll {
-    direction: isize,
-    row: usize,
-    col: usize,
-    started: Instant,
-}
 
 impl SessionUi {
     /// The OSC 52 sequences the headless run captured (TS writes them to
@@ -90,258 +78,15 @@ impl SessionUi {
             .filter(|until| std::time::Instant::now() < *until)
     }
 
-    /// A mouse report (TS `handleFullscreenInput`'s mouse branches):
-    /// wheel turns scroll the transcript window by three lines; a left
-    /// press starts a selection (transcript, or the frame surface when the
-    /// press is outside the window), a drag extends it with edge
-    /// auto-scroll, and a release copies the spanned text out through OSC
-    /// 52. A release without a drag opens the link under the press
-    /// position (TS `fullscreenPressedHyperlink`: terminals gate native
-    /// link handling while mouse reporting is active, so clicks the TUI
-    /// consumes must open their OSC 8 targets themselves), and with no
-    /// link there it fires the click target under the press (TS
-    /// `dispatchFullscreenClick`, the `click_dispatch` module): cards
-    /// toggle their own expansion, the editor's content rows place the
-    /// caret, and a picker's rows move its selection. Reports are consumed even while a picker, selector, or
-    /// loader owns the frame (the TS overlay-focus gate) — the wheel
-    /// never scrolls behind one, but its rows select; while tracking is
-    /// inactive every report is consumed without a dispatch. The
-    /// onboarding pane owns the frame the same way (TS's splash is a
-    /// 100% overlay): its rows select as frame regions and its links
-    /// open, but no transcript scrolls behind it.
-    pub(crate) fn handle_mouse(&mut self, event: crate::mouse::MouseEvent, view: &mut AgentView) {
-        if !crate::mouse_tracking::active() {
-            return;
-        }
-        // TS `isFullscreenOverlayFocused`: the `/model` and `/effort`
-        // pickers, the `/tree` and `/fork` selectors, the `/mcp`
-        // connections view, the `/share` loader, and the onboarding splash
-        // own the frame like the TS overlays.
-        let overlay_focused = view.model_picker.is_some()
-            || view.effort_picker.is_some()
-            || view.heartbeats_picker.is_some()
-            || view.goal_panel.is_some()
-            || view.bash_view.is_some()
-            || view.info_panel.is_some()
-            || view.tree_selector.is_some()
-            || view.fork_selector.is_some()
-            || view.share_loader.is_some()
-            || view.mcp_view.is_some()
-            || view.factory_view.is_some()
-            || view.onboarding.is_some();
-        // TS records the press state before the dispatch: a drag report
-        // marks the press, a plain press remembers the link under it.
-        let left = event.button == crate::mouse::BUTTON_LEFT;
-        let release_was_drag = left && !event.press && self.left_mouse_dragged;
-        // Screen cells are one-based in the report (TS passes `event.y - 1`).
-        let row = event.y.saturating_sub(1) as usize;
-        let col = event.x.saturating_sub(1) as usize;
-        if left && event.press {
-            self.left_mouse_dragged = event.motion;
-            if !event.motion {
-                self.pressed_hyperlink = view.hyperlink_at(row, col);
-                // A plain click re-arms the double-Esc tree shortcut the
-                // same way a non-Escape key does: a real interaction
-                // starts a fresh input chain.
-                self.escape_tree_shortcut_spent = false;
-            }
-        }
-        // Wheel turns scroll only on the session surface; a pane owns the
-        // frame, the turn is consumed without scrolling.
-        if let Some(delta) = crate::mouse::wheel_scroll_delta(&event) {
-            if !overlay_focused {
-                view.scroll_by(delta);
-                self.dirty = true;
-            }
-            return;
-        }
-        // A buttonless motion report is the hover (operator directive
-        // 2026-09-26: `?1003` any-event tracking delivers it): the
-        // hovered clickable card row records its hover state, and the
-        // frame re-renders only when that state changed — a motion burst
-        // across one row never schedules a render per report.
-        if event.button == crate::mouse::BUTTON_NONE && event.motion {
-            if view.note_hover(row, col) {
-                self.dirty = true;
-            }
-            return;
-        }
-        let left_press = event.press && left;
-        let mut open_pressed_link = false;
-        if overlay_focused {
-            // TS tries the frame surface first while an overlay owns the
-            // frame (its rows are the selectable spans), then the window.
-            self.stop_selection_auto_scroll();
-            if left_press && !event.motion {
-                self.record_pressed_click(view, &event);
-                if !view.begin_frame_selection(row, col) {
-                    view.begin_selection(row, col);
-                }
-                self.dirty = true;
-            } else if left_press && event.motion {
-                self.left_mouse_dragged = true;
-                view.extend_active_selection(row, col);
-                self.dirty = true;
-            } else if !event.press && view.has_selection() {
-                let text = view.end_active_selection();
-                if let Some(text) = text {
-                    self.copy_selection(&text, view);
-                }
-                self.dirty = true;
-            } else if !event.press {
-                view.clear_selection();
-                open_pressed_link = left && !event.motion && !release_was_drag;
-            }
-        } else if left_press && !event.motion {
-            self.stop_selection_auto_scroll();
-            self.record_pressed_click(view, &event);
-            // TS `beginSelection` then the `beginFrameSelection` fallback.
-            if !view.begin_selection(row, col) {
-                view.begin_frame_selection(row, col);
-            }
-            self.dirty = true;
-        } else if left_press && event.motion {
-            self.left_mouse_dragged = true;
-            view.extend_active_selection(row, col);
-            self.update_selection_auto_scroll(view, row, col);
-            self.dirty = true;
-        } else if !event.press && view.has_selection() {
-            self.stop_selection_auto_scroll();
-            let text = view.end_active_selection();
-            if let Some(text) = text {
-                self.copy_selection(&text, view);
-            }
-            self.dirty = true;
-        } else if !event.press {
-            self.stop_selection_auto_scroll();
-            view.clear_selection();
-            open_pressed_link = left && !event.motion && !release_was_drag;
-        }
-        // TS opens `fullscreenPressedHyperlink ?? hyperlinkAt(release)`
-        // on a plain left release: the pressed position wins, and a
-        // release over another link still opens that link (a plain click
-        // moves no cells). With no link there, the release fires the
-        // click target recorded at the press (TS `dispatchFullscreenClick`).
-        if open_pressed_link {
-            let url = self
-                .pressed_hyperlink
-                .take()
-                .or_else(|| view.hyperlink_at(row, col));
-            if let Some(url) = url {
-                self.open_hyperlink(&url);
-            } else if !event.shift && !event.alt && !event.ctrl {
-                // TS gates the click dispatch on the release's
-                // modifiers too: modified clicks stay selection-only.
-                self.dispatch_plain_click(view, row);
-            }
-        }
-        // TS clears the press state after every left release, so a later
-        // release can never open a stale press — the click target rides
-        // the same cleanup (a drag-selection release consumes nothing).
-        if left && !event.press {
-            self.left_mouse_dragged = false;
-            self.pressed_hyperlink = None;
-            self.pressed_click = None;
-        }
-    }
-
-    /// Open one clicked link (TS `openHyperlink`): the href guard admits
-    /// only web and file locations, then the platform opener launches it
-    /// fire-and-forget. A headless run has no terminal — and no browser to
-    /// hand one to — so it records the URL for its verifier instead.
-    fn open_hyperlink(&mut self, url: &str) {
-        let Some(href) = crate::hyperlinks::openable_href(url) else {
-            return;
-        };
-        self.opened_urls.push(href.clone());
-        if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-            crate::browser::open_in_browser(&href);
-        }
-    }
-
-    /// Copy a finished selection out (TS `copySelection` +
-    /// `copyFullscreenSelection`): OSC 52 works locally, over SSH, and
-    /// through tmux (`set-clipboard`), so the write goes straight to the
-    /// terminal; a headless run has no terminal and records the text for
-    /// its verifier instead. A successful copy surfaces the
-    /// "Copied selection to clipboard" action toast (the ephemeral
-    /// overlay, not the TS `showStatus` chat row — sanctioned divergence),
-    /// a failed write the failure row (TS `showError`).
-    fn copy_selection(&mut self, text: &str, view: &mut AgentView) {
-        use base64::Engine;
-        use std::io::Write;
-        let lines = text.lines().count().max(1);
-        self.copies.push(text.to_string());
-        self.track_selection(lines);
-        if !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-            self.toast("Copied selection to clipboard", view);
-            return;
-        }
-        let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
-        let mut out = std::io::stdout();
-        match out.write_all(format!("\x1b]52;c;{encoded}\x07").as_bytes()) {
-            Ok(()) => {
-                let _ = out.flush();
-                self.toast("Copied selection to clipboard", view);
-            }
-            Err(error) => {
-                self.error_row(&format!("Failed to copy selection: {error}"), view);
-            }
-        }
-    }
-
-    /// Arm, re-aim, or disarm the selection auto-scroll for a drag position
-    /// (TS `updateSelectionAutoScroll`).
-    fn update_selection_auto_scroll(&mut self, view: &AgentView, row: usize, col: usize) {
-        match view.selection_auto_scroll_direction(row) {
-            Some(direction) => match &mut self.selection_auto_scroll {
-                Some(armed) if armed.direction == direction => {
-                    armed.row = row;
-                    armed.col = col;
-                }
-                _ => {
-                    self.selection_auto_scroll = Some(SelectionAutoScroll {
-                        direction,
-                        row,
-                        col,
-                        started: Instant::now(),
-                    });
-                }
-            },
-            None => self.selection_auto_scroll = None,
-        }
-    }
-
-    /// Stop the selection auto-scroll (TS `stopSelectionAutoScroll`): every
-    /// non-drag input and each scroll edge case disarms it.
-    pub(crate) fn stop_selection_auto_scroll(&mut self) {
-        self.selection_auto_scroll = None;
-    }
-
-    /// Whether the selection auto-scroll driver is armed: the run loop's
-    /// quiet tick keys on it (an idle surface parks the tick, so this is
-    /// what tells it a drag is actually holding the edge).
-    pub(crate) fn selection_auto_scroll_armed(&self) -> bool {
-        self.selection_auto_scroll.is_some()
-    }
-
-    /// One idle tick of the selection auto-scroll (the run loop's 50 ms arm
-    /// stands in for TS's timer): after the 150 ms hold window, each tick
-    /// scrolls one line set and re-aims the head onto the edge row; the
-    /// drag ending, the edge direction changing, or the scroll clamping
-    /// disarms the driver.
-    pub(crate) fn selection_auto_scroll_tick(&mut self, view: &mut AgentView) {
-        let Some(armed) = self.selection_auto_scroll.clone() else {
-            return;
-        };
-        if Instant::now().duration_since(armed.started) < SELECTION_AUTO_SCROLL_DELAY {
-            return;
-        }
-        if view.selection_auto_scroll_direction(armed.row) != Some(armed.direction)
-            || !view.scroll_selection(armed.direction, armed.col)
-        {
-            self.selection_auto_scroll = None;
-            return;
+    /// The Ctrl+O detail cycle: step the conversation level, persist it,
+    /// and re-flag the side-question pane (TS `applyChatExpansion` also
+    /// re-flags it; the pane has no bash rows here, so the flag is the
+    /// only carried state).
+    pub(crate) fn cycle_detail(&mut self, view: &mut AgentView) {
+        view.cycle_detail();
+        self.save_chat_detail(view);
+        if let Some(pane) = view.side_pane.as_mut() {
+            pane.expanded = view.detail == crate::chat::Detail::All;
         }
         self.dirty = true;
     }
@@ -402,9 +147,9 @@ impl SessionUi {
         running: &mut bool,
     ) -> Result<()> {
         // Any non-Escape key re-arms the double-Esc tree shortcut (the
-        // gesture is one shot per input chain, not per session — see the
-        // arm site below): a real interaction anywhere on the surface —
-        // typing, navigation inside a mounted panel, a command — starts a
+        // gesture is one shot per input chain, not per session -- see the
+        // arm site below): a real interaction anywhere on the surface --
+        // typing, navigation inside a mounted panel, a command -- starts a
         // fresh chain. Escape itself never resets, so a pure stream of
         // Escape presses converges to the inert empty state.
         if key_event_to_id(&key).is_some_and(|id| id != "escape") {
@@ -481,61 +226,19 @@ impl SessionUi {
             return Ok(());
         };
         // The dispatch order below mirrors the TS key pipeline: the
-        // transcript viewport keys (`tui.ts` consumes them before the
-        // focused component in fullscreen), then the focused subagent
-        // summary line (`SubagentSummaryLine.handleInput` owns every key
-        // while focused), then `CustomEditor.handleInput` — paste image,
+        // focused subagent summary line (`SubagentSummaryLine.handleInput` owns every key
+        // while focused), then `CustomEditor.handleInput` -- paste image,
         // `app.input.clear`, `app.exit` (only when the editor is empty;
         // otherwise ctrl+d falls through to the editor's
         // delete-char-forward), then the app actions in registration
         // order (`app.clear` first, `app.tools.expand` next). Every match
         // goes through the effective bindings, so a user
         // `keybindings.json` override moves both the handler and the hint.
-        // Transcript viewport keys (TS tui.ts consumes them before the
-        // editor in fullscreen): page scroll, top, follow.
-        let (page_up, page_down, to_top, follow) = {
-            let kb = view.editor.keybindings();
-            (
-                kb.matches(&id, "tui.viewport.pageUp"),
-                kb.matches(&id, "tui.viewport.pageDown"),
-                kb.matches(&id, "tui.viewport.top"),
-                kb.matches(&id, "tui.viewport.follow"),
-            )
-        };
-        if page_up {
-            // The viewport consumes the key before the editor, so the
-            // editor's own page arms never run: collapse a selection
-            // here or it survives the scroll as a stale replace range.
-            view.editor.clear_selection();
-            view.scroll_by(-(view.page_size() as isize));
-            self.track_scroll("page_up", view.is_following());
-            self.dirty = true;
-            return Ok(());
-        }
-        if page_down {
-            view.editor.clear_selection();
-            view.scroll_by(view.page_size() as isize);
-            self.track_scroll("page_down", view.is_following());
-            self.dirty = true;
-            return Ok(());
-        }
-        if to_top {
-            view.scroll_to_top();
-            self.track_scroll("top", view.is_following());
-            self.dirty = true;
-            return Ok(());
-        }
-        if follow {
-            view.scroll_to_bottom();
-            self.track_scroll("follow", view.is_following());
-            self.dirty = true;
-            return Ok(());
-        }
         // The activity dock owns focus while focused: Enter (and a second
         // Alt+A) opens the focused group's own view directly (the
         // operator's direct-navigation redesign), left/right step the
-        // dock's groups — except left from the subagents selection,
-        // which opens the agents view (the operator's 2026-09-28 ask) —
+        // dock's groups -- except left from the subagents selection,
+        // which opens the agents view (the operator's 2026-09-28 ask) --
         // up/cancel/back returns to the editor, expand cycles the
         // conversation detail and KEEPS the focus, and every other key
         // falls through after releasing the focus (TS `onChatAction` ->
@@ -544,14 +247,14 @@ impl SessionUi {
             let kb = view.editor.keybindings();
             if kb.matches(&id, "tui.select.confirm") || kb.matches(&id, "app.subagents.focus") {
                 // The dock is the direct launcher: Enter opens the
-                // focused group's own view (the operator's redesign —
+                // focused group's own view (the operator's redesign --
                 // the grouped activity panel is gone).
                 self.open_dock_group_view(view);
                 return Ok(());
             }
             if id == "left" && self.activity_group == crate::chrome::ActivityGroup::Subagents {
                 // Left from the subagents selection opens the agents
-                // view (the operator's 2026-09-28 muscle-memory ask —
+                // view (the operator's 2026-09-28 muscle-memory ask --
                 // the same route as Enter and clicking the group): the
                 // dock's subagents item is the row's own entry into
                 // the scoped agents view, and left reads as `agents
@@ -565,7 +268,7 @@ impl SessionUi {
                 // One press, one group: the step lands on the
                 // neighboring rendered group and wraps at the row's
                 // ends, so an empty group is still visited (the
-                // operator's 2026-09-26 muscle-memory directive — an
+                // operator's 2026-09-26 muscle-memory directive -- an
                 // empty group never skips) and N groups take N
                 // presses to cycle.
                 let direction = if id == "left" {
@@ -611,10 +314,10 @@ impl SessionUi {
         if view.editor.keybindings().matches(&id, "app.input.clear") {
             // The completion surface consumes Esc: the open dropdown
             // closes, and a parked request (Tab before the input-idle
-            // tick materializes it) cancels before it can open the menu —
+            // tick materializes it) cancels before it can open the menu --
             // either way the key stops there. The abort ladder (the
             // escape-repeat arming and `interrupt_running_work`) runs only
-            // when no menu is open or about to open — closing a menu must
+            // when no menu is open or about to open -- closing a menu must
             // never abort a running turn (the TS base editor consumes
             // `tui.select.cancel` inside the dropdown; the TS
             // custom-editor overlay propagates Esc to the interrupt after
@@ -634,7 +337,7 @@ impl SessionUi {
                 return Ok(());
             }
             self.clear_ctrl_c_hint();
-            // TS `handleEscape`: an open side-question pane owns the key —
+            // TS `handleEscape`: an open side-question pane owns the key --
             // the running turn aborts and the pane closes; the armed
             // escape-repeat from an earlier press disarms first (TS
             // `clearEscapeRepeat`).
@@ -659,7 +362,7 @@ impl SessionUi {
             // the editor empty, and clears the input otherwise. The repeat's
             // tree action is one shot per input chain (the operator's
             // 2026-09-29 Esc-overflow ruling): once the repeat-opened tree
-            // was dismissed, the empty state's pop loop terminates — the
+            // was dismissed, the empty state's pop loop terminates -- the
             // next Escape arms nothing, so a held or repeated Escape
             // converges to the inert empty editor instead of cycling the
             // selector open again every second press.
@@ -680,14 +383,14 @@ impl SessionUi {
             };
             if action == "tree" && self.escape_tree_shortcut_spent {
                 // The gesture already fired: this press interrupts running
-                // work like every Escape, but arms no reopen — the pop loop
+                // work like every Escape, but arms no reopen -- the pop loop
                 // stays terminated at the empty state.
                 self.interrupt_running_work(view);
                 return Ok(());
             }
             self.arm_escape_repeat(action);
             // TS `handleEscape` arms the repeat, then fires
-            // `interruptOrClearInput()` — the same abort ladder as the
+            // `interruptOrClearInput()` -- the same abort ladder as the
             // Ctrl+C interrupt, minus the Ctrl+C exit hint (TS shows that
             // only through `handleInterruptKey`).
             self.interrupt_running_work(view);
@@ -716,8 +419,8 @@ impl SessionUi {
             }
             // TS `handleCtrlC`: the first press interrupts (aborting an
             // active turn, showing the exit hint); a second press inside
-            // the hint window shuts down unconditionally — no turn wait,
-            // no abort wait — so the client always exits promptly. The
+            // the hint window shuts down unconditionally -- no turn wait,
+            // no abort wait -- so the client always exits promptly. The
             // interrupt action shows the same hint but never exits on the
             // second press (TS `handleInterruptKey` has no exit branch).
             if self.ctrl_c_hint_visible() && !interrupt {
@@ -756,8 +459,8 @@ impl SessionUi {
         // TS `app.suspend` (default ctrl+z, `handleCtrlZ`): hand the
         // terminal to the shell and stop the process group; the loop
         // performs the cycle right after dispatch, and the SIGCONT
-        // continuation re-applies raw mode, the alt screen, and SGR
-        // mouse tracking (TS `ui.start()` + `applyFullscreen(true)`).
+        // continuation re-applies raw mode and the key modes and starts
+        // a new live area (TS `ui.start()`).
         if view.editor.keybindings().matches(&id, "app.suspend") {
             self.suspend_requested = true;
             return Ok(());
@@ -775,7 +478,7 @@ impl SessionUi {
             self.open_model_picker(view, "").await?;
             // The key opens the picker over the user's own text (a draft
             // or a browsed queued message), so the picker's apply must
-            // keep it — the Tab path's flag truth, not a typed-command
+            // keep it -- the Tab path's flag truth, not a typed-command
             // partial (TS's selector never touches the editor).
             self.picker_restored_draft = true;
             self.track_menu_opened("model", "shortcut");
@@ -833,8 +536,7 @@ impl SessionUi {
             match crate::external_editor::editor_command() {
                 None => {
                     view.push_entry(ChatEntry::Status {
-                        text: "\u{26a0} No editor configured. Set $VISUAL or $EDITOR environment variable."
-                            .to_string(),
+                        text: format!("{WARN} No editor configured. Set $VISUAL or $EDITOR environment variable."),
                         kind: StatusKind::Warning,
                     });
                     self.last_status_index = None;
@@ -852,7 +554,7 @@ impl SessionUi {
             return Ok(());
         }
         // TS `app.prompt.stash` (default ctrl+s, `handlePromptStash`):
-        // with a draft in the editor the key stashes it — the whole draft
+        // with a draft in the editor the key stashes it -- the whole draft
         // (text, collapsed pastes, pasted images) moves to the session's
         // stash and the editor clears; with an empty editor the key
         // restores the stashed draft. The manual stash is not a
@@ -864,7 +566,7 @@ impl SessionUi {
             // shows the selected queued message's text in the editor, so
             // the stash must never take the browsed text: leaving the
             // browse first restores the draft like every other
-            // editor-mutating exit (Esc, the menu opens) — the stash then
+            // editor-mutating exit (Esc, the menu opens) -- the stash then
             // acts on the user's own draft, the parked message keeps its
             // text, and the disarmed browse cannot turn the next Enter
             // into an empty-edit delete of the parked message.
@@ -881,7 +583,7 @@ impl SessionUi {
             return Ok(());
         }
         // TS `app.session.new` (no default key; user-bindable,
-        // `handleClearCommand`): the `/new` flow — TS registers it
+        // `handleClearCommand`): the `/new` flow -- TS registers it
         // without an editor-text gate, so it fires with a draft too.
         if view.editor.keybindings().matches(&id, "app.session.new") {
             self.start_new_session(view).await?;
@@ -890,7 +592,7 @@ impl SessionUi {
         }
         // TS `app.session.resume` (no default key; user-bindable): open the
         // agents view. Unlike agents-back it fires with a draft in the
-        // editor — the draft is stashed for the session on the exit path
+        // editor -- the draft is stashed for the session on the exit path
         // and returns when the session's chat reopens.
         if view.editor.keybindings().matches(&id, "app.session.resume") {
             if self.return_to_agents_view {
@@ -1057,7 +759,7 @@ impl SessionUi {
                         // A failed roster load leaves no view mounted:
                         // the editor keeps the restored draft (nothing
                         // lost), but the flag must not leak into the NEXT
-                        // picker — its clear-on-apply semantics belong to
+                        // picker -- its clear-on-apply semantics belong to
                         // the typed partial, not this draft.
                         if view.mcp_view.is_none() {
                             self.picker_restored_draft = false;
@@ -1072,8 +774,8 @@ impl SessionUi {
         }
         // TS `CustomEditor.handleInput`'s move-below-prompt hook
         // (`onMoveBelowPrompt` -> `focusSubagentSummary`): Down at the end
-        // of the prompt — no autocomplete open, no history browse, the
-        // cursor at the last line's end — hands the focus to the activity
+        // of the prompt -- no autocomplete open, no history browse, the
+        // cursor at the last line's end -- hands the focus to the activity
         // dock in every session shape, all-zero counts included; every
         // other Down falls through to the editor's cursor motion. Only the
         // tray override (the armed exit hint, the streaming follow-up
@@ -1121,8 +823,7 @@ impl SessionUi {
                     // TS `copySelection`'s shape exactly: the OSC 52
                     // sequence goes straight to the terminal (it works
                     // locally, over SSH, and through tmux
-                    // `set-clipboard`), the same write the mouse
-                    // selection's `copy_selection` below performs. The
+                    // `set-clipboard`). The
                     // platform-tool chain (child processes whose
                     // `wait()` has no timeout) never runs on this path:
                     // a stalled xclip/wl-copy/pbcopy can neither freeze
@@ -1177,15 +878,15 @@ impl SessionUi {
 
 /// The opening phase's echo gate: whether the post-open key dispatch
 /// ([`SessionUi::handle_key`]'s ladder) would consume this key BEFORE its
-/// editor fallback, in the state a fresh session's opening can be in — no
+/// editor fallback, in the state a fresh session's opening can be in -- no
 /// dock focus, no mounted picker or panel, no turn. This is the fresh-state
 /// projection of the ladder: the always-fire arms in registration order,
 /// the empty-editor arms, and the two editor-context arms; keep it in
 /// lockstep with the ladder above.
 ///
-/// A key claimed here takes its normal route — queued behind the session
+/// A key claimed here takes its normal route -- queued behind the session
 /// open and dispatched through the full keymap-aware ladder once the
-/// session lands — instead of echoing into the editor as a stray motion
+/// session lands -- instead of echoing into the editor as a stray motion
 /// (the misroute: a user-bound `left`/`space`/single-char action must run
 /// its action, and default `left` on the empty editor is `app.agents.back`,
 /// not a cursor move).
@@ -1194,16 +895,11 @@ pub(crate) fn opening_echo_key_claimed(
     id: &str,
     editor: &crate::editor::Editor,
 ) -> bool {
-    // The always-fire arms: the transcript viewport, the image paste, the
-    // escape ladder, the interrupt family, suspend, the model picker and
+    // The always-fire arms: the image paste, the escape ladder, the interrupt family, suspend, the model picker and
     // cycles, the detail cycle, the dock focus, the external editor, the
     // stash, the session-level commands, the queue browse, and the
     // follow-up key.
-    if kb.matches(id, "tui.viewport.pageUp")
-        || kb.matches(id, "tui.viewport.pageDown")
-        || kb.matches(id, "tui.viewport.top")
-        || kb.matches(id, "tui.viewport.follow")
-        || kb.matches(id, "app.clipboard.pasteImage")
+    if kb.matches(id, "app.clipboard.pasteImage")
         || kb.matches(id, "app.input.clear")
         || kb.matches(id, "app.interrupt")
         || kb.matches(id, "app.clear")
@@ -1271,7 +967,7 @@ mod opening_echo_claim_tests {
         editor
     }
 
-    /// Default `left` on the EMPTY editor is `app.agents.back` — the
+    /// Default `left` on the EMPTY editor is `app.agents.back` -- the
     /// misroute the gate exists for: the key must queue (its action
     /// runs at the fold), never echo as an editor cursor move.
     #[test]
@@ -1387,7 +1083,7 @@ mod opening_echo_claim_tests {
     }
 
     /// The empty-editor session arms (`app.session.tree`, `app.session.fork`
-    /// user-bound here — they carry no default key) are claimed only on
+    /// user-bound here -- they carry no default key) are claimed only on
     /// the empty editor.
     #[test]
     fn the_empty_editor_session_arms_claim_only_when_empty() {

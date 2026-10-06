@@ -592,7 +592,7 @@ async fn run_startup(
                 emit_startup_progress(
                     &inner,
                     on_progress.as_ref(),
-                    &format!("Kernel start failed; retrying in {backoff_ms}ms…"),
+                    &format!("Kernel start failed; retrying in {backoff_ms}ms..."),
                 );
                 tokio::select! {
                     () = tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)) => {}

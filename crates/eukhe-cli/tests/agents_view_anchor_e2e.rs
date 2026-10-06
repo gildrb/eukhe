@@ -264,7 +264,7 @@ async fn continue_recent_view_preselects_the_candidate_and_renders_the_notice() 
     handle.set_modified(future).expect("nudge mtime");
 
     let notice = format!(
-        "Most recent session for this directory: {} — Enter continues it, or pick another session.",
+        "Most recent session for this directory: {} -- Enter continues it, or pick another session.",
         "bbbb-candidate"
     );
     let options = AgentsViewOptions {

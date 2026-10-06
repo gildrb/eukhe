@@ -17,7 +17,7 @@ impl AuthPanel {
     /// the borderMuted rule and the muted one-space title, the onboarding
     /// block mounts the content chrome-less; the content is the blank
     /// `startContent` row, the progress block, the URL block, the paste
-    /// field, and the auth-actions row last — no bottom rule on either
+    /// field, and the auth-actions row last -- no bottom rule on either
     /// surface).
     pub fn render(&mut self, theme: &Theme, width: usize, kb: &KeybindingsManager) -> Vec<Line> {
         let width = width.max(1);
@@ -26,17 +26,18 @@ impl AuthPanel {
         // opens with the borderMuted rule and the muted one-space title
         // (TS `loginDialogOptions`'s non-onboarding shape); the
         // onboarding block mounts the panel chrome-less (`topRule:
-        // false, hideTitle: true` — the splash renders the heading).
+        // false, hideTitle: true` -- the splash renders the heading).
         if self.surface == PanelSurface::Session {
-            lines.push(vec![
-                theme.fg_span(ThemeColor::BorderMuted, "\u{2500}".repeat(width))
-            ]);
+            lines.push(vec![theme.fg_span(
+                ThemeColor::BorderMuted,
+                crate::glyphs::RULE.repeat(width),
+            )]);
             lines.push(content_row(theme, width, ThemeColor::Muted, &self.title));
             if let Some(subtitle) = &self.subtitle {
                 lines.push(content_row(theme, width, ThemeColor::Muted, subtitle));
             }
         }
-        // The team picker is TS `PrimeTeamSelectorComponent` — its own
+        // The team picker is TS `PrimeTeamSelectorComponent` -- its own
         // panel: the rule, the title, the subtitle, the bordered field,
         // the rows (no leading content blank, no auth-actions row, no nav
         // hint).
@@ -213,7 +214,7 @@ impl AuthPanel {
                     PasteStyle::Masked => lines.push(search_field_plain_row(
                         theme,
                         width,
-                        &"\u{2022}".repeat(field.value().chars().count()),
+                        &crate::glyphs::MASK.repeat(field.value().chars().count()),
                         field.value().chars().count(),
                         true,
                         placeholder,
@@ -224,8 +225,8 @@ impl AuthPanel {
                 }
                 // TS `addInputField`'s inputSpacer: the blank row between
                 // the field and the actions (the actions row rides last
-                // while the URL block shows; a paste-only panel — the MCP
-                // token surface — keeps its own hint row instead).
+                // while the URL block shows; a paste-only panel -- the MCP
+                // token surface -- keeps its own hint row instead).
                 if self.auth_url.is_some() {
                     lines.push(Vec::new());
                 } else {
@@ -243,7 +244,7 @@ impl AuthPanel {
             PanelInput::Teams { .. } => unreachable!("the team picker returned above"),
         }
         // TS `showWaiting`: the waiting line joins above the actions row
-        // in the accent colour — its `addSectionSpacer` blank rides only
+        // in the accent colour -- its `addSectionSpacer` blank rides only
         // under already-rendered content (the empty arm's `startContent`
         // blank is the panel's leading row already).
         if let Some(waiting) = &self.waiting {
@@ -256,7 +257,7 @@ impl AuthPanel {
             }
             lines.push(content_row(theme, width, ThemeColor::Accent, waiting));
         }
-        // TS `getAuthActionsText`: the URL block's actions row rides last —
+        // TS `getAuthActionsText`: the URL block's actions row rides last --
         // the copy-key hint with the status of the last copy, the submit
         // hint while the paste field is mounted, and the cancel hint.
         if self.auth_url.is_some() {
@@ -283,7 +284,7 @@ fn is_text_entry_keybinding(key: &str) -> bool {
 }
 
 /// TS `getAuthActionsText`: the key-hint row that rides the panel's last
-/// row — the submit hint while the field is visible, the copy status, the
+/// row -- the submit hint while the field is visible, the copy status, the
 /// copy hint, and the cancel hint, joined by two spaces (the provider
 /// selector's API-key prompt renders the same row).
 pub(crate) fn auth_actions_row(
@@ -312,7 +313,7 @@ pub(crate) fn auth_actions_row(
         parts.push(vec![theme.fg_span(tone, text.to_string())]);
     }
     // TS `copyHint`: the copy keys (the plain text-entry keys drop out
-    // while the field is visible — a typed key is field input), the
+    // while the field is visible -- a typed key is field input), the
     // description turning to "retry" after a failed copy.
     let configured_copy_keys = keybindings.get_keys("app.clipboard.copyLoginUrl");
     let copy_keys = if input_visible {
@@ -368,7 +369,7 @@ fn content_row(theme: &Theme, width: usize, tone: ThemeColor, text: &str) -> Lin
     )
 }
 
-/// TS `keyHint`: the dim key label over the muted ` {action}` — one
+/// TS `keyHint`: the dim key label over the muted ` {action}` -- one
 /// hint part of the auth-actions row. An unbound action is omitted: the
 /// hint never advertises a key the surface does not handle.
 fn key_hint_row(
@@ -391,7 +392,7 @@ fn key_hint_row(
 /// the verification code the browser instructions carry, rendered below
 /// the muted label. The TS `.` stops at line terminators and `$` anchors
 /// the string's end, so a multi-line `Code: ABC\nmore instructions`
-/// matches no code arm at all — the instructions render as provider
+/// matches no code arm at all -- the instructions render as provider
 /// text.
 pub(super) fn verification_code(instructions: &str) -> Option<String> {
     let trimmed = instructions.trim();

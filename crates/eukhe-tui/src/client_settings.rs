@@ -148,10 +148,10 @@ pub trait ClientSettings: Send + Sync {
     /// store fails.
     fn set_tree_filter_mode(&self, mode: &str) -> Result<()>;
     /// `defaultServiceTier` (TS `getDefaultServiceTier`, default
-    /// "default"): the wire name of the persisted default tier — the
+    /// "default"): the wire name of the persisted default tier -- the
     /// settings row's bound value.
     fn default_service_tier(&self) -> String;
-    /// TS `settingsManager.setDefaultServiceTier` — persists the wire name.
+    /// TS `settingsManager.setDefaultServiceTier` -- persists the wire name.
     ///
     /// # Errors
     ///
@@ -161,7 +161,7 @@ pub trait ClientSettings: Send + Sync {
     /// `factory.enabled` (the agent factory's opt-in gate; unset reads
     /// as disabled).
     fn factory_enabled(&self) -> bool;
-    /// Persists `factory.enabled` to the global scope — the same shared
+    /// Persists `factory.enabled` to the global scope -- the same shared
     /// settings key the daemon's `factory_activity` lane advertisement
     /// and the kernel's factory gate read.
     ///

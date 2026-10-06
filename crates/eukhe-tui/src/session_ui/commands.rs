@@ -8,18 +8,19 @@ use super::{
     RebuildKind, Result, SessionUi, SlashCommandExecution, SlashCommandRegistry, StatusKind,
     SubmitBehavior, Value, UI_REQUEST_TIMEOUT_MS,
 };
+use crate::glyphs::WARN;
 
 impl SessionUi {
     /// Slash-command dispatch (the TS interactive submission ladder reduced
     /// to this client's surface): local client commands run here, builtin
     /// client commands without a UI yet report unavailability, session
     /// commands (`compact`/`refine`/`goal`/`autonomous`) forward to the
-    /// session, and unknown commands get the TS suggestion error — anything
+    /// session, and unknown commands get the TS suggestion error -- anything
     /// without a suggestion passes through as a prompt.
     ///
     /// `behavior` is TS `onSubmit`'s captured `streamingBehavior`: the
     /// submit lane that carried the text (alt+enter = followUp), passed
-    /// through to every fallthrough prompt — TS sends the fallthrough with
+    /// through to every fallthrough prompt -- TS sends the fallthrough with
     /// the submit's own lane, so a slash-prefixed follow-up keeps parking
     /// on the follow-up lane (Bugbot's lost-lane finding).
     pub(super) async fn handle_slash(
@@ -191,8 +192,8 @@ impl SessionUi {
                 }
             }
             // `/model` opens the model picker (menu-only: the TS
-            // `handleModelCommand` inline-arg form — an exact match applies
-            // directly, anything else prefills the search — is deliberately
+            // `handleModelCommand` inline-arg form -- an exact match applies
+            // directly, anything else prefills the search -- is deliberately
             // removed; a partial + Tab opens the picker filtered instead,
             // and a submitted argument is the usage error).
             "model" => {
@@ -207,7 +208,7 @@ impl SessionUi {
                 self.track_feature_outcome("model", "initiated", None);
             }
             // `/effort [level]` (TS `handleEffortCommand`): the
-            // session's thinking levels drive the outcome — a model
+            // session's thinking levels drive the outcome -- a model
             // without reasoning reports the TS note, a missing argument
             // opens the picker, and a valid argument applies directly.
             "effort" => {
@@ -245,10 +246,10 @@ impl SessionUi {
                         self.note("Current model does not support thinking", view);
                     }
                     effort_picker::EffortCommandOutcome::Unknown { requested, levels } => {
-                        // TS `showError`: the ⚠ Error row, not the muted note.
+                        // TS `showError`: the ! Error row, not the muted note.
                         view.push_entry(ChatEntry::Status {
                             text: format!(
-                                "\u{26a0} Error: Unknown thinking level '{requested}'. Available: {}",
+                                "{WARN} Error: Unknown thinking level '{requested}'. Available: {}",
                                 levels.join(", ")
                             ),
                             kind: StatusKind::Error,
@@ -350,9 +351,9 @@ impl SessionUi {
             }
             // `/factory [on|off|status]`: the factory's opt-in gate (the
             // operator's directive: the factory is disabled until the
-            // user turns it on). The toggle persists `factory.enabled` —
+            // user turns it on). The toggle persists `factory.enabled` --
             // the shared settings key the daemon's `factory_activity`
-            // advertisement and the kernel's factory gate read — so the
+            // advertisement and the kernel's factory gate read -- so the
             // factory surfaces on the next client start (the running
             // connection keeps the advertisement its hello was built
             // with).
@@ -378,8 +379,8 @@ impl SessionUi {
                         // the kernel's control loop is not gated by the
                         // setting, so `off` while runs are live would keep
                         // admitting and collecting children while every
-                        // factory surface — the namespace, the activity
-                        // lane, and the page after the next client start —
+                        // factory surface -- the namespace, the activity
+                        // lane, and the page after the next client start --
                         // refuses: a running factory loses its stop and
                         // visibility path until the gate is enabled again.
                         // The write refuses while the session's kernel
@@ -388,15 +389,15 @@ impl SessionUi {
                         // action or `rlm.factory.stop`). An unreadable
                         // count fails closed on the lane-advertised client
                         // (the only state where the guard matters): the
-                        // count's own failure classes — a timed-out or
-                        // malformed lane reply — cannot prove zero live
+                        // count's own failure classes -- a timed-out or
+                        // malformed lane reply -- cannot prove zero live
                         // runs, and an unknown liveness must not open the
                         // gate; the client retries once the lane answers.
                         // The kernel-not-running refusal never reaches the
                         // unreadable arm: the lane never builds a kernel
                         // and the kernel owns its run registry in memory,
                         // so that class reads as a definitive zero
-                        // (`live_factory_runs`), not an unknown liveness —
+                        // (`live_factory_runs`), not an unknown liveness --
                         // the off proceeds for a session with no kernel.
                         // A client whose hello never advertised the lane
                         // keeps the fail-open read: an older daemon has no
@@ -410,7 +411,7 @@ impl SessionUi {
                                 let them = if live == 1 { "it" } else { "them" };
                                 self.error_row(
                                     &format!(
-                                        "Cannot disable the factory while {live} {runs} still live — stop {them} first (the factory page's stop action or rlm.factory.stop), then /factory off."
+                                        "Cannot disable the factory while {live} {runs} still live -- stop {them} first (the factory page's stop action or rlm.factory.stop), then /factory off."
                                     ),
                                     view,
                                 );
@@ -418,7 +419,7 @@ impl SessionUi {
                             }
                             None if lane_advertised => {
                                 self.error_row(
-                                    "Cannot disable the factory: the live-run count could not be read from the factory lane — try /factory off again once it answers.",
+                                    "Cannot disable the factory: the live-run count could not be read from the factory lane -- try /factory off again once it answers.",
                                     view,
                                 );
                                 return Ok(());
@@ -545,7 +546,7 @@ impl SessionUi {
             }
 
             // `/session` (TS `handleSessionCommand`): the daemon's
-            // session stats as the `Session Info` rows — rendered in the
+            // session stats as the `Session Info` rows -- rendered in the
             // read-only info panel (the operator's 2026-09-26
             // directive), not as transcript rows.
             "session" => {
@@ -586,7 +587,7 @@ impl SessionUi {
             }
             // `/context` and its `/usage` alias (TS
             // `handleContextCommand` over `formatContextTree`): the agent
-            // tree with own token/cost columns and context utilization —
+            // tree with own token/cost columns and context utilization --
             // rendered in the scrollable read-only info panel (the
             // operator's 2026-09-26 directive), not as transcript rows.
             // The optional `all` argument is #2842's deliberate TS delta
@@ -634,7 +635,7 @@ impl SessionUi {
                 }
             }
             // `/system-prompt` (TS `handleSystemPromptCommand`): the header
-            // with the char count, then the exact assembled prompt — a
+            // with the char count, then the exact assembled prompt -- a
             // document of unbounded size, so it renders in the
             // scrollable read-only info panel (the operator's 2026-09-26
             // directive) instead of flooding the transcript.
@@ -793,7 +794,7 @@ impl SessionUi {
                     .await;
             }
             // `/speed [on|off]` (TS `setSpeedDisplay`): toggle the footer
-            // tok/sec readout for this session — the dim dock row with the
+            // tok/sec readout for this session -- the dim dock row with the
             // latest response's rate and the session average.
             "speed" => {
                 let arg = resolved.args.trim().to_lowercase();
@@ -838,7 +839,7 @@ impl SessionUi {
                 self.handle_reload_command(view)?;
             }
             // `/heartbeats` (TS `showHeartbeatManager`): the inline
-            // management view over the session-scoped heartbeat catalog —
+            // management view over the session-scoped heartbeat catalog --
             // this session's and its RLM children's user and agent
             // heartbeats. An argument is the TS usage error (the text
             // stays in the editor).
@@ -876,7 +877,7 @@ impl SessionUi {
     /// `refreshConnectionCatalog`'s `getCommands` arm, best-effort with a
     /// bounded wait like the heartbeat refresh): the response carries the
     /// `skill:` commands the autocomplete provider lists. A fetch races a
-    /// rebind silently — the epoch drops the stale response at fold time.
+    /// rebind silently -- the epoch drops the stale response at fold time.
     pub(crate) fn spawn_command_catalog_refresh(&mut self) {
         self.command_refresh_epoch += 1;
         let epoch = self.command_refresh_epoch;
@@ -886,7 +887,7 @@ impl SessionUi {
         // skills. The clear rides the same FIFO channel ahead of the
         // fetch's response (this send completes before the spawn below
         // runs), so the old rows drop immediately and the fresh fetch
-        // repopulates — a rebind never offers stale cross-session
+        // repopulates -- a rebind never offers stale cross-session
         // commands.
         let _ = self.command_updates.send(CommandCatalogUpdate {
             epoch,
@@ -922,8 +923,8 @@ impl SessionUi {
 
     /// Fold a landed command-catalog refresh into the session (TS
     /// `refreshConnectionCatalog` -> `setupAutocompleteProvider`): the
-    /// `skill:` commands replace the provider's list — gated by the
-    /// `enableSkillCommands` setting (TS default true) — and a stale
+    /// `skill:` commands replace the provider's list -- gated by the
+    /// `enableSkillCommands` setting (TS default true) -- and a stale
     /// epoch never applies.
     pub(crate) fn apply_command_catalog(
         &mut self,
@@ -954,7 +955,7 @@ impl SessionUi {
     /// The session's connection state (TS `AgentConnectionState`): the
     /// worker's `get_connection_state` response, which carries the
     /// connection fields (`availableThinkingLevels`, `thinkingLevel`,
-    /// `steeringMode`, `serviceTier`, ...) — `get_state` serves the
+    /// `steeringMode`, `serviceTier`, ...) -- `get_state` serves the
     /// roster summary instead. `None` surfaces the failure as a note;
     /// callers keep the transcript unchanged then.
     pub(super) async fn connection_state(&mut self, view: &mut AgentView) -> Option<Value> {
@@ -971,8 +972,8 @@ impl SessionUi {
         {
             Ok(data) => {
                 // The queue delivery mode rides the state (TS
-                // `steeringMode`): cached here — every state read is the
-                // single refresh seam — so the queued-input adoption
+                // `steeringMode`): cached here -- every state read is the
+                // single refresh seam -- so the queued-input adoption
                 // event reports the live mode without a fetch.
                 if let Some(mode) = data.get("steeringMode").and_then(Value::as_str) {
                     self.steering_mode = mode.to_string();

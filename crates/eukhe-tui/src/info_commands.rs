@@ -15,9 +15,9 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use crate::style::Style;
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
-use ratatui::style::Style;
 
 mod context_tree;
 #[cfg(test)]
@@ -198,7 +198,7 @@ pub fn logs_rows(logs_dir: &Path) -> Vec<ClientLine> {
         rows.push(vec![dim("No logs written yet.")]);
     } else {
         for name in files {
-            let mut row = vec![dim("\u{2022}"), raw_span(format!(" {name}"))];
+            let mut row = vec![dim(crate::glyphs::BULLET), raw_span(format!(" {name}"))];
             // A file vanishing between readdir and stat loses only its
             // size (the TS catch skips the size, keeps the row).
             if let Ok(metadata) = std::fs::metadata(logs_dir.join(&name)) {
@@ -327,7 +327,7 @@ fn styled_spans(row: &[ClientSpan], theme: &Theme) -> Line {
 /// TS `Spacer(1)` + `Text(info, 1, 0)`: one blank row, then each source
 /// line wrapped at `width - 2` with a one-column margin on each side and
 /// rows padded to the full width (continuation rows pad inside the open
-/// style, the last wrapped row after the segment's reset — TS ANSI
+/// style, the last wrapped row after the segment's reset -- TS ANSI
 /// behavior).
 #[must_use]
 pub fn render_client_text(rows: &[ClientLine], theme: &Theme, width: usize) -> Vec<Line> {

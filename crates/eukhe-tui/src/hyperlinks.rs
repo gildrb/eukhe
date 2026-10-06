@@ -9,29 +9,13 @@
 //! the URL shown after the text unless it equals the link text.
 //!
 //! The renderer embeds the zero-width sequences in span content, exactly
-//! like the TS renderer's ANSI strings. `width` skips them, the ratatui
-//! paint path strips them (`to_ratatui_line`), and [`HyperlinkWriter`]
-//! re-emits them into the terminal byte stream around the painted link
-//! cells: terminals attach hyperlinks to the cells printed between the open
-//! and close sequences, so the sequences must ride inline with the cell
-//! bytes (a post-paint write at cursor positions would not link them).
+//! like the TS renderer's ANSI strings: `width` skips them, and the inline
+//! terminal writes them with the row, so terminals attach the hyperlink to
+//! the cells printed between the open and close sequences.
 
 use std::cell::RefCell;
-use std::io::{self, Write};
 
 use crate::Line;
-
-/// The chat paint backend: a crossterm backend over the stdout
-/// [`HyperlinkWriter`], so painted link cells carry their OSC 8 regions.
-/// Every draw through a [`LinkBackend`] must install its composed frame
-/// first ([`install_frame`]); the ranges drive the writer's injection.
-pub type LinkBackend = ratatui::backend::CrosstermBackend<HyperlinkWriter<std::io::Stdout>>;
-
-/// Construct the stdout paint backend with the hyperlink writer.
-#[must_use]
-pub fn stdout_backend() -> LinkBackend {
-    LinkBackend::new(HyperlinkWriter::new(std::io::stdout()))
-}
 
 /// OSC 8 open: starts a hyperlink region for `url`.
 /// Byte-identical to the TS `hyperlink()` helper (`terminal-image.ts`).
@@ -146,8 +130,9 @@ pub fn set_hyperlinks_override(enabled: Option<bool>) {
     OVERRIDE.with(|c| *c.borrow_mut() = enabled);
 }
 
-/// One clickable region of a composed frame: terminal row, visible column
-/// range, and destination URL.
+/// One link region of composed rows: row, visible column range, and
+/// destination URL (the renderers' tests read where a link landed).
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkRange {
     pub row: usize,
@@ -162,6 +147,7 @@ pub struct LinkRange {
 /// open at a row end (its label wrapped mid-link) extends to the end of the
 /// row and resumes at column 0 of the next row, matching the TS renderer's
 /// stream where the region stays open across the wrap.
+#[cfg(test)]
 #[must_use]
 pub fn frame_link_ranges(frame: &[Line]) -> Vec<LinkRange> {
     let mut ranges: Vec<LinkRange> = Vec::new();
@@ -190,6 +176,7 @@ pub fn frame_link_ranges(frame: &[Line]) -> Vec<LinkRange> {
     ranges
 }
 
+#[cfg(test)]
 fn scan_span(
     content: &str,
     row: usize,
@@ -236,9 +223,8 @@ fn is_osc8_close(seq: &str) -> bool {
     seq == OSC8_CLOSE || seq == "\x1b]8;;\x07"
 }
 
-/// Remove OSC 8 sequences from a rendered line's span contents (the ratatui
-/// paint path and the plain-text verifiers must not see the zero-width
-/// bytes; the sequences are re-emitted by [`HyperlinkWriter`] at paint).
+/// Remove OSC 8 sequences from a rendered line's span contents (the
+/// plain-text frame dumps must not see the zero-width bytes).
 pub fn strip_osc8(line: &mut Line) {
     for span in line.iter_mut() {
         if span.content.contains("\x1b]8;;") {
@@ -276,241 +262,10 @@ pub fn strip_osc8_content(text: &str) -> String {
     out
 }
 
-thread_local! {
-    /// The current frame's link ranges, installed by the paint entry points
-    /// before each `Terminal::draw` and consumed by [`HyperlinkWriter`].
-    static FRAME_LINKS: RefCell<Vec<LinkRange>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Install the composed frame's link ranges for the next paint pass.
-pub fn install_frame(frame: &[Line]) {
-    let ranges = frame_link_ranges(frame);
-    FRAME_LINKS.with(|cell| *cell.borrow_mut() = ranges);
-}
-
-fn current_frame_links() -> Vec<LinkRange> {
-    FRAME_LINKS.with(|cell| cell.borrow().clone())
-}
-
-/// The URL of the link range covering one row/column cell, if any.
-pub(crate) fn link_at(ranges: &[LinkRange], row: usize, col: usize) -> Option<&str> {
-    ranges
-        .iter()
-        .find(|r| r.row == row && col >= r.start_col && col < r.end_col)
-        .map(|r| r.url.as_str())
-}
-
-/// The URL a click at `row`/`col` opens (TS `viewport.hyperlinkAt`'s
-/// lookup over the last composed frame's ranges).
-pub(crate) fn url_at(ranges: &[LinkRange], row: usize, col: usize) -> Option<String> {
-    link_at(ranges, row, col).map(str::to_string)
-}
-
-/// TS `openHyperlink`'s guard: a control byte never rides an opener
-/// argument, and only http/https/file targets open — a terminal-origin
-/// URL is still renderer output, so the click path keeps the opener
-/// surfaces closed to everything a browser could execute beyond a web
-/// or file location. Canonical href on success, `None` when refused.
-pub(crate) fn openable_href(url: &str) -> Option<String> {
-    if url.chars().any(char::is_control) {
-        return None;
-    }
-    let parsed = url::Url::parse(url).ok()?;
-    match parsed.scheme() {
-        "http" | "https" | "file" => Some(parsed.to_string()),
-        _ => None,
-    }
-}
-
-/// Terminal writer wrapper that injects OSC 8 hyperlink sequences around the
-/// cells painted inside installed link ranges.
-///
-/// The backend byte stream is parsed on the fly: crossterm `MoveTo` updates
-/// the tracked cursor position, printable runs advance the column by their
-/// visible width, and other escape sequences pass through untouched. When a
-/// printable run begins inside a link region, the open sequence is written
-/// immediately before the cell bytes; a run outside the active region (or a
-/// cursor jump) closes it first. `flush` always closes an open region, so
-/// no later output can inherit the hyperlink.
-pub struct HyperlinkWriter<W> {
-    inner: W,
-    pos: Option<(u16, u16)>,
-    /// URL of the currently open OSC 8 region.
-    active: Option<String>,
-    /// Buffered bytes of a printable run awaiting its width.
-    text: Vec<u8>,
-    /// Buffered bytes of an escape sequence awaiting its terminator.
-    escape: Vec<u8>,
-    in_escape: bool,
-}
-
-impl<W: Write> HyperlinkWriter<W> {
-    pub fn new(inner: W) -> Self {
-        Self {
-            inner,
-            pos: None,
-            active: None,
-            text: Vec::new(),
-            escape: Vec::new(),
-            in_escape: false,
-        }
-    }
-
-    /// The composed bytes so far (test accessor for in-memory writers).
-    pub fn into_inner(self) -> W {
-        self.inner
-    }
-
-    /// Write the OSC 8 close sequence if a region is open.
-    fn close_active(&mut self) {
-        if self.active.take().is_some() {
-            let _ = self.inner.write_all(OSC8_CLOSE.as_bytes());
-        }
-    }
-
-    /// Emit open/close sequences for a printable run starting at the
-    /// tracked position: open when the run lands inside a link region,
-    /// re-opening (after closing) when the region changed.
-    fn link_for_run(&mut self, ranges: &[LinkRange]) {
-        let Some((row, col)) = self.pos else {
-            self.close_active();
-            return;
-        };
-        let desired = link_at(ranges, row as usize, col as usize);
-        let same = self
-            .active
-            .as_deref()
-            .is_some_and(|active| Some(active) == desired);
-        if !same {
-            self.close_active();
-            if let Some(url) = desired {
-                let _ = self.inner.write_all(osc8_open(url).as_bytes());
-            }
-        }
-        if let Some(url) = desired {
-            self.active = Some(url.to_string());
-        }
-    }
-
-    /// Emit the buffered printable run and advance the tracked column.
-    fn flush_text(&mut self) -> io::Result<()> {
-        if self.text.is_empty() {
-            return Ok(());
-        }
-        let chunk = std::mem::take(&mut self.text);
-        self.inner.write_all(&chunk)?;
-        if let Ok(text) = std::str::from_utf8(&chunk) {
-            if let Some((_, col)) = self.pos.as_mut() {
-                *col = col.saturating_add(crate::width::str_width(text) as u16);
-            }
-        }
-        Ok(())
-    }
-}
-
-impl<W: Write> Write for HyperlinkWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let ranges = current_frame_links();
-        let no_links = ranges.is_empty();
-        for &byte in buf {
-            if self.in_escape {
-                self.escape.push(byte);
-                if !escape_complete(&self.escape) {
-                    continue;
-                }
-                let seq = std::mem::take(&mut self.escape);
-                self.in_escape = false;
-                let is_move = seq.first() == Some(&0x1b)
-                    && seq.get(1) == Some(&b'[')
-                    && seq.last() == Some(&b'H');
-                if is_move {
-                    if !no_links {
-                        self.close_active();
-                    }
-                    let params = &seq[2..seq.len() - 1];
-                    let mut parts = params.split(|&b| b == b';');
-                    let row = parts
-                        .next()
-                        .and_then(|p| std::str::from_utf8(p).ok())
-                        .and_then(|p| p.parse::<u16>().ok());
-                    let col = parts
-                        .next()
-                        .and_then(|p| std::str::from_utf8(p).ok())
-                        .and_then(|p| p.parse::<u16>().ok());
-                    match (row, col) {
-                        (Some(row), Some(col)) => {
-                            self.pos = Some((row.saturating_sub(1), col.saturating_sub(1)));
-                        }
-                        _ => self.pos = None,
-                    }
-                }
-                self.inner.write_all(&seq)?;
-                continue;
-            }
-            if byte == 0x1b {
-                self.flush_text()?;
-                self.in_escape = true;
-                self.escape.push(byte);
-                continue;
-            }
-            if self.text.is_empty() && !no_links {
-                self.link_for_run(&ranges);
-            }
-            self.text.push(byte);
-        }
-        self.flush_text()?;
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.flush_text()?;
-        if !self.escape.is_empty() {
-            let seq = std::mem::take(&mut self.escape);
-            self.in_escape = false;
-            self.inner.write_all(&seq)?;
-        }
-        self.close_active();
-        self.inner.flush()
-    }
-}
-
-/// True when the buffered escape sequence is complete (final byte seen).
-fn escape_complete(seq: &[u8]) -> bool {
-    if seq.len() < 2 {
-        return false;
-    }
-    match seq[1] {
-        // CSI: parameter/intermediate bytes then a final byte. The
-        // introducer `[` itself sits in the final-byte range, so a lone
-        // `ESC [` is incomplete.
-        b'[' => {
-            if seq.len() < 3 {
-                return false;
-            }
-            let body_complete = seq[2..seq.len() - 1]
-                .iter()
-                .all(|&b| (0x20..=0x3f).contains(&b));
-            body_complete && seq.last().is_some_and(|&c| (0x40..=0x7e).contains(&c))
-        }
-        // OSC and friends end at BEL, or at ESC \ (ST).
-        b']' | b'P' | b'^' | b'X' | b'_' => {
-            if matches!(seq.last(), Some(b'\x07')) {
-                return true;
-            }
-            seq.len() >= 3 && seq[seq.len() - 2] == 0x1b && seq[seq.len() - 1] == b'\\'
-        }
-        _ => false,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Span;
-
-    fn line(text: &str) -> Line {
-        vec![Span::raw(text)]
-    }
 
     #[test]
     fn resolve_link_href_canonicalizes_parseable_targets() {
@@ -544,49 +299,6 @@ mod tests {
         assert_eq!(resolve_link_href("#s"), "#s%7F");
         // Printable fragments stay untouched, byte-identical to TS.
         assert_eq!(resolve_link_href("#section"), "#section");
-    }
-
-    #[test]
-    fn openable_href_gates_the_click_opener() {
-        // TS `openHyperlink`: control bytes never reach the opener, and
-        // only http/https/file targets open; a parseable target opens as
-        // its canonical href.
-        assert_eq!(
-            openable_href("https://example.com/docs"),
-            Some("https://example.com/docs".to_string())
-        );
-        assert_eq!(
-            openable_href("http://example.com"),
-            Some("http://example.com/".to_string())
-        );
-        assert_eq!(
-            openable_href("file:///home/user/notes"),
-            Some("file:///home/user/notes".to_string())
-        );
-        assert_eq!(openable_href("mailto:a@b.dev"), None);
-        assert_eq!(openable_href("ftp://example.com/f"), None);
-        assert_eq!(openable_href("not a url"), None);
-        assert_eq!(openable_href("https://example.com/a\x1bb"), None);
-    }
-
-    #[test]
-    fn url_at_resolves_the_covering_range() {
-        let ranges = vec![LinkRange {
-            row: 2,
-            start_col: 4,
-            end_col: 8,
-            url: "https://example.com".to_string(),
-        }];
-        assert_eq!(
-            url_at(&ranges, 2, 5),
-            Some("https://example.com".to_string())
-        );
-        assert_eq!(
-            url_at(&ranges, 2, 4),
-            Some("https://example.com".to_string())
-        );
-        assert_eq!(url_at(&ranges, 2, 8), None, "the end column is outside");
-        assert_eq!(url_at(&ranges, 3, 5), None, "another row");
     }
 
     #[test]
@@ -659,55 +371,5 @@ mod tests {
             strip_osc8_content("a\x1b]8;;https://y\x1b\\b\x1b]8;;\x1b\\c"),
             "abc"
         );
-    }
-
-    /// Drive the writer against a byte sink: returns everything written.
-    fn paint(ranges_frame: &[Line], chunks: &[&[u8]]) -> String {
-        install_frame(ranges_frame);
-        let mut writer = HyperlinkWriter::new(Vec::new());
-        for chunk in chunks {
-            writer.write_all(chunk).expect("write");
-        }
-        writer.flush().expect("flush");
-        install_frame(&[]);
-        String::from_utf8(writer.into_inner()).expect("utf-8")
-    }
-
-    #[test]
-    fn writer_injects_open_close_around_link_cells() {
-        // Link covers the `cd` label at columns 4..6 of row 0.
-        let frame = vec![vec![
-            Span::raw("    "),
-            Span::raw(osc8_open("https://z")),
-            Span::raw("cd"),
-            Span::raw(OSC8_CLOSE),
-        ]];
-        let out = paint(&frame, &[b"\x1b[1;3Hab", b"\x1b[1;5Hcd", b"\x1b[1;8Hxy"]);
-        assert_eq!(
-            out,
-            "\x1b[1;3Hab\x1b[1;5H\x1b]8;;https://z\x1b\\cd\x1b]8;;\x1b\\\x1b[1;8Hxy"
-        );
-    }
-
-    #[test]
-    fn writer_keeps_region_open_across_style_changes() {
-        // The link covers columns 0..4; a color SGR lands between the two
-        // fragments, so the region must stay open across the SGR bytes.
-        let frame = vec![vec![
-            Span::raw(osc8_open("https://z")),
-            Span::raw("abcd"),
-            Span::raw(OSC8_CLOSE),
-        ]];
-        let out = paint(&frame, &[b"\x1b[1;1Hab\x1b[38;2;1;2;3mcd"]);
-        assert_eq!(
-            out,
-            "\x1b[1;1H\x1b]8;;https://z\x1b\\ab\x1b[38;2;1;2;3mcd\x1b]8;;\x1b\\"
-        );
-    }
-
-    #[test]
-    fn writer_without_links_passes_stream_through() {
-        let out = paint(&[line("no links here")], &[b"\x1b[1;1Hplain"]);
-        assert_eq!(out, "\x1b[1;1Hplain");
     }
 }

@@ -11,7 +11,7 @@
     "details"
    ]
   },
-  "skippedError": "Session is too short to compact — try again once it grows",
+  "skippedError": "Session is too short to compact -- try again once it grows",
   "abortedError": "Compaction cancelled",
   "unknownSessionError": "Unknown active session: no-such-session",
   "dataSample": {
@@ -57,7 +57,7 @@
   "reason": "manual",
   "aborted": false,
   "willRetry": false,
-  "errorMessage": "Session is too short to compact — try again once it grows",
+  "errorMessage": "Session is too short to compact -- try again once it grows",
   "errorSeverity": "warning",
   "customInstructions": "Emphasize the number 42."
  },

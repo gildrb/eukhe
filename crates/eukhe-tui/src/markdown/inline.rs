@@ -1,6 +1,6 @@
 use super::MarkdownStyle;
+use crate::style::Modifier;
 use crate::{Line, Span};
-use ratatui::style::Modifier;
 /// Inline rendering: bold, italic, strikethrough, code, links.
 #[must_use]
 pub fn render_inline(text: &str, style: &MarkdownStyle) -> Line {
@@ -10,7 +10,7 @@ pub fn render_inline(text: &str, style: &MarkdownStyle) -> Line {
 /// The same inline render, plus the `link_url` slot indices: which
 /// spans of the returned line carry a link's `[url]` bracket, in
 /// ascending span order. Style-tapering callers (headings) preserve
-/// those spans by origin — a code or body span that merely renders in
+/// those spans by origin -- a code or body span that merely renders in
 /// the `link_url` style (a theme whose colors collide) is not a slot
 /// and tapers like any other span.
 #[must_use]
@@ -99,7 +99,7 @@ fn render_inline_ctx(text: &str, style: &MarkdownStyle, in_link: bool) -> (Line,
                 let mut url = String::new();
                 // CommonMark link destination: parentheses ride only as
                 // a balanced pair (TS marked's lexer), so the destination
-                // ends at the `)` that closes it — not at the first `)`
+                // ends at the `)` that closes it -- not at the first `)`
                 // inside, which a Wikipedia-style url carries. A
                 // backslash-escaped char rides through verbatim and
                 // never counts toward the balance either (so `\(` does
@@ -159,8 +159,8 @@ fn render_inline_ctx(text: &str, style: &MarkdownStyle, in_link: bool) -> (Line,
                     url_slots.append(&mut label_slots);
                     spans.extend(label_spans);
                     // The URL rides beside every link, in both the OSC 8
-                    // and legacy forms — after the wrap, so the region
-                    // covers the label only — in the dim `link_url` slot,
+                    // and legacy forms -- after the wrap, so the region
+                    // covers the label only -- in the dim `link_url` slot,
                     // unless the label already is the URL (mailto stripped
                     // for the comparison, like autolinked emails).
                     let comparison = url.strip_prefix("mailto:").unwrap_or(url.as_str());
@@ -305,7 +305,7 @@ fn render_inline_ctx(text: &str, style: &MarkdownStyle, in_link: bool) -> (Line,
             // unless the label already shows it (the mailto-stripped
             // comparison, TS token.href). The bare-url regex tail only
             // excludes whitespace, so an escape byte can ride a bare
-            // url token's href into this visible span — the bracket gets
+            // url token's href into this visible span -- the bracket gets
             // the same control-byte hardening the OSC 8 target gets.
             let comparison = token.href.strip_prefix("mailto:").unwrap_or(&token.href);
             if token.text != token.href && token.text != comparison {

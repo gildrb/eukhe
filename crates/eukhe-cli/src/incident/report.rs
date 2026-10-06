@@ -210,7 +210,7 @@ pub(crate) fn build_incident_report(
 
     let mut header = vec!["Eukhe incident timeline".to_string()];
     header.push(format!(
-        "Window: {} → {} UTC ({})",
+        "Window: {} -> {} UTC ({})",
         format_incident_time(options.since_ms),
         format_incident_time(options.until_ms),
         format_incident_duration(options.until_ms - options.since_ms)

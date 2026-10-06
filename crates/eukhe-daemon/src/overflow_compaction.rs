@@ -815,7 +815,7 @@ mod tests {
         assert_eq!(starts.len(), 1);
         assert_eq!(starts[0]["reason"], "overflow");
         let skipped =
-            "Auto-compaction skipped: Session is too short to compact — try again once it grows";
+            "Auto-compaction skipped: Session is too short to compact -- try again once it grows";
         let ends = compaction_ends(&events);
         assert_eq!(ends.len(), 1);
         assert_eq!(

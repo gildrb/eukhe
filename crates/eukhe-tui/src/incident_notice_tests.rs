@@ -352,8 +352,8 @@ fn a_missing_log_keeps_the_offsets_and_ages_the_notice_out() {
     ));
     let (offset, file_id) = (state.log_offset, state.log_file_id.clone());
     // The log disappears (an unreadable log): the poll keeps the consumed
-    // offset and file id — a re-tail would fabricate a second supervisor
-    // start — and still re-derives, so the notice ages out with its
+    // offset and file id -- a re-tail would fabricate a second supervisor
+    // start -- and still re-derives, so the notice ages out with its
     // window.
     std::fs::remove_file(&log_path).expect("remove log");
     assert!(!refresh_incident_notice_state(
@@ -361,7 +361,7 @@ fn a_missing_log_keeps_the_offsets_and_ages_the_notice_out() {
     ));
     assert_eq!(state.log_offset, offset);
     assert_eq!(state.log_file_id, file_id);
-    // The notice expires with its window (entries older than 24h drop) —
+    // The notice expires with its window (entries older than 24h drop) --
     // Some -> None IS a changed line, so the poll reports it for re-render.
     let later = BASE_MS + INCIDENT_NOTICE_WINDOW_MS + 1_000;
     assert!(refresh_incident_notice_state(&mut state, &log_path, later));
@@ -381,7 +381,7 @@ fn the_initial_read_drops_a_torn_leading_line_but_keeps_a_boundary_line() {
         .to_string()
     };
     // A log larger than the tail bound: the bounded tail starts mid-line
-    // (the cut splits a filler record — the torn leading fragment drops)
+    // (the cut splits a filler record -- the torn leading fragment drops)
     // and the newest record, the crash, still surfaces.
     let filler = serde_json::json!({
         "ts": ts_ago(BASE_MS, 600 * 60_000),

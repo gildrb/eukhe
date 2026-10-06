@@ -335,7 +335,8 @@ fn user_only_filter_keeps_hidden_intermediates_out_of_the_visible_tree() {
     assert!(
         !joined
             .iter()
-            .any(|row| row.contains("└") || row.contains("├")),
+            .any(|row| row.contains(crate::glyphs::TREE_LAST)
+                || row.contains(crate::glyphs::TREE_MID)),
         "the hidden assistant did not branch the visible tree: {joined:?}"
     );
 }
@@ -378,18 +379,18 @@ fn render_marks_active_path_and_connectors() {
         .collect();
     // The active branch (u1, a1, u2) carries the path marker; the
     // selected row is the leaf.
-    assert!(text[0].starts_with("  •"), "path marker: {:?}", text[0]);
+    assert!(text[0].starts_with("  *"), "path marker: {:?}", text[0]);
     let selected = text
         .iter()
-        .find(|row| row.starts_with("› "))
+        .find(|row| row.starts_with("> "))
         .expect("selected row");
-    assert!(selected.contains("• user: second"), "selected: {selected}");
+    assert!(selected.contains("* user: second"), "selected: {selected}");
     let sibling = text
         .iter()
         .find(|row| row.contains("sibling"))
         .expect("sibling row");
     assert!(
-        sibling.contains("└─") && sibling.contains("user: sibling"),
+        sibling.contains("`-") && sibling.contains("user: sibling"),
         "connector: {sibling}"
     );
     // The counter row closes the list.

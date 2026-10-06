@@ -83,8 +83,9 @@ const CHILD_MODE_ENV: &str = "EUKHE_TERMIOS_CHILD_MODE";
 const CHILD_SOCKET_ENV: &str = "EUKHE_TERMIOS_CHILD_SOCKET";
 /// TERM the children run with: answers the kitty query, no shortcut.
 const CHILD_TERM: &str = "xterm-256color";
-/// The alt-screen leave: every route that ends the process writes it.
-const ALT_SCREEN_LEAVE: &[u8] = b"\x1b[?1049l";
+/// The exit restore tail (sync-output off, SGR reset): every route that
+/// ends the process writes it.
+const EXIT_TAIL: &[u8] = b"\x1b[?2026l\x1b[0m";
 /// The Ctrl+S stop byte (XOFF).
 const CTRL_S: u8 = 0x13;
 /// The child-mode pre-mount gate: when set, the chat child announces
@@ -272,11 +273,7 @@ fn a_full_session_with_a_mid_session_ctrl_s_exits_whole() {
     harness.write(&[CTRL_S]);
 
     harness.write(b"/exit\r");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the parity exit left the alt screen",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the parity exit wrote the restore tail");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(exit, Some(0), "the child exited cleanly through /exit");
 
@@ -309,11 +306,6 @@ fn a_launch_on_a_ctrl_s_stopped_tty_flows_and_exits_whole() {
         "the pre-mount gate marker",
     );
     // Arm the stop and PROVE it armed before releasing the child: the
-    // line discipline echoes cooked-tty input, and the stop holds the
-    // echo — a sentinel line written now must NOT come back within the
-    // settle window. The assert turns a failed arm into a loud route
-    // failure instead of a silently-degenerate pass.
-    // Arm the stop and PROVE it armed before releasing the child: the
     // cooked line discipline echoes input as it arrives (no newline
     // needed), and the stop holds that echo — a sentinel written now
     // must NOT come back within the settle window. The assert turns a
@@ -335,7 +327,7 @@ fn a_launch_on_a_ctrl_s_stopped_tty_flows_and_exits_whole() {
     }
     assert!(
         armed,
-        "the Ctrl+S write did not arm the output stop (the cooked-tty          echo came back); the route cannot prove the lift"
+        "the Ctrl+S write did not arm the output stop (the cooked-tty echo came back); the route cannot prove the lift"
     );
     // The release: completes the sentinel line, so the child's gate
     // read returns and the mount runs under the armed stop.
@@ -349,11 +341,7 @@ fn a_launch_on_a_ctrl_s_stopped_tty_flows_and_exits_whole() {
 
     let mark = harness.mark();
     harness.write(b"/exit\r");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the parity exit left the alt screen",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the parity exit wrote the restore tail");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(exit, Some(0), "the child exited cleanly through /exit");
 
@@ -378,11 +366,7 @@ fn the_agents_view_exit_exits_whole() {
     harness.write(&[CTRL_S]);
     harness.drain_until_quiet(4);
     harness.write(b"\x1b[27u");
-    harness.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the view's exit released the terminal",
-    );
+    harness.wait_from(mark, EXIT_TAIL, "the view's exit released the terminal");
     let exit = harness.wait_child_exit(Duration::from_secs(20));
     assert_eq!(
         exit,
@@ -637,18 +621,16 @@ fn a_suspend_cycle_with_a_ctrl_s_in_the_stopped_window_never_stops_the_shell() {
     harness.master.write(b"hi");
     harness.master.wait_from(
         mark_resume,
-        b"\x1b[22;7H",
+        b"hi",
         "the resumed surface flows (the output stop did not survive the resume)",
     );
 
     // The exit: the shell must get a FLOWING tty.
     let mark = harness.master.mark();
     harness.master.write(b"/exit\r");
-    harness.master.wait_from(
-        mark,
-        ALT_SCREEN_LEAVE,
-        "the parity exit left the alt screen",
-    );
+    harness
+        .master
+        .wait_from(mark, EXIT_TAIL, "the parity exit wrote the restore tail");
     wait_for_exit(&mut harness.child, "the post-suspend exit");
 
     // The termios snapshot (this harness owns its own capture): the

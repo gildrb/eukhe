@@ -1,4 +1,4 @@
-//! `chat`: the chat memory from the command line — the view the agent sees,
+//! `chat`: the chat memory from the command line -- the view the agent sees,
 //! its status, the browse page, and history imports. Reading never takes
 //! ownership of the chat (a short-lived command must not run the
 //! compactor); an import first makes sure the daemon runs, so its

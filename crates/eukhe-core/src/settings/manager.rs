@@ -270,18 +270,6 @@ impl SettingsManager {
             .unwrap_or_else(|| "  ".to_string())
     }
 
-    /// `terminal.fullscreenMouse` (TS `getFullscreenMouse`): whether the
-    /// fullscreen transcript surface enables mouse tracking and wheel
-    /// scrolling; the default matches the TS default, true.
-    #[must_use]
-    pub fn get_fullscreen_mouse(&self) -> bool {
-        self.settings()
-            .terminal
-            .as_ref()
-            .and_then(|terminal| terminal.fullscreen_mouse)
-            .unwrap_or(true)
-    }
-
     /// `terminal.showImages` (TS `getShowImages`): whether image blocks in
     /// tool results render their type/dimension metadata rows; the
     /// default matches the TS default, true.

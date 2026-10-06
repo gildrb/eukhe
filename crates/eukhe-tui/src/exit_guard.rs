@@ -6,12 +6,12 @@
 //! requests, and a wedged runtime never runs those bounds at all. Issue
 //! #138's per-request caps bound the healthy path, but the second Ctrl+C
 //! still has to be *observed by the loop* before they apply, so the exit
-//! could lag indefinitely — the live report: the first press is accepted
+//! could lag indefinitely -- the live report: the first press is accepted
 //! (abort sent), the second never terminates.
 //!
 //! The contract this module enforces: two Ctrl+C presses inside the exit
 //! window mean exit, and the process is gone within
-//! [`FORCE_QUIT_AFTER_MS`] of the second press — no matter what the loop,
+//! [`FORCE_QUIT_AFTER_MS`] of the second press -- no matter what the loop,
 //! the daemon connection, or the async runtime is doing. The observation
 //! runs on the terminal reader thread (the one component that stays alive
 //! when the UI loop is wedged) and the enforcement runs on a plain
@@ -51,8 +51,8 @@ pub(crate) const FORCE_QUIT_AFTER_MS: u64 = 1_500;
 /// clock. A completed chunk write is proof the exit is moving, so the
 /// watchdog holds fire while progress was observed within this window
 /// and force-quits only once it goes stale (a dead terminal, a wedged
-/// writer). TS has no watchdog at all — its exit simply waits for the
-/// writes — so holding on observed progress is the TS-healthy behavior;
+/// writer). TS has no watchdog at all -- its exit simply waits for the
+/// writes -- so holding on observed progress is the TS-healthy behavior;
 /// the hard 1500ms ceiling stays for the silent case (the wedged loop
 /// the guard was built for). With 32KiB chunks this holds for any drain
 /// faster than ~65KB/s; slower drains read as stalled and force-quit
@@ -68,8 +68,8 @@ const WATCHDOG_THREAD_NAME: &str = "tui-exit-watchdog";
 /// When the exit path last proved it is making progress (`None` until the
 /// first proof). Process-global on purpose: the writers that owe the proof
 /// (the exit flush's chunked writes in view.rs, the release tail in
-/// `exit_restore.rs`, the resume hint in `eukhe-cli`) do not own the guard — the
-/// guard is shared across surfaces and the writers live in other layers —
+/// `exit_restore.rs`, the resume hint in `eukhe-cli`) do not own the guard -- the
+/// guard is shared across surfaces and the writers live in other layers --
 /// and a stamp beside the watchdog reads at every poll slice exactly the
 /// same state any guard's watchdog would. One TUI process, one exit.
 static LAST_EXIT_PROGRESS: Mutex<Option<Instant>> = Mutex::new(None);
@@ -90,7 +90,7 @@ pub fn note_exit_progress() {
 /// Whether the watchdog may force-quit at `now`: the deadline has passed
 /// AND the exit path has been silent for the whole grace window. A fresh
 /// progress stamp means the exit is draining a slow terminal (a healthy
-/// flush), so the forced exit would kill a live writer mid-stream —
+/// flush), so the forced exit would kill a live writer mid-stream --
 /// truncating the scrollback contract the flush is frozen to, and
 /// queueing the restore's own bytes mid-flush. Silence for the grace
 /// window means nothing is moving: the original wedged-shutdown case.
@@ -199,7 +199,7 @@ impl ExitGuard {
     }
 
     /// The UI loop handled one Ctrl+C key (session editor, model picker, or
-    /// onboarding — every consumer reports). Once every observed press has
+    /// onboarding -- every consumer reports). Once every observed press has
     /// been handled and the loop did not exit, the pair was consumed with
     /// TS semantics (abort, autocomplete cancel): the force-quit deadline
     /// clears. A press still queued behind this one keeps its deadline, so
@@ -213,7 +213,7 @@ impl ExitGuard {
 
     /// The run decided to leave (exit key, session request, or the daemon
     /// connection closing): the process must be gone within
-    /// [`FORCE_QUIT_AFTER_MS`] even if the shutdown path wedges — the
+    /// [`FORCE_QUIT_AFTER_MS`] even if the shutdown path wedges -- the
     /// bounded stats/detach/telemetry requests and the exit flush are all
     /// best-effort now.
     pub(crate) fn arm_for_exit(&self) {
@@ -252,7 +252,7 @@ impl ExitGuard {
 
     /// The run finished and the process may continue (the agents-view
     /// handoff): retire the watchdog. Every other completion is a process
-    /// exit, where the deadline simply dies with the process — or fires
+    /// exit, where the deadline simply dies with the process -- or fires
     /// when the exit wedged, which is the point.
     pub(crate) fn cancel(&self) {
         self.state.settled.store(true, Ordering::SeqCst);
@@ -273,7 +273,7 @@ fn spawn_watchdog(state: &Arc<GuardState>) {
             }
             let deadline_ms = thread_state.force_deadline_ms.load(Ordering::SeqCst);
             if deadline_ms == u64::MAX {
-                // Disarmed: keep watching — a later pair re-arms.
+                // Disarmed: keep watching -- a later pair re-arms.
                 std::thread::sleep(Duration::from_millis(WATCHDOG_POLL_MS));
                 continue;
             }
@@ -333,16 +333,16 @@ mod tests {
         assert!(!force_quit_due(now, deadline, None));
         assert!(!force_quit_due(now, deadline, Some(now)));
         // Past the deadline with no progress ever observed: the wedged
-        // shutdown — fires at the deadline, unchanged.
+        // shutdown -- fires at the deadline, unchanged.
         assert!(force_quit_due(deadline, deadline, None));
         // Past the deadline with progress inside the grace window: the
-        // exit is draining a slow terminal — hold.
+        // exit is draining a slow terminal -- hold.
         let fresh = deadline
             .checked_sub(Duration::from_millis(EXIT_PROGRESS_GRACE_MS))
             .expect("the grace window precedes the deadline");
         assert!(!force_quit_due(deadline, deadline, Some(fresh)));
         // Progress one millisecond older than the grace window: nothing
-        // has moved for the whole window — stalled, fire.
+        // has moved for the whole window -- stalled, fire.
         let stale = deadline
             .checked_sub(Duration::from_millis(EXIT_PROGRESS_GRACE_MS + 1))
             .expect("the stale timestamp precedes the deadline");

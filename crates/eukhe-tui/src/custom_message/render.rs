@@ -10,25 +10,41 @@ use super::{
     AgentMessageDirection, AgentMessageRow, CustomPanelRow, ShellCompletionRow, AGENT_MESSAGE_LABEL,
 };
 use crate::chat::Detail;
+use crate::style::Style;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::{pad_line, str_width, truncate_line, wrap_line, wrap_text};
 use crate::{Line, Span};
-use ratatui::style::Style;
 
 /// One blank row (`Spacer(1)`).
 pub(crate) fn spacer() -> Line {
     Vec::new()
 }
 
+/// The markdown style of a custom-message body: the theme defaults with
+/// `body_color` as the body foreground.
+pub(super) fn markdown_style(
+    body_color: ThemeColor,
+    theme: &Theme,
+) -> crate::markdown::MarkdownStyle {
+    let mut md = crate::markdown::MarkdownStyle::from_theme(theme);
+    md.body = theme.fg_style(body_color);
+    md
+}
+
+/// The agent-message body width: the margin and gutter columns off.
+fn agent_body_width(width: usize) -> usize {
+    width.max(1).saturating_sub(4).max(1)
+}
+
 /// TS `customMessageLabel`: the bold `[<name>]` label in
-/// `customMessageLabel` — the shared header label of the skill card and
+/// `customMessageLabel` -- the shared header label of the skill card and
 /// the generic custom panel.
 pub(crate) fn custom_message_label(name: &str, theme: &Theme) -> Span {
     Span::styled(
         format!("[{name}]"),
         theme
             .fg_style(ThemeColor::CustomMessageLabel)
-            .add_modifier(ratatui::style::Modifier::BOLD),
+            .add_modifier(crate::style::Modifier::BOLD),
     )
 }
 
@@ -50,18 +66,18 @@ pub(crate) fn text_rows(spans: &Line, width: usize) -> Vec<Line> {
         .collect()
 }
 
-/// TS `agentMessageSummaryLine` (`◆ <label> · <participant>`) with the
-/// operator's sanctioned divergences: the row's icon is the `✉` mail
-/// envelope (Kevin directive 2026-09-24 — the a2a rows read as agent
+/// TS `agentMessageSummaryLine` (`* <label> * <participant>`) with the
+/// operator's sanctioned divergences: the row's icon is the `mail` mail
+/// envelope (Kevin directive 2026-09-24 -- the a2a rows read as agent
 /// mail; the TS side is expected to adopt the same glyph) rendered green
 /// (the operator's 2026-09-24 directive: "mail envelope glyph GREEN not
-/// purple") — the Success color, the palette's green. The label is the
+/// purple") -- the Success color, the palette's green. The label is the
 /// shared `Agent message` and the participant renders the viewer-relative
 /// arrow plus the counterpart agent's name (the operator's 2026-09-25
-/// arrow directive: "↓ for received and ↑ for sent/queued ... Display
+/// arrow directive: "down for received and up for sent/queued ... Display
 /// only `Agent message` + arrow + counterpart agent name"): the arrow
-/// comes from the row's actual direction — `↑` on sent and queued rows
-/// (this chat's outgoing mail), `↓` on received ones (incoming) — never
+/// comes from the row's actual direction -- `up` on sent and queued rows
+/// (this chat's outgoing mail), `down` on received ones (incoming) -- never
 /// parsed out of a participant or body string, and the direction word,
 /// the relationship word, and the body preview never render (the TS
 /// header carries no preview either).
@@ -71,17 +87,23 @@ pub(crate) fn agent_message_summary_line(
     theme: &Theme,
 ) -> Line {
     let arrow = match direction {
-        AgentMessageDirection::Received => "\u{2193}",
-        AgentMessageDirection::Sent | AgentMessageDirection::Queued => "\u{2191}",
+        AgentMessageDirection::Received => crate::glyphs::DOWN,
+        AgentMessageDirection::Sent | AgentMessageDirection::Queued => crate::glyphs::UP,
     };
     vec![
-        Span::styled("\u{2709}".to_string(), theme.fg_style(ThemeColor::Success)),
+        Span::styled(
+            crate::glyphs::MAIL.to_string(),
+            theme.fg_style(ThemeColor::Success),
+        ),
         Span::raw(" "),
         Span::styled(
             AGENT_MESSAGE_LABEL.to_string(),
             theme.fg_style(ThemeColor::Muted),
         ),
-        Span::styled(" \u{b7} ".to_string(), theme.fg_style(ThemeColor::Dim)),
+        Span::styled(
+            crate::glyphs::SEP.to_string(),
+            theme.fg_style(ThemeColor::Dim),
+        ),
         Span::styled(
             format!("{arrow} {counterpart}"),
             theme.fg_style(ThemeColor::Dim),
@@ -90,8 +112,8 @@ pub(crate) fn agent_message_summary_line(
 }
 
 /// The received agent-message rows (TS `AgentMessageComponent`): a leading
-/// blank (spacing-driven), the summary header (no body preview — the
-/// collapsed row is the summary alone), and the `╰─`-guttered body when
+/// blank (spacing-driven), the summary header (no body preview -- the
+/// collapsed row is the summary alone), and the `BRANCH`-guttered body when
 /// expanded.
 pub(crate) fn render_agent_message(
     row: &AgentMessageRow,
@@ -113,11 +135,11 @@ pub(crate) fn render_agent_message(
 }
 
 /// TS `agentMessageBodyLines`: each source line wraps at `width - 4`, the
-/// first rendered line carries the `╰─ ` gutter, the rest three spaces, all
+/// first rendered line carries the branch (`BRANCH`) gutter, the rest three spaces, all
 /// in `customMessageText`, truncated to the width.
 pub(crate) fn agent_message_body(message: &str, theme: &Theme, width: usize) -> Vec<Line> {
     let safe_width = width.max(1);
-    let text_width = super::geometry::agent_body_width(width);
+    let text_width = agent_body_width(width);
     let body = theme.fg_style(ThemeColor::CustomMessageText);
     let mut lines: Vec<Line> = Vec::new();
     for source in message.split('\n') {
@@ -134,11 +156,11 @@ pub(crate) fn agent_message_body(message: &str, theme: &Theme, width: usize) -> 
         .into_iter()
         .enumerate()
         .map(|(index, line)| {
-            // TS: the first rendered line carries the dim `╰─ ` gutter,
+            // TS: the first rendered line carries the dim branch (`BRANCH`) gutter,
             // continuation lines three unstyled spaces.
             let mut row: Line = vec![Span::raw(" ")];
             if index == 0 {
-                row.push(Span::styled("\u{2570}\u{2500} ".to_string(), dim));
+                row.push(Span::styled(crate::glyphs::BRANCH.to_string(), dim));
             } else {
                 row.push(Span::raw("   "));
             }
@@ -178,11 +200,15 @@ pub(crate) fn render_shell_completion(
         theme.fg_style(ThemeColor::Muted)
     };
     let label = if let (Some(code), true) = (row.exit_code, failed) {
-        format!("Background shell command failed \u{b7} exit {code}")
+        format!("Background shell command failed - exit {code}")
     } else {
         "Background shell command finished".to_string()
     };
-    let mark = if failed { "\u{2717}" } else { "\u{2713}" };
+    let mark = if failed {
+        crate::glyphs::FAIL
+    } else {
+        crate::glyphs::OK
+    };
     let header = truncate_line(
         &vec![Span::styled(format!(" {mark} {label}"), color)],
         width,
@@ -218,7 +244,7 @@ pub(crate) fn pad_with(mut line: Line, width: usize, base: Style) -> Line {
 /// `customMessageLabel`, then the always-shown markdown body in
 /// `customMessageText` under the branch gutter.
 pub(crate) fn render_custom_panel(row: &CustomPanelRow, theme: &Theme, width: usize) -> Vec<Line> {
-    let md = super::geometry::markdown_style(ThemeColor::CustomMessageText, theme);
+    let md = markdown_style(ThemeColor::CustomMessageText, theme);
     let mut out = vec![spacer()];
     out.extend(text_rows(
         &vec![custom_message_label(&row.custom_type, theme)],
@@ -260,10 +286,7 @@ mod tests {
         assert_eq!(rows.len(), 2, "{rows:?}");
         assert!(rows[0].is_empty());
         let header = flat(&rows[1]);
-        assert_eq!(
-            header.trim_end(),
-            " \u{2709} Agent message \u{b7} \u{2193} model-probe"
-        );
+        assert_eq!(header.trim_end(), " & Agent message - v model-probe");
         // The collapsed row never carries the body text.
         assert!(!header.contains("ready"), "no preview: {header:?}");
         // Colors: green envelope (the operator's 2026-09-24 directive),
@@ -273,13 +296,10 @@ mod tests {
         let muted = theme().fg_style(ThemeColor::Muted);
         let dim = theme().fg_style(ThemeColor::Dim);
         assert_eq!(rows[1][0], Span::styled(" ".to_string(), Style::default()));
-        assert_eq!(rows[1][1], Span::styled("\u{2709}".to_string(), green));
+        assert_eq!(rows[1][1], Span::styled("&".to_string(), green));
         assert_eq!(rows[1][3], Span::styled("Agent message".to_string(), muted));
-        assert_eq!(rows[1][4], Span::styled(" \u{b7} ".to_string(), dim));
-        assert_eq!(
-            rows[1][5],
-            Span::styled("\u{2193} model-probe".to_string(), dim)
-        );
+        assert_eq!(rows[1][4], Span::styled(" - ".to_string(), dim));
+        assert_eq!(rows[1][5], Span::styled("v model-probe".to_string(), dim));
     }
 
     #[test]
@@ -295,23 +315,23 @@ mod tests {
             let rows = render_agent_message(&row, Detail::Overview, &theme(), 60, false);
             assert_eq!(rows.len(), 1, "one header row: {rows:?}");
             let header = flat(&rows[0]).trim_end().to_string();
-            assert_eq!(header, " \u{2709} Agent message \u{b7} \u{2193} root");
+            assert_eq!(header, " & Agent message - v root");
             assert!(!header.contains("word"), "no preview: {header:?}");
-            assert!(!header.contains("\u{2026}"), "no ellipsis: {header:?}");
+            assert!(!header.contains("..."), "no ellipsis: {header:?}");
         }
     }
 
     /// The arrow is viewer-relative (the operator's 2026-09-25 directive):
-    /// `↑` on sent and queued rows (this chat's outgoing mail), `↓` on
+    /// `up` on sent and queued rows (this chat's outgoing mail), `down` on
     /// received ones (incoming). The arrow comes from the row's actual
     /// direction and the collapsed row carries the shared `Agent message`
     /// label plus the arrow and counterpart name only.
     #[test]
     fn agent_message_arrows_follow_the_row_direction() {
         for (direction, arrow) in [
-            (AgentMessageDirection::Received, "\u{2193}"),
-            (AgentMessageDirection::Sent, "\u{2191}"),
-            (AgentMessageDirection::Queued, "\u{2191}"),
+            (AgentMessageDirection::Received, "v"),
+            (AgentMessageDirection::Sent, "^"),
+            (AgentMessageDirection::Queued, "^"),
         ] {
             let row = AgentMessageRow {
                 direction,
@@ -321,7 +341,7 @@ mod tests {
             let rows = render_agent_message(&row, Detail::Overview, &theme(), 80, false);
             let header = flat(&rows[0]);
             assert!(
-                header.contains(&format!("\u{2709} Agent message \u{b7} {arrow} worker")),
+                header.contains(&format!("& Agent message - {arrow} worker")),
                 "{direction:?} header: {header}"
             );
             assert!(
@@ -341,16 +361,13 @@ mod tests {
         let rows = render_agent_message(&row, Detail::All, &theme(), 60, false);
         // No leading blank (spacing decided otherwise), header, two body rows.
         assert_eq!(rows.len(), 3, "{rows:?}");
-        assert_eq!(flat(&rows[1]), " \u{2570}\u{2500} line one");
+        assert_eq!(flat(&rows[1]), " `- line one");
         assert_eq!(flat(&rows[2]), "    line two");
         let dim = theme().fg_style(ThemeColor::Dim);
         let body = theme().fg_style(ThemeColor::CustomMessageText);
         // The first rendered line carries the dim gutter, continuation rows
         // three unstyled spaces, both bodies in `customMessageText`.
-        assert_eq!(
-            rows[1][1],
-            Span::styled("\u{2570}\u{2500} ".to_string(), dim)
-        );
+        assert_eq!(rows[1][1], Span::styled("`- ".to_string(), dim));
         assert_eq!(rows[2][1], Span::raw("   "));
         assert!(rows[1]
             .iter()
@@ -366,10 +383,7 @@ mod tests {
         };
         let rows = render_shell_completion(&ok, Detail::Overview, &theme(), 60, true);
         assert!(rows[0].is_empty());
-        assert_eq!(
-            flat(&rows[1]),
-            " \u{2713} Background shell command finished"
-        );
+        assert_eq!(flat(&rows[1]), " ok Background shell command finished");
         assert_eq!(
             rows[1][0].style,
             theme().fg_style(ThemeColor::Muted),
@@ -384,7 +398,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(
             flat(&rows[0]),
-            " \u{2717} Background shell command failed \u{b7} exit 2"
+            " x Background shell command failed - exit 2"
         );
         assert_eq!(
             rows[0][0].style,
@@ -409,8 +423,8 @@ mod tests {
             trimmed,
             vec![
                 "",
-                " \u{2713} Background shell command finished",
-                " \u{2570}\u{2500} [bash-done pid:99 exit:0]",
+                " ok Background shell command finished",
+                " `- [bash-done pid:99 exit:0]",
                 "",
                 "    Command: \"printf done\"",
             ],
@@ -428,7 +442,7 @@ mod tests {
         };
         let rows = render_custom_panel(&row, &theme(), 40);
         // The label is the shared `customMessageLabel` span, whole (bold
-        // on the label fg) — no box background anywhere on the row.
+        // on the label fg) -- no box background anywhere on the row.
         assert_eq!(
             rows[1][1],
             custom_message_label("autonomous_status", &theme())

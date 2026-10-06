@@ -428,7 +428,7 @@ fn the_report_layout_matches_the_ts_shape() {
     let severity = format!("{:<8}", "info");
     let expected = [
         "Eukhe incident timeline",
-        "Window: 09-10 20:00:00 → 09-10 20:30:00 UTC (30m)",
+        "Window: 09-10 20:00:00 -> 09-10 20:30:00 UTC (30m)",
         "",
         "Supervisor events",
         &format!("  09-10 20:00:05  {severity}  daemon supervisor listening"),

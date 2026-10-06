@@ -100,8 +100,8 @@ pub struct SideQuestionPane {
     pub turns: Vec<SideQuestionTurn>,
     pub bash: Option<PaneBash>,
     /// Follow-up seeds that never render in the pane (TS
-    /// `finishSideQuestionBash` pushes them to `sideQuestionTurns` — the
-    /// seed list — while the pane keeps showing the bash component
+    /// `finishSideQuestionBash` pushes them to `sideQuestionTurns` -- the
+    /// seed list -- while the pane keeps showing the bash component
     /// itself): the raw `!input` and the formatted output.
     pub extra_seeds: Vec<(String, String)>,
     pub expanded: bool,
@@ -147,7 +147,7 @@ impl SideQuestionPane {
         }
     }
 
-    /// The running turn the escape key cancels (TS `sideQuestionEvent` —
+    /// The running turn the escape key cancels (TS `sideQuestionEvent` --
     /// the latest turn the pane tracks).
     #[must_use]
     pub fn active_turn(&self) -> Option<&SideQuestionTurn> {
@@ -230,12 +230,12 @@ impl SideQuestionPane {
             }
             if rendered.is_empty() {
                 // The placeholder rows (`Cancelled`/`No response`/
-                // `Thinking…`) are single-paddingX `Text` rows too (TS
+                // `Thinking...`) are single-paddingX `Text` rows too (TS
                 // renders each with `new Text(..., this.paddingX, 0)`).
                 let text = match turn.status.as_str() {
                     "cancelled" => "Cancelled".to_string(),
                     "complete" => "No response".to_string(),
-                    _ => "Thinking…".to_string(),
+                    _ => "Thinking...".to_string(),
                 };
                 rendered.push(vec![crate::Span::styled(text, user_text)]);
             }
@@ -250,7 +250,7 @@ impl SideQuestionPane {
             }
             rows.push(blank());
         }
-        // A pane-mounted bash run (TS `addBash` — the
+        // A pane-mounted bash run (TS `addBash` -- the
         // `BashExecutionComponent` appended below the answered turns,
         // its rows surfaced onto the popup background like every pane
         // row): one blank before and after, the card's own leading
@@ -276,7 +276,7 @@ impl SideQuestionPane {
         let hint = if self.running() {
             "esc to cancel and return to session"
         } else {
-            "reply to follow up · esc to return to session"
+            "reply to follow up - esc to return to session"
         };
         rows.push(surface(vec![
             crate::Span::styled(" ".repeat(PADDING_X), bg),
@@ -300,7 +300,7 @@ fn wrap_row(line: &crate::Line, width: usize) -> Vec<crate::Line> {
     let style = line
         .iter()
         .map(|span| span.style)
-        .reduce(ratatui::style::Style::patch)
+        .reduce(crate::style::Style::patch)
         .unwrap_or_default();
     wrapped
         .into_iter()
@@ -475,7 +475,7 @@ mod tests {
         assert!(joined.iter().any(|row| row.contains("the answer")));
         assert!(joined
             .iter()
-            .any(|row| row.contains("reply to follow up · esc to return to session")));
+            .any(|row| row.contains("reply to follow up - esc to return to session")));
         // A running turn swaps the hint.
         pane.upsert(turn("b", "running", ""));
         let rows = pane.render(&theme, 0, false, "Esc/Ctrl+C", 80);

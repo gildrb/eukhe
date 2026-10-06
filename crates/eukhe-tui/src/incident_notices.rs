@@ -4,7 +4,7 @@
 //! `eukhe incident` (the classifier in `eukhe_types::incident`, the TS
 //! `src/cli/incident.ts` port) already reconstructs daemon incidents from
 //! the shared structured log (`~/.eukhe/logs/agent.jsonl`); this
-//! module reuses that classifier — never re-implementing it — to surface
+//! module reuses that classifier -- never re-implementing it -- to surface
 //! a single collapsed, dismissible notice line in the agents-view header.
 //! A notice appears when the recent window of the log contains a worker
 //! crash, a command-timeout burst, or an update restart (a supervisor
@@ -35,7 +35,7 @@ pub const INCIDENT_NOTICE_TAIL_BYTES: u64 = 512 * 1024;
 /// logging with rotating generations, so a busy day would otherwise
 /// retain unbounded memory and make every poll re-sort and re-classify
 /// it all synchronously. Newest entries win; incidents older than the
-/// cap are simply not seen — the same best-effort spirit as
+/// cap are simply not seen -- the same best-effort spirit as
 /// [`INCIDENT_NOTICE_TAIL_BYTES`] (TS
 /// `INCIDENT_NOTICE_MAX_WINDOW_ENTRIES`).
 pub const INCIDENT_NOTICE_MAX_WINDOW_ENTRIES: usize = 20_000;
@@ -45,7 +45,7 @@ pub const INCIDENT_NOTICE_MAX_WINDOW_ENTRIES: usize = 20_000;
 pub const INCIDENT_NOTICE_POLL_INTERVAL_MS: u64 = 30_000;
 
 /// The pointer to the full timeline (TS `INCIDENT_NOTICE_POINTER`).
-pub const INCIDENT_NOTICE_POINTER: &str = "— run eukhe incident for the timeline";
+pub const INCIDENT_NOTICE_POINTER: &str = "-- run eukhe incident for the timeline";
 
 const NEWLINE_BYTE: u8 = 0x0a;
 
@@ -185,8 +185,8 @@ fn create_notice(
 /// (a supervisor-start whose subject already started within the window,
 /// i.e. the supervisor was replaced). A first-ever supervisor start is
 /// routine and never produces a notice. A timeout-burst notice carries
-/// the latest timeout of the stall cluster its anomaly describes — the
-/// classifier anchors the anomaly at the cluster's first timeout — so
+/// the latest timeout of the stall cluster its anomaly describes -- the
+/// classifier anchors the anomaly at the cluster's first timeout -- so
 /// dismissing it records a horizon that only covers that burst as
 /// dismissed: a later timeout extending the burst past the horizon
 /// re-surfaces the notice, instead of it staying hidden until the first
@@ -224,9 +224,9 @@ pub fn derive_incident_notices(entries: &[IncidentLogEntry], now_ms: i64) -> Vec
             ));
         }
     }
-    // Latest timeout of each subject's stall cluster — the same incident
+    // Latest timeout of each subject's stall cluster -- the same incident
     // the classifier's per-subject "N command timeouts over X" anomaly
-    // describes — so a notice and its dismissal horizon always refer to
+    // describes -- so a notice and its dismissal horizon always refer to
     // one incident: dismissal advances with a growing burst (a later
     // timeout in the cluster re-surfaces the notice past the horizon
     // instead of it staying hidden until the first timeout ages out),
@@ -252,7 +252,7 @@ pub fn derive_incident_notices(entries: &[IncidentLogEntry], now_ms: i64) -> Vec
     }
     // The classifier also emits supervisor-start for failed spawns (lock
     // held, startup error) at warn/error severity; only a successful
-    // start — the info-severity "listening on" event — counts toward a
+    // start -- the info-severity "listening on" event -- counts toward a
     // replacement, or two failed spawns on one socket would read as a
     // restart.
     let mut started_subjects: Vec<&str> = Vec::new();
@@ -280,7 +280,7 @@ pub fn derive_incident_notices(entries: &[IncidentLogEntry], now_ms: i64) -> Vec
 
 /// Collapse the derived notices to the single line the header shows: the
 /// most severe wins (critical > error > warn > info), the most recent
-/// breaks ties. Repeated identical events aggregate here — the header
+/// breaks ties. Repeated identical events aggregate here -- the header
 /// never stacks copies (TS `selectIncidentNotice`).
 #[must_use]
 pub fn select_incident_notice(notices: &[IncidentNotice]) -> Option<IncidentNotice> {
@@ -349,15 +349,15 @@ struct IncidentLogChunk {
 }
 
 /// Rotation-safe incremental read of agent.jsonl. Without a previous
-/// offset — or after rotation (a changed inode), a shrink (recreation in
-/// place), or more than one tail bound of new bytes — read the bounded
+/// offset -- or after rotation (a changed inode), a shrink (recreation in
+/// place), or more than one tail bound of new bytes -- read the bounded
 /// tail: the cut may begin mid-line (drop the torn leading fragment) or
 /// exactly at a record boundary (the byte before the cut is a newline;
 /// keep the intact first record, which dropping would silently lose for
 /// the lifetime of the state). Otherwise read only appended bytes (every
 /// read stays bounded). A trailing partial line is held back (the offset
 /// stops at its newline), so a mid-write line parses only once complete,
-/// on a later poll — unless `include_final_partial_line` is set for a
+/// on a later poll -- unless `include_final_partial_line` is set for a
 /// frozen file (the rotated .old), which no later poll can complete; its
 /// final line is returned as-is. A missing or unreadable file returns
 /// `None`; offsets beyond the file size are never re-processed.
@@ -475,7 +475,7 @@ fn file_identity(stats: &std::fs::Metadata) -> String {
 /// append, everything older than the window drops, and only the newest
 /// [`INCIDENT_NOTICE_MAX_WINDOW_ENTRIES`] survive, so memory and per-poll
 /// work stay bounded (TS `mergeIncidentWindowedEntries`). Lines re-read
-/// after a rotation or a re-tail collapse harmlessly — identical
+/// after a rotation or a re-tail collapse harmlessly -- identical
 /// lifecycle events dedupe in the classifier, and the collapsed line
 /// never stacks copies.
 fn merge_incident_windowed_entries(
@@ -502,8 +502,8 @@ fn merge_incident_windowed_entries(
 /// One best-effort poll: read new agent.jsonl bytes, keep the 24h window,
 /// re-derive the qualifying notices, apply the dismissal horizons, and
 /// keep the single collapsed line worth showing. The first successful
-/// read also tails the rotated agent.jsonl.old — matching the CLI's
-/// `[agent.jsonl.old, agent.jsonl]` source with the same bounded tail —
+/// read also tails the rotated agent.jsonl.old -- matching the CLI's
+/// `[agent.jsonl.old, agent.jsonl]` source with the same bounded tail --
 /// so incidents spanning a rotation still surface in a fresh view. Later
 /// polls read only appended agent.jsonl bytes, except when the live read
 /// detects a new generation: the un-consumed tail of the rotated-out one
@@ -522,7 +522,7 @@ pub fn refresh_incident_notice_state(
 ) -> bool {
     // The first successful read bridges the rotated generation: the CLI
     // reads [agent.jsonl.old, agent.jsonl], so a view opened after a
-    // rotation must see pairs that span it — an update restart whose
+    // rotation must see pairs that span it -- an update restart whose
     // earlier supervisor start sits in .old, or a burst straddling the
     // files. A later re-read from .old's start would duplicate
     // supervisor-start lines into a phantom update restart (the
@@ -555,7 +555,7 @@ pub fn refresh_incident_notice_state(
         // here does not matter.
         if first_read {
             // The rotated .old is frozen: include its final line even
-            // without a trailing newline — no later poll will ever
+            // without a trailing newline -- no later poll will ever
             // complete it.
             let rotated = read_incident_log_lines(&rotated_path(log_path), None, None, true);
             // A rename rotation can land between the live read above and
@@ -577,7 +577,7 @@ pub fn refresh_incident_notice_state(
             // re-reads it, so a crash logged in that gap would surface in
             // `eukhe incident` but never in the notice. The live
             // read just detected the new generation, so continue the old
-            // one from its consumed offset — the file id still matches,
+            // one from its consumed offset -- the file id still matches,
             // the read is an offset continuation, and no consumed line is
             // re-parsed (a re-tail on an id mismatch stays bounded).
             let rotated_tail = read_incident_log_lines(

@@ -48,7 +48,7 @@ impl McpLoginUi for WorkerMcpLoginUi {
         // The browser is the interface (the TS dialog tries the same
         // fire-and-forget launch and keeps showing the URL on failure).
         eukhe_core::platform::browser::open_in_browser(url);
-        eprintln!("eukhe-daemon: MCP login: {url} — {instructions}");
+        eprintln!("eukhe-daemon: MCP login: {url} -- {instructions}");
         if let Some(path) = &self.auth_url_file {
             if let Err(error) = std::fs::write(path, url) {
                 eprintln!(

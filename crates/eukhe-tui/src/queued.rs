@@ -25,7 +25,7 @@
 //! affordance walks and shows it. The parked RLM child status notices
 //! (`[child-exited: ...]` / `[child-failed ...]` lifecycle rows) are the
 //! one origin that NEVER string-classifies: they condense by WIRE-TYPED
-//! provenance (operator directive 2026-09-25 — the queue-fold bug: many
+//! provenance (operator directive 2026-09-25 -- the queue-fold bug: many
 //! child exits parked behind one busy turn rendered as that many
 //! user-like rows), the daemon marking its own injected rows by index on
 //! the queue projection, so a user-typed prompt that merely looks like a
@@ -202,7 +202,7 @@ fn queued_items(queue: &QueuedMessages) -> impl Iterator<Item = (QueueLane, usiz
 }
 
 /// One queued item's origin for the strip: the wire-typed provenance
-/// decides FIRST (the daemon marks its own injected rows — the child
+/// decides FIRST (the daemon marks its own injected rows -- the child
 /// status notices and the engine-minted continuations; the preview text
 /// never classifies them), then the TS internal labels classify by
 /// preview string exactly like `isLabeledQueuedPreview`. `None` is a
@@ -250,21 +250,21 @@ pub struct QueuedMessages {
     /// The picked-up prompt whose turn is still preparing (TS #2063
     /// `sessionActions.active` with `kind: "turn"` and
     /// `phase: "preparing"`): the strip keeps it visible as its
-    /// "Starting" row until the turn's rows land — the prompt left its
+    /// "Starting" row until the turn's rows land -- the prompt left its
     /// lane at pickup, so without the row it would be visible nowhere
     /// until the turn renders it. Not browsable: the browse affordances
     /// walk the parked lanes only (the prompt is already delivered).
     pub starting: Option<String>,
     /// Which parked items are RLM child status notices, by lane index
     /// (the wire-typed provenance; see [`QueueLaneIndices`]). The
-    /// strip folds exactly these rows into the condensed count — they
+    /// strip folds exactly these rows into the condensed count -- they
     /// stay browseable with their full notice text.
     pub rlm_child_status: QueueLaneIndices,
     /// Which parked items are engine-minted internal prompts (the
     /// injected, queue-invisible continuations), by lane index (the
     /// second wire-typed provenance rider; see [`QueueLaneIndices`]).
     /// The strip folds exactly these rows into the condensed count too
-    /// — they stay browseable with their full text, read-only.
+    /// -- they stay browseable with their full text, read-only.
     pub injected_prompts: QueueLaneIndices,
 }
 
@@ -277,9 +277,9 @@ impl QueuedMessages {
 
 /// The lane-indices rider shape the queue projection's typed-provenance
 /// marks share (`sessionActions.rlmChildStatus` for the parked RLM child
-/// status notices — the daemon derives the indices from the parked rows'
+/// status notices -- the daemon derives the indices from the parked rows'
 /// injected custom rows, the `rlm_child_terminal_notice` /
-/// `rlm_child_failure` kinds — and `sessionActions.injectedPrompts` for
+/// `rlm_child_failure` kinds -- and `sessionActions.injectedPrompts` for
 /// the engine-minted continuations). The strip never classifies by
 /// preview text through either: a user-typed message that merely looks
 /// like a notice or a continuation (or starts with any internal-looking
@@ -331,7 +331,7 @@ impl QueueLane {
 /// One addressable queue item (TS `QueueSelectionItem`). `internal`
 /// is the item's origin: `true` marks an internal prompt (a TS-labeled
 /// preview, an RLM child status notice, or an engine-minted
-/// continuation — every non-user-origin item), which the browse walks
+/// continuation -- every non-user-origin item), which the browse walks
 /// READ-ONLY (the edit gates refuse internal items; the system owns
 /// them), `false` the human-typed row the edit affordances apply to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -346,7 +346,7 @@ pub struct QueueSelectionItem {
 /// "Starting" row of a preparing turn (TS #2063) above a truncated dim
 /// preview per human-typed queued message, the one condensed
 /// internal-prompt row, and the queue hint. Empty input renders no rows
-/// at all — a preparing turn alone still renders its row (the strip is
+/// at all -- a preparing turn alone still renders its row (the strip is
 /// the only place the picked-up prompt is visible until its turn runs),
 /// but never the hint (there is nothing parked to browse).
 /// `browse_key` is the effective binding display for
@@ -364,7 +364,7 @@ pub fn render_queue(
     let mut rows = vec![Vec::new()];
     // The preparing turn's prompt renders first (TS #2063: a queued
     // prompt leaves its lane at pickup, and its own pre-turn work can
-    // hold it out of the conversation for a while — the "Starting" row
+    // hold it out of the conversation for a while -- the "Starting" row
     // keeps it visible there until the turn begins).
     if let Some(starting) = queue.starting.as_deref() {
         rows.push(preview_row(theme, STARTING_LABEL, starting, width));
@@ -390,13 +390,16 @@ pub fn render_queue(
         // A starting row alone carries no parked messages to browse.
         return rows;
     }
-    let hint = format!("\u{2570}\u{2500} {browse_key} to browse and edit queued messages");
+    let hint = format!(
+        "{}{browse_key} to browse and edit queued messages",
+        crate::glyphs::BRANCH
+    );
     let hint_line: crate::Line = vec![
         crate::Span::raw(" ".repeat(width.min(1))),
         crate::Span::styled(hint, theme.fg_style(ThemeColor::Dim)),
     ];
     rows.push(pad_line(
-        truncate_line(&hint_line, width.saturating_sub(1), "..."),
+        truncate_line(&hint_line, width.saturating_sub(1), crate::glyphs::ELLIPSIS),
         width,
     ));
     rows
@@ -412,7 +415,7 @@ pub fn render_queue(
 pub fn browse_header_text(selected: &QueueSelectionItem, key_display: &QueueBrowseKeys) -> String {
     if selected.internal {
         return format!(
-            "{} {} \u{00b7} {}/{} browse \u{00b7} read-only internal prompt",
+            "{} {} - {}/{} browse - read-only internal prompt",
             selected.lane.display_name(),
             selected.index + 1,
             key_display.navigate_older,
@@ -420,7 +423,7 @@ pub fn browse_header_text(selected: &QueueSelectionItem, key_display: &QueueBrow
         );
     }
     format!(
-        "{} {} \u{00b7} {}/{} browse \u{00b7} {}/{} reorder \u{00b7} enter steers \u{00b7} {} queues \u{00b7} empty deletes",
+        "{} {} - {}/{} browse - {}/{} reorder - enter steers - {} queues - empty deletes",
         selected.lane.display_name(),
         selected.index + 1,
         key_display.navigate_older,
@@ -460,7 +463,10 @@ fn preview_row(theme: &Theme, label: &str, message: &str, width: usize) -> Line 
     // The right pad keeps the row at the full width like TS
     // (`lineWithPadding + paddingNeeded`), so 1 left pad + content cut to
     // `width - 1` leaves the trailing space.
-    pad_line(truncate_line(&line, width.saturating_sub(1), "..."), width)
+    pad_line(
+        truncate_line(&line, width.saturating_sub(1), crate::glyphs::ELLIPSIS),
+        width,
+    )
 }
 
 /// The condensed internal-prompt row (the sanctioned divergence, see the
@@ -473,7 +479,10 @@ fn condensed_row(theme: &Theme, counts: &CondensedCounts, width: usize) -> Line 
         crate::Span::raw(" ".repeat(width.min(1))),
         crate::Span::styled(counts.row_text(), theme.fg_style(ThemeColor::Dim)),
     ];
-    pad_line(truncate_line(&line, width.saturating_sub(1), "..."), width)
+    pad_line(
+        truncate_line(&line, width.saturating_sub(1), crate::glyphs::ELLIPSIS),
+        width,
+    )
 }
 
 /// Browse direction: `Older` moves toward the oldest steering message,

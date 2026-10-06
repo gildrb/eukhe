@@ -225,8 +225,10 @@ mod tests {
             std::path::Path::new("/tmp").join(&tag)
         };
         let mut dir = base;
-        // Keep at least one byte of room for a file name after the separator.
-        while dir.as_os_str().len() + 22 <= target {
+        // Keep at least one byte of room for a file name after the separator,
+        // and at least one byte for the final pad component (an empty pad
+        // would join a trailing separator instead of a name).
+        while dir.as_os_str().len() + 22 < target {
             dir = dir.join("d".repeat(20));
         }
         // Pad one final component: appending adds a separator plus the name.

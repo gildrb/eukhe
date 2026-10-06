@@ -1,7 +1,7 @@
 //! The `@` fuzzy file search (TS `getFuzzyFileSuggestions` +
-//! `walkDirectoryWithFd`): fd's own `ignore`-crate walk — `--type f
+//! `walkDirectoryWithFd`): fd's own `ignore`-crate walk -- `--type f
 //! --type d --follow --hidden --exclude .git` with fd's default
-//! gitignore rules — run on one background thread, because a no-match
+//! gitignore rules -- run on one background thread, because a no-match
 //! walk of a large tree takes seconds. Dropping the [`FileSearch`]
 //! handle cancels the walk (TS kills fd on abort); the result lands on
 //! the receiver.
@@ -99,7 +99,7 @@ fn resolve_scoped_query(base: &Path, raw_query: &str) -> Option<ScopedQuery> {
 /// `ignore` walker with hidden entries included, links followed, and
 /// `.git` pruned, the base itself skipped, the walk cut at
 /// [`MAX_WALK_RESULTS`] or on cancel. Results come back in fd's printed
-/// form — relative to the base, directories carrying their trailing `/`.
+/// form -- relative to the base, directories carrying their trailing `/`.
 fn walk_directory(
     walk_base: &Path,
     regex: Option<&regex::Regex>,
@@ -169,7 +169,7 @@ fn search(base: &Path, at_prefix: &str, cancel: &AtomicBool) -> Option<Suggestio
         None => (base.to_path_buf(), raw_query),
     };
     // The fd pattern is the raw query as a regex (smart case), matched
-    // against the file name — or the whole path, which fd holds
+    // against the file name -- or the whole path, which fd holds
     // absolute because the base is absolute, when the query contains a
     // `/`. An empty query matches everything.
     let pattern = build_fd_path_query(&query);

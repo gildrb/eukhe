@@ -118,7 +118,7 @@ fn unattachable_child_opens_its_root_with_a_status() {
     mode.roster
         .push(roster_entry("gc", "inactive", &unattachable));
     // The grandchild is roster-inactive under the running child: the
-    // ONE merged group nests it under the child's own line — expand
+    // ONE merged group nests it under the child's own line -- expand
     // the parent's line first, then the child's (whose identity is
     // its parent-qualified `agent:` alias), so the row renders.
     mode.expanded_parents.insert("file:/x/p.jsonl".to_string());

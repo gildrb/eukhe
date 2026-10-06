@@ -1,5 +1,5 @@
 //! The boundary renderers: the TS wire-event surface of the print
-//! runtime's turn boundary — the `compaction_start`/`compaction_end`
+//! runtime's turn boundary -- the `compaction_start`/`compaction_end`
 //! event builders and the json-mode emission methods, the child cut
 //! of the `print_boundary` facade (text mode rides the durable rows).
 

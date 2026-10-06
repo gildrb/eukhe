@@ -725,7 +725,7 @@ mod incident_dispatch_tests {
     fn routes_the_incident_command_with_parsed_window_options() {
         // The routed dispatch parses the options, resolves the window
         // once, and runs the command (over whatever logs exist under the
-        // agent dir — the fixture-backed coverage lives in the incident
+        // agent dir -- the fixture-backed coverage lives in the incident
         // module's own tests); a routed run never fails with a usage
         // error.
         let result = handle_public_command(&args(&[

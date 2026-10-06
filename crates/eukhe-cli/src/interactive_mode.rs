@@ -68,7 +68,7 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
     // The telemetry disclosure renders inside the TUI (TS
     // agent-session-services' session diagnostic): the interactive
     // attach pushes the info row once per installation, deferred behind
-    // onboarding — a pre-TUI stderr print would be hidden by the alt
+    // onboarding -- a pre-TUI stderr print would be hidden by the alt
     // screen.
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -143,7 +143,7 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         // `startup` (schema v1): process entry to a ready interactive
         // session environment (daemon listening). Emitted through a
         // one-shot client; the session's own telemetry rides the daemon
-        // worker. The flush handle rides to the end of the run — the
+        // worker. The flush handle rides to the end of the run -- the
         // quick-exit join below bounds delivery on a fast quit.
         let startup_flush = startup_telemetry.take().map(|client| {
             let daemon_ready_ms = startup_started.elapsed().as_millis() as u64;
@@ -178,8 +178,8 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
             tui_options.onboarding.is_some(),
             continue_view.is_some(),
         );
-        // The interactive dispatch, one future so EVERY exit — the view
-        // loop's, the session run's, a failed open's error return —
+        // The interactive dispatch, one future so EVERY exit -- the view
+        // loop's, the session run's, a failed open's error return --
         // passes the quick-exit join below.
         let run = async {
             if agents_view {
@@ -211,11 +211,11 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         let result = run.await;
         // The quick-exit join: the runtime that owns the handed-off drain
         // dies with this block, so a run that ends inside the delivery
-        // window (a fast quit — the sink allows up to 1.5s) would lose
+        // window (a fast quit -- the sink allows up to 1.5s) would lose
         // the startup events to the teardown. The same shared exit bound
         // `tui exit` and the agents-view exit report already join under
         // applies here: the drain delivers (typical ~150ms) or drops,
-        // bounded — never cut mid-POST.
+        // bounded -- never cut mid-POST.
         if let Some(flush) = startup_flush {
             let _ = tokio::time::timeout(
                 Duration::from_millis(eukhe_tui::interactive::TELEMETRY_EXIT_TIMEOUT_MS),
@@ -227,7 +227,7 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
     })?;
     // tmux (verified on 3.2a) can drop the pane's final output when the
     // process dies immediately after writing it: the just-printed resume
-    // hint — and the tail of the exit flush — races the pane-death
+    // hint -- and the tail of the exit flush -- races the pane-death
     // handling and the dead pane comes up blank. Holding the process
     // briefly after the last write lets the terminal apply it first. The
     // TS product wins this race only by exiting slower (its input drain
@@ -238,7 +238,7 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
 }
 
 /// The one-shot startup client's final flush, handed to the runtime:
-/// fire-and-forget from the paint path's perspective — the tracked
+/// fire-and-forget from the paint path's perspective -- the tracked
 /// `startup` events' delivery belongs to the background worker (the
 /// sink's bounded request timeout; a re-sent batch keeps its event ids,
 /// so the backend dedupes), never to the first frame. The returned
@@ -263,7 +263,7 @@ pub(super) fn flush_startup_telemetry(
 /// exit-path write before the fixed pre-exit delay below, and on a slow
 /// terminal it blocks behind the flush still draining the pty: its
 /// completion is exit-path progress (the exit guard's watchdog holds its
-/// force-quit while progress lands — a draining terminal is not a stalled
+/// force-quit while progress lands -- a draining terminal is not a stalled
 /// shutdown), and the stamp it leaves carries the fixed delay inside the
 /// guard's grace window.
 fn print_resume_hint(hint: Option<&str>) {
@@ -276,7 +276,7 @@ fn print_resume_hint(hint: Option<&str>) {
 /// The agents-view loop: open the view, run the session it opens, and return
 /// to the view when the session detaches through agents-back or bare
 /// `/resume` (TS `InteractiveMode.run` returning `agents_view`). Every other
-/// session exit — ctrl+c/ctrl+d, `/quit`, `/exit` — ends the whole app (TS
+/// session exit -- ctrl+c/ctrl+d, `/quit`, `/exit` -- ends the whole app (TS
 /// `shutdown()` exits the process instead of reopening the view). A
 /// `/resume <selector>` chain runs its target before the loop decides again.
 async fn run_agents_view_flow(
@@ -336,7 +336,7 @@ async fn run_agents_view_flow(
             // re-read consumed bytes).
             incident_notice_state: incident_notice_state.take(),
             // TS `AgentsViewModeOptions.config`: the flow's own create
-            // config — the base a saved reply's resume derives from.
+            // config -- the base a saved reply's resume derives from.
             create_config: base.create_config(),
         };
         let view_run = eukhe_tui::agents_view::run_agents_view(
@@ -395,7 +395,7 @@ async fn run_agents_view_flow(
         session_options.session_has_children = view.opened_has_children;
         // The scoped panel's own exit (the parent key or escape) reopened
         // the scope root's chat: it starts with the dock focused on the
-        // panel's own group (the Subagents item), not the prompt bar —
+        // panel's own group (the Subagents item), not the prompt bar --
         // a plain row open keeps the editor's focus.
         session_options.restore_dock_focus = view.scope_back;
         // The opened session's own directory rides the options: the
@@ -424,7 +424,7 @@ async fn run_agents_view_flow(
             // The session's subagent summary line opened the agents view
             // scoped to its subtree: push a frame with the session as the
             // return chat (TS `transitionAgentsViewScope` push arm) and
-            // clear the query — the scope already narrows the list, and a
+            // clear the query -- the scope already narrows the list, and a
             // filter typed to find the session would hide the subtree.
             frames.retain(|(frame, _)| frame.session_id != scope.session_id);
             frames.push((
@@ -500,7 +500,7 @@ fn build_tui_options(
     let script_path = std::env::var_os("EUKHE_FAUX_SCRIPT").map(PathBuf::from);
     // TS `createSessionManager`'s flag order (fork -> resume -> create):
     // a fork copies its source into a fresh file client-side, and the
-    // daemon opens the fork — never the source — through the create
+    // daemon opens the fork -- never the source -- through the create
     // `sessionPath` (TS `getInteractiveDaemonSessionPath`).
     let session = match &options.session.fork {
         Some(selector) => fork_startup_selection(selector, &config.cwd, session_dir.as_deref())?,
@@ -511,7 +511,6 @@ fn build_tui_options(
     let settings = eukhe_core::settings::SettingsManager::create(&config.cwd, &config.agent_dir);
     let code_block_indent = settings.get_code_block_indent();
     let show_images = settings.get_show_images();
-    let fullscreen_mouse = settings.get_fullscreen_mouse();
     // The `/tree` selector's initial filter and the branch-summary prompt
     // skip read the same settings the TS interactive mode reads at
     // startup.
@@ -539,7 +538,7 @@ fn build_tui_options(
         .map(|level| level.model_level().wire_name().to_string());
     // `/login` + `/logout`: the provider auth flows (the API-key store,
     // the MCP device flow, the Prime Inference login, the provider
-    // catalog) — one handle serves the commands and the onboarding flow's
+    // catalog) -- one handle serves the commands and the onboarding flow's
     // sign-in steps.
     let provider_auth = eukhe_tui::provider_auth::ProviderAuthCommandsHandle(std::sync::Arc::new(
         crate::provider_login::ProviderAuth::new(config.cwd.clone(), config.agent_dir.clone()),
@@ -576,7 +575,6 @@ fn build_tui_options(
         session,
         initial_message: options.initial_message.clone(),
         show_images,
-        fullscreen_mouse,
         // TS startup reads the settings theme (`getTheme() || "eukhe"`).
         theme: settings.get_theme().map(str::to_string).unwrap_or_default(),
         // The client-settings seam the interactive commands persist
@@ -653,7 +651,7 @@ fn session_selection(
 /// TS `createSessionManager`'s fork arm for the interactive launch: resolve
 /// the selector, copy the source into a fresh session file client-side
 /// ([`eukhe_core::session::manager::SessionManager::fork_from`], the same
-/// copy print mode uses), and hand the daemon the fork — never the source —
+/// copy print mode uses), and hand the daemon the fork -- never the source --
 /// as the create `sessionPath` (TS `getInteractiveDaemonSessionPath`). Every
 /// resolution shape forks: a GLOBAL session is exactly what `--fork` is for
 /// (a different project's session copied into this cwd). No daemon-active
@@ -759,7 +757,7 @@ fn continue_recent_view(
     Some(ContinueRecentView {
         session_id: header.id.clone(),
         notice: format!(
-            "Most recent session for this directory: {} — Enter continues it, or pick another session.",
+            "Most recent session for this directory: {} -- Enter continues it, or pick another session.",
             header.id
         ),
     })

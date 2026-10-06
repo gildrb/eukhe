@@ -1,5 +1,5 @@
 //! The `!`/`!!` bash-from-chat shortcut (TS interactive-mode `onSubmit`):
-//! `!command` runs bash directly — no model turn — and the output enters
+//! `!command` runs bash directly -- no model turn -- and the output enters
 //! the session context (the daemon records the durable `bashExecution`
 //! row, so follow-up prompts see it); `!!command` runs the same way but
 //! stays excluded from the context; a bare `!`/`!!` is bash mode with

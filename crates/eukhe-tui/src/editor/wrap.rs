@@ -305,9 +305,9 @@ pub fn word_wrap_line(
 
         if g_width > max_width {
             // Atomic segment wider than the viewport: visual-only re-wrap.
-            // A lone grapheme cannot be segmented further — the TS original
+            // A lone grapheme cannot be segmented further -- the TS original
             // recurses on the identical input and dies with a RangeError
-            // (stack overflow) there — so it renders as one oversized
+            // (stack overflow) there -- so it renders as one oversized
             // chunk instead of recursing forever.
             let sub_chunks = if graphemes(grapheme).len() == 1 {
                 vec![TextChunk {
@@ -388,7 +388,7 @@ mod tests {
     }
 
     // Review repro (PR #2600, Macroscope): a lone grapheme wider than
-    // max_width recursed on its own input forever — the TS original dies
+    // max_width recursed on its own input forever -- the TS original dies
     // with a RangeError (stack overflow) on the same call. It renders as
     // one oversized chunk instead; multi-grapheme atomic segments keep
     // the TS grapheme-granular re-wrap (verified against the TS binary).
@@ -498,7 +498,7 @@ mod tests {
         assert_wraps_back_to_source("cafe\u{301} cafe\u{301} cafe\u{301} tail", 4);
         // Halfwidth katakana voicing mark is width 1 (see width::char_width),
         // so each cluster is 3 columns. NB: a single grapheme wider than the
-        // viewport re-wraps into itself — the TS binary has the identical
+        // viewport re-wraps into itself -- the TS binary has the identical
         // edge (wordWrapLine of one 3-wide cluster at maxWidth < 3), kept
         // for parity; real editor widths never hit it.
         assert_wraps_back_to_source("カ\u{ff9e}キ\u{ff9e}ク\u{ff9e}ケ\u{ff9e}", 3);
@@ -560,7 +560,7 @@ mod tests {
             "e\u{301}\u{302}x y\u{301}z ", // combining marks
             "\u{200b}\u{feff} zw\u{200d}", // zero-width chars
             "\r\n ",                       // control/whitespace
-                                           // NB: no tab graphemes here — a tab is 3 columns wide, and a
+                                           // NB: no tab graphemes here -- a tab is 3 columns wide, and a
                                            // single grapheme wider than maxWidth re-wraps into itself.
                                            // The TS binary has the identical edge (wordWrapLine of one
                                            // 3-wide grapheme at maxWidth < 3), so it is kept for parity.
@@ -605,7 +605,7 @@ mod tests {
     }
 
     /// Golden wrap cases generated from the TS `wordWrapLine` (the installed
-    /// parity ground truth, editor.ts:119) over the lane's Unicode corpus —
+    /// parity ground truth, editor.ts:119) over the lane's Unicode corpus --
     /// CJK, emoji + ZWJ, flags, combining marks, halfwidth voicing marks,
     /// zero-width joiners, and marker-bearing text (plain-grapheme
     /// segmentation: marker merging belongs to the callers that pass

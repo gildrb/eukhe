@@ -301,7 +301,7 @@ fn onboarding_gate_follows_settings_and_auth() {
 
     // Explicit flags that resolve to a provider without configured
     // auth mount the task too (TS `shouldRunOnboarding`: the flag
-    // alone), carrying the not-ready branch — the full sign-in flow,
+    // alone), carrying the not-ready branch -- the full sign-in flow,
     // not the question. TS `validateConfig` requires an "apiKey" for
     // custom providers, but a `!command` key that fails resolves to
     // nothing (TS `resolveConfigValue`), so the provider stays
@@ -327,7 +327,7 @@ fn onboarding_gate_follows_settings_and_auth() {
 /// The product sink's persistence over the real settings files: a
 /// provisioned home (sharing explicitly opted out, onboarding never
 /// completed) reads its standing choice through a fresh manager and
-/// the silent completion persists ONLY the flag — the choice stands
+/// the silent completion persists ONLY the flag -- the choice stands
 /// untouched, and the next launch's gate reads the flag and never
 /// mounts the task again.
 #[test]
@@ -336,7 +336,7 @@ fn settings_sink_completes_a_provisioned_home_without_touching_the_choice() {
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     // The provisioned home: sharing opted out, telemetry off (the unit
-    // seam stays hermetic — no telemetry client for the completion event).
+    // seam stays hermetic -- no telemetry client for the completion event).
     let mut provisioned = eukhe_core::settings::SettingsManager::create(dir.path(), &agent_dir);
     provisioned
         .set_agent_traces_enabled(false)
@@ -435,7 +435,7 @@ async fn report_an_aborted_flow_once() {
 }
 
 /// A fresh home (no choice written) is the one home the question still
-/// mounts for — the opt-in moment: the flow's `Share` answer persists
+/// mounts for -- the opt-in moment: the flow's `Share` answer persists
 /// beside the completion flag, and both read back through the next
 /// launch's fresh manager.
 #[test]
@@ -734,7 +734,7 @@ fn fork_startup_selection_reports_the_ts_contracts() {
 
     // A parseable but headerless source file: the loader finalizes it
     // to zero entries (the eukhe-core `forkFrom` contract the manager's
-    // own test asserts), so the failure is the empty-or-invalid one —
+    // own test asserts), so the failure is the empty-or-invalid one --
     // never a half-copied fork.
     let headerless = session_dir.join("headerless.jsonl");
     std::fs::write(
@@ -881,7 +881,7 @@ fn build_tui_options_opens_a_fork_as_the_startup_session() {
 #[test]
 fn a_fork_launch_never_opens_the_agents_view() {
     // TS `shouldOpenAgentsViewForDaemonInteractive`: `--fork` opens its
-    // target directly — even alongside an explicit `agents` request.
+    // target directly -- even alongside an explicit `agents` request.
     let mut options = run_options_for_continue(std::path::Path::new("/does/not/matter"));
     options.agents_view_requested = true;
     assert!(
@@ -908,7 +908,7 @@ fn a_fork_launch_never_opens_the_agents_view() {
 /// A sink whose `send_batch` hangs until the test releases it: the
 /// stand-in for the analytics POST's network round-trip (the same
 /// delivery contract the production sink carries, minus its own
-/// timeout — the point is that delivery takes longer than the paint).
+/// timeout -- the point is that delivery takes longer than the paint).
 #[derive(Default)]
 struct GatedSink {
     /// Send entry: `notify_one` when a batch reaches the sink; a
@@ -919,7 +919,7 @@ struct GatedSink {
     /// The release flag the hanging send waits on.
     released: std::sync::atomic::AtomicBool,
     /// The hang gate's waker: `notify_waiters` on release, no
-    /// permits — a stale permit would unhang the sink before the
+    /// permits -- a stale permit would unhang the sink before the
     /// test releases it.
     notify: tokio::sync::Notify,
     /// Delivery completion: `notify_one` stores a permit when no
@@ -963,7 +963,7 @@ impl eukhe_telemetry::TelemetrySink for GatedSink {
             // Race-free wait, tokio's documented pattern: the waiter
             // registers (or consumes a permit) BEFORE the flag check, so
             // a release that fires between the check and the await is
-            // never lost — a naive `while !flag { notified().await }` can
+            // never lost -- a naive `while !flag { notified().await }` can
             // miss `notify_waiters` and hang.
             let notified = self.notify.notified();
             tokio::pin!(notified);
@@ -1027,7 +1027,7 @@ async fn startup_flush_never_blocks_the_first_frame() {
         std::time::Duration::from_secs(2),
         tokio::spawn(async move {
             // The hand-off: while the sink still hangs, it must already
-            // be done — the first frame paints with delivery pending.
+            // be done -- the first frame paints with delivery pending.
             let flush = flush_startup_telemetry(client);
             // The batch must have entered the sink before the boundary
             // is meaningful: a release that beats the send's entry
@@ -1051,7 +1051,7 @@ async fn startup_flush_never_blocks_the_first_frame() {
 
             // The released drain still delivers the tracked startup
             // events: completion is awaited on the sink's own notify,
-            // the timeout only bounds failure — no polling loop.
+            // the timeout only bounds failure -- no polling loop.
             sink.release();
             let delivered = tokio::time::timeout(
                 std::time::Duration::from_secs(1),
@@ -1074,7 +1074,7 @@ async fn startup_flush_never_blocks_the_first_frame() {
 
             // The quick-exit seam: the composition root joins this
             // handle under the shared exit bound when a run ends inside
-            // the delivery window — the join settles with the drain, so
+            // the delivery window -- the join settles with the drain, so
             // the events never die with the runtime teardown.
             let joined = tokio::time::timeout(std::time::Duration::from_millis(500), flush).await;
             assert!(

@@ -225,7 +225,7 @@ mod tests {
     fn assembles_the_layered_prompt_for_a_directory() {
         let dir = tempfile::tempdir().unwrap();
         let breakdown = assemble_breakdown(dir.path(), Some("mock/mock-1")).unwrap();
-        // The chat memory layer leads (`OptChat` §7.2), then the harness.
+        // The chat memory layer leads (`OptChat` sec. 7.2), then the harness.
         assert!(breakdown
             .assembled
             .starts_with(&eukhe_core::memory::memory_system_layer()));

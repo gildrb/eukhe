@@ -1,5 +1,5 @@
 //! The team picker concern (moved with its concern): TS
-//! `PrimeTeamSelectorComponent` — the mounted picker state (the search
+//! `PrimeTeamSelectorComponent` -- the mounted picker state (the search
 //! field over the personal-first rows) and its drive (the fuzzy filter,
 //! the row parts, and the pick).
 

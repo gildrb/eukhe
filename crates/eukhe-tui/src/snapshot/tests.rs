@@ -110,12 +110,12 @@ fn empty_user_message_renders_no_entry() {
 /// the tool call before the function name streams in (the openai-style
 /// toolcall-start frame carries the block unnamed), so the first
 /// `message_update` frame has an empty `name`. The card must not freeze
-/// on that frame — the named frame routes it to the ipython renderer and
+/// on that frame -- the named frame routes it to the ipython renderer and
 /// the collapsed line shows the code preview, not the raw arguments
 /// JSON.
 /// TS `orderMessagesForTranscript`: the wire context is summary-first
 /// for the model, but the transcript presents the summary at its
-/// chronological boundary — after the retained messages
+/// chronological boundary -- after the retained messages
 /// (`retainedMessageCount`), before anything appended after the
 /// compaction.
 #[test]
@@ -201,7 +201,7 @@ fn failed_frame_sweep_settles_pending_tool_cards() {
         &mut view,
         &mut pending,
         &mut aborted,
-        "Operation aborted \u{00b7} 3s",
+        "Operation aborted - 3s",
     );
     assert!(pending.is_empty(), "the sweep drains the pending set");
     // Every drained id records as aborted - late frames for a call
@@ -215,7 +215,7 @@ fn failed_frame_sweep_settles_pending_tool_cards() {
     assert!(card.aborted, "the settled card flags the abort");
     let result = card.result.as_ref().expect("the settle result");
     assert!(result.is_error, "the settle result is an error");
-    assert_eq!(result.text_output(false), "Operation aborted \u{00b7} 3s");
+    assert_eq!(result.text_output(false), "Operation aborted - 3s");
     assert!(!card.result_partial, "the settle result is final");
     assert!(card.ended_at.is_some(), "the settle stamps the card ended");
 }
@@ -239,7 +239,7 @@ fn reused_id_after_abort_re_arms_as_a_fresh_card() {
         &mut view,
         &mut pending,
         &mut aborted,
-        "Operation aborted \u{00b7} 3s",
+        "Operation aborted - 3s",
     );
     let settled = cards_of(&view);
     // The re-armed invocation's streamed frame: a fresh card, not a
@@ -259,7 +259,7 @@ fn reused_id_after_abort_re_arms_as_a_fresh_card() {
             .as_ref()
             .expect("the settle result")
             .text_output(false),
-        "Operation aborted \u{00b7} 3s"
+        "Operation aborted - 3s"
     );
     assert!(!cards[1].aborted, "the new card starts fresh");
     assert_eq!(cards[1].result, None, "the new card has no result");
@@ -272,8 +272,8 @@ fn reused_id_after_abort_re_arms_as_a_fresh_card() {
     assert!(cards[1].started, "the fresh card runs");
 }
 
-/// A second failed run settles the re-armed invocation's own card — the
-/// newest card carrying the id — so the older card keeps the first
+/// A second failed run settles the re-armed invocation's own card -- the
+/// newest card carrying the id -- so the older card keeps the first
 /// sweep's result (TS's pending map only ever holds the current
 /// component).
 #[test]
@@ -291,7 +291,7 @@ fn sweep_settles_the_re_armed_card_not_the_settled_one() {
         &mut view,
         &mut pending,
         &mut aborted,
-        "Operation aborted \u{00b7} 3s",
+        "Operation aborted - 3s",
     );
     apply_streamed_tool_card(
         &mut view,
@@ -305,7 +305,7 @@ fn sweep_settles_the_re_armed_card_not_the_settled_one() {
         &mut view,
         &mut pending,
         &mut aborted,
-        "Aborted after 1 retry attempt \u{00b7} 8s",
+        "Aborted after 1 retry attempt - 8s",
     );
     let cards = cards_of(&view);
     assert_eq!(cards.len(), 2, "two cards: {cards:?}");
@@ -315,7 +315,7 @@ fn sweep_settles_the_re_armed_card_not_the_settled_one() {
             .as_ref()
             .expect("the first settle")
             .text_output(false),
-        "Operation aborted \u{00b7} 3s",
+        "Operation aborted - 3s",
         "the older card keeps its own sweep result"
     );
     assert!(cards[1].aborted, "the re-armed card settled");
@@ -325,7 +325,7 @@ fn sweep_settles_the_re_armed_card_not_the_settled_one() {
             .as_ref()
             .expect("the second settle")
             .text_output(false),
-        "Aborted after 1 retry attempt \u{00b7} 8s"
+        "Aborted after 1 retry attempt - 8s"
     );
 }
 
@@ -734,9 +734,9 @@ fn a_leftover_settle_keeps_its_own_orphan_card() {
 
 /// The rebuild's loader anchor (the operator's 2026-09-28 rule: the
 /// waiting/executing timer counts since the LAST HUMAN PROMPT): the
-/// reconstruct reads the NEWEST user message's wall-clock timestamp —
+/// reconstruct reads the NEWEST user message's wall-clock timestamp --
 /// the numeric ms wire form, the f64 form, and the ISO-8601 string
-/// form — and skips non-user messages and unreadable times.
+/// form -- and skips non-user messages and unreadable times.
 #[test]
 fn reconstructs_the_last_user_prompt_timestamp() {
     // The numeric ms form (the live engine's wire shape).
@@ -844,7 +844,7 @@ fn reconstructs_slim_attach() {
 /// The layout handoff's cursor-presence gate (`view::handoff`): an
 /// attach that omits the resume cursor reconstructs to collapsed default
 /// key values (an empty generation, a zero sequence), which could alias
-/// across cursor-less attaches of the same entry count — the handoff
+/// across cursor-less attaches of the same entry count -- the handoff
 /// refuses to key on that shape.
 #[test]
 fn a_cursorless_attach_reconstructs_as_unkeyed_for_the_layout_handoff() {
@@ -1016,7 +1016,7 @@ fn reconstructs_the_injected_provenance_from_session_actions() {
 }
 
 /// TS #2063: an attach re-sync mid-preparing keeps the picked-up
-/// prompt visible too — the snapshot's active action projects the
+/// prompt visible too -- the snapshot's active action projects the
 /// same starting row the live frames carry.
 #[test]
 fn reconstructs_the_starting_row_from_session_actions() {
@@ -1044,7 +1044,7 @@ fn reconstructs_the_starting_row_from_session_actions() {
 fn decodes_the_user_bash_event_triple() {
     // The `!command` lane (TS `runUserBash`): bash_start carries the
     // command and identity, bash_output one chunk, bash_end the
-    // settled outcome — all decoded whole-object.
+    // settled outcome -- all decoded whole-object.
     let start = event_to_update(&json!({
         "type": "bash_start",
         "command": "echo hi",
@@ -1274,7 +1274,7 @@ fn decodes_the_preparing_turn_label_as_the_starting_row() {
 
 /// The rebuild side of the single-line retry UX (operator ruling
 /// 2026-09-23): the `provider_retry_outcome` row replaces the failed
-/// attempts its episode superseded — the rebuilt chat shows ONE line
+/// attempts its episode superseded -- the rebuilt chat shows ONE line
 /// per episode, never the per-attempt error rows TS renders.
 #[test]
 fn retry_outcome_row_collapses_the_superseded_attempts() {
@@ -1971,7 +1971,7 @@ fn decodes_compaction_events() {
         })
     );
     // A missing delta field decodes as an empty chunk, never a drop
-    // (the accumulation stays a pure append — the frame is real).
+    // (the accumulation stays a pure append -- the frame is real).
     assert_eq!(
         event_to_update(&json!({ "type": "compaction_summary_delta" })),
         Some(TurnUpdate::CompactionSummaryDelta {
@@ -2240,10 +2240,8 @@ fn an_image_heavy_transcript_replays_and_renders_its_first_frame() {
     for entry in entries {
         view.push_entry(entry);
     }
-    let layout = view.layout_pass(100);
-    // The whole first frame renders (the lazy walk's full-transcript
-    // request shape), and its rows carry no payload bytes.
-    let rows = view.transcript_window(&layout, 0, usize::MAX);
+    // The whole transcript renders, and its rows carry no payload bytes.
+    let rows = view.render_transcript(100);
     assert!(rows.len() > 40, "the transcript frame renders");
     let flat: Vec<String> = rows.iter().map(line_text).collect();
     assert!(
@@ -2256,7 +2254,7 @@ fn an_image_heavy_transcript_replays_and_renders_its_first_frame() {
 fn elided_image_tool_results_render_their_marker_metadata() {
     // The elision marker the daemon's attach snapshot writes for an
     // `elide_snapshot_images` client: the fold keeps the card, and the
-    // expanded card renders the marker's dimensions — the same row the
+    // expanded card renders the marker's dimensions -- the same row the
     // payload's own metadata produced.
     let entries = transcript_to_entries(&[elided_image_tool_result(500 * 1024, 64, 32)]);
     let card = entries
@@ -2277,7 +2275,7 @@ fn elided_image_tool_results_render_their_marker_metadata() {
     let flat: Vec<String> = rows.iter().map(line_text).collect();
     assert!(
         flat.iter()
-            .any(|row| row.contains("\u{2570}\u{2500} [image/png \u{b7} 64\u{d7}32]")),
+            .any(|row| row.contains("`- [image/png - 64x32]")),
         "the marker's dimensions render: {flat:?}"
     );
     // The hidden form renders the same metadata with its size.

@@ -2,15 +2,15 @@
 //! filterable, grouped checkbox list over session resources with Space to
 //! toggle and Esc to close. Data comes from the caller as flat rows; this
 //! module owns filtering, selection, and the terminal loop, and renders
-//! through the shared menu-panel grammar (the bordered search field, the
-//! `›` marker rows, the scroll and hint status rows).
+//! through the shared menu-panel grammar (the search field, the marker
+//! rows, the scroll and hint status rows) into the inline live area.
 
 use anyhow::Result;
 use crossterm::event::{Event, KeyEvent};
 use crossterm::terminal::{self};
-use ratatui::Terminal;
 use std::time::{Duration, Instant};
 
+use crate::inline_term::{InlineFrame, InlineTerminal};
 use crate::keybindings::{format_key_text, KeybindingsManager};
 use crate::keys::key_event_to_id;
 use crate::search_input::SearchInput;
@@ -19,7 +19,7 @@ use crate::{Line, Span};
 
 /// One flat selector row. `Item` rows carry the caller's identity key and
 /// the texts the filter matches against (display name, resource type
-/// label, path — the TS filter fields).
+/// label, path -- the TS filter fields).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectorRow {
     Group(String),
@@ -172,9 +172,8 @@ impl ConfigSelector {
     }
 
     /// Move the selection to one filtered position when it holds an item
-    /// row (the click grammar's row select — the arrow keys' exact
-    /// movement, no toggle): group and subgroup rows keep the selection
-    /// where it was.
+    /// row (the arrow keys' exact movement, no toggle): group and
+    /// subgroup rows keep the selection where it was.
     pub fn select_position(&mut self, position: usize) {
         if self.is_item(position) {
             self.selected = position;
@@ -182,7 +181,7 @@ impl ConfigSelector {
     }
 
     /// The filtered positions the list window renders (`list_rows` walks
-    /// exactly this window; the click surface's item-row span).
+    /// exactly this window).
     #[must_use]
     pub fn visible_window(&self) -> (usize, usize) {
         if self.filtered.is_empty() {
@@ -373,7 +372,7 @@ impl ConfigSelector {
     }
 
     /// The selector's rendered rows for `render` (TS `ResourceList.render`
-    /// through the shared menu-panel grammar: the `›` marker rows with the
+    /// through the shared menu-panel grammar: the `>` marker rows with the
     /// selection band, the group headers, the scroll indicator, the
     /// no-match row).
     fn list_rows(&self, theme: &Theme, width: usize) -> Vec<Line> {
@@ -506,12 +505,12 @@ impl ConfigSelector {
             .iter()
             .filter_map(|(key, action)| raw_key_hint(kb, key, action))
             .collect::<Vec<String>>()
-            .join(" \u{b7} ")
+            .join(crate::glyphs::SEP)
     }
 }
 
 /// One hint segment (TS `rawKeyHint`): the key's label when the action is
-/// available — the literal Space key always is — and None when the
+/// available -- the literal Space key always is -- and None when the
 /// action's binding is unconfigured.
 fn raw_key_hint(kb: &KeybindingsManager, key: &str, action: &str) -> Option<String> {
     let label = match key {
@@ -546,8 +545,9 @@ impl ConfigSelectorOptions {
     }
 }
 
-/// Run the selector until Esc (close) or Ctrl+C (exit): full-screen mode,
-/// redraws on every key and toggle, `on_toggle` persists each flip.
+/// Run the selector until Esc (close) or Ctrl+C (exit) in the inline
+/// live area: redraws on every key and toggle, `on_toggle` persists each
+/// flip. The selector is transient: its live area is erased on leave.
 ///
 /// Every error return funnels through the one exit restore: an early `?`
 /// after the mount (a draw failure, a persist error in `on_toggle`) must
@@ -556,9 +556,9 @@ impl ConfigSelectorOptions {
 /// # Errors
 ///
 /// Returns `Err` when the selector surface fails to mount or run
-/// (raw-mode enable, the alternate-screen enter, enhanced-key enable,
-/// terminal creation, a draw, or an `on_toggle` persist error); the
-/// terminal is restored on every error path.
+/// (raw-mode enable, enhanced-key enable, a terminal write, or an
+/// `on_toggle` persist error); the terminal is restored on every error
+/// path.
 pub fn run_config_selector(
     selector: ConfigSelector,
     options: ConfigSelectorOptions,
@@ -587,45 +587,52 @@ fn run_selector_surface(
     // kernel's one trigger for lifting a pending Ctrl+S stop (see the
     // flow e2e's launch route).
     terminal::enable_raw_mode()?;
-    // The alternate screen mounts through the ownership module (the same
-    // `pendingAltScreenHandoff` semantics the session surface uses), so
-    // the surface's alt-screen state is tracked for every exit path.
-    crate::altscreen::enter()?;
     // The selector surface owns the same enhanced-key modes as the session
     // (TS `ProcessTerminal.start`): a pasted filter query arrives as one
     // chunk instead of per-line keystrokes.
     crate::enhanced_keys::enable(&mut std::io::stdout())?;
-    let mut terminal = Terminal::new(crate::hyperlinks::stdout_backend())?;
+    let (_, rows) = terminal::size()?;
+    let mut term = InlineTerminal::new(rows);
     let theme = options.theme;
     let kb = options.keybindings;
     let start = Instant::now();
+    // Only an input changes the frame: an idle poll tick paints nothing.
+    let mut dirty = true;
     loop {
-        let size = terminal.size()?;
-        let (width, height) = (size.width, size.height);
-        let mut frame: Vec<Line> = selector.render(&theme, width as usize, &kb);
-        while frame.len() < height as usize {
-            frame.push(Vec::new());
+        if dirty {
+            let (width, height) = terminal::size()?;
+            term.set_height(height);
+            let mut frame: Vec<Line> = selector.render(&theme, usize::from(width), &kb);
+            frame.truncate(usize::from(height));
+            term.paint(
+                &mut std::io::stdout().lock(),
+                InlineFrame {
+                    history: &[],
+                    live: &frame,
+                    cursor: None,
+                },
+            )?;
+            dirty = false;
         }
-        frame.truncate(height as usize);
-        let frame_area = ratatui::layout::Rect::new(0, 0, width, height);
-        crate::hyperlinks::install_frame(&frame);
-        terminal.draw(|draw_frame| {
-            let lines: Vec<ratatui::text::Line<'static>> =
-                frame.iter().map(crate::markdown::to_ratatui_line).collect();
-            draw_frame.render_widget(ratatui::text::Text::from(lines), frame_area);
-        })?;
         if crossterm::event::poll(Duration::from_millis(50))? {
+            dirty = true;
             let action = match crossterm::event::read()? {
                 Event::Key(key) => handle_key_event(&mut selector, key, &kb),
                 Event::Paste(text) => {
                     selector.paste(&text);
                     None
                 }
-                _ => None,
+                // A resize repaints the live area whole at the new size.
+                Event::Resize(..) => {
+                    term.clear_live(&mut std::io::stdout().lock())?;
+                    None
+                }
+                Event::FocusGained | Event::FocusLost | Event::Mouse(_) => None,
             };
             match action {
                 Some(SelectorAction::Close) => break,
                 Some(SelectorAction::Exit) => {
+                    term.clear_live(&mut std::io::stdout().lock())?;
                     crate::exit_restore::restore_terminal();
                     std::process::exit(0);
                 }
@@ -641,6 +648,7 @@ fn run_selector_surface(
             }
         }
     }
+    term.clear_live(&mut std::io::stdout().lock())?;
     crate::exit_restore::restore_terminal();
     Ok(())
 }
@@ -762,8 +770,8 @@ mod tests {
     }
 
     /// The frame renders through the shared menu grammar: the title, the
-    /// bordered search field, the `›` marker row, and the hint status row
-    /// (the hints ride the bottom row, not a header line).
+    /// search field, the marker row, and the hint status row (the hints
+    /// ride the bottom row, not a header line).
     #[test]
     fn the_frame_renders_through_the_shared_menu_grammar() {
         let selector = ConfigSelector::new(rows());
@@ -775,12 +783,10 @@ mod tests {
         assert!(rendered
             .iter()
             .any(|row| row.contains("Resource Configuration")));
+        assert!(rendered.iter().any(|row| row.contains("[x] Kernel")));
         assert!(rendered
             .iter()
-            .any(|row| row.contains("\u{203a} [x] Kernel")));
-        assert!(rendered
-            .iter()
-            .any(|row| row.contains("Space toggle · Esc close")));
+            .any(|row| row.contains(&format!("Space toggle{}Esc close", crate::glyphs::SEP))));
     }
 }
 
@@ -812,7 +818,7 @@ mod keybind_tests {
 
     /// TS #2493: with the default bindings ctrl+c rides
     /// `tui.select.cancel` (its default includes the key), so the
-    /// selector CLOSES on it exactly like the TS component — the exit
+    /// selector CLOSES on it exactly like the TS component -- the exit
     /// branch sits behind the cancel check, in the TS order.
     #[test]
     fn default_bindings_close_on_ctrl_c() {
@@ -829,7 +835,7 @@ mod keybind_tests {
         );
     }
 
-    /// TS #2493: the exit is a real keybinding — remap `tui.select.cancel`
+    /// TS #2493: the exit is a real keybinding -- remap `tui.select.cancel`
     /// away from ctrl+c and the freed key now reaches `app.clear` and
     /// EXITS instead of closing (the pre-fix literal ignored the table).
     #[test]

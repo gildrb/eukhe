@@ -175,7 +175,7 @@ impl Editor {
             return;
         };
         // TS `isAutocompleteRequestCurrent`: the editor moved past the
-        // snapshot the search answers, so the result would land stale —
+        // snapshot the search answers, so the result would land stale --
         // drop the handle (cancelling the walk) without touching the UI.
         if self.lines != active.lines
             || self.cursor_line != active.cursor_line

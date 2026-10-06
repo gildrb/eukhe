@@ -83,7 +83,7 @@ pub(crate) fn assert_allowed(allowlist: &DaemonAllowlist, selector: &str) -> Res
         }
         DaemonAllowlist::Unreadable(error) => Err(anyhow::anyhow!(
             "The daemon model allowlist could not be read ({error}); \
-             refusing to resolve model \"{selector}\" — the daemon fails closed instead of \
+             refusing to resolve model \"{selector}\" -- the daemon fails closed instead of \
              bypassing the configured allowedModels policy. Fix settings.json and retry."
         )),
     }

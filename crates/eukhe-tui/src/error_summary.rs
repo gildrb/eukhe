@@ -16,7 +16,7 @@ pub fn normalize_error_details(text: &str) -> String {
 }
 
 /// `stripAnsi`: remove every escape sequence (the exact TS utils.ts:899
-/// scanner — see [`crate::ansi::strip_ansi`]).
+/// scanner -- see [`crate::ansi::strip_ansi`]).
 #[must_use]
 pub fn strip_ansi(text: &str) -> String {
     crate::ansi::strip_ansi(text)
@@ -34,7 +34,7 @@ const LOGIN_RECOVERY_MESSAGE: &str = "Run /login to update credentials.";
 
 /// `formatInlineLoginRecoveryMessage` (TS assistant-message.ts): an error
 /// whose normalized text ends with `\n\n` + the login-recovery hint renders
-/// as one inline line — `{base} · {hint}` with `base` the suffix-stripped,
+/// as one inline line -- `{base} * {hint}` with `base` the suffix-stripped,
 /// end-trimmed remainder. `None` keeps the normal error paths: no suffix,
 /// an empty base, or a base that would itself collapse (multi-line).
 #[must_use]
@@ -46,7 +46,7 @@ pub fn format_inline_login_recovery_message(text: &str) -> Option<String> {
     if base.is_empty() || should_collapse_error_details(base) {
         return None;
     }
-    Some(format!("{base} · {LOGIN_RECOVERY_MESSAGE}"))
+    Some(format!("{base} - {LOGIN_RECOVERY_MESSAGE}"))
 }
 
 /// `startsStackContext` (trimmed line): the leading rows of a traceback.
@@ -101,29 +101,6 @@ fn display_content(text: &str, summary: Option<&str>, expanded: bool) -> Option<
         text
     };
     Some(content)
-}
-
-/// Count the same normalized and collapsed content without painting rows.
-pub(crate) fn collapsible_error_row_count(
-    text: &str,
-    summary: Option<&str>,
-    expanded: bool,
-    width: usize,
-) -> usize {
-    let Some(content) = display_content(text, summary, expanded) else {
-        return 0;
-    };
-    content
-        .split('\n')
-        .map(|raw| {
-            let spans = if raw.is_empty() {
-                Vec::new()
-            } else {
-                vec![Span::raw(raw)]
-            };
-            crate::width::wrapped_line_count(&spans, width.saturating_sub(1).max(1))
-        })
-        .sum()
 }
 
 /// The collapsible error rows (`CollapsibleErrorComponent.render`): the
@@ -189,7 +166,7 @@ mod tests {
             )
             .as_deref(),
             Some(
-                "Authentication failed for \"prime-inference\". Credentials may have expired or network is unavailable. · Run /login to update credentials."
+                "Authentication failed for \"prime-inference\". Credentials may have expired or network is unavailable. - Run /login to update credentials."
             )
         );
         // The base is suffix-stripped and end-trimmed; ANSI and CRLF
@@ -199,7 +176,7 @@ mod tests {
                 "Auth failed. \r\n\r\nRun /login to update credentials.\u{1b}[0m"
             )
             .as_deref(),
-            Some("Auth failed. · Run /login to update credentials.")
+            Some("Auth failed. - Run /login to update credentials.")
         );
     }
 

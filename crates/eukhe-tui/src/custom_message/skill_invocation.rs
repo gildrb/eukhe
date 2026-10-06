@@ -46,7 +46,7 @@ pub fn skill_invocation_entries(text: &str) -> Option<Vec<ChatEntry>> {
 }
 
 /// The card's header row: the bold `[skill]` label in `customMessageLabel`,
-/// a space, and the skill name in `customMessageText` — the same row in
+/// a space, and the skill name in `customMessageText` -- the same row in
 /// both states (the header never depends on expansion).
 fn skill_header(row: &SkillInvocationRow, theme: &Theme) -> Line {
     vec![
@@ -57,26 +57,6 @@ fn skill_header(row: &SkillInvocationRow, theme: &Theme) -> Line {
             theme.fg_style(ThemeColor::CustomMessageText),
         ),
     ]
-}
-
-pub(crate) fn count_skill_invocation(
-    row: &SkillInvocationRow,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-    leading: bool,
-) -> usize {
-    usize::from(leading)
-        + super::geometry::text_row_count(&skill_header(row, theme), width)
-        + if detail.tool_output_expanded() {
-            crate::branch::branch_markdown_count(
-                &row.content,
-                &super::geometry::markdown_style(ThemeColor::CustomMessageText, theme),
-                width,
-            )
-        } else {
-            0
-        }
 }
 
 /// One skill-invocation card (TS `SkillInvocationMessageComponent`, after
@@ -100,7 +80,7 @@ pub fn render_skill_invocation(
     if detail.tool_output_expanded() {
         out.extend(crate::branch::branch_markdown(
             &row.content,
-            &super::geometry::markdown_style(ThemeColor::CustomMessageText, theme),
+            &super::render::markdown_style(ThemeColor::CustomMessageText, theme),
             theme,
             width,
         ));

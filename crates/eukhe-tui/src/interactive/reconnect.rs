@@ -20,7 +20,7 @@ const RECONNECT_WINDOW: Duration = Duration::from_mins(10);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(10);
 
 /// TS #2458 `DAEMON_RECONNECT_TIMEOUT_MS`: the announced closing's
-/// recovery window — an explicit stop stays stopped, so the pane waits
+/// recovery window -- an explicit stop stays stopped, so the pane waits
 /// for the daemon to come back bounded instead of retrying through the
 /// hiccup window.
 pub(super) const DAEMON_SHUTDOWN_RECONNECT_WINDOW: Duration = Duration::from_secs(60);
@@ -42,8 +42,8 @@ pub(super) const SESSION_RECONNECT_ATTEMPT_TIMEOUT_S: u64 = 10;
 /// The interactive loop's session re-attach driver (TS
 /// `DaemonAgentConnection.reconnect` over a direct-transport loss): the
 /// worker process behind the direct link died, so the attach retries
-/// through the supervisor — which respawns the worker and hands out a
-/// fresh peer ticket — with the TS backoff inside the TS window.
+/// through the supervisor -- which respawns the worker and hands out a
+/// fresh peer ticket -- with the TS backoff inside the TS window.
 pub(super) struct SessionReconnect {
     pub(super) active_session_id: String,
     pub(super) deadline: tokio::time::Instant,
@@ -73,12 +73,12 @@ impl SessionReconnect {
 
 /// The interactive loop's full reconnect driver: attempts with backoff
 /// inside the window; the user can leave with Ctrl+C at any point (UI
-/// input keeps flowing through the same loop). Two closings arm it — an
-/// UNEXPECTED connection loss (the supervisor connection died mid-run — a
+/// input keeps flowing through the same loop). Two closings arm it -- an
+/// UNEXPECTED connection loss (the supervisor connection died mid-run -- a
 /// daemon hiccup at load, 2026-09-24: the one-shot path exited the
 /// operator's TUI with "the daemon connection closed"), and an ANNOUNCED
 /// closing (TS #2458: the operator's own shutdown used to kill every
-/// attached window) — the pane keeps its transcript and editor and
+/// attached window) -- the pane keeps its transcript and editor and
 /// retries instead of dying.
 pub(super) struct ReconnectLoop {
     pub(super) deadline: tokio::time::Instant,
@@ -103,7 +103,7 @@ impl ReconnectLoop {
     }
 
     /// TS #2458 `reconnectAfterShutdown`: the announced closing. The
-    /// window is the TS reconnect timeout (not the hiccup window — an
+    /// window is the TS reconnect timeout (not the hiccup window -- an
     /// explicit stop stays stopped), the cadence is
     /// the TS fixed poll, and the expiry is the saved-transcript close.
     pub(super) fn start_shutdown() -> Self {
@@ -129,7 +129,7 @@ impl ReconnectLoop {
 /// TS #2458 `reconnectAfterShutdown`'s arming: an announced non-update
 /// closing (`daemon_closing` with no update) keeps the pane mounted while
 /// it waits bounded for the daemon to come back on the same socket path
-/// (the recovery never relaunches the daemon — an explicit stop stays
+/// (the recovery never relaunches the daemon -- an explicit stop stays
 /// stopped). No-op when the notice is absent (a bare session stop stays
 /// stopped) or a driver already owns the recovery; `true` when it armed.
 pub(super) fn arm_shutdown_recovery(
@@ -142,11 +142,11 @@ pub(super) fn arm_shutdown_recovery(
         return false;
     }
     session.note_as(
-        "the Eukhe daemon shut down; waiting for it to come back…",
+        "the Eukhe daemon shut down; waiting for it to come back...",
         crate::chat::StatusKind::Warning,
         view,
     );
-    // TS #2458's yield rule: the shutdown recovery owns the run — a
+    // TS #2458's yield rule: the shutdown recovery owns the run -- a
     // session-plane retry armed by an earlier direct-link loss would race
     // it through a dying supervisor, and its expiry would block submits
     // after a later reconnect lands.

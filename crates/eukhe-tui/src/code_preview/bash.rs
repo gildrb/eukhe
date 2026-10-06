@@ -71,7 +71,7 @@ impl<'t> Cap<'t> {
 /// The interned-regex pool: preview patterns are format-built at call sites
 /// but drawn from a small constant set, so one global cache keeps the
 /// compiled program alive across calls (compiling a regex per call costs
-/// milliseconds — a transcript-scale render pays it per row).
+/// milliseconds -- a transcript-scale render pays it per row).
 fn regex_pool() -> &'static std::sync::Mutex<std::collections::HashMap<String, Rx>> {
     static POOL: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Rx>>> =
         std::sync::OnceLock::new();
@@ -289,8 +289,9 @@ fn truncate_descriptor(text: &str) -> String {
     if utf16_len(text) <= DESCRIPTOR_MAX_WIDTH {
         return text.to_string();
     }
-    let cut = utf16_slice_prefix(text, DESCRIPTOR_MAX_WIDTH - 1);
-    format!("{}\u{2026}", js_trim_end(&cut))
+    let ellipsis = crate::glyphs::ELLIPSIS;
+    let cut = utf16_slice_prefix(text, DESCRIPTOR_MAX_WIDTH - ellipsis.len());
+    format!("{}{ellipsis}", js_trim_end(&cut))
 }
 
 /// Mask secrets, blobs, and oversized strings before display.
@@ -307,7 +308,8 @@ pub(crate) fn redact_noise(text: &str) -> String {
     let step4 = re_once!(r#"(?i)\b(authorization:\s*(?:bearer\s+)?)[^\s"']+"#)
         .replace_all(&step3, "$1<redacted>");
     let step5 = re_once!(r#"(["'])sk-[^"']+\1"#).replace_all(&step4, "$1<redacted>$1");
-    re_once!(r#"(["']).{160,}\1"#).replace_all(&step5, "$1\u{2026}$1")
+    let clipped = format!("$1{}$1", crate::glyphs::ELLIPSIS);
+    re_once!(r#"(["']).{160,}\1"#).replace_all(&step5, &clipped)
 }
 
 pub(crate) fn descriptor(text: &str) -> String {
@@ -622,7 +624,7 @@ mod tests {
         let long = "hello world ".repeat(12);
         let d = descriptor(&long);
         assert_eq!(utf16_len(&d), 64);
-        assert!(d.ends_with('\u{2026}'));
+        assert!(d.ends_with("..."));
     }
 
     #[test]

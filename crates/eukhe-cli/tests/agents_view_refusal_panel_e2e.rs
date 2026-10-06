@@ -168,7 +168,6 @@ async fn the_refused_open_renders_both_ways_out_as_the_notice_panel() {
         session: SessionSelection::Resume(session_path.clone()),
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),

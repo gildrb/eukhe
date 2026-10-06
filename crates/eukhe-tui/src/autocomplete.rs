@@ -2,7 +2,7 @@
 //! rendering ported from `packages/tui/src/autocomplete.ts` +
 //! `components/select-list.ts` (the subset the interactive agent view uses:
 //! slash-command and file/path completion with a select list, plus the
-//! `@` fuzzy file search — a parallel walk on a background thread).
+//! `@` fuzzy file search -- a parallel walk on a background thread).
 
 use std::collections::{HashMap, HashSet};
 
@@ -20,7 +20,7 @@ pub struct CompletionItem {
     pub label: String,
     pub description: Option<String>,
     pub argument_hint: Option<String>,
-    /// The source label of a dynamic command (`#user`, `#project`, …; TS
+    /// The source label of a dynamic command (`#user`, `#project`, ...; TS
     /// `sourceTag`, from `getAutocompleteSourceLabel`). Rendered as a
     /// muted trailing segment of the menu row.
     pub source_tag: Option<String>,
@@ -203,7 +203,7 @@ fn is_token_start(text: &[char], index: usize) -> bool {
     index == 0 || is_path_delimiter(text[index - 1])
 }
 
-/// An unterminated quoted token from its opening quote (`@"…` or `"…`).
+/// An unterminated quoted token from its opening quote (`@"...` or `"...`).
 fn extract_quoted_prefix(text: &[char]) -> Option<String> {
     let quote_start = find_unclosed_quote_start(text)?;
     if quote_start > 0 && text[quote_start - 1] == '@' {
@@ -232,7 +232,7 @@ fn parse_path_prefix(prefix: &str) -> (String, bool, bool) {
     }
 }
 
-/// Expand `~` and `~/…` to the home directory.
+/// Expand `~` and `~/...` to the home directory.
 fn expand_home_path(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
         let home = home_dir();
@@ -389,10 +389,10 @@ impl AutocompleteState {
     }
 
     /// Render the dropdown through the inline menu panel: the ONE menu
-    /// component's rows (`›` marker, BOLD primary, soft selection band,
+    /// component's rows (`>` marker, BOLD primary, soft selection band,
     /// right-aligned muted trailing), its status rows (the `(n/m)` scroll
     /// indicator, the no-match row), and the selected slash command's
-    /// description block — the same grammar the `/model` picker and the
+    /// description block -- the same grammar the `/model` picker and the
     /// `/mcp` view render with.
     #[must_use]
     pub fn render(&self, theme: &crate::theme::Theme, width: usize) -> Vec<Line> {
@@ -413,7 +413,7 @@ impl AutocompleteState {
             let index = start + index;
             let selected = index == self.selected_index;
             // The trailing metadata (TS `renderMetadataItem`: the
-            // argument hint, then the source tag, both muted here — the
+            // argument hint, then the source tag, both muted here -- the
             // menu grammar's one trailing style; TS colors the source
             // tag with `theme.sourceTag`, which this palette folds into
             // the muted trailing).
@@ -490,7 +490,7 @@ impl PathCompletionProvider {
                 };
                 (dir, String::new())
             } else {
-                // TS `basename`: the component after the last `/` — a
+                // TS `basename`: the component after the last `/` -- a
                 // trailing `.`/`..` IS the file component (TS
                 // `basename("src/.")` is `.`), unlike `Path::file_name`,
                 // which normalizes the trailing reference away and
@@ -520,7 +520,7 @@ impl PathCompletionProvider {
         // The filename anchor the entries must complete: the typed
         // component after the last `/` of the prefix. Hidden entries
         // list exactly when that anchor is dot-typed (`.`, `.z`,
-        // `src/.h`, `~/.`) — the bash semantics: you see the dotfiles
+        // `src/.h`, `~/.`) -- the bash semantics: you see the dotfiles
         // precisely when the thing you are completing starts with a
         // dot. A directory browse (`./`, `src/`, `../`, `~/`, the empty
         // prefix) has an empty anchor and must not surface the cwd's
@@ -667,7 +667,7 @@ pub struct SlashCommandEntry {
     pub description: Option<String>,
     pub argument_hint: Option<String>,
     pub takes_argument: bool,
-    /// The source label (`#user`, `#project`, …) for dynamic commands
+    /// The source label (`#user`, `#project`, ...) for dynamic commands
     /// (TS `sourceTag`).
     pub source_tag: Option<String>,
 }
@@ -687,9 +687,9 @@ impl SlashCommandEntry {
 /// The source label of a command row (TS `getAutocompleteSourceTag` +
 /// `getAutocompleteSourceLabel`): the scope prefix (`user`/`project`/
 /// `temporary`), with the source string itself for package-registry
-/// (`npm:…`) sources; `builtin` stays `builtin`. The TS ladder's git-URL
-/// branch is not reachable on this port's daemon wire — the skills
-/// loader only emits `local` sources — so the scope prefix is the
+/// (`npm:...`) sources; `builtin` stays `builtin`. The TS ladder's git-URL
+/// branch is not reachable on this port's daemon wire -- the skills
+/// loader only emits `local` sources -- so the scope prefix is the
 /// fallback for any other source, exactly like the TS tail.
 fn autocomplete_source_tag(source_info: &serde_json::Value) -> Option<String> {
     // TS guards the whole ladder with `if (!sourceInfo) return undefined`:
@@ -733,7 +733,7 @@ pub const SKILL_ARGUMENT_HINT: &str = "your request";
 /// `createBaseAutocompleteProvider`'s skill list over
 /// `connectionCommands.filter(source === "skill")`): the name stays the
 /// wire form (`skill:<name>`), the description and the source label ride
-/// along for the menu row, and the entry always takes an argument — a
+/// along for the menu row, and the entry always takes an argument -- a
 /// bare `/skill:<name>` submission expands into the skill's protocol with
 /// no task text, so the completion lands in the argument position (the
 /// trailing space) and the hint names what belongs there.
@@ -967,7 +967,7 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
                     // TS `command.getArgumentCompletions`: a command that
                     // supplies argument items offers them at its argument
                     // position (filtered by the typed term); commands
-                    // without items — and terms with no match — answer
+                    // without items -- and terms with no match -- answer
                     // nothing (TS `getSuggestions` returns null at argument
                     // positions; the force-triggered path completion is
                     // the file surface there).
@@ -1016,7 +1016,7 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
             .is_some_and(|context| context.kind == SlashKind::Name && context.prefix == prefix);
         // TS `applyCompletion` finds the item over its whole command list
         // (builtins and skills share one array), so a `skill:` item applies
-        // through the slash path — the line keeps its leading `/`.
+        // through the slash path -- the line keeps its leading `/`.
         if is_slash
             && self
                 .commands

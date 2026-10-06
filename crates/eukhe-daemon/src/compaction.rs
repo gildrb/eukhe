@@ -639,7 +639,7 @@ mod tests {
         assert_eq!(
             compaction_end_event(
                 &CompactionOutcome::Skipped {
-                    message: "Session is too short to compact — try again once it grows"
+                    message: "Session is too short to compact -- try again once it grows"
                         .to_string(),
                 },
                 None,
@@ -649,7 +649,7 @@ mod tests {
                 "reason": "manual",
                 "aborted": false,
                 "willRetry": false,
-                "errorMessage": "Session is too short to compact — try again once it grows",
+                "errorMessage": "Session is too short to compact -- try again once it grows",
                 "errorSeverity": "warning",
             })
         );

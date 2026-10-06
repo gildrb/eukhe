@@ -1,12 +1,12 @@
 //! The read-only inline info panel (the operator's 2026-09-26
-//! directive): the client info displays — `/context`, `/session`,
+//! directive): the client info displays -- `/context`, `/session`,
 //! `/system-prompt`, `/logs`, `/changelog`, `/hotkeys`, the `/traces`
-//! status and preview blocks, and `/list` — render as the docked popup
+//! status and preview blocks, and `/list` -- render as the docked popup
 //! panel over the editor dock (the `/mcp` and `/model` panel grammar:
 //! the ruled frame, the scroll indicator, the key hint, one blank under
 //! the hint) instead of flooding the chat transcript with rows that
-//! persist. The content builders are unchanged — the same
-//! [`crate::info_commands`] row builders and the same markdown seam — so
+//! persist. The content builders are unchanged -- the same
+//! [`crate::info_commands`] row builders and the same markdown seam -- so
 //! only
 //! the mount point moves: ESC closes, focus returns to the chat, and
 //! the transcript never gained a row (TS renders these displays as chat
@@ -34,7 +34,7 @@ const SCROLL_INDICATOR_ROWS: usize = 1;
 /// The panel's content: styled info rows or one markdown document.
 #[derive(Debug, Clone, PartialEq)]
 pub enum InfoContent {
-    /// Info rows built by the [`crate::info_commands`] builders — the
+    /// Info rows built by the [`crate::info_commands`] builders -- the
     /// same rows the chat display rendered, byte for byte.
     Rows(Vec<ClientLine>),
     /// A markdown document (the `/hotkeys` guide, the `/changelog`
@@ -65,7 +65,7 @@ pub enum InfoPanelAction {
 /// The read-only info panel: a scrollable document in the editor dock.
 /// The title is `None` for content that carries its own header row (the
 /// `/context`, `/session`, `/system-prompt`, and `/logs` builders all
-/// open with their heading — the panel never duplicates it). The row
+/// open with their heading -- the panel never duplicates it). The row
 /// budget is the RENDER's parameter, not open-time state: a terminal
 /// resized while the panel is open re-budgets the very next frame
 /// (a stale larger budget would front-crop the frame's rule and title
@@ -211,7 +211,7 @@ impl InfoPanel {
     /// the title, the content window, the scroll indicator when the
     /// window is partial, the key hint, and one blank under it. The
     /// frame never exceeds the budget (a too-short terminal degrades by
-    /// truncation, like the docked pickers) — and a resized terminal
+    /// truncation, like the docked pickers) -- and a resized terminal
     /// re-budgets here, never from a stale open-time snapshot.
     pub fn render(
         &mut self,
@@ -228,9 +228,10 @@ impl InfoPanel {
         self.clamp_scroll();
         let end = (self.scroll + visible).min(total);
         let mut lines: Vec<Line> = Vec::with_capacity(FIXED_FRAME_ROWS_WITH_TITLE + visible + 1);
-        lines.push(vec![
-            theme.fg_span(ThemeColor::BorderMuted, "\u{2500}".repeat(width.max(1)))
-        ]);
+        lines.push(vec![theme.fg_span(
+            ThemeColor::BorderMuted,
+            crate::glyphs::RULE.repeat(width.max(1)),
+        )]);
         if let Some(title) = &self.title {
             let title: Line = vec![
                 Span::raw("  "),
@@ -251,7 +252,7 @@ impl InfoPanel {
 }
 
 /// The key-hint text: the scroll keys and the close key, the same
-/// vocabulary as the pickers' hints. An unbound action is omitted — the
+/// vocabulary as the pickers' hints. An unbound action is omitted -- the
 /// hint never advertises a key the surface does not handle. A user who
 /// unbinds `tui.select.cancel` loses the Esc close (the picker grammar
 /// keys close through their bindings); the hint then names the one
@@ -263,7 +264,7 @@ fn hint_text(kb: &KeybindingsManager) -> String {
         |key| crate::keybindings::format_key_text(&key),
     );
     match scroll {
-        Some(scroll) => format!("{scroll} \u{b7} {close} close"),
+        Some(scroll) => format!("{scroll} - {close} close"),
         None => format!("{close} close"),
     }
 }
@@ -313,14 +314,14 @@ mod tests {
         let mut panel = InfoPanel::new(Some("Context".to_string()), InfoContent::Rows(rows(2)));
         let frame = panel.render(&theme(), 40, &kb(), "  ", 20);
         let text = plain(&frame);
-        // Rule, title, blank, content, hint, blank — the docked-panel
+        // Rule, title, blank, content, hint, blank -- the docked-panel
         // grammar, and no rule below the shortcuts hint.
-        assert_eq!(text[0], "\u{2500}".repeat(40));
+        assert_eq!(text[0], "-".repeat(40));
         assert_eq!(text[1], "  Context");
         assert_eq!(text[2], "");
         assert_eq!(text[3], " line 0");
         assert_eq!(text[4], " line 1");
-        assert!(text[5].starts_with(" \u{2191}/\u{2193} scroll \u{b7} Esc close"));
+        assert!(text[5].starts_with(" up/down scroll - Esc close"));
         assert_eq!(text[6], "");
         assert_eq!(text.len(), 7);
     }
@@ -341,12 +342,12 @@ mod tests {
         let mut panel = InfoPanel::new(None, InfoContent::Rows(rows));
         let frame = panel.render(&theme(), 40, &kb(), "  ", 20);
         let text = plain(&frame);
-        assert_eq!(text[0], "\u{2500}".repeat(40));
+        assert_eq!(text[0], "-".repeat(40));
         assert_eq!(text[1], "");
         assert_eq!(text[2], " Session Info");
         assert_eq!(text[3], " line 0");
         assert_eq!(text[4], " line 1");
-        assert!(text[5].starts_with(" \u{2191}/\u{2193} scroll"));
+        assert!(text[5].starts_with(" up/down scroll"));
         assert_eq!(text.last(), Some(&String::new()));
     }
 
@@ -461,11 +462,7 @@ mod tests {
         );
         // The rule and title survive the shrink (no front-crop).
         let text = plain(&short);
-        assert_eq!(
-            text[0],
-            "\u{2500}".repeat(40),
-            "the rule heads the shrunk frame"
-        );
+        assert_eq!(text[0], "-".repeat(40), "the rule heads the shrunk frame");
         assert_eq!(text[1], "  Context", "the title stays under the rule");
     }
 

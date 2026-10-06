@@ -552,7 +552,7 @@ fn rpc_compact_answers_the_ts_skip_error() {
     assert_eq!(response["success"], false, "the response: {response}");
     assert_eq!(
         response["error"],
-        "Session is too short to compact — try again once it grows"
+        "Session is too short to compact -- try again once it grows"
     );
     let types: Vec<&str> = events
         .iter()

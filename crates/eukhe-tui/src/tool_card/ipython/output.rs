@@ -97,7 +97,7 @@ pub(super) fn render_output(
         if *output_marker_pending {
             *output_marker_pending = false;
             vec![Span::styled(
-                " \u{203a} ".to_string(),
+                format!(" {} ", crate::glyphs::POINTER),
                 theme.fg_style(ThemeColor::Dim),
             )]
         } else {
@@ -321,7 +321,7 @@ enum OutputLabel {
 }
 
 /// One output section: `out` lines in toolOutput, `err` lines muted
-/// (stderr and tracebacks), the first line marked `\u{203a}`.
+/// (stderr and tracebacks), the first line marked `>`.
 fn render_output_text(
     lines: &mut RowOutput,
     text: &str,
@@ -339,7 +339,7 @@ fn render_output_text(
         let prefix = if *output_marker_pending {
             *output_marker_pending = false;
             vec![Span::styled(
-                " \u{203a} ".to_string(),
+                format!(" {} ", crate::glyphs::POINTER),
                 theme.fg_style(ThemeColor::Dim),
             )]
         } else {

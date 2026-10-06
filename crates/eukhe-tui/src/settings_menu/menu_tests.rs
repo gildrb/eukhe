@@ -106,7 +106,7 @@ fn an_empty_row_set_keeps_the_empty_state_and_closes() {
     assert!(text.iter().any(|row| row.contains("No settings available")));
     assert!(text
         .iter()
-        .any(|row| { row.contains("Type to search · ←/→/Enter/Space change · Esc close") }));
+        .any(|row| { row.contains("Type to search - left/right/Enter/Space change - Esc close") }));
     assert_eq!(menu.handle_key("esc", &kb()), SettingsMenuAction::Cancel);
 }
 
@@ -154,7 +154,7 @@ fn enter_opens_the_thinking_submenu_and_selection_applies() {
     // The submenu is gone (the hint line is back).
     let text = render_text(&menu);
     assert!(text.iter().any(|row| {
-        row.contains("Type to search · Tab/1-5 tabs · ←/→/Enter/Space change · Esc close")
+        row.contains("Type to search - Tab/1-5 tabs - left/right/Enter/Space change - Esc close")
     }));
 }
 
@@ -220,7 +220,7 @@ fn enter_opens_the_service_tier_submenu_preselected_and_selection_applies() {
             value: "auto".to_string()
         }
     );
-    // Esc inside the submenu closes it (TS `onCancel` → `done()`)
+    // Esc inside the submenu closes it (TS `onCancel` -> `done()`)
     // while the menu itself stays open.
     assert_eq!(menu.handle_key("enter", &kb()), SettingsMenuAction::None);
     assert_eq!(
@@ -232,7 +232,7 @@ fn enter_opens_the_service_tier_submenu_preselected_and_selection_applies() {
     // sits between the search and change segments).
     assert!(text
         .iter()
-        .any(|row| row.contains("Enter/Space change · Esc close")));
+        .any(|row| row.contains("Enter/Space change - Esc close")));
 }
 
 #[test]
@@ -274,7 +274,7 @@ fn switching_tabs_shows_that_tabs_settings() {
 fn arrows_cycle_values_and_the_tab_keys_switch_tabs() {
     let mut menu = menu();
     // The arrows cycle the focused row's value (the operator's
-    // 2026-09-28 rebind): right flips Auto-compact true → false
+    // 2026-09-28 rebind): right flips Auto-compact true -> false
     // without leaving the General tab.
     assert_eq!(
         menu.handle_key("right", &kb()),
@@ -286,7 +286,7 @@ fn arrows_cycle_values_and_the_tab_keys_switch_tabs() {
     assert!(render_text(&menu)
         .iter()
         .any(|row| row.contains("Auto-compact")));
-    // left steps the other way: false → true.
+    // left steps the other way: false -> true.
     assert_eq!(
         menu.handle_key("left", &kb()),
         SettingsMenuAction::Change {
@@ -305,12 +305,12 @@ fn arrows_cycle_values_and_the_tab_keys_switch_tabs() {
     assert!(!render_text(&menu)
         .iter()
         .any(|row| row.contains("Transport")));
-    // tab: General → Models (the arrows' old job).
+    // tab: General -> Models (the arrows' old job).
     menu.handle_key("tab", &kb());
     assert!(render_text(&menu)
         .iter()
         .any(|row| row.contains("Transport")));
-    // shift+tab: Models → General.
+    // shift+tab: Models -> General.
     menu.handle_key("shift+tab", &kb());
     assert!(render_text(&menu)
         .iter()
@@ -320,7 +320,7 @@ fn arrows_cycle_values_and_the_tab_keys_switch_tabs() {
     assert!(render_text(&menu)
         .iter()
         .any(|row| row.contains("Skill commands")));
-    // tab from the last tab wraps to the first: Agents → General.
+    // tab from the last tab wraps to the first: Agents -> General.
     menu.handle_key("tab", &kb());
     assert!(render_text(&menu)
         .iter()
@@ -383,7 +383,7 @@ fn arrows_cycle_a_multi_option_row_in_place() {
 #[test]
 fn arrows_no_op_on_submenu_rows() {
     let mut menu = menu();
-    // 2 jumps to the Models tab; Thinking level is a submenu row —
+    // 2 jumps to the Models tab; Thinking level is a submenu row --
     // the arrows change nothing (Enter opens the submenu).
     menu.handle_key("2", &kb());
     assert_eq!(menu.handle_key("right", &kb()), SettingsMenuAction::None);
@@ -508,7 +508,7 @@ fn the_strip_lists_the_tabs_and_marks_the_active_one() {
     let strip_blank_below: String = lines[5].iter().map(|span| span.content.as_str()).collect();
     assert_eq!(strip_blank_below, "");
     // The active tab renders white bold (the operator's 2026-09-28
-    // selection ruling — the theme's text color, not the dock's
+    // selection ruling -- the theme's text color, not the dock's
     // background band).
     let active = lines[4]
         .iter()
@@ -518,7 +518,7 @@ fn the_strip_lists_the_tabs_and_marks_the_active_one() {
         active.style,
         theme
             .fg_style(ThemeColor::Text)
-            .add_modifier(ratatui::style::Modifier::BOLD)
+            .add_modifier(crate::style::Modifier::BOLD)
     );
     let inactive = lines[4]
         .iter()
@@ -534,16 +534,16 @@ fn the_header_and_the_settings_list_breathe_apart() {
     // blank row under the field, the strip, and the blank row below
     // the tabs before the settings list begins (the operator's
     // 2026-09-28 spacing directives 1 + 2).
-    assert_eq!(text[0], "\u{2500}".repeat(100));
+    assert_eq!(text[0], "-".repeat(100));
     assert!(text[1].starts_with(" >  Search settings"));
-    assert_eq!(text[2], "\u{2500}".repeat(100));
+    assert_eq!(text[2], "-".repeat(100));
     assert_eq!(text[3], "");
     assert_eq!(
         text[4],
         "  1 General    2 Models    3 Display    4 Editor    5 Agents"
     );
     assert_eq!(text[5], "");
-    assert!(text[6].starts_with("\u{203a} Auto-compact"));
+    assert!(text[6].starts_with("> Auto-compact"));
 }
 
 #[test]
@@ -554,13 +554,13 @@ fn render_shows_value_and_selected_description() {
         .iter()
         .any(|row| row.contains("Automatically compact context when it gets too large")));
     assert!(text.iter().any(|row| {
-        row.contains("Type to search · Tab/1-5 tabs · ←/→/Enter/Space change · Esc close")
+        row.contains("Type to search - Tab/1-5 tabs - left/right/Enter/Space change - Esc close")
     }));
     // The selected first row carries the menu marker and its value
     // rides the row's trailing cluster (the shared menu-row grammar).
     let selected = text
         .iter()
-        .find(|row| row.starts_with("\u{203a}"))
+        .find(|row| row.starts_with('>'))
         .expect("the selected row carries the marker");
     assert!(selected.contains("Auto-compact"));
     assert!(selected.contains("true"));
@@ -572,12 +572,12 @@ fn render_shows_value_and_selected_description() {
         .iter()
         .position(|row| row.starts_with("  Type to search"))
         .expect("the hint row renders with its padding");
-    assert_eq!(text[hint_index - 1], "\u{2500}".repeat(100));
+    assert_eq!(text[hint_index - 1], "-".repeat(100));
     let description_index = text
         .iter()
         .position(|row| row.starts_with("  Automatically compact"))
         .expect("the description renders with its padding");
-    assert_eq!(text[description_index + 1], "\u{2500}".repeat(100));
+    assert_eq!(text[description_index + 1], "-".repeat(100));
 }
 
 #[test]
@@ -588,10 +588,10 @@ fn opening_into_a_setting_keeps_the_top_bar_and_the_padding() {
     menu.handle_key("2", &kb());
     menu.handle_key("enter", &kb());
     let text = render_text(&menu);
-    // The top bar — the full-width rule that separates the settings
-    // surface from the chat view — stays over the submenu (the
+    // The top bar -- the full-width rule that separates the settings
+    // surface from the chat view -- stays over the submenu (the
     // operator's 2026-09-28 regression pin a).
-    assert_eq!(text[0], "\u{2500}".repeat(100));
+    assert_eq!(text[0], "-".repeat(100));
     // The setting's name and description keep the list rows'
     // padding-x (the regression pin b).
     assert_eq!(text[1], "  Thinking Level");
@@ -600,7 +600,7 @@ fn opening_into_a_setting_keeps_the_top_bar_and_the_padding() {
     // padding (the padding family).
     assert!(text
         .iter()
-        .any(|row| row.starts_with("  Enter select · Esc back")));
+        .any(|row| row.starts_with("  Enter select - Esc back")));
 }
 
 /// The search field takes the WHOLE key id (TS `Input.handleInput`, the
@@ -640,7 +640,7 @@ fn backspace_edits_the_search_query() {
 
 /// Backspace at the empty-query boundary stays inside the menu (TS
 /// `Input.handleBackspace` clamps at the cursor): the action is None
-/// and the rows keep rendering — the menu neither closes nor strands on
+/// and the rows keep rendering -- the menu neither closes nor strands on
 /// its no-match row. Like every key that reaches the search field, the
 /// press runs the filter pass, which re-lands the tab's selection on its
 /// first row (TS `applyFilter`'s reset, kept for parity).

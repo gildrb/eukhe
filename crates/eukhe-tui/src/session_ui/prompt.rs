@@ -20,7 +20,7 @@ pub(crate) enum SubmitBehavior {
 }
 
 /// One backgrounded prompt round trip's settled outcome (TS `onSubmit`
-/// awaits `agentConnection.prompt` off the render path —
+/// awaits `agentConnection.prompt` off the render path --
 /// `interactive-mode.ts` clears the editor and lets Ink paint before the
 /// await, and the daemon answer folds back later): `Ok(())` is an
 /// admitted/queued prompt; the error is the daemon failure the inline
@@ -28,7 +28,7 @@ pub(crate) enum SubmitBehavior {
 pub(crate) struct PromptSubmitNote {
     /// The submit-time active id: the outcome applies only while the
     /// client still holds that session (a switch, a supersede rebind, or
-    /// a `/new` replaced it) — TS's staleness guard for a submit that
+    /// a `/new` replaced it) -- TS's staleness guard for a submit that
     /// outlived its session.
     pub(crate) active_session_id: String,
     /// The submit-time durable session id: a stale FAILURE retains its
@@ -66,7 +66,7 @@ pub(crate) struct PromptSubmitNote {
     /// here).
     pub(crate) submitted_at: std::time::Instant,
     /// Whether a failure may still rebind once (the replayed request is
-    /// the second and last attempt — the inline path's
+    /// the second and last attempt -- the inline path's
     /// `rebind_available`).
     pub(crate) rebind_available: bool,
     /// The settled request: admitted/queued on `Ok`; the daemon error
@@ -77,7 +77,7 @@ pub(crate) struct PromptSubmitNote {
 /// One queued prompt round trip for the submit worker (the ordered channel
 /// that replaces per-submit spawns): the worker drains its inbox one
 /// request at a time, so the wire write for submit N+1 only happens after
-/// submit N's round trip settles — cross-submit order is guaranteed on
+/// submit N's round trip settles -- cross-submit order is guaranteed on
 /// the terminal path exactly like the blocked loop and TS's single-threaded
 /// event loop guaranteed it (a per-submit `tokio::spawn` would schedule
 /// the writes independently and could reorder two rapid submits).
@@ -247,7 +247,7 @@ impl SessionUi {
     /// The two auto capture paths (the agents-view handoff, the in-place
     /// switch) stash a restore-on-open head (TS `restoreOnOpen`); the
     /// manual `app.prompt.stash` capture does not (TS `handlePromptStash`'s
-    /// plain assignment) — that draft returns only on its own key.
+    /// plain assignment) -- that draft returns only on its own key.
     fn snapshot_prompt_stash(
         &self,
         view: &AgentView,
@@ -276,7 +276,7 @@ impl SessionUi {
     }
 
     /// TS `stashDraftForAgentsView`: on the way to the agents view, the
-    /// live draft becomes the session's restore-on-open head — an
+    /// live draft becomes the session's restore-on-open head -- an
     /// existing unrestored stash queues behind it and keeps its own
     /// restore semantics. The editor dies with this view, so the draft
     /// lives on only in the store.
@@ -301,7 +301,7 @@ impl SessionUi {
 
     /// The in-place `/switch` capture: the draft belongs to the session
     /// being left, so it is stashed as that session's restore head and the
-    /// editor clears — the switched-to session starts from an empty prompt
+    /// editor clears -- the switched-to session starts from an empty prompt
     /// and the draft returns on a switch back.
     pub(super) fn stash_draft_for_switch(&mut self, view: &mut AgentView) {
         let Some(draft) = self.snapshot_prompt_stash(view, true) else {
@@ -341,7 +341,7 @@ impl SessionUi {
     /// restore (and this port's `/switch` landing, TS
     /// `restorePromptStashOnOpen`'s gate) restores only an auto
     /// restore-on-open head, while the manual `app.prompt.stash` key
-    /// restores whatever draft the session holds — a manual stash never
+    /// restores whatever draft the session holds -- a manual stash never
     /// lands on an open or a switch, only on its own key or after the
     /// next admitted send (TS `promptStashToRestore`).
     pub(super) fn restore_prompt_stash_if_editor_empty(
@@ -390,14 +390,14 @@ impl SessionUi {
         true
     }
 
-    /// TS `handlePromptStash` — the `app.prompt.stash` action (default
+    /// TS `handlePromptStash` -- the `app.prompt.stash` action (default
     /// ctrl+s, `interactive-mode.ts`): with a draft in the editor the key
-    /// stashes it — the whole draft (text, collapsed pastes, pasted
+    /// stashes it -- the whole draft (text, collapsed pastes, pasted
     /// images) moves to the session's stash and the editor clears; with
     /// an empty editor the key restores the session's stashed draft.
     /// A session that already holds a draft keeps it: the fresh draft
     /// stays in the editor and the status says so (TS's no-overwrite
-    /// guard), which is the difference from the auto capture paths —
+    /// guard), which is the difference from the auto capture paths --
     /// they queue an old stash behind the new head, the manual key never
     /// clobbers one.
     pub(super) fn handle_prompt_stash(&mut self, view: &mut AgentView) {
@@ -465,7 +465,7 @@ impl SessionUi {
         }
         // TS `!`/`!!` (interactive-mode onSubmit): the bash shortcut
         // routes before the side-question capture and every prompt path.
-        // A bare `!`/`!!` is bash mode with nothing to run — it is never
+        // A bare `!`/`!!` is bash mode with nothing to run -- it is never
         // sent as a prompt; a command runs directly through the
         // user-bash slot, no model turn involved.
         if let Some(bang) = crate::bash_bang::parse_bash_bang(text) {
@@ -753,8 +753,8 @@ impl SessionUi {
         }
         let images = self.collect_images_for(text, view);
         // TS `onSubmit` resolves the submit off the render path: the
-        // cleared editor paints THIS iteration's frame — the submit's
-        // daemon round trip never gates the first frame after Enter — and
+        // cleared editor paints THIS iteration's frame -- the submit's
+        // daemon round trip never gates the first frame after Enter -- and
         // the request settles in the background, its outcome folding back
         // through [`Self::apply_prompt_outcome`] with the same
         // bookkeeping and error ladder the inline await ran on the key
@@ -794,7 +794,7 @@ impl SessionUi {
     /// `onSubmit`'s `agentConnection.prompt` await runs off the render
     /// path): the request carries the same envelope the inline await
     /// sent, and the single worker (see [`PromptOrder`]) settles them
-    /// strictly in submit order — the frame after Enter paints without
+    /// strictly in submit order -- the frame after Enter paints without
     /// gating on the daemon, and cross-submit wire order never depends on
     /// task scheduling. `rebind_available` is the inline path's
     /// one-rebind budget: the first attempt may re-attach and replay on
@@ -841,7 +841,7 @@ impl SessionUi {
     /// The single prompt-submit worker (the ordered channel's drain side):
     /// one request in flight at a time, submit N+1's wire write only after
     /// submit N's round trip settles. TS's single-threaded event loop
-    /// serializes its submit writes the same way — the async handler's
+    /// serializes its submit writes the same way -- the async handler's
     /// `await` never reorders two submissions (interactive-mode.ts's
     /// `handleSubmit`), and the port's old blocked loop enforced the same
     /// order by construction. The outcome folds back through the
@@ -908,7 +908,7 @@ impl SessionUi {
     }
 
     /// Whether user work is in flight for the busy guards (TS's
-    /// `isStreaming`-gated commands — `/reload`):
+    /// `isStreaming`-gated commands -- `/reload`):
     /// a live turn OR a prompt round trip still traveling. The inline
     /// submit held the guards by blocking until the ack set
     /// `turn_active`; the backgrounded submit makes that pre-ack window
@@ -921,7 +921,7 @@ impl SessionUi {
 
     /// Fold a backgrounded prompt outcome back into the session (the run
     /// loop's channel arm): the admission bookkeeping and the error
-    /// ladder are the inline await's, moved off the key path — only the
+    /// ladder are the inline await's, moved off the key path -- only the
     /// timing changed.
     pub(crate) async fn apply_prompt_outcome(
         &mut self,
@@ -930,12 +930,12 @@ impl SessionUi {
     ) -> Result<()> {
         self.prompt_in_flight = self.prompt_in_flight.saturating_sub(1);
         // The submit's session is no longer the mounted one (a switch, a
-        // supersede rebind, or a `/new` replaced it — TS's staleness
+        // supersede rebind, or a `/new` replaced it -- TS's staleness
         // guard for a submit that outlived its session): the outcome
         // never applies bookkeeping to the new session, and never
         // restores a draft into another session's editor. A FAILED
         // outlived submit still shows its error row and retains its
-        // rejected draft into the session it was typed for — TS
+        // rejected draft into the session it was typed for -- TS
         // `handleSubmit`'s catch (interactive-mode.ts:5743 showError runs
         // regardless of the generation guard, and 5741 retains into the
         // submit-time stash state); a succeeded one stays silent (the
@@ -1077,13 +1077,13 @@ impl SessionUi {
                 if crate::daemon_client::is_daemon_timeout(&error) {
                     // Sent but unanswered: the submission was on the
                     // wire, so the turn may already be admitted and
-                    // running — restoring the draft would invite a
+                    // running -- restoring the draft would invite a
                     // duplicate submission. The error row names the
                     // uncertainty; the transcript's live turn (or the
                     // next daemon answer) settles the truth.
                     self.error_row(
                         &format!(
-                            "{rendered} — the request was sent; the turn may still be in flight"
+                            "{rendered} -- the request was sent; the turn may still be in flight"
                         ),
                         view,
                     );
@@ -1092,7 +1092,7 @@ impl SessionUi {
                 // A DIRECT-link transport failure happened after the
                 // frame was queued (`request_direct` sent it, the link
                 // died answering): the daemon may have admitted the
-                // turn — restoring the draft would invite a duplicate
+                // turn -- restoring the draft would invite a duplicate
                 // submission, so the draft stays consumed (the timeout
                 // arm's contract).
                 let direct_sent = crate::daemon_client::is_daemon_unreachable(&error)
@@ -1102,7 +1102,7 @@ impl SessionUi {
                 if direct_sent {
                     self.error_row(
                         &format!(
-                            "{rendered} — the request may have been sent; the turn may still start"
+                            "{rendered} -- the request may have been sent; the turn may still start"
                         ),
                         view,
                     );
@@ -1115,7 +1115,7 @@ impl SessionUi {
                     // with a refusal for THIS request (admission, queue
                     // capacity, a superseded session the rebind could
                     // not recover), or the connection refused the send
-                    // (nothing reached the daemon) — the `⚠ Error` row
+                    // (nothing reached the daemon) -- the `! Error` row
                     // surfaces it and the draft returns to the editor
                     // (the submission never landed); a failed prompt
                     // never exits the UI (the reconnect driver owns
@@ -1138,9 +1138,9 @@ impl SessionUi {
     /// Retain a refused prompt's draft (TS `onSubmit`'s catch ->
     /// `retainSubmittedDraft`, interactive-mode.ts:5741): the empty editor
     /// under the submit's own session and generation takes the text back
-    /// into the editor; anything else — the user typed a fresh draft, a
+    /// into the editor; anything else -- the user typed a fresh draft, a
     /// newer submit superseded this one, or the submit outlived its
-    /// session — keeps the fresh text by retaining the rejected prompt as
+    /// session -- keeps the fresh text by retaining the rejected prompt as
     /// the session's restore-on-open head instead of clobbering it.
     fn retain_rejected_draft(
         &mut self,

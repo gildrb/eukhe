@@ -410,7 +410,6 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -493,7 +492,7 @@ fn flat_text(frames: &[String]) -> String {
 
 /// `/factory status` (and a bare `/factory`) report the disabled default,
 /// and the dock never mounts a factory group while the daemon's hello
-/// advertises no `factory_activity` lane: no `⚙` segment renders anywhere
+/// advertises no `factory_activity` lane: no `0 factory` segment renders anywhere
 /// (the opt-in contract's off surface).
 #[test]
 fn factory_status_reports_the_disabled_default_without_a_factory_group() {
@@ -513,7 +512,7 @@ fn factory_status_reports_the_disabled_default_without_a_factory_group() {
         "the disabled status note rendered:\n{all}"
     );
     assert!(
-        !frames.join("\n").contains('⚙'),
+        !frames.join("\n").contains("0 factory"),
         "no factory group renders while the lane is unadvertised:\n{all}"
     );
 }
@@ -609,9 +608,10 @@ fn factory_off_refuses_while_runs_are_live() {
     let frames = run_plan_config(vec!["factory_activity".to_string()], Some(graph), steps);
     let all = flat_text(&frames);
     assert!(
-        all.contains(
-            "Cannot disable the factory while 2 runs are still live — stop them first (the factory page's stop action or rlm.factory.stop), then /factory off."
-        ),
+        all.contains("Cannot disable the factory while 2 runs are still live")
+            && all.contains(
+                "stop them first (the factory page's stop action or rlm.factory.stop), then /factory off."
+            ),
         "the refusal names the live count:\n{all}"
     );
     assert!(
@@ -673,9 +673,10 @@ fn factory_off_refuses_on_a_client_whose_hello_predates_the_gate() {
     let frames = run_plan_config(Vec::new(), Some(graph), steps);
     let all = flat_text(&frames);
     assert!(
-        all.contains(
-            "Cannot disable the factory while 1 run is still live — stop it first (the factory page's stop action or rlm.factory.stop), then /factory off."
-        ),
+        all.contains("Cannot disable the factory while 1 run is still live")
+            && all.contains(
+                "stop it first (the factory page's stop action or rlm.factory.stop), then /factory off."
+            ),
         "the unadvertised-lane guard still refused:\n{all}"
     );
 }
@@ -727,7 +728,7 @@ fn factory_off_refuses_when_the_advertised_lane_cannot_count() {
     let all = flat_text(&frames);
     assert!(
         all.contains(
-            "Cannot disable the factory: the live-run count could not be read from the factory lane — try /factory off again once it answers."
+            "Cannot disable the factory: the live-run count could not be read from the factory lane"
         ),
         "the unreadable count refused the off:\n{all}"
     );
@@ -866,7 +867,7 @@ fn factory_page_picker_keys_paint_the_moved_selection_on_the_key() {
         "the page mounted on the newest run:\n{all}"
     );
     assert!(
-        all.contains("\u{25b8} factory: first-run"),
+        all.contains("> factory: first-run"),
         "the arrow's own repaint painted the moved selection before the page closed:\n{all}"
     );
 }

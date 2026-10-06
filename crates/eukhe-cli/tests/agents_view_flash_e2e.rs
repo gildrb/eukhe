@@ -563,7 +563,7 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
     );
     let expanded = frame_of(&view.frames, "flash worker 007");
     assert!(
-        expanded.contains("▾ 300 subagents (0 running)"),
+        expanded.contains("- 300 subagents (0 running)"),
         "the expansion opens the parent's one group and flips its marker:\n{expanded}"
     );
 }

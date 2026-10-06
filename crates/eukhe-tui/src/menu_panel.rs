@@ -1,8 +1,8 @@
 //! The inline menu panel: the ONE menu component every picker and
 //! completion surface renders through. The inline paths of TS
-//! `menu-panel.ts` — the bordered search field, the `›`-marker menu rows
+//! `menu-panel.ts` -- the bordered search field, the `>`-marker menu rows
 //! with right-aligned trailing segments (muted or status-colored), the
-//! shared truncate/pad budgeting — plus the status rows every menu frame
+//! shared truncate/pad budgeting -- plus the status rows every menu frame
 //! shares: the `(n/m)` scroll indicator, the no-match row, and the key
 //! hint row. The `/model` picker, the `/mcp` connections view, the
 //! provider selectors, the activity panel, and the editor's
@@ -10,10 +10,10 @@
 //! so selection highlight, padding, and status rows read as one visual
 //! grammar across every menu.
 
+use crate::style::Style;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::{str_width, truncate_line};
 use crate::{Line, Span};
-use ratatui::style::Style;
 
 /// The field prompt (TS `Input` renders `"> "`).
 const FIELD_PROMPT: &str = "> ";
@@ -42,7 +42,7 @@ impl<'a> MenuSegment<'a> {
     }
 }
 
-/// Trailing segments are joined with `" · "` and shrink from the front when
+/// Trailing segments are joined with `" * "` and shrink from the front when
 /// the row is too narrow (TS `reduceInlineTrailingSegments`).
 fn reduce_trailing_segments<'a>(
     segments: &[MenuSegment<'a>],
@@ -64,7 +64,7 @@ fn segments_text(segments: &[MenuSegment<'_>]) -> String {
         .iter()
         .map(|segment| segment.text)
         .collect::<Vec<&str>>()
-        .join(" · ")
+        .join(crate::glyphs::SEP)
 }
 
 /// Rendered width of a trailing cluster at the given row width, mirroring how
@@ -80,7 +80,7 @@ pub(crate) fn trailing_width(segments: &[MenuSegment<'_>], width: usize) -> usiz
     str_width(&segments_text(&reduced)).min(budget)
 }
 
-/// Render the trailing cluster: segments joined with `" · "`, shrunk from
+/// Render the trailing cluster: segments joined with `" * "`, shrunk from
 /// the front and truncated to the row's trailing budget (TS
 /// `MenuRow.getInlineTrailing`); each segment carries its own theme color,
 /// muted by default.
@@ -97,17 +97,17 @@ pub(crate) fn trailing_spans(
     let mut line: Line = Vec::with_capacity(reduced.len() * 2);
     for (index, segment) in reduced.iter().enumerate() {
         if index > 0 {
-            line.push(theme.fg_span(ThemeColor::Muted, " \u{b7} ".to_string()));
+            line.push(theme.fg_span(ThemeColor::Muted, crate::glyphs::SEP.to_string()));
         }
         match segment.color {
             Some(color) => line.push(theme.fg_span(color, segment.text)),
             None => line.push(theme.fg_span(ThemeColor::Muted, segment.text)),
         }
     }
-    truncate_line(&line, budget, "\u{2026}")
+    truncate_line(&line, budget, crate::glyphs::ELLIPSIS)
 }
 
-/// One inline menu row (TS `MenuRow.renderContent`, inline mode): the `›`
+/// One inline menu row (TS `MenuRow.renderContent`, inline mode): the `>`
 /// marker, the primary cell, a filler gap, and the trailing cluster flush to
 /// the right edge. Selected rows carry the soft selection background.
 pub(crate) fn menu_row(
@@ -129,18 +129,22 @@ pub(crate) fn menu_row(
         primary = primary
             .into_iter()
             .map(|mut span| {
-                span.style = span.style.add_modifier(ratatui::style::Modifier::BOLD);
+                span.style = span.style.add_modifier(crate::style::Modifier::BOLD);
                 span
             })
             .collect();
     }
-    let primary = truncate_line(&primary, primary_width, "\u{2026}");
+    let primary = truncate_line(&primary, primary_width, crate::glyphs::ELLIPSIS);
     // The filler centers the trailing cluster against the right edge.
     let filler_width = inner_width
         .saturating_sub(crate::width::spans_width(&primary))
         .saturating_sub(trailing_width);
     let mut row: Line = Vec::with_capacity(primary.len() + trailing.len() + 4);
-    row.push(Span::raw(if selected { "\u{203a}" } else { " " }));
+    row.push(Span::raw(if selected {
+        crate::glyphs::POINTER
+    } else {
+        " "
+    }));
     row.push(Span::raw(" "));
     row.extend(primary);
     if filler_width > 0 {
@@ -174,7 +178,7 @@ fn finish_menu_row(theme: &Theme, row: &Line, width: usize, selected: bool) -> L
 
 /// One plain-text cell truncated and padded to its column budget by
 /// display width (wide glyphs never overflow into the next column; no
-/// ellipsis — the tables stay aligned, and the detail drill-ins carry
+/// ellipsis -- the tables stay aligned, and the detail drill-ins carry
 /// the full text).
 pub(crate) fn plain_cell(text: &str, width: usize) -> String {
     crate::width::pad_cell(text, width)
@@ -191,16 +195,16 @@ pub(crate) fn scrub_controls(value: &str) -> String {
 }
 
 /// The status-dot vocabulary (the operator's 2026-09-23 directive; TS
-/// `subagent-summary-line`'s counts box `● running / ◐ idle /
-/// ○ inactive`): the filled circle rides the live states (running,
+/// `subagent-summary-line`'s counts box `* running / o idle /
+/// o inactive`): the filled circle rides the live states (running,
 /// active), the half circle the waiting ones (idle, paused), the open
 /// circle the dead ones. The glyph is the state at a glance; the
 /// surface's word rides beside it.
 pub(crate) fn status_dot(status: &str) -> (&'static str, ThemeColor) {
     match status {
-        "running" | "active" => ("\u{25cf}", ThemeColor::Success),
-        "idle" | "paused" => ("\u{25d0}", ThemeColor::Warning),
-        _ => ("\u{25cb}", ThemeColor::Dim),
+        "running" | "active" => (crate::glyphs::DOT_ON, ThemeColor::Success),
+        "idle" | "paused" => (crate::glyphs::DOT_HALF, ThemeColor::Warning),
+        _ => (crate::glyphs::DOT_OFF, ThemeColor::Dim),
     }
 }
 
@@ -213,14 +217,14 @@ pub(crate) const MIN_HUG_WIDTH: usize = 30;
 
 /// The selected row's wash width (TS `OnboardingChoiceComponent.render`'s
 /// `rowWidth`): the content plus a little trailing pad, floored at
-/// [`MIN_HUG_WIDTH`] and capped at the pane width — never the full-width
+/// [`MIN_HUG_WIDTH`] and capped at the pane width -- never the full-width
 /// band of the plain menu rows.
 pub(crate) fn hug_width(content_width: usize, width: usize) -> usize {
     (content_width + HUG_TRAILING).max(MIN_HUG_WIDTH).min(width)
 }
 
 /// One hug row: the content truncated to the pane, the selected row
-/// padded to its band width and painted over the hug only — the style
+/// padded to its band width and painted over the hug only -- the style
 /// the CALLER passes (the activity surfaces pass the ONE shared
 /// selection style, the operator's 2026-09-28 consistency rule: the
 /// same one band color the hover paints and the dock's groups and
@@ -257,7 +261,7 @@ pub(crate) fn hug_row(
 /// themselves keep their content-hug geometry.
 /// The full-width mirror of [`hug_row`]: the selected row pads to the
 /// frame width and paints the CALLER's style (the activity surfaces
-/// pass the ONE shared selection style — the operator's 2026-09-28
+/// pass the ONE shared selection style -- the operator's 2026-09-28
 /// consistency rule).
 pub(crate) fn fill_row(row: &Line, selected: bool, width: usize, style: Style) -> Line {
     let mut row = truncate_line(row, width, "");
@@ -279,7 +283,10 @@ pub(crate) fn fill_row(row: &Line, selected: bool, width: usize, style: Style) -
 /// The full-width horizontal rule (TS `MenuSearchInput`'s inline-mode
 /// border rows): the subtle border grammar every menu bar carries.
 pub(crate) fn rule_row(theme: &Theme, width: usize) -> Line {
-    vec![theme.fg_span(ThemeColor::BorderMuted, "\u{2500}".repeat(width.max(1)))]
+    vec![theme.fg_span(
+        ThemeColor::BorderMuted,
+        crate::glyphs::RULE.repeat(width.max(1)),
+    )]
 }
 
 /// The inline search field (TS `MenuSearchInput.render`, inline mode): a
@@ -317,7 +324,7 @@ fn render_input_field(
             // as the rows below it.
             line.push(Span::styled(
                 " ".to_string(),
-                ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::REVERSED),
+                crate::style::Style::default().add_modifier(crate::style::Modifier::REVERSED),
             ));
             line.push(theme.fg_span(ThemeColor::Dim, placeholder));
         } else {
@@ -335,8 +342,8 @@ fn render_input_field(
 }
 
 /// The login dialog's paste field (TS `MenuSearchInput("Paste value",
-/// true, true)` — inline + plain, the `> ` prompt kept): one full-width
-/// row with the prompt, no enclosing rules — the rules read as clutter
+/// true, true)` -- inline + plain, the `> ` prompt kept): one full-width
+/// row with the prompt, no enclosing rules -- the rules read as clutter
 /// inside the login panel.
 pub(crate) fn login_field_row(
     theme: &Theme,
@@ -350,7 +357,7 @@ pub(crate) fn login_field_row(
 }
 
 /// The prompt-less field row (TS `MenuSearchInput`'s inline + plain +
-/// hidePrompt call: `" "` + the field, no `> ` prompt — the onboarding
+/// hidePrompt call: `" "` + the field, no `> ` prompt -- the onboarding
 /// picker marks selection with its own caret): one full-width line for
 /// surfaces that own their selection language.
 pub(crate) fn search_field_plain_row(
@@ -371,8 +378,7 @@ pub(crate) fn search_field_plain_row(
             Some(first) if focused => {
                 line.push(Span::styled(
                     first.to_string(),
-                    ratatui::style::Style::default()
-                        .add_modifier(ratatui::style::Modifier::REVERSED),
+                    crate::style::Style::default().add_modifier(crate::style::Modifier::REVERSED),
                 ));
                 line.push(theme.fg_span(ThemeColor::Dim, characters.as_str()));
             }
@@ -437,7 +443,7 @@ pub(crate) fn input_render(
     if focused {
         line.push(Span::styled(
             at.to_string(),
-            ratatui::style::Style::default().add_modifier(ratatui::style::Modifier::REVERSED),
+            crate::style::Style::default().add_modifier(crate::style::Modifier::REVERSED),
         ));
     } else {
         line.push(Span::raw(at.to_string()));
@@ -450,8 +456,8 @@ pub(crate) fn input_render(
 
 /// The input's visible window (TS `String.prototype.slice`, which is
 /// column-based in the reference): the window starts at the first
-/// character reaching the display-column offset — a wide character
-/// straddling the left edge renders whole, never split — ends before the
+/// character reaching the display-column offset -- a wide character
+/// straddling the left edge renders whole, never split -- ends before the
 /// first that would cross the right edge, and returns the caret's
 /// character index inside the window (the boundary's position). ASCII
 /// content reduces to the plain character slice.
@@ -544,7 +550,7 @@ pub(crate) fn hint_row(theme: &Theme, width: usize, hint: &str) -> Line {
 
 /// One hint segment: the resolved bindings' labels joined with `/` plus the
 /// action (TS `keyHint`). An action whose binding is unconfigured is
-/// omitted — the hint never advertises a key the surface does not handle.
+/// omitted -- the hint never advertises a key the surface does not handle.
 pub(crate) fn key_hint(
     kb: &crate::keybindings::KeybindingsManager,
     bindings: &[&str],
@@ -566,7 +572,7 @@ pub(crate) fn key_hint(
 /// content's own spans carry the color and leading indent.
 pub(crate) fn detail_row(theme: &Theme, width: usize, content: &Line) -> Line {
     let _ = theme;
-    let mut line = truncate_line(content, width, "\u{2026}");
+    let mut line = truncate_line(content, width, crate::glyphs::ELLIPSIS);
     let used = crate::width::spans_width(&line);
     if used < width {
         line.push(Span::raw(" ".repeat(width - used)));
@@ -589,7 +595,7 @@ mod tests {
     }
 
     /// The hint segment resolves the bound keys and omits an unbound
-    /// action entirely — a hint must never advertise a key the surface
+    /// action entirely -- a hint must never advertise a key the surface
     /// does not handle (an empty user binding disables the action).
     #[test]
     fn key_hint_omits_unbound_actions() {
@@ -604,7 +610,7 @@ mod tests {
         assert_eq!(key_hint(&unbound, &["tui.select.cancel"], "close"), None);
         assert_eq!(
             key_hint(&unbound, &["tui.select.up", "tui.select.down"], "navigate").as_deref(),
-            Some("\u{2191}/\u{2193} navigate")
+            Some("up/down navigate")
         );
     }
 
@@ -617,7 +623,7 @@ mod tests {
         let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466}";
         assert_eq!(family.graphemes(true).count(), 1, "one cluster");
         let cell = plain_cell(family, 6);
-        // One emoji cell-picture plus five pad columns — not eight.
+        // One emoji cell-picture plus five pad columns -- not eight.
         assert_eq!(str_width(&cell), 6, "the cell is exactly the budget");
         let text = format!("{cell}next");
         assert_eq!(crate::width::str_width(&text), 10, "the columns align");
@@ -635,21 +641,21 @@ mod tests {
         // Unselected rows carry the blank marker column.
         assert!(text.starts_with("  "));
         assert!(text.contains("label"));
-        assert!(text.ends_with("current · provider"));
+        assert!(text.ends_with("current - provider"));
         let status = [MenuSegment::themed(ThemeColor::Success, "connected")];
         let row = menu_row(&theme, 60, vec![Span::raw("label")], &status, true);
         let text = row_text(&row);
-        assert!(text.starts_with("\u{203a}"));
+        assert!(text.starts_with('>'));
         assert!(text.ends_with("connected"));
     }
 
-    /// The panel's own `›`-marker rows keep the soft selection wash
+    /// The panel's own `>`-marker rows keep the soft selection wash
     /// (the operator's 2026-09-26 directive: the panel redesign's
     /// selection must be unmistakable), while the shared row painters
     /// (`fill_row`/`hug_row`) paint the style their CALLER passes: the
     /// activity surfaces (the heartbeats picker, the shell view) pass
-    /// the ONE shared selection style — the operator's 2026-09-28
-    /// consistency rule — the same one band color the hover paints
+    /// the ONE shared selection style -- the operator's 2026-09-28
+    /// consistency rule -- the same one band color the hover paints
     /// and the dock's groups and the agents view's rows carry, so
     /// every activity surface's selected row reads identically.
     #[test]
@@ -704,7 +710,7 @@ mod tests {
     }
 
     /// A theme too partial to compute a selection (no `selectedBg`, no
-    /// RGB on either side) still paints a wash — the onboarding wash —
+    /// RGB on either side) still paints a wash -- the onboarding wash --
     /// so a selected heartbeat/shell row never reads as unselected
     /// (Macroscope PR #2908: the `highlight_wash` fallback must survive
     /// the shared-wash switch).
@@ -758,7 +764,7 @@ mod tests {
             row_text(&no_match_row(&theme, 40, "No matching models")),
             "  No matching models"
         );
-        let hint = hint_row(&theme, 60, "Enter select · Esc close");
+        let hint = hint_row(&theme, 60, "Enter select - Esc close");
         assert!(row_text(&hint).starts_with(" Enter select"));
     }
 

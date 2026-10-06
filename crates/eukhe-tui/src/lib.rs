@@ -2,7 +2,8 @@
 //!
 //! Rust port of the TS reference TUI (packages/tui) plus the interactive agent view
 //! from `coding-agent/src/modes/interactive`. Components render styled lines;
-//! the terminal layer paints them with crossterm + ratatui diffing.
+//! the inline terminal writes settled rows into scrollback and redraws the
+//! live area below them.
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded
@@ -31,7 +32,6 @@ pub mod agents_view;
 pub mod agents_view_forest;
 pub mod agents_view_search;
 pub mod agents_view_state;
-pub mod altscreen;
 pub mod ansi;
 pub mod app;
 pub mod auth_panel;
@@ -41,12 +41,10 @@ pub mod bash_bang;
 pub mod bash_card;
 pub mod bash_view;
 pub(crate) mod branch;
-pub(crate) mod browser;
 pub mod chat;
 pub mod chat_slash;
 mod chat_view_block;
 pub mod chrome;
-mod click_dispatch;
 pub mod client_auth;
 pub mod client_settings;
 mod clipboard;
@@ -69,16 +67,17 @@ pub mod export_share;
 mod external_editor;
 pub mod factory_view;
 pub mod fuzzy;
+pub(crate) mod glyphs;
 pub mod goal_surface;
 pub mod heartbeats_picker;
 pub mod hotkeys;
 pub mod hyperlinks;
-mod image_component;
 pub mod image_load;
 mod image_markers;
 pub mod incident_notices;
 pub mod info_commands;
 pub mod info_panel;
+pub(crate) mod inline_term;
 mod input;
 pub mod interactive;
 pub mod keybindings;
@@ -88,8 +87,6 @@ pub mod markdown_table;
 pub mod mcp_view;
 mod menu_panel;
 pub mod model_picker;
-pub(crate) mod mouse;
-pub(crate) mod mouse_tracking;
 pub mod onboarding;
 pub mod onboarding_choice;
 pub mod onboarding_flow;
@@ -100,7 +97,6 @@ pub mod prompt_stash;
 pub mod provider_auth;
 pub mod queued;
 pub(crate) mod search_input;
-pub mod selection;
 mod sequence_guard;
 pub mod session;
 pub mod session_open_error;
@@ -108,6 +104,7 @@ pub mod session_ui;
 pub mod settings_menu;
 pub mod side_question;
 pub mod snapshot;
+pub mod style;
 pub mod subagents;
 mod suspend;
 mod terminal_image;
@@ -123,7 +120,7 @@ pub mod user_message_selector;
 pub mod view;
 pub mod width;
 
-use ratatui::style::Style;
+use crate::style::Style;
 
 /// A styled run of text. `style` applies to the whole `content`.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -202,7 +202,6 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -228,17 +227,15 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
 /// carry the shapes the surfaces need).
 pub(super) struct MockSupervisor {
     listener: std::os::unix::net::UnixListener,
-    /// The attach snapshot's message count: the force-quit route seeds a
-    /// transcript big enough to fill the pty (the exit flush stalls
-    /// mid-write, starving the progress feed the watchdog watches).
-    seed_messages: usize,
 }
 
+/// The attach snapshot's message count (`row 0` .. `row 3`).
+const SEED_MESSAGES: usize = 4;
+
 impl MockSupervisor {
-    pub(super) fn bind(socket: &std::path::Path, seed_messages: usize) -> Self {
+    pub(super) fn bind(socket: &std::path::Path) -> Self {
         MockSupervisor {
             listener: std::os::unix::net::UnixListener::bind(socket).expect("bind mock socket"),
-            seed_messages,
         }
     }
 
@@ -247,19 +244,17 @@ impl MockSupervisor {
         // handoff parks the view's roster connection for the flow's
         // next run while the chat it opened dials its own, so the mock
         // must serve both at once.
-        let seed_messages = self.seed_messages;
         for stream in self.listener.incoming() {
             match stream {
                 Ok(stream) => {
-                    let seed = seed_messages;
-                    std::thread::spawn(move || Self::serve_connection(stream, seed));
+                    std::thread::spawn(move || Self::serve_connection(stream));
                 }
                 Err(_) => return,
             }
         }
     }
 
-    fn serve_connection(stream: std::os::unix::net::UnixStream, seed_messages: usize) {
+    fn serve_connection(stream: std::os::unix::net::UnixStream) {
         let write_stream = stream.try_clone().expect("clone mock socket");
         let mut writer = write_stream;
         let mut reader = std::io::BufReader::new(stream);
@@ -322,7 +317,7 @@ impl MockSupervisor {
                     );
                 }
                 "attach" => {
-                    write_json(&mut writer, &attach_data(id, seed_messages));
+                    write_json(&mut writer, &attach_data(id));
                 }
                 _ => {
                     write_json(
@@ -366,8 +361,8 @@ fn write_json(writer: &mut std::os::unix::net::UnixStream, value: &Value) {
     writer.flush().expect("flush mock frame");
 }
 
-fn attach_data(id: &str, seed_messages: usize) -> Value {
-    let messages: Vec<Value> = (0..seed_messages)
+fn attach_data(id: &str) -> Value {
+    let messages: Vec<Value> = (0..SEED_MESSAGES)
         .map(|index| {
             json!({
                 "role": if index % 2 == 0 { "user" } else { "assistant" },

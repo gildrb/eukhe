@@ -1,133 +1,3 @@
-/// The dock segments' column spans (the click regions, operator
-/// directive 2026-09-29): each group's segment covers exactly its own
-/// rendered cells — the separators between groups stay inert — in the
-/// group order the row renders, and a truncated row keeps no region
-/// for groups the truncation dropped.
-#[test]
-fn the_dock_segments_cover_each_groups_own_cells() {
-    let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-    let dock = ActivityDock {
-        subagents_running_direct: 2,
-        heartbeats: 3,
-        heartbeats_paused: 1,
-        bash_running: 1,
-        factory_group: true,
-        ..ActivityDock::default()
-    };
-    let (frame, segments) = render_activity_dock_segments(&dock, &theme, 120);
-    let text = frame[1]
-        .iter()
-        .map(|span| span.content.as_str())
-        .collect::<String>();
-    assert_eq!(
-        text,
-        " ◆ 2 subagents  ·  ◷ 3 heartbeats · ◐ 1 paused  ·  ▸ 1 shell  ·  ⚙ 0 factory"
-    );
-    let ordered: Vec<ActivityGroup> = segments.iter().map(|segment| segment.group).collect();
-    assert_eq!(
-        ordered,
-        vec![
-            ActivityGroup::Subagents,
-            ActivityGroup::Heartbeats,
-            ActivityGroup::Bash,
-            ActivityGroup::Factory,
-        ],
-        "the segments follow the row's group order"
-    );
-    // Each segment covers exactly its own cells: the subagents segment
-    // starts at the row's leading space end and ends before the
-    // separator; the heartbeat segment covers the paused cluster too
-    // (the cluster is the heartbeats group's own readout).
-    let of = |text: &str| text.find(text).map(|_| 0);
-    let _ = of;
-    let subagents = &segments[0].cols;
-    let heartbeats = &segments[1].cols;
-    let bash = &segments[2].cols;
-    // The recorded columns are display cells, and the row's glyphs are
-    // one cell wide: slice the text by char, never by byte.
-    let cells = |cols: &std::ops::Range<usize>| -> String {
-        text.chars()
-            .skip(cols.start)
-            .take(cols.end - cols.start)
-            .collect()
-    };
-    assert_eq!(cells(subagents), "◆ 2 subagents");
-    assert_eq!(cells(heartbeats), "◷ 3 heartbeats · ◐ 1 paused");
-    assert_eq!(cells(bash), "▸ 1 shell");
-    // The separators between the segments stay inert.
-    let between = |a: &std::ops::Range<usize>, b: &std::ops::Range<usize>| -> String {
-        text.chars().skip(a.end).take(b.start - a.end).collect()
-    };
-    assert_eq!(between(subagents, heartbeats), "  ·  ");
-    assert_eq!(between(heartbeats, bash), "  ·  ");
-    // A truncation that drops the trailing group keeps no region for
-    // it: the segments clamp to the row the terminal kept.
-    let (frame, segments) = render_activity_dock_segments(&dock, &theme, 20);
-    let used = crate::width::spans_width(&frame[1]);
-    assert!(used <= 20, "the row truncates inside the width");
-    for segment in &segments {
-        assert!(
-            segment.cols.start < used,
-            "a dropped segment records no span"
-        );
-        assert!(segment.cols.end <= used);
-    }
-    // The goal group rides the segments when its row mounts.
-    let dock = ActivityDock {
-        goal_label: Some("Pursuing goal (0s)".to_string()),
-        ..ActivityDock::default()
-    };
-    let (_, segments) = render_activity_dock_segments(&dock, &theme, 120);
-    assert_eq!(
-        segments.last().map(|segment| segment.group),
-        Some(ActivityGroup::Goal)
-    );
-}
-
-/// The tray's `← manage` hint reports its own cells (the click region,
-/// operator directive 2026-09-29): the hint spans exactly the arrow and
-/// the label — never the depth metadata beside them — and a tray whose
-/// left label is an override or hidden reports none.
-#[test]
-fn the_tray_reports_the_manage_hints_own_cells() {
-    let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-    let state = ChromeState {
-        show_manage: true,
-        tray_depth: Some(2),
-        ..Default::default()
-    };
-    let (line, hint) = render_tray_with_hint(&state, &theme, 120);
-    let hint = hint.expect("the manage hint reports its cells");
-    let text = line
-        .iter()
-        .map(|span| span.content.as_str())
-        .collect::<String>();
-    assert_eq!(
-        text.chars()
-            .skip(hint.start)
-            .take(hint.end - hint.start)
-            .collect::<String>(),
-        "\u{2190} manage"
-    );
-    assert_eq!(
-        text.chars().skip(hint.end).take(2).collect::<String>(),
-        "  ",
-        "the depth label stays outside the hint's span"
-    );
-    // The override label replaces the hint: no region.
-    let state = ChromeState {
-        show_manage: true,
-        tray_override: Some("Press ctrl+c again to exit".to_string()),
-        ..Default::default()
-    };
-    let (_, hint) = render_tray_with_hint(&state, &theme, 120);
-    assert_eq!(hint, None, "an override label carries no hint region");
-    // A hidden hint (a non-attachable run) carries none either.
-    let state = ChromeState::default();
-    let (_, hint) = render_tray_with_hint(&state, &theme, 120);
-    assert_eq!(hint, None, "a hidden manage hint carries no region");
-}
-
 #[test]
 fn activity_dock_frames_one_row_with_running_paused_and_goal_counts() {
     let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
@@ -149,7 +19,7 @@ fn activity_dock_frames_one_row_with_running_paused_and_goal_counts() {
         .iter()
         .map(|span| span.content.as_str())
         .collect::<String>();
-    assert_eq!(rule.chars().next(), Some('─'));
+    assert_eq!(rule.chars().next(), Some('-'));
     assert_eq!(rule.chars().count(), 120);
     let text = frame[1]
         .iter()
@@ -157,7 +27,7 @@ fn activity_dock_frames_one_row_with_running_paused_and_goal_counts() {
         .collect::<String>();
     assert_eq!(
         text,
-        " ◆ 2 subagents  ·  ◷ 3 heartbeats · ◐ 1 paused  ·  ▸ 1 shell  ·  ⚙ 0 factory  ·  Pursuing goal (0s)"
+        " 2 subagents  -  3 heartbeats - 1 paused  -  1 shell  -  0 factory  -  Pursuing goal (0s)"
     );
     // The color-coding (the operator's 2026-09-24 directive): every
     // above-zero count segment and the active goal render green.
@@ -167,12 +37,12 @@ fn activity_dock_frames_one_row_with_running_paused_and_goal_counts() {
             .iter()
             .any(|span| span.content.contains(text) && span.style.fg == color)
     };
-    assert!(colored("◆ 2 subagents", success));
-    assert!(colored("◷ 3 heartbeats", success));
-    assert!(colored("▸ 1 shell", success));
+    assert!(colored("2 subagents", success));
+    assert!(colored("3 heartbeats", success));
+    assert!(colored("1 shell", success));
     assert!(colored("Pursuing goal", success));
     // A paused goal stays on the dock (the tray cluster is gone) in
-    // the warning color — every live goal state keeps a surface.
+    // the warning color -- every live goal state keeps a surface.
     let dock = ActivityDock {
         goal_label: Some("Goal paused (0s)".to_string()),
         factory_group: true,
@@ -195,7 +65,7 @@ fn activity_dock_frames_one_row_with_running_paused_and_goal_counts() {
         "the paused goal reads amber"
     );
     // A running count of zero still renders: a long idle roster must
-    // read as quiet, not as uniformly busy — and the count segments
+    // read as quiet, not as uniformly busy -- and the count segments
     // go neutral at zero.
     let dock = ActivityDock {
         heartbeats: 1,
@@ -209,10 +79,10 @@ fn activity_dock_frames_one_row_with_running_paused_and_goal_counts() {
         .collect::<String>();
     assert_eq!(
         text,
-        " ◆ 0 subagents  ·  ◷ 1 heartbeat  ·  ▸ 0 shells  ·  ⚙ 0 factory"
+        " 0 subagents  -  1 heartbeat  -  0 shells  -  0 factory"
     );
-    // The all-zero dock renders its own empty state — the zero
-    // readout — and the zero segments stay neutral, never green. The
+    // The all-zero dock renders its own empty state -- the zero
+    // readout -- and the zero segments stay neutral, never green. The
     // factory lane is advertised here (the unadvertised lane's row is
     // the pin of its own).
     let advertised = ActivityDock {
@@ -226,7 +96,7 @@ fn activity_dock_frames_one_row_with_running_paused_and_goal_counts() {
         .collect::<String>();
     assert_eq!(
         text,
-        " \u{25c6} 0 subagents  \u{b7}  \u{25f7} 0 heartbeats  \u{b7}  \u{25b8} 0 shells  \u{b7}  \u{2699} 0 factory"
+        " 0 subagents  -  0 heartbeats  -  0 shells  -  0 factory"
     );
     assert!(frame[1]
         .iter()
@@ -256,11 +126,11 @@ fn activity_dock_frames_one_row_with_running_paused_and_goal_counts() {
             .map(|span| span.content.as_str())
             .collect::<String>();
         assert!(
-            text.ends_with('\u{2026}'),
+            text.ends_with("..."),
             "the truncation carries the ellipsis: {text:?}"
         );
     }
-    // A row that fits whole keeps every character — the ellipsis
+    // A row that fits whole keeps every character -- the ellipsis
     // column is only borrowed when truncation actually happens.
     let frame = render_activity_dock(&dock, &theme, 120);
     let text = frame[1]
@@ -268,17 +138,17 @@ fn activity_dock_frames_one_row_with_running_paused_and_goal_counts() {
         .map(|span| span.content.as_str())
         .collect::<String>();
     assert!(
-        !text.contains('\u{2026}'),
+        !text.contains("..."),
         "the untruncated row keeps its characters: {text:?}"
     );
     assert!(text.contains("Pursuing goal (12m 05s)"));
 }
 
 /// The dock's subagents segment is one consolidated item (the
-/// operator's `◆ x subagents` form): the count is the running
-/// total — direct children and nested descendants summed into ONE
+/// operator's `* x subagents` form): the count is the running
+/// total -- direct children and nested descendants summed into ONE
 /// number (the operator's 2026-09-28 one-number ask; the 2026-09-25
-/// `direct, nested` pair is gone) — never the descendant total and
+/// `direct, nested` pair is gone) -- never the descendant total and
 /// never a category breakdown.
 #[test]
 fn prompt_bar_subagent_segment_is_the_running_count_only() {
@@ -298,10 +168,10 @@ fn prompt_bar_subagent_segment_is_the_running_count_only() {
         .collect::<String>();
     assert_eq!(
         text,
-        " ◆ 2 subagents  ·  ◷ 0 heartbeats  ·  ▸ 0 shells  ·  ⚙ 0 factory"
+        " 2 subagents  -  0 heartbeats  -  0 shells  -  0 factory"
     );
     // Two running children plus seven running descendants: ONE
-    // number — the summed total, never the pair, never the
+    // number -- the summed total, never the pair, never the
     // descendant total, and no category breakdown.
     let dock = ActivityDock {
         subagents_running_direct: 2,
@@ -316,7 +186,7 @@ fn prompt_bar_subagent_segment_is_the_running_count_only() {
         .collect::<String>();
     assert_eq!(
         text,
-        " ◆ 9 subagents  ·  ◷ 0 heartbeats  ·  ▸ 0 shells  ·  ⚙ 0 factory"
+        " 9 subagents  -  0 heartbeats  -  0 shells  -  0 factory"
     );
     assert!(!text.contains("2,"), "no direct/nested pair: {text}");
     assert!(!text.contains("idle"), "no category breakdown: {text}");
@@ -338,18 +208,18 @@ fn prompt_bar_subagent_segment_is_the_running_count_only() {
         .collect::<String>();
     assert_eq!(
         text,
-        " ◆ 1 subagents  ·  ◷ 0 heartbeats  ·  ▸ 0 shells  ·  ⚙ 0 factory"
+        " 1 subagents  -  0 heartbeats  -  0 shells  -  0 factory"
     );
 }
 
 /// The focused dock's selection reads as the ONE shared selection
 /// band (the operator's 2026-09-29 one-color ruling): the selection
-/// paints the hover band's own light color — the same ONE color on
-/// the dock's tab and the agents view's rows — never the accent,
+/// paints the hover band's own light color -- the same ONE color on
+/// the dock's tab and the agents view's rows -- never the accent,
 /// across exactly the group's spans, while each span keeps its own
 /// status color (the selection never repaints the text).
 #[test]
-fn activity_dock_selection_is_the_hover_colored_band() {
+fn activity_dock_selection_is_the_soft_wash_band() {
     let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
     let dock = ActivityDock {
         subagents_running_direct: 1,
@@ -365,13 +235,11 @@ fn activity_dock_selection_is_the_hover_colored_band() {
     };
     let frame = render_activity_dock(&dock, &theme, 120);
     let row = &frame[1];
-    // The band is the theme's hover color (`Theme::hover_row_style`,
-    // the one light wash — the operator's one-color ruling) with no
-    // extra modifiers: the ONE style every activity surface's
-    // selected row paints (`theme::selection_row_style`), never the
-    // accent.
+    // The band is the theme's soft wash with no extra modifiers: the
+    // ONE style every activity surface's selected row paints
+    // (`theme::selection_row_style`), never the accent.
     let band = theme.selection_row_style();
-    assert_eq!(band.bg, theme.hover_row_style().bg);
+    assert_eq!(band.bg, theme.soft_selection_style().bg);
     assert_ne!(band.bg, theme.fg_style(ThemeColor::Accent).fg);
     assert!(band.add_modifier.is_empty());
     let span = |text: &str| {
@@ -385,15 +253,15 @@ fn activity_dock_selection_is_the_hover_colored_band() {
     let success = theme.fg_style(ThemeColor::Success).fg;
     let warning = theme.fg_style(ThemeColor::Warning).fg;
     let dim = theme.fg_style(ThemeColor::Dim).fg;
-    assert_eq!(span("\u{25f7} 3 heartbeats").style.bg, band.bg);
-    assert_eq!(span("\u{25f7} 3 heartbeats").style.fg, success);
-    assert_eq!(span(" \u{b7} ").style.bg, band.bg);
-    assert_eq!(span(" \u{b7} ").style.fg, dim);
-    assert_eq!(span("\u{25d0} 1 paused").style.bg, band.bg);
-    assert_eq!(span("\u{25d0} 1 paused").style.fg, warning);
+    assert_eq!(span("3 heartbeats").style.bg, band.bg);
+    assert_eq!(span("3 heartbeats").style.fg, success);
+    assert_eq!(span(" - ").style.bg, band.bg);
+    assert_eq!(span(" - ").style.fg, dim);
+    assert_eq!(span("1 paused").style.bg, band.bg);
+    assert_eq!(span("1 paused").style.fg, warning);
     // The band rides exactly the selected group: the other groups
     // and the separators between them carry no band.
-    let selected = ["\u{25f7} 3 heartbeats", " \u{b7} ", "\u{25d0} 1 paused"];
+    let selected = ["3 heartbeats", " - ", "1 paused"];
     for span in row {
         assert_eq!(
             span.style.bg == band.bg,
@@ -477,7 +345,7 @@ fn dock_arrows_visit_every_group_even_when_empty() {
     );
     // The press count is stable in both directions: N groups take
     // exactly N presses to return to the start, and no shorter run
-    // does — the emptiness of a group never moves another.
+    // does -- the emptiness of a group never moves another.
     for direction in [ActivityDirection::Next, ActivityDirection::Prev] {
         let mut walked = ActivityGroup::Subagents;
         let rendered = dock.groups().len();
@@ -546,7 +414,7 @@ fn dock_arrows_visit_the_same_groups_with_items() {
 
 /// The goal group unmounts with its row (its goal ended): the cycle
 /// drops it, and a stale selection on it steps to a group the dock
-/// still renders — never to a hidden segment.
+/// still renders -- never to a hidden segment.
 #[test]
 fn dock_goal_group_unmounts_with_its_row() {
     let with_goal = ActivityDock {
@@ -576,8 +444,8 @@ fn dock_goal_group_unmounts_with_its_row() {
 }
 
 /// The factory group is the lane's opt-in surface: an unadvertised
-/// `factory_activity` lane mounts no factory group anywhere — no row
-/// segment, no traversal, no click region (the factory's default-off
+/// `factory_activity` lane mounts no factory group anywhere -- no row
+/// segment, no traversal (the factory's default-off
 /// gate; the dock's factory group renders exactly while the daemon
 /// advertises the lane).
 #[test]
@@ -589,20 +457,14 @@ fn an_unadvertised_factory_lane_mounts_no_factory_group() {
         !dock.groups().contains(&ActivityGroup::Factory),
         "the unadvertised lane stays out of the traversal cycle"
     );
-    let (frame, segments) = render_activity_dock_segments(&dock, &theme, 120);
+    let frame = render_activity_dock(&dock, &theme, 120);
     let text = frame[1]
         .iter()
         .map(|span| span.content.as_str())
         .collect::<String>();
     assert_eq!(
-        text, " ◆ 0 subagents  ·  ◷ 0 heartbeats  ·  ▸ 0 shells",
+        text, " 0 subagents  -  0 heartbeats  -  0 shells",
         "no factory segment renders: {text}"
-    );
-    assert!(
-        segments
-            .iter()
-            .all(|segment| segment.group != ActivityGroup::Factory),
-        "no factory click region records"
     );
     // The arrows wrap the remaining groups exactly: a stale Factory
     // selection steps to the row's real ends, never a hidden group.
@@ -619,8 +481,8 @@ fn an_unadvertised_factory_lane_mounts_no_factory_group() {
 }
 
 /// Entering an empty group still renders it: the focused selection's
-/// band — the ONE shared selection style — rides the group's
-/// zero-count segment on the row — the dock-level empty state is
+/// band -- the ONE shared selection style -- rides the group's
+/// zero-count segment on the row -- the dock-level empty state is
 /// the zero readout itself (the view the group opens carries the
 /// pane's own empty-state row).
 #[test]
@@ -639,7 +501,7 @@ fn dock_renders_the_focused_empty_group() {
         .collect::<String>();
     assert_eq!(
         text,
-        " ◆ 0 subagents  ·  ◷ 0 heartbeats  ·  ▸ 0 shells  ·  ⚙ 0 factory"
+        " 0 subagents  -  0 heartbeats  -  0 shells  -  0 factory"
     );
     // The selection's band rides exactly the entered empty group's
     // zero readout, which keeps its own muted color (the selection
@@ -648,7 +510,7 @@ fn dock_renders_the_focused_empty_group() {
     let muted = theme.fg_style(ThemeColor::Muted).fg;
     let heartbeat = frame[1]
         .iter()
-        .find(|span| span.content == "◷ 0 heartbeats")
+        .find(|span| span.content == "0 heartbeats")
         .unwrap_or_else(|| panic!("the empty heartbeats readout renders: {text}"));
     assert_eq!(heartbeat.style.bg, band.bg);
     assert_eq!(heartbeat.style.fg, muted);
@@ -659,20 +521,20 @@ fn dock_renders_the_focused_empty_group() {
 #[test]
 fn speed_footer_is_one_dim_row_truncated_to_width() {
     let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-    let row = render_speed_footer("188 tok/s · avg 200", &theme, 100);
+    let row = render_speed_footer("188 tok/s - avg 200", &theme, 100);
     let text = row
         .iter()
         .map(|span| span.content.as_str())
         .collect::<String>();
-    assert_eq!(text, "188 tok/s · avg 200");
+    assert_eq!(text, "188 tok/s - avg 200");
     assert_eq!(row.len(), 1);
-    let narrow = render_speed_footer("188 tok/s · avg 200", &theme, 10);
+    let narrow = render_speed_footer("188 tok/s - avg 200", &theme, 10);
     let text = narrow
         .iter()
         .map(|span| span.content.as_str())
         .collect::<String>();
     assert_eq!(text.chars().count(), 10);
-    assert!(!text.contains("…"));
+    assert!(!text.contains("..."));
 }
 
 use super::*;
@@ -710,18 +572,31 @@ fn splash_renders_name_version_model_and_cwd() {
     assert_eq!(lines[4], Vec::new());
 }
 
+/// The prompt context carries the old top bar's content on the left --
+/// the chat name and its spend -- and the detail status on the right;
+/// a short row drops the name before the status.
 #[test]
-fn top_bar_centers_name_with_cost() {
+fn prompt_context_carries_the_chat_name_spend_and_detail() {
     let state = ChromeState {
         chat_name: "shared-cwd".to_string(),
         cost_usd: Some(0.0),
         ..Default::default()
     };
-    let line = render_top_bar(&state, &theme(), 120);
-    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
-    assert!(text.contains("shared-cwd  $0.00"));
-    let start = text.find("shared-cwd").unwrap();
-    assert_eq!(start, 55);
+    let text = |rows: &[Line]| -> Vec<String> {
+        rows.iter()
+            .map(|line| line.iter().map(|s| s.content.as_str()).collect())
+            .collect()
+    };
+    let rows = render_prompt_context(&state, "Collapsed mode", &theme(), 40);
+    assert_eq!(
+        text(&rows),
+        vec![
+            String::new(),
+            format!(" shared-cwd  $0.00{}Collapsed mode ", " ".repeat(7)),
+        ]
+    );
+    let rows = render_prompt_context(&state, "Collapsed mode", &theme(), 16);
+    assert_eq!(text(&rows)[1], " Collapsed mode ");
 }
 
 #[test]
@@ -737,8 +612,8 @@ fn tray_left_and_right_labels() {
     };
     let line = render_tray(&state, &theme(), 120);
     let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
-    assert!(text.starts_with("\u{2190} manage"));
-    assert!(text.contains("faux-1 \u{00b7} 6.1k (5%)"));
+    assert!(text.starts_with("left to manage"));
+    assert!(text.contains("faux-1 - 6.1k (5%)"));
     assert_eq!(str_width(&text), 120);
 }
 
@@ -757,21 +632,21 @@ fn tray_service_tier_badge_follows_the_ts_shape() {
         line.iter().map(|s| s.content.as_str()).collect::<String>()
     };
     assert!(
-        badge(Some("priority")).contains("gpt-5.5 \u{00b7} fast"),
+        badge(Some("priority")).contains("gpt-5.5 - fast"),
         "priority renders the fast token"
     );
     assert!(
-        badge(Some("flex")).contains("gpt-5.5 \u{00b7} flex"),
+        badge(Some("flex")).contains("gpt-5.5 - flex"),
         "a non-default tier renders its name"
     );
     for tier in [Some("default"), None] {
         let text = badge(tier);
-        assert!(!text.contains(" \u{00b7} "), "{tier:?} renders no badge");
+        assert!(!text.contains(" - "), "{tier:?} renders no badge");
     }
 }
 
 /// TS `getModelContextLabel`: the effort suffix is the state's
-/// `thinkingLevel` behind the model's `reasoning` gate — a level on a
+/// `thinkingLevel` behind the model's `reasoning` gate -- a level on a
 /// reasoning model renders, everything else keeps the bare id.
 #[test]
 fn effort_suffix_gates_on_model_reasoning() {
@@ -843,7 +718,7 @@ fn tray_renders_the_effort_suffix_and_the_bare_id_without_it() {
 
 /// The tray (the line below the prompt bar) never carries the goal
 /// label (the operator's 2026-09-24 directive: "pursuing goal should
-/// not show up in the line below prompt bar") — the goal lives in
+/// not show up in the line below prompt bar") -- the goal lives in
 /// the activity dock below, and the tray joins model straight to
 /// context.
 #[test]
@@ -859,7 +734,7 @@ fn tray_never_repeats_the_heartbeat_counts() {
     };
     let line = render_tray(&state, &theme(), 120);
     let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
-    assert!(text.contains("mock-1 \u{b7} 190 (0%)"));
+    assert!(text.contains("mock-1 - 190 (0%)"));
     assert!(!text.contains("Pursuing goal"));
     assert!(!text.contains("goal"));
     assert!(!text.contains("heartbeat"));

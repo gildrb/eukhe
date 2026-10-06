@@ -281,7 +281,7 @@ impl RequestPayloadCapture {
         // accounting runs).
         let reserved = writer
             .queued
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |queued| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |queued| {
                 (queued < WRITE_QUEUE_CAPACITY).then_some(queued + 1)
             })
             .is_ok();
@@ -296,7 +296,7 @@ impl RequestPayloadCapture {
         let estimate = payload_bytes(payload);
         let budgeted = writer
             .retained
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |retained| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |retained| {
                 retained
                     .checked_add(estimate)
                     .filter(|total| *total <= REQUEST_PAYLOAD_BUDGET_BYTES)

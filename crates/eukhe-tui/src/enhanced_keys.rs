@@ -10,7 +10,7 @@
 //! the fallback window. Teardown pops the kitty flags, resets
 //! modifyOtherKeys, and disables bracketed paste in the same byte
 //! order; the exit tail (`exit_restore`) then drains the stack's stale
-//! levels — bare pops after the alt-screen leave, clamped no-ops at
+//! levels -- bare pops as the last terminal write, clamped no-ops at
 //! spec depth zero (see `STALE_LEVEL_DRAIN`).
 //!
 //! The kitty query runs on a probe thread that holds no UI state: it
@@ -29,8 +29,8 @@
 //! again on a later start or resume: the terminal's kitty capability
 //! cannot change across a stop/continue of the same process, so the
 //! probe resolves once and every later start re-applies the resolved
-//! state — the observable TS contract (kitty terminals keep CSI-u
-//! parsing after a resume; non-kitty terminals never gain it) — and the
+//! state -- the observable TS contract (kitty terminals keep CSI-u
+//! parsing after a resume; non-kitty terminals never gain it) -- and the
 //! check's implicit raw-mode bracket can race the app's own suspend
 //! bracket, so a re-query at every start carries bracket risk for no
 //! capability gain. The first-mount window is the one accepted cost: on
@@ -43,13 +43,13 @@
 //! locked by `kitty_verdict_time_e2e`): the probe concludes at the
 //! FIRST reply, and only the reply classes pay differently. A kitty
 //! terminal concludes at its flags reply. A DA1-answering non-kitty
-//! terminal — the common non-kitty class; tmux and screen answer DA1
-//! locally in microseconds and never answer the flags query —
+//! terminal -- the common non-kitty class; tmux and screen answer DA1
+//! locally in microseconds and never answer the flags query --
 //! concludes AT THE DA1 ARRIVAL (crossterm's flags filter matches the
 //! primary-device-attributes reply; a flags reply arriving after the
 //! DA1 can never upgrade: the check has returned and the once-per-
 //! process probe never re-examines parked replies). Only a fully-silent
-//! pty (no DA1 ever — CI harnesses) waits the 250ms deadline. The
+//! pty (no DA1 ever -- CI harnesses) waits the 250ms deadline. The
 //! deadline stays 250ms because it is also the LATE-KITTY catch window:
 //! a kitty terminal over a slow hop answers its flags at RTT (this
 //! fleet's own single public hop measures 24-29ms; the intercontinental
@@ -57,7 +57,7 @@
 //! the enhancement for exactly the remote-SSH deployment this product
 //! primarily serves, while buying nothing a user rides (the silent
 //! class's only window cost is a mode transition raced inside the first
-//! 250ms — measured: the raced suspend's teardown waits to ~250ms on a
+//! 250ms -- measured: the raced suspend's teardown waits to ~250ms on a
 //! silent pty and lands at its dispatch on every answered class).
 //!
 //! DIVERGENCE FROM TS (the shift-modified printable bug class): this port
@@ -66,7 +66,7 @@
 //! `CSI 27;<mods>;<key>~` sequences itself (keys.ts
 //! `parseModifyOtherKeysSequence`), but crossterm 0.28 has no case for
 //! them and drops the whole pending input buffer on the parse error
-//! (`Parser::advance` clears on `Err`) — a terminal in mode 2 (a sticky
+//! (`Parser::advance` clears on `Err`) -- a terminal in mode 2 (a sticky
 //! mode any other pane or process may have armed) makes shift-modified
 //! printables like `shift+=` vanish entirely. The reset returns such
 //! terminals to legacy encodings (shift+= arrives as the produced `+`),
@@ -101,27 +101,24 @@ const POP_KITTY_FLAGS: &[u8] = b"\x1b[<u";
 /// hardening): a bounded run of bare pops. At the mount it runs BEFORE
 /// the push: a killed session never runs its teardown, so its pushed
 /// level stays on the terminal's stack; every later session in that
-/// terminal pushes once more and pops once — the stale level survives
+/// terminal pushes once more and pops once -- the stale level survives
 /// every exit and the shell keeps receiving CSI-u escapes for plain
-/// keys (the reported leak). At the teardown it runs in the exit tail,
-/// AFTER the alternate screen is left ([`pop_stale_levels`]): a
-/// mode-counting relay — herdr's pane emulator re-encodes every
-/// keystroke from its own count of the push/pop pairs in the pane
-/// output, never resets the count on foreground-program exit, and
-/// discards the pair's writes that land while the pane's alternate
-/// screen is up — leaves the pane's stack one level deep after a plain
-/// exit, and the leftover level turns every later Ctrl+C/Ctrl+D in the
-/// pane's shell into a kitty CSI-u keypress no shell understands (the
-/// live report, herdr 0.9.3: every exit left the pane one pop short;
-/// pops written after the alt-screen leave survive, and one manual pop
-/// repaired the pane). Pops against an empty stack are ignored (kitty
+/// keys (the reported leak). At the teardown it runs at the end of the
+/// exit tail ([`pop_stale_levels`]): a mode-counting relay -- herdr's
+/// pane emulator re-encodes every keystroke from its own count of the
+/// push/pop pairs in the pane output and never resets the count on
+/// foreground-program exit -- can leave the pane's stack one level deep
+/// after a plain exit, and the leftover level turns every later
+/// Ctrl+C/Ctrl+D in the pane's shell into a kitty CSI-u keypress no
+/// shell understands (the live report, herdr 0.9.3: every exit left the
+/// pane one pop short, and one manual pop repaired the pane). Pops against an empty stack are ignored (kitty
 /// spec), so the drain is free on a clean terminal. The count covers a
 /// killed-session pile-up (one wedge plus a couple of kill retries)
 /// and the relay's miscount with margin; deeper stacks still self-heal
 /// one level per session run.
 const STALE_LEVEL_DRAIN: usize = 3;
 /// Reset xterm modifyOtherKeys (TS writes the reset at teardown; this port
-/// also writes it at every start — see the module docs for why the mode-2
+/// also writes it at every start -- see the module docs for why the mode-2
 /// fallback is never armed here).
 const MODIFY_OTHER_KEYS_RESET: &[u8] = b"\x1b[>4;0m";
 /// TS `keyboardProtocolFallbackTimer`: the window the kitty answer gets
@@ -134,7 +131,7 @@ static QUERY_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 /// The terminal answered the kitty query once (the resolved capability).
 /// The answer outlives any one surface: a suspend pops the flags but the
 /// capability stays, so the next start re-applies them without asking
-/// again — the once-per-process contract (see the module docs).
+/// again -- the once-per-process contract (see the module docs).
 static KITTY_SUPPORTED: AtomicBool = AtomicBool::new(false);
 /// The kitty query was sent at least once this process. The probe
 /// machinery never runs again after the first query (see the module
@@ -152,7 +149,7 @@ static MODE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// The process is exiting and the terminal is being released for the last
 /// time (the force-quit restore): any in-flight kitty probe must stand
 /// down instead of pushing the flags back on after the restore popped
-/// them — a terminal left in kitty mode spews CSI-u sequences into the
+/// them -- a terminal left in kitty mode spews CSI-u sequences into the
 /// parent shell on every key press.
 static EXIT_RELEASE: AtomicBool = AtomicBool::new(false);
 
@@ -165,7 +162,7 @@ fn lock_modes() -> std::sync::MutexGuard<'static, ()> {
 /// Whether the kitty probe's answer window is open. The input reader
 /// keys its bounded poll cadence on this: the probe's slices and the
 /// reader share crossterm's process-global event-reader lock, and the
-/// reader's indefinite park would hold it — starving the probe's
+/// reader's indefinite park would hold it -- starving the probe's
 /// slices for the window's whole duration (the window is bounded and
 /// once per process, so the cadence there is the startup cost it
 /// already was).
@@ -307,7 +304,7 @@ pub(crate) fn enable(out: &mut Stdout) -> Result<()> {
     }
     let _modes = lock_modes();
     // A new surface mount re-arms probing: the exit standdown covers only
-    // the dying surface's window — a surface that returns control without
+    // the dying surface's window -- a surface that returns control without
     // ending the process (the replay run_app is a library call) must not
     // poison every later surface's keyboard protocol.
     EXIT_RELEASE.store(false, Ordering::SeqCst);
@@ -368,7 +365,7 @@ pub(crate) fn enable(out: &mut Stdout) -> Result<()> {
 
 /// Disable the enhanced-key modes for a surface teardown or suspend (TS
 /// `ProcessTerminal.stop`): bracketed paste off, then the kitty pop, then
-/// the modifyOtherKeys reset — the TS write order.
+/// the modifyOtherKeys reset -- the TS write order.
 pub(crate) fn disable(out: &mut Stdout) -> Result<()> {
     if !out.is_terminal() {
         return Ok(());
@@ -402,7 +399,7 @@ pub(crate) fn drain_for_exit(out: &mut Stdout) {
 }
 
 /// The in-process handoff variant (an exit that hands the pane to another
-/// surface of this process — the agents view, a `/resume` chain). The
+/// surface of this process -- the agents view, a `/resume` chain). The
 /// idle window's guarded leak is a release that lands AFTER raw mode is
 /// off; a handoff keeps raw mode on (the adopting surface's reader takes
 /// over the same tty), and every surface's dispatch drops key-release
@@ -410,7 +407,7 @@ pub(crate) fn drain_for_exit(out: &mut Stdout) {
 /// that outruns the drain is consumed-and-ignored by the next reader, not
 /// leaked anywhere. The fixed idle window buys nothing observable on
 /// this path, so the drain consumes what the terminal has already
-/// written — zero-timeout polls, no wait — and returns as soon as the
+/// written -- zero-timeout polls, no wait -- and returns as soon as the
 /// buffer is observed empty. Only when input IS flowing (the observed
 /// case) does it fall through to the bounded drain, so a burst around a
 /// handoff is coalesced exactly like the exit drain's idle window
@@ -496,16 +493,16 @@ pub(crate) fn set_kitty_active_for_tests(active: bool) {
 pub(crate) static TEST_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The established modes once the probe settles: `(kitty, modify_other_keys)`.
-/// `None` while the probe is still running (or never started — the headless
+/// `None` while the probe is still running (or never started -- the headless
 /// harness), so adoption telemetry can observe the outcome once. The second
-/// flag is always `false` in this port (the mode-2 fallback is never armed —
+/// flag is always `false` in this port (the mode-2 fallback is never armed --
 /// see the module docs); it stays in the tuple so the telemetry schema keeps
 /// the TS event shape.
 pub(crate) fn settle_state() -> Option<(bool, bool)> {
     if QUERY_IN_FLIGHT.load(Ordering::SeqCst) {
         None
     } else {
-        // Settled (or no probe ever ran — the headless harness): only
+        // Settled (or no probe ever ran -- the headless harness): only
         // kitty can be active beyond the paste markers.
         Some((KITTY_ACTIVE.load(Ordering::SeqCst), false))
     }
@@ -516,7 +513,7 @@ fn enhanced_keys_active() -> bool {
 }
 
 /// Disable the keyboard-protocol modes (both `drain` variants disable
-/// them first); bracketed paste stays on — TS `drainInput` leaves it to
+/// them first); bracketed paste stays on -- TS `drainInput` leaves it to
 /// `stop`.
 fn disable_keyboard_modes(out: &mut Stdout) {
     let _modes = lock_modes();
@@ -534,7 +531,7 @@ fn write_all(out: &mut Stdout, sequence: &[u8]) -> Result<()> {
 
 /// Enable the kitty protocol (TS writes `\x1b[>7u` when the query answer
 /// arrives). Skipped when the surface that started the probe is already
-/// gone — a stray enable would leave the flags pushed over the next
+/// gone -- a stray enable would leave the flags pushed over the next
 /// surface's own setup.
 fn enable_kitty(out: &mut Stdout) {
     // The capability is the durable truth: a later start re-applies the
@@ -542,7 +539,7 @@ fn enable_kitty(out: &mut Stdout) {
     record_kitty_supported();
     let _modes = lock_modes();
     // The exit release ran: the flags are popped (or never pushed), and a
-    // probe answer arriving around the exit must not push them back on —
+    // probe answer arriving around the exit must not push them back on --
     // the process is about to terminate with the terminal in its final
     // state.
     if EXIT_RELEASE.load(Ordering::SeqCst) {
@@ -559,14 +556,10 @@ fn enable_kitty(out: &mut Stdout) {
 }
 
 /// The exit tail's stale-level drain: [`STALE_LEVEL_DRAIN`] bare pops,
-/// written after the alternate screen is left. A mode-counting relay
-/// that tracks the keyboard protocol from the pane output discards the
-/// pair's writes made while the pane's alt screen is up (herdr), so
-/// the teardown's own pop — written inside the alt screen, where TS
-/// writes it — never lands on the relay's stack, and the pane's shell
-/// inherits the leftover level as dead Ctrl+C/Ctrl+D keys. The tail's
-/// position is after the alt-screen leave on every exit route, where
-/// the relay's accounting keeps the writes; the bare pops are clamped
+/// the last terminal write on every exit route. A mode-counting relay
+/// that tracks the keyboard protocol from the pane output (herdr) can
+/// miss the teardown's own pop, and the pane's shell would inherit the
+/// leftover level as dead Ctrl+C/Ctrl+D keys; the bare pops are clamped
 /// no-ops at spec depth zero, so a clean terminal sees nothing change.
 pub(crate) fn pop_stale_levels(out: &mut Stdout) {
     if !out.is_terminal() {
@@ -581,7 +574,7 @@ pub(crate) fn pop_stale_levels(out: &mut Stdout) {
 /// The probe thread: hold the query open for the TS fallback window,
 /// then settle. An answer within crossterm's patched 250ms query window
 /// enables kitty; no answer settles with no enhanced modes (this port
-/// never arms the modifyOtherKeys fallback — see the module docs).
+/// never arms the modifyOtherKeys fallback -- see the module docs).
 fn spawn_kitty_probe() {
     let probe = std::thread::Builder::new()
         .name("tui-kitty-probe".to_string())
@@ -596,7 +589,7 @@ fn spawn_kitty_probe() {
                 .spawn(move || {
                     // A dying process must not start the support check: with
                     // the app's raw-mode bracket already off (the exit
-                    // restore's window) crossterm brackets raw mode itself —
+                    // restore's window) crossterm brackets raw mode itself --
                     // re-arming raw on a handed-back terminal and stealing
                     // the raw-mode save slot. The exit paths set the
                     // standdown before they restore, so settle with no
@@ -606,7 +599,7 @@ fn spawn_kitty_probe() {
                     // check's bracket only runs when the app's raw mode is
                     // off, and a suspend cycle that raced the probe's
                     // thread start (early typing is delivered inside the
-                    // probe window) leaves exactly that state — the check
+                    // probe window) leaves exactly that state -- the check
                     // would re-arm raw on the terminal the shell now owns
                     // while the process group stops (the probe-bracket
                     // race the module docs warn about). Settle no-kitty
@@ -644,7 +637,7 @@ fn spawn_kitty_probe() {
                 Ok(_) => {
                     // No kitty: settle with no enhanced modes (TS would arm
                     // modifyOtherKeys mode 2 here; crossterm cannot parse
-                    // its sequences — see the module docs).
+                    // its sequences -- see the module docs).
                     QUERY_IN_FLIGHT.store(false, Ordering::SeqCst);
                 }
                 Err(_) => {
@@ -660,7 +653,7 @@ fn spawn_kitty_probe() {
                                 // The capability outlives the surface the
                                 // answer arrived on: record it even when the
                                 // push stands down (a suspended surface has
-                                // paste off — its resume re-applies the
+                                // paste off -- its resume re-applies the
                                 // flags from the memory).
                                 record_kitty_supported();
                                 if BRACKETED_PASTE_ACTIVE.load(Ordering::SeqCst) {
@@ -677,7 +670,7 @@ fn spawn_kitty_probe() {
             }
         });
     if probe.is_err() {
-        // Out of thread resources: no probe, no modes — plain key input.
+        // Out of thread resources: no probe, no modes -- plain key input.
         QUERY_IN_FLIGHT.store(false, Ordering::SeqCst);
     }
 }
@@ -687,7 +680,7 @@ mod tests {
     use super::*;
 
     /// The state flags are process-global, so every test serializes
-    /// through one lock (the mouse-tracking module's pattern).
+    /// through one lock.
     fn lock_state() -> std::sync::MutexGuard<'static, ()> {
         TEST_STATE_LOCK
             .lock()
@@ -717,7 +710,7 @@ mod tests {
         assert_eq!(kitty_action(false, false, false, false), KittyAction::Probe);
         // In flight: nothing (the late answer upgrades on its own).
         assert_eq!(kitty_action(false, true, false, true), KittyAction::None);
-        // Settled no-kitty: nothing, forever — the second start and every
+        // Settled no-kitty: nothing, forever -- the second start and every
         // later resume must not run the query again.
         assert_eq!(kitty_action(false, true, false, false), KittyAction::None);
     }
@@ -810,7 +803,7 @@ mod tests {
     }
 
     /// The flag-level suspend/resume cycle with a settled-no probe: the
-    /// resume's enable must not probe again — the exact transition the
+    /// resume's enable must not probe again -- the exact transition the
     /// e2e's no-query-after-SIGCONT assertion locks from the outside.
     #[test]
     fn a_suspend_resume_cycle_after_a_settled_no_probe_does_not_probe() {
@@ -850,7 +843,7 @@ mod tests {
         let _lock = lock_state();
         reset_state();
         // The force-quit restore ran (release_for_exit) and a kitty probe
-        // answer arrives afterwards: the push must not happen — the exit
+        // answer arrives afterwards: the push must not happen -- the exit
         // already popped the flags, and the terminal must keep the
         // post-restore state for the parent shell.
         release_for_exit();

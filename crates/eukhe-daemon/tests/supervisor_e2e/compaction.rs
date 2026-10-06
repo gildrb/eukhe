@@ -42,7 +42,7 @@ fn compaction_commands_scripted_session() {
                     "tokensBefore": 5000,
                     "details": { "readFiles": ["a.rs"], "modifiedFiles": [] },
                 },
-                { "error": "Session is too short to compact — try again once it grows", "skipped": true },
+                { "error": "Session is too short to compact -- try again once it grows", "skipped": true },
             ] },
         })
         .to_string(),

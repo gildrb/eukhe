@@ -15,24 +15,10 @@ pub fn render(
     width: usize,
     show_images: bool,
 ) -> Vec<Line> {
-    let mut out = RowOutput::paint();
+    let mut out = RowOutput::new();
     traverse(card, detail, theme, width, show_images, &mut out);
     out.panel(card, frame, theme, width);
     out.into_lines()
-}
-
-pub(crate) fn count(
-    card: &ToolCallCard,
-    frame: usize,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-    show_images: bool,
-) -> usize {
-    let mut out = RowOutput::count();
-    traverse(card, detail, theme, width, show_images, &mut out);
-    out.panel(card, frame, theme, width);
-    out.len()
 }
 
 fn traverse(
@@ -56,7 +42,7 @@ fn traverse(
         );
     }
     if let Some(output) = output.as_deref().filter(|o| !o.is_empty()) {
-        if out.len() > 0 {
+        if !out.is_empty() {
             out.blank();
         }
         fallback_preview(
@@ -89,12 +75,10 @@ fn fallback_preview(
         return;
     }
     out.wrapped_text(&lines[..3].join("\n"), tool_output, content_width);
-    out.push(|| {
-        vec![Span::styled(
-            format!("\u{2026} {} more lines", lines.len() - 3),
-            theme.fg_style(ThemeColor::Dim),
-        )]
-    });
+    out.push(vec![Span::styled(
+        format!("{} {} more lines", crate::glyphs::ELLIPSIS, lines.len() - 3),
+        theme.fg_style(ThemeColor::Dim),
+    )]);
 }
 
 #[cfg(test)]
@@ -147,7 +131,7 @@ mod tests {
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert!(
             flat.iter()
-                .any(|r| r.contains("    \u{2570}\u{2500} [image/png \u{b7} 64\u{d7}32]")),
+                .any(|r| r.contains("    `- [image/png - 64x32]")),
             "got: {flat:?}"
         );
         assert!(!flat.iter().any(|r| r.contains("[Image:")));
@@ -164,7 +148,7 @@ mod tests {
             flat.iter().any(|r| r.contains("[Image: [image/png]]")),
             "got: {flat:?}"
         );
-        assert!(!flat.iter().any(|r| r.contains("\u{2570}\u{2500}")));
+        assert!(!flat.iter().any(|r| r.contains("`-")));
     }
 
     #[test]
@@ -198,11 +182,11 @@ mod tests {
         let rows = render(&card, 0, Detail::Overview, &theme(), 120, true);
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert!(
-            flat.iter().any(|r| r.contains("custom \u{00b7} done")),
+            flat.iter().any(|r| r.contains("custom - done")),
             "got: {flat:?}"
         );
         assert!(
-            flat.iter().any(|r| r.contains("\u{2026} 1 more lines")),
+            flat.iter().any(|r| r.contains("... 1 more lines")),
             "got: {flat:?}"
         );
     }

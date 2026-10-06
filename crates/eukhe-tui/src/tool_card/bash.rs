@@ -1,5 +1,5 @@
 //! The `bash` tool-call card, a port of the TS `bash.ts` renderCall /
-//! renderResult components composed inside the `ToolPanel`: a `label \u{00b7}
+//! renderResult components composed inside the `ToolPanel`: a `label -
 //! status` header, the dim `$ command` call row, the command's output
 //! (collapsed: the last five visual lines with an `... N earlier lines`
 //! hint; expanded: everything), the truncation warning, and the live
@@ -27,26 +27,11 @@ pub fn render(
     width: usize,
     show_images: bool,
 ) -> Vec<Line> {
-    let mut rows = RowOutput::paint();
+    let mut rows = RowOutput::new();
     visit(card, detail, theme, width, &mut rows);
     rows.images(card.result.as_ref(), show_images, theme);
     rows.panel(card, frame, theme, width);
     rows.into_lines()
-}
-
-pub(crate) fn count(
-    card: &ToolCallCard,
-    frame: usize,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-    show_images: bool,
-) -> usize {
-    let mut rows = RowOutput::count();
-    visit(card, detail, theme, width, &mut rows);
-    rows.images(card.result.as_ref(), show_images, theme);
-    rows.panel(card, frame, theme, width);
-    rows.len()
 }
 
 fn visit(card: &ToolCallCard, detail: Detail, theme: &Theme, width: usize, rows: &mut RowOutput) {
@@ -79,7 +64,10 @@ fn format_bash_call(card: &ToolCallCard, theme: &Theme) -> Line {
     if invalid {
         row.push(Span::styled("[invalid arg]".to_string(), error));
     } else if command.unwrap_or_default().is_empty() {
-        row.push(Span::styled("...".to_string(), tool_output));
+        row.push(Span::styled(
+            crate::glyphs::ELLIPSIS.to_string(),
+            tool_output,
+        ));
     } else {
         let command = command.unwrap_or_default();
         let preview = preview_bash_command(command);
@@ -116,7 +104,7 @@ fn bash_result_rows(
         rows.blank();
         if expanded {
             for line in output.split('\n') {
-                rows.push(|| vec![Span::styled(line.to_string(), tool_output)]);
+                rows.push(vec![Span::styled(line.to_string(), tool_output)]);
             }
         } else {
             let total: usize = output
@@ -125,40 +113,32 @@ fn bash_result_rows(
                 .sum();
             let skipped = total.saturating_sub(BASH_PREVIEW_LINES);
             if skipped > 0 {
-                rows.push(|| {
-                    vec![Span::styled(
-                        format!("... {skipped} earlier lines"),
-                        theme.fg_style(ThemeColor::Dim),
-                    )]
-                });
+                rows.push(vec![Span::styled(
+                    format!("{} {skipped} earlier lines", crate::glyphs::ELLIPSIS),
+                    theme.fg_style(ThemeColor::Dim),
+                )]);
             }
-            if rows.is_counting() {
-                rows.add_count(total.min(BASH_PREVIEW_LINES));
-            } else {
-                let mut remaining = skipped;
-                for line in output.split('\n') {
-                    let count = wrapped_text_count(line, content_width).max(1);
-                    if remaining >= count {
-                        remaining -= count;
-                        continue;
-                    }
-                    let wrapped = wrap_text(line, content_width);
-                    if wrapped.is_empty() {
-                        rows.push(|| vec![Span::styled(String::new(), tool_output)]);
-                    } else {
-                        for row in wrapped.into_iter().skip(remaining) {
-                            rows.push(|| {
-                                vec![Span::styled(
-                                    row.iter()
-                                        .map(|span| span.content.as_str())
-                                        .collect::<String>(),
-                                    tool_output,
-                                )]
-                            });
-                        }
-                    }
-                    remaining = 0;
+            let mut remaining = skipped;
+            for line in output.split('\n') {
+                let count = wrapped_text_count(line, content_width).max(1);
+                if remaining >= count {
+                    remaining -= count;
+                    continue;
                 }
+                let wrapped = wrap_text(line, content_width);
+                if wrapped.is_empty() {
+                    rows.push(vec![Span::styled(String::new(), tool_output)]);
+                } else {
+                    for row in wrapped.into_iter().skip(remaining) {
+                        rows.push(vec![Span::styled(
+                            row.iter()
+                                .map(|span| span.content.as_str())
+                                .collect::<String>(),
+                            tool_output,
+                        )]);
+                    }
+                }
+                remaining = 0;
             }
         }
     }
@@ -271,7 +251,7 @@ mod tests {
         let rows = render(&card, 0, Detail::Overview, &theme(), 120, true);
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert!(
-            flat.iter().any(|r| r.contains("bash \u{00b7} done")),
+            flat.iter().any(|r| r.contains("bash - done")),
             "got: {flat:?}"
         );
         assert!(

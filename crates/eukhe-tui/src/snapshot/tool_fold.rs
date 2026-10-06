@@ -14,7 +14,7 @@ use super::{AssistantMessage, ChatEntry, MessageBlock, ToolCallCard, ToolResultV
 /// earlier would carry the empty name forever (no later event corrects it),
 /// fall through to the generic panel, and render the raw arguments JSON
 /// instead of the tool's own card. An existing card refreshes from the
-/// latest frame — the newest streamed name and arguments win (TS builds the
+/// latest frame -- the newest streamed name and arguments win (TS builds the
 /// component against the latest streaming call). A card settled by a failed
 /// frame is not an existing card for this purpose: a reused id re-arms as a
 /// fresh card, the way TS's empty `pendingTools` map forces a new component
@@ -34,7 +34,6 @@ pub fn apply_streamed_tool_card(
     );
     match card_index {
         Some(index) => {
-            view.prepare_entry_mutation(index);
             if let Some(ChatEntry::Tool(card)) = view.chat.get_mut(index) {
                 card.name = name.to_string();
                 card.args = args.clone();
@@ -54,7 +53,7 @@ pub fn apply_streamed_tool_card(
 /// TS `message_end`'s failed-frame sweep: every still-pending tool card
 /// settles with the failure text as an error result, and the card drops the
 /// tool's late result frames (`resetPendingToolState` cleared the pending
-/// map the same way — a late `tool_execution_end` finds no component there).
+/// map the same way -- a late `tool_execution_end` finds no component there).
 pub fn settle_pending_tool_cards<S: std::hash::BuildHasher + Default>(
     view: &mut crate::view::AgentView,
     pending: &mut std::collections::HashSet<String, S>,
@@ -62,7 +61,7 @@ pub fn settle_pending_tool_cards<S: std::hash::BuildHasher + Default>(
     text: &str,
 ) {
     for tool_call_id in pending.drain() {
-        // Every drained id records as aborted — late frames for a call that
+        // Every drained id records as aborted -- late frames for a call that
         // never created a card land on nothing the same way (TS removed the
         // pending-map entry, and a late `tool_execution_start` finds no
         // component to re-create).
@@ -76,7 +75,6 @@ pub fn settle_pending_tool_cards<S: std::hash::BuildHasher + Default>(
             .iter()
             .rposition(|entry| matches!(entry, ChatEntry::Tool(card) if card.id == tool_call_id))
         {
-            view.prepare_entry_mutation(index);
             if let Some(ChatEntry::Tool(card)) = view.chat.get_mut(index) {
                 card.result = Some(ToolResultView {
                     content: vec![serde_json::json!({ "type": "text", "text": text })],
@@ -94,7 +92,7 @@ pub fn settle_pending_tool_cards<S: std::hash::BuildHasher + Default>(
 
 /// `tool_execution_start` folded into the live transcript: mark the matching
 /// card running, or create it when the assistant-message frames have not
-/// arrived yet. The daemon-reported tool name is authoritative — it
+/// arrived yet. The daemon-reported tool name is authoritative -- it
 /// backfills a card still carrying an empty streamed name, so the card
 /// routes to its tool-specific renderer (TS creates missing components with
 /// `event.toolName`). A card settled by a failed frame is not a match: a
@@ -110,7 +108,6 @@ pub fn apply_tool_execution_start(
         |entry| matches!(entry, ChatEntry::Tool(card) if card.id == tool_call_id && !card.aborted),
     );
     if let Some(index) = card_index {
-        view.prepare_entry_mutation(index);
         if let Some(ChatEntry::Tool(card)) = view.chat.get_mut(index) {
             card.started = true;
             card.started_at = Some(std::time::Instant::now());
@@ -146,7 +143,7 @@ pub struct AssistantErrorRow {
 }
 
 /// The failed-attempt error row a retry supersedes (SANCTIONED DIVERGENCE
-/// from TS, operator ruling 2026-09-23 — the TS chat keeps one such row per
+/// from TS, operator ruling 2026-09-23 -- the TS chat keeps one such row per
 /// failed attempt): an error-only assistant entry, no blocks and no tool
 /// calls (their cards carry the failure), not an abort. The episode's
 /// `provider_retry_outcome` row replaces every superseded attempt.

@@ -180,7 +180,6 @@ pub struct TerminalSettings {
     pub show_images: Option<bool>,
     pub clear_on_shrink: Option<bool>,
     pub show_terminal_progress: Option<bool>,
-    pub fullscreen_mouse: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

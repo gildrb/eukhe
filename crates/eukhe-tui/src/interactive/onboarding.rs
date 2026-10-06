@@ -6,6 +6,7 @@ use super::{
     mpsc, AgentView, Duration, ExitGuard, Future, Instant, KeybindingsManager, Pin, Renderer,
     Result, SessionUi, UiInput,
 };
+use crate::glyphs::WARN;
 
 /// Persistence for the first-run onboarding answers. The TUI crate owns
 /// only the surface; the composition root (eukhe-cli) implements the sink
@@ -20,7 +21,7 @@ pub trait OnboardingSink: Send + Sync {
     /// Whether a trace-sharing choice was ever written (TS
     /// `settings.agentTraces.enabled` presence): a provisioned or
     /// copied-config home carries one. Such homes never see the question
-    /// — the standing choice stands and the flow completes silently;
+    /// -- the standing choice stands and the flow completes silently;
     /// only a fresh home (no choice written) is asked once.
     fn agent_traces_choice_written(&self) -> bool;
     /// Persist the trace-sharing answer (TS `setAgentTracesEnabled`).
@@ -58,7 +59,7 @@ pub type ModelReadiness = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
 /// The first-run flow to run before the session screen (TS
 /// `runStartupOnboarding`): the model-ready branch asks the trace
 /// question on the immediate splash; a home with no usable model runs
-/// the full flow (TS `runOnboardingFlow`'s not-ready branch) — the
+/// the full flow (TS `runOnboardingFlow`'s not-ready branch) -- the
 /// welcome screen's login action, the Prime Inference sign-in through
 /// the inline auth panel, the default-model apply, the
 /// connect-more-providers picker, and the trace question.
@@ -96,7 +97,7 @@ impl OnboardingFlowTask {
     /// the blocking login body checks the signal before its auth-store
     /// writes, so the pane can end the flow without aborting it
     /// (a `JoinHandle::abort` cannot reach a started `spawn_blocking`
-    /// login — without the signal an exited pane would leave the login
+    /// login -- without the signal an exited pane would leave the login
     /// running to completion and still writing credentials).
     fn spawn<F>(future: F, cancel: crate::auth_panel::FlowCancel) -> Self
     where
@@ -117,7 +118,7 @@ impl OnboardingFlowTask {
 
     /// End the flow with the exiting pane: mark the cooperative signal,
     /// then wait for the blocking login to observe it (bounded by the
-    /// login's request timeouts) — the exit never leaves a detached
+    /// login's request timeouts) -- the exit never leaves a detached
     /// flow writing credentials in the background.
     async fn end(self) {
         self.cancel.mark();
@@ -130,11 +131,11 @@ impl OnboardingFlowTask {
 enum PaneOutcome {
     /// A screen decision: the answer to the mounted panel's step, or the
     /// onboarding exit keys (they arrive as a decision, not a drive
-    /// outcome — the pane's key loop reports them like any other key).
+    /// outcome -- the pane's key loop reports them like any other key).
     Decision(crate::onboarding::OnboardingDecision),
     /// The input channel closed under the pane (the headless plan is done,
     /// the terminal reader is gone): the flow ends without an answer and
-    /// the marker stays unset — the next launch re-runs it.
+    /// the marker stays unset -- the next launch re-runs it.
     InputClosed,
     /// The flow settled; `Err` is a crashed task (the flow's outcome
     /// reports the same error surface a failed login does).
@@ -180,8 +181,8 @@ enum PaneBarrier {
 /// Draw the mounted onboarding screen and drive it until a key decides,
 /// the exit keys quit, or the optional background flow settles (TS the
 /// splash's render/wait loop). Each iteration draws first and waits
-/// after — a deciding key that is already queued still leaves the
-/// mounted frame captured — servicing keys, pastes, the auth-panel
+/// after -- a deciding key that is already queued still leaves the
+/// mounted frame captured -- servicing keys, pastes, the auth-panel
 /// channel, and an armed render barrier's deadline.
 async fn drive_onboarding_pane(
     view: &mut AgentView,
@@ -227,19 +228,16 @@ async fn drive_onboarding_pane(
         view.onboarding = Some(screen);
         match drive.renderer {
             Renderer::Terminal { .. } => {
-                if let Some(renderer) = drive.renderer.is_terminal_mut() {
-                    if let Err(error) = crate::app::draw(renderer, view) {
-                        // A failed frame ends the pane: end a
-                        // still-running login flow with it — the
-                        // cooperative cancel reaches the blocking login
-                        // body, so the error path never leaves a
-                        // detached flow writing credentials in the
-                        // background.
-                        if let Some(task) = flow.take() {
-                            task.end().await;
-                        }
-                        return Err(error);
+                if let Err(error) = drive.renderer.draw(view) {
+                    // A failed frame ends the pane: end a still-running
+                    // login flow with it -- the cooperative cancel reaches
+                    // the blocking login body, so the error path never
+                    // leaves a detached flow writing credentials in the
+                    // background.
+                    if let Some(task) = flow.take() {
+                        task.end().await;
                     }
+                    return Err(error);
                 }
             }
             Renderer::Headless { .. } => drive.renderer.render_headless_pane(view),
@@ -254,7 +252,7 @@ async fn drive_onboarding_pane(
                 // the always-ready `recv()` spins the redraw loop hot.
                 let Some(input) = maybe_input else {
                     // A closed input channel ends the pane: end a
-                    // still-running login flow with it — the
+                    // still-running login flow with it -- the
                     // cooperative cancel reaches the blocking login
                     // body, so the exit never leaves a detached flow
                     // writing credentials in the background.
@@ -279,7 +277,7 @@ async fn drive_onboarding_pane(
                     if let Some(decision) = pane.handle_key(&key_id, &drive.keybindings, osc_sink) {
                         // A decision tears the pane down mid-drive: end
                         // a still-running login flow with it (TS the
-                        // dialog's abort signal) — the cooperative
+                        // dialog's abort signal) -- the cooperative
                         // cancel reaches the blocking login body, so a
                         // quit never leaves a detached flow writing
                         // credentials in the background.
@@ -295,14 +293,14 @@ async fn drive_onboarding_pane(
                 // The headless plan completed while the pane owned the
                 // channel: mark the run loop's flag (the pane keeps
                 // driving until the channel closes or a decision ends
-                // it — the run loop's idle gate ends the run).
+                // it -- the run loop's idle gate ends the run).
                 UiInput::HeadlessDone => *drive.headless_done = true,
                 // The plan's render barriers (the run loop's
                 // `WaitRender`/`WaitGone` contract, pane-scoped): a
                 // condition that already holds pops immediately; a
                 // pending one arms and holds the input batch behind it
                 // until a later frame satisfies it or the deadline pops
-                // (the timeout proceeds silently — the harness's
+                // (the timeout proceeds silently -- the harness's
                 // assertion then reports the actual frame, the honest
                 // failure mode for a stall). The steps only ever come
                 // from the headless harness; a terminal pane consumes
@@ -340,10 +338,8 @@ async fn drive_onboarding_pane(
                 UiInput::Submit(_)
                 | UiInput::SubmitAndSettle { .. }
                 | UiInput::SettleIdle
-                | UiInput::Mouse(_)
-                | UiInput::WaitIdle { .. }
-                | UiInput::ScrollTop
-                | UiInput::Resize => {}
+                | UiInput::WaitIdle { .. } => {}
+                UiInput::Resize => view.request_replay(),
                 }
             }
             // The login flows drive the mounted dialog through the
@@ -416,9 +412,9 @@ async fn run_onboarding_flow(
         // The ready branch's standing-choice gate (the operator ruling): a
         // home that already carries a trace-sharing choice (a provisioned
         // or copied-config home, or a `/traces` change made before the
-        // flow completed) never sees the question — the standing choice
+        // flow completed) never sees the question -- the standing choice
         // stands and the flow completes silently. The question below is
-        // the first-run step for a fresh home only — asked exactly once,
+        // the first-run step for a fresh home only -- asked exactly once,
         // then the marker gates every later run.
         if task.sink.agent_traces_choice_written() {
             if let Err(error) = task.sink.mark_onboarding_complete() {
@@ -439,7 +435,7 @@ async fn run_onboarding_flow(
                 // finish(index === 0)). A cancel writes no answer at all,
                 // but the flow still completed. A write that fails
                 // surfaces as a warning row: the flow still settled this
-                // run, but an unpersisted marker re-mounts it next launch —
+                // run, but an unpersisted marker re-mounts it next launch --
                 // the user must know, the run never dies over it.
                 if let Err(error) = task.sink.set_agent_traces_enabled(index == 0) {
                     warn_onboarding_persist_failure(session, view, &error);
@@ -468,12 +464,12 @@ async fn run_onboarding_flow(
     // Prime CLI token is already on disk, so users who arrive with
     // credentials still reach the same account, provider and trace
     // questions. A flow that aborts (a cancelled or failed sign-in,
-    // the exit keys) leaves the marker unset — the next launch retries.
+    // the exit keys) leaves the marker unset -- the next launch retries.
     let screen = crate::onboarding::OnboardingScreen::welcome();
     let (mut screen, outcome) =
         drive_onboarding_pane(view, &mut *drive, screen, None, &mut session.osc_sink).await?;
     // The welcome binds one key: Enter starts the flow (TS: cancel is
-    // deliberately unbound — signing in is the only way forward).
+    // deliberately unbound -- signing in is the only way forward).
     match outcome {
         PaneOutcome::InputClosed => return Ok(false),
         PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Exit) => return Ok(true),
@@ -508,8 +504,8 @@ async fn run_onboarding_flow(
     let prime_panel = session.auth_panel_handle();
     let prime_cancel = prime_panel.cancel_signal();
     // TS `loginDialogOptions()`'s onboarding shape: the panel mounts
-    // chrome-less (`topRule: false, hideTitle: true`) — the splash's
-    // heading names the step — and the actions row reads the same
+    // chrome-less (`topRule: false, hideTitle: true`) -- the splash's
+    // heading names the step -- and the actions row reads the same
     // resolved keybindings the pane answers with; the panel carries the
     // flow's cancel signal, so the row's cancel hint ends the login (TS
     // the dialog's abort signal).
@@ -582,7 +578,7 @@ async fn run_onboarding_flow(
 
     // The default-model apply (TS `prepareForModelSelectionAfterLogin`):
     // only a home with no current model picks the Prime default. The
-    // daemon resolves the model against its own registry — read fresh at
+    // daemon resolves the model against its own registry -- read fresh at
     // the switch, so the just-stored credential is what makes GLM 5.3
     // available (the client's startup snapshot predates the sign-in and
     // never carries it). A resolution failure surfaces as the switch's
@@ -656,7 +652,7 @@ async fn run_onboarding_flow(
             .iter()
             .find(|row| row.id == pick)
             .expect("the picked row came from the same options list");
-        // TS `loginProvider`: the row's flow — the panel-prompted key,
+        // TS `loginProvider`: the row's flow -- the panel-prompted key,
         // or the panel-driven flow.
         if row.flow == crate::provider_auth::AuthFlow::ApiKeyPrompt {
             let panel = session.auth_panel_handle();
@@ -677,7 +673,7 @@ async fn run_onboarding_flow(
                     // TS `showApiKeyLoginDialog`: the submitted key
                     // stores through the composition root; a cancel is
                     // silent. A pane exit after the submit marks the
-                    // signal — the login (the credential write) never
+                    // signal -- the login (the credential write) never
                     // runs once the pane is gone.
                     match panel
                         .paste_prompt(
@@ -689,7 +685,7 @@ async fn run_onboarding_flow(
                             // a first-run screen is exactly the shared and
                             // recorded surface a secret must never render on
                             // (the token paste panel's rule; TS renders the
-                            // typed key — the port masks the secret).
+                            // typed key -- the port masks the secret).
                             crate::auth_panel::PasteStyle::Masked,
                         )
                         .await
@@ -732,7 +728,7 @@ async fn run_onboarding_flow(
             }
         } else {
             // A terminal-flow row runs its panel-driven flow through the
-            // mounted auth panel — the MCP device flow, the ported codex
+            // mounted auth panel -- the MCP device flow, the ported codex
             // subscription OAuth: the `/login` selector's panel path
             // (the non-panel body answers the silent cancel for OAuth
             // rows, so it would dead-end the available rows; the picker
@@ -788,9 +784,9 @@ async fn run_onboarding_flow(
     }
 
     // The trace question (TS `askOnboardingTraceOptIn`), the flow's last
-    // step — the merged question surface. A home that already carries a
+    // step -- the merged question surface. A home that already carries a
     // standing choice skips it (the operator ruling: the choice stands)
-    // while the flow still completes below — an aborted retry (the model
+    // while the flow still completes below -- an aborted retry (the model
     // still not ready) leaves the marker unset, so the next launch runs
     // the sign-in again without re-asking.
     if !task.sink.agent_traces_choice_written() {
@@ -824,7 +820,7 @@ async fn run_onboarding_flow(
         }
     }
     // TS `runStartupOnboarding`: only a completed flow whose model is
-    // ready marks onboarding seen — a flow whose sign-in left the home
+    // ready marks onboarding seen -- a flow whose sign-in left the home
     // without a usable model stays unset and retries next launch.
     if (task.model_ready)() {
         if let Err(error) = task.sink.mark_onboarding_complete() {
@@ -836,7 +832,7 @@ async fn run_onboarding_flow(
 
 /// A failed onboarding persistence write surfaces as a warning row in the
 /// session: the flow still settled for this run, but an unpersisted marker
-/// re-mounts the whole flow on the next launch — the user must know, and the
+/// re-mounts the whole flow on the next launch -- the user must know, and the
 /// run never dies over a settings write (the session stays usable; `/traces`
 /// stays the change path).
 fn warn_onboarding_persist_failure(
@@ -846,7 +842,7 @@ fn warn_onboarding_persist_failure(
 ) {
     view.push_entry(crate::chat::ChatEntry::Status {
         text: format!(
-            "\u{26a0} The onboarding answer could not be saved ({error}); the first-run flow may appear again."
+            "{WARN} The onboarding answer could not be saved ({error}); the first-run flow may appear again."
         ),
         kind: crate::chat::StatusKind::Warning,
     });

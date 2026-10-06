@@ -42,9 +42,9 @@ fn done_cell_summary_line() {
     assert_eq!(lines.len(), 1);
     let text = text_of(&lines[0]);
     assert!(
-            text.contains("\u{2713} python \u{00b7} print('visual parity ok') \u{00b7} \u{2191} 1 \u{2193} 1 lines \u{00b7} 2ms"),
-            "got: {text}"
-        );
+        text.contains("ok python - print('visual parity ok') - ^ 1 v 1 lines - 2ms"),
+        "got: {text}"
+    );
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn error_cell_summary_line() {
     );
     let lines = render(&card, 0, Detail::Overview, &theme(), 100, true);
     let text = text_of(&lines[0]);
-    assert!(text.contains("\u{2717} python"), "got: {text}");
+    assert!(text.contains("x python"), "got: {text}");
     assert!(text.contains("ValueError"), "got: {text}");
 }
 
@@ -79,7 +79,7 @@ fn expanded_renders_code_and_output() {
     let lines = render(&card, 0, Detail::All, &theme(), 100, true);
     let flat: Vec<String> = lines.iter().map(text_of).collect();
     assert!(
-        flat[1].starts_with(" \u{2570}\u{2500} for i in range(3):"),
+        flat[1].starts_with(" `- for i in range(3):"),
         "got: {flat:?}"
     );
     assert!(
@@ -87,7 +87,7 @@ fn expanded_renders_code_and_output() {
         "got: {flat:?}"
     );
     assert_eq!(flat[3], "", "blank between code and output");
-    assert!(flat[4].starts_with("  \u{203a} line 0"), "got: {flat:?}");
+    assert!(flat[4].starts_with("  > line 0"), "got: {flat:?}");
     assert!(flat[5].starts_with("    line 1"), "got: {flat:?}");
 }
 
@@ -146,7 +146,7 @@ fn sent_agent_messages_render_below_the_code() {
     assert!(
         flat[1]
             .trim_end()
-            .starts_with(" \u{2709} Agent message \u{b7} \u{2191} Worker"),
+            .starts_with(" & Agent message - ^ Worker"),
         "got: {flat:?}"
     );
     assert!(!flat[1].contains("Ping."), "no body when collapsed");
@@ -155,14 +155,11 @@ fn sent_agent_messages_render_below_the_code() {
     let flat: Vec<String> = expanded.iter().map(text_of).collect();
     let summary = flat
         .iter()
-        .position(|row| row.contains("Agent message \u{b7} \u{2191} Worker"))
+        .position(|row| row.contains("Agent message - ^ Worker"))
         .expect("summary row");
     assert_eq!(flat[summary - 1], "", "blank between code and receipt");
-    assert_eq!(
-        flat[summary].trim_end(),
-        " \u{2709} Agent message \u{b7} \u{2191} Worker"
-    );
-    assert_eq!(flat[summary + 1], " \u{2570}\u{2500} Ping.");
+    assert_eq!(flat[summary].trim_end(), " & Agent message - ^ Worker");
+    assert_eq!(flat[summary + 1], " `- Ping.");
     assert_eq!(flat[summary + 2], "    Then report back.");
     // The summary carries no body preview and no receipt metadata.
     assert!(!flat.iter().any(|row| row.contains("agentmsg_1")));
@@ -172,7 +169,7 @@ fn sent_agent_messages_render_below_the_code() {
 #[test]
 fn sent_agent_message_receipts_share_the_viewer_relative_arrow() {
     // Both receipt kinds (delivered and queued) render the same shared
-    // `Agent message` label with the outgoing `↑` arrow (the operator's
+    // `Agent message` label with the outgoing `up` arrow (the operator's
     // 2026-09-25 directive); the counterpart falls back name -> active
     // session id -> session id -> unknown.
     for delivery in ["delivered", "queued"] {
@@ -190,7 +187,7 @@ fn sent_agent_message_receipts_share_the_viewer_relative_arrow() {
         let lines = render(&card, 0, Detail::Overview, &theme(), 100, true);
         let text = text_of(&lines[1]);
         assert!(
-            text.contains("\u{2709} Agent message \u{b7} \u{2191} worker-active"),
+            text.contains("& Agent message - ^ worker-active"),
             "got: {text}"
         );
     }
@@ -206,7 +203,7 @@ fn sent_agent_message_receipts_share_the_viewer_relative_arrow() {
     let card = cell_card("send()", details, false, false);
     let lines = render(&card, 0, Detail::Overview, &theme(), 100, true);
     assert!(
-        text_of(&lines[1]).contains("Agent message \u{b7} \u{2191} peer-session"),
+        text_of(&lines[1]).contains("Agent message - ^ peer-session"),
         "got: {}",
         text_of(&lines[1])
     );
@@ -272,7 +269,10 @@ fn background_shell_duration_label_and_exit() {
     let lines = render(&card2, 0, Detail::Overview, &theme(), 100, true);
     let text = text_of(&lines[0]);
     assert!(text.contains("exit 1"), "got: {text}");
-    assert!(text.contains("\u{2717}"), "got: {text}");
+    assert!(
+        text.trim_start().starts_with(crate::glyphs::FAIL),
+        "got: {text}"
+    );
 }
 
 #[test]
@@ -319,8 +319,7 @@ fn shown_image_counts_render_below_the_cell() {
         "got: {flat:?}"
     );
     assert!(
-        flat.iter()
-            .any(|row| row.contains("\u{2570}\u{2500} [image/png \u{b7} 8\u{d7}4]")),
+        flat.iter().any(|row| row.contains("`- [image/png - 8x4]")),
         "got: {flat:?}"
     );
 }
@@ -376,7 +375,7 @@ fn bash_dominated_cell_renders_as_bash() {
     assert_eq!(lines.len(), 1);
     assert_eq!(
         text_of(&lines[0]),
-        " \u{2713} bash \u{00b7} cargo test -p eukhe-tui \u{00b7} +2 more \u{00b7} \u{2191} 5 \u{2193} 1 lines \u{00b7} 2ms"
+        " ok bash - cargo test -p eukhe-tui - +2 more - ^ 5 v 1 lines - 2ms"
     );
     assert_eq!(
         bash_dominated_stats(&card),
@@ -406,7 +405,7 @@ fn bash_minority_cell_stays_python() {
     assert_eq!(lines.len(), 1);
     assert_eq!(
         text_of(&lines[0]),
-        " \u{2713} python \u{00b7} r = await sh(\"ls\") \u{00b7} \u{2191} 4 \u{2193} 1 lines \u{00b7} 5ms"
+        " ok python - r = await sh(\"ls\") - ^ 4 v 1 lines - 5ms"
     );
     assert_eq!(bash_dominated_stats(&card), None);
 }

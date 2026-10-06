@@ -158,7 +158,7 @@ pub(crate) fn format_table<const N: usize>(headers: &[&str; N], rows: &[[String;
         row.iter()
             .zip(widths)
             .map(|(cell, width)| {
-                // TS `padCell`: pad only, never truncate — a cell wider
+                // TS `padCell`: pad only, never truncate -- a cell wider
                 // than its column (an unsanitized ANSI name) renders whole
                 // like TS, its escape bytes skipped by both measures.
                 let pad = width.saturating_sub(eukhe_tui::width::str_width(cell));

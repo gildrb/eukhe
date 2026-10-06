@@ -5,7 +5,7 @@
 //! `/mcp` view's api-key credential flow (`key <id>`, the view's stored
 //! keys such as the web-search one). The TUI owns the command UX and the
 //! inline auth panel; the composition root runs the flow against it
-//! (eukhe-core owns the flow — this crate stays eukhe-types-only).
+//! (eukhe-core owns the flow -- this crate stays eukhe-types-only).
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -28,7 +28,7 @@ pub trait ClientAuthCommands: Send + Sync {
     fn paste_token(&self, server: &str, panel: crate::auth_panel::AuthPanelHandle) -> AuthFuture;
     /// The api-key credential flow (the `/mcp` view's stored keys, e.g.
     /// the web-search one): prompt (masked) for one pasted key and store
-    /// it in the credential's auth slot — the slot the runtime reads.
+    /// it in the credential's auth slot -- the slot the runtime reads.
     /// Resolves with the status line to show.
     fn api_key(&self, credential: &str, panel: crate::auth_panel::AuthPanelHandle) -> AuthFuture;
     /// Remove a stored MCP credential. Resolves with the status line

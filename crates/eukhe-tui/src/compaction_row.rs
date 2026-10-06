@@ -1,6 +1,6 @@
 //! Compaction feedback rows (TS `compaction-summary-message.ts` +
 //! `compaction-outcome-message.ts` + the compaction loader from
-//! `interactive-mode.ts` `startCompactionLoader`): the `◆ Context compacted`
+//! `interactive-mode.ts` `startCompactionLoader`): the `* Context compacted`
 //! transcript row with its collapsed summary, and the live
 //! `Compacting context...` loader that replaces the working loader while a
 //! compaction runs.
@@ -75,9 +75,9 @@ pub struct CompactionState {
 }
 
 /// The compaction loader rows (TS `Loader`: `["", spinner + message]`, both
-/// muted — the compaction loader colors spinner and text `muted`). The label
+/// muted -- the compaction loader colors spinner and text `muted`). The label
 /// is TS `startCompactionLoader`'s: the reason text, the custom instructions
-/// truncated to 60 columns as the focus (`truncateToWidth(..., 60, "…")`),
+/// truncated to 60 columns as the focus (`truncateToWidth(..., 60, "...")`),
 /// and the resolved `app.clear` cancel hint.
 #[must_use]
 pub fn render_compaction_loader(
@@ -88,14 +88,17 @@ pub fn render_compaction_loader(
     width: usize,
 ) -> Vec<Line> {
     let muted = theme.fg_style(ThemeColor::Muted);
-    let spinner = super::chat::LOADER_FRAMES[frame % super::chat::LOADER_FRAMES.len()];
+    let spinner = crate::glyphs::SPINNER[frame % crate::glyphs::SPINNER.len()];
     let focus = state
         .custom_instructions
         .as_deref()
         .filter(|instructions| !instructions.is_empty())
         .map(|instructions| {
-            let truncated =
-                truncate_line(&vec![Span::raw(instructions.to_string())], 60, "\u{2026}");
+            let truncated = truncate_line(
+                &vec![Span::raw(instructions.to_string())],
+                60,
+                crate::glyphs::ELLIPSIS,
+            );
             truncated
                 .iter()
                 .map(|span| span.content.as_str())
@@ -104,11 +107,11 @@ pub fn render_compaction_loader(
     let label = state.reason.loader_label(focus.as_deref(), cancel_hint);
     let mut row: Line = vec![Span::styled(
         " ".to_string(),
-        ratatui::style::Style::default(),
+        crate::style::Style::default(),
     )];
     row.push(Span::styled(spinner.to_string(), muted));
     // The gap between the spinner and the label is unstyled (TS's row
-    // resets the pen between the two muted runs) — a styled space would
+    // resets the pen between the two muted runs) -- a styled space would
     // merge into one SGR run and change the emitted frame.
     row.push(Span::raw(" ".to_string()));
     row.push(Span::styled(label, muted));
@@ -116,7 +119,7 @@ pub fn render_compaction_loader(
     if used < width {
         row.push(Span::styled(
             " ".repeat(width - used),
-            ratatui::style::Style::default(),
+            crate::style::Style::default(),
         ));
     }
     vec![Vec::new(), row]
@@ -130,10 +133,10 @@ pub const STREAM_BLOCK_MAX_ROWS: usize = 8;
 /// The live streamed-summary block under the compaction loader (the
 /// operator's "stream the compacted summary" feature): while the
 /// compaction model generates the summary, the expanded view (`all`
-/// detail) renders the accumulated text — one `compaction_summary_delta`
-/// append at a time — nested on the branch grammar, exactly like the
-/// expanded `◆ Context compacted` content that later replaces it: the
-/// first row hangs off the loader row on the dim `╰─ ` gutter, every
+/// detail) renders the accumulated text -- one `compaction_summary_delta`
+/// append at a time -- nested on the branch grammar, exactly like the
+/// expanded `* Context compacted` content that later replaces it: the
+/// first row hangs off the loader row on the dim branch (`BRANCH`) gutter, every
 /// continuation row on the four-column branch indent. Collapsed details
 /// render nothing (the loader stands alone, exactly like TS), and the
 /// settled `compaction_end` clears the whole block when its durable
@@ -153,9 +156,9 @@ pub fn render_compaction_stream(
     // [`STREAM_BLOCK_MAX_ROWS`] rows, so re-wrapping the whole growing
     // summary on every delta would be quadratic work for no visual gain.
     // Wrapping a tail window instead is exact: a text that fits in the
-    // cap rows holds at most cap * (content_width + 1) chars — inside
+    // cap rows holds at most cap * (content_width + 1) chars -- inside
     // the (cap + 1) * (content_width + 1) window, so it wraps whole and
-    // unclamped — and a clamped window wraps to at least cap + 1 rows
+    // unclamped -- and a clamped window wraps to at least cap + 1 rows
     // (no row holds more than content_width chars plus its newline), so
     // every kept row's boundaries live entirely inside the window. Only
     // the window's first row can be a partial cut, and it always
@@ -178,7 +181,7 @@ pub fn render_compaction_stream(
     // CONTENT, not the kept row count: the scalar window bounds
     // Unicode scalars while rows bound display columns, so a
     // combining-mark-heavy suffix can clamp yet wrap to fewer rows than
-    // the cap — the ellipsis still shows, because content older than
+    // the cap -- the ellipsis still shows, because content older than
     // the window was dropped either way.
     let truncated = clamped || wrapped.len() > STREAM_BLOCK_MAX_ROWS;
     let rows_to_paint = wrapped.len().saturating_sub(STREAM_BLOCK_MAX_ROWS)..;
@@ -187,12 +190,12 @@ pub fn render_compaction_stream(
         let mut row: Line = Vec::new();
         if truncated && offset == 0 {
             // The ellipsis marks the cut on the oldest kept row. Its two
-            // columns come out of that row's own content — the row is
-            // sliced to `content_width - 2` columns first — so the
+            // columns come out of that row's own content -- the row is
+            // sliced to `content_width - 2` columns first -- so the
             // prefix never pushes the line past the width and
             // `truncate_line` never clips the row's tail.
             row.push(Span::styled(
-                "\u{2026} ".to_string(),
+                format!("{} ", crate::glyphs::ELLIPSIS),
                 theme.fg_style(ThemeColor::Dim),
             ));
             row.extend(crate::width::slice_line_by_column(
@@ -217,15 +220,15 @@ pub fn render_compaction_stream(
             // The branch prefix alone can outgrow a tiny viewport, so
             // clip before padding (the expanded summary's own rule).
             let row = crate::width::truncate_line(&row, width, "");
-            crate::chat::pad_to(row, width, ratatui::style::Style::default())
+            crate::chat::pad_to(row, width, crate::style::Style::default())
         })
         .collect()
 }
 
-/// The `◆ Context compacted` transcript row (TS
+/// The `* Context compacted` transcript row (TS
 /// `CompactionSummaryMessageComponent`, an `ExpandableEventMessage`): the
 /// header line in `refinementHeader`, with the dim
-/// ` \u{b7} Compacted from N tokens[ \u{b7} focus: ...]` metadata on the
+/// ` - Compacted from N tokens[ - focus: ...]` metadata on the
 /// header row when expanded (TS #2779's header-row metadata), then the
 /// summary in `refinementSummary`. Collapsed (detail below `all`, TS
 /// `setExpanded(false)`): the header, then the whitespace-collapsed
@@ -242,75 +245,6 @@ pub fn render_compaction_summary(
     theme: &Theme,
     width: usize,
 ) -> Vec<Line> {
-    let mut rows = SummaryRows::Paint(Vec::new());
-    visit_summary(
-        summary,
-        tokens_before,
-        custom_instructions,
-        expanded,
-        theme,
-        width,
-        &mut rows,
-    );
-    match rows {
-        SummaryRows::Paint(output) => output,
-        SummaryRows::Count(_) => unreachable!("paint sink"),
-    }
-}
-
-pub(crate) fn count_compaction_summary(
-    summary: &str,
-    tokens_before: u64,
-    custom_instructions: Option<&str>,
-    expanded: bool,
-    theme: &Theme,
-    width: usize,
-) -> usize {
-    let mut rows = SummaryRows::Count(0);
-    visit_summary(
-        summary,
-        tokens_before,
-        custom_instructions,
-        expanded,
-        theme,
-        width,
-        &mut rows,
-    );
-    match rows {
-        SummaryRows::Count(count) => count,
-        SummaryRows::Paint(_) => unreachable!("count sink"),
-    }
-}
-
-enum SummaryRows {
-    Paint(Vec<Line>),
-    Count(usize),
-}
-
-impl SummaryRows {
-    /// The `Text(spans, 1, 0)` header row set: spans wrapped at `width - 2`,
-    /// one margin column, padded to the full width with the default style.
-    fn header(&mut self, line: &Line, width: usize) {
-        match self {
-            Self::Paint(output) => {
-                output.extend(crate::custom_message::render::text_rows(line, width));
-            }
-            Self::Count(count) => {
-                *count += crate::custom_message::geometry::text_row_count(line, width);
-            }
-        }
-    }
-}
-
-fn visit_summary(
-    summary: &str,
-    tokens_before: u64,
-    custom_instructions: Option<&str>,
-    expanded: bool,
-    theme: &Theme,
-    width: usize,
-    rows: &mut SummaryRows,
-) {
     let header = theme.fg_style(ThemeColor::RefinementHeader);
     let body = theme.fg_style(ThemeColor::RefinementSummary);
     let dim = theme.fg_style(ThemeColor::Dim);
@@ -321,55 +255,42 @@ fn visit_summary(
     };
     let focus = custom_instructions
         .filter(|instructions| !instructions.is_empty())
-        .map(|instructions| format!(" \u{b7} focus: {instructions}"))
+        .map(|instructions| format!(" - focus: {instructions}"))
         .unwrap_or_default();
-    let mut line: Line = vec![Span::styled("\u{25c6} Context compacted", header)];
+    let mut line: Line = vec![Span::styled(
+        format!("{} Context compacted", crate::glyphs::NOTICE),
+        header,
+    )];
     if expanded {
         line.push(Span::styled(
-            format!(
-                " \u{b7} Compacted from {} tokens{focus}",
-                grouped(tokens_before)
-            ),
+            format!(" - Compacted from {} tokens{focus}", grouped(tokens_before)),
             dim,
         ));
     }
-    rows.header(&line, width);
+    // The `Text(spans, 1, 0)` header row set: spans wrapped at `width - 2`,
+    // one margin column, padded to the full width with the default style.
+    let mut rows = crate::custom_message::render::text_rows(&line, width);
     if !expanded {
         let collapsed = summary.split_whitespace().collect::<Vec<_>>().join(" ");
-        match rows {
-            SummaryRows::Paint(output) => {
-                output.extend(collapsed_summary_rows(&collapsed, body, width));
-            }
-            SummaryRows::Count(count) => {
-                *count +=
-                    crate::width::wrapped_text_count(&collapsed, width.saturating_sub(1).max(1))
-                        .min(2);
-            }
-        }
-        return;
+        rows.extend(collapsed_summary_rows(&collapsed, body, width));
+        return rows;
     }
     // The expanded view: the raw summary through the markdown renderer
-    // (TS passes `this.message.summary` untrimmed — the final paragraph row
+    // (TS passes `this.message.summary` untrimmed -- the final paragraph row
     // keeps its trailing space) under the branch grammar: the first
-    // markdown row carries the dim `\u{2570}\u{2500} ` gutter hanging off
-    // the `\u{25c6}` header, every row after the matching indent. The
+    // markdown row carries the dim branch (`BRANCH`) gutter hanging off
+    // the `*` header, every row after the matching indent. The
     // metadata rides the header row above, so no spacer or continuation
     // metadata row follows the body.
     let mut md = crate::markdown::MarkdownStyle::from_theme(theme);
     md.body = body;
-    match rows {
-        SummaryRows::Count(count) => {
-            *count += crate::branch::branch_markdown_count(summary, &md, width);
-        }
-        SummaryRows::Paint(output) => {
-            output.extend(crate::branch::branch_markdown(summary, &md, theme, width));
-        }
-    }
+    rows.extend(crate::branch::branch_markdown(summary, &md, theme, width));
+    rows
 }
 
 /// The collapsed summary (TS `EventSummary`): whitespace collapsed, wrapped
 /// at `width - 1`, capped at two lines with the ellipsis on the second.
-fn collapsed_summary_rows(summary: &str, style: ratatui::style::Style, width: usize) -> Vec<Line> {
+fn collapsed_summary_rows(summary: &str, style: crate::style::Style, width: usize) -> Vec<Line> {
     let content_width = width.saturating_sub(1).max(1);
     let wrapped = wrap_text(summary, content_width);
     let mut lines: Vec<String> = wrapped
@@ -382,8 +303,12 @@ fn collapsed_summary_rows(summary: &str, style: ratatui::style::Style, width: us
         .collect();
     if lines.len() > 2 {
         lines.truncate(2);
-        let second = vec![Span::raw(format!("{} \u{2026}", lines[1]))];
-        let truncated = truncate_line(&second, content_width, "\u{2026}");
+        let second = vec![Span::raw(format!(
+            "{} {}",
+            lines[1],
+            crate::glyphs::ELLIPSIS
+        ))];
+        let truncated = truncate_line(&second, content_width, crate::glyphs::ELLIPSIS);
         lines[1] = truncated
             .iter()
             .map(|span| span.content.as_str())
@@ -395,7 +320,7 @@ fn collapsed_summary_rows(summary: &str, style: ratatui::style::Style, width: us
             crate::chat::pad_to(
                 vec![Span::styled(format!(" {line}"), style)],
                 width,
-                ratatui::style::Style::default(),
+                crate::style::Style::default(),
             )
         })
         .collect()
@@ -454,32 +379,32 @@ mod tests {
                 ),
                 "Ctrl+C"
             ),
-            "\u{280b} Compacting context (focus: focus on the goal)... (Ctrl+C to cancel)"
+            "| Compacting context (focus: focus on the goal)... (Ctrl+C to cancel)"
         );
         assert_eq!(
             loader_text(&state(CompactionReason::Manual, None), "Ctrl+C"),
-            "\u{280b} Compacting context... (Ctrl+C to cancel)"
+            "| Compacting context... (Ctrl+C to cancel)"
         );
         assert_eq!(
             loader_text(&state(CompactionReason::Requested, None), "Ctrl+C"),
-            "\u{280b} Agent requested compaction, compacting context... (Ctrl+C to cancel)"
+            "| Agent requested compaction, compacting context... (Ctrl+C to cancel)"
         );
         assert_eq!(
             loader_text(&state(CompactionReason::Overflow, None), "Ctrl+C"),
-            "\u{280b} Context overflow detected, Auto-compacting... (Ctrl+C to cancel)"
+            "| Context overflow detected, Auto-compacting... (Ctrl+C to cancel)"
         );
         assert_eq!(
             loader_text(&state(CompactionReason::Threshold, None), "Ctrl+C"),
-            "\u{280b} Auto-compacting... (Ctrl+C to cancel)"
+            "| Auto-compacting... (Ctrl+C to cancel)"
         );
     }
 
     /// The live streamed block renders only in the expanded detail
     /// (`all`): collapsed details keep the loader alone (TS geometry),
-    /// and the expanded block nests on the branch grammar — the gutter
+    /// and the expanded block nests on the branch grammar -- the gutter
     /// on the first content row hanging off the loader, the four-column
-    /// continuation indent on every row after — exactly like the
-    /// expanded `◆ Context compacted` content that settles it.
+    /// continuation indent on every row after -- exactly like the
+    /// expanded `* Context compacted` content that settles it.
     #[test]
     fn stream_block_renders_expanded_only_on_the_branch_grammar() {
         let state = streamed_state(
@@ -513,7 +438,7 @@ mod tests {
 
     /// The live block follows the generation: a summary longer than the
     /// cap renders its newest wrapped rows (a scrolling tail), with a
-    /// dim ellipsis marking the cut — the status area never outgrows
+    /// dim ellipsis marking the cut -- the status area never outgrows
     /// [`STREAM_BLOCK_MAX_ROWS`].
     #[test]
     fn stream_block_follows_the_generation_tail() {
@@ -526,8 +451,8 @@ mod tests {
         assert_eq!(rows.len(), STREAM_BLOCK_MAX_ROWS);
         let text = plain(&rows);
         assert!(
-            text[0].starts_with(&format!(" {}\u{2026}", crate::branch::BRANCH_GUTTER))
-                || text[0].contains('\u{2026}'),
+            text[0].starts_with(&format!(" {}...", crate::branch::BRANCH_GUTTER))
+                || text[0].contains("..."),
             "the cut tail is marked: {text:?}"
         );
         // The tail shows the NEWEST rows: the last rendered row carries
@@ -546,7 +471,7 @@ mod tests {
     /// The ellipsis marks dropped CONTENT, not the kept row count: a
     /// combining-mark-heavy summary (zero-width scalars ride every row,
     /// so the scalar window holds more display rows than usual) can
-    /// clamp yet wrap to fewer rows than the cap — the cut still shows
+    /// clamp yet wrap to fewer rows than the cap -- the cut still shows
     /// its marker (Macroscope round 3).
     #[test]
     fn stream_block_marks_the_cut_even_when_the_clamped_suffix_is_few_rows() {
@@ -562,10 +487,10 @@ mod tests {
         let rows = render_compaction_stream(&state, true, &theme(), 80);
         let text = plain(&rows);
         // The scalar window (693) clamps the 800-scalar summary, and the
-        // 400-column content wraps past the cap — but the invariant
+        // 400-column content wraps past the cap -- but the invariant
         // under test is the marker: the first rendered row carries it.
         assert!(
-            text.first().is_some_and(|row| row.contains('\u{2026}')),
+            text.first().is_some_and(|row| row.contains("...")),
             "the clamped cut shows its ellipsis: {text:?}"
         );
         assert!(
@@ -573,7 +498,7 @@ mod tests {
             "the cap bounds the block: {text:?}"
         );
         // And a SHORT combining-mark summary (inside the window, at most
-        // a few rows) stays unmarked — nothing was dropped.
+        // a few rows) stays unmarked -- nothing was dropped.
         let mut short = String::new();
         for _ in 0..20 {
             short.push('x');
@@ -583,7 +508,7 @@ mod tests {
         let rows = render_compaction_stream(&state, true, &theme(), 80);
         let text = plain(&rows);
         assert!(
-            !text.iter().any(|row| row.contains('\u{2026}')),
+            !text.iter().any(|row| row.contains("...")),
             "nothing was dropped, no marker: {text:?}"
         );
     }
@@ -593,7 +518,7 @@ mod tests {
         let long = "x".repeat(80);
         let label = loader_text(&state(CompactionReason::Manual, Some(long)), "Ctrl+C");
         assert!(
-            label.contains(&format!("(focus: {}…)", "x".repeat(59))),
+            label.contains(&format!("(focus: {}...)", "x".repeat(57))),
             "{label}"
         );
     }
@@ -611,7 +536,7 @@ mod tests {
         assert!(text[1].contains("Compacting context... (Ctrl+C to cancel)"));
         // One margin column, then the spinner (the working loader's row
         // geometry), all muted.
-        assert!(text[1].starts_with(&format!(" {}", crate::chat::LOADER_FRAMES[0])));
+        assert!(text[1].starts_with(&format!(" {}", crate::glyphs::SPINNER[0])));
     }
 
     #[test]
@@ -625,7 +550,7 @@ mod tests {
             60,
         );
         let text = plain(&rows);
-        assert_eq!(text[0].trim(), "\u{25c6} Context compacted");
+        assert_eq!(text[0].trim(), "* Context compacted");
         // Whitespace collapsed, one leading inset column, capped at 2 lines.
         assert_eq!(text[1].trim(), "The session covered: - task one - task two");
         assert_eq!(text.len(), 2, "a short summary renders no third line");
@@ -641,7 +566,7 @@ mod tests {
         let text = plain(&rows);
         assert_eq!(text.len(), 3, "header + two summary lines");
         assert!(
-            text[2].ends_with("\u{2026}"),
+            text[2].ends_with("..."),
             "the second line carries the ellipsis: {:?}",
             text[2]
         );
@@ -658,13 +583,13 @@ mod tests {
     }
 
     /// The expanded metadata rides the header row (TS #2779): the dim
-    /// ` \u{b7} Compacted from N tokens \u{b7} focus: ...` span after the header span.
+    /// ` - Compacted from N tokens - focus: ...` span after the header span.
     #[test]
     fn summary_row_expanded_metadata() {
         let rows =
             render_compaction_summary("the story so far", 1234, Some("tests"), true, &theme(), 80);
-        let header = "\u{25c6} Context compacted";
-        let meta = " \u{b7} Compacted from 1,234 tokens \u{b7} focus: tests";
+        let header = "* Context compacted";
+        let meta = " - Compacted from 1,234 tokens - focus: tests";
         let used = 1 + str_width(header) + str_width(meta);
         assert_eq!(
             rows[0],
@@ -679,9 +604,9 @@ mod tests {
     }
 
     /// The expanded body hangs on the branch grammar: the first markdown
-    /// row carries the dim `\u{2570}\u{2500} ` gutter hanging off the
-    /// `\u{25c6}` header (with its metadata), every row after the matching
-    /// indent — and nothing else below the body.
+    /// row carries the dim branch (`BRANCH`) gutter hanging off the
+    /// `*` header (with its metadata), every row after the matching
+    /// indent -- and nothing else below the body.
     #[test]
     fn summary_row_expanded_renders_markdown_body() {
         let rows = render_compaction_summary(
@@ -696,7 +621,7 @@ mod tests {
         assert_eq!(
             text,
             vec![
-                " \u{25c6} Context compacted \u{b7} Compacted from 100 tokens",
+                " * Context compacted - Compacted from 100 tokens",
                 format!(" {}Summary", crate::branch::BRANCH_GUTTER).as_str(),
                 // TS markdown pushes a blank row between adjacent blocks
                 // (the heading and the paragraph share no blank source
@@ -710,7 +635,7 @@ mod tests {
         // styles (headings the heading color, paragraphs the summary
         // body color); the continuation indent stays plain.
         assert_eq!(rows[1][1].style, theme().fg_style(ThemeColor::Dim));
-        assert_eq!(rows[3][0].style, ratatui::style::Style::default());
+        assert_eq!(rows[3][0].style, crate::style::Style::default());
     }
 
     #[test]

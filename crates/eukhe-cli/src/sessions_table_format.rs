@@ -1,5 +1,5 @@
-//! The `eukhe sessions` operator table: one line per agent — name,
-//! status, activity, staleness, last error, usage — rendered from the same
+//! The `eukhe sessions` operator table: one line per agent -- name,
+//! status, activity, staleness, last error, usage -- rendered from the same
 //! daemon `list` summaries `eukhe list` reads, ported from
 //! `cli/sessions-table-format.ts`. The activity wording comes from the
 //! shared roster branch table
@@ -115,7 +115,7 @@ fn session_activity_cell(summary: &Value) -> String {
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
-        .join(" \u{b7} ")
+        .join(" - ")
 }
 
 /// The name cell (TS `sessionNameCell`): names are user-provided; sanitize
@@ -218,7 +218,7 @@ fn is_stripped_control(c: char) -> bool {
 }
 
 fn truncate_cell(value: &str) -> String {
-    truncate_to_width(value, MAX_CELL_CHARS, "\u{2026}")
+    truncate_to_width(value, MAX_CELL_CHARS, "...")
 }
 
 #[cfg(test)]
@@ -296,8 +296,8 @@ mod tests {
 
     #[test]
     fn rows_render_the_ts_vectors() {
-        let capped_recap = format!("running tools \u{b7} {}…", "a".repeat(43));
-        let capped_name = format!("{}…", "n".repeat(59));
+        let capped_recap = format!("running tools - {}...", "a".repeat(41));
+        let capped_name = format!("{}...", "n".repeat(57));
         let vectors: Vec<(&str, Value, [&str; 6])> = vec![
             (
                 "thinking detail",
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn measures_wide_glyph_cells_by_display_width() {
         let sessions = [
-            make_summary(json!({ "sessionName": "中文" })),
+            make_summary(json!({ "sessionName": "\u{4e2d}\u{6587}" })),
             make_summary(json!({
                 "sessionName": "hello",
                 "summary": "\u{1f680}".repeat(40),
@@ -489,9 +489,9 @@ mod tests {
         let lines: Vec<&str> = table.lines().collect();
         // Scalar-length padding would misalign the CJK name; the recap cap
         // counts display columns, pair-safe.
-        assert!(lines[1].starts_with("中文   idle"), "{lines:?}");
+        assert!(lines[1].starts_with("\u{4e2d}\u{6587}   idle"), "{lines:?}");
         assert!(
-            lines[2].contains(&format!("{}…", "\u{1f680}".repeat(29))),
+            lines[2].contains(&format!("{}...", "\u{1f680}".repeat(28))),
             "{lines:?}"
         );
     }

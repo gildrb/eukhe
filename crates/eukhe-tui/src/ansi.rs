@@ -1,12 +1,12 @@
 //! ANSI encoding of styled lines (used by debug output and tests) and the
 //! general-purpose ANSI stripper (TS `stripAnsi` in utils.ts).
 
+use crate::style::{Color, Modifier};
 use crate::{Line, Span};
-use ratatui::style::{Color, Modifier};
 use std::fmt::Write;
 
 /// Remove all escape sequences (CSI, OSC, DCS, APC/PM/SOS, and ordinary
-/// two-char escapes), leaving plain text — the exact port of TS `stripAnsi`
+/// two-char escapes), leaving plain text -- the exact port of TS `stripAnsi`
 /// (utils.ts:899): the common CSI form goes first (its regex fast path),
 /// then the shared scanner (`escape_len`) handles the wider CSI grammar,
 /// control strings, and malformed sequences. An ESC immediately before a
@@ -23,7 +23,7 @@ pub fn strip_ansi(text: &str) -> String {
         return text.to_string();
     }
     // TS COMMON_CSI_REGEX: `\x1b\[[0-9;:?<=>]*[\x40-\x7e]`, anywhere in the
-    // string (including inside control strings — TS strips those too).
+    // string (including inside control strings -- TS strips those too).
     let mut common_csi_stripped = String::with_capacity(text.len());
     let bytes = text.as_bytes();
     let mut i = 0;
@@ -73,34 +73,41 @@ pub fn strip_ansi(text: &str) -> String {
     result
 }
 
-fn fg_code(color: Color) -> Option<String> {
-    Some(match color {
+fn fg_code(color: Color) -> String {
+    match color {
         Color::Reset => "39".to_string(),
         Color::Indexed(n) => format!("38;5;{n}"),
         Color::Rgb(r, g, b) => format!("38;2;{r};{g};{b}"),
-        _ => return None,
-    })
+    }
 }
 
-fn bg_code(color: Color) -> Option<String> {
-    Some(match color {
+fn bg_code(color: Color) -> String {
+    match color {
         Color::Reset => "49".to_string(),
         Color::Indexed(n) => format!("48;5;{n}"),
         Color::Rgb(r, g, b) => format!("48;2;{r};{g};{b}"),
-        _ => return None,
-    })
+    }
 }
 
-/// Encode a line as an ANSI string with SGR sequences.
+/// Encode a line as an ANSI string with SGR sequences. A style change
+/// resets the previous span's attributes first, so a plain span after a
+/// bold one is not painted bold.
 #[must_use]
 pub fn line_to_ansi(line: &Line) -> String {
     let mut out = String::new();
     let mut open = false;
+    let mut current = crate::style::Style::default();
     for span in line {
-        let codes = sgr_codes(span);
-        if let Some(codes) = codes {
-            let _ = write!(out, "\x1b[{codes}m");
-            open = true;
+        if span.style != current {
+            if open {
+                out.push_str("\x1b[0m");
+                open = false;
+            }
+            if let Some(codes) = sgr_codes(span) {
+                let _ = write!(out, "\x1b[{codes}m");
+                open = true;
+            }
+            current = span.style;
         }
         out.push_str(&span.content);
     }
@@ -131,11 +138,11 @@ fn sgr_codes(span: &Span) -> Option<String> {
         if span.style.add_modifier.contains(Modifier::DIM) {
             parts.push("2".into());
         }
-        if let Some(fg) = span.style.fg.and_then(fg_code) {
-            parts.push(fg);
+        if let Some(fg) = span.style.fg {
+            parts.push(fg_code(fg));
         }
-        if let Some(bg) = span.style.bg.and_then(bg_code) {
-            parts.push(bg);
+        if let Some(bg) = span.style.bg {
+            parts.push(bg_code(bg));
         }
     }
     if parts.is_empty() {
@@ -170,7 +177,27 @@ pub fn raw_span(s: &str) -> Span {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_ansi;
+    use super::{line_to_ansi, strip_ansi};
+    use crate::style::{Color, Modifier, Style};
+    use crate::Span;
+
+    /// Each span paints with its own attributes only: a style change
+    /// resets the previous one, and a repeated style writes nothing new.
+    #[test]
+    fn styles_reset_between_spans() {
+        let bold = Style::new().add_modifier(Modifier::BOLD);
+        let line = vec![
+            Span::styled("a", bold),
+            Span::raw("b"),
+            Span::styled("c", Style::new().fg(Color::Indexed(2))),
+            Span::styled("d", Style::new().fg(Color::Indexed(2))),
+            Span::styled("e", bold),
+        ];
+        assert_eq!(
+            line_to_ansi(&line),
+            "\x1b[1ma\x1b[0mb\x1b[38;5;2mcd\x1b[0m\x1b[1me\x1b[0m"
+        );
+    }
 
     /// Goldens generated from the TS `stripAnsi` (utils.ts:899, the
     /// installed parity ground truth): the common CSI fast path, OSC-8

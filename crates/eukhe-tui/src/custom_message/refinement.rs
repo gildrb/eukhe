@@ -53,13 +53,13 @@ pub(crate) fn refinement_outcome_entries(message: &Value, details: &Value) -> Ve
         .collect();
     let rollback_of = details.get("rollbackOf").and_then(Value::as_str);
     let outcome = refinement_outcome_line(edits, &applied, rollback_of);
-    let header = if outcome.starts_with("Harness refined \u{b7}") {
+    let header = if outcome.starts_with("Harness refined -") {
         "Harness refined".to_string()
     } else {
         outcome.clone()
     };
     let meta = format!(
-        "{outcome} \u{b7} Refinement {} \u{b7} {}{}",
+        "{outcome} - Refinement {} - {}{}",
         details
             .get("refinementId")
             .and_then(Value::as_str)
@@ -69,7 +69,7 @@ pub(crate) fn refinement_outcome_entries(message: &Value, details: &Value) -> Ve
             .and_then(Value::as_str)
             .unwrap_or("local"),
         rollback_of
-            .map(|id| format!(" \u{b7} rollback of {id}"))
+            .map(|id| format!(" - rollback of {id}"))
             .unwrap_or_default()
     );
     vec![ChatEntry::RefinementOutcome(Box::new(
@@ -106,31 +106,31 @@ fn refinement_outcome_line(
     };
     if edits.is_empty() {
         return if rollback_of.is_some() {
-            "Harness rollback unchanged \u{b7} no edits applied".to_string()
+            "Harness rollback unchanged - no edits applied".to_string()
         } else {
-            "Harness unchanged \u{b7} no edits applied".to_string()
+            "Harness unchanged - no edits applied".to_string()
         };
     }
     if applied.is_empty() {
-        return format!("{operation} failed \u{b7} 0/{} edits applied", edits.len());
+        return format!("{operation} failed - 0/{} edits applied", edits.len());
     }
     let count = applied.len();
     if count < edits.len() {
         return if rollback_of.is_some() {
             format!(
-                "Harness partially rolled back \u{b7} {count}/{} edits applied",
+                "Harness partially rolled back - {count}/{} edits applied",
                 edits.len()
             )
         } else {
             format!(
-                "Harness partially refined \u{b7} {count}/{} edits applied",
+                "Harness partially refined - {count}/{} edits applied",
                 edits.len()
             )
         };
     }
     if rollback_of.is_some() {
         return format!(
-            "Harness rollback completed \u{b7} {count} edit{} applied",
+            "Harness rollback completed - {count} edit{} applied",
             if count == 1 { "" } else { "s" }
         );
     }
@@ -164,9 +164,9 @@ fn refinement_outcome_line(
             (true, Some("delete")) => "deleted",
             _ => "changed",
         };
-        return format!("Harness refined \u{b7} {count} {kind} {action}");
+        return format!("Harness refined - {count} {kind} {action}");
     }
-    format!("Harness refined \u{b7} {count} edits applied")
+    format!("Harness refined - {count} edits applied")
 }
 
 /// TS `editLabel`/`editFieldRows` for one edit; `editScope(edit, fallback)`
@@ -372,7 +372,7 @@ fn edit_field_rows(edit: &Value) -> Vec<EditField> {
 }
 
 mod layout;
-pub(crate) use layout::{count_refinement_outcome, render_refinement_outcome};
+pub(crate) use layout::render_refinement_outcome;
 
 /// One line-diff op over the field's removed/added values.
 enum DiffOp {
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     // deliberate decomposed/non-NFC fixtures: the width engine must measure the raw sequences
     #[allow(clippy::unicode_not_nfc)]
-    fn geometry_matches_refinement_rows() {
+    fn refinement_rows_match_the_oracle() {
         let theme = theme();
         let mut row = RefinementOutcomeRow {
             header: "Harness refined".into(),
@@ -486,13 +486,6 @@ mod tests {
             ] {
                 row.summary = summary.repeat(5);
                 for detail in [Detail::Overview, Detail::Details, Detail::All] {
-                    let counts: Vec<_> = (0..80)
-                        .map(|width| count_refinement_outcome(&row, detail, &theme, width))
-                        .collect();
-                    let rendered: Vec<_> = (0..80)
-                        .map(|width| render_refinement_outcome(&row, detail, &theme, width).len())
-                        .collect();
-                    assert_eq!(counts, rendered, "{summary:?} {detail:?}");
                     for width in 0..80 {
                         assert_eq!(
                             render_refinement_outcome(&row, detail, &theme, width),
@@ -549,7 +542,7 @@ mod tests {
         assert_eq!(row.summary, "add a memory");
         assert_eq!(
             row.meta,
-            "Harness refined \u{b7} 1 memory created \u{b7} Refinement refine_1 \u{b7} local"
+            "Harness refined - 1 memory created - Refinement refine_1 - local"
         );
         assert_eq!(row.edits.len(), 1);
         assert_eq!(row.edits[0].label[0].text, "Created");
@@ -576,7 +569,7 @@ mod tests {
         let [ChatEntry::RefinementOutcome(row)] = empty.as_slice() else {
             panic!("empty-edits refinement row: {empty:?}");
         };
-        assert_eq!(row.header, "Harness unchanged \u{b7} no edits applied");
+        assert_eq!(row.header, "Harness unchanged - no edits applied");
 
         // An unknown scope fails the TS envelope check and renders the notice.
         let malformed = decoded(&json!({
@@ -617,12 +610,9 @@ mod tests {
                 ],
                 false
             ),
-            "Harness partially refined \u{b7} 1/2 edits applied"
+            "Harness partially refined - 1/2 edits applied"
         );
-        assert_eq!(
-            line(vec![], false),
-            "Harness unchanged \u{b7} no edits applied"
-        );
+        assert_eq!(line(vec![], false), "Harness unchanged - no edits applied");
         assert_eq!(
             line(
                 vec![
@@ -631,24 +621,24 @@ mod tests {
                 ],
                 false
             ),
-            "Harness refined \u{b7} 2 edits applied"
+            "Harness refined - 2 edits applied"
         );
         assert_eq!(
             line(vec![edit(true, "skill", "delete")], true),
-            "Harness rollback completed \u{b7} 1 edit applied"
+            "Harness rollback completed - 1 edit applied"
         );
         assert_eq!(
             line(
                 vec![edit(true, "skill", "delete"), edit(true, "skill", "delete")],
                 true
             ),
-            "Harness rollback completed \u{b7} 2 edits applied"
+            "Harness rollback completed - 2 edits applied"
         );
         // Edits present but none applied: the operation-failed line (TS
         // distinguishes this from the empty-edit "unchanged" line).
         assert_eq!(
             line(vec![edit(false, "memory", "create")], false),
-            "Harness refinement failed \u{b7} 0/1 edits applied"
+            "Harness refinement failed - 0/1 edits applied"
         );
         assert_eq!(
             line(
@@ -658,7 +648,7 @@ mod tests {
                 ],
                 true
             ),
-            "Harness rollback failed \u{b7} 0/2 edits applied"
+            "Harness rollback failed - 0/2 edits applied"
         );
     }
 
@@ -667,18 +657,17 @@ mod tests {
         let row = RefinementOutcomeRow {
             header: "Harness refined".to_string(),
             summary: "add a memory for the mission".to_string(),
-            meta: "Harness refined \u{b7} 1 memory created \u{b7} Refinement r1 \u{b7} local"
-                .to_string(),
+            meta: "Harness refined - 1 memory created - Refinement r1 - local".to_string(),
             edits: Vec::new(),
         };
         let rows = render_refinement_outcome(&row, Detail::Overview, &theme(), 60);
         // Blank, diamond header, summary row.
         assert!(rows[0].is_empty());
-        assert_eq!(flat(&rows[1]).trim_end(), " \u{25c6} Harness refined");
+        assert_eq!(flat(&rows[1]).trim_end(), " * Harness refined");
         assert_eq!(
             rows[1][1],
             Span::styled(
-                "\u{25c6} Harness refined".to_string(),
+                "* Harness refined".to_string(),
                 theme().fg_style(ThemeColor::RefinementHeader)
             )
         );
@@ -708,18 +697,18 @@ mod tests {
         // its ellipsis. `Detail::Details` expands edit diffs but not tool
         // output, so the summary stays collapsed there too.
         let rows = render_refinement_outcome(&row, Detail::Overview, &theme(), 14);
-        // TS `Text(…, 1, 0)` wraps the header at content width 12, so the
-        // `◆ Harness refined` header spans rows[1..3] before the summary.
-        assert_eq!(flat(&rows[1]).trim_end(), " \u{25c6} Harness");
+        // TS `Text(..., 1, 0)` wraps the header at content width 12, so the
+        // `* Harness refined` header spans rows[1..3] before the summary.
+        assert_eq!(flat(&rows[1]).trim_end(), " * Harness");
         assert_eq!(flat(&rows[2]).trim_end(), " refined");
         assert_eq!(flat(&rows[3]), " one two three");
-        assert_eq!(flat(&rows[4]), " four five si\u{2026}");
+        assert_eq!(flat(&rows[4]), " four five ...");
         let rows = render_refinement_outcome(&row, Detail::Details, &theme(), 60);
         assert!(rows
             .iter()
             .any(|r| flat(r) == " one two three four five six seven"));
         // Expanded (`Detail::All`): the raw summary hangs on the branch
-        // grammar — the first row carries the dim `╰─ ` gutter,
+        // grammar -- the first row carries the dim ``- ` gutter,
         // the newline-joined source rows the matching continuation indent.
         let rows = render_refinement_outcome(&row, Detail::All, &theme(), 60);
         assert_eq!(
@@ -740,8 +729,7 @@ mod tests {
         let row = RefinementOutcomeRow {
             header: "Harness refined".to_string(),
             summary: "add a memory".to_string(),
-            meta: "Harness refined \u{b7} 1 memory created \u{b7} Refinement r1 \u{b7} local"
-                .to_string(),
+            meta: "Harness refined - 1 memory created - Refinement r1 - local".to_string(),
             edits: vec![RefinementEditRow {
                 label: vec![
                     LabelPart {
@@ -775,13 +763,12 @@ mod tests {
             .collect();
         // The expanded block hangs on the branch grammar: the meta row
         // and every edit-section row sit on the continuation indent, each
-        // edit section's label row re-branches with the `\u{2570}\u{2500} `
+        // edit section's label row re-branches with the ``- `
         // gutter.
         let meta = text
             .iter()
             .position(|r| {
-                r.trim()
-                    == "Harness refined \u{b7} 1 memory created \u{b7} Refinement r1 \u{b7} local"
+                r.trim() == "Harness refined - 1 memory created - Refinement r1 - local"
                     && r.starts_with(crate::branch::BRANCH_INDENT)
             })
             .expect("meta row");

@@ -12,8 +12,8 @@
 //! (see `ctrl_char_id`, the term-enhanced-keys
 //! rows).
 
+use crossterm::event as ct;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::crossterm::event as ct;
 
 pub type KeyId = String;
 
@@ -30,7 +30,7 @@ pub fn key_event_to_id(key: &KeyEvent) -> Option<KeyId> {
     // TS-keyed binding never matches them. The prompt-editor keybind lane
     // (2026-09-24, documented divergence) binds the macOS Cmd keys: the
     // kitty protocol delivers them as the SUPER modifier, so a
-    // SUPER-modified key resolves to its `super+<key>` id — anything
+    // SUPER-modified key resolves to its `super+<key>` id -- anything
     // unbound still matches nothing. HYPER/META stay undecoded: no
     // binding names one and terminals never deliver the bits on their own.
     if key
@@ -99,7 +99,7 @@ pub fn key_event_to_id(key: &KeyEvent) -> Option<KeyId> {
                 }
                 // Shift+alt+letter: the CSI-u alternate resolves to the
                 // produced uppercase char with SHIFT cleared, and a legacy
-                // ESC+uppercase carries the SHIFT bit — both are the
+                // ESC+uppercase carries the SHIFT bit -- both are the
                 // TS `shift+alt+<letter>` identity (formatParsedKey).
                 let prefix = if shift || c.is_ascii_uppercase() {
                     "shift+alt+"
@@ -123,7 +123,7 @@ pub fn key_event_to_id(key: &KeyEvent) -> Option<KeyId> {
             }
             if c == ' ' {
                 // TS parseKey maps the raw space to the `space` key id
-                // (keys.ts:1280) — the printable decoders (`decode_printable`)
+                // (keys.ts:1280) -- the printable decoders (`decode_printable`)
                 // map it back for text surfaces.
                 if shift {
                     return Some("shift+space".into());
@@ -247,7 +247,7 @@ pub fn key_event_to_id(key: &KeyEvent) -> Option<KeyId> {
 ///   (Ghostty's `shift+enter=text:\n` mapping) and to enter otherwise
 ///   (a legacy LF is an Enter). A real Ctrl+J under kitty is the same
 ///   crossterm event as Ghostty's mapping, so it inserts the newline
-///   (TS leaves the CSI-u Ctrl+J unbound — documented divergence).
+///   (TS leaves the CSI-u Ctrl+J unbound -- documented divergence).
 /// - The xterm 0x1c-0x1f control-byte complement: crossterm folds it into
 ///   `Char('4'..='7') + CTRL`, but TS keeps the literal ids (`\x1c` is
 ///   "ctrl+\\", `\x1d` is "ctrl+]", `\x1f` is "ctrl+-"; `ctrl+]` and
@@ -341,7 +341,7 @@ mod tests {
         // (produced char, the CSI-u alternate form a kitty terminal sends):
         // shift+1 `CSI 49:33;2u`, shift+/ `CSI 47:63;2u`,
         // shift+' `CSI 39:34;2u`, shift+= `CSI 61:43;2u`,
-        // shift+; `CSI 59:58;2u` — the full dogfooded range.
+        // shift+; `CSI 59:58;2u` -- the full dogfooded range.
         let range = [
             ('!', "49:33"),
             ('?', "47:63"),
@@ -360,7 +360,7 @@ mod tests {
         }
     }
 
-    /// A kitty CSI-u event WITHOUT the shifted alternate (`CSI 61;2u` —
+    /// A kitty CSI-u event WITHOUT the shifted alternate (`CSI 61;2u` --
     /// no `report alternate keys`) arrives as the base key plus SHIFT;
     /// the id keeps the base character (TS `decodeKittyPrintable` falls
     /// back to the reported codepoint the same way).
@@ -371,8 +371,8 @@ mod tests {
     }
 
     /// The shifted range inserts through the editor: each event decodes to
-    /// the produced character and lands in the buffer (the dogfood class —
-    /// a shifted key that produced NOTHING — regresses here).
+    /// the produced character and lands in the buffer (the dogfood class --
+    /// a shifted key that produced NOTHING -- regresses here).
     #[test]
     fn editor_inserts_the_full_shifted_range() {
         let mut editor = crate::editor::Editor::new();
@@ -393,7 +393,7 @@ mod tests {
     }
 
     /// The kitty event-type matrix (keys.ts:505): a repeat behaves as a
-    /// press, a release is dropped — `CSI 97;1:2u` and `CSI 97;1:3u` are
+    /// press, a release is dropped -- `CSI 97;1:2u` and `CSI 97;1:3u` are
     /// the crossterm kinds Repeat/Release.
     #[test]
     fn kitty_repeats_press_and_releases_are_dropped() {
@@ -428,8 +428,8 @@ mod tests {
     /// alternate resolves to the produced uppercase char with SHIFT
     /// cleared (`shift+ctrl+o` arrives as Char('O')+CTRL), and the
     /// no-alternate form keeps the SHIFT bit (`CSI 111;5u` is
-    /// Char('o')+CTRL+SHIFT). Both report `shift+ctrl+o` — the bound
-    /// tree-filter id — and never fold into the wrong `ctrl+o`.
+    /// Char('o')+CTRL+SHIFT). Both report `shift+ctrl+o` -- the bound
+    /// tree-filter id -- and never fold into the wrong `ctrl+o`.
     #[test]
     fn shift_ctrl_and_alt_letters_report_the_shifted_identity() {
         // `CSI 111:79;5u` (alternate form): SHIFT consumed by crossterm.
@@ -520,7 +520,7 @@ mod tests {
 
     /// Super-modified SPECIAL keys keep their super identity (Bugbot
     /// round-1 fix): an unbound Cmd combo must match nothing instead of
-    /// falling through to the bare action — Cmd+Enter submitting the
+    /// falling through to the bare action -- Cmd+Enter submitting the
     /// prompt or Cmd+Backspace deleting a character would be surprising.
     #[test]
     fn super_modified_special_keys_keep_their_identity() {
@@ -654,7 +654,7 @@ mod tests {
     /// The macOS Cmd keys arrive as the SUPER modifier under the kitty
     /// protocol (prompt-editor-keybinds): every identity keeps its `super+`
     /// prefix so the Cmd bindings (undo/redo, select-all, line and doc
-    /// jumps, cut/copy) match — an unbound one still matches nothing.
+    /// jumps, cut/copy) match -- an unbound one still matches nothing.
     #[test]
     fn super_modified_keys_decode_to_super_ids() {
         let cases = [

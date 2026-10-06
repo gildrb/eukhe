@@ -2,7 +2,7 @@
 //! fetch lands an empty catalog, the daemon's `heartbeats_changed`
 //! broadcast re-reads the catalog, and the landed answer (promoted past
 //! the armed render barrier, the generation gate applied) repaints the
-//! row with its `◷ N` badge — the badge can only come from the
+//! row with its `@ N` badge: the badge can only come from the
 //! event-driven refetch, so the plan proves the whole wiring.
 
 use std::io::{BufRead, BufReader, Write};
@@ -246,7 +246,7 @@ fn view_options(socket: &std::path::Path) -> AgentsViewOptions {
 /// answer jumps the armed render barrier (without the daemon-answer
 /// promotion it queues behind the hold it satisfies, the deadline pops
 /// it, and `Done` ends the run before the badge ever paints), and the
-/// row renders the dock's `◷ N` vocabulary between its status icon and
+/// row renders the dock's `@ N` vocabulary between its status icon and
 /// its title.
 #[tokio::test]
 async fn the_row_renders_its_heartbeat_count_after_a_heartbeats_changed() {
@@ -257,7 +257,7 @@ async fn the_row_renders_its_heartbeat_count_after_a_heartbeats_changed() {
 
     let plan = AgentsHeadlessPlan {
         steps: vec![AgentsStep::WaitRender {
-            needle: "\u{25f7} 1".to_string(),
+            needle: "@ 1".to_string(),
             timeout_ms: 10_000,
         }],
         width: 120,
@@ -276,7 +276,7 @@ async fn the_row_renders_its_heartbeat_count_after_a_heartbeats_changed() {
         outcome
             .frames
             .last()
-            .is_some_and(|frame| frame.contains("\u{2022} \u{25f7} 1 live one")),
+            .is_some_and(|frame| frame.contains("* @ 1 live one")),
         "the run ended on the badge-rendered row:\n{:?}",
         outcome.frames.last()
     );

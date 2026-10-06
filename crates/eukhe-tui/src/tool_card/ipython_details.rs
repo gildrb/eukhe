@@ -179,7 +179,7 @@ pub(crate) fn is_edit_confirmation(text: Option<&str>, diffs: &[Value]) -> bool 
 /// counterpart agent's display name (TS `formatAgentMessageParticipant`
 /// with the `"sent"` direction: name, then active session id, session id,
 /// then `unknown`; the `to <role>` prefix and the role word fold into the
-/// viewer-relative arrow — the operator's 2026-09-25 directive).
+/// viewer-relative arrow -- the operator's 2026-09-25 directive).
 pub(crate) struct SentAgentMessage {
     pub(crate) message: String,
     pub(crate) delivered: bool,

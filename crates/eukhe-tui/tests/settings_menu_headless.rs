@@ -4,10 +4,9 @@
 //! value-cycling with its persisted writes, the Tab/number tab keys
 //! (the arrows' old tab job is rebinded away), the detail block's
 //! separator rule, the description-matched hint padding, the two
-//! open-into-a-setting regression pins (the top bar and the padding-x
-//! stay), the search field's edit keys after a no-match query, and the
-//! fullscreen setting's retirement (the always-fullscreen surface has no
-//! toggle left to advertise).
+//! open-into-a-setting regression pins (the menu's top rule and the
+//! padding-x stay), and the search field's edit keys after a no-match
+//! query.
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded
@@ -47,7 +46,7 @@ use serde_json::{json, Value};
 
 /// The rule row's glyph: the settings page's bars (the search field's
 /// borders, the detail block's separator).
-const RULE: &str = "\u{2500}";
+const RULE: &str = "-";
 
 struct MockSupervisor {
     listener: UnixListener,
@@ -397,7 +396,6 @@ fn options(socket: PathBuf, settings: Arc<RecordingSettings>) -> InteractiveOpti
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -512,7 +510,7 @@ fn the_settings_page_renders_the_spacing_and_the_new_keys() {
     );
     assert_eq!(rows[strip_index + 1], "", "the blank below the strip");
     assert!(
-        rows[strip_index + 2].starts_with("\u{203a} Auto-compact"),
+        rows[strip_index + 2].starts_with("> Auto-compact"),
         "the settings list begins below the blank"
     );
     // The detail block: the description's two-space padding, the
@@ -533,15 +531,10 @@ fn the_settings_page_renders_the_spacing_and_the_new_keys() {
     );
     assert!(
         rows[hint_index].starts_with(
-            "  Type to search · Tab/1-5 tabs · \u{2190}/\u{2192}/Enter/Space change · Esc close"
+            "  Type to search - Tab/1-5 tabs - left/right/Enter/Space change - Esc close"
         ),
         "the hint names the Tab/number tab keys and the arrow value keys: {:?}",
         rows[hint_index]
-    );
-    // The fullscreen row is retired from the settings page.
-    assert!(
-        !frames.join("\n").contains("Fullscreen rendering"),
-        "the fullscreen setting no longer lists"
     );
 }
 
@@ -630,24 +623,18 @@ fn tab_and_the_number_keys_move_the_tabs_not_the_arrows() {
     assert!(frame_with(&frames, "Warnings")
         .iter()
         .any(|row| row.contains("Quiet startup")));
-    // 3 jumped to Display — and the retired fullscreen row is not there.
+    // 3 jumped to Display.
     let display = frame_with(&frames, "Mermaid diagrams");
     assert!(display.iter().any(|row| row.contains("Theme")));
-    assert!(
-        !display
-            .iter()
-            .any(|row| row.contains("Fullscreen rendering")),
-        "the retired setting does not render"
-    );
 }
 
-/// Opening into a setting (the submenu) keeps the top bar and the
+/// Opening into a setting (the submenu) keeps the menu's top rule and the
 /// padding-x (the two regression pins): the full-width rule that
 /// separates the settings surface from the chat view stays over the
 /// submenu, and the setting's name and description keep the list rows'
 /// two-space padding — the submenu's own hint row too.
 #[test]
-fn opening_into_a_setting_keeps_the_bar_and_the_padding() {
+fn opening_into_a_setting_keeps_the_top_rule_and_the_padding() {
     let mut steps = open_settings();
     // 2 jumps to the Models tab; Enter opens the Thinking level submenu.
     steps.push(HeadlessStep::Key(key(KeyCode::Char('2'))));
@@ -664,11 +651,11 @@ fn opening_into_a_setting_keeps_the_bar_and_the_padding() {
         .iter()
         .position(|row| row == "  Thinking Level")
         .expect("the submenu title renders with its padding");
-    // The top bar stays: the rule row directly above the title.
+    // The top rule stays: the rule row directly above the title.
     assert_eq!(
         rows[title_index - 1],
         RULE.repeat(100),
-        "the menu's top bar stays over the submenu"
+        "the menu's top rule stays over the submenu"
     );
     // The description keeps its padding.
     let description = rows
@@ -678,54 +665,12 @@ fn opening_into_a_setting_keeps_the_bar_and_the_padding() {
     assert!(description.contains("Select reasoning depth for thinking-capable models"));
     // The submenu's options render through the shared menu-row grammar
     // (the session's levels from the connection state).
-    assert!(rows.iter().any(|row| row.contains("\u{203a} low")));
+    assert!(rows.iter().any(|row| row.contains("> low")));
     assert!(rows.iter().any(|row| row.contains("high")));
     // The back hint carries the description's padding too.
     assert!(rows
         .iter()
-        .any(|row| row.starts_with("  Enter select · Esc back")));
-}
-
-/// The fullscreen setting retires everywhere: no settings row on any
-/// tab, and the `/fullscreen` slash command no longer completes (the
-/// surface is fullscreen-only; a toggle for an unsupported mode is
-/// worse than none).
-#[test]
-fn the_fullscreen_setting_and_command_are_retired() {
-    let mut steps = open_settings();
-    // Walk every tab and collect the frames.
-    for digit in ['1', '2', '3', '4', '5'] {
-        steps.push(HeadlessStep::Key(key(KeyCode::Char(digit))));
-        steps.push(HeadlessStep::WaitMs(100));
-    }
-    steps.push(HeadlessStep::WaitMs(150));
-    let (frames, _) = run_plan(steps);
-    let all = frames.join("\n");
-    assert!(
-        !all.contains("Fullscreen rendering"),
-        "no tab lists the retired setting: {all}"
-    );
-    assert!(
-        !all.contains("Alternate-screen UI"),
-        "the retired setting's description is gone: {all}"
-    );
-
-    // The slash menu: /full completes to nothing fullscreen-shaped.
-    let (frames, _) = run_plan(vec![
-        HeadlessStep::WaitMs(300),
-        HeadlessStep::Type("/full".to_string()),
-        HeadlessStep::SettleIdle,
-        HeadlessStep::WaitMs(200),
-    ]);
-    let all = frames.join("\n");
-    assert!(
-        !all.contains("Toggle fullscreen"),
-        "the retired command no longer completes: {all}"
-    );
-    assert!(
-        !all.contains("Fullscreen (alternate screen)"),
-        "the retired command's description is gone: {all}"
-    );
+        .any(|row| row.starts_with("  Enter select - Esc back")));
 }
 
 /// The search field keeps its edit keys after a no-match query: the

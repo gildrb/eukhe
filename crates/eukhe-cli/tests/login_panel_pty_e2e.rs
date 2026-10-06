@@ -20,9 +20,10 @@
 //! Real-terminal e2e for the inline auth panel (the `/login` Prime
 //! Inference team picker): the product's terminal renderer runs on a
 //! pty, and the harness proves the login flow NEVER takes the terminal
-//! over — no alternate-screen leave, no screen clear, no mouse-tracking
-//! release — while the panel and the team picker render inline (the TS
-//! `LoginDialogComponent` + `PrimeTeamSelectorComponent` surfaces).
+//! over -- no screen clear, no bracketed-paste release (the old suspend
+//! bracket) -- while the panel and the team picker render in the live
+//! area (the TS `LoginDialogComponent` + `PrimeTeamSelectorComponent`
+//! surfaces).
 //!
 //! The child halves re-execute this binary in terminal mode against a
 //! mock supervisor: the `/login` Prime Inference child (a scripted
@@ -35,6 +36,7 @@
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -212,7 +214,6 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
         session: SessionSelection::New,
         initial_message: None,
         show_images: true,
-        fullscreen_mouse: true,
         theme: "eukhe".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
@@ -387,26 +388,25 @@ fn model_sign_in_child_options(socket: PathBuf) -> InteractiveOptions {
     }
 }
 
+/// The startup contract: the inline surface arms bracketed paste before
+/// any input is handled.
+const PASTE_ENABLE: &str = "\x1b[?2004h";
 /// The terminal takeover signatures the login flow must never emit: the
-/// alternate-screen leave (`?1049l`), the screen clear (`\x1b[2J`), and
-/// the SGR mouse-tracking release (the `renderer.suspend` bracket's
-/// bytes).
-const ALT_SCREEN_LEAVE: &str = "\x1b[?1049l";
+/// screen clear (`\x1b[2J`) and the bracketed-paste release (the
+/// `renderer.suspend` bracket's bytes).
 const SCREEN_CLEAR: &str = "\x1b[2J";
-const MOUSE_DISABLE: &str = "\x1b[?1006l\x1b[?1002l";
+const PASTE_DISABLE: &str = "\x1b[?2004l";
 
 /// The terminal-sequence e2e: `/login` selects the Prime Inference row,
 /// the login drives the inline auth panel, and the pty's byte stream
 /// shows the panel and the team picker rendering WITHOUT any terminal
-/// takeover — the old flow's alt-screen leave + screen clear + raw
-/// stdin prompt never happen.
+/// takeover -- the old flow's screen clear + raw stdin prompt never
+/// happen.
 #[test]
 fn prime_login_renders_the_team_picker_without_a_terminal_takeover() {
     let mut harness = LoginPanelHarness::start();
 
-    // The startup contract: the fullscreen surface enters the alternate
-    // screen before any input is handled.
-    harness.wait_from_start("\x1b[?1049h", "the startup alternate-screen enter");
+    harness.wait_from_start(PASTE_ENABLE, "the startup bracketed-paste enable");
 
     // `/login` opens the provider selector.
     harness.write(b"/login\r");
@@ -416,13 +416,7 @@ fn prime_login_renders_the_team_picker_without_a_terminal_takeover() {
     // window from here to the settled status is the takeover-free proof.
     let mark = harness.mark();
     harness.write(b"\r");
-    // The picker's mount needle is its styled subtitle: ratatui's diff
-    // paints only changed cells, and a direct open's transcript (the
-    // splash-suppressed content frame) leaves the picker's title row
-    // blank behind — the title's default-styled spaces match the blank
-    // cells and are skipped, so the title paints word by word. The
-    // subtitle carries its own style, so its whole line paints in one
-    // contiguous run.
+    // The picker's mount needle is its subtitle line.
     harness.wait_from(
         mark,
         "Choose which account pays for Prime Inference usage.",
@@ -441,21 +435,16 @@ fn prime_login_renders_the_team_picker_without_a_terminal_takeover() {
         "the settled login status",
     );
 
-    // The terminal takeover never happened: no alternate-screen leave,
-    // no screen clear, no mouse-tracking release anywhere in the login
-    // window (the whole flow stayed on the TUI's alternate screen).
+    // The terminal takeover never happened: no screen clear and no
+    // bracketed-paste release anywhere in the login window.
     let window = harness.window_since(mark);
-    assert!(
-        find_subsequence(window, ALT_SCREEN_LEAVE.as_bytes()).is_none(),
-        "the login never leaves the alternate screen"
-    );
     assert!(
         find_subsequence(window, SCREEN_CLEAR.as_bytes()).is_none(),
         "the login never clears the screen"
     );
     assert!(
-        find_subsequence(window, MOUSE_DISABLE.as_bytes()).is_none(),
-        "the login never releases the mouse tracking (the old suspend bracket)"
+        find_subsequence(window, PASTE_DISABLE.as_bytes()).is_none(),
+        "the login never releases bracketed paste (the old suspend bracket)"
     );
     // The numbered stdin prompt is gone too: the flow renders through
     // the panel, not the plain terminal.
@@ -469,14 +458,13 @@ fn prime_login_renders_the_team_picker_without_a_terminal_takeover() {
 
 /// The `/mcp`-view login e2e (the operator's exact action): Enter on the
 /// connection row runs the login flow, and the pty's byte stream shows
-/// the panel rendering INLINE — no alternate-screen leave, no screen
-/// clear, no mouse-tracking release — with the settled status landing
-/// as a transcript note.
+/// the panel rendering INLINE -- no screen clear, no bracketed-paste
+/// release -- with the settled status landing as a transcript note.
 #[test]
 fn mcp_view_enter_login_renders_inline_without_a_terminal_takeover() {
     let mut harness = LoginPanelHarness::start_mcp();
 
-    harness.wait_from_start("\x1b[?1049h", "the startup alternate-screen enter");
+    harness.wait_from_start(PASTE_ENABLE, "the startup bracketed-paste enable");
 
     // `/mcp` opens the connections view with the roster's Linear row.
     harness.write(b"/mcp\r");
@@ -488,14 +476,10 @@ fn mcp_view_enter_login_renders_inline_without_a_terminal_takeover() {
     // terminal takeover.
     let mark = harness.mark();
     harness.write(b"\r");
-    // Ratatui's diff paints changed cells word by word, so the waits pin
-    // single-word needles: the progress line only renders inside the
-    // panel, and the settle note's word is unique after the view closed.
-    // Ratatui's diff paints changed cells word by word and the frame
-    // scheduler coalesces (a fast scripted flow can settle inside one
-    // frame), so the wait pins the settle note's word — unique after the
-    // view closed — and the window assertion below proves the panel
-    // mounted inline (its title's first word).
+    // The frame scheduler coalesces (a fast scripted flow can settle
+    // inside one frame), so the wait pins the settle note's word --
+    // unique after the view closed -- and the window assertion below
+    // proves the panel mounted inline (its title's first word).
     harness.wait_from(mark, "Connected", "the settled login status");
 
     let window = harness.window_since(mark);
@@ -504,16 +488,12 @@ fn mcp_view_enter_login_renders_inline_without_a_terminal_takeover() {
         "the inline login panel mounted (its title word)"
     );
     assert!(
-        find_subsequence(window, ALT_SCREEN_LEAVE.as_bytes()).is_none(),
-        "the /mcp login never leaves the alternate screen"
-    );
-    assert!(
         find_subsequence(window, SCREEN_CLEAR.as_bytes()).is_none(),
         "the /mcp login never clears the screen"
     );
     assert!(
-        find_subsequence(window, MOUSE_DISABLE.as_bytes()).is_none(),
-        "the /mcp login never releases the mouse tracking (the old suspend bracket)"
+        find_subsequence(window, PASTE_DISABLE.as_bytes()).is_none(),
+        "the /mcp login never releases bracketed paste (the old suspend bracket)"
     );
 
     harness.finish();
@@ -531,7 +511,7 @@ fn mcp_view_enter_login_renders_inline_without_a_terminal_takeover() {
 fn model_picker_routes_the_sign_in_flow_and_applies_after_login() {
     let mut harness = LoginPanelHarness::start_model_sign_in();
 
-    harness.wait_from_start("\x1b[?1049h", "the startup alternate-screen enter");
+    harness.wait_from_start(PASTE_ENABLE, "the startup bracketed-paste enable");
 
     // `/model` opens the picker: the unauthenticated provider's row stays
     // visible and carries the sign-in marking (the TS "require sign in"
@@ -661,7 +641,21 @@ impl LoginPanelHarness {
     }
 }
 
+/// A child of this very binary with the pty slave as its CONTROLLING
+/// terminal (setsid + TIOCSCTTY): the renderer sizes itself from
+/// `/dev/tty`, which must be the harness pty, never the runner's own
+/// terminal.
 fn spawn_child(socket: &std::path::Path, slave: &OwnedFd, child_test: &str) -> Child {
+    fn claim_controlling_tty(fd: i32) -> std::io::Result<()> {
+        nix::unistd::setsid()?;
+        // SAFETY: TIOCSCTTY on the inherited pty slave fd, post-fork.
+        let rc = unsafe { libc::ioctl(fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
+        if rc < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+    let slave_fd = slave.as_raw_fd();
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
@@ -671,6 +665,12 @@ fn spawn_child(socket: &std::path::Path, slave: &OwnedFd, child_test: &str) -> C
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
         .stderr(slave_as_stdio(slave));
+    // SAFETY: the pre_exec hook is the supported std seam for
+    // session/terminal setup; it runs post-fork pre-exec in the child
+    // only and cannot allocate.
+    unsafe {
+        command.pre_exec(move || claim_controlling_tty(slave_fd));
+    }
     command.spawn().expect("spawn child")
 }
 

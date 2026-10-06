@@ -81,7 +81,7 @@ impl ToolResultView {
 }
 
 /// The `[Image: ...]` text standing in for one hidden image block (TS
-/// `imageFallback(mimeType, dims)` with `includeImageDimensions: false` —
+/// `imageFallback(mimeType, dims)` with `includeImageDimensions: false` --
 /// the interactive transcript's two mount sites pass the knob off, so the
 /// hidden text never parses image dimensions; the export renderer is the
 /// dims-including consumer). The payload is never decoded: the text is
@@ -94,7 +94,7 @@ fn hidden_image_text(block: &Value) -> String {
     crate::terminal_image::image_fallback(mime, None, None)
 }
 
-/// The image block's rendered size segment: `140.1KB` — the elided payload's
+/// The image block's rendered size segment: `140.1KB` -- the elided payload's
 /// byte count when the transcript load replaced the data, the payload's own
 /// length otherwise. Never touches the payload beyond its length.
 pub(crate) fn image_block_size_text(block: &Value) -> String {
@@ -175,13 +175,13 @@ pub(crate) fn panel_status(card: &ToolCallCard) -> PanelStatus {
     }
 }
 
-/// The panel header row: `label · status` (TS `panelHeader`).
+/// The panel header row: `label * status` (TS `panelHeader`).
 pub(crate) fn panel_header(card: &ToolCallCard, frame: usize, theme: &Theme) -> Line {
     use crate::theme::ThemeColor::{BashMode, Dim, Error, Muted, Success};
     let muted = theme.fg_style(Muted);
     let dim = theme.fg_style(Dim);
     let mut header: Line = vec![Span::styled(card.name.clone(), muted)];
-    header.push(Span::styled(" \u{00b7} ".to_string(), dim));
+    header.push(Span::styled(crate::glyphs::SEP.to_string(), dim));
     let status: Line = match panel_status(card) {
         PanelStatus::Error => vec![Span::styled("error".to_string(), theme.fg_style(Error))],
         PanelStatus::Done => vec![Span::styled("done".to_string(), theme.fg_style(Success))],
@@ -197,7 +197,7 @@ pub(crate) fn panel_header(card: &ToolCallCard, frame: usize, theme: &Theme) -> 
 
 /// One tool-panel row: content indented by 2, padded to the full width on
 /// the panel background (TS `toolPanelLine`).
-pub(crate) fn panel_line(content: Line, bg: ratatui::style::Style, width: usize) -> Line {
+pub(crate) fn panel_line(content: Line, bg: crate::style::Style, width: usize) -> Line {
     let padding = 2usize;
     let content_width = layout::panel_content_width(width);
     let mut line: Line = vec![Span::styled(" ".repeat(padding), bg)];
@@ -239,9 +239,9 @@ pub fn format_size(bytes: usize) -> String {
 
 /// Image result blocks render their metadata row below the card (TS
 /// `tool-execution.ts` adds one `Image` component per result image
-/// block, with `fallbackOnly` and the `\u{2570}\u{2500}` prefix, in the
+/// block, with `fallbackOnly` and the `BRANCH` prefix, in the
 /// toolOutput fallback color). Blocks without data or a mime type, and
-/// every image while `show_images` is false, render nothing here — the
+/// every image while `show_images` is false, render nothing here -- the
 /// hidden ones contribute their `[Image: ...]` text through
 /// [`ToolResultView::text_output`] instead.
 ///
@@ -251,7 +251,7 @@ pub fn format_size(bytes: usize) -> String {
 /// of image payload paid that decode on every visited card. The
 /// dimensions now come from [`get_image_dimensions_prefix`]'s bounded
 /// prefix read, and a payload whose header does not parse from the
-/// prefix renders its size instead — `[image/jpeg · 140.1KB omitted]` —
+/// prefix renders its size instead -- `[image/jpeg * 140.1KB omitted]` --
 /// so the base64 is never cloned or decoded in full.
 ///
 /// [`get_image_dimensions_prefix`]:
@@ -265,7 +265,11 @@ pub(crate) fn image_rows(
     let mut rows: Vec<Line> = Vec::new();
     for block in eligible_image_blocks(result, show_images) {
         rows.push(vec![Span::styled(
-            format!("    \u{2570}\u{2500} {}", image_block_row_text(block)),
+            format!(
+                "    {}{}",
+                crate::glyphs::BRANCH,
+                image_block_row_text(block)
+            ),
             fallback,
         )]);
     }
@@ -273,8 +277,8 @@ pub(crate) fn image_rows(
 }
 
 /// The metadata-row text for one shown image block: the TS `Image`
-/// component's fallback-only shape `[mime · WxH]`, or the size-only
-/// placeholder `[mime · 140.1KB omitted]` when the dimensions are not
+/// component's fallback-only shape `[mime * WxH]`, or the size-only
+/// placeholder `[mime * 140.1KB omitted]` when the dimensions are not
 /// available. The dimensions come from the elision marker's
 /// `widthPx`/`heightPx` when the transcript load elided the payload, and
 /// from the payload's bounded prefix otherwise (never a full decode).
@@ -287,10 +291,10 @@ pub(crate) fn image_block_row_text(block: &Value) -> String {
     let dimensions = image_block_dimensions(block);
     match dimensions {
         Some(dimensions) => format!(
-            "[{mime} \u{b7} {}\u{d7}{}]",
+            "[{mime} - {}x{}]",
             dimensions.width_px, dimensions.height_px
         ),
-        None => format!("[{mime} \u{b7} {} omitted]", image_block_size_text(block)),
+        None => format!("[{mime} - {} omitted]", image_block_size_text(block)),
     }
 }
 
@@ -331,49 +335,13 @@ fn eligible_image_blocks(
         .into_iter()
         .flat_map(|result| result.content.iter())
         .filter(move |block| {
-            // The paint eligibility mirrors the geometry count's
-            // (`eligible_images`): a block whose `data` is not a string
-            // renders no row on either path, so a `data: null` block can
-            // never make the cached card heights diverge from rendering.
+            // A block whose `data` or `mimeType` is not a string renders
+            // no image row.
             show_images
                 && block.get("type").and_then(Value::as_str) == Some("image")
                 && block.get("data").and_then(Value::as_str).is_some()
                 && block.get("mimeType").and_then(Value::as_str).is_some()
         })
-}
-
-fn eligible_images(
-    result: Option<&ToolResultView>,
-    show_images: bool,
-) -> impl Iterator<Item = (&str, &str)> {
-    result
-        .into_iter()
-        .flat_map(|result| &result.content)
-        .filter_map(move |block| {
-            if !show_images || block.get("type").and_then(Value::as_str) != Some("image") {
-                return None;
-            }
-            Some((
-                block.get("data")?.as_str()?,
-                block.get("mimeType")?.as_str()?,
-            ))
-        })
-}
-
-/// Exact row geometry for every tool shell without painting output rows.
-pub(crate) fn count_tool_card(
-    card: &ToolCallCard,
-    frame: usize,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-    show_images: bool,
-) -> usize {
-    match card.name.as_str() {
-        "ipython" => ipython::count(card, frame, detail, theme, width, show_images),
-        "bash" => bash::count(card, frame, detail, theme, width, show_images),
-        _ => generic::count(card, frame, detail, theme, width, show_images),
-    }
 }
 
 #[cfg(test)]
@@ -413,16 +381,13 @@ mod tests {
     fn shown_image_rows_render_metadata_without_materializing_the_payload() {
         // A payload whose header parses but whose tail (past the bounded
         // prefix) is invalid base64: the row still renders its dimensions,
-        // proving the payload was never decoded in full — a full decode
+        // proving the payload was never decoded in full -- a full decode
         // would have failed and rendered the size placeholder instead.
         let payload = format!("{}{}{}", tiny_png(64, 32), "A".repeat(4096), "!".repeat(64));
         let result = image_result(&payload, "image/png");
         let rows = image_rows(result.as_ref(), true, &theme());
         let flat: Vec<String> = rows.iter().map(text_of).collect();
-        assert_eq!(
-            flat,
-            vec!["    \u{2570}\u{2500} [image/png \u{b7} 64\u{d7}32]".to_string()]
-        );
+        assert_eq!(flat, vec!["    `- [image/png - 64x32]".to_string()]);
         // The render never emits any of the payload's tail bytes.
         assert!(flat.iter().all(|row| !row.contains("AAAA")));
     }
@@ -437,7 +402,7 @@ mod tests {
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert_eq!(
             flat,
-            vec!["    \u{2570}\u{2500} [image/jpeg \u{b7} 182.0KB omitted]".to_string()]
+            vec!["    `- [image/jpeg - 182.0KB omitted]".to_string()]
         );
     }
 
@@ -459,7 +424,7 @@ mod tests {
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert_eq!(
             flat,
-            vec!["    \u{2570}\u{2500} [image/jpeg \u{b7} 182.0KB omitted]".to_string()]
+            vec!["    `- [image/jpeg - 182.0KB omitted]".to_string()]
         );
     }
 
@@ -488,10 +453,8 @@ mod tests {
     }
 
     #[test]
-    fn non_string_data_blocks_render_no_rows_on_either_path() {
-        // A `data: null` image block is not an image row: the paint
-        // eligibility mirrors the geometry count's, so the cached card
-        // heights cannot diverge from rendering (the Macroscope finding).
+    fn non_string_data_blocks_render_no_rows() {
+        // A `data: null` image block is not an image row.
         let result = Some(ToolResultView {
             content: vec![serde_json::json!({
                 "type": "image",
@@ -502,8 +465,7 @@ mod tests {
             is_error: false,
         });
         assert!(image_rows(result.as_ref(), true, &theme()).is_empty());
-        assert_eq!(eligible_images(result.as_ref(), true).count(), 0);
-        // The elided marker (data: "") stays a real row on both paths.
+        // The elided marker (data: "") stays a real row.
         let elided = Some(ToolResultView {
             content: vec![serde_json::json!({
                 "type": "image",
@@ -515,7 +477,6 @@ mod tests {
             is_error: false,
         });
         assert_eq!(image_rows(elided.as_ref(), true, &theme()).len(), 1);
-        assert_eq!(eligible_images(elided.as_ref(), true).count(), 1);
     }
 
     #[test]

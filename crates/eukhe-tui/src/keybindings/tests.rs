@@ -17,8 +17,6 @@ fn defaults_match_ts() {
     let kb = KeybindingsManager::new();
     assert!(kb.matches("ctrl+o", "app.tools.expand"));
     assert!(kb.matches("escape", "app.input.clear"));
-    assert!(kb.matches("ctrl+shift+down", "tui.viewport.follow"));
-    assert!(kb.matches("shift+alt+up", "tui.viewport.top"));
     assert!(kb.matches("ctrl+w", "tui.editor.deleteWordBackward"));
     assert!(kb.matches("alt+backspace", "tui.editor.deleteWordBackward"));
     assert!(kb.matches("ctrl+-", "tui.editor.undo"));
@@ -175,11 +173,7 @@ fn editor_keybind_parity_defaults_resolve() {
     assert!(kb.matches("shift+down", "tui.editor.selectDown"));
     assert!(kb.matches("shift+alt+right", "tui.editor.selectWordRight"));
     assert!(kb.matches("shift+end", "tui.editor.selectLineEnd"));
-    assert!(kb.matches("shift+alt+down", "tui.editor.selectParagraphDown"));
-    // `shift+ctrl+down` is the viewport-follow key: it must not also
-    // claim the editor's paragraph-select (the session dispatch owns
-    // it first, so binding both would make the editor default dead).
-    assert!(!kb.matches("shift+ctrl+down", "tui.editor.selectParagraphDown"));
+    assert!(kb.matches("shift+ctrl+down", "tui.editor.selectParagraphDown"));
     assert!(kb.matches("ctrl+t", "tui.editor.transposeChars"));
     assert!(kb.matches("ctrl+x", "tui.editor.cutSelection"));
     assert!(kb.matches("ctrl+shift+c", "tui.editor.copySelection"));
@@ -233,7 +227,7 @@ fn matching_is_case_and_order_insensitive() {
     let kb = KeybindingsManager::with_user_bindings(cfg(&[("app.tools.expand", &["Ctrl+O"])]));
     assert!(kb.matches("ctrl+o", "app.tools.expand"));
     // A ctrl+shift binding matches the event id with shift first.
-    assert!(kb.matches("shift+ctrl+down", "tui.viewport.follow"));
+    assert!(kb.matches("shift+ctrl+z", "tui.editor.redo"));
     // "esc" and "escape" name the same key (TS matchesKey).
     assert!(kb.matches("esc", "tui.select.cancel"));
     assert!(kb.matches("escape", "tui.select.cancel"));
@@ -440,15 +434,15 @@ fn effective_config_covers_every_definition() {
         TUI_KEYBINDINGS.len() + APP_KEYBINDINGS.len()
     );
     assert_eq!(
-        effective.get("tui.viewport.follow"),
-        Some(&vec!["ctrl+shift+down".to_string()])
+        effective.get("tui.editor.selectParagraphDown"),
+        Some(&vec!["shift+ctrl+down".to_string()])
     );
 }
 
 #[test]
 fn formats_key_text() {
     assert_eq!(format_key_text("ctrl+o"), "Ctrl+O");
-    assert_eq!(format_key_text("shift+alt+up"), "Shift+Alt+\u{2191}");
+    assert_eq!(format_key_text("shift+alt+up"), "Shift+Alt+up");
     assert_eq!(format_key_text("escape"), "Esc");
     assert_eq!(format_key_text("ctrl+o/alt+o"), "Ctrl+O/Alt+O");
 }
@@ -464,7 +458,7 @@ fn formats_alt_label_per_platform() {
     assert_eq!(format_key_text_on("alt+b", LabelPlatform::Other), "Alt+B");
     assert_eq!(
         format_key_text_on("shift+alt+left", LabelPlatform::Macos),
-        "Shift+Option+\u{2190}"
+        "Shift+Option+left"
     );
     // Multiple bindings split by `/` keep their platform label per part,
     // and control is never relabeled as Cmd.
