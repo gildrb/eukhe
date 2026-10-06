@@ -315,6 +315,7 @@ pub(crate) fn incident_report_text(
             source: Some(log_source.source.clone()),
             scanned_count: Some(log_source.scanned_count),
             skipped_count: Some(log_source.skipped_count),
+            styling: crate::styling::Styling::for_stdout(),
         },
     );
     Ok(Some(report.text))

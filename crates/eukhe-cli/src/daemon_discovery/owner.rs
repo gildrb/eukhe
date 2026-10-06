@@ -180,7 +180,7 @@ pub(crate) fn socket_holder(socket_path: &Path) -> Option<SocketHolder> {
 }
 
 /// Every process holding the listening socket at `socket_path` (Linux:
-/// `/proc/net/unix` inode → `/proc/<pid>/fd`).
+/// `/proc/net/unix` inode -> `/proc/<pid>/fd`).
 #[cfg(target_os = "linux")]
 fn listening_owners(socket_path: &Path) -> Vec<SocketOwner> {
     use std::os::unix::fs::MetadataExt as _;

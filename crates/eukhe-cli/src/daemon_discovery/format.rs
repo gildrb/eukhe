@@ -5,6 +5,7 @@
 //! differential corpus) is plain.
 
 use super::{DaemonInfo, DaemonStatus};
+use crate::styling::{Sgr, Styling};
 
 /// The wire name of a status (TS serializes the kebab-case literal).
 fn status_name(status: DaemonStatus) -> String {
@@ -16,50 +17,10 @@ fn status_name(status: DaemonStatus) -> String {
     }
 }
 
-/// ANSI wrapper honoring chalk's enable rule (TTY + no `NO_COLOR`).
-fn paint(code: &str, text: &str) -> String {
-    if use_color() {
-        format!(
-            "\x1b[{code}m{text}\x1b[{reset}m",
-            reset = reset_code(code),
-            code = code
-        )
-    } else {
-        text.to_string()
-    }
-}
-
-fn use_color() -> bool {
-    std::env::var_os("NO_COLOR").is_none() && std::io::IsTerminal::is_terminal(&std::io::stdout())
-}
-
-/// Chalk's reset code per open code (bold/dim close with 22, colors with 39).
-fn reset_code(code: &str) -> &'static str {
-    match code {
-        "2" => "22",
-        _ => "39",
-    }
-}
-
-/// `chalk.green`
-fn green(text: &str) -> String {
-    paint("32", text)
-}
-
-/// `chalk.red`
-fn red(text: &str) -> String {
-    paint("31", text)
-}
-
-/// `chalk.dim`
-fn dim(text: &str) -> String {
-    paint("2", text)
-}
-
 /// The discovered-daemon table (TS `formatDaemonListTable`): socket, pid,
 /// version, status, sessions, uptime; the default socket is starred with a
 /// footnote.
-pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo]) -> String {
+pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo], styling: Styling) -> String {
     let headers = ["socket", "pid", "version", "status", "sessions", "uptime"];
     let rows: Vec<[String; 6]> = daemons
         .iter()
@@ -72,7 +33,7 @@ pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo]) -> String {
                 },
                 daemon.pid.map(|pid| pid.to_string()).unwrap_or_default(),
                 daemon.version.clone().unwrap_or_default(),
-                color_status(daemon.status, &status_name(daemon.status)),
+                color_status(styling, daemon.status, &status_name(daemon.status)),
                 daemon
                     .session_count
                     .map(|count| count.to_string())
@@ -86,7 +47,7 @@ pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo]) -> String {
         .enumerate()
         .map(|(column, header)| {
             rows.iter()
-                .map(|row| row[column].chars().count())
+                .map(|row| eukhe_tui::width::str_width(&row[column]))
                 .chain([header.len()])
                 .max()
                 .unwrap_or(0)
@@ -110,7 +71,10 @@ pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo]) -> String {
     }
     let table = lines.join("\n");
     if daemons.iter().any(|daemon| daemon.is_default) {
-        format!("{table}\n\n{}", dim("* default background service"))
+        format!(
+            "{table}\n\n{}",
+            styling.paint(Sgr::Dim, "* default background service")
+        )
     } else {
         table
     }
@@ -118,13 +82,14 @@ pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo]) -> String {
 
 /// The status cell carries its severity color (TS `colorStatus`); the column
 /// width math runs on the visible text, not the escape codes.
-fn color_status(status: DaemonStatus, value: &str) -> String {
-    match status {
-        DaemonStatus::Current => green(value),
-        DaemonStatus::Stale => paint("33", value),
-        DaemonStatus::Unreachable => red(value),
-        DaemonStatus::OrphanFile => dim(value),
-    }
+fn color_status(styling: Styling, status: DaemonStatus, value: &str) -> String {
+    let code = match status {
+        DaemonStatus::Current => Sgr::Green,
+        DaemonStatus::Stale => Sgr::Yellow,
+        DaemonStatus::Unreachable => Sgr::Red,
+        DaemonStatus::OrphanFile => Sgr::Dim,
+    };
+    styling.paint(code, value)
 }
 
 /// Compact uptime (TS `formatUptime`): seconds, minutes, hours, days, weeks.
@@ -150,9 +115,9 @@ pub(crate) fn format_uptime(uptime_seconds: Option<u64>) -> String {
     format!("{}w", days / 7)
 }
 
-/// Pad to a display width (TS `padEnd`).
+/// Pad to a display width (TS `padEnd`); escape codes take no columns.
 fn pad_end(text: &str, width: usize) -> String {
-    let length = text.chars().count();
+    let length = eukhe_tui::width::str_width(text);
     if length >= width {
         text.to_string()
     } else {
@@ -167,11 +132,18 @@ pub(crate) fn print_reap_report(reaped: &[(String, String)], skipped: &[(String,
         println!("No background services found.");
         return;
     }
+    let styling = Styling::for_stdout();
     for (socket_path, action) in reaped {
-        println!("{}", green(&format!("reaped {socket_path}: {action}")));
+        println!(
+            "{}",
+            styling.paint(Sgr::Green, &format!("reaped {socket_path}: {action}"))
+        );
     }
     for (socket_path, reason) in skipped {
-        println!("{}", dim(&format!("kept   {socket_path}: {reason}")));
+        println!(
+            "{}",
+            styling.paint(Sgr::Dim, &format!("kept   {socket_path}: {reason}"))
+        );
     }
 }
 
@@ -182,11 +154,18 @@ pub(crate) fn print_shutdown_report(stopped: &[(String, String)], failed: &[(Str
         println!("No background services found.");
         return;
     }
+    let styling = Styling::for_stdout();
     for (socket_path, action) in stopped {
-        println!("{}", green(&format!("stopped {socket_path}: {action}")));
+        println!(
+            "{}",
+            styling.paint(Sgr::Green, &format!("stopped {socket_path}: {action}"))
+        );
     }
     for (socket_path, reason) in failed {
-        println!("{}", red(&format!("failed  {socket_path}: {reason}")));
+        println!(
+            "{}",
+            styling.paint(Sgr::Red, &format!("failed  {socket_path}: {reason}"))
+        );
     }
 }
 
@@ -214,10 +193,13 @@ mod tests {
 
     #[test]
     fn table_matches_the_ts_layout() {
-        let table = format_daemon_list_table(&[
-            daemon("/tmp/eukhe-1000/daemon.sock", DaemonStatus::Current, true),
-            daemon("/tmp/other.sock", DaemonStatus::Stale, false),
-        ]);
+        let table = format_daemon_list_table(
+            &[
+                daemon("/tmp/eukhe-1000/daemon.sock", DaemonStatus::Current, true),
+                daemon("/tmp/other.sock", DaemonStatus::Stale, false),
+            ],
+            Styling::Plain,
+        );
         // Column widths: socket 29 (the starred default path), pid 3,
         // version 7, status 7, sessions 8, uptime 6; two-space gutters.
         let expected_header = [

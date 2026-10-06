@@ -55,6 +55,7 @@ pub(crate) mod provider_login;
 pub(crate) mod public_command;
 pub(crate) mod session_export;
 pub(crate) mod sessions_table_format;
+pub(crate) mod styling;
 pub(crate) mod subscription_login;
 pub(crate) mod telemetry_notice;
 pub(crate) mod traces_login;

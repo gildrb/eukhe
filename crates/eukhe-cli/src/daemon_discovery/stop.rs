@@ -46,7 +46,10 @@ pub(crate) fn run_ps(json: bool, root: &DaemonStateRoot) {
         println!("No background services found.");
         return;
     }
-    println!("{}", super::format_daemon_list_table(&daemons));
+    println!(
+        "{}",
+        super::format_daemon_list_table(&daemons, crate::styling::Styling::for_stdout())
+    );
 }
 
 /// `doctor --fix` (TS `runReap`): clean up clearly-safe daemons. Returns the
@@ -191,7 +194,11 @@ pub(crate) fn run_shutdown_all(json: bool, force: bool, root: &DaemonStateRoot) 
             if !prompt_yes_no(
                 "Stop every agent and background service? Active work will be interrupted.",
             ) {
-                println!("\x1b[2mShutdown cancelled.\x1b[22m");
+                println!(
+                    "{}",
+                    crate::styling::Styling::for_stdout()
+                        .paint(crate::styling::Sgr::Dim, "Shutdown cancelled.")
+                );
                 return 0;
             }
             run_shutdown_converging(json, force, root)

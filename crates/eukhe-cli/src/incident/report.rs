@@ -6,9 +6,9 @@ use eukhe_types::incident::{
     format_incident_duration, IncidentCategory, IncidentEvent, IncidentLogEntry, IncidentSeverity,
 };
 use std::collections::HashMap;
-use std::io::IsTerminal as _;
 
 use super::time::format_incident_time;
+use crate::styling::{Sgr, Styling};
 
 /// The resolved window and filters of one report (TS
 /// `IncidentReportOptions`).
@@ -20,6 +20,7 @@ pub(crate) struct IncidentReportOptions {
     pub(crate) source: Option<String>,
     pub(crate) scanned_count: Option<usize>,
     pub(crate) skipped_count: Option<usize>,
+    pub(crate) styling: Styling,
 }
 
 /// One rendered report (TS `IncidentReport`).
@@ -31,32 +32,13 @@ pub(crate) struct IncidentReport {
 /// TS `colorizeSeverity` rides chalk (auto-disabled off-TTY and under
 /// `NO_COLOR`); the palette matches the TS: red for critical/error,
 /// yellow for warn, dim for info.
-fn colorize_severity(severity: IncidentSeverity, label: &str) -> String {
-    match severity {
-        IncidentSeverity::Critical | IncidentSeverity::Error => paint("31", label),
-        IncidentSeverity::Warn => paint("33", label),
-        IncidentSeverity::Info => paint("2", label),
-    }
-}
-
-/// `chalk.dim`.
-fn dim(text: &str) -> String {
-    paint("2", text)
-}
-
-/// The ANSI wrapper honoring chalk's enable rule (TTY + no `NO_COLOR`),
-/// with chalk's reset codes (bold/dim close with 22, colors with 39).
-fn paint(code: &str, text: &str) -> String {
-    if use_color() {
-        let reset = if code == "2" { "22" } else { "39" };
-        format!("\x1b[{code}m{text}\x1b[{reset}m")
-    } else {
-        text.to_string()
-    }
-}
-
-fn use_color() -> bool {
-    std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
+fn colorize_severity(styling: Styling, severity: IncidentSeverity, label: &str) -> String {
+    let code = match severity {
+        IncidentSeverity::Critical | IncidentSeverity::Error => Sgr::Red,
+        IncidentSeverity::Warn => Sgr::Yellow,
+        IncidentSeverity::Info => Sgr::Dim,
+    };
+    styling.paint(code, label)
 }
 
 /// One aggregated timeline row: identical events collapse to a count with
@@ -194,6 +176,7 @@ pub(crate) fn build_incident_report(
                     "  {}  {}  {}{}",
                     format_incident_time(group.first.time_ms),
                     colorize_severity(
+                        options.styling,
                         group.first.severity,
                         &format!("{:<8}", group.first.severity)
                     ),
@@ -203,7 +186,7 @@ pub(crate) fn build_incident_report(
             })
             .collect();
         if lines.is_empty() {
-            lines.push(format!("  {}", dim("(none)")));
+            lines.push(format!("  {}", options.styling.paint(Sgr::Dim, "(none)")));
         }
         sections.push(vec![title.to_string()].into_iter().chain(lines).collect());
     }

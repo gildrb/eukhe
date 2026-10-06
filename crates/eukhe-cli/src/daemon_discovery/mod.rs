@@ -21,7 +21,7 @@
 //! is in scope only for invocations configured with that same socket.)
 //!
 //! Containment: every scan, probe, and stop is scoped to an explicit
-//! [`DaemonStateRoot`] handed in by the caller — the CLI passes the
+//! [`DaemonStateRoot`] handed in by the caller -- the CLI passes the
 //! env-resolved current root, tests pass only fixture directories they
 //! created. A daemon outside the root an invocation was given is invisible
 //! to it, always. Unit tests additionally refuse the never-touch dirs (see
@@ -194,7 +194,7 @@ fn inside(directory: Option<&Path>, parent: &Path) -> bool {
     }
 }
 
-/// Worker sockets: `worker-*.sock` files (TS `isWorkerSocketPath`) — the
+/// Worker sockets: `worker-*.sock` files (TS `isWorkerSocketPath`) -- the
 /// supervisor's own socket is never a worker socket. A worker socket sits
 /// beside its own supervisor's socket, wherever that is, so the name alone
 /// identifies it; every caller applies the state-root scope separately.
