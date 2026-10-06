@@ -315,14 +315,18 @@ fn an_over_budget_body_drops_without_cloning() {
     let dir = tempfile::tempdir().unwrap();
     let dir_path = dir.path().join("request-payloads");
     let capture = RequestPayloadCapture::at(&dir_path, 8);
-    // The stall: a many-node body the writer serializes for far longer
-    // than the three records below take, so the earlier bodies'
-    // reservations hold while the third is priced — the drop is the
-    // budget's, not the drain's timing.
-    let stall = json!({
-        "marker": "stall",
-        "messages": (0..20_000_u32).map(|seq| json!({ "seq": seq })).collect::<Vec<_>>()
-    });
+    // Hold the writer at its gate, so the earlier bodies' reservations
+    // hold while the third is priced — the drop is the budget's, not the
+    // drain's timing. The first handoff walks a writer idle in `recv` to
+    // the gate.
+    let writer_hold = super::WRITER_GATE.hold();
+    capture.record(
+        &json!({ "marker": "first" }),
+        &agent_model(),
+        Some("sess-timing"),
+        0,
+    );
+    writer_hold.wait_for_parked_writer();
     // Three bodies that each estimate near a third of the budget: the
     // third would cross it and drops at the budget gate (the estimate
     // already carries the transient-copies multiplier).
@@ -331,11 +335,11 @@ fn an_over_budget_body_drops_without_cloning() {
     let body_z = json!({ "marker": "budget-z", "body": "z".repeat(8 * 1024 * 1024) });
     assert!(payload_bytes(&body_x) * 2 < REQUEST_PAYLOAD_BUDGET_BYTES);
     assert!(payload_bytes(&body_x) * 3 > REQUEST_PAYLOAD_BUDGET_BYTES);
-    capture.record(&stall, &agent_model(), Some("sess-timing"), 0);
     capture.record(&body_x, &agent_model(), Some("sess-timing"), 1);
     capture.record(&body_y, &agent_model(), Some("sess-timing"), 2);
     capture.record(&body_z, &agent_model(), Some("sess-timing"), 3);
-    // The drain lands the stall and the first two bodies only.
+    // The drain lands the first body and the next two only.
+    drop(writer_hold);
     wait_for_payload_files(&dir_path, 3);
     wait_for_drained_queue();
     capture.record(
@@ -357,7 +361,7 @@ fn an_over_budget_body_drops_without_cloning() {
         .collect::<Vec<_>>();
     assert_eq!(
         landed,
-        ["stall", "budget-x", "budget-y", "recovered"],
+        ["first", "budget-x", "budget-y", "recovered"],
         "the over-budget body never landed; the recovered handoff did"
     );
     assert!(
@@ -547,13 +551,18 @@ fn a_saturated_queue_drops_without_cloning() {
     let dir_path = dir.path().join("request-payloads");
     // The ring keeps every body: the count assertions need no eviction.
     let capture = RequestPayloadCapture::at(&dir_path, 4 * REQUEST_PAYLOAD_CAPTURE_KEEP);
-    // The stall body: a many-node body the writer serializes for far
-    // longer than the whole test window, so no slot frees mid-probe.
-    let stall = json!({
-        "marker": "stall",
-        "messages": (0..100_000_u32).map(|seq| json!({ "seq": seq })).collect::<Vec<_>>()
-    });
-    capture.record(&stall, &agent_model(), Some("sess-timing"), 1);
+    // Hold the writer at its gate for the whole probe, so no slot frees
+    // mid-probe however the threads are scheduled: the first handoff
+    // walks a writer idle in `recv` to the gate, and the fill waits for
+    // it there.
+    let writer_hold = super::WRITER_GATE.hold();
+    capture.record(
+        &json!({ "marker": "first" }),
+        &agent_model(),
+        Some("sess-timing"),
+        1,
+    );
+    writer_hold.wait_for_parked_writer();
     // The fill: the queue is saturated against the reserve counter.
     let fills = fill_until_saturated(&capture, "fill");
     // The probe: the same shape as the calibration body — its clone is
@@ -571,9 +580,10 @@ fn a_saturated_queue_drops_without_cloning() {
         probe_cost + probe_cost < clone_cost,
         "the saturated handoff must not pay the clone: probe {probe_cost:?} vs clone {clone_cost:?}"
     );
-    // The drain lands the stall body and every fill; the probe never
+    // The drain lands the first body and every fill; the probe never
     // queued, so it never lands. A fresh handoff after the drain still
     // reserves and lands (no reservation leak).
+    drop(writer_hold);
     wait_for_drained_queue();
     capture.record(
         &json!({ "marker": "recovered" }),
@@ -597,7 +607,7 @@ fn a_saturated_queue_drops_without_cloning() {
     assert_eq!(
         landed.len(),
         fill_count + 2,
-        "the stall body, every fill, and the recovery — the probe exists nowhere"
+        "the first body, every fill, and the recovery — the probe exists nowhere"
     );
     assert!(
         !landed.iter().any(|name| {
@@ -626,13 +636,17 @@ fn concurrent_producers_drop_at_the_reserve_when_the_queue_is_full() {
     // most the one job it may already be waiting for, then stops at the
     // gate until the storm is over.
     let writer_hold = super::WRITER_GATE.hold();
-    // The first handoff arms the writer (the fill reads its counter).
+    // The first handoff arms the writer (the fill reads its counter) and
+    // walks a writer idle in `recv` to the gate. The fill waits for it
+    // there: a writer that took the job late (the scheduler decides
+    // when) would free a slot mid-storm.
     capture.record(
         &json!({ "marker": "first" }),
         &agent_model(),
         Some("sess-timing"),
         1,
     );
+    writer_hold.wait_for_parked_writer();
     let fills = fill_until_saturated(&capture, "fill");
     // The storm: many concurrent producers, each with its own marker,
     // racing the full queue. Every one drops at the reserve check —

@@ -55,18 +55,33 @@ pub(crate) static WRITER_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex:
 /// writer takes no further job off the queue (it waits on the gate before
 /// each `recv`), so a saturated queue stays saturated however the test's
 /// threads are scheduled. A writer already parked in `recv` when the hold
-/// begins takes at most that one job before stopping at the gate.
+/// begins takes at most that one job, at whatever moment the scheduler
+/// runs it, before stopping at the gate: a test that needs the queue
+/// frozen hands it a job and awaits [`WriterHold::wait_for_parked_writer`].
 #[cfg(all(test, unix))]
 pub(crate) static WRITER_GATE: WriterGate = WriterGate {
-    held: std::sync::Mutex::new(false),
-    opened: std::sync::Condvar::new(),
+    state: std::sync::Mutex::new(GateState {
+        held: false,
+        writer_parked: false,
+    }),
+    changed: std::sync::Condvar::new(),
 };
 
 /// See [`WRITER_GATE`].
 #[cfg(all(test, unix))]
 pub(crate) struct WriterGate {
-    held: std::sync::Mutex<bool>,
-    opened: std::sync::Condvar,
+    state: std::sync::Mutex<GateState>,
+    /// Signals both directions: the hold's release to the writer, the
+    /// writer's arrival at the closed gate to the test.
+    changed: std::sync::Condvar,
+}
+
+#[cfg(all(test, unix))]
+struct GateState {
+    held: bool,
+    /// The writer waits at the closed gate: it takes no job until the
+    /// hold drops.
+    writer_parked: bool,
 }
 
 #[cfg(all(test, unix))]
@@ -74,25 +89,28 @@ impl WriterGate {
     /// Close the gate until the returned hold drops (a failing test
     /// still reopens it on unwind, so the shared writer never wedges).
     pub(crate) fn hold(&'static self) -> WriterHold {
-        *self
-            .held
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        self.lock().held = true;
         WriterHold { gate: self }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, GateState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Block the writer while the gate is held.
     fn pass(&self) {
-        let mut held = self
-            .held
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        while *held {
-            held = self
-                .opened
-                .wait(held)
+        let mut state = self.lock();
+        while state.held {
+            state.writer_parked = true;
+            self.changed.notify_all();
+            state = self
+                .changed
+                .wait(state)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
+        state.writer_parked = false;
     }
 }
 
@@ -103,14 +121,35 @@ pub(crate) struct WriterHold {
 }
 
 #[cfg(all(test, unix))]
+impl WriterHold {
+    /// Block until the writer waits at the closed gate, so the queue
+    /// holds exactly what is handed off from here on. The writer only
+    /// reaches the gate after finishing a job (or straight from its
+    /// spawn), so the caller hands it one first: a writer idle in `recv`
+    /// would otherwise never arrive.
+    pub(crate) fn wait_for_parked_writer(&self) {
+        let (state, wait) = self
+            .gate
+            .changed
+            .wait_timeout_while(
+                self.gate.lock(),
+                std::time::Duration::from_secs(60),
+                |state| !state.writer_parked,
+            )
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        drop(state);
+        assert!(
+            !wait.timed_out(),
+            "the capture writer never parked at the closed gate"
+        );
+    }
+}
+
+#[cfg(all(test, unix))]
 impl Drop for WriterHold {
     fn drop(&mut self) {
-        *self
-            .gate
-            .held
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = false;
-        self.gate.opened.notify_all();
+        self.gate.lock().held = false;
+        self.gate.changed.notify_all();
     }
 }
 
