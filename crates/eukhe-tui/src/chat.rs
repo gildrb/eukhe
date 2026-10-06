@@ -98,6 +98,10 @@ pub enum ChatEntry {
     /// `showStatus` / `showWarning` / `showError` rows (startup notices,
     /// client notes, turn errors).
     Status { text: String, kind: StatusKind },
+    /// A status note of labeled links (the `/share` result): each link is
+    /// one soft-wrapped block, a single logical line at any width, so
+    /// selecting or copying it yields the exact URL.
+    StatusLinks(Vec<StatusLink>),
     /// The user's submitted prompt.
     User { text: String },
     /// A durable session-command echo row (`session_slash_command`):
@@ -143,6 +147,15 @@ pub enum ChatEntry {
     /// print; rendered by the `chat_view_block` module): one collapsed
     /// summary row, the full `<chat>` text when expanded.
     ChatView(Box<eukhe_types::daemon::ChatViewSnapshot>),
+}
+
+/// One labeled link of a [`ChatEntry::StatusLinks`] note.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StatusLink {
+    /// ASCII label shown before the link (`Share URL:`).
+    pub label: String,
+    /// The link, never broken across lines.
+    pub url: String,
 }
 
 // The card types live in `tool_card`; re-exported here because the

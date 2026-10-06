@@ -119,6 +119,32 @@ impl AgentView {
                 rows.extend(render_text_rows(text, style, width));
                 rows
             }
+            ChatEntry::StatusLinks(links) => {
+                let style = self.theme.fg_style(ThemeColor::Dim);
+                let link = if crate::hyperlinks::hyperlinks_enabled() {
+                    crate::soft_wrap::Link::Hyperlink
+                } else {
+                    crate::soft_wrap::Link::Plain
+                };
+                let mut rows = vec![Vec::new()];
+                for entry in links {
+                    // The label is the block's indent, so the link stays one
+                    // logical line the terminal selects and copies whole;
+                    // process-supplied text never carries controls.
+                    let indent = format!(" {} ", entry.label);
+                    let url = crate::menu_panel::scrub_controls(&entry.url).replace('\n', "");
+                    let mut block = crate::soft_wrap::rows(&indent, &url, style, width, link);
+                    // The label reads in the note's tone, like the link.
+                    if let Some(span) = block
+                        .first_mut()
+                        .and_then(|row| row.iter_mut().find(|span| span.content == indent))
+                    {
+                        span.style = style;
+                    }
+                    rows.extend(block);
+                }
+                rows
+            }
             ChatEntry::User { text } => {
                 let mut rows = Vec::new();
                 // TS `addMessageToChat` separates a user submission from
@@ -309,5 +335,79 @@ impl AgentView {
                 crate::chat_view_block::render_chat_view(view, detail, &self.theme, width, !first)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::StatusLink;
+    use crate::theme::{ColorMode, Theme};
+
+    const PREVIEW: &str = "https://pi.dev/session/#0123456789abcdef0123456789abcdef";
+    const GIST: &str = "https://gist.github.com/testuser/0123456789abcdef0123456789abcdef";
+    const WIDTH: usize = 24;
+
+    fn share_view() -> AgentView {
+        let mut view = AgentView::new(Theme::builtin("eukhe", ColorMode::TrueColor));
+        view.push_entry(ChatEntry::User {
+            text: "/share".to_string(),
+        });
+        view.push_entry(ChatEntry::StatusLinks(vec![
+            StatusLink {
+                label: "Share URL:".to_string(),
+                url: PREVIEW.to_string(),
+            },
+            StatusLink {
+                label: "Gist:".to_string(),
+                url: GIST.to_string(),
+            },
+        ]));
+        view
+    }
+
+    /// The `/share` links narrower than the terminal stay one logical
+    /// line each: in the rows, in the painted bytes (history and live go
+    /// through the inline writer), and in a fullscreen window.
+    #[test]
+    fn share_links_never_break_at_a_narrow_width() {
+        let _global = crate::inline_term::live_area_lock();
+        for hyperlinks in [false, true] {
+            crate::hyperlinks::set_hyperlinks_override(Some(hyperlinks));
+            let mut view = share_view();
+            let frame = view.compose(WIDTH, 40);
+            let rows: Vec<Line> = frame.history.iter().chain(&frame.live).cloned().collect();
+            let logical = crate::soft_wrap::logical_lines(&rows);
+            assert!(
+                logical.contains(&format!(" Share URL: {PREVIEW}")),
+                "{logical:?}"
+            );
+            assert!(logical.contains(&format!(" Gist: {GIST}")), "{logical:?}");
+
+            let mut out = Vec::new();
+            crate::inline_term::InlineTerminal::new(40)
+                .paint(
+                    &mut out,
+                    crate::inline_term::InlineFrame {
+                        history: &frame.history,
+                        live: &frame.live,
+                        cursor: None,
+                    },
+                )
+                .unwrap();
+            let painted = crate::ansi::strip_ansi(&String::from_utf8(out).unwrap());
+            assert!(!painted.contains('\x1b'), "{painted:?}");
+            assert!(
+                painted.contains(&format!(" Share URL: {PREVIEW}")),
+                "{painted:?}"
+            );
+            assert!(painted.contains(&format!(" Gist: {GIST}")), "{painted:?}");
+
+            let mut view = share_view();
+            view.screen_mode = crate::screen_mode::ScreenMode::Fullscreen;
+            let window = crate::soft_wrap::logical_lines(&view.compose_fullscreen(WIDTH, 40).live);
+            assert!(window.contains(&format!(" Gist: {GIST}")), "{window:?}");
+        }
+        crate::hyperlinks::set_hyperlinks_override(None);
     }
 }

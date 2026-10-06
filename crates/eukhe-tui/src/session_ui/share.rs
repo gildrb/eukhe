@@ -567,10 +567,25 @@ impl SessionUi {
         let _ = std::fs::remove_file(&run.tmp_file);
         match outcome {
             Ok(gist) => {
-                self.note(
-                    &format!("Share URL: {}\nGist: {}", gist.preview_url, gist.gist_url),
-                    view,
-                );
+                // TS `showStatus` replaces a status row nothing followed;
+                // the links then stay put (a later note never rewrites them).
+                if self
+                    .last_status_index
+                    .is_some_and(|index| index + 1 == view.chat_len())
+                {
+                    view.pop_chat_entry();
+                }
+                view.push_entry(crate::chat::ChatEntry::StatusLinks(vec![
+                    crate::chat::StatusLink {
+                        label: "Share URL:".to_string(),
+                        url: gist.preview_url,
+                    },
+                    crate::chat::StatusLink {
+                        label: "Gist:".to_string(),
+                        url: gist.gist_url,
+                    },
+                ]));
+                self.last_status_index = None;
             }
             Err(message) => {
                 self.error_row(&format!("Failed to create gist: {message}"), view);

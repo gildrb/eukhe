@@ -19,6 +19,7 @@ impl AgentView {
         match &self.chat[index] {
             ChatEntry::Status { .. } => !last,
             ChatEntry::User { .. }
+            | ChatEntry::StatusLinks(_)
             | ChatEntry::SlashCommand { .. }
             | ChatEntry::CompactionSummary { .. }
             | ChatEntry::SkillInvocation(_)
