@@ -1,11 +1,12 @@
 //! Theme engine ported from `coding-agent/src/modes/interactive/theme`.
 //!
-//! Ships the `prime`, `dark`, and `light` built-in palettes with the same
-//! variable/color layout as the TS JSON themes. Colors resolve to truecolor or
-//! 256-color ANSI depending on `COLORTERM`/`TERM`.
+//! Ships the `eukhe`, `dark`, and `light` built-in palettes and loads theme
+//! files in the same variable/color layout (name resolution lives in
+//! [`crate::theme_catalog`]). Colors resolve to truecolor or 256-color ANSI
+//! depending on `COLORTERM`/`TERM`.
 
 use crate::style::{Color, Modifier, Style};
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -147,50 +148,132 @@ impl ThemeBg {
     }
 }
 
+/// A theme file (TS `ThemeJsonSchema`): `$schema` and the HTML `export`
+/// section ride along unread.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ThemeJson {
     name: String,
     #[serde(default)]
-    vars: BTreeMap<String, String>,
+    vars: BTreeMap<String, serde_json::Value>,
     colors: BTreeMap<String, serde_json::Value>,
 }
 
-/// Resolve one var reference (TS `resolveVarRefs`): empty and hex values pass
-/// through, any other name looks up `vars` once and stays as-is when unknown
-/// (it then fails hex parsing and the slot drops).
-fn resolve_var_ref<'a>(value: &'a str, vars: &'a BTreeMap<String, String>) -> &'a str {
-    if value.is_empty() || value.starts_with('#') {
-        return value;
+impl ThemeJson {
+    /// The name the theme registers under (TS `theme.name`).
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
     }
-    vars.get(value).map_or(value, String::as_str)
 }
 
-/// Resolve a color value: hex string, var reference, or "" (terminal default).
-fn resolve_color(value: &serde_json::Value, vars: &BTreeMap<String, String>) -> Option<Color> {
-    let Some(s) = value.as_str() else {
-        return value
+/// The color tokens a theme file must define (TS `ThemeJsonSchema`'s
+/// required `colors` keys; `mdBody` and the refinement pair are optional).
+const REQUIRED_COLOR_TOKENS: [&str; 55] = [
+    "accent",
+    "border",
+    "borderAccent",
+    "borderMuted",
+    "success",
+    "error",
+    "warning",
+    "muted",
+    "dim",
+    "text",
+    "thinkingText",
+    "selectedBg",
+    "userMessageBg",
+    "userMessageText",
+    "customMessageBg",
+    "customMessageText",
+    "customMessageLabel",
+    "toolPendingBg",
+    "toolSuccessBg",
+    "toolErrorBg",
+    "toolDiffAddedBg",
+    "toolDiffRemovedBg",
+    "toolPanelBg",
+    "toolTitle",
+    "toolOutput",
+    "mdHeading",
+    "mdLink",
+    "mdLinkUrl",
+    "mdCode",
+    "mdCodeBlock",
+    "mdCodeBlockBorder",
+    "mdQuote",
+    "mdQuoteBorder",
+    "mdHr",
+    "mdListBullet",
+    "toolDiffAdded",
+    "toolDiffRemoved",
+    "toolDiffText",
+    "toolDiffContext",
+    "syntaxComment",
+    "syntaxKeyword",
+    "syntaxFunction",
+    "syntaxVariable",
+    "syntaxString",
+    "syntaxNumber",
+    "syntaxType",
+    "syntaxOperator",
+    "syntaxPunctuation",
+    "thinkingOff",
+    "thinkingMinimal",
+    "thinkingLow",
+    "thinkingMedium",
+    "thinkingHigh",
+    "thinkingXhigh",
+    "bashMode",
+];
+
+/// TS `resolveVarRefs`: numbers, `""`, and `#` values are terminal; any
+/// other string names a var, followed until a terminal value.
+fn resolve_var_refs<'a>(
+    value: &'a serde_json::Value,
+    vars: &'a BTreeMap<String, serde_json::Value>,
+) -> Result<&'a serde_json::Value> {
+    let mut current = value;
+    let mut visited: Vec<&str> = Vec::new();
+    loop {
+        let Some(name) = current.as_str() else {
+            return Ok(current);
+        };
+        if name.is_empty() || name.starts_with('#') {
+            return Ok(current);
+        }
+        if visited.contains(&name) {
+            bail!("Circular variable reference detected: {name}");
+        }
+        visited.push(name);
+        current = vars
+            .get(name)
+            .ok_or_else(|| anyhow!("Variable reference not found: {name}"))?;
+    }
+}
+
+/// TS `fgAnsi`/`bgAnsi` on a resolved value: `""` is the terminal
+/// default, an integer a 256-color index, `#rrggbb` a truecolor value.
+fn parse_color(value: &serde_json::Value) -> Result<Color> {
+    match value {
+        serde_json::Value::String(text) if text.is_empty() => Ok(Color::Reset),
+        serde_json::Value::String(text) => parse_hex6(text)
+            .map(|(r, g, b)| Color::Rgb(r, g, b))
+            .ok_or_else(|| anyhow!("Invalid hex color: {text}")),
+        serde_json::Value::Number(number) => number
             .as_u64()
-            .map(|n| Color::Indexed(u8::try_from(n).unwrap_or(255)));
-    };
-    let s = resolve_var_ref(s, vars);
-    if s.is_empty() {
-        return Some(Color::Reset);
+            .and_then(|index| u8::try_from(index).ok())
+            .map(Color::Indexed)
+            .ok_or_else(|| anyhow!("Invalid color value: {number}")),
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Array(_)
+        | serde_json::Value::Object(_) => bail!("Invalid color value: {value}"),
     }
-    hex_to_color(s)
 }
 
-/// TS `parseHexColor` on the theme record's `background` (the onboarding
-/// wash canvas): `^#?([0-9a-f]{6})$` case-insensitive on the trimmed value,
-/// after var resolution -- only the 6-hex shape parses; anything else (empty,
-/// 3-hex shorthand, an ANSI index, a var miss) stays `None` so callers fall
-/// back to their hardcoded canvases.
-fn parse_theme_background(
-    value: &serde_json::Value,
-    vars: &BTreeMap<String, String>,
-) -> Option<(u8, u8, u8)> {
-    let raw = value.as_str()?;
-    let trimmed = resolve_var_ref(raw, vars).trim();
-    let hex = trimmed.strip_prefix('#').unwrap_or(trimmed);
+/// `#rrggbb` (TS `hexToRgb`: exactly six hex digits after the `#`).
+fn parse_hex6(text: &str) -> Option<(u8, u8, u8)> {
+    let hex = text.strip_prefix('#')?;
     if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
@@ -198,25 +281,24 @@ fn parse_theme_background(
     Some((channel(0..2)?, channel(2..4)?, channel(4..6)?))
 }
 
-fn hex_to_color(s: &str) -> Option<Color> {
-    let hex = s.strip_prefix('#')?;
-    if hex.len() == 3 {
-        let rgb: Vec<u8> = hex
-            .chars()
-            .filter_map(|c| u8::from_str_radix(&c.to_string(), 16).ok().map(|v| v * 17))
-            .collect();
-        if rgb.len() == 3 {
-            return Some(Color::Rgb(rgb[0], rgb[1], rgb[2]));
-        }
-        return None;
-    }
-    if hex.len() != 6 {
-        return None;
-    }
-    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-    Some(Color::Rgb(r, g, b))
+/// TS `parseHexColor` on the theme record's `background` (the onboarding
+/// wash canvas): `^#?([0-9a-f]{6})$` case-insensitive on the trimmed value,
+/// after one var lookup -- only the 6-hex shape parses; anything else
+/// (empty, 3-hex shorthand, an ANSI index, a var miss) stays `None` so
+/// callers fall back to their hardcoded canvases.
+fn parse_theme_background(
+    value: &serde_json::Value,
+    vars: &BTreeMap<String, serde_json::Value>,
+) -> Option<(u8, u8, u8)> {
+    let raw = value.as_str()?;
+    let resolved = vars
+        .get(raw)
+        .map_or(Some(raw), serde_json::Value::as_str)?
+        .trim();
+    parse_hex6(&format!(
+        "#{}",
+        resolved.strip_prefix('#').unwrap_or(resolved)
+    ))
 }
 
 /// Quantize RGB to the xterm 256-color palette (TS `rgbTo256`): nearest cube
@@ -393,45 +475,89 @@ pub struct Theme {
 }
 
 impl Theme {
-    pub(crate) fn from_json(json: &ThemeJson, mode: ColorMode) -> Theme {
+    /// TS `createTheme`: the refinement pair defaults by theme name,
+    /// `mdBody` falls back to `text`, and every slot resolves through the
+    /// vars to a terminal color.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` naming the slot when its value references a missing
+    /// or circular var, or is not `""`, a 0-255 index, or `#rrggbb`.
+    pub(crate) fn from_json(json: &ThemeJson, mode: ColorMode) -> Result<Theme> {
+        let refinement: Vec<(&str, serde_json::Value)> =
+            eukhe_types::themes::refinement_colors(&json.name)
+                .into_iter()
+                .map(|(slot, value)| (slot, serde_json::Value::from(value)))
+                .collect();
+        let mut slots: BTreeMap<&str, &serde_json::Value> = refinement
+            .iter()
+            .map(|(slot, value)| (*slot, value))
+            .collect();
+        slots.extend(
+            json.colors
+                .iter()
+                .map(|(slot, value)| (slot.as_str(), value)),
+        );
+        if let (None, Some(text)) = (json.colors.get("mdBody"), json.colors.get("text")) {
+            slots.insert("mdBody", text);
+        }
         let mut fg = BTreeMap::new();
         let mut bg = BTreeMap::new();
         let mut bg_colors = BTreeMap::new();
-        for (name, value) in &json.colors {
-            let Some(resolved) = resolve_color(value, &json.vars) else {
-                continue;
+        for (slot, value) in slots {
+            // Background slots end with "Bg" (camel case); the rest are
+            // foreground. Keys naming no slot (`background`) render nothing.
+            let (fg_key, bg_key) = if slot.ends_with("Bg") {
+                (None, bg_name_lookup(slot))
+            } else {
+                (fg_name_lookup(slot), None)
             };
-            let color = to_terminal_color(resolved, mode);
-            // Background slots end with "Bg" (camel case); the rest are foreground.
-            if name.ends_with("Bg") {
-                let key = bg_name_lookup(name);
-                if let Some(key) = key {
-                    bg_colors.insert(key, color);
-                    bg.insert(key, Style::default().bg(color));
-                }
-            } else if let Some(key) = fg_name_lookup(name) {
+            if fg_key.is_none() && bg_key.is_none() {
+                continue;
+            }
+            let color = resolve_var_refs(value, &json.vars)
+                .and_then(parse_color)
+                .with_context(|| format!("color \"{slot}\""))?;
+            let color = to_terminal_color(color, mode);
+            if let Some(key) = bg_key {
+                bg_colors.insert(key, color);
+                bg.insert(key, Style::default().bg(color));
+            }
+            if let Some(key) = fg_key {
                 fg.insert(key, Style::default().fg(color));
             }
         }
-        Theme {
+        Ok(Theme {
             name: json.name.clone(),
             fg,
             bg,
             bg_colors,
-            // `background` is not a fg/bg slot, so the loop above drops it;
+            // `background` is not a fg/bg slot, so the loop above skips it;
             // the wash reads it as its canvas (TS `parseHexColor`).
             background: json
                 .colors
                 .get("background")
                 .and_then(|value| parse_theme_background(value, &json.vars)),
             mode,
-        }
+        })
     }
 
+    /// A bundled theme ([`eukhe_types::themes::BUILTIN_THEME_NAMES`]).
+    /// User-facing names resolve through
+    /// [`crate::theme_catalog::ThemeSources::resolve`], which reports
+    /// unknown names.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `name` is not a builtin or a bundled file is invalid:
+    /// callers name builtins statically, and the bundled files are
+    /// build-time data.
     #[must_use]
     pub fn builtin(name: &str, mode: ColorMode) -> Theme {
-        let json = builtin_theme_json(name);
-        Theme::from_json(&json, mode)
+        let raw = eukhe_types::themes::builtin_theme_json(name)
+            .unwrap_or_else(|| panic!("{name} is not a builtin theme"));
+        let json: ThemeJson = serde_json::from_str(raw).expect("bundled theme JSON parses");
+        Theme::from_json(&json, mode).expect("bundled theme colors resolve")
     }
 
     #[must_use]
@@ -771,39 +897,41 @@ fn bg_name_lookup(name: &str) -> Option<&'static str> {
     })
 }
 
-/// The bundled theme files, shared with the session HTML exporter via
-/// [`eukhe_types::themes`] (the theme *data* is shared vocabulary; this crate
-/// owns everything built on top of it).
-pub const EUKHE_JSON: &str = eukhe_types::themes::EUKHE_THEME_JSON;
-pub const DARK_JSON: &str = eukhe_types::themes::DARK_THEME_JSON;
-pub const LIGHT_JSON: &str = eukhe_types::themes::LIGHT_THEME_JSON;
-
-/// Resolve a bundled theme JSON by name, falling back to the prime
-/// theme when the name is unknown.
-///
-/// # Panics
-///
-/// Panics only if the bundled `prime` theme JSON fails to parse (a
-/// build-time invariant the shipped constant satisfies).
-#[must_use]
-pub fn builtin_theme_json(name: &str) -> ThemeJson {
-    let raw = eukhe_types::themes::builtin_theme_json(name).unwrap_or(EUKHE_JSON);
-    serde_json::from_str(raw)
-        .unwrap_or_else(|_| serde_json::from_str(EUKHE_JSON).expect("eukhe.json is valid"))
-}
-
-/// Load a theme from a JSON file path.
+/// Read and validate a theme file (TS `parseThemeJsonContent`): JSON with
+/// a string `name`, optional `vars`, and every required color token.
 ///
 /// # Errors
 ///
-/// Returns `Err` when the file cannot be read or its JSON cannot be
-/// parsed; both errors carry the theme path.
-pub fn load_theme_from_path(path: &std::path::Path, mode: ColorMode) -> Result<Theme> {
+/// Returns `Err` carrying the path when the file cannot be read, is not
+/// a theme object, or misses required color tokens.
+pub fn read_theme_json(path: &std::path::Path) -> Result<ThemeJson> {
     let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("reading theme {}", path.display()))?;
-    let json: ThemeJson =
-        serde_json::from_str(&raw).with_context(|| format!("parsing theme {}", path.display()))?;
-    Ok(Theme::from_json(&json, mode))
+        .with_context(|| format!("Failed to read theme {}", path.display()))?;
+    let json: ThemeJson = serde_json::from_str(&raw)
+        .with_context(|| format!("Failed to parse theme {}", path.display()))?;
+    let missing: Vec<&str> = REQUIRED_COLOR_TOKENS
+        .into_iter()
+        .filter(|token| !json.colors.contains_key(*token))
+        .collect();
+    if !missing.is_empty() {
+        bail!(
+            "Invalid theme {}: missing required color tokens: {}",
+            path.display(),
+            missing.join(", ")
+        );
+    }
+    Ok(json)
+}
+
+/// Load a theme file (TS `loadThemeFromPath`).
+///
+/// # Errors
+///
+/// Returns `Err` carrying the path when [`read_theme_json`] fails or a
+/// color does not resolve.
+pub fn load_theme_from_path(path: &std::path::Path, mode: ColorMode) -> Result<Theme> {
+    let json = read_theme_json(path)?;
+    Theme::from_json(&json, mode).with_context(|| format!("Invalid theme {}", path.display()))
 }
 
 #[cfg(test)]
@@ -835,6 +963,56 @@ mod tests {
         assert!(matches!(accent.fg, Some(Color::Indexed(_))));
     }
 
+    /// A theme file must carry every required token (TS schema check).
+    #[test]
+    fn a_theme_file_missing_required_tokens_is_invalid() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("partial.json");
+        let mut partial: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/dusk-apple-theme.json"))
+                .expect("fixture parses");
+        let colors = partial["colors"].as_object_mut().expect("colors");
+        colors.remove("bashMode");
+        colors.remove("thinkingXhigh");
+        std::fs::write(&path, partial.to_string()).expect("write theme");
+        let error = read_theme_json(&path).expect_err("partial theme");
+        assert_eq!(
+            format!("{error:#}"),
+            format!(
+                "Invalid theme {}: missing required color tokens: thinkingXhigh, bashMode",
+                path.display()
+            )
+        );
+    }
+
+    /// Var references chain (TS `resolveVarRefs` recursion) and integer
+    /// values are 256-color indices; a cycle is an error.
+    #[test]
+    fn var_references_chain_and_cycles_fail() {
+        let theme = |raw: &str| {
+            let json: ThemeJson = serde_json::from_str(raw).expect("valid theme json");
+            Theme::from_json(&json, ColorMode::TrueColor).map_err(|error| format!("{error:#}"))
+        };
+        let chained = theme(
+            r##"{ "name": "c", "vars": { "a": "b", "b": "#102030", "i": 42 },
+                  "colors": { "accent": "a", "dim": "i" } }"##,
+        )
+        .expect("chained vars resolve");
+        assert_eq!(
+            (
+                chained.fg_style(ThemeColor::Accent).fg,
+                chained.fg_style(ThemeColor::Dim).fg
+            ),
+            (Some(Color::Rgb(0x10, 0x20, 0x30)), Some(Color::Indexed(42)))
+        );
+        assert_eq!(
+            theme(
+                r#"{ "name": "c", "vars": { "a": "b", "b": "a" }, "colors": { "accent": "a" } }"#
+            ),
+            Err("color \"accent\": Circular variable reference detected: a".to_string())
+        );
+    }
+
     #[test]
     fn background_parses_strict_six_hex_after_var_resolution() {
         let json = serde_json::from_str::<ThemeJson>(
@@ -845,7 +1023,7 @@ mod tests {
             }"##,
         )
         .expect("valid theme json");
-        let theme = Theme::from_json(&json, ColorMode::TrueColor);
+        let theme = Theme::from_json(&json, ColorMode::TrueColor).expect("theme resolves");
         // Case-insensitive 6-hex, reached through a var reference.
         assert_eq!(theme.background_rgb(), Some((0x0a, 0x0b, 0x0c)));
     }
@@ -877,7 +1055,7 @@ mod tests {
             }"##,
         )
         .expect("valid theme json");
-        let loud = Theme::from_json(&json, ColorMode::TrueColor);
+        let loud = Theme::from_json(&json, ColorMode::TrueColor).expect("theme resolves");
         assert_eq!(
             loud.selection_row_style().bg,
             loud.soft_selection_style().bg,
@@ -887,7 +1065,7 @@ mod tests {
             r##"{ "name": "bare", "colors": { "text": "#f4f4f5" } }"##,
         )
         .expect("valid theme json");
-        let bare = Theme::from_json(&bare, ColorMode::TrueColor);
+        let bare = Theme::from_json(&bare, ColorMode::TrueColor).expect("theme resolves");
         assert_eq!(
             bare.selection_row_style().bg,
             Some(crate::onboarding::highlight_wash(&bare)),
@@ -902,7 +1080,8 @@ mod tests {
             }"##,
         )
         .expect("valid theme json");
-        let empty_slot = Theme::from_json(&empty_slot, ColorMode::TrueColor);
+        let empty_slot =
+            Theme::from_json(&empty_slot, ColorMode::TrueColor).expect("theme resolves");
         assert_eq!(empty_slot.bg_color(ThemeBg::SelectedBg), Some(Color::Reset));
         assert_eq!(
             empty_slot.selection_row_style().bg,
@@ -988,7 +1167,7 @@ mod tests {
             }"##,
         )
         .expect("valid theme json");
-        let theme = Theme::from_json(&json, ColorMode::TrueColor);
+        let theme = Theme::from_json(&json, ColorMode::TrueColor).expect("theme resolves");
         assert_eq!(
             theme.soft_selection_style().bg,
             theme.bg_style(ThemeBg::SelectedBg).bg
@@ -1005,7 +1184,7 @@ mod tests {
                 r#"{{ "name": "custom", "colors": {{ "background": {raw} }} }}"#
             ))
             .expect("valid theme json");
-            let theme = Theme::from_json(&json, ColorMode::TrueColor);
+            let theme = Theme::from_json(&json, ColorMode::TrueColor).expect("theme resolves");
             assert_eq!(theme.background_rgb(), None, "background {raw}");
         }
     }

@@ -30,6 +30,23 @@ pub fn builtin_theme_json(name: &str) -> Option<&'static str> {
     }
 }
 
+/// The refinement row colors every theme carries implicitly (TS
+/// `refinementColors`): the theme named `light` gets the darker pair.
+#[must_use]
+pub fn refinement_colors(theme_name: &str) -> [(&'static str, &'static str); 2] {
+    if theme_name == "light" {
+        [
+            ("refinementHeader", "#7146ab"),
+            ("refinementSummary", "#8a70ad"),
+        ]
+    } else {
+        [
+            ("refinementHeader", "#9575cd"),
+            ("refinementSummary", "#b7a1d6"),
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -723,7 +723,8 @@ mod tests {
             }"##,
         )
         .expect("valid theme json");
-        let theme = crate::theme::Theme::from_json(&json, crate::theme::ColorMode::TrueColor);
+        let theme = crate::theme::Theme::from_json(&json, crate::theme::ColorMode::TrueColor)
+            .expect("theme resolves");
         assert!(
             theme.soft_selection_style().bg.is_none(),
             "the partial theme computes no selection"

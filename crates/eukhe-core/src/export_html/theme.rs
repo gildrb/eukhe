@@ -51,22 +51,6 @@ struct ExportThemeJson {
     export_info_bg: Option<Value>,
 }
 
-/// The refinement row colors every theme carries implicitly (TS
-/// `refinementColors`); the light theme gets the darker pair.
-fn refinement_colors(light: bool) -> [(&'static str, &'static str); 2] {
-    if light {
-        [
-            ("refinementHeader", "#7146ab"),
-            ("refinementSummary", "#8a70ad"),
-        ]
-    } else {
-        [
-            ("refinementHeader", "#9575cd"),
-            ("refinementSummary", "#b7a1d6"),
-        ]
-    }
-}
-
 /// A color value after variable-reference resolution: a CSS color string
 /// (possibly empty, meaning the terminal default) or an ANSI-256 index.
 #[derive(Debug, Clone, PartialEq)]
@@ -331,10 +315,11 @@ pub(crate) fn resolve_export_theme(
     let light = theme.name == "light";
 
     // Refinement colors are the implicit base the file's colors override.
-    let mut css_colors: BTreeMap<String, String> = refinement_colors(light)
-        .into_iter()
-        .map(|(key, value)| (key.to_string(), value.to_string()))
-        .collect();
+    let mut css_colors: BTreeMap<String, String> =
+        eukhe_types::themes::refinement_colors(&theme.name)
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
     for (key, value) in &theme.colors {
         css_colors.insert(
             key.clone(),

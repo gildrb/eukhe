@@ -174,8 +174,9 @@ async fn run_interactive_surface(
     // itself renders when the snapshot lands -- `rebuild_view`'s dirty flag
     // schedules the first full repaint, so no resize event is ever needed
     // to see the attached session.
-    let theme = crate::app::load_theme(&options.theme);
-    let mut view = AgentView::new(theme);
+    let resolved_theme =
+        crate::theme_catalog::load_client_theme(options.client_settings.as_deref(), &options.theme);
+    let mut view = AgentView::new(resolved_theme.theme);
     view.code_block_indent = options.code_block_indent.clone();
     // The file-completion provider browses the SESSION cwd (TS
     // `createBaseAutocompleteProvider` anchors on `this.getCurrentCwd()`),
@@ -540,6 +541,9 @@ async fn run_interactive_surface(
         });
         session.dirty = true;
     }
+    // A theme that failed to load paints the default; the reason lands
+    // once the attach rebuilt the transcript.
+    session.theme_warning_rows(&resolved_theme.warnings, &mut view);
     if let Some(notice) = check_tmux_keyboard_setup().await {
         view.push_entry(crate::chat::ChatEntry::Status {
             text: format!("Warning: {notice}"),

@@ -36,7 +36,10 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                     socket_path: options.socket_path.clone(),
                     cwd: options.cwd.clone(),
                     session_dir: options.session_dir.clone(),
-                    theme: options.theme.clone(),
+                    theme: eukhe_tui::theme::Theme::builtin(
+                        "eukhe",
+                        eukhe_tui::theme::ColorMode::TrueColor,
+                    ),
                     version: options.version.clone(),
                     anchor_session_id: (!outcome.session_id.is_empty())
                         .then(|| outcome.session_id.clone()),
@@ -74,7 +77,10 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                     socket_path: options.socket_path.clone(),
                     cwd: options.cwd.clone(),
                     session_dir: options.session_dir.clone(),
-                    theme: options.theme.clone(),
+                    theme: eukhe_tui::theme::Theme::builtin(
+                        "eukhe",
+                        eukhe_tui::theme::ColorMode::TrueColor,
+                    ),
                     version: options.version.clone(),
                     anchor_session_id: None,
                     scope: None,
@@ -121,7 +127,8 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                 },
             ];
             let selector = eukhe_tui::config_selector::ConfigSelector::new(rows);
-            let theme = eukhe_tui::app::load_theme("eukhe");
+            let theme =
+                eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::detect_color_mode());
             let options = eukhe_tui::config_selector::ConfigSelectorOptions {
                 theme,
                 keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),

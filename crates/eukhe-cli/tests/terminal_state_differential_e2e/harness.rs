@@ -717,7 +717,7 @@ pub(crate) fn view_options(socket: PathBuf, anchor: Option<String>) -> AgentsVie
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),
         session_dir: None,
-        theme: "eukhe".to_string(),
+        theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: anchor,
         scope: None,

@@ -203,7 +203,7 @@ fn diff_selector_child_mode() {
         },
     ];
     let selector = ConfigSelector::new(rows);
-    let theme = eukhe_tui::app::load_theme("eukhe");
+    let theme = eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::detect_color_mode());
     let keybindings = if remap_exit {
         let mut bindings = eukhe_tui::keybindings::KeybindingsConfig::new();
         bindings.insert("app.clear".to_string(), vec!["ctrl+q".to_string()]);
@@ -240,7 +240,7 @@ fn diff_replay_child_mode() {
     let stream =
         eukhe_tui::session::JsonlSessionStream::from_path(Path::new(&fixture)).expect("fixture");
     let options = eukhe_tui::app::AppOptions {
-        theme: "eukhe".to_string(),
+        theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::detect_color_mode()),
         panic_after_frame,
         ..Default::default()
     };

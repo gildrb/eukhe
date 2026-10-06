@@ -18,7 +18,7 @@ pub fn run() -> i32 {
     let agent_dir = crate::config::get_agent_dir();
     let mut resolve_settings = SettingsManager::create(&cwd, &agent_dir);
     crate::package_command::report_settings_errors(&mut resolve_settings, "config command");
-    let theme_name = resolve_settings.get_theme().unwrap_or("eukhe").to_string();
+    let theme_name = resolve_settings.get_theme().unwrap_or_default().to_string();
     let screen_mode = eukhe_tui::screen_mode::ScreenMode::from_fullscreen_setting(
         resolve_settings.get_fullscreen(),
     );
@@ -33,7 +33,18 @@ pub fn run() -> i32 {
     let groups = resource_config::build_groups(&resolved);
     let (rows, items) = selector_rows(&groups);
     let selector = ConfigSelector::new(rows);
-    let theme = eukhe_tui::app::load_theme(&theme_name);
+    let theme_settings = crate::client_settings::CliClientSettings::new(
+        cwd.clone(),
+        agent_dir.clone(),
+        crate::client_settings::CliThemeFlags::default(),
+    );
+    let resolved_theme =
+        eukhe_tui::theme_catalog::load_client_theme(Some(theme_settings.as_ref()), &theme_name);
+    // The selector has no chat: theme problems print before it mounts.
+    for warning in &resolved_theme.warnings {
+        eprintln!("Warning: {warning}");
+    }
+    let theme = resolved_theme.theme;
     // TS `setKeybindings(KeybindingsManager.create())` in main.ts: the
     // config selector navigates with the user's effective bindings too.
     let keybindings = KeybindingsManager::create(&agent_dir);

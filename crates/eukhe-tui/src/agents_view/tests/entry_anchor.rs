@@ -265,7 +265,7 @@ fn carried_selection_wins_over_the_entry_anchor() {
         socket_path: PathBuf::from("/tmp/agents-view-test.sock"),
         cwd: PathBuf::from("/tmp"),
         session_dir: None,
-        theme: "eukhe".to_string(),
+        theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: Some("s2".to_string()),
         scope: None,

@@ -13,12 +13,8 @@
 //!
 //! Enable with `EUKHE_REQUEST_TIMING=1` (env, inherited by daemon workers) or
 //! `"requestTiming": true` in settings.json. Entries go to the shared JSONL
-//! diagnostic log (`<agentDir>/logs/agent.jsonl`, TS `~/.eukhe/logs/
-//! agent.jsonl`) under the component `coding-agent.request-timing`. The TS
-//! entries reach that file through the process-wide `getLogger` sink; the
-//! Rust engine has no process-wide sink yet, so [`RequestTimingLog`] ports
-//! the sink surface this feature needs (one JSON object per line, `ts`/
-//! `level`/`component`/`msg`/`pid` reserved keys, rotation at the TS cap).
+//! diagnostic log ([`crate::agent_log::AgentLog`], `<agentDir>/logs/
+//! agent.jsonl`) under the component `coding-agent.request-timing`.
 //!
 //! Zero overhead when disabled: the wrappers pass straight through with no
 //! timestamps, no payload serialization, and no log entries.
@@ -37,7 +33,7 @@
 //! branch-summary, refinement) call the provider directly and are not
 //! instrumented, exactly like the TS reference.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -50,7 +46,7 @@ use eukhe_agent::stream::{
 use eukhe_agent::types::StopReason;
 use serde_json::{json, Map, Value};
 
-use crate::session::manager::format_iso;
+use crate::agent_log::{AgentLog, AgentLogLevel};
 
 // The inline unit battery moved to the child module at the same tree
 // position (session_engine::request_timing::tests); its use-super glob
@@ -81,10 +77,6 @@ const REQUEST_TIMING_ENV: &str = "EUKHE_REQUEST_TIMING";
 
 /// TS log component: `getLogger("coding-agent.request-timing")`.
 const LOG_COMPONENT: &str = "coding-agent.request-timing";
-
-/// TS `AGENT_LOG_MAX_BYTES` (`logging.ts`): the shared JSONL log rotates at
-/// 20 MiB.
-const AGENT_LOG_MAX_BYTES: u64 = 20 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Flag
@@ -117,88 +109,26 @@ pub fn is_request_timing_enabled(settings_flag: bool) -> bool {
 // Log
 // ---------------------------------------------------------------------------
 
-/// The shared JSONL diagnostic log request-timing entries go to (TS
-/// `getLogger` entries land in `<agentDir>/logs/agent.jsonl`). One JSON
-/// object per line; writes are best-effort and size-bounded, and logging
-/// must never throw into the caller.
+/// The shared JSONL diagnostic log request-timing entries go to.
 #[derive(Debug, Clone)]
-pub struct RequestTimingLog {
-    path: PathBuf,
-    max_bytes: u64,
-}
+pub struct RequestTimingLog(AgentLog);
 
 impl RequestTimingLog {
-    /// The log at `<agentDir>/logs/agent.jsonl` with the TS rotation cap.
+    /// The log at `<agentDir>/logs/agent.jsonl`.
     #[must_use]
     pub fn new(agent_dir: &Path) -> Self {
-        Self {
-            path: agent_dir.join("logs").join("agent.jsonl"),
-            max_bytes: AGENT_LOG_MAX_BYTES,
-        }
+        Self(AgentLog::new(agent_dir, LOG_COMPONENT))
     }
 
     /// The log at an explicit path (tests).
     #[cfg(test)]
-    fn at(path: impl Into<PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            max_bytes: AGENT_LOG_MAX_BYTES,
-        }
+    fn at(path: impl Into<std::path::PathBuf>) -> Self {
+        Self(AgentLog::at(path, LOG_COMPONENT))
     }
 
-    /// Info-level entry (TS `Logger.info`): caller fields first, the
-    /// reserved keys (`ts`/`level`/`component`/`msg`) and the sink's `pid`
-    /// context win so an entry can never be misclassified. The `ts` field
-    /// is the ISO-8601 UTC timestamp (TS `new Date().toISOString()`),
-    /// reused from the session manager's formatter.
+    /// Info-level entry (TS `Logger.info`).
     fn info(&self, msg: &str, fields: Map<String, Value>) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
-        let mut entry = fields;
-        entry.insert("ts".to_string(), json!(format_iso(now.as_millis() as i64)));
-        entry.insert("level".to_string(), json!("info"));
-        entry.insert("component".to_string(), json!(LOG_COMPONENT));
-        entry.insert("msg".to_string(), json!(msg));
-        entry.insert("pid".to_string(), json!(std::process::id()));
-        self.append_rotating_log(&format!("{}\n", Value::Object(entry)));
-    }
-
-    /// TS `appendRotatingLog`: create the directory, rotate to `.old` past
-    /// the cap, append the line. Every failure is swallowed — a read-only
-    /// or missing log dir must never break the operation being logged.
-    fn append_rotating_log(&self, line: &str) {
-        use std::io::Write;
-        let append = || -> std::io::Result<()> {
-            std::fs::create_dir_all(self.path.parent().unwrap_or_else(|| Path::new(".")))?;
-            // Best-effort rotation: TS keeps appending rather than dropping
-            // the log when the rotate fails (the rename above is the only
-            // fallible half of its try/catch).
-            let _ = self.rotate_if_needed();
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&self.path)?;
-            file.write_all(line.as_bytes())?;
-            file.flush()
-        };
-        if let Err(error) = append() {
-            tracing::debug!(path = %self.path.display(), %error, "request-timing log append failed");
-        }
-    }
-
-    fn rotate_if_needed(&self) -> std::io::Result<()> {
-        let size = match std::fs::metadata(&self.path) {
-            Ok(meta) => meta.len(),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(err) => return Err(err),
-        };
-        if size <= self.max_bytes {
-            return Ok(());
-        }
-        // The rename replaces any prior `.old`. A rotation failure keeps
-        // appending rather than dropping the log.
-        std::fs::rename(&self.path, self.path.with_extension("jsonl.old"))
+        self.0.log(AgentLogLevel::Info, msg, fields);
     }
 }
 

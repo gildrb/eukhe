@@ -43,7 +43,7 @@ fn pending_ancestors_expand_and_selection_restores_after_reentry() {
         socket_path: PathBuf::from("/tmp/agents-view-test.sock"),
         cwd: PathBuf::from("/tmp"),
         session_dir: None,
-        theme: "eukhe".to_string(),
+        theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
         scope: None,

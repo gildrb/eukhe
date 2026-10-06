@@ -17,6 +17,12 @@ pub trait ClientSettings: Send + Sync {
     /// Returns `Err` when opening or persisting the settings
     /// store fails.
     fn set_theme(&self, theme: &str) -> Result<()>;
+    /// Where theme names resolve (TS `setRegisteredThemes` from the
+    /// resource loader + `getCustomThemesDir`), re-resolved per call so
+    /// `/reload` and `/settings` see edited settings and files.
+    fn theme_sources(&self) -> crate::theme_catalog::ThemeSources;
+    /// Record a theme warning in the agent log (the chat shows it too).
+    fn log_theme_warning(&self, message: &str);
     /// `terminal.showImages` (TS default true).
     fn show_images(&self) -> bool;
     /// Persists `terminal.showImages` to the global scope.

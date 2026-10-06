@@ -36,7 +36,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use eukhe_tui::app::{render_frame_text, run_app, AppOptions};
 use eukhe_tui::session::{JsonlSessionStream, SessionStream, TranscriptItem};
-use eukhe_tui::theme::{ColorMode, Theme};
+use eukhe_tui::theme::{detect_color_mode, ColorMode, Theme};
+use eukhe_tui::theme_catalog::ThemeSources;
 use eukhe_tui::view::AgentView;
 
 #[derive(Parser, Debug)]
@@ -90,13 +91,23 @@ fn main() -> Result<()> {
     };
     let stream = JsonlSessionStream::from_path(&path)?;
     let _ = args.show_thinking;
+    // A builtin theme: an unknown name is a usage error here, not a
+    // fallback (the verifier must render what it was asked to).
+    let builtin_theme = |mode: ColorMode| -> Result<Theme> {
+        let resolved = ThemeSources::default().resolve(&args.theme, mode);
+        if resolved.warnings.is_empty() {
+            Ok(resolved.theme)
+        } else {
+            anyhow::bail!("{}", resolved.warnings.join("; "))
+        }
+    };
 
     if let Some(size) = &args.frame {
         let (w, h) = size
             .split_once('x')
             .and_then(|(w, h)| Some((w.parse::<u16>().ok()?, h.parse::<u16>().ok()?)))
             .context("--frame expects WxH, e.g. 80x24")?;
-        let theme = Theme::builtin(&args.theme, ColorMode::TrueColor);
+        let theme = builtin_theme(ColorMode::TrueColor)?;
         let mut view = AgentView::new(theme);
         let mut stream: Box<dyn SessionStream> = Box::new(stream);
         while let eukhe_tui::session::SessionEvent::Item(item) = stream.poll()? {
@@ -114,7 +125,7 @@ fn main() -> Result<()> {
     }
 
     let options = AppOptions {
-        theme: args.theme.clone(),
+        theme: builtin_theme(detect_color_mode())?,
         panic_after_frame: args.panic_exit,
         ..Default::default()
     };

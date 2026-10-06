@@ -219,6 +219,10 @@ impl eukhe_tui::client_settings::ClientSettings for StubSettings {
     fn set_theme(&self, _theme: &str) -> Result<()> {
         Ok(())
     }
+    fn theme_sources(&self) -> eukhe_tui::theme_catalog::ThemeSources {
+        eukhe_tui::theme_catalog::ThemeSources::default()
+    }
+    fn log_theme_warning(&self, _message: &str) {}
     fn show_images(&self) -> bool {
         true
     }

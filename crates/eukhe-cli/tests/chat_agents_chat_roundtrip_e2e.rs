@@ -236,7 +236,7 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
         session_dir: Some(session_dir.clone()),
-        theme: "eukhe".to_string(),
+        theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: (!first_outcome.session_id.is_empty())
             .then(|| first_outcome.session_id.clone())
@@ -378,7 +378,7 @@ async fn a_post_turn_reentry_renders_the_turn_rows() {
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
         session_dir: Some(session_dir.clone()),
-        theme: "eukhe".to_string(),
+        theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: (!first_outcome.session_id.is_empty())
             .then(|| first_outcome.session_id.clone())

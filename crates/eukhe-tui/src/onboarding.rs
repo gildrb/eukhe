@@ -432,7 +432,7 @@ mod tests {
 
     fn custom_theme(json: &str, mode: ColorMode) -> Theme {
         let json: ThemeJson = serde_json::from_str(json).expect("valid theme json");
-        Theme::from_json(&json, mode)
+        Theme::from_json(&json, mode).expect("theme resolves")
     }
 
     /// The trace-question pane at 80x24, pinned cell for cell: the

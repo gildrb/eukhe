@@ -68,7 +68,9 @@ pub struct AgentsViewOptions {
     pub socket_path: PathBuf,
     pub cwd: PathBuf,
     pub session_dir: Option<PathBuf>,
-    pub theme: String,
+    /// The resolved theme (the composition root resolves the settings
+    /// theme through [`crate::theme_catalog`]).
+    pub theme: crate::theme::Theme,
     pub version: String,
     /// The session the view was opened from: keeps its recency slot,
     /// survives the empty-catalog filter, and anchors a fresh open's entry
@@ -554,7 +556,7 @@ enum Composer {
 
 impl AgentsViewMode {
     fn new(mut options: AgentsViewOptions) -> Self {
-        let theme = crate::app::load_theme(&options.theme);
+        let theme = options.theme.clone();
         let query = options.query.clone().unwrap_or_default();
         // A notice with lines to show (the refusal families) renders as
         // the dismissible panel; a single-line notice keeps the hint-line

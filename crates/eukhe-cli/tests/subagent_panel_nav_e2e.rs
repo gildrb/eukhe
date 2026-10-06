@@ -339,7 +339,7 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
         socket_path: supervisor.socket.clone(),
         cwd: PathBuf::from("/tmp"),
         session_dir: Some(session_dir.clone()),
-        theme: "eukhe".to_string(),
+        theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
         scope: Some(scope),

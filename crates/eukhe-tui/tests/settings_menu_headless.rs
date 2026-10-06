@@ -261,6 +261,10 @@ impl eukhe_tui::client_settings::ClientSettings for RecordingSettings {
     fn set_theme(&self, theme: &str) -> Result<()> {
         self.record(&format!("theme={theme}"))
     }
+    fn theme_sources(&self) -> eukhe_tui::theme_catalog::ThemeSources {
+        eukhe_tui::theme_catalog::ThemeSources::default()
+    }
+    fn log_theme_warning(&self, _message: &str) {}
     fn show_images(&self) -> bool {
         true
     }

@@ -2,7 +2,8 @@
 //! loader. Port of core/resource-loader.ts, scoped to the session engine's
 //! needs: skills, prompt templates, agents files, and system-prompt sources,
 //! resolved from configured packages, settings, auto-discovery, and bundled
-//! skills through the package manager. Theme loading lives in eukhe-tui.
+//! skills through the package manager. Themes resolve to the paths the
+//! client registers; eukhe-tui loads the theme files.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -120,6 +121,20 @@ impl ResourceLoaderOptions {
         }
     }
 }
+
+/// Theme path resolution inputs (the TS resource-loader theme options).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ThemePathOptions {
+    pub cwd: PathBuf,
+    pub agent_dir: PathBuf,
+    /// `--theme <path>` entries (TS `additionalThemePaths`).
+    pub additional_theme_paths: Vec<PathBuf>,
+    /// `--no-themes`: skip the resolved resource themes; the `--theme`
+    /// paths still register.
+    pub no_themes: bool,
+}
+
+pub use resolution::resolve_theme_paths;
 
 /// Load all session resources: package-manager resolution (configured
 /// packages, settings arrays, auto-discovery, bundled skills) feeds the

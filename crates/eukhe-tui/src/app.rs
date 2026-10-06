@@ -15,7 +15,7 @@ use std::io::stdout;
 use std::time::Duration;
 
 pub struct AppOptions {
-    pub theme: String,
+    pub theme: Theme,
     /// Replay delay per entry while streaming history (ms). 0 = instant load.
     pub replay_delay_ms: u64,
     /// Auto-exit after this many ms of runtime (headless verification).
@@ -29,22 +29,15 @@ pub struct AppOptions {
 impl Default for AppOptions {
     fn default() -> Self {
         Self {
-            theme: "eukhe".to_string(),
+            theme: Theme::builtin(
+                crate::theme_catalog::DEFAULT_THEME_NAME,
+                crate::theme::detect_color_mode(),
+            ),
             replay_delay_ms: 0,
             auto_exit_ms: None,
             panic_after_frame: false,
         }
     }
-}
-
-#[must_use]
-pub fn load_theme(name: &str) -> Theme {
-    let mode = crate::theme::detect_color_mode();
-    // The default brand theme when the caller passes none (empty) or an
-    // unknown name; only known builtins resolve.
-    let known = ["eukhe", "dark", "light"];
-    let name = if known.contains(&name) { name } else { "eukhe" };
-    Theme::builtin(name, mode)
 }
 
 /// Run the view against a session stream until the stream ends and the user
@@ -94,7 +87,7 @@ fn run_app_surface(
     crate::enhanced_keys::enable(&mut std::io::stdout())?;
     let mut term = InlineTerminal::new(terminal::size()?.1);
 
-    let theme = load_theme(&options.theme);
+    let theme = options.theme.clone();
     let mut view = AgentView::new(theme);
     let mut running = true;
     let start = std::time::Instant::now();

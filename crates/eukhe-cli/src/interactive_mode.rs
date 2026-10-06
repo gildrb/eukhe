@@ -307,11 +307,29 @@ async fn run_agents_view_flow(
     let mut selected_key: Option<eukhe_tui::agents_view::AgentsViewSelectionKey> = None;
     let mut status_message: Option<String> = notice;
     loop {
+        // The live settings theme (a chat's `/settings` switch carries
+        // back), re-read per view run; its warnings join the view's notice.
+        let theme_name = base
+            .client_settings
+            .as_ref()
+            .and_then(|settings| settings.theme())
+            .unwrap_or_else(|| base.theme.clone());
+        let resolved_theme = eukhe_tui::theme_catalog::load_client_theme(
+            base.client_settings.as_deref(),
+            &theme_name,
+        );
+        if !resolved_theme.warnings.is_empty() {
+            let warnings = resolved_theme.warnings.join("\n");
+            status_message = Some(match status_message.take() {
+                Some(notice) => format!("{notice}\n{warnings}"),
+                None => warnings,
+            });
+        }
         let view_options = eukhe_tui::agents_view::AgentsViewOptions {
             socket_path: base.socket_path.clone(),
             cwd: base.cwd.clone(),
             session_dir: base.session_dir.clone(),
-            theme: base.theme.clone(),
+            theme: resolved_theme.theme,
             version: base.version.clone(),
             anchor_session_id: anchor.clone(),
             scope: frames.last().map(|(scope, _)| scope.clone()),
@@ -593,10 +611,15 @@ fn build_tui_options(
         // TS startup reads the settings theme (`getTheme() || "eukhe"`).
         theme: settings.get_theme().map(str::to_string).unwrap_or_default(),
         // The client-settings seam the interactive commands persist
-        // through (`/settings`).
+        // through (`/settings`); themes register from the resource system
+        // and the `--theme`/`--no-themes` flags.
         client_settings: Some(crate::client_settings::CliClientSettings::new(
             config.cwd.clone(),
             config.agent_dir.clone(),
+            crate::client_settings::CliThemeFlags {
+                paths: config.themes.clone(),
+                no_themes: config.no_themes,
+            },
         )),
         version: crate::config::version().to_string(),
         // TS `shouldRunOnboarding`: the settings flag alone mounts the

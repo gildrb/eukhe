@@ -268,12 +268,15 @@ impl SessionUi {
         }
         // The running surface is the truth for the fullscreen row.
         values.fullscreen = view.screen_mode == crate::screen_mode::ScreenMode::Fullscreen;
-        // The registered themes (TS `getAvailableThemes`; this surface
-        // ships the builtins).
-        values.available_themes = eukhe_types::themes::BUILTIN_THEME_NAMES
-            .iter()
-            .map(ToString::to_string)
-            .collect();
+        // The registered themes (TS `getAvailableThemes`): builtins, the
+        // custom directory's files, and the resource system's themes.
+        values.available_themes = self
+            .client_settings
+            .as_ref()
+            .map_or_else(crate::theme_catalog::ThemeSources::default, |settings| {
+                settings.theme_sources()
+            })
+            .available_names();
         let rows = crate::settings_menu::settings_menu_rows(&values);
         view.settings_menu = Some(crate::settings_menu::SettingsMenu::new(rows));
         self.track_menu_opened("settings", "command");
@@ -305,12 +308,13 @@ impl SessionUi {
                 view.settings_menu = None;
             }
             crate::settings_menu::SettingsMenuAction::PreviewTheme { name } => {
-                // TS `onThemePreview`: switch live without persisting.
-                view.theme = crate::app::load_theme(&name);
+                // TS `onThemePreview`: switch live without persisting; a
+                // failure reports when the choice is committed.
+                view.theme = self.resolve_theme(&name).theme;
             }
             crate::settings_menu::SettingsMenuAction::RestoreTheme { name } => {
                 // TS theme submenu cancel: preview the row's theme back.
-                view.theme = crate::app::load_theme(&name);
+                view.theme = self.resolve_theme(&name).theme;
             }
             crate::settings_menu::SettingsMenuAction::Change { id, value } => {
                 self.apply_settings_change(id, &value, view).await;
@@ -612,7 +616,9 @@ impl SessionUi {
                         return;
                     }
                 }
-                view.theme = crate::app::load_theme(value);
+                let resolved = self.resolve_theme(value);
+                view.theme = resolved.theme;
+                self.theme_warning_rows(&resolved.warnings, view);
             }
             other => {
                 self.error_row(&format!("Unknown setting: {other}"), view);
@@ -856,13 +862,16 @@ impl SessionUi {
                 let mut keybindings = view.editor.keybindings().clone();
                 keybindings.reload();
                 view.editor.set_keybindings(keybindings);
-                // TS re-applies the settings theme (`getTheme` -> `setTheme`);
-                // an unknown name keeps the current theme (the startup
-                // loader's fallback).
-                if let Some(settings) = &self.client_settings {
-                    if let Some(name) = settings.theme() {
-                        view.theme = crate::app::load_theme(&name);
-                    }
+                // TS re-applies the settings theme (`getTheme` -> `setTheme`),
+                // re-reading the theme files.
+                let settings_theme = self
+                    .client_settings
+                    .as_ref()
+                    .map(|settings| settings.theme().unwrap_or_default());
+                if let Some(name) = settings_theme {
+                    let resolved = self.resolve_theme(&name);
+                    view.theme = resolved.theme;
+                    self.theme_warning_rows(&resolved.warnings, view);
                 }
                 // TS `refreshConnectionCatalog`: the daemon's model catalog
                 // re-fetch lands through the run loop's channel.
@@ -880,5 +889,11 @@ impl SessionUi {
             }
         }
         self.dirty = true;
+    }
+
+    /// Resolve a theme name through the settings seam's sources (TS
+    /// `setTheme`); its warnings also go to the agent log.
+    fn resolve_theme(&self, name: &str) -> crate::theme_catalog::ResolvedTheme {
+        crate::theme_catalog::load_client_theme(self.client_settings.as_deref(), name)
     }
 }

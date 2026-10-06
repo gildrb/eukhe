@@ -7,7 +7,22 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use eukhe_core::agent_log::{AgentLog, AgentLogLevel};
+use eukhe_core::resources::ThemePathOptions;
 use eukhe_tui::client_settings::ClientSettings;
+use eukhe_tui::theme_catalog::ThemeSources;
+
+/// The agent-log component theme warnings go to.
+const THEME_LOG_COMPONENT: &str = "coding-agent.theme";
+
+/// The run's theme flags (TS `additionalThemePaths`/`noThemes`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CliThemeFlags {
+    /// `--theme <path>` entries, cwd-resolved.
+    pub paths: Vec<PathBuf>,
+    /// `--no-themes`: the resource system's themes stay unregistered.
+    pub no_themes: bool,
+}
 
 /// The seam handle the interactive run carries (TS injects the same
 /// settings manager into the interactive mode).
@@ -15,11 +30,16 @@ use eukhe_tui::client_settings::ClientSettings;
 pub struct CliClientSettings {
     cwd: PathBuf,
     agent_dir: PathBuf,
+    themes: CliThemeFlags,
 }
 
 impl CliClientSettings {
-    pub fn new(cwd: PathBuf, agent_dir: PathBuf) -> Arc<Self> {
-        Arc::new(Self { cwd, agent_dir })
+    pub fn new(cwd: PathBuf, agent_dir: PathBuf, themes: CliThemeFlags) -> Arc<Self> {
+        Arc::new(Self {
+            cwd,
+            agent_dir,
+            themes,
+        })
     }
 
     fn manager(&self) -> eukhe_core::settings::SettingsManager {
@@ -58,6 +78,38 @@ impl ClientSettings for CliClientSettings {
 
     fn set_theme(&self, theme: &str) -> Result<()> {
         self.manager().set_theme(theme.to_string())
+    }
+
+    fn theme_sources(&self) -> ThemeSources {
+        let custom_dir = Some(self.agent_dir.join("themes"));
+        let options = ThemePathOptions {
+            cwd: self.cwd.clone(),
+            agent_dir: self.agent_dir.clone(),
+            additional_theme_paths: self.themes.paths.clone(),
+            no_themes: self.themes.no_themes,
+        };
+        match eukhe_core::resources::resolve_theme_paths(&options) {
+            Ok(registered) => ThemeSources {
+                registered,
+                custom_dir,
+                diagnostics: Vec::new(),
+            },
+            // The resource themes are unavailable; the `--theme` paths and
+            // the custom directory still resolve.
+            Err(error) => ThemeSources {
+                registered: self.themes.paths.clone(),
+                custom_dir,
+                diagnostics: vec![format!("Theme resources failed to resolve: {error:#}")],
+            },
+        }
+    }
+
+    fn log_theme_warning(&self, message: &str) {
+        AgentLog::new(&self.agent_dir, THEME_LOG_COMPONENT).log(
+            AgentLogLevel::Warn,
+            message,
+            serde_json::Map::new(),
+        );
     }
 
     fn default_service_tier(&self) -> String {
@@ -246,7 +298,11 @@ mod tests {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let agent_dir = dir.path().join("agent");
         std::fs::create_dir_all(&agent_dir).expect("agent dir");
-        let settings = CliClientSettings::new(dir.path().to_path_buf(), agent_dir.clone());
+        let settings = CliClientSettings::new(
+            dir.path().to_path_buf(),
+            agent_dir.clone(),
+            CliThemeFlags::default(),
+        );
 
         // The TS defaults read first.
         assert!(settings.show_images());
@@ -301,5 +357,73 @@ mod tests {
             std::fs::read_to_string(agent_dir.join("settings.json")).expect("settings file");
         let value: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(value["factory"]["enabled"], false);
+    }
+
+    /// The registered themes are the resource system's (here an
+    /// auto-discovered agent-dir theme) plus the `--theme` paths;
+    /// `--no-themes` keeps only the `--theme` paths.
+    #[test]
+    fn theme_sources_register_the_resource_themes_and_the_cli_paths() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let agent_dir = dir.path().join("agent");
+        let auto = agent_dir.join("themes").join("auto.json");
+        let cli_theme = dir.path().join("cli.json");
+        std::fs::create_dir_all(auto.parent().expect("themes dir")).expect("themes dir");
+        std::fs::write(&auto, "{}").expect("auto theme");
+        std::fs::write(&cli_theme, "{}").expect("cli theme");
+        let flags = CliThemeFlags {
+            paths: vec![cli_theme.clone()],
+            no_themes: false,
+        };
+        let settings =
+            CliClientSettings::new(dir.path().to_path_buf(), agent_dir.clone(), flags.clone());
+        assert_eq!(
+            settings.theme_sources(),
+            ThemeSources {
+                registered: vec![auto, cli_theme.clone()],
+                custom_dir: Some(agent_dir.join("themes")),
+                diagnostics: Vec::new(),
+            }
+        );
+        let settings = CliClientSettings::new(
+            dir.path().to_path_buf(),
+            agent_dir.clone(),
+            CliThemeFlags {
+                no_themes: true,
+                ..flags
+            },
+        );
+        assert_eq!(
+            settings.theme_sources(),
+            ThemeSources {
+                registered: vec![cli_theme],
+                custom_dir: Some(agent_dir.join("themes")),
+                diagnostics: Vec::new(),
+            }
+        );
+    }
+
+    /// A theme warning lands in the agent log under the theme component.
+    #[test]
+    fn theme_warnings_go_to_the_agent_log() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let agent_dir = dir.path().join("agent");
+        let settings = CliClientSettings::new(
+            dir.path().to_path_buf(),
+            agent_dir.clone(),
+            CliThemeFlags::default(),
+        );
+        settings.log_theme_warning("Theme \"x\" unavailable");
+        let raw =
+            std::fs::read_to_string(agent_dir.join("logs").join("agent.jsonl")).expect("agent log");
+        let entry: serde_json::Value = serde_json::from_str(raw.trim()).expect("one entry");
+        assert_eq!(
+            (&entry["level"], &entry["component"], &entry["msg"]),
+            (
+                &serde_json::json!("warn"),
+                &serde_json::json!("coding-agent.theme"),
+                &serde_json::json!("Theme \"x\" unavailable"),
+            )
+        );
     }
 }

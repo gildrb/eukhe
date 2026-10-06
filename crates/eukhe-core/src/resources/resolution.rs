@@ -1,7 +1,7 @@
 //! Resource resolution wiring: the package manager resolves configured
 //! packages, settings arrays, auto-discovery, and bundled skills; the loader
-//! consumes the enabled paths (skills and prompts join the session). Theme
-//! loading is a downstream seam.
+//! consumes the enabled paths (skills and prompts join the session), and the
+//! client registers the theme paths (eukhe-tui loads the files).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,8 @@ use crate::settings::SettingsManager;
 
 use crate::packages::PathMetadata;
 use crate::packages::{
-    MetadataSource, PackageManager, PackageManagerOptions, ResolvedPaths, ResolvedResource,
+    MetadataSource, MissingSourceAction, PackageManager, PackageManagerOptions, ResolvedPaths,
+    ResolvedResource,
 };
 use crate::skills::{
     SourceInfo as SkillSourceInfo, SourceOrigin as SkillSourceOrigin,
@@ -218,4 +219,114 @@ pub(crate) fn resolve_session_resources(
         prompt_paths,
         source_infos,
     })
+}
+
+/// The theme files and directories a client registers (TS resource-loader
+/// `themePaths`), in precedence order: the enabled resolved themes
+/// (settings `themes` arrays, packages, auto-discovery) unless
+/// `--no-themes`, then the `--theme` paths, deduplicated.
+///
+/// # Errors
+///
+/// Returns an error when a configured package source fails to resolve (an
+/// unparseable source, a missing local path). Missing remote sources are
+/// skipped, never installed: the client mounts its first frame on this.
+pub fn resolve_theme_paths(options: &super::ThemePathOptions) -> Result<Vec<PathBuf>> {
+    let enabled = if options.no_themes {
+        Vec::new()
+    } else {
+        let mut manager = PackageManager::with_options(PackageManagerOptions {
+            cwd: options.cwd.clone(),
+            agent_dir: options.agent_dir.clone(),
+            settings: SettingsManager::create(&options.cwd, &options.agent_dir),
+            bundled_skills_dir: crate::packages::BundledSkillsDir::default(),
+            extra_builtin_skill_overrides: Vec::new(),
+        });
+        let resolved = manager.resolve_with_on_missing(Some(&mut |_| MissingSourceAction::Skip))?;
+        as_strings(&enabled_paths(&resolved.themes))
+    };
+    let additional = as_strings(&options.additional_theme_paths);
+    Ok(merge_paths(&enabled, &additional, &options.cwd)
+        .into_iter()
+        .map(PathBuf::from)
+        .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::resources::ThemePathOptions;
+
+    struct Fixture {
+        _dir: tempfile::TempDir,
+        cwd: PathBuf,
+        agent_dir: PathBuf,
+        extra_dir: PathBuf,
+        cli_theme: PathBuf,
+    }
+
+    /// An agent dir with one auto-discovered theme, a settings `themes`
+    /// entry naming an outside directory, and a `--theme` file.
+    fn fixture() -> Fixture {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let cwd = dir.path().join("project");
+        let agent_dir = dir.path().join("agent");
+        let extra_dir = dir.path().join("extra-themes");
+        let cli_theme = dir.path().join("cli.json");
+        for path in [
+            agent_dir.join("themes").join("auto.json"),
+            extra_dir.join("extra.json"),
+            cli_theme.clone(),
+        ] {
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("dir");
+            std::fs::write(&path, "{}").expect("theme file");
+        }
+        std::fs::create_dir_all(&cwd).expect("cwd");
+        std::fs::write(
+            agent_dir.join("settings.json"),
+            serde_json::json!({ "themes": [extra_dir.display().to_string()] }).to_string(),
+        )
+        .expect("settings");
+        Fixture {
+            _dir: dir,
+            cwd,
+            agent_dir,
+            extra_dir,
+            cli_theme,
+        }
+    }
+
+    fn options(fixture: &Fixture) -> ThemePathOptions {
+        ThemePathOptions {
+            cwd: fixture.cwd.clone(),
+            agent_dir: fixture.agent_dir.clone(),
+            additional_theme_paths: vec![fixture.cli_theme.clone()],
+            no_themes: false,
+        }
+    }
+
+    #[test]
+    fn theme_paths_are_the_resolved_themes_then_the_cli_paths() {
+        let fixture = fixture();
+        let paths = resolve_theme_paths(&options(&fixture)).expect("resolve");
+        assert_eq!(
+            paths,
+            vec![
+                fixture.extra_dir.join("extra.json"),
+                fixture.agent_dir.join("themes").join("auto.json"),
+                fixture.cli_theme.clone(),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_themes_keeps_only_the_cli_paths() {
+        let fixture = fixture();
+        let paths = resolve_theme_paths(&ThemePathOptions {
+            no_themes: true,
+            ..options(&fixture)
+        })
+        .expect("resolve");
+        assert_eq!(paths, vec![fixture.cli_theme]);
+    }
 }

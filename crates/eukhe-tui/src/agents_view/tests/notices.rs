@@ -9,7 +9,7 @@ fn mode_with_notice(notice: &str) -> AgentsViewMode {
         socket_path: PathBuf::from("/tmp/agents-view-test.sock"),
         cwd: PathBuf::from("/tmp"),
         session_dir: None,
-        theme: "eukhe".to_string(),
+        theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
         scope: None,
