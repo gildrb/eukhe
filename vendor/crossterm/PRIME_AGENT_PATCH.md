@@ -61,3 +61,19 @@ the enhancement for the RTT>50ms class (the product's primary remote-SSH
 deployment shape) while buying only the silent class's raced-transition
 stall, which no user rides. The timed contract is locked by
 `crates/pa-cli/tests/kitty_verdict_time_e2e.rs`.
+
+# The tty drain (2026-10-06, burst-input-stall lane)
+
+`src/event/source/unix/mio.rs` `try_read`: upstream returned the first parsed
+event after ONE 1024-byte read. mio registers the tty edge-triggered, so the
+bytes still queued never raised another readiness edge: a typed (marker-less)
+paste written in one terminal write stopped after its first 1024 bytes until
+the next keypress, and its trailing Enter was lost the same way. The source
+now drains the tty on every edge: the fd blocks, so `ioctl(FIONREAD)` after
+each read bounds the loop (the first read stays unconditional so a hangup
+surfaces), and the parser's `more` flag is "bytes still queued" instead of
+"the read filled the buffer" -- a sequence split by a read boundary stays
+open, and a full read that ends on a lone ESC no longer parks it. A read error
+other than EINTR/EAGAIN is returned instead of spinning. Locked by
+`crates/eukhe-cli/tests/anthropic_remote_login_pty_e2e.rs`
+`a_typed_long_redirect_in_one_write_logs_in`.

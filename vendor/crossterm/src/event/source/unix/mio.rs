@@ -92,31 +92,35 @@ impl EventSource for UnixInternalEventSource {
             for token in self.events.iter().map(|x| x.token()) {
                 match token {
                     TTY_TOKEN => {
+                        // mio polls edge-triggered: an edge is reported
+                        // once, so the tty is drained before any event
+                        // returns -- bytes left queued would wait for the
+                        // next input edge (a one-write typed paste stalled
+                        // after its first 1024 bytes). The fd blocks, so
+                        // FIONREAD bounds the drain; the first read is
+                        // unconditional to surface a hangup. A sequence
+                        // split by a read stays open while bytes remain.
+                        // SAFETY: `tty_fd` outlives the borrow.
+                        let tty =
+                            unsafe { rustix::fd::BorrowedFd::borrow_raw(self.tty_fd.raw_fd()) };
                         loop {
                             match self.tty_fd.read(&mut self.tty_buffer) {
+                                Ok(0) => break,
                                 Ok(read_count) => {
-                                    if read_count > 0 {
-                                        self.parser.advance(
-                                            &self.tty_buffer[..read_count],
-                                            read_count == TTY_BUFFER_SIZE,
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    // No more data to read at the moment. We will receive another event
-                                    if e.kind() == io::ErrorKind::WouldBlock {
+                                    let pending = rustix::io::ioctl_fionread(tty)?;
+                                    self.parser
+                                        .advance(&self.tty_buffer[..read_count], pending > 0);
+                                    if pending == 0 {
                                         break;
                                     }
-                                    // once more data is available to read.
-                                    else if e.kind() == io::ErrorKind::Interrupted {
-                                        continue;
-                                    }
                                 }
-                            };
-
-                            if let Some(event) = self.parser.next() {
-                                return Ok(Some(event));
+                                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                                Err(e) => return Err(e),
                             }
+                        }
+                        if let Some(event) = self.parser.next() {
+                            return Ok(Some(event));
                         }
                     }
                     SIGNAL_TOKEN => {

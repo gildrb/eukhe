@@ -15,9 +15,10 @@
 //! shaped like multi-line text (text, newline, text -- tmux 3.2 and older
 //! forward pastes without bracketed markers) is coalesced into one paste
 //! instead of submitting line by line. A zero-timeout poll after each
-//! read marks the chunk boundary: crossterm serves the rest of the same
-//! OS read without blocking, so a burst is exactly the events one
-//! terminal write carried.
+//! read marks the chunk boundary: crossterm drains everything the tty
+//! holds on each readiness edge (the vendored patch) and serves those
+//! events without blocking, so a burst is exactly the terminal write(s)
+//! queued at that edge.
 //!
 //! Both readers also run the [`SequenceGuard`] (TS `StdinBuffer`'s
 //! partial-sequence hold, ported in [`crate::sequence_guard`]):
@@ -193,13 +194,14 @@ where
                 }
                 Ok(true) => {
                     // Drain every event of this terminal write: a
-                    // zero-timeout poll serves the rest of the same OS read
-                    // without blocking, so the drain stops exactly at the
-                    // chunk boundary. The drain must also observe the stop
-                    // flag on every iteration: a continuously readable
-                    // stream keeps the zero-timeout poll `true` forever,
-                    // and a surface handoff would block forever in
-                    // `join()` waiting for this loop to end.
+                    // zero-timeout poll serves the rest of the drained
+                    // tty queue without blocking, so the drain stops
+                    // exactly at the chunk boundary. The drain must also
+                    // observe the stop flag on every iteration: a
+                    // continuously readable stream keeps the zero-timeout
+                    // poll `true` forever, and a surface handoff would
+                    // block forever in `join()` waiting for this loop to
+                    // end.
                     let mut events = Vec::new();
                     loop {
                         if thread_stop.load(Ordering::Acquire) {
@@ -1064,5 +1066,54 @@ mod tests {
         assert!(guard
             .flush_expired(now + crate::sequence_guard::HOLD)
             .is_empty());
+    }
+
+    /// A >2 KB plain keystroke paste (no markers) delivers every character
+    /// in order whatever the chunk boundaries the tty reads cut: one
+    /// chunk, the 1024-byte read size and its neighbours, and the 4096
+    /// pty write size.
+    #[test]
+    fn a_long_typed_burst_delivers_every_character_at_any_split() {
+        let _state = crate::enhanced_keys::TEST_STATE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        crate::enhanced_keys::set_kitty_active_for_tests(false);
+        let text = format!(
+            "http://localhost:53692/callback?code={}&state={}é",
+            "Ab9-_".repeat(900),
+            "s".repeat(43)
+        );
+        // crossterm's legacy parse: one press per char, SHIFT on capitals.
+        let events: Vec<Event> = text
+            .chars()
+            .map(|c| {
+                if c.is_ascii_uppercase() {
+                    shift_press(c)
+                } else {
+                    press(c)
+                }
+            })
+            .collect();
+        for split in [events.len(), 1, 1023, 1024, 1025, 4095, 4096] {
+            let mut guard = SequenceGuard::default();
+            let now = Instant::now();
+            let mut delivered = String::new();
+            for chunk in events.chunks(split) {
+                let outputs: Vec<Event> = merge_legacy_meta_escapes(chunk.to_vec())
+                    .into_iter()
+                    .flat_map(|event| guard.feed(event, now))
+                    .collect();
+                for input in collect_forwarded(outputs) {
+                    let ReaderInput::Event(event) = input else {
+                        panic!("a single-line burst is not a paste: {input:?}");
+                    };
+                    delivered.push_str(&printable_text(&event).expect("a plain character"));
+                }
+            }
+            assert!(guard
+                .flush_expired(now + crate::sequence_guard::HOLD)
+                .is_empty());
+            assert_eq!(delivered, text, "split {split}");
+        }
     }
 }
