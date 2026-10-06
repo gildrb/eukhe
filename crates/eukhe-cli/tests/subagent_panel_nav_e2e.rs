@@ -183,21 +183,6 @@ fn append_billed_turn(path: &Path, id: &str, input: u64, output: u64, cost: f64)
     );
 }
 
-/// The first frame showing `marker` (the state before the later keystrokes
-/// mutate it).
-fn first_frame_of(frames: &[String], marker: &str) -> String {
-    frames
-        .iter()
-        .find(|frame| frame.contains(marker))
-        .unwrap_or_else(|| {
-            panic!(
-                "no frame shows {marker:?}; frames:\n{}",
-                frames.join("\n---frame---\n")
-            )
-        })
-        .clone()
-}
-
 /// The last frame showing `marker`.
 fn frame_of(frames: &[String], marker: &str) -> String {
     frames
