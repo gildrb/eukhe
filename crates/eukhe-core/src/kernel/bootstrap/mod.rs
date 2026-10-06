@@ -250,7 +250,9 @@ async fn ensure_kernel_python_uncached(
     }
     .await;
     drop(release_lock);
-    options.report("✓ ready");
+    if result.is_ok() {
+        options.report("✓ ready");
+    }
     result.map_err(|error| format_bootstrap_failure(&error))
 }
 

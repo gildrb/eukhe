@@ -1217,3 +1217,64 @@ async fn skill_with_unlocked_dependencies_is_uninstalled_and_reported() {
         .expect("skills recorded");
     assert_eq!(recorded, vec![skills[0].clone()]);
 }
+
+/// A process exiting mid-setup cancels the pending install steps. That is
+/// not a failed install: the sync stops with [`BootstrapCancelled`] and
+/// warns about no skill (it used to retry each skill alone and report every
+/// one as "failed to install").
+#[test]
+fn a_cancelled_setup_reports_no_skill_as_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let uv = fake_uv(dir.path(), "#!/bin/sh\nexit 0\n");
+    let venv = dir.path().join("venv");
+    std::fs::create_dir_all(&venv).unwrap();
+    let edit = dir.path().join("skills/edit");
+    std::fs::create_dir_all(&edit).unwrap();
+    std::fs::write(edit.join("pyproject.toml"), "[project]\nname = \"edit\"\n").unwrap();
+    let skills = vec![BootstrapPythonSkill {
+        import_name: "edit".to_string(),
+        package_path: edit.to_string_lossy().into_owned(),
+        pyproject_path: edit.join("pyproject.toml").to_string_lossy().into_owned(),
+        pyproject_hash: "h1".to_string(),
+    }];
+    let (report_tx, reports) = std::sync::mpsc::channel::<String>();
+    let options = EnsureKernelPythonOptions {
+        python_skills: Vec::new(),
+        on_progress: Some(std::sync::Arc::new(move |message: &str| {
+            // The receiver outlives the sync; a send cannot fail here.
+            report_tx
+                .send(message.to_string())
+                .expect("report receiver");
+        })),
+    };
+    // The blocking pool the setup steps run on belongs to a runtime that
+    // is already shutting down: every step is cancelled before it starts.
+    let exiting = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .build()
+        .unwrap();
+    let exiting_handle = exiting.handle().clone();
+    exiting.shutdown_background();
+    let driver = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let python = dir.path().join("python");
+    let result = driver.block_on(async {
+        let _exiting = exiting_handle.enter();
+        sync_python_skills(
+            uv.to_str().unwrap(),
+            &venv,
+            &python,
+            "sha256:rt",
+            &skills,
+            &options,
+        )
+        .await
+    });
+    let error = result.expect_err("a cancelled setup does not succeed");
+    assert!(error.is::<BootstrapCancelled>(), "{error:#}");
+    drop(options);
+    assert_eq!(reports.iter().collect::<Vec<_>>(), Vec::<String>::new());
+    assert!(uv_invocations(dir.path()).is_empty(), "no step ran");
+}

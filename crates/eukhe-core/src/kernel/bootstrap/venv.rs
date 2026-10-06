@@ -102,7 +102,31 @@ async fn run_async(command: &str, args: &[String]) -> anyhow::Result<()> {
         }
     })
     .await
-    .map_err(|e| anyhow!("bootstrap task join failed: {e}"))?
+    .map_err(|error| join_failure(&error))?
+}
+
+/// The kernel setup stopped because its runtime is shutting down (the
+/// process is exiting): a pending step was cancelled before it ran. This
+/// is not an install failure, so no skill is reported as broken.
+#[derive(Debug)]
+pub(crate) struct BootstrapCancelled;
+
+impl std::fmt::Display for BootstrapCancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("kernel setup was cancelled")
+    }
+}
+
+impl std::error::Error for BootstrapCancelled {}
+
+/// A blocking setup step that did not finish: [`BootstrapCancelled`] when
+/// the runtime cancelled it, else the join failure (a panic).
+fn join_failure(error: &tokio::task::JoinError) -> anyhow::Error {
+    if error.is_cancelled() {
+        anyhow::Error::new(BootstrapCancelled)
+    } else {
+        anyhow!("bootstrap task join failed: {error}")
+    }
 }
 
 /// `uv pip check` against the venv (offline): `Ok(None)` when every
@@ -119,7 +143,7 @@ async fn uv_pip_check(uv: &str, python: &str) -> anyhow::Result<Option<String>> 
             .with_context(|| format!("failed to spawn {command}"))
     })
     .await
-    .map_err(|e| anyhow!("bootstrap task join failed: {e}"))??;
+    .map_err(|error| join_failure(&error))??;
     if output.status.success() {
         return Ok(None);
     }
@@ -263,20 +287,22 @@ pub(crate) async fn sync_python_skills(
         // startup per metadata-only editable install (measured: nine serial
         // installs ~1.9s, one batched invocation ~0.4s, warm uv cache). A
         // batch failure falls back to the per-skill loop so one broken skill
-        // still costs only its own warning and never blocks the rest.
-        if run_async(uv, &skill_install_args(&python_str, &missing))
-            .await
-            .is_ok()
-        {
-            newly_installed.clone_from(&missing);
-        } else {
-            for skill in &missing {
-                match run_async(uv, &skill_install_args(&python_str, &[skill])).await {
-                    Ok(()) => newly_installed.push(skill),
-                    Err(error) => options.report(&format!(
-                        "Warning: Python skill {} failed to install and will be unavailable: {error}",
-                        skill.import_name
-                    )),
+        // still costs only its own warning and never blocks the rest. A
+        // cancelled step ends the sync: the process is exiting, and no skill
+        // failed.
+        match run_async(uv, &skill_install_args(&python_str, &missing)).await {
+            Ok(()) => newly_installed.clone_from(&missing),
+            Err(error) if error.is::<BootstrapCancelled>() => return Err(error),
+            Err(_) => {
+                for skill in &missing {
+                    match run_async(uv, &skill_install_args(&python_str, &[skill])).await {
+                        Ok(()) => newly_installed.push(skill),
+                        Err(error) if error.is::<BootstrapCancelled>() => return Err(error),
+                        Err(error) => options.report(&format!(
+                            "Warning: Python skill {} failed to install and will be unavailable: {error}",
+                            skill.import_name
+                        )),
+                    }
                 }
             }
         }
