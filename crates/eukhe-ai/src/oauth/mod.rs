@@ -21,6 +21,8 @@ mod github_copilot;
 mod openai_codex;
 mod pkce;
 mod provider_http;
+mod redirect_input;
+mod response_snippet;
 mod types;
 mod xai;
 
@@ -41,6 +43,11 @@ pub use provider_http::{
     ProviderHttp, ProviderHttpMethod, ProviderHttpRequest, ProviderHttpResponse,
     ReqwestProviderHttp,
 };
+pub use redirect_input::{
+    clean_paste, exchange_retry_notice, parse_redirect_input, PastedAuthorization,
+    RedirectInputError, VerifiedAuthorization,
+};
+pub use response_snippet::response_snippet;
 pub use types::{OAuthLoginUi, OAuthPrompt};
 pub use xai::{
     login_xai, refresh_xai_token, XaiCredentials, LOGIN_CANCELLED as XAI_LOGIN_CANCELLED,
@@ -120,7 +127,7 @@ impl CodexHttp for ReqwestCodexHttp {
                 .await
                 .map_err(|error| {
                     if error.is_timeout() {
-                        "the token request timed out".to_string()
+                        format!("the token request to {url} timed out after {timeout_ms} ms")
                     } else {
                         transport_failure(&error)
                     }
@@ -135,7 +142,8 @@ impl CodexHttp for ReqwestCodexHttp {
 /// A transport failure with its cause chain (TS `formatErrorDetails`
 /// appends `cause=`): reqwest's own message names only the URL, the
 /// chain carries the reason (DNS, TLS, proxy, refused connect).
-fn transport_failure(error: &reqwest::Error) -> String {
+#[must_use]
+pub fn transport_failure(error: &reqwest::Error) -> String {
     use std::fmt::Write as _;
     let mut message = error.to_string();
     let mut source = std::error::Error::source(error);

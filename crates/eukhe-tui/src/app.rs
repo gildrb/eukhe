@@ -282,10 +282,10 @@ pub(crate) fn draw_fullscreen(
     Ok(())
 }
 
-/// One row as plain text: styling, OSC 133 zone markers, and OSC 8
-/// hyperlinks stripped.
+/// One row as plain text: styling, the soft-wrap marker, OSC 133 zone
+/// markers, and OSC 8 hyperlinks stripped.
 pub(crate) fn plain_row(line: &crate::Line) -> String {
-    let mut stripped = line.clone();
+    let mut stripped = crate::soft_wrap::content(line).to_vec();
     crate::osc133::strip(&mut stripped);
     crate::hyperlinks::strip_osc8(&mut stripped);
     stripped.iter().map(|s| s.content.as_str()).collect()

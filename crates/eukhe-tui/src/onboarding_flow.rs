@@ -387,16 +387,18 @@ impl OnboardingPanel {
     }
 
     /// The panel's rows (TS `render`'s active-panel arm; the panel indents
-    /// its own content). The auth panel's hint row renders the
+    /// its own content) within `height` rows (the auth panel keeps its
+    /// URL block whole there). The auth panel's hint row renders the
     /// effective bindings, so the keybindings manager rides along.
     pub(crate) fn render(
         &mut self,
         theme: &Theme,
         width: usize,
+        height: usize,
         kb: &KeybindingsManager,
     ) -> Vec<Line> {
         match self {
-            OnboardingPanel::Auth { panel, .. } => panel.render(theme, width, kb),
+            OnboardingPanel::Auth { panel, .. } => panel.render(theme, width, height, kb),
             OnboardingPanel::Providers(picker) => picker.render(theme, width),
             OnboardingPanel::Question(choice) | OnboardingPanel::TeamQuestion { choice, .. } => {
                 choice.render(theme, width)

@@ -2,11 +2,11 @@
 //! `anthropic.ts`'s `startCallbackServer` + `oauth-page.ts`): one
 //! listener on the registered redirect port serving the callback
 //! route with the product's success/error pages. Only a matching
-//! redirect settles the login — an OAuth error response, a missing
+//! redirect settles the login -- an OAuth error response, a missing
 //! code or state, or an unknown route answers its page and keeps
 //! waiting (TS calls `settleWait` on success only). A bind failure is
-//! a hard error (TS rejects the server promise and the login fails);
-//! the Codex callback keeps its own listener on its own port.
+//! the caller's to handle: the login goes on with the manual paste.
+//! The Codex callback keeps its own listener on its own port.
 
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
@@ -77,33 +77,34 @@ pub(crate) fn registered_port_stages() -> bool {
 
 /// A running callback server.
 ///
-/// Dropping the server aborts its accept loop, releasing the
-/// listener's port — a settled or cancelled login never wedges the
-/// registered redirect port for the next one.
+/// The server owns the only strong handle on its listener (the accept
+/// loop upgrades a weak one per poll), so dropping the server closes
+/// the socket synchronously: a retried login rebinds the registered
+/// port at once.
 #[derive(Debug)]
 pub struct AnthropicCallbackServer {
     shared: Arc<CallbackShared>,
     #[cfg(test)]
     port: u16,
-    task: Option<tokio::task::JoinHandle<()>>,
+    /// Held, never read: the one strong handle (see above).
+    _listener: Arc<tokio::net::TcpListener>,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl Drop for AnthropicCallbackServer {
     fn drop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
-        }
+        self.task.abort();
     }
 }
 
 impl AnthropicCallbackServer {
     /// Bind the registered redirect port on the callback host (TS
-    /// `server.listen(CALLBACK_PORT, CALLBACK_HOST)`); a bind failure
-    /// is the login's hard error (TS rejects the server promise).
+    /// `server.listen(CALLBACK_PORT, CALLBACK_HOST)`).
     ///
     /// # Errors
     ///
-    /// Returns an error when the listener cannot be bound.
+    /// Returns an error when the listener cannot be bound (the login
+    /// continues on the manual paste).
     pub fn start(state: &str) -> Result<Self, String> {
         let host = std::env::var(CALLBACK_HOST_ENV).unwrap_or_else(|_| "127.0.0.1".to_string());
         Self::bind(&host, CALLBACK_PORT, state)
@@ -142,12 +143,21 @@ impl AnthropicCallbackServer {
             .map_err(|error| format!("port {port}: {error}"))?;
         #[cfg(test)]
         let bound_port = listener.local_addr().map_or(port, |addr| addr.port());
+        let listener = Arc::new(listener);
+        let weak_listener = Arc::downgrade(&listener);
         let shared = Arc::new(CallbackShared::default());
         let task_shared = Arc::clone(&shared);
         let state = state.to_string();
         let task = tokio::spawn(async move {
             loop {
-                let Ok((stream, _)) = listener.accept().await else {
+                // The strong handle lives only inside one poll: a dropped
+                // server closes the listener even while this loop waits.
+                let accepted = std::future::poll_fn(|context| match weak_listener.upgrade() {
+                    Some(listener) => listener.poll_accept(context).map(Some),
+                    None => std::task::Poll::Ready(None),
+                })
+                .await;
+                let Some(Ok((stream, _))) = accepted else {
                     break;
                 };
                 let shared = Arc::clone(&task_shared);
@@ -161,7 +171,8 @@ impl AnthropicCallbackServer {
             shared,
             #[cfg(test)]
             port: bound_port,
-            task: Some(task),
+            _listener: listener,
+            task,
         })
     }
 
@@ -492,9 +503,9 @@ mod tests {
     #[tokio::test]
     async fn a_bound_port_fails_the_start_clearly() {
         let _port = CALLBACK_PORT_LOCK.lock().await;
-        // The registered port is occupied, so the login fails (TS
-        // rejects the server promise with the bind error). Skip when
-        // the port was already busy before this test — the blocker
+        // The registered port is occupied, so the start fails with the
+        // bind error (the flow then goes on with the paste alone). Skip
+        // when the port was already busy before this test -- the blocker
         // cannot stage the bind-failure path on a held port.
         let Ok(blocker) = std::net::TcpListener::bind(("127.0.0.1", CALLBACK_PORT)) else {
             return; // the registered port is busy: this run cannot stage it.
@@ -503,6 +514,18 @@ mod tests {
         assert!(error.contains("port 53692"), "{error}");
         assert!(error.contains("Address already in use"), "{error}");
         drop(blocker);
+    }
+
+    /// The port-release regression: a dropped server frees its port
+    /// before the next statement, so a retried login on the same
+    /// runtime rebinds the registered port (an aborted accept task
+    /// holding the listener kept it bound until the runtime polled it).
+    #[tokio::test]
+    async fn a_dropped_server_releases_its_port_at_once() {
+        let (server, port) = live("the-state");
+        drop(server);
+        std::net::TcpListener::bind(("127.0.0.1", port))
+            .expect("the dropped server's port binds again immediately");
     }
 
     /// The missed-notification regression: a settle landing between the

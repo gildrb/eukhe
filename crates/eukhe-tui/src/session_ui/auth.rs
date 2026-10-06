@@ -341,6 +341,11 @@ impl SessionUi {
                     panel.show_auth_url(url, instructions);
                 }
             }
+            AuthPanelRequest::Notice { message } => {
+                if let Some(panel) = view.auth_panel.as_mut() {
+                    panel.show_notice(&message);
+                }
+            }
             AuthPanelRequest::PastePrompt {
                 prompt,
                 tone,

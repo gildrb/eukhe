@@ -5,20 +5,26 @@
 //! server while racing a manual paste, exchange the code for tokens, and
 //! hand back endpoint-bound credentials for `auth.json`. Refresh validates
 //! every binding before asking the stored token endpoint again.
+//!
+//! With a paste surface, a rejected paste or browser hit and a failed
+//! exchange re-prompt with the same verifier and state while the callback
+//! keeps waiting; only a cancelled paste ends the login. Busy callback
+//! ports leave the paste as the only path.
 
 use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::pin::{pin, Pin};
 
 use anyhow::{anyhow, bail, Result};
-use tokio::time::Duration;
+use eukhe_ai::oauth::{exchange_retry_notice, parse_redirect_input};
 
 use crate::auth::types::AuthCredential;
 
-use super::oauth_callback::{CallbackCode, CallbackServer};
+use super::oauth_callback::{
+    redirect_uri_for, CallbackResult, CallbackServer, CALLBACK_PORT_BASE, CALLBACK_PORT_COUNT,
+};
 use super::oauth_discovery::{
-    canonical_resource, discover, exchange_token, generate_pkce, parse_redirect_input,
-    random_state, register_client, validated_https_url, TokenResponse, TOKEN_EXPIRY_BUFFER_MS,
+    canonical_resource, discover, exchange_token, generate_pkce, random_state, register_client,
+    validated_https_url, TokenResponse, TOKEN_EXPIRY_BUFFER_MS,
 };
 use super::oauth_http::OAuthHttp;
 use url::Url;
@@ -54,8 +60,15 @@ pub trait McpLoginUi: Send + Sync {
         placeholder: &str,
     ) -> Pin<Box<dyn Future<Output = Result<String>> + Send>>;
     /// The manual-paste channel racing the browser callback: `None` when
-    /// the surface offers none. Resolving `None` cancels the paste.
+    /// the surface offers none. Resolving `None` cancels the login. The
+    /// flow asks again after a rejected paste or a failed exchange, so
+    /// each call mounts a fresh paste field.
     fn on_manual_code_input(&self) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send>>>;
+    /// A paste, a browser hit, or an exchange failed but the login goes
+    /// on: show `reason` where the paste field is (re-)mounted. Only
+    /// flows with a paste surface call it; the panel shows a warning row
+    /// that clears on the next submit.
+    fn on_input_rejected(&self, reason: &str);
 }
 
 /// Wall-clock milliseconds since the epoch (the `expires` convention).
@@ -107,16 +120,6 @@ fn authorization_url(endpoint: &str, params: &[(String, String)]) -> Result<Stri
     Ok(url.to_string())
 }
 
-/// What one manual paste settled into.
-enum ManualOutcome {
-    /// A valid pasted redirect.
-    Code(CallbackCode),
-    /// The paste surface cancelled without usable input.
-    Cancelled,
-    /// A real paste failed validation (bad state, no code).
-    Failed(anyhow::Error),
-}
-
 /// Run one interactive login for a server; the returned credential is
 /// ready to persist under `mcp:<server>`.
 ///
@@ -124,9 +127,10 @@ enum ManualOutcome {
 ///
 /// Returns an error when the discovery document cannot be fetched, the
 /// server supports neither dynamic client registration nor a configured
-/// client id, client registration fails, the callback server cannot start,
-/// the authorization URL cannot be built, the pasted redirect is invalid or
-/// its state mismatches, or the token exchange fails.
+/// client id, client registration fails, the authorization URL cannot be
+/// built, or the paste is cancelled; without a paste surface also when no
+/// callback port binds, the browser hit or prompt answer is rejected, or
+/// the token exchange fails.
 pub async fn mcp_login(
     http: &dyn OAuthHttp,
     config: &McpOAuthConfig,
@@ -159,8 +163,13 @@ pub async fn mcp_login(
     // `state` is independent of the PKCE verifier: the verifier is the
     // token-exchange secret, `state` is echoed on the redirect URL.
     let state = random_state();
-    let callback = Arc::new(CallbackServer::start(&config.label).await?);
-    let redirect_uri = callback.redirect_uri();
+    let callback = CallbackServer::start(&config.label, &state).await;
+    // Every candidate is registered: with all ports busy the browser
+    // still lands on the first one, whose address the user pastes.
+    let redirect_uri = match &callback {
+        Ok(server) => server.redirect_uri(),
+        Err(_) => redirect_uri_for(CALLBACK_PORT_BASE),
+    };
 
     let scope = config
         .scopes
@@ -190,102 +199,134 @@ pub async fn mcp_login(
     let auth_url = authorization_url(&discovery.metadata.authorization_endpoint, &auth_params)?;
     ui.on_auth(
         &auth_url,
-        "Complete login in your browser. If the browser is on another machine, paste the \
-         final redirect URL here.",
+        "Complete login in your browser. On another machine, the browser ends on a localhost \
+         page that fails to load: copy that page's full address and paste it below.",
     );
 
     // Race the local callback server against a manual paste (a browser on
-    // another machine). A real paste cancels the callback waiter; manual
-    // cancellation settles it after a short grace so an in-flight browser
-    // redirect can win first.
-    let mut manual_task = ui.on_manual_code_input().map(|manual| {
-        let callback = Arc::clone(&callback);
-        let state = state.clone();
-        tokio::spawn(async move {
-            let Some(input) = manual.await else {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                callback.cancel().await;
-                return ManualOutcome::Cancelled;
+    // another machine); whichever settles a valid code first wins.
+    let mut manual = ui.on_manual_code_input();
+    let paste_surface = manual.is_some();
+    let (server, mut bind_error) = match callback {
+        Ok(server) => (Some(server), None),
+        Err(error) => {
+            if paste_surface {
+                ui.on_progress(&format!(
+                    "Ports {CALLBACK_PORT_BASE}-{} are busy, so the browser cannot hand the \
+                     login back automatically: paste the address of the page your browser ends \
+                     on. ({error:#})",
+                    CALLBACK_PORT_BASE + CALLBACK_PORT_COUNT - 1
+                ));
+            }
+            (None, Some(error))
+        }
+    };
+    let callback_live = server.is_some();
+    let wait_once = || async {
+        match &server {
+            Some(server) => server.wait_for_code().await,
+            // Never polled: the race arm is off without a server.
+            None => std::future::pending::<CallbackResult>().await,
+        }
+    };
+    let mut wait = pin!(wait_once());
+    loop {
+        let code = loop {
+            if !callback_live && manual.is_none() {
+                // No browser hand-back and no paste surface: the blocking
+                // prompt is the only input (a refusing surface reports the
+                // port failure that left it).
+                let input = match ui
+                    .on_prompt(
+                        "Paste the authorization code or full redirect URL:",
+                        &redirect_uri,
+                    )
+                    .await
+                {
+                    Ok(input) => input,
+                    Err(prompt_error) => return Err(bind_error.take().unwrap_or(prompt_error)),
+                };
+                break parse_redirect_input(&input)
+                    .and_then(|pasted| pasted.verify_state(&state))?;
+            }
+            let step = tokio::select! {
+                settled = &mut wait, if callback_live => RaceStep::Callback(settled),
+                answer = async {
+                    match manual.as_mut() {
+                        Some(field) => field.await,
+                        None => std::future::pending().await,
+                    }
+                }, if manual.is_some() => RaceStep::Paste(answer),
             };
-            match parse_redirect_input(&input, &state) {
-                Ok((code, state)) => {
-                    callback.cancel().await;
-                    ManualOutcome::Code(CallbackCode { code, state })
+            match step {
+                // The wait re-arms for the next browser hit either way.
+                RaceStep::Callback(Ok(code)) => {
+                    wait.set(wait_once());
+                    break code;
                 }
-                Err(error) => {
-                    // A validation error on a real paste (bad state, no
-                    // code) is a genuine failure the caller surfaces; a
-                    // cancelled surface is not.
-                    let genuine = error.to_string().contains("state mismatch")
-                        || error.to_string().contains("authorization code");
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-                    callback.cancel().await;
-                    if genuine {
-                        ManualOutcome::Failed(error)
-                    } else {
-                        ManualOutcome::Cancelled
+                RaceStep::Callback(Err(rejected)) => {
+                    wait.set(wait_once());
+                    if !paste_surface {
+                        return Err(rejected.into());
+                    }
+                    // The pending paste field stays; the notice says why
+                    // the browser did not finish the login.
+                    ui.on_input_rejected(&rejected.to_string());
+                }
+                RaceStep::Paste(None) => bail!("Login cancelled"),
+                RaceStep::Paste(Some(input)) => {
+                    match parse_redirect_input(&input)
+                        .and_then(|pasted| pasted.verify_state(&state))
+                    {
+                        Ok(accepted) => break accepted,
+                        Err(rejected) => {
+                            ui.on_input_rejected(&rejected.to_string());
+                            manual = ui.on_manual_code_input();
+                        }
                     }
                 }
             }
-        })
-    });
+        };
+        // The callback won: the pending paste prompt goes away.
+        drop(manual.take());
 
-    let mut result = callback.wait_for_code().await;
-    let mut manual_error: Option<anyhow::Error> = None;
-    if result.is_none() {
-        if let Some(task) = manual_task.take() {
-            match task.await {
-                Ok(ManualOutcome::Code(code)) => result = Some(code),
-                Ok(ManualOutcome::Cancelled) => {}
-                Ok(ManualOutcome::Failed(error)) => manual_error = Some(error),
-                Err(join_error) => {
-                    manual_error = Some(anyhow!("Manual login input failed: {join_error}"));
-                }
+        ui.on_progress("Exchanging authorization code for tokens...");
+        let mut token_params: Vec<(String, String)> = vec![
+            ("grant_type".to_string(), "authorization_code".to_string()),
+            ("code".to_string(), code.code),
+            ("redirect_uri".to_string(), redirect_uri.clone()),
+            ("client_id".to_string(), client_id.clone()),
+            ("code_verifier".to_string(), verifier.clone()),
+        ];
+        if let Some(resource) = &discovery.resource {
+            token_params.push(("resource".to_string(), resource.clone()));
+        }
+        match exchange_token(http, &discovery.metadata.token_endpoint, &token_params).await {
+            Ok(token) => {
+                return Ok(to_credentials(
+                    token,
+                    &discovery.metadata.token_endpoint,
+                    &client_id,
+                    Some(&config.url),
+                    discovery.resource.as_deref(),
+                    discovery.issuer.as_deref(),
+                    None,
+                ));
             }
-        } else {
-            // No paste surface: a blocking prompt is the fallback once the
-            // callback has settled without a redirect.
-            let input = ui
-                .on_prompt(
-                    "Paste the authorization code or full redirect URL:",
-                    &redirect_uri,
-                )
-                .await?;
-            let (code, state) = parse_redirect_input(&input, &state)?;
-            result = Some(CallbackCode { code, state });
+            Err(error) if paste_surface => {
+                ui.on_input_rejected(&exchange_retry_notice(&format!("{error:#}")));
+                manual = ui.on_manual_code_input();
+            }
+            Err(error) => return Err(error),
         }
     }
-    if let Some(task) = &manual_task {
-        task.abort();
-    }
-    let Some(result) = result else {
-        return Err(manual_error.unwrap_or_else(|| anyhow!("Missing authorization code")));
-    };
-    if result.state != state {
-        bail!("OAuth state mismatch");
-    }
+}
 
-    ui.on_progress("Exchanging authorization code for tokens...");
-    let mut token_params: Vec<(String, String)> = vec![
-        ("grant_type".to_string(), "authorization_code".to_string()),
-        ("code".to_string(), result.code),
-        ("redirect_uri".to_string(), redirect_uri),
-        ("client_id".to_string(), client_id.clone()),
-        ("code_verifier".to_string(), verifier),
-    ];
-    if let Some(resource) = &discovery.resource {
-        token_params.push(("resource".to_string(), resource.clone()));
-    }
-    let token = exchange_token(http, &discovery.metadata.token_endpoint, &token_params).await?;
-    Ok(to_credentials(
-        token,
-        &discovery.metadata.token_endpoint,
-        &client_id,
-        Some(&config.url),
-        discovery.resource.as_deref(),
-        discovery.issuer.as_deref(),
-        None,
-    ))
+/// One step of the race: the browser callback or the paste answer.
+enum RaceStep {
+    Callback(CallbackResult),
+    /// The paste answered: the input, or `None` when cancelled.
+    Paste(Option<String>),
 }
 
 /// Refresh stored credentials. Every binding the login established must
@@ -430,40 +471,50 @@ pub async fn mcp_refresh_token(
 mod tests {
     use super::*;
     use crate::mcp::oauth_http::{OAuthHttpRequest, OAuthHttpResponse};
-    use std::collections::HashMap;
+    use eukhe_ai::oauth::RedirectInputError;
+    use std::collections::{HashMap, VecDeque};
     use std::sync::Mutex;
 
-    /// A scripted transport: url -> response. Unknown urls fail the
-    /// request (the TS suite throws on unexpected fetches).
+    /// A scripted transport: url -> queued responses (the last one
+    /// repeats). Unknown urls fail the request (the TS suite throws on
+    /// unexpected fetches).
     struct ScriptedHttp {
-        responses: HashMap<String, OAuthHttpResponse>,
+        responses: Mutex<HashMap<String, VecDeque<OAuthHttpResponse>>>,
         seen: Mutex<Vec<(String, Option<String>)>>,
     }
 
     impl ScriptedHttp {
         fn new(responses: Vec<(&str, u16, Option<&str>, &str)>) -> Self {
-            let responses = responses
-                .into_iter()
-                .map(|(url, status, header, body)| {
-                    let mut headers =
-                        vec![("content-type".to_string(), "application/json".to_string())];
-                    if let Some(header) = header {
-                        headers.push(("www-authenticate".to_string(), header.to_string()));
-                    }
-                    (
-                        url.to_string(),
-                        OAuthHttpResponse {
-                            status,
-                            headers,
-                            body: body.to_string(),
-                        },
-                    )
-                })
-                .collect();
+            let mut queued: HashMap<String, VecDeque<OAuthHttpResponse>> = HashMap::new();
+            for (url, status, header, body) in responses {
+                let mut headers =
+                    vec![("content-type".to_string(), "application/json".to_string())];
+                if let Some(header) = header {
+                    headers.push(("www-authenticate".to_string(), header.to_string()));
+                }
+                queued
+                    .entry(url.to_string())
+                    .or_default()
+                    .push_back(OAuthHttpResponse {
+                        status,
+                        headers,
+                        body: body.to_string(),
+                    });
+            }
             ScriptedHttp {
-                responses,
+                responses: Mutex::new(queued),
                 seen: Mutex::new(Vec::new()),
             }
+        }
+
+        fn bodies(&self, url: &str) -> Vec<String> {
+            self.seen
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(seen, _)| seen == url)
+                .map(|(_, body)| body.clone().unwrap_or_default())
+                .collect()
         }
     }
 
@@ -477,10 +528,19 @@ mod tests {
                     .lock()
                     .unwrap()
                     .push((request.url.clone(), request.body.clone()));
-                match self.responses.get(&request.url) {
-                    Some(response) => Ok(response.clone()),
-                    None => Err(anyhow!("unexpected request: {}", request.url)),
-                }
+                let response = self
+                    .responses
+                    .lock()
+                    .unwrap()
+                    .get_mut(&request.url)
+                    .and_then(|queue| {
+                        if queue.len() > 1 {
+                            queue.pop_front()
+                        } else {
+                            queue.front().cloned()
+                        }
+                    });
+                response.ok_or_else(|| anyhow!("unexpected request: {}", request.url))
             })
         }
     }
@@ -491,27 +551,53 @@ mod tests {
 
     /// A login UI with a manual-paste surface: the paste is derived from
     /// the authorization URL the way a user would (their own redirect URL
-    /// plus the code), or a fixed input when set.
+    /// plus the code), after an optional fixed first input; `pending`
+    /// holds every field open instead (the browser path wins). Rejections
+    /// and dropped fields are recorded.
     struct TestUi {
         auth_url: Mutex<String>,
         manual: Mutex<Option<String>>,
+        pending: bool,
         progress: Mutex<Vec<String>>,
+        rejections: Mutex<Vec<String>>,
+        dropped_fields: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    /// Counts a dropped pending field.
+    struct DropCounter(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     impl TestUi {
         fn with_manual_input(input: &str) -> Self {
             TestUi {
-                auth_url: Mutex::new(String::new()),
                 manual: Mutex::new(Some(input.to_string())),
-                progress: Mutex::new(Vec::new()),
+                ..TestUi::from_auth_url()
             }
         }
         fn from_auth_url() -> Self {
             TestUi {
                 auth_url: Mutex::new(String::new()),
                 manual: Mutex::new(None),
+                pending: false,
                 progress: Mutex::new(Vec::new()),
+                rejections: Mutex::new(Vec::new()),
+                dropped_fields: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             }
+        }
+        fn rejections(&self) -> Vec<String> {
+            self.rejections.lock().unwrap().clone()
+        }
+        fn auth_param(&self, name: &str) -> Option<String> {
+            Url::parse(&self.auth_url.lock().unwrap())
+                .ok()?
+                .query_pairs()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.to_string())
         }
     }
 
@@ -532,6 +618,13 @@ mod tests {
         fn on_manual_code_input(
             &self,
         ) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send>>> {
+            if self.pending {
+                let counter = DropCounter(std::sync::Arc::clone(&self.dropped_fields));
+                return Some(Box::pin(async move {
+                    let _counter = counter;
+                    std::future::pending::<Option<String>>().await
+                }));
+            }
             // The paste surface exists once a login is live (the surface
             // resolves from the authorization URL like a user would).
             let ui = std::sync::Arc::clone(self);
@@ -539,18 +632,13 @@ mod tests {
                 if let Some(input) = ui.manual.lock().unwrap().take() {
                     return Some(input);
                 }
-                let auth_url = ui.auth_url.lock().unwrap().clone();
-                let url = Url::parse(&auth_url).ok()?;
-                let redirect = url
-                    .query_pairs()
-                    .find(|(key, _)| key == "redirect_uri")
-                    .map(|(_, value)| value.to_string())?;
-                let state = url
-                    .query_pairs()
-                    .find(|(key, _)| key == "state")
-                    .map(|(_, value)| value.to_string())?;
+                let redirect = ui.auth_param("redirect_uri")?;
+                let state = ui.auth_param("state")?;
                 Some(format!("{redirect}?code=the-code&state={state}"))
             }))
+        }
+        fn on_input_rejected(&self, reason: &str) {
+            self.rejections.lock().unwrap().push(reason.to_string());
         }
     }
 
@@ -1149,12 +1237,10 @@ mod tests {
         assert!(!urls.contains(&PLANE_TOKEN.to_string()));
     }
 
-    /// A genuine paste validation error surfaces; a cancelled paste keeps
-    /// the browser path alive for a grace period, then reports a missing
-    /// code.
-    #[tokio::test]
-    async fn manual_paste_state_mismatch_surfaces() {
-        let http = ScriptedHttp::new(vec![
+    /// The origin-level fixture: discovery, registration, and the token
+    /// endpoint's queued answers.
+    fn origin_http(token_answers: Vec<(u16, &str)>) -> ScriptedHttp {
+        let mut responses = vec![
             (ORIGIN_URL, 404, None, ""),
             (
                 "https://srv.test/.well-known/oauth-protected-resource/mcp",
@@ -1162,23 +1248,134 @@ mod tests {
                 None,
                 "",
             ),
-            (ORIGIN_META_URL, 200, None, &json_response(&origin_meta())),
-            (
-                ORIGIN_REGISTER,
-                200,
-                None,
-                &json_response(&serde_json::json!({ "client_id": "c" })),
-            ),
-        ]);
-        // The paste carries someone else's state.
+        ];
+        let meta = json_response(&origin_meta());
+        let client = json_response(&serde_json::json!({ "client_id": "c" }));
+        responses.push((ORIGIN_META_URL, 200, None, meta.as_str()));
+        responses.push((ORIGIN_REGISTER, 200, None, client.as_str()));
+        for (status, body) in token_answers {
+            responses.push((ORIGIN_TOKEN, status, None, body));
+        }
+        ScriptedHttp::new(responses)
+    }
+
+    fn token_param(body: &str, name: &str) -> Option<String> {
+        url::form_urlencoded::parse(body.as_bytes())
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.to_string())
+    }
+
+    /// The wrong-tab regression: a paste carrying another login's state
+    /// is a notice and a fresh field, never a failed login; the right
+    /// paste then exchanges exactly once with this login's redirect and
+    /// verifier.
+    #[tokio::test]
+    async fn a_wrong_state_paste_re_prompts_then_the_right_one_logs_in() {
+        let http = origin_http(vec![(200, r#"{"access_token":"origin-access"}"#)]);
         let ui = std::sync::Arc::new(TestUi::with_manual_input(
             "http://localhost:53700/callback?code=stolen&state=other",
         ));
-        let error = mcp_login(&http, &config("origin", ORIGIN_URL), &ui)
+        let credentials = mcp_login(&http, &config("origin", ORIGIN_URL), &ui)
             .await
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("OAuth state mismatch"), "{error}");
+            .unwrap();
+        assert!(matches!(
+            &credentials,
+            AuthCredential::Oauth { access, .. } if access == "origin-access"
+        ));
+        assert_eq!(
+            ui.rejections(),
+            vec![RedirectInputError::StateMismatch.to_string()]
+        );
+        let bodies = http.bodies(ORIGIN_TOKEN);
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(token_param(&bodies[0], "code").as_deref(), Some("the-code"));
+        assert_eq!(
+            token_param(&bodies[0], "redirect_uri"),
+            ui.auth_param("redirect_uri")
+        );
+        assert!(token_param(&bodies[0], "code_verifier").is_some());
+    }
+
+    /// A failed exchange keeps the login open: the endpoint's status and
+    /// body land as the notice, and the retried paste logs in with the
+    /// same verifier.
+    #[tokio::test]
+    async fn a_failed_exchange_re_prompts_and_the_retry_logs_in() {
+        let http = origin_http(vec![
+            (400, r#"{"error":"invalid_grant"}"#),
+            (200, r#"{"access_token":"origin-access"}"#),
+        ]);
+        let ui = test_ui();
+        mcp_login(&http, &config("origin", ORIGIN_URL), &ui)
+            .await
+            .unwrap();
+        assert_eq!(
+            ui.rejections(),
+            vec![exchange_retry_notice(&format!(
+                r#"Token request to {ORIGIN_TOKEN} failed: 400: {{"error":"invalid_grant"}}"#
+            ))]
+        );
+        let bodies = http.bodies(ORIGIN_TOKEN);
+        assert_eq!(bodies.len(), 2);
+        assert_eq!(bodies[0], bodies[1], "the retry posts the same grant");
+    }
+
+    /// The browser callback wins over a pending paste: the paste field is
+    /// dropped and the redirect's code is exchanged.
+    #[tokio::test]
+    async fn the_browser_callback_wins_and_drops_the_paste() {
+        let http = std::sync::Arc::new(origin_http(vec![(
+            200,
+            r#"{"access_token":"origin-access"}"#,
+        )]));
+        let ui = std::sync::Arc::new(TestUi {
+            pending: true,
+            ..TestUi::from_auth_url()
+        });
+        let flow = {
+            let (http, ui) = (std::sync::Arc::clone(&http), std::sync::Arc::clone(&ui));
+            tokio::spawn(async move {
+                mcp_login(http.as_ref(), &config("origin", ORIGIN_URL), &ui).await
+            })
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let (redirect, state) = loop {
+            if let (Some(redirect), Some(state)) =
+                (ui.auth_param("redirect_uri"), ui.auth_param("state"))
+            {
+                break (redirect, state);
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the flow never presented its url"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        };
+        let port = Url::parse(&redirect).unwrap().port().unwrap();
+        let status = reqwest::Client::new()
+            .get(format!(
+                "http://127.0.0.1:{port}/callback?code=live-code&state={state}"
+            ))
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status.as_u16(), 200);
+        tokio::time::timeout(std::time::Duration::from_secs(10), flow)
+            .await
+            .expect("the flow settles once the redirect lands")
+            .unwrap()
+            .unwrap();
+        let bodies = http.bodies(ORIGIN_TOKEN);
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(
+            token_param(&bodies[0], "code").as_deref(),
+            Some("live-code")
+        );
+        assert_eq!(
+            ui.dropped_fields.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
     }
 
     /// A pre-registered client id skips dynamic registration.

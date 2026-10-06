@@ -11,10 +11,15 @@
 //! between the race's poll steps and before its network steps, so an
 //! exited surface never receives a completed login (a task abort cannot
 //! reach a started blocking body).
+//!
+//! Remote logins: a rejected paste or a failed exchange re-prompts on the
+//! same panel with the same verifier and state while the callback server
+//! keeps waiting; only a cancel ends the login. A busy callback port
+//! leaves the paste as the only path.
 
 use std::fmt::Write as _;
 use std::future::Future;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -22,7 +27,9 @@ use rand::Rng;
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use super::callback::CodexCallbackServer;
+use super::callback::{CodexCallbackServer, CALLBACK_PORT};
+use super::redirect_input::{exchange_retry_notice, parse_redirect_input, port_busy_line};
+use super::response_snippet::response_snippet;
 use super::CodexHttp;
 
 /// The app registration the TS flow ships (TS `CLIENT_ID`).
@@ -45,8 +52,9 @@ pub const DEFAULT_TOKEN_TIMEOUT_MS: u64 = 30_000;
 /// must fit inside that window so a slow endpoint fails the refresh
 /// (kept for a retry) instead of holding the lock past its staleness.
 pub const REFRESH_TIMEOUT_MS: u64 = 8_000;
-/// TS the `onAuth` instructions line.
-const AUTH_INSTRUCTIONS: &str = "A browser window should open. Complete login to finish.";
+/// The `onAuth` instructions line: the remote-login steps spelled out (a
+/// browser on another machine cannot reach the localhost callback).
+const AUTH_INSTRUCTIONS: &str = "A browser window should open. Complete login to finish. On another machine, the browser ends on a localhost page that fails to load: copy that page's full address and paste it below.";
 /// TS the `onPrompt` fallback line.
 const PROMPT_MESSAGE: &str = "Paste the authorization code (or full redirect URL):";
 /// The cancel error the driving surface maps to the silent cancelled
@@ -79,8 +87,14 @@ pub trait CodexLoginUi: Send + Sync {
     fn on_auth(&self, url: &str, instructions: &str);
     /// TS `onManualCodeInput`: the paste racing the browser callback;
     /// `None` when the surface offers none. Resolving `None` cancels
-    /// the login.
+    /// the login. The flow asks again after a rejected paste or a failed
+    /// exchange, so each call mounts a fresh paste field.
     fn on_manual_code_input(&self) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send>>>;
+    /// A paste or an exchange failed (or the callback port is busy) but
+    /// the login goes on: show `reason` where the next paste field
+    /// appears. Only flows with a paste surface call it; the panel shows
+    /// a warning row that clears on the next submit.
+    fn on_input_rejected(&self, reason: &str);
     /// TS `onPrompt`: the fallback prompt when neither the callback
     /// nor the paste produced a code. Resolving `None` cancels the
     /// login.
@@ -101,19 +115,27 @@ pub trait CodexLoginUi: Send + Sync {
 /// against the manual paste, exchange the code, and return the
 /// credentials to persist.
 ///
+/// With a paste surface, a rejected paste (no code, another login's
+/// state, an OAuth error) and a failed exchange are reported through
+/// [`CodexLoginUi::on_input_rejected`] and the paste is asked again;
+/// the browser callback can still win meanwhile.
+///
 /// # Errors
 ///
 /// Returns an error when the surface cancelled the login
-/// ([`LOGIN_CANCELLED`]), the pasted redirect's state mismatches, no
-/// authorization code ever arrives, the token exchange fails, or the
-/// access token carries no account id.
+/// ([`LOGIN_CANCELLED`]) or the access token carries no account id;
+/// without a paste surface also when the prompt answer is rejected or
+/// the token exchange fails.
+// One race loop reads top to bottom: the callback, the paste, the retries,
+// the cancel ticks, and the exchange share its state; splitting scatters it.
+#[allow(clippy::too_many_lines)]
 pub async fn login_openai_codex(
     http: &dyn CodexHttp,
     ui: &dyn CodexLoginUi,
     originator: &str,
 ) -> Result<OAuthCredentials, String> {
     // The surface exited before the flow started: no server, no
-    // browser launch — the exit ends the flow (the first of the
+    // browser launch -- the exit ends the flow (the first of the
     // between-poll cancel checks, #2770).
     if ui.is_cancelled() {
         return Err(LOGIN_CANCELLED.to_string());
@@ -121,24 +143,111 @@ pub async fn login_openai_codex(
     let (verifier, challenge) = generate_pkce();
     let state = create_state();
     let url = authorization_url(&challenge, &state, originator);
-    let callback = CodexCallbackServer::start(&state).await;
+    let server = CodexCallbackServer::start(&state).await;
     ui.on_auth(&url, AUTH_INSTRUCTIONS);
-
-    let code = wait_for_code(&callback, ui, &state).await?;
-    // The pane exited while the login waited: no exchange, no
-    // credential — the exit ends the flow (TS the dialog's abort
-    // signal; #2770: the flag is the seam).
-    if ui.is_cancelled() {
-        return Err(LOGIN_CANCELLED.to_string());
+    let mut manual = ui.on_manual_code_input();
+    let paste_surface = manual.is_some();
+    let server = server
+        .inspect_err(|detail| {
+            if paste_surface {
+                ui.on_input_rejected(&port_busy_line(CALLBACK_PORT, detail));
+            }
+        })
+        .ok();
+    let mut callback_live = server.is_some();
+    let wait_once = || async {
+        match &server {
+            Some(server) => server.wait_for_code().await,
+            None => None,
+        }
+    };
+    let mut wait = pin!(wait_once());
+    let mut tick = tokio::time::interval(CANCEL_POLL_INTERVAL);
+    loop {
+        let code = loop {
+            if ui.is_cancelled() {
+                return Err(LOGIN_CANCELLED.to_string());
+            }
+            if !callback_live && manual.is_none() {
+                // The fallback prompt (TS `onPrompt`): no browser hand-back
+                // and no paste surface.
+                // The pending prompt must not hold a cancelled flow: the
+                // tick re-checks the cooperative cancel while it waits.
+                let mut prompt = ui.on_prompt(PROMPT_MESSAGE);
+                let answer = loop {
+                    if ui.is_cancelled() {
+                        return Err(LOGIN_CANCELLED.to_string());
+                    }
+                    tokio::select! {
+                        _ = tick.tick() => {}
+                        answer = &mut prompt => break answer,
+                    }
+                };
+                let input = answer.ok_or_else(|| LOGIN_CANCELLED.to_string())?;
+                break parse_redirect_input(&input)
+                    .and_then(|pasted| pasted.verify_state(&state))
+                    .map_err(|rejected| rejected.to_string())?
+                    .code;
+            }
+            let step = tokio::select! {
+                _ = tick.tick() => RaceStep::Tick,
+                settled = &mut wait, if callback_live => RaceStep::Callback(settled.map(|settled| settled.code)),
+                answer = async {
+                    match manual.as_mut() {
+                        Some(field) => field.await,
+                        None => std::future::pending().await,
+                    }
+                }, if manual.is_some() => RaceStep::Paste(answer),
+            };
+            match step {
+                RaceStep::Tick => {}
+                // A settled callback (the server validated the state); the
+                // wait re-arms for a later redirect.
+                RaceStep::Callback(Some(code)) => {
+                    wait.set(wait_once());
+                    break code;
+                }
+                // A settled-empty wait (a cancelled one): the paste goes on.
+                RaceStep::Callback(None) => callback_live = false,
+                RaceStep::Paste(None) => return Err(LOGIN_CANCELLED.to_string()),
+                RaceStep::Paste(Some(input)) => {
+                    match parse_redirect_input(&input)
+                        .and_then(|pasted| pasted.verify_state(&state))
+                    {
+                        Ok(accepted) => break accepted.code,
+                        Err(rejected) => {
+                            ui.on_input_rejected(&rejected.to_string());
+                            manual = ui.on_manual_code_input();
+                        }
+                    }
+                }
+            }
+        };
+        // The callback won: the pending paste prompt goes away.
+        drop(manual.take());
+        // The pane exited while the login waited: no exchange, no
+        // credential -- the exit ends the flow (TS the dialog's abort
+        // signal; #2770: the flag is the seam).
+        if ui.is_cancelled() {
+            return Err(LOGIN_CANCELLED.to_string());
+        }
+        match exchange_authorization_code(http, &code, &verifier).await {
+            Ok(token) => {
+                let account_id = account_id_of(&token.access)?;
+                return Ok(OAuthCredentials {
+                    access: token.access,
+                    refresh: token.refresh,
+                    expires: token.expires,
+                    account_id,
+                });
+            }
+            Err(error) if paste_surface => {
+                ui.on_input_rejected(&exchange_retry_notice(&error));
+                manual = ui.on_manual_code_input();
+            }
+            Err(error) => return Err(error),
+        }
     }
-    let token = exchange_authorization_code(http, &code, &verifier).await?;
-    let account_id = account_id_of(&token.access)?;
-    Ok(OAuthCredentials {
-        access: token.access,
-        refresh: token.refresh,
-        expires: token.expires,
-        account_id,
-    })
 }
 
 /// Refresh an expired credential (TS `refreshOpenAICodexToken`).
@@ -168,108 +277,15 @@ struct TokenSuccess {
     expires: i64,
 }
 
-/// The race + the fallbacks (TS `loginOpenAICodex`'s middle): the
-/// browser callback against the manual paste, then the prompt fallback.
-/// The tick re-checks the cooperative cancel between poll steps.
-async fn wait_for_code(
-    callback: &CodexCallbackServer,
-    ui: &dyn CodexLoginUi,
-    state: &str,
-) -> Result<String, String> {
-    let manual = ui.on_manual_code_input();
-    let manual_available = manual.is_some();
-    let manual_answer = async {
-        match manual {
-            Some(future) => future.await,
-            None => std::future::pending::<Option<String>>().await,
-        }
-    };
-    tokio::pin!(manual_answer);
-    let wait = callback.wait_for_code();
-    tokio::pin!(wait);
-    let mut tick = tokio::time::interval(CANCEL_POLL_INTERVAL);
-    // The outcome of the race: the callback's settled code (its state
-    // was validated by the server), or the manual paste's answer.
-    let raced = loop {
-        if ui.is_cancelled() {
-            return Err(LOGIN_CANCELLED.to_string());
-        }
-        tokio::select! {
-            _ = tick.tick() => {}
-            code = &mut wait => break CallbackOutcome::Code(code.map(|code| code.code)),
-            answer = &mut manual_answer => break CallbackOutcome::Manual(answer),
-        }
-    };
-    let code: Option<String> = match raced {
-        // A settled callback (the server validated the state).
-        CallbackOutcome::Code(Some(code)) => Some(code),
-        // A settled-empty wait (a bind failure leaves the dead server):
-        // with a paste surface TS awaits the manual promise before the
-        // prompt fallback; without one the prompt is the only path.
-        CallbackOutcome::Code(None) => {
-            if manual_available {
-                match answer_or_cancelled(ui, manual_answer).await {
-                    Ok(Some(input)) => parse_paste(&input, state)?,
-                    // A cancelled paste answer and a cancelled wait both
-                    // end the login.
-                    Ok(None) | Err(_) => return Err(LOGIN_CANCELLED.to_string()),
-                }
-            } else {
-                None
-            }
-        }
-        CallbackOutcome::Manual(None) => return Err(LOGIN_CANCELLED.to_string()),
-        CallbackOutcome::Manual(Some(input)) => parse_paste(&input, state)?,
-    };
-    if let Some(code) = code {
-        return Ok(code);
-    }
-    // The fallback prompt (TS `onPrompt`): neither the callback nor the
-    // paste produced a code.
-    let answer = answer_or_cancelled(ui, ui.on_prompt(PROMPT_MESSAGE)).await?;
-    let input = answer.ok_or_else(|| LOGIN_CANCELLED.to_string())?;
-    parse_paste(&input, state)?.ok_or_else(|| "Missing authorization code".to_string())
-}
-
-/// Await one answer while re-checking the cooperative cancel between
-/// poll steps (the surface may exit without ever answering — a pending
-/// paste or prompt must not hold a cancelled flow).
-async fn answer_or_cancelled<T>(
-    ui: &dyn CodexLoginUi,
-    answer: impl Future<Output = T>,
-) -> Result<T, String> {
-    tokio::pin!(answer);
-    let mut tick = tokio::time::interval(CANCEL_POLL_INTERVAL);
-    loop {
-        if ui.is_cancelled() {
-            return Err(LOGIN_CANCELLED.to_string());
-        }
-        tokio::select! {
-            _ = tick.tick() => {}
-            output = &mut answer => return Ok(output),
-        }
-    }
-}
-
-/// Parse one pasted input and check its echoed state (TS
-/// `parseAuthorizationInput` + the state guard).
-fn parse_paste(input: &str, expected_state: &str) -> Result<Option<String>, String> {
-    let (code, echoed) = parse_authorization_input(input);
-    if let Some(echoed) = echoed {
-        if echoed != expected_state {
-            return Err("State mismatch".to_string());
-        }
-    }
-    Ok(code)
-}
-
-/// What the race settled on.
-enum CallbackOutcome {
+/// One step of the race: the cancel tick, the browser callback, or the
+/// paste answer.
+enum RaceStep {
+    Tick,
     /// The callback wait settled: the code, or `None` when it settled
-    /// empty (a dead server or a cancelled wait).
-    Code(Option<String>),
-    /// The manual paste answered: the input, or `None` when cancelled.
-    Manual(Option<String>),
+    /// empty (a cancelled wait).
+    Callback(Option<String>),
+    /// The paste answered: the input, or `None` when cancelled.
+    Paste(Option<String>),
 }
 
 /// A PKCE pair (TS `generatePKCE`): the verifier is the token-exchange
@@ -322,48 +338,6 @@ fn authorization_url(challenge: &str, state: &str, originator: &str) -> String {
     url.to_string()
 }
 
-/// Parse a pasted authorization input (TS `parseAuthorizationInput`): a
-/// full redirect URL, a `code#state` pair, `code=`-shaped parameters, or
-/// a bare code. Returns the code and the echoed state (`None` when the
-/// input carries none — TS's falsy state skips the check).
-fn parse_authorization_input(input: &str) -> (Option<String>, Option<String>) {
-    let value = input.trim();
-    if value.is_empty() {
-        return (None, None);
-    }
-    let non_empty = |value: Option<String>| value.filter(|value| !value.is_empty());
-    if let Ok(url) = Url::parse(value) {
-        let get = |name: &str| {
-            non_empty(
-                url.query_pairs()
-                    .find(|(key, _)| key == name)
-                    .map(|(_, value)| value.to_string()),
-            )
-        };
-        return (get("code"), get("state"));
-    }
-    if value.contains('#') {
-        let mut parts = value.splitn(2, '#');
-        let code = parts.next().unwrap_or_default();
-        let state = parts.next().unwrap_or_default();
-        return (
-            non_empty(Some(code.to_string())),
-            non_empty(Some(state.to_string())),
-        );
-    }
-    if value.contains("code=") {
-        let get = |name: &str| {
-            non_empty(
-                url::form_urlencoded::parse(value.as_bytes())
-                    .find(|(key, _)| key == name)
-                    .map(|(_, value)| value.to_string()),
-            )
-        };
-        return (get("code"), get("state"));
-    }
-    (non_empty(Some(value.to_string())), None)
-}
-
 /// The account id the access token carries (TS `getAccountId`: the
 /// `chatgpt_account_id` claim under the JWT auth claim path — the
 /// provider's own extraction is the one owner).
@@ -393,48 +367,51 @@ async fn token_post_bounded(
         .map_err(|message| format!("OpenAI Codex token {label} error: {message}"))?;
     if !response.ok() {
         // TS falls back to `response.statusText` when the body is empty.
-        let text = if response.body.is_empty() {
+        let text = if response.body.trim().is_empty() {
             format!("HTTP {}", response.status)
         } else {
-            response.body.clone()
+            response_snippet(&response.body)
         };
         return Err(format!(
             "OpenAI Codex token {label} failed ({}): {text}",
             response.status
         ));
     }
-    let json: serde_json::Value =
-        serde_json::from_str(&response.body).map_err(|_| response.body.clone())?;
+    let json: serde_json::Value = serde_json::from_str(&response.body).map_err(|error| {
+        format!(
+            "OpenAI Codex token {label} returned invalid JSON (HTTP {}): {error}; body={}",
+            response.status,
+            response_snippet(&response.body)
+        )
+    })?;
+    let missing_fields = || {
+        format!(
+            "OpenAI Codex token {label} response missing fields: {}",
+            response_snippet(&json.to_string())
+        )
+    };
     let Some(access) = json
         .get("access_token")
         .and_then(serde_json::Value::as_str)
         .filter(|token| !token.is_empty())
     else {
-        return Err(format!(
-            "OpenAI Codex token {label} response missing fields: {json}"
-        ));
+        return Err(missing_fields());
     };
     let Some(refresh) = json
         .get("refresh_token")
         .and_then(serde_json::Value::as_str)
         .filter(|token| !token.is_empty())
     else {
-        return Err(format!(
-            "OpenAI Codex token {label} response missing fields: {json}"
-        ));
+        return Err(missing_fields());
     };
     let Some(expires_in) = json.get("expires_in").and_then(serde_json::Value::as_f64) else {
-        return Err(format!(
-            "OpenAI Codex token {label} response missing fields: {json}"
-        ));
+        return Err(missing_fields());
     };
     if !expires_in.is_finite() {
         // A NaN/`inf` lifetime is not a lifetime (TS's arithmetic yields
         // a never-expiring credential; the port refuses it as a broken
         // response instead).
-        return Err(format!(
-            "OpenAI Codex token {label} response missing fields: {json}"
-        ));
+        return Err(missing_fields());
     }
     // Epoch millis fit i64 for ~292 million years; the u128 duration's millis are the i64 convention here.
     #[allow(clippy::cast_possible_truncation)]
@@ -497,8 +474,10 @@ async fn refresh_access_token(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::oauth::redirect_input::RedirectInputError;
     use crate::oauth::CodexHttpResponse;
     use serde_json::json;
+    use std::collections::{HashMap, VecDeque};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     use tokio::io::AsyncWriteExt as _;
@@ -512,29 +491,28 @@ mod tests {
     /// the flow's awaits by design (and never poisons).
     static REDIRECT_PORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    /// A scripted transport: url -> response, recording every posted
-    /// body. Unknown urls fail the request (the TS suite throws on
-    /// unexpected fetches).
+    /// A scripted transport: url -> queued responses (the last one
+    /// repeats), recording every posted body. Unknown urls fail the
+    /// request (the TS suite throws on unexpected fetches).
     struct ScriptedHttp {
-        responses: std::collections::HashMap<String, CodexHttpResponse>,
+        responses: Mutex<HashMap<String, VecDeque<CodexHttpResponse>>>,
         seen: Mutex<Vec<(String, String)>>,
     }
 
     impl ScriptedHttp {
         fn new(responses: Vec<(&str, u16, &str)>) -> Self {
+            let mut queued: HashMap<String, VecDeque<CodexHttpResponse>> = HashMap::new();
+            for (url, status, body) in responses {
+                queued
+                    .entry(url.to_string())
+                    .or_default()
+                    .push_back(CodexHttpResponse {
+                        status,
+                        body: body.to_string(),
+                    });
+            }
             ScriptedHttp {
-                responses: responses
-                    .into_iter()
-                    .map(|(url, status, body)| {
-                        (
-                            url.to_string(),
-                            CodexHttpResponse {
-                                status,
-                                body: body.to_string(),
-                            },
-                        )
-                    })
-                    .collect(),
+                responses: Mutex::new(queued),
                 seen: Mutex::new(Vec::new()),
             }
         }
@@ -561,19 +539,32 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((url.to_string(), body.to_string()));
-            let response = self.responses.get(url).cloned();
+            let response = self
+                .responses
+                .lock()
+                .unwrap()
+                .get_mut(url)
+                .and_then(|queue| {
+                    if queue.len() > 1 {
+                        queue.pop_front()
+                    } else {
+                        queue.front().cloned()
+                    }
+                });
             Box::pin(async move { response.ok_or_else(|| format!("{url} was not scripted")) })
         }
     }
 
     /// One scripted UI answer: an immediate value (`Some`), an
-    /// immediate cancel (`None`), a never-resolving surface, or a
-    /// surface that marks the cancel flag on its first poll and then
-    /// never resolves.
+    /// immediate cancel (`None`), a never-resolving surface, a surface
+    /// that marks the cancel flag on its first poll and then never
+    /// resolves, or a paste built from the presented state (the address
+    /// a remote browser lands on).
     enum ScriptedAnswer {
         Once(Option<String>),
         Pending,
         PendingMarksCancel,
+        Redirect(fn(&str) -> String),
     }
 
     impl ScriptedAnswer {
@@ -584,36 +575,16 @@ mod tests {
         fn value(text: &str) -> Self {
             ScriptedAnswer::Once(Some(text.to_string()))
         }
-
-        /// The answer future; `cancel` is the surface's own shared flag
-        /// (the marks-then-pends mode sets it on the first poll).
-        fn future(
-            &self,
-            cancel: &Arc<AtomicBool>,
-        ) -> Pin<Box<dyn Future<Output = Option<String>> + Send>> {
-            match self {
-                ScriptedAnswer::Once(value) => {
-                    let value = value.clone();
-                    Box::pin(std::future::ready(value))
-                }
-                ScriptedAnswer::Pending => Box::pin(std::future::pending()),
-                ScriptedAnswer::PendingMarksCancel => {
-                    let cancel = Arc::clone(cancel);
-                    Box::pin(async move {
-                        cancel.store(true, Ordering::Relaxed);
-                        std::future::pending::<Option<String>>().await
-                    })
-                }
-            }
-        }
     }
 
     /// The scripted login surface: the captured authorization URL, the
-    /// paste racing the callback, and the fallback prompt.
+    /// queued pastes (one per mounted field; an exhausted queue
+    /// cancels), the fallback prompt, and the rejections.
     struct ScriptedUi {
         auth_url: Mutex<Option<String>>,
-        manual: Option<ScriptedAnswer>,
+        pastes: Option<Mutex<VecDeque<ScriptedAnswer>>>,
         prompt: ScriptedAnswer,
+        rejections: Mutex<Vec<String>>,
         cancelled: Arc<AtomicBool>,
         cancel_on_auth: bool,
     }
@@ -622,15 +593,51 @@ mod tests {
         fn new(manual: Option<ScriptedAnswer>, prompt: ScriptedAnswer) -> Self {
             ScriptedUi {
                 auth_url: Mutex::new(None),
-                manual,
+                pastes: manual.map(|answer| Mutex::new(VecDeque::from([answer]))),
                 prompt,
+                rejections: Mutex::new(Vec::new()),
                 cancelled: Arc::new(AtomicBool::new(false)),
                 cancel_on_auth: false,
             }
         }
 
+        fn with_pastes(pastes: Vec<ScriptedAnswer>) -> Self {
+            ScriptedUi {
+                pastes: Some(Mutex::new(pastes.into_iter().collect())),
+                ..ScriptedUi::new(None, ScriptedAnswer::Pending)
+            }
+        }
+
+        /// The rejections, the port-busy line excluded (a port held
+        /// outside this binary is a run condition; its own test pins it).
+        fn paste_rejections(&self) -> Vec<String> {
+            self.rejections
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|reason| !reason.starts_with("Port 1455 is busy"))
+                .cloned()
+                .collect()
+        }
+
+        /// The presented state.
+        fn state(&self) -> String {
+            let url = self
+                .auth_url
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("the url shows first");
+            url::Url::parse(&url)
+                .unwrap()
+                .query_pairs()
+                .find(|(key, _)| key == "state")
+                .map(|(_, value)| value.to_string())
+                .expect("the url carries a state")
+        }
+
         /// The captured authorization URL: waits for the flow's
-        /// `onAuth` — observable readiness, bounded by a deadline that
+        /// `onAuth` -- observable readiness, bounded by a deadline that
         /// fails the test (never a green-on-timeout retry loop).
         async fn captured_url(&self) -> String {
             let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -643,6 +650,28 @@ mod tests {
                     "the flow never presented its url"
                 );
                 tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }
+
+        /// The answer future (the marks-then-pends mode sets the
+        /// surface's own cancel flag on the first poll).
+        fn future(
+            &self,
+            answer: &ScriptedAnswer,
+        ) -> Pin<Box<dyn Future<Output = Option<String>> + Send>> {
+            match answer {
+                ScriptedAnswer::Once(value) => Box::pin(std::future::ready(value.clone())),
+                ScriptedAnswer::Pending => Box::pin(std::future::pending()),
+                ScriptedAnswer::PendingMarksCancel => {
+                    let cancel = Arc::clone(&self.cancelled);
+                    Box::pin(async move {
+                        cancel.store(true, Ordering::Relaxed);
+                        std::future::pending::<Option<String>>().await
+                    })
+                }
+                ScriptedAnswer::Redirect(build) => {
+                    Box::pin(std::future::ready(Some(build(&self.state()))))
+                }
             }
         }
     }
@@ -658,21 +687,34 @@ mod tests {
         fn on_manual_code_input(
             &self,
         ) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send>>> {
-            self.manual
-                .as_ref()
-                .map(|manual| manual.future(&self.cancelled))
+            let pastes = self.pastes.as_ref()?;
+            let answer = pastes
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(ScriptedAnswer::ready);
+            Some(self.future(&answer))
+        }
+
+        fn on_input_rejected(&self, reason: &str) {
+            self.rejections.lock().unwrap().push(reason.to_string());
         }
 
         fn on_prompt(
             &self,
             _message: &str,
         ) -> Pin<Box<dyn Future<Output = Option<String>> + Send>> {
-            self.prompt.future(&self.cancelled)
+            self.future(&self.prompt)
         }
 
         fn is_cancelled(&self) -> bool {
             self.cancelled.load(Ordering::Relaxed)
         }
+    }
+
+    /// The callback address a remote browser lands on.
+    fn landed(state: &str) -> String {
+        format!("{REDIRECT_URI}?code=abc&state={state}")
     }
 
     /// One fake access token: a three-segment JWT whose payload carries
@@ -772,24 +814,40 @@ mod tests {
         assert_eq!(first_param(body, "client_id"), OPENAI_CODEX_CLIENT_ID);
     }
 
+    /// A failed exchange keeps the login open: the real reason lands as
+    /// the notice and the retried paste logs in with the same verifier.
     #[tokio::test]
-    async fn a_failed_exchange_surfaces_the_ts_message() {
+    async fn a_failed_exchange_re_prompts_and_the_retry_logs_in() {
         let _registered_port = REDIRECT_PORT.lock().await;
-        let http = ScriptedHttp::new(vec![(TOKEN_URL, 400, "no grant")]);
-        let ui = ScriptedUi::new(
-            Some(ScriptedAnswer::value(&format!("{REDIRECT_URI}?code=abc"))),
-            ScriptedAnswer::ready(),
-        );
-        let error = login_openai_codex(&http, &ui, DEFAULT_ORIGINATOR)
+        let http = ScriptedHttp::new(vec![
+            (TOKEN_URL, 400, "no grant"),
+            (TOKEN_URL, 200, &token_body(&account_jwt(Some("acct-1")))),
+        ]);
+        let ui = ScriptedUi::with_pastes(vec![
+            ScriptedAnswer::Redirect(landed),
+            ScriptedAnswer::Redirect(landed),
+        ]);
+        let credentials = login_openai_codex(&http, &ui, DEFAULT_ORIGINATOR)
             .await
-            .unwrap_err();
-        assert_eq!(error, "OpenAI Codex token exchange failed (400): no grant");
+            .unwrap();
+        assert_eq!(credentials.account_id, "acct-1");
+        assert_eq!(
+            ui.paste_rejections(),
+            vec![exchange_retry_notice(
+                "OpenAI Codex token exchange failed (400): no grant"
+            )]
+        );
+        let bodies = http.seen_bodies(TOKEN_URL);
+        assert_eq!(bodies.len(), 2);
+        assert_eq!(bodies[0], bodies[1], "the retry posts the same grant");
+        assert_eq!(first_param(&bodies[1], "code"), "abc");
     }
 
     #[tokio::test]
     async fn a_missing_field_exchange_names_the_response() {
         let _registered_port = REDIRECT_PORT.lock().await;
         let http = ScriptedHttp::new(vec![(TOKEN_URL, 200, r#"{"access_token":"a"}"#)]);
+        // One paste, then the user cancels the re-prompt.
         let ui = ScriptedUi::new(
             Some(ScriptedAnswer::value(&format!("{REDIRECT_URI}?code=abc"))),
             ScriptedAnswer::ready(),
@@ -797,9 +855,12 @@ mod tests {
         let error = login_openai_codex(&http, &ui, DEFAULT_ORIGINATOR)
             .await
             .unwrap_err();
+        assert_eq!(error, LOGIN_CANCELLED);
         assert_eq!(
-            error,
-            r#"OpenAI Codex token exchange response missing fields: {"access_token":"a"}"#
+            ui.paste_rejections(),
+            vec![exchange_retry_notice(
+                r#"OpenAI Codex token exchange response missing fields: {"access_token":"a"}"#
+            )]
         );
     }
 
@@ -870,67 +931,108 @@ mod tests {
         assert_eq!(error, LOGIN_CANCELLED);
     }
 
+    /// The wrong-tab regression: a paste from another login attempt is a
+    /// notice and a fresh field; the right paste then logs in with one
+    /// exchange.
     #[tokio::test]
-    async fn a_state_mismatch_fails_the_paste() {
+    async fn a_wrong_state_paste_re_prompts_then_the_right_one_logs_in() {
         let _registered_port = REDIRECT_PORT.lock().await;
         let http = token_http(&account_jwt(Some("acct-1")));
-        let ui = ScriptedUi::new(
-            Some(ScriptedAnswer::value(&format!(
-                "{REDIRECT_URI}?code=abc&state=not-ours"
-            ))),
-            ScriptedAnswer::ready(),
-        );
-        let error = login_openai_codex(&http, &ui, DEFAULT_ORIGINATOR)
-            .await
-            .unwrap_err();
-        assert_eq!(error, "State mismatch");
-    }
-
-    #[tokio::test]
-    async fn a_paste_without_a_code_falls_back_to_the_prompt() {
-        let _registered_port = REDIRECT_PORT.lock().await;
-        // The redirect carries no code: the prompt fallback answers it.
-        let http = token_http(&account_jwt(Some("acct-1")));
-        let ui = ScriptedUi::new(
-            Some(ScriptedAnswer::value(REDIRECT_URI)),
-            ScriptedAnswer::value("prompted-code"),
-        );
+        let ui = ScriptedUi::with_pastes(vec![
+            ScriptedAnswer::value(&format!("{REDIRECT_URI}?code=stolen&state=not-ours")),
+            ScriptedAnswer::Redirect(landed),
+        ]);
         let credentials = login_openai_codex(&http, &ui, DEFAULT_ORIGINATOR)
             .await
             .unwrap();
         assert_eq!(credentials.account_id, "acct-1");
         assert_eq!(
+            ui.paste_rejections(),
+            vec![RedirectInputError::StateMismatch.to_string()]
+        );
+        let bodies = http.seen_bodies(TOKEN_URL);
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(first_param(&bodies[0], "code"), "abc");
+        assert_eq!(first_param(&bodies[0], "redirect_uri"), REDIRECT_URI);
+    }
+
+    #[tokio::test]
+    async fn a_paste_without_a_code_re_prompts() {
+        let _registered_port = REDIRECT_PORT.lock().await;
+        let http = token_http(&account_jwt(Some("acct-1")));
+        let ui = ScriptedUi::with_pastes(vec![
+            ScriptedAnswer::value(REDIRECT_URI),
+            ScriptedAnswer::value("pasted-code"),
+        ]);
+        let credentials = login_openai_codex(&http, &ui, DEFAULT_ORIGINATOR)
+            .await
+            .unwrap();
+        assert_eq!(credentials.account_id, "acct-1");
+        assert_eq!(
+            ui.paste_rejections(),
+            vec![RedirectInputError::MissingCode.to_string()]
+        );
+        assert_eq!(
             first_param(&http.seen_bodies(TOKEN_URL)[0], "code"),
-            "prompted-code"
+            "pasted-code"
         );
     }
 
     #[tokio::test]
-    async fn a_cancelled_prompt_ends_the_login() {
+    async fn a_cancelled_re_prompt_ends_the_login() {
         let _registered_port = REDIRECT_PORT.lock().await;
         let http = token_http(&account_jwt(Some("acct-1")));
-        let ui = ScriptedUi::new(
-            Some(ScriptedAnswer::value(REDIRECT_URI)),
+        let ui = ScriptedUi::with_pastes(vec![
+            ScriptedAnswer::value(REDIRECT_URI),
             ScriptedAnswer::ready(),
-        );
+        ]);
         let error = login_openai_codex(&http, &ui, DEFAULT_ORIGINATOR)
             .await
             .unwrap_err();
         assert_eq!(error, LOGIN_CANCELLED);
+        assert!(http.seen_bodies(TOKEN_URL).is_empty());
     }
 
+    /// The busy-port path: another process holds 1455, the user is told
+    /// why, and the paste still logs in.
+    #[tokio::test]
+    async fn a_busy_port_leaves_the_paste_path_that_still_logs_in() {
+        let _registered_port = REDIRECT_PORT.lock().await;
+        let Some(held) = stage_busy_registered_port() else {
+            return; // the registered port is busy: this run cannot stage it.
+        };
+        let http = token_http(&account_jwt(Some("acct-1")));
+        let ui = ScriptedUi::with_pastes(vec![ScriptedAnswer::Redirect(landed)]);
+        let credentials = login_openai_codex(&http, &ui, DEFAULT_ORIGINATOR)
+            .await
+            .unwrap();
+        assert_eq!(credentials.account_id, "acct-1");
+        let rejections = ui.rejections.lock().unwrap().clone();
+        assert_eq!(rejections.len(), 1, "{rejections:?}");
+        assert!(
+            rejections[0].starts_with(
+                "Port 1455 is busy, so the browser cannot hand the login back automatically"
+            ),
+            "{rejections:?}"
+        );
+        drop(held);
+    }
+
+    /// Without a paste surface the prompt answer is the only input: its
+    /// rejection is the error.
     #[tokio::test]
     async fn an_empty_prompt_answer_reports_the_missing_code() {
         let _registered_port = REDIRECT_PORT.lock().await;
+        let Some(held) = stage_busy_registered_port() else {
+            return; // the registered port is busy: this run cannot stage it.
+        };
         let http = token_http(&account_jwt(Some("acct-1")));
-        let ui = ScriptedUi::new(
-            Some(ScriptedAnswer::value(REDIRECT_URI)),
-            ScriptedAnswer::value("  "),
-        );
+        let ui = ScriptedUi::new(None, ScriptedAnswer::value("  "));
         let error = login_openai_codex(&http, &ui, DEFAULT_ORIGINATOR)
             .await
             .unwrap_err();
-        assert_eq!(error, "Missing authorization code");
+        assert_eq!(error, RedirectInputError::MissingCode.to_string());
+        drop(held);
     }
 
     #[tokio::test]
@@ -1151,41 +1253,5 @@ mod tests {
         let state = create_state();
         assert_eq!(state.len(), 32);
         assert!(state.chars().all(|character| character.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn the_pasted_input_parses_like_the_ts_table() {
-        // A full redirect URL.
-        assert_eq!(
-            parse_authorization_input("https://auth.example/cb?code=a&state=b"),
-            (Some("a".to_string()), Some("b".to_string()))
-        );
-        // A percent-decoded code.
-        assert_eq!(
-            parse_authorization_input("https://auth.example/cb?code=a%20b"),
-            (Some("a b".to_string()), None)
-        );
-        // A `code#state` pair.
-        assert_eq!(
-            parse_authorization_input("the-code#the-state"),
-            (Some("the-code".to_string()), Some("the-state".to_string()))
-        );
-        // `code=`-shaped parameters.
-        assert_eq!(
-            parse_authorization_input("code=a+b&state=c"),
-            (Some("a b".to_string()), Some("c".to_string()))
-        );
-        // A bare code.
-        assert_eq!(
-            parse_authorization_input(" bare "),
-            (Some("bare".to_string()), None)
-        );
-        // Empty input carries neither.
-        assert_eq!(parse_authorization_input("  "), (None, None));
-        // A redirect without a code.
-        assert_eq!(
-            parse_authorization_input("https://auth.example/cb?state=b"),
-            (None, Some("b".to_string()))
-        );
     }
 }

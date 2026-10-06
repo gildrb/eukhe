@@ -2,12 +2,15 @@
 //!
 //! One fresh listener per candidate port (a failed bind cannot reuse a
 //! socket), on the registered redirect ports; the login flow races the
-//! browser callback against a manual paste. The served pages keep the TS
-//! product's success/error wording (a dark page carrying the label).
+//! browser callback against a manual paste. Every callback-route hit
+//! settles one outcome (the code, or why it cannot complete the login)
+//! for the flow to take; the slot re-arms once taken. The served pages
+//! keep the TS product's success/error wording.
 
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use eukhe_ai::oauth::{parse_redirect_input, RedirectInputError, VerifiedAuthorization};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -19,11 +22,11 @@ fn callback_host() -> String {
 /// A range (not one port) so a leaked or concurrent login cannot wedge all
 /// logins with one occupied socket. Distinct from the Anthropic callback
 /// port (53692); every candidate is a registered redirect URI.
-const CALLBACK_PORT_BASE: u16 = 53_700;
-const CALLBACK_PORT_COUNT: u16 = 10;
+pub(crate) const CALLBACK_PORT_BASE: u16 = 53_700;
+pub(crate) const CALLBACK_PORT_COUNT: u16 = 10;
 const CALLBACK_PATH: &str = "/callback";
 
-fn redirect_uri_for(port: u16) -> String {
+pub(crate) fn redirect_uri_for(port: u16) -> String {
     format!("http://localhost:{port}{CALLBACK_PATH}")
 }
 
@@ -35,20 +38,11 @@ pub fn all_redirect_uris() -> Vec<String> {
         .collect()
 }
 
-/// The authorization code plus the echoed `state` from the browser
-/// redirect.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CallbackCode {
-    pub code: String,
-    pub state: String,
-}
+/// One callback-route hit: the code with this login's state, or why it
+/// cannot complete the login (an OAuth error, no code, another state).
+pub type CallbackResult = Result<VerifiedAuthorization, RedirectInputError>;
 
-/// What a login waits for: [`Some`] code from the browser redirect, or
-/// `None` when the callback settled without one (error response, missing
-/// parameters, or cancellation).
-pub type CallbackResult = Option<CallbackCode>;
-
-/// Settled once per login; the first settle wins.
+/// One settled outcome per take; the first settle into an empty slot wins.
 #[derive(Default, Debug)]
 struct CallbackShared {
     result: tokio::sync::Mutex<Option<CallbackResult>>,
@@ -61,47 +55,84 @@ impl CallbackShared {
         if slot.is_none() {
             *slot = Some(result);
             drop(slot);
-            self.notify.notify_waiters();
+            // `notify_one` stores a permit when no waiter is registered
+            // yet: a wait between its empty-slot check and its `notified`
+            // registration still wakes (`notify_waiters` would hang it).
+            self.notify.notify_one();
         }
     }
 }
 
 /// A running callback server: its redirect URI plus the settled result.
+///
+/// The server owns the only strong handle on its listener (the accept
+/// loop upgrades a weak one per poll), so dropping the server closes the
+/// socket synchronously: a finished login never holds its port.
 #[derive(Debug)]
 pub struct CallbackServer {
     shared: Arc<CallbackShared>,
     port: u16,
+    /// Held, never read: the one strong handle (see above).
+    _listener: Arc<TcpListener>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for CallbackServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 impl CallbackServer {
-    /// Bind the first free candidate port. All candidates busy is a hard
-    /// error (the TS wording).
-    pub async fn start(label: &str) -> Result<Self> {
+    /// Bind the first free candidate port; a hit must echo
+    /// `expected_state`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when every candidate port is busy (the login goes
+    /// on with the paste when it has one).
+    pub async fn start(label: &str, expected_state: &str) -> Result<Self> {
         let host = callback_host();
         let mut last_error: Option<String> = None;
         for offset in 0..CALLBACK_PORT_COUNT {
             let port = CALLBACK_PORT_BASE + offset;
             let listener = match TcpListener::bind((host.as_str(), port)).await {
-                Ok(listener) => listener,
+                Ok(listener) => Arc::new(listener),
                 Err(error) => {
                     last_error = Some(format!("port {port}: {error}"));
                     continue;
                 }
             };
+            let weak_listener = Arc::downgrade(&listener);
             let shared = Arc::new(CallbackShared::default());
             let task_shared = Arc::clone(&shared);
-            tokio::spawn(async move {
+            let expected_state = expected_state.to_string();
+            let task = tokio::spawn(async move {
                 loop {
-                    let Ok((stream, _)) = listener.accept().await else {
+                    // The strong handle lives only inside one poll: a
+                    // dropped server closes the listener even while this
+                    // loop waits.
+                    let accepted = std::future::poll_fn(|context| match weak_listener.upgrade() {
+                        Some(listener) => listener.poll_accept(context).map(Some),
+                        None => std::task::Poll::Ready(None),
+                    })
+                    .await;
+                    let Some(Ok((stream, _))) = accepted else {
                         break;
                     };
                     let shared = Arc::clone(&task_shared);
+                    let expected_state = expected_state.clone();
                     tokio::spawn(async move {
-                        serve_callback(stream, &shared).await;
+                        serve_callback(stream, &shared, &expected_state).await;
                     });
                 }
             });
-            return Ok(CallbackServer { shared, port });
+            return Ok(CallbackServer {
+                shared,
+                port,
+                _listener: listener,
+                task,
+            });
         }
         Err(anyhow!(
             "Could not start the OAuth callback server: ports {CALLBACK_PORT_BASE}-{} are all in use. \
@@ -116,7 +147,7 @@ impl CallbackServer {
         redirect_uri_for(self.port)
     }
 
-    /// Wait for the browser callback to settle.
+    /// Wait for the next callback-route hit; taking it re-arms the slot.
     pub async fn wait_for_code(&self) -> CallbackResult {
         loop {
             if let Some(result) = self.shared.result.lock().await.take() {
@@ -126,15 +157,17 @@ impl CallbackServer {
         }
     }
 
-    /// Cancel: settle the waiter with `None` so an in-flight redirect loses
-    /// only because the caller chose to stop waiting.
-    pub async fn cancel(&self) {
-        self.shared.settle(None).await;
+    /// Whether a hit is waiting to be taken (tests observe the
+    /// non-settling routes).
+    #[cfg(test)]
+    async fn is_settled(&self) -> bool {
+        self.shared.result.lock().await.is_some()
     }
 }
 
-/// One browser request: read it, answer it, settle the login's waiter.
-async fn serve_callback(mut stream: tokio::net::TcpStream, shared: &CallbackShared) {
+/// One browser request: read it, answer it, settle the login's waiter
+/// (unknown routes answer 404 and settle nothing).
+async fn serve_callback(mut stream: tokio::net::TcpStream, shared: &CallbackShared, state: &str) {
     let Some(request) = read_request_head(&mut stream).await else {
         let _ = write_response(
             &mut stream,
@@ -163,42 +196,43 @@ async fn serve_callback(mut stream: tokio::net::TcpStream, shared: &CallbackShar
         return;
     }
     let query = target.split_once('?').map_or("", |(_, query)| query);
-    let code = query_param(query, "code");
-    let state = query_param(query, "state");
-    let error = query_param(query, "error");
-    if let Some(error) = error {
-        shared.settle(None).await;
-        let _ = write_response(
-            &mut stream,
+    // The browser hit must echo the state: a missing one fails the CSRF
+    // check like a foreign one (a paste may omit it, a redirect never).
+    let outcome = parse_redirect_input(&format!("?{query}")).and_then(|pasted| {
+        if pasted.state.is_none() {
+            Err(RedirectInputError::StateMismatch)
+        } else {
+            pasted.verify_state(state)
+        }
+    });
+    let (status, page) = match &outcome {
+        Ok(_) => (
+            "200 OK",
+            oauth_success_page("Eukhe authentication completed. You can close this window."),
+        ),
+        Err(RedirectInputError::Provider { error, description }) => (
             "400 Bad Request",
             oauth_error_page(
                 "Eukhe",
-                &format!("Eukhe authentication failed. Error: {error}"),
+                &match description {
+                    Some(description) => {
+                        format!("Eukhe authentication failed. Error: {error} ({description})")
+                    }
+                    None => format!("Eukhe authentication failed. Error: {error}"),
+                },
             ),
-        )
-        .await;
-        return;
-    }
-    match (code, state) {
-        (Some(code), Some(state)) if !code.is_empty() && !state.is_empty() => {
-            shared.settle(Some(CallbackCode { code, state })).await;
-            let _ = write_response(
-                &mut stream,
-                "200 OK",
-                oauth_success_page("Eukhe authentication completed. You can close this window."),
-            )
-            .await;
-        }
-        _ => {
-            shared.settle(None).await;
-            let _ = write_response(
-                &mut stream,
-                "400 Bad Request",
-                oauth_error_page("Eukhe", "Missing code or state parameter."),
-            )
-            .await;
-        }
-    }
+        ),
+        Err(RedirectInputError::MissingCode) => (
+            "400 Bad Request",
+            oauth_error_page("Eukhe", "Missing code or state parameter."),
+        ),
+        Err(RedirectInputError::StateMismatch) => (
+            "400 Bad Request",
+            oauth_error_page("Eukhe", "State mismatch."),
+        ),
+    };
+    shared.settle(outcome).await;
+    let _ = write_response(&mut stream, status, page).await;
 }
 
 /// Read one request head (until the connection goes quiet); the callback
@@ -224,38 +258,6 @@ async fn write_response(
     stream.write_all(head.as_bytes()).await?;
     stream.write_all(body.as_bytes()).await?;
     stream.flush().await
-}
-
-/// One decoded query parameter (`+` as space, percent-decoded).
-fn query_param(query: &str, name: &str) -> Option<String> {
-    for pair in query.split('&') {
-        if pair.is_empty() {
-            continue;
-        }
-        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if percent_decode(&key.replace('+', " ")) == name {
-            return Some(percent_decode(&value.replace('+', " ")));
-        }
-    }
-    None
-}
-
-fn percent_decode(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&value[index + 1..index + 3], 16) {
-                out.push(byte);
-                index += 3;
-                continue;
-            }
-        }
-        out.push(bytes[index]);
-        index += 1;
-    }
-    String::from_utf8_lossy(&out).to_string()
 }
 
 fn escape_html(value: &str) -> String {
@@ -315,6 +317,16 @@ fn oauth_error_page(label: &str, message: &str) -> String {
 mod tests {
     use super::*;
 
+    async fn hit(server: &CallbackServer, target: &str) -> u16 {
+        reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{}{target}", server.port))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16()
+    }
+
     #[tokio::test]
     async fn falls_back_to_the_next_free_port() {
         // The base port is occupied, so the login lands on a later
@@ -323,7 +335,7 @@ mod tests {
         let Ok(blocker) = std::net::TcpListener::bind(("127.0.0.1", CALLBACK_PORT_BASE)) else {
             return;
         };
-        let server = CallbackServer::start("Linear").await.unwrap();
+        let server = CallbackServer::start("Linear", "st").await.unwrap();
         assert_ne!(server.redirect_uri(), redirect_uri_for(CALLBACK_PORT_BASE));
         assert!(server.redirect_uri().starts_with("http://localhost:5370"));
         drop(blocker);
@@ -341,28 +353,50 @@ mod tests {
             // invariant on this machine.
             return;
         }
-        let error = CallbackServer::start("Linear")
+        let error = CallbackServer::start("Linear", "st")
             .await
             .unwrap_err()
             .to_string();
         assert!(error.contains("Could not start the OAuth callback server"));
     }
 
+    /// Every callback-route hit settles its outcome, and taking one
+    /// re-arms the slot for the next hit (a retried browser login).
     #[tokio::test]
-    async fn callback_flow_settles_code_and_state() {
-        let server = CallbackServer::start("Linear").await.unwrap();
-        let response = reqwest::Client::new()
-            .get(format!(
-                "http://127.0.0.1:{}/callback?code=the-code&state=the-state",
-                server.port
-            ))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status().as_u16(), 200);
+    async fn callback_hits_settle_their_outcomes_in_turn() {
+        let server = CallbackServer::start("Linear", "the-state").await.unwrap();
+        assert_eq!(hit(&server, "/callback?code=x&state=other").await, 400);
         assert_eq!(
             server.wait_for_code().await,
-            Some(CallbackCode {
+            Err(RedirectInputError::StateMismatch)
+        );
+        assert_eq!(
+            hit(
+                &server,
+                "/callback?error=access_denied&error_description=no+way"
+            )
+            .await,
+            400
+        );
+        assert_eq!(
+            server.wait_for_code().await,
+            Err(RedirectInputError::Provider {
+                error: "access_denied".to_string(),
+                description: Some("no way".to_string()),
+            })
+        );
+        assert_eq!(hit(&server, "/callback?code=x").await, 400);
+        assert_eq!(
+            server.wait_for_code().await,
+            Err(RedirectInputError::StateMismatch)
+        );
+        assert_eq!(
+            hit(&server, "/callback?code=the-code&state=the-state").await,
+            200
+        );
+        assert_eq!(
+            server.wait_for_code().await,
+            Ok(VerifiedAuthorization {
                 code: "the-code".to_string(),
                 state: "the-state".to_string()
             })
@@ -370,43 +404,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn error_callback_settles_none() {
-        let server = CallbackServer::start("Linear").await.unwrap();
-        let response = reqwest::Client::new()
-            .get(format!(
-                "http://127.0.0.1:{}/callback?error=access_denied",
-                server.port
-            ))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status().as_u16(), 400);
-        assert!(server.wait_for_code().await.is_none());
-    }
-
-    #[tokio::test]
     async fn unknown_route_is_404_without_settling() {
-        let server = CallbackServer::start("Linear").await.unwrap();
-        let response = reqwest::Client::new()
-            .get(format!("http://127.0.0.1:{}/other", server.port))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status().as_u16(), 404);
-        // Unknown routes never settle the login; cancellation does.
-        server.cancel().await;
-        assert!(server.wait_for_code().await.is_none());
-    }
-
-    #[test]
-    fn query_and_percent_decoding() {
-        assert_eq!(percent_decode("a%20b"), "a b");
-        assert_eq!(percent_decode("bad%2"), "bad%2");
-        assert_eq!(
-            query_param("code=1&state=2", "state"),
-            Some("2".to_string())
-        );
-        assert_eq!(query_param("code=a+b", "code"), Some("a b".to_string()));
-        assert_eq!(query_param("code", "state"), None);
+        let server = CallbackServer::start("Linear", "st").await.unwrap();
+        assert_eq!(hit(&server, "/other").await, 404);
+        assert!(!server.is_settled().await);
     }
 }

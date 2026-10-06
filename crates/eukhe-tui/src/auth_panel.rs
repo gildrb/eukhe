@@ -29,7 +29,6 @@ use crate::style::Modifier;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::fuzzy::fuzzy_filter;
-use crate::hyperlinks::{osc8_open, OSC8_CLOSE};
 use crate::keybindings::KeybindingsManager;
 use crate::menu_panel::{
     hint_row, key_hint, login_field_row, menu_row, no_match_row, scroll_row, scrub_controls,
@@ -151,6 +150,11 @@ pub enum AuthPanelRequest {
         /// "Complete the sign-in in your browser." line.
         instructions: Option<String>,
     },
+    /// A rejected answer or a failed step the user can retry from the
+    /// same panel (a pasted redirect from another login attempt, a token
+    /// exchange error): the warning row under the paste field, replacing
+    /// the step chatter. It stays until the user submits again.
+    Notice { message: String },
     /// TS `dialog.showManualInput` / `armManualInput` (the muted prompt)
     /// and `dialog.showPrompt` (the section-title prompt, TS text
     /// colour): the prompt above the panel's paste field. Enter submits
@@ -343,6 +347,14 @@ impl AuthPanelHandle {
         });
     }
 
+    /// A retryable failure, shown as the warning row under the next
+    /// paste field (see [`AuthPanelRequest::Notice`]).
+    pub fn notice(&self, message: impl Into<String>) {
+        self.send(AuthPanelRequest::Notice {
+            message: message.into(),
+        });
+    }
+
     /// TS `dialog.showManualInput` / `armManualInput` (the muted
     /// browser-step prompt) and `dialog.showPrompt` (the text-coloured
     /// section-title prompt): prompt above the paste field; the
@@ -468,6 +480,7 @@ const BROWSER_DEFAULT_INSTRUCTIONS: &str = "Complete the sign-in in your browser
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CopyStatus {
     Copied,
+    Requested,
     Failed,
 }
 
@@ -480,7 +493,6 @@ fn is_printable_key(key: &str) -> bool {
     matches!(chars.next(), Some(c) if !c.is_control()) && chars.next().is_none()
 }
 
-    Requested,
 /// The mounted panel: the flow's progress lines, the browser URL block,
 /// and the one active input (a paste prompt or the team picker).
 #[derive(Debug)]
@@ -640,6 +652,15 @@ impl AuthPanel {
         self.waiting = None;
     }
 
+    /// A retryable failure's warning row (one request-fold entry): it
+    /// replaces the step chatter and shows under the paste field until
+    /// the user submits again.
+    pub fn show_notice(&mut self, message: &str) {
+        self.progress.clear();
+        self.progress_open = false;
+        self.notice = Some(scrub_controls(message));
+    }
+
     /// TS `showManualInput` / `armManualInput` (muted tone) and
     /// `showPrompt` (the section-title tone): the prompt above a fresh
     /// paste field (the flow's progress lines stay). One request-fold
@@ -660,7 +681,8 @@ impl AuthPanel {
             field: SearchInput::new(),
             reply: Some(reply),
         };
-        self.notice = None;
+        // A notice that arrived for this re-prompt (a rejected paste)
+        // stays: it says why the field is back.
         self.copy_status = None;
     }
 

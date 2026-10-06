@@ -4,11 +4,11 @@
 //! selector's API-key prompt reuses.
 
 use super::{
-    hint_row, key_hint, login_field_row, menu_row, no_match_row, osc8_open, scroll_row,
-    scrub_controls, search_field_lines, search_field_plain_row, AuthPanel, CopyStatus,
-    KeybindingsManager, Line, MenuSegment, Modifier, PanelInput, PanelSurface, PastePromptTone,
-    PasteStyle, PickerSegment, Span, Theme, ThemeColor, BROWSER_DEFAULT_INSTRUCTIONS, OSC8_CLOSE,
-    PASTE_PLACEHOLDER, PREFERRED_VISIBLE_TEAMS, TEAM_SEARCH_PLACEHOLDER, TOKEN_PLACEHOLDER,
+    hint_row, key_hint, login_field_row, menu_row, no_match_row, scroll_row, scrub_controls,
+    search_field_lines, search_field_plain_row, AuthPanel, CopyStatus, KeybindingsManager, Line,
+    MenuSegment, Modifier, PanelInput, PanelSurface, PastePromptTone, PasteStyle, PickerSegment,
+    Span, Theme, ThemeColor, BROWSER_DEFAULT_INSTRUCTIONS, PASTE_PLACEHOLDER,
+    PREFERRED_VISIBLE_TEAMS, TEAM_SEARCH_PLACEHOLDER, TOKEN_PLACEHOLDER,
 };
 
 impl AuthPanel {
@@ -18,8 +18,17 @@ impl AuthPanel {
     /// block mounts the content chrome-less; the content is the blank
     /// `startContent` row, the progress block, the URL block, the paste
     /// field, and the auth-actions row last -- no bottom rule on either
-    /// surface).
-    pub fn render(&mut self, theme: &Theme, width: usize, kb: &KeybindingsManager) -> Vec<Line> {
+    /// surface). A panel taller than `height` drops its least needed rows
+    /// first -- spacer blanks, then the chrome, then the instructions from
+    /// their end -- so the sign-in URL, the field, and the actions stay
+    /// whole on a short or narrow screen.
+    pub fn render(
+        &mut self,
+        theme: &Theme,
+        width: usize,
+        height: usize,
+        kb: &KeybindingsManager,
+    ) -> Vec<Line> {
         let width = width.max(1);
         let mut lines: Vec<Line> = Vec::new();
         // TS `MenuPanel` inline's per-surface chrome: the session dock
@@ -91,6 +100,8 @@ impl AuthPanel {
             // surface's chrome (nothing, on the onboarding block) shows.
             return lines;
         }
+        let chrome_end = lines.len();
+        let mut instruction_rows = 0..0;
         // TS `startContent`'s Spacer(1): the content's leading blank row.
         lines.push(Vec::new());
         // TS `showProgress`'s empty-content arm: the section title rides
@@ -111,30 +122,24 @@ impl AuthPanel {
             // characters can never execute terminal control operations
             // when rendered (the same hygiene every daemon-supplied row
             // carries); a URL is additionally single-line, so newlines
-            // drop. TS `showAuth` renders the link in the text colour
-            // and wraps it in OSC 8 (the URL is the link's own display
-            // text) when the terminal is known to implement hyperlinks,
-            // else prints it plain.
+            // drop. The URL shows whole, never truncated: a cut link is a
+            // broken link once copied or opened on another machine. It
+            // renders as a soft-wrapped block, one logical line the
+            // terminal selects, copies, and detects as a URL across the
+            // wrap; with hyperlinks on every piece links the full URL.
             let safe = scrub_controls(url).replace('\n', "");
-            // The OSC 8 wrap survives truncation intact: the display text
-            // truncates to the column budget BEFORE the wrap (a long URL
-            // cut mid-sequence would leave the terminal's link region
-            // open), and the URI parameter always carries the full URL.
-            let budget = width.saturating_sub(2);
-            let display = if crate::width::str_width(&safe) > budget {
-                crate::width::truncate_line(&vec![Span::raw(safe.clone())], budget, "")
-                    .iter()
-                    .map(|span| span.content.clone())
-                    .collect::<String>()
+            let link = if crate::hyperlinks::hyperlinks_enabled() {
+                crate::soft_wrap::Link::Hyperlink
             } else {
-                safe.clone()
+                crate::soft_wrap::Link::Plain
             };
-            let linked = if crate::hyperlinks::hyperlinks_enabled() {
-                format!("{}{display}{OSC8_CLOSE}", osc8_open(&safe))
-            } else {
-                display
-            };
-            lines.push(content_row(theme, width, ThemeColor::Text, &linked));
+            lines.extend(crate::soft_wrap::rows(
+                " ",
+                &safe,
+                theme.fg_style(ThemeColor::Text),
+                width,
+                link,
+            ));
             // TS `addSectionSpacer`: the browser-step text reads apart
             // from the URL.
             lines.push(Vec::new());
@@ -162,13 +167,19 @@ impl AuthPanel {
                     ),
                 ];
                 lines.push(crate::width::truncate_line(&bold_code, width, ""));
-            } else if self.auth_instructions.is_some() {
-                // Provider instructions already describe the browser step
-                // (TS renders them in the text colour).
-                lines.push(content_row(theme, width, ThemeColor::Text, &instructions));
             } else {
-                // TS `addMutedText`'s default browser-step line.
-                lines.push(content_row(theme, width, ThemeColor::Muted, &instructions));
+                // Provider instructions already describe the browser step
+                // (TS renders them in the text colour), wrapped whole: they
+                // carry the remote-login steps. TS `addMutedText` renders
+                // the default line muted.
+                let tone = if self.auth_instructions.is_some() {
+                    ThemeColor::Text
+                } else {
+                    ThemeColor::Muted
+                };
+                let start = lines.len();
+                lines.extend(wrapped_content_rows(theme, width, tone, &instructions));
+                instruction_rows = start..lines.len();
             }
         }
         match &mut self.input {
@@ -191,7 +202,7 @@ impl AuthPanel {
                     PastePromptTone::Muted => ThemeColor::Muted,
                     PastePromptTone::Text => ThemeColor::Text,
                 };
-                lines.push(content_row(theme, width, prompt_tone, prompt));
+                lines.extend(wrapped_content_rows(theme, width, prompt_tone, prompt));
                 let placeholder = match style {
                     PasteStyle::Visible => PASTE_PLACEHOLDER,
                     PasteStyle::Masked => TOKEN_PLACEHOLDER,
@@ -221,7 +232,12 @@ impl AuthPanel {
                     )),
                 }
                 if let Some(notice) = &self.notice {
-                    lines.push(content_row(theme, width, ThemeColor::Warning, notice));
+                    lines.extend(wrapped_content_rows(
+                        theme,
+                        width,
+                        ThemeColor::Warning,
+                        notice,
+                    ));
                 }
                 // TS `addInputField`'s inputSpacer: the blank row between
                 // the field and the actions (the actions row rides last
@@ -269,6 +285,29 @@ impl AuthPanel {
                 self.copy_status,
             ));
         }
+        if lines.len() > height {
+            let mut excess = lines.len() - height;
+            let mut keep = vec![true; lines.len()];
+            let blanks: Vec<usize> = (0..lines.len()).filter(|&i| lines[i].is_empty()).collect();
+            for index in blanks
+                .into_iter()
+                .chain(0..chrome_end)
+                .chain(instruction_rows.rev())
+            {
+                if excess == 0 {
+                    break;
+                }
+                if keep[index] {
+                    keep[index] = false;
+                    excess -= 1;
+                }
+            }
+            lines = lines
+                .into_iter()
+                .zip(keep)
+                .filter_map(|(line, kept)| kept.then_some(line))
+                .collect();
+        }
         lines
     }
 }
@@ -304,10 +343,12 @@ pub(crate) fn auth_actions_row(
     if let Some(state) = copy_state {
         let tone = match state {
             CopyStatus::Copied => ThemeColor::Success,
+            CopyStatus::Requested => ThemeColor::Warning,
             CopyStatus::Failed => ThemeColor::Error,
         };
         let text = match state {
             CopyStatus::Copied => "Copied sign-in link",
+            CopyStatus::Requested => "Sign-in link sent to terminal clipboard (unconfirmed)",
             CopyStatus::Failed => "Failed to copy sign-in link",
         };
         parts.push(vec![theme.fg_span(tone, text.to_string())]);
@@ -343,12 +384,10 @@ pub(crate) fn auth_actions_row(
             Span::styled(format!(" {action}"), theme.fg_style(ThemeColor::Muted)),
         ]);
     }
-            CopyStatus::Requested => ThemeColor::Warning,
     if let Some(hint) = key_hint_row(theme, keybindings, "tui.select.cancel", "cancel") {
         parts.push(hint);
     }
     for (index, part) in parts.into_iter().enumerate() {
-            CopyStatus::Requested => "Sign-in link sent to terminal clipboard (unconfirmed)",
         if index > 0 {
             row.push(Span::raw("  ".to_string()));
         }
@@ -369,6 +408,18 @@ fn content_row(theme: &Theme, width: usize, tone: ThemeColor, text: &str) -> Lin
         width,
         "",
     )
+}
+
+/// Content rows at the panel's indent, word-wrapped to the frame width
+/// so no step of the instructions is cut off.
+fn wrapped_content_rows(theme: &Theme, width: usize, tone: ThemeColor, text: &str) -> Vec<Line> {
+    crate::width::wrap_text(text, width.saturating_sub(1).max(1))
+        .into_iter()
+        .map(|row| {
+            let text: String = row.iter().map(|span| span.content.as_str()).collect();
+            vec![Span::raw(" ".to_string()), theme.fg_span(tone, text)]
+        })
+        .collect()
 }
 
 /// TS `keyHint`: the dim key label over the muted ` {action}` -- one

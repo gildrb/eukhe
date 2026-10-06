@@ -144,9 +144,9 @@ impl PrimeHttp for ReqwestPrimeHttp {
                 .await
                 .map_err(|error| {
                     if error.is_timeout() {
-                        "Prime Inference request timed out".to_string()
+                        format!("Prime Inference request timed out after {timeout_ms} ms")
                     } else {
-                        error.to_string()
+                        eukhe_ai::oauth::transport_failure(&error)
                     }
                 })?;
             let status = response.status().as_u16();
@@ -177,9 +177,9 @@ impl PrimeHttp for ReqwestPrimeHttp {
             }
             let response = request.send().await.map_err(|error| {
                 if error.is_timeout() {
-                    "Prime Inference request timed out".to_string()
+                    format!("Prime Inference request timed out after {timeout_ms} ms")
                 } else {
-                    error.to_string()
+                    eukhe_ai::oauth::transport_failure(&error)
                 }
             })?;
             let status = response.status().as_u16();
@@ -239,7 +239,7 @@ pub(super) fn read_response_message(status: u16, body: &str) -> String {
             }
         }
     }
-    body.trim().to_string()
+    eukhe_ai::oauth::response_snippet(body)
 }
 
 /// One denial of Prime Inference access (TS `PrimeInferenceAccessResult`'s
@@ -306,15 +306,16 @@ pub(super) async fn check_prime_scope_access(
             message: read_response_message(response.status, &response.body),
         }));
     }
+    let invalid = || {
+        PrimeAccessError::Failed(format!(
+            "Prime whoami returned an invalid response (HTTP {}): {}",
+            response.status,
+            eukhe_ai::oauth::response_snippet(&response.body)
+        ))
+    };
     let data: serde_json::Value = serde_json::from_str(&response.body)
-        .map_err(|_| {
-            PrimeAccessError::Failed("Prime whoami returned an invalid response".to_string())
-        })
-        .and_then(|data: serde_json::Value| {
-            data.is_object().then_some(data).ok_or_else(|| {
-                PrimeAccessError::Failed("Prime whoami returned an invalid response".to_string())
-            })
-        })?;
+        .map_err(|_| invalid())
+        .and_then(|data: serde_json::Value| data.is_object().then_some(data).ok_or_else(invalid))?;
     let Some(user) = data.get("data").filter(|user| user.is_object()) else {
         return Err(PrimeAccessError::Denied(PrimeAccessFailure {
             status: None,
@@ -389,16 +390,22 @@ pub async fn fetch_prime_teams(
         let response = http.get(&url, api_key, timeout_ms).await?;
         if !(200..300).contains(&response.status) {
             return Err(format!(
-                "Failed to fetch Prime teams: {}",
+                "Failed to fetch Prime teams (HTTP {}): {}",
+                response.status,
                 read_response_message(response.status, &response.body)
             ));
         }
+        let invalid = || {
+            format!(
+                "Prime teams returned an invalid response (HTTP {}): {}",
+                response.status,
+                eukhe_ai::oauth::response_snippet(&response.body)
+            )
+        };
         let data: serde_json::Value = serde_json::from_str(&response.body)
-            .map_err(|_| "Prime teams returned an invalid response".to_string())
+            .map_err(|_| invalid())
             .and_then(|data: serde_json::Value| {
-                data.is_object()
-                    .then_some(data)
-                    .ok_or_else(|| "Prime teams returned an invalid response".to_string())
+                data.is_object().then_some(data).ok_or_else(invalid)
             })?;
         let Some(batch) = data.get("data").and_then(|data| data.as_array()) else {
             return Err("Prime teams response missing team data".to_string());
@@ -621,7 +628,7 @@ mod tests {
         assert_eq!(
             check_prime_inference_access(&http, "https://api.example", "sk", 1).await,
             Err(PrimeAccessError::Failed(
-                "Prime whoami returned an invalid response".to_string()
+                "Prime whoami returned an invalid response (HTTP 200): [1,2]".to_string()
             ))
         );
     }
@@ -676,7 +683,7 @@ mod tests {
         )]);
         assert_eq!(
             fetch_prime_teams(&http, "https://api.example", "sk", 1).await,
-            Err("Failed to fetch Prime teams: boom".to_string())
+            Err("Failed to fetch Prime teams (HTTP 500): boom".to_string())
         );
         let http = scripted(vec![(
             "https://api.example/api/v1/user/teams?offset=0&limit=100",

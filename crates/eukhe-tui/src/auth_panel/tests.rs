@@ -38,9 +38,12 @@ fn beta() -> PrimeTeamOption {
     }
 }
 
+/// A screen tall enough for every panel the tests mount.
+const TALL: usize = 500;
+
 fn frame_text(panel: &mut AuthPanel) -> Vec<String> {
     panel
-        .render(&theme(), 90, &kb())
+        .render(&theme(), 90, TALL, &kb())
         .iter()
         .map(|line| line.iter().map(|span| span.content.as_str()).collect())
         .collect()
@@ -719,7 +722,7 @@ fn the_waiting_line_joins_the_url_block_in_the_accent_colour() {
         "the waiting line rides above the actions row"
     );
     assert_eq!(rows[waiting - 1], "", "the section spacer rides above");
-    let lines = panel.render(&theme(), 90, &kb());
+    let lines = panel.render(&theme(), 90, TALL, &kb());
     let accent = theme().fg_style(ThemeColor::Accent);
     assert!(
         lines[waiting].iter().any(|span| span.style == accent),
@@ -760,10 +763,10 @@ fn the_copy_binding_copies_the_mounted_url_into_the_actions_row() {
     let rows = frame_text(&mut panel);
     assert!(
         rows.iter().any(|row| row.contains("Copied sign-in link")
+            || row.contains("Sign-in link sent to terminal clipboard (unconfirmed)")
             || row.contains("Failed to copy sign-in link")),
         "the copy outcome rides the actions row: {rows:?}"
     );
-            || row.contains("Sign-in link sent to terminal clipboard (unconfirmed)")
     // Without a mounted URL the copy binding does nothing: the plain
     // `c` lands in the paste field as input (the URL guard holds).
     let (mut panel, mut _answer) = mount_paste();
@@ -780,5 +783,191 @@ fn the_copy_binding_copies_the_mounted_url_into_the_actions_row() {
     assert!(
         field.contains('c'),
         "the plain key typed into the field: {rows:?}"
+    );
+}
+
+/// A real Anthropic sign-in URL: far wider than any frame.
+const LONG_URL: &str = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A53692%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_challenge=2ZtUUrbP2cPZ5Qq9Wv0zR0lQe3Wr6Pz2l0qJ7mZz3sY&code_challenge_method=S256&state=lN0oQb8Qy3xI9i0bq3Vw5yN1tHk2cJ8rQ0aZ7eL4sXw";
+
+/// A sign-in URL wider than the frame renders whole as one soft-wrapped
+/// logical line: the inline writer's bytes carry the full URL
+/// contiguously, so the terminal selects, copies, and opens it whole (a
+/// URL cut to the frame width is a broken link on a remote machine).
+#[test]
+fn a_url_wider_than_the_frame_renders_whole_as_one_logical_line() {
+    crate::hyperlinks::set_hyperlinks_override(Some(false));
+    let mut panel = AuthPanel::new("Login to Anthropic (Claude Pro/Max)");
+    panel.show_auth_url(LONG_URL.to_string(), None);
+    let lines = panel.render(&theme(), 100, 30, &kb());
+    crate::hyperlinks::set_hyperlinks_override(None);
+    assert!(
+        crate::soft_wrap::logical_lines(&lines).contains(&format!(" {LONG_URL}")),
+        "the URL is one logical line: {:?}",
+        crate::soft_wrap::logical_lines(&lines)
+    );
+    let _global = crate::inline_term::live_area_lock();
+    let mut out = Vec::new();
+    crate::inline_term::InlineTerminal::new(30)
+        .paint(
+            &mut out,
+            crate::inline_term::InlineFrame {
+                history: &[],
+                live: &lines,
+                cursor: None,
+            },
+        )
+        .expect("paint");
+    let shown = crate::ansi::strip_ansi(&String::from_utf8(out).expect("utf8"));
+    assert!(
+        shown.contains(LONG_URL),
+        "the written rows carry the whole URL: {shown:?}"
+    );
+}
+
+/// With hyperlinks on, every piece of the wrapped URL links the full URL.
+#[test]
+fn every_wrapped_piece_links_the_full_url() {
+    crate::hyperlinks::set_hyperlinks_override(Some(true));
+    let mut panel = AuthPanel::new("Login to Anthropic (Claude Pro/Max)");
+    panel.show_auth_url(LONG_URL.to_string(), None);
+    let lines = panel.render(&theme(), 100, 30, &kb());
+    crate::hyperlinks::set_hyperlinks_override(None);
+    let ranges = crate::hyperlinks::frame_link_ranges(&lines);
+    assert!(ranges.len() > 1, "the URL wraps: {ranges:?}");
+    assert!(
+        ranges.iter().all(|range| range.url == LONG_URL),
+        "{ranges:?}"
+    );
+}
+
+/// The copy binding copies the full URL, never the shown width.
+#[test]
+fn the_copy_binding_copies_the_full_url() {
+    use base64::Engine;
+    let mut panel = AuthPanel::new("Login to Anthropic (Claude Pro/Max)");
+    panel.show_auth_url(LONG_URL.to_string(), None);
+    let mut sink = sink();
+    panel.handle_key("c", &kb(), &mut sink);
+    let crate::clipboard::OscSink::Buffer(bytes) = sink else {
+        panic!("the buffer sink");
+    };
+    let encoded = base64::engine::general_purpose::STANDARD.encode(LONG_URL);
+    assert_eq!(
+        String::from_utf8(bytes).expect("utf8"),
+        format!("\x1b]52;c;{encoded}\x07")
+    );
+}
+
+/// A pasted redirect URL longer than the field submits whole: the field
+/// scrolls, it never cuts the value.
+#[test]
+fn a_long_pasted_redirect_url_submits_whole() {
+    let redirect = format!(
+        "http://localhost:53692/callback?code={}&state={}",
+        "c".repeat(120),
+        "s".repeat(43)
+    );
+    let (mut panel, mut answer) = mount_paste();
+    panel.handle_paste(&redirect);
+    let rows = frame_text(&mut panel);
+    assert!(rows.iter().all(|row| crate::width::str_width(row) <= 90));
+    panel.handle_key("enter", &kb(), &mut sink());
+    assert_eq!(answer.try_recv(), Ok(Some(redirect)));
+}
+
+/// Long instructions wrap at word boundaries instead of being cut.
+#[test]
+fn long_instructions_wrap_whole() {
+    let mut panel = AuthPanel::new("Login to Anthropic (Claude Pro/Max)");
+    let instructions = "Complete login in your browser. If the browser is on another machine, it ends on a page that cannot load: copy that page's address and paste it below.";
+    panel.show_auth_url(LONG_URL.to_string(), Some(instructions.to_string()));
+    let rows: Vec<String> = panel
+        .render(&theme(), 60, TALL, &kb())
+        .iter()
+        .map(crate::app::plain_row)
+        .collect();
+    let shown: Vec<&str> = rows
+        .iter()
+        .map(|row| row.trim())
+        .filter(|row| instructions.contains(*row) && !row.is_empty())
+        .collect();
+    assert_eq!(shown.join(" "), instructions);
+}
+
+/// On a narrow, short screen the panel gives up its spacers, chrome, and
+/// instructions before any URL row: the whole URL, the field, and the
+/// actions stay on screen.
+#[test]
+fn a_narrow_short_screen_keeps_the_url_whole() {
+    crate::hyperlinks::set_hyperlinks_override(Some(false));
+    let (mut panel, _answer) = mount_paste();
+    panel.show_auth_url(
+        LONG_URL.to_string(),
+        Some("Complete login in your browser. On another machine, the browser ends on a localhost page that fails to load: copy that page's full address and paste it below.".to_string()),
+    );
+    let (reply, _answer) = oneshot::channel();
+    panel.mount_paste(
+        "Paste redirect URL below, or complete login in browser:",
+        PastePromptTone::Muted,
+        PasteStyle::Visible,
+        false,
+        reply,
+    );
+    let lines = panel.render(&theme(), 20, 30, &kb());
+    crate::hyperlinks::set_hyperlinks_override(None);
+    assert!(lines.len() <= 30, "{} rows", lines.len());
+    assert!(
+        crate::soft_wrap::logical_lines(&lines).contains(&format!(" {LONG_URL}")),
+        "{:?}",
+        crate::soft_wrap::logical_lines(&lines)
+    );
+    let plain: Vec<String> = lines.iter().map(crate::app::plain_row).collect();
+    assert!(plain.iter().any(|row| row.starts_with(" > ")), "{plain:?}");
+    assert!(
+        plain.last().is_some_and(|row| row.contains("submit")),
+        "{plain:?}"
+    );
+}
+
+/// A rejected paste re-prompts in the same panel: the notice replaces
+/// the step chatter, survives the re-mounted field, and clears when the
+/// user submits again.
+#[test]
+fn a_rejection_notice_rides_the_next_paste_field_until_submit() {
+    let mut panel = AuthPanel::new("Login to Anthropic (Claude Pro/Max)");
+    panel.show_auth_url("https://fixture.example/authorize".to_string(), None);
+    panel.push_progress("Exchanging authorization code for tokens...");
+    panel.show_notice("That address is from a different login attempt.");
+    let (reply, mut answer) = oneshot::channel();
+    panel.mount_paste(
+        "Paste redirect URL below:",
+        PastePromptTone::Muted,
+        PasteStyle::Visible,
+        false,
+        reply,
+    );
+    let rows = frame_text(&mut panel);
+    assert!(
+        !rows.iter().any(|row| row.contains("Exchanging")),
+        "{rows:?}"
+    );
+    let field = rows
+        .iter()
+        .position(|row| row.contains("Paste value"))
+        .expect("the field");
+    assert_eq!(
+        rows[field + 1],
+        " That address is from a different login attempt."
+    );
+    panel.handle_paste("the-code#the-state");
+    panel.handle_key("enter", &kb(), &mut sink());
+    assert_eq!(
+        answer.try_recv(),
+        Ok(Some("the-code#the-state".to_string()))
+    );
+    let rows = frame_text(&mut panel);
+    assert!(
+        !rows.iter().any(|row| row.contains("different login")),
+        "{rows:?}"
     );
 }

@@ -233,13 +233,14 @@ pub(crate) async fn run_prime_inference_login(
 }
 
 /// TS `armManualInput`'s loop: the prompt repeats until a non-empty line
-/// arrives; a closed input cancels.
+/// arrives; a closed input cancels. The key is cleaned like every paste
+/// (surrounding quotes, whitespace, and line breaks of a copy dropped).
 async fn prompt_non_empty(ui: &dyn PrimeLoginUi, prompt: &str) -> Option<String> {
     loop {
         let line = ui.prompt_line(prompt).await?;
-        let trimmed = line.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
+        let key = eukhe_ai::oauth::clean_paste(&line);
+        if !key.is_empty() {
+            return Some(key);
         }
     }
 }
@@ -753,7 +754,8 @@ mod tests {
         let agent_dir = dir.path().join("agent");
         std::fs::create_dir_all(&agent_dir).expect("agent dir");
         let ui = ScriptedUi::new(
-            vec![Some(" sk-new ".to_string())],
+            // A terminal copy: surrounding quotes, spaces, and a newline.
+            vec![Some(" \"sk-new\"\n".to_string())],
             vec![TeamChoice::Team(PrimeTeamCredential {
                 slug: Some("one".to_string()),
                 role: Some("member".to_string()),
@@ -808,12 +810,10 @@ mod tests {
                 ..team("t-1", "Team One")
             })
         );
-        assert_eq!(
-            auth.get_all()
-                .credential("prime-inference")
-                .map(|credential| credential.credential_type()),
-            Some("api_key")
-        );
+        assert!(matches!(
+            auth.get_all().credential("prime-inference"),
+            Some(eukhe_core::auth::AuthCredential::ApiKey { key, .. }) if key == "sk-new"
+        ));
     }
 
     #[tokio::test]
@@ -1226,7 +1226,7 @@ mod tests {
             vec![
                 "No eligible production Prime CLI API key found. Starting browser login..."
                     .to_string(),
-                "Browser sign-in unavailable (Failed to generate Prime login challenge: Service Unavailable)."
+                "Browser sign-in unavailable (Failed to generate Prime login challenge (HTTP 500): Service Unavailable)."
                     .to_string(),
                 "Checking Prime Inference access...".to_string(),
                 "Loading Prime teams...".to_string(),

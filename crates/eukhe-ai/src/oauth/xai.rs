@@ -19,6 +19,7 @@ use std::time::Duration;
 use url::Url;
 
 use super::provider_http::{ProviderHttp, ProviderHttpMethod, ProviderHttpRequest};
+use super::response_snippet::response_snippet;
 use super::types::OAuthLoginUi;
 
 /// The app registration the TS flow ships (TS `CLIENT_ID`).
@@ -61,11 +62,13 @@ pub struct XaiCredentials {
 }
 
 /// One endpoint response (TS `OAuthResponse`: the status plus the
-/// parsed object — an empty object when the body is not one).
+/// parsed object -- an empty object when the body is not one -- and the
+/// bounded body text an error quotes).
 struct XaiResponse {
     ok: bool,
     status: u16,
     body: serde_json::Map<String, serde_json::Value>,
+    text: String,
 }
 
 /// Run the login (TS `loginXai`): the device authorization, the user
@@ -170,12 +173,17 @@ pub async fn login_xai(
                 };
             }
             Some("access_denied" | "authorization_denied") => {
-                return Err("xAI device authorization was denied".to_string());
+                return Err(match error_description(&token.body) {
+                    Some(description) => {
+                        format!("xAI device authorization was denied: {description}")
+                    }
+                    None => "xAI device authorization was denied".to_string(),
+                });
             }
             Some("expired_token") => {
                 return Err("xAI device code expired; sign in again".to_string());
             }
-            _ => return Err(request_failure("device token polling", &token)),
+            Some(_) | None => return Err(request_failure("device token polling", &token)),
         }
     }
     Err("xAI device code expired; sign in again".to_string())
@@ -226,6 +234,8 @@ impl OAuthLoginUi for NoCancel {
     ) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send + '_>>> {
         None
     }
+    // No paste surface: the refresh never re-prompts, so nothing calls it.
+    fn on_input_rejected(&self, _reason: &str) {}
 }
 
 /// TS `postForm`: the form POST with the TS error taxonomy — the
@@ -265,16 +275,21 @@ async fn post_form(
         .await
         .map_err(|message| {
             if message.contains("timed out") {
-                "xAI OAuth request timed out. Try signing in again.".to_string()
+                format!("xAI OAuth request timed out ({message}). Try signing in again.")
             } else {
-                "xAI OAuth request failed. Check your connection and try again.".to_string()
+                format!("xAI OAuth request failed: {message}. Check your connection and try again.")
             }
         })?;
     if ui.is_cancelled() {
         return Err(LOGIN_CANCELLED.to_string());
     }
-    let parsed: serde_json::Value = serde_json::from_str(&response.body)
-        .map_err(|_| format!("xAI OAuth returned invalid JSON (HTTP {})", response.status))?;
+    let parsed: serde_json::Value = serde_json::from_str(&response.body).map_err(|_| {
+        format!(
+            "xAI OAuth returned invalid JSON (HTTP {}): {}",
+            response.status,
+            response_snippet(&response.body)
+        )
+    })?;
     let body = match parsed {
         serde_json::Value::Object(map) => map,
         _ => serde_json::Map::new(),
@@ -283,24 +298,38 @@ async fn post_form(
         ok: response.ok(),
         status: response.status,
         body,
+        text: response_snippet(&response.body),
     })
 }
 
-/// TS `requestFailure`: the action's status line; the
-/// `invalid_grant` suffix names the expired-or-revoked cause.
+/// The OAuth `error_description` of a response, when it carries one.
+fn error_description(body: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    body.get("error_description")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|description| !description.is_empty())
+        .map(str::to_string)
+}
+
+/// TS `requestFailure`: the action's status line; the `invalid_grant`
+/// suffix names the expired-or-revoked cause, any other OAuth error
+/// names itself (with its description), and a body without one is
+/// quoted.
 fn request_failure(action: &str, response: &XaiResponse) -> String {
-    let suffix = if response
+    let error = response
         .body
         .get("error")
-        .and_then(serde_json::Value::as_str)
-        == Some("invalid_grant")
-    {
-        ": authorization expired or revoked; sign in again"
-    } else {
-        ""
+        .and_then(serde_json::Value::as_str);
+    let detail = match (error, error_description(&response.body)) {
+        (Some("invalid_grant"), Some(_) | None) => {
+            ": authorization expired or revoked; sign in again".to_string()
+        }
+        (Some(error), Some(description)) => format!(": {error} ({description})"),
+        (Some(error), None) => format!(": {error}"),
+        (None, Some(_) | None) => format!(": {}", response.text),
     };
     format!(
-        "xAI OAuth {action} failed (HTTP {}){suffix}",
+        "xAI OAuth {action} failed (HTTP {}){detail}",
         response.status
     )
 }
@@ -522,6 +551,10 @@ mod tests {
             None
         }
 
+        fn on_input_rejected(&self, reason: &str) {
+            panic!("the device flow has no paste surface to re-prompt: {reason}");
+        }
+
         fn is_cancelled(&self) -> bool {
             self.cancelled.load(Ordering::Relaxed)
         }
@@ -635,6 +668,40 @@ mod tests {
         let ui = ScriptedUi::new();
         let error = login_xai(&http, &ui).await.unwrap_err();
         assert_eq!(error, "xAI device authorization was denied");
+        // The provider's description rides the message.
+        let http = ScriptedHttp::new()
+            .queue(DEVICE_CODE_URL, vec![device_response("")])
+            .queue(
+                TOKEN_URL,
+                vec![ScriptedHttp::entry(
+                    400,
+                    r#"{"error":"access_denied","error_description":"The user declined"}"#,
+                )],
+            );
+        let error = login_xai(&http, &ScriptedUi::new()).await.unwrap_err();
+        assert_eq!(
+            error,
+            "xAI device authorization was denied: The user declined"
+        );
+    }
+
+    /// An unknown poll error names itself instead of a bare status line.
+    #[tokio::test]
+    async fn an_unknown_poll_error_names_the_oauth_error() {
+        let http = ScriptedHttp::new()
+            .queue(DEVICE_CODE_URL, vec![device_response("")])
+            .queue(
+                TOKEN_URL,
+                vec![ScriptedHttp::entry(
+                    400,
+                    r#"{"error":"invalid_client","error_description":"Unknown client"}"#,
+                )],
+            );
+        let error = login_xai(&http, &ScriptedUi::new()).await.unwrap_err();
+        assert_eq!(
+            error,
+            "xAI OAuth device token polling failed (HTTP 400): invalid_client (Unknown client)"
+        );
     }
 
     #[tokio::test]
@@ -696,7 +763,10 @@ mod tests {
         );
         let ui = ScriptedUi::new();
         let error = login_xai(&http, &ui).await.unwrap_err();
-        assert_eq!(error, "xAI OAuth returned invalid JSON (HTTP 200)");
+        assert_eq!(
+            error,
+            "xAI OAuth returned invalid JSON (HTTP 200): <html>gateway error</html>"
+        );
     }
 
     #[tokio::test]
@@ -707,7 +777,20 @@ mod tests {
         );
         let ui = ScriptedUi::new();
         let error = login_xai(&http, &ui).await.unwrap_err();
-        assert_eq!(error, "xAI OAuth device authorization failed (HTTP 400)");
+        assert_eq!(
+            error,
+            "xAI OAuth device authorization failed (HTTP 400): bad_request"
+        );
+        // A body without an OAuth error is quoted.
+        let http = ScriptedHttp::new().queue(
+            DEVICE_CODE_URL,
+            vec![ScriptedHttp::entry(503, r#"{"message":"maintenance"}"#)],
+        );
+        let error = login_xai(&http, &ScriptedUi::new()).await.unwrap_err();
+        assert_eq!(
+            error,
+            r#"xAI OAuth device authorization failed (HTTP 503): {"message":"maintenance"}"#
+        );
     }
 
     #[tokio::test]
@@ -718,7 +801,10 @@ mod tests {
         let error = login_xai(&http, &ui).await.unwrap_err();
         assert_eq!(
             error,
-            "xAI OAuth request failed. Check your connection and try again."
+            format!(
+                "xAI OAuth request failed: {DEVICE_CODE_URL} was not scripted. Check your \
+                 connection and try again."
+            )
         );
     }
 

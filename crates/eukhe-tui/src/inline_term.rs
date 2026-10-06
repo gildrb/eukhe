@@ -15,6 +15,13 @@
 //! update with autowrap off: a row wider than the screen clips instead
 //! of wrapping, so the row count on screen always equals the row count
 //! the writer tracks.
+//!
+//! The one exception is a soft-wrapped block ([`crate::soft_wrap`]): its
+//! rows are filled to the edge by the composer and written back to back
+//! with autowrap on, so the terminal joins them into one logical line
+//! (selection and URL detection see it whole) and still shows exactly
+//! the rows tracked. A block is rewritten whole when any row of it
+//! changes.
 
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -62,6 +69,18 @@ const PAINT_END: &str = "\x1b[?7h\x1b[?2026l";
 /// Close any OSC 8 hyperlink left open by a row.
 const OSC8_CLOSE: &str = "\x1b]8;;\x1b\\";
 const OSC8_OPEN_PREFIX: &str = "\x1b]8;;";
+/// Autowrap on and off around a soft-wrapped block's pieces.
+const AUTOWRAP_ON: &str = "\x1b[?7h";
+const AUTOWRAP_OFF: &str = "\x1b[?7l";
+
+/// One encoded row as the terminal holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Row {
+    text: String,
+    /// Written right after the row above under autowrap: the terminal
+    /// holds it as that row's soft-wrap continuation.
+    joins_above: bool,
+}
 
 /// Where the hardware cursor goes after a frame: a row of the live area
 /// and a display column.
@@ -86,7 +105,7 @@ pub struct InlineFrame<'a> {
 #[derive(Debug)]
 pub struct InlineTerminal {
     /// Encoded rows now on screen in the live area.
-    live: Vec<String>,
+    live: Vec<Row>,
     /// The live-area row the terminal cursor is on. `live.len()` means
     /// the line below the live area (the state after
     /// [`InlineTerminal::release`]).
@@ -145,7 +164,7 @@ impl InlineTerminal {
                 .checked_sub(skip)
                 .map(|row| LiveCursor { row, col: c.col })
         });
-        let encoded: Vec<String> = live.iter().map(encode_row).collect();
+        let encoded = encode_rows(live);
         if frame.history.is_empty() && encoded == self.live && cursor == self.shown_cursor {
             return Ok(());
         }
@@ -156,10 +175,8 @@ impl InlineTerminal {
         } else {
             self.move_to(&mut buf, 0);
             buf.push_str("\x1b[J");
-            for row in frame.history {
-                buf.push_str(&encode_row(row));
-                buf.push_str("\r\n");
-            }
+            push_fresh_rows(&mut buf, &encode_rows(frame.history));
+            buf.push_str("\r\n");
             self.write_rows_from_here(&mut buf, encoded);
         }
         self.place_cursor(&mut buf, cursor);
@@ -242,36 +259,28 @@ impl InlineTerminal {
         out.flush()
     }
 
-    /// Rewrite only the rows that changed. Rows past the old live area
-    /// are appended with CRLF, which scrolls the screen when needed.
-    fn diff_live(&mut self, buf: &mut String, encoded: Vec<String>) {
-        let shared = self.live.len().min(encoded.len());
-        for (i, row) in encoded.iter().enumerate().take(shared) {
-            if self.live[i] != *row {
-                self.move_to(buf, i);
-                buf.push_str(ERASE_LINE);
-                buf.push_str(row);
+    /// Rewrite only the blocks that changed (a plain row is a block of
+    /// one). Rows past the old live area are appended with line feeds,
+    /// which scroll the screen when needed.
+    fn diff_live(&mut self, buf: &mut String, encoded: Vec<Row>) {
+        let old = std::mem::take(&mut self.live);
+        // Rows on screen from the live area's top: the old live area, or
+        // the cursor line a new one starts on.
+        let mut on_screen = old.len().max(1);
+        let mut start = 0;
+        while start < encoded.len() {
+            let end = start
+                + 1
+                + encoded[start + 1..]
+                    .iter()
+                    .take_while(|row| row.joins_above)
+                    .count();
+            if end > old.len() || encoded[start..end] != old[start..end] {
+                self.write_block(buf, &encoded[start..end], start, &mut on_screen);
             }
+            start = end;
         }
-        if encoded.len() > self.live.len() {
-            if self.live.is_empty() {
-                self.move_to(buf, 0);
-                buf.push('\r');
-            } else {
-                let last = self.live.len() - 1;
-                self.move_to(buf, last);
-                buf.push_str("\r\n");
-                self.cursor_row = self.live.len();
-            }
-            for (i, row) in encoded.iter().enumerate().skip(self.live.len()) {
-                if i > self.live.len() {
-                    buf.push_str("\r\n");
-                }
-                buf.push_str(ERASE_LINE);
-                buf.push_str(row);
-                self.cursor_row = i;
-            }
-        } else if encoded.len() < self.live.len() {
+        if encoded.len() < old.len() {
             if encoded.is_empty() {
                 self.move_to(buf, 0);
                 buf.push_str("\x1b[J");
@@ -286,16 +295,51 @@ impl InlineTerminal {
         self.live = encoded;
     }
 
+    /// Write one block at live row `start`. A soft-wrapped block erases
+    /// all its rows first (an erase between pieces would cancel the
+    /// pending wrap), then writes its pieces back to back under autowrap.
+    fn write_block(
+        &mut self,
+        buf: &mut String,
+        block: &[Row],
+        start: usize,
+        on_screen: &mut usize,
+    ) {
+        for row in start..start + block.len() {
+            self.reach(buf, row, on_screen);
+            buf.push_str(ERASE_LINE);
+        }
+        if let [row] = block {
+            buf.push_str(&row.text);
+            return;
+        }
+        self.move_to(buf, start);
+        buf.push_str(AUTOWRAP_ON);
+        for row in block {
+            buf.push_str(&row.text);
+        }
+        buf.push_str(AUTOWRAP_OFF);
+        self.cursor_row = start + block.len() - 1;
+    }
+
+    /// Move to column 0 of live row `row`: a row on screen, or the new
+    /// row right below the last one (a line feed, scrolling at the
+    /// bottom).
+    fn reach(&mut self, buf: &mut String, row: usize, on_screen: &mut usize) {
+        if row < *on_screen {
+            self.move_to(buf, row);
+        } else {
+            self.move_to(buf, *on_screen - 1);
+            buf.push('\n');
+            self.cursor_row = row;
+            *on_screen = row + 1;
+        }
+    }
+
     /// Write `encoded` as the live area starting at the cursor line, then
     /// erase below. The cursor is at column 0 of a fresh line.
-    fn write_rows_from_here(&mut self, buf: &mut String, encoded: Vec<String>) {
-        for (i, row) in encoded.iter().enumerate() {
-            if i > 0 {
-                buf.push_str("\r\n");
-            }
-            buf.push_str(ERASE_LINE);
-            buf.push_str(row);
-        }
+    fn write_rows_from_here(&mut self, buf: &mut String, encoded: Vec<Row>) {
+        push_fresh_rows(buf, &encoded);
         buf.push_str("\x1b[J");
         self.cursor_row = encoded.len().saturating_sub(1);
         self.live = encoded;
@@ -330,13 +374,59 @@ impl InlineTerminal {
     }
 }
 
+/// Encode rows and their soft-wrap joins: a continuation row joins the
+/// row above only inside a block, so a block whose head was clipped
+/// away starts at its first shown row.
+fn encode_rows(rows: &[Line]) -> Vec<Row> {
+    let mut in_block = false;
+    rows.iter()
+        .map(|row| {
+            let wrap = crate::soft_wrap::row_wrap(row);
+            let joins_above = match wrap {
+                crate::soft_wrap::RowWrap::Continuation => in_block,
+                crate::soft_wrap::RowWrap::Single | crate::soft_wrap::RowWrap::Head => false,
+            };
+            in_block = match wrap {
+                crate::soft_wrap::RowWrap::Single => false,
+                crate::soft_wrap::RowWrap::Head | crate::soft_wrap::RowWrap::Continuation => true,
+            };
+            Row {
+                text: encode_row(crate::soft_wrap::content(row)),
+                joins_above,
+            }
+        })
+        .collect()
+}
+
+/// Write `rows` from the cursor line down onto blank lines (below an
+/// erase, or scrolled in): each plain row on a new line, each block's
+/// pieces back to back under autowrap.
+fn push_fresh_rows(buf: &mut String, rows: &[Row]) {
+    for (i, row) in rows.iter().enumerate() {
+        let next_joins = rows.get(i + 1).is_some_and(|next| next.joins_above);
+        if !row.joins_above {
+            if i > 0 {
+                buf.push_str("\r\n");
+            }
+            buf.push_str(ERASE_LINE);
+            if next_joins {
+                buf.push_str(AUTOWRAP_ON);
+            }
+        }
+        buf.push_str(&row.text);
+        if row.joins_above && !next_joins {
+            buf.push_str(AUTOWRAP_OFF);
+        }
+    }
+}
+
 /// Encode one row: SGR styling, image rows raw, and every hyperlink or
 /// style closed at the row end so nothing leaks into the next row or
 /// into scrollback. A hyperlink still open at the row end is closed and
 /// reopened on the next row by the composer's rows themselves. Text goes
 /// through TS `applyLineResets` (tabs to three spaces, Thai/Lao AM
 /// decomposed) so the terminal's cells match the measured widths.
-fn encode_row(row: &Line) -> String {
+fn encode_row(row: &[crate::Span]) -> String {
     let raw: String = row.iter().map(|span| span.content.as_str()).collect();
     if crate::terminal_image::is_image_line(&raw) {
         return raw;
@@ -351,7 +441,7 @@ fn encode_row(row: &Line) -> String {
                         span.style,
                     )
                 })
-                .collect(),
+                .collect::<Vec<_>>(),
         ),
     };
     if link_left_open(&raw) {
@@ -369,18 +459,19 @@ fn link_left_open(text: &str) -> bool {
     })
 }
 
+/// The crash park reads a process-global; tests that paint hold this so
+/// a parallel test never moves it under the park test.
+#[cfg(test)]
+pub(crate) fn live_area_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Span;
-
-    /// The crash park reads a process-global; tests that paint hold
-    /// this so a parallel test never moves it under the park test.
-    fn live_area_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
 
     fn rows(texts: &[&str]) -> Vec<Line> {
         texts
@@ -404,24 +495,50 @@ mod tests {
     }
 
     /// A minimal terminal: applies the escape subset the writer emits to
-    /// a grid that scrolls into a scrollback list. Returns scrollback +
-    /// screen as plain rows.
+    /// a `width` x `height` grid that scrolls into a scrollback list.
+    /// Autowrap is modeled the xterm way: a character written into the
+    /// last column leaves a pending wrap, the next printable character
+    /// wraps and marks the row as soft-wrapped, and any control clears
+    /// the pending wrap.
     struct Screen {
+        width: usize,
         height: usize,
-        scrollback: Vec<String>,
-        grid: Vec<String>,
+        scrollback: Vec<ScreenRow>,
+        grid: Vec<ScreenRow>,
         row: usize,
         col: usize,
+        autowrap: bool,
+        pending_wrap: bool,
+    }
+
+    #[derive(Clone, Default)]
+    struct ScreenRow {
+        cells: Vec<char>,
+        /// The row's text continues on the next row (a soft wrap).
+        wrapped: bool,
+    }
+
+    impl ScreenRow {
+        fn text(&self) -> String {
+            self.cells.iter().collect()
+        }
     }
 
     impl Screen {
         fn new(height: usize) -> Self {
+            Screen::sized(40, height)
+        }
+
+        fn sized(width: usize, height: usize) -> Self {
             Screen {
+                width,
                 height,
                 scrollback: Vec::new(),
-                grid: vec![String::new(); height],
+                grid: vec![ScreenRow::default(); height],
                 row: 0,
                 col: 0,
+                autowrap: true,
+                pending_wrap: false,
             }
         }
 
@@ -429,25 +546,33 @@ mod tests {
             if self.row + 1 == self.height {
                 let top = self.grid.remove(0);
                 self.scrollback.push(top);
-                self.grid.push(String::new());
+                self.grid.push(ScreenRow::default());
             } else {
                 self.row += 1;
             }
         }
 
         fn put(&mut self, ch: char) {
-            let line = &mut self.grid[self.row];
-            let mut chars: Vec<char> = line.chars().collect();
-            while chars.len() < self.col {
-                chars.push(' ');
+            if self.pending_wrap {
+                self.pending_wrap = false;
+                self.grid[self.row].wrapped = true;
+                self.line_feed();
+                self.col = 0;
             }
-            if self.col < chars.len() {
-                chars[self.col] = ch;
+            let cells = &mut self.grid[self.row].cells;
+            while cells.len() < self.col {
+                cells.push(' ');
+            }
+            if self.col < cells.len() {
+                cells[self.col] = ch;
             } else {
-                chars.push(ch);
+                cells.push(ch);
             }
-            *line = chars.into_iter().collect();
-            self.col += 1;
+            if self.col + 1 < self.width {
+                self.col += 1;
+            } else if self.autowrap {
+                self.pending_wrap = true;
+            }
         }
 
         fn feed(&mut self, bytes: &str) {
@@ -455,8 +580,14 @@ mod tests {
             let mut i = 0;
             while i < chars.len() {
                 match chars[i] {
-                    '\r' => self.col = 0,
-                    '\n' => self.line_feed(),
+                    '\r' => {
+                        self.pending_wrap = false;
+                        self.col = 0;
+                    }
+                    '\n' => {
+                        self.pending_wrap = false;
+                        self.line_feed();
+                    }
                     '\x1b' => {
                         i += 1;
                         match chars[i] {
@@ -468,26 +599,33 @@ mod tests {
                                 }
                                 let params: String = chars[start..end].iter().collect();
                                 let n: usize = params.trim_start_matches('?').parse().unwrap_or(1);
+                                if chars[end] != 'm' {
+                                    self.pending_wrap = false;
+                                }
                                 match chars[end] {
                                     'A' => self.row -= n,
-                                    'B' => self.row += n,
-                                    'C' => self.col += n,
-                                    'K' if params == "2" => self.grid[self.row].clear(),
+                                    'B' => self.row = (self.row + n).min(self.height - 1),
+                                    'C' => self.col = (self.col + n).min(self.width - 1),
+                                    'h' if params == "?7" => self.autowrap = true,
+                                    'l' if params == "?7" => self.autowrap = false,
+                                    'K' if params == "2" => {
+                                        self.grid[self.row] = ScreenRow::default();
+                                    }
                                     'K' => {
-                                        let line = &mut self.grid[self.row];
-                                        let keep: String = line.chars().take(self.col).collect();
-                                        *line = keep;
+                                        let row = &mut self.grid[self.row];
+                                        row.cells.truncate(self.col);
+                                        row.wrapped = false;
                                     }
                                     'J' if params == "2" => {
-                                        self.grid = vec![String::new(); self.height];
+                                        self.grid = vec![ScreenRow::default(); self.height];
                                     }
                                     'J' if params == "3" => self.scrollback.clear(),
                                     'J' => {
-                                        let line = &mut self.grid[self.row];
-                                        let keep: String = line.chars().take(self.col).collect();
-                                        *line = keep;
-                                        for line in &mut self.grid[self.row + 1..] {
-                                            line.clear();
+                                        let row = &mut self.grid[self.row];
+                                        row.cells.truncate(self.col);
+                                        row.wrapped = false;
+                                        for row in &mut self.grid[self.row + 1..] {
+                                            *row = ScreenRow::default();
                                         }
                                     }
                                     'H' => {
@@ -499,10 +637,14 @@ mod tests {
                                 i = end;
                             }
                             ']' => {
-                                while !(chars[i] == '\x1b' && chars[i + 1] == '\\') {
+                                while !(chars[i] == '\x07'
+                                    || (chars[i] == '\x1b' && chars[i + 1] == '\\'))
+                                {
                                     i += 1;
                                 }
-                                i += 1;
+                                if chars[i] == '\x1b' {
+                                    i += 1;
+                                }
                             }
                             _ => {}
                         }
@@ -513,9 +655,30 @@ mod tests {
             }
         }
 
+        fn rows(&self) -> impl Iterator<Item = &ScreenRow> {
+            self.scrollback.iter().chain(&self.grid)
+        }
+
         fn all(&self) -> Vec<String> {
-            let mut out = self.scrollback.clone();
-            out.extend(self.grid.iter().cloned());
+            let mut out: Vec<String> = self.rows().map(ScreenRow::text).collect();
+            while out.last().is_some_and(String::is_empty) {
+                out.pop();
+            }
+            out
+        }
+
+        /// The logical lines: every soft-wrapped row joined with the row
+        /// below it, the way a terminal's selection reads them.
+        fn logical(&self) -> Vec<String> {
+            let mut out: Vec<String> = Vec::new();
+            let mut joining = false;
+            for row in self.rows() {
+                match (joining, out.last_mut()) {
+                    (true, Some(last)) => last.push_str(&row.text()),
+                    (true | false, _) => out.push(row.text()),
+                }
+                joining = row.wrapped;
+            }
             while out.last().is_some_and(String::is_empty) {
                 out.pop();
             }
@@ -524,19 +687,150 @@ mod tests {
     }
 
     fn paint(term: &mut InlineTerminal, screen: &mut Screen, history: &[&str], live: &[&str]) {
-        let history = rows(history);
-        let live = rows(live);
+        paint_lines(term, screen, &rows(history), &rows(live));
+    }
+
+    fn paint_lines(
+        term: &mut InlineTerminal,
+        screen: &mut Screen,
+        history: &[Line],
+        live: &[Line],
+    ) {
         let mut out = Vec::new();
         term.paint(
             &mut out,
             InlineFrame {
-                history: &history,
-                live: &live,
+                history,
+                live,
                 cursor: None,
             },
         )
         .unwrap();
         screen.feed(&String::from_utf8(out).unwrap());
+    }
+
+    /// `text` as a soft-wrapped block at `width`, then `after` as plain
+    /// rows.
+    fn block_then(text: &str, width: usize, after: &[&str]) -> Vec<Line> {
+        let mut lines = crate::soft_wrap::rows(
+            " ",
+            text,
+            crate::style::Style::default(),
+            width,
+            crate::soft_wrap::Link::Plain,
+        );
+        lines.extend(rows(after));
+        lines
+    }
+
+    const LINK: &str = "https://x.example/authorize?code=true&client_id=abc&state=xyz";
+
+    #[test]
+    fn a_soft_wrapped_block_reads_as_one_logical_line() {
+        let _global = live_area_lock();
+        let mut term = InlineTerminal::new(8);
+        let mut screen = Screen::sized(20, 8);
+        let live = block_then(LINK, 20, &["", "> |"]);
+        paint_lines(&mut term, &mut screen, &[], &live);
+        assert_eq!(
+            screen.all(),
+            [
+                " https://x.example/a",
+                "uthorize?code=true&c",
+                "lient_id=abc&state=x",
+                "yz",
+                "",
+                "> |"
+            ]
+        );
+        assert_eq!(
+            screen.logical(),
+            [format!(" {LINK}"), String::new(), "> |".to_string()]
+        );
+    }
+
+    /// A changed piece rewrites the whole block, and the rows around it
+    /// stay where the writer tracks them.
+    #[test]
+    fn a_changed_block_is_rewritten_whole_in_place() {
+        let _global = live_area_lock();
+        let mut term = InlineTerminal::new(8);
+        let mut screen = Screen::sized(20, 8);
+        paint_lines(&mut term, &mut screen, &[], &block_then(LINK, 20, &["> |"]));
+        let other = LINK.replace("xyz", "q");
+        paint_lines(
+            &mut term,
+            &mut screen,
+            &[],
+            &block_then(&other, 20, &["> a"]),
+        );
+        paint(&mut term, &mut screen, &[], &["top", "> b"]);
+        assert_eq!(screen.all(), ["top", "> b"]);
+        paint_lines(
+            &mut term,
+            &mut screen,
+            &[],
+            &block_then(&other, 20, &["> c"]),
+        );
+        assert_eq!(screen.logical(), [format!(" {other}"), "> c".to_string()]);
+    }
+
+    /// A block appended at the bottom of the screen scrolls it by its own
+    /// rows only: later frames still land on the right rows.
+    #[test]
+    fn a_block_appended_at_the_bottom_keeps_the_row_count_exact() {
+        let _global = live_area_lock();
+        let mut term = InlineTerminal::new(6);
+        let mut screen = Screen::sized(20, 6);
+        screen.feed("x\r\ny\r\nz\r\n");
+        paint(&mut term, &mut screen, &[], &["a", "b", "c"]);
+        let mut live = rows(&["a"]);
+        live.extend(block_then(LINK, 20, &["> |"]));
+        paint_lines(&mut term, &mut screen, &[], &live);
+        live.pop();
+        live.extend(rows(&["> typed"]));
+        paint_lines(&mut term, &mut screen, &[], &live);
+        assert_eq!(
+            screen.logical(),
+            [
+                "x".to_string(),
+                "y".to_string(),
+                "z".to_string(),
+                "a".to_string(),
+                format!(" {LINK}"),
+                "> typed".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_block_in_history_stays_one_logical_line_in_scrollback() {
+        let _global = live_area_lock();
+        let mut term = InlineTerminal::new(3);
+        let mut screen = Screen::sized(20, 3);
+        paint(&mut term, &mut screen, &[], &["live"]);
+        paint_lines(
+            &mut term,
+            &mut screen,
+            &block_then(LINK, 20, &["done"]),
+            &rows(&["live"]),
+        );
+        assert_eq!(
+            screen.logical(),
+            [format!(" {LINK}"), "done".to_string(), "live".to_string()]
+        );
+    }
+
+    /// A block whose head is clipped off the top of the screen starts at
+    /// its first shown row.
+    #[test]
+    fn a_clipped_block_starts_at_its_first_shown_row() {
+        let _global = live_area_lock();
+        let mut term = InlineTerminal::new(3);
+        let mut screen = Screen::sized(20, 3);
+        paint_lines(&mut term, &mut screen, &[], &block_then(LINK, 20, &["> |"]));
+        assert_eq!(screen.all(), ["lient_id=abc&state=x", "yz", "> |"]);
+        assert_eq!(screen.logical(), ["lient_id=abc&state=xyz", "> |"]);
     }
 
     #[test]

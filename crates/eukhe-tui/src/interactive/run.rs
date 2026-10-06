@@ -1020,7 +1020,9 @@ async fn run_interactive_surface(
                 // terminal (TS `returnToAgentsView` hands it over without a
                 // final repaint), so the chat's last layout is dead work
                 // that only delays the switch.
-                if renderer.is_terminal() {
+                // A burst still queued behind this input paints once at its
+                // end (the frame gate below the drain), not per key.
+                if renderer.is_terminal() && pending.is_empty() {
                     if !session.open_agents_view && session.pending_selection.is_none() {
                         // The inline paint must reflect tray state the
                         // handled key just armed (the Ctrl+C exit hint:
@@ -1422,6 +1424,14 @@ async fn run_interactive_surface(
             } => {
                 if let Some(input) = maybe_input {
                     pending.push_back(input);
+                    // A burst (typed text without bracketed paste, held
+                    // keys) joins this batch whole: the drain applies it
+                    // and paints once, instead of one frame per key.
+                    if renderer.is_terminal() {
+                        while let Ok(more) = ui_rx.try_recv() {
+                            pending.push_back(more);
+                        }
+                    }
                 }
             }
             maybe_note = notes_rx.recv() => {

@@ -310,6 +310,11 @@ impl McpLoginUi for PanelMcpLoginUi {
                 .await
         }))
     }
+
+    fn on_input_rejected(&self, reason: &str) {
+        // The warning row under the (re-)mounted paste field.
+        self.panel.notice(reason);
+    }
 }
 
 #[cfg(test)]
@@ -411,6 +416,9 @@ mod tests {
                     .map(|(_, value)| value.to_string())?;
                 Some(format!("{redirect}?code=the-code&state={state}"))
             }))
+        }
+        fn on_input_rejected(&self, reason: &str) {
+            panic!("the derived paste is always valid: {reason}");
         }
     }
 

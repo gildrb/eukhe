@@ -106,6 +106,7 @@ pub mod session_ui;
 pub mod settings_menu;
 pub mod side_question;
 pub mod snapshot;
+mod soft_wrap;
 pub mod status_line;
 pub mod style;
 pub mod subagents;

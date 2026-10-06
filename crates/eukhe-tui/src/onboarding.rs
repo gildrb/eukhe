@@ -238,6 +238,12 @@ impl OnboardingScreen {
                 };
                 panel.show_auth_url(url, instructions);
             }
+            AuthPanelRequest::Notice { message } => {
+                let Some(OnboardingPanel::Auth { panel, .. }) = self.panel.as_mut() else {
+                    return;
+                };
+                panel.show_notice(&message);
+            }
             AuthPanelRequest::PastePrompt {
                 prompt,
                 tone,
@@ -305,7 +311,10 @@ impl OnboardingScreen {
             // A started flow with no mounted panel keeps one blank row in
             // the gap (TS `if (!this.getActivePanel())`).
             None => lines.push(Vec::new()),
-            Some(panel) => lines.extend(panel.render(theme, width, kb)),
+            Some(panel) => {
+                let room = height.saturating_sub(lines.len());
+                lines.extend(panel.render(theme, width, room, kb));
+            }
         }
         while lines.len() < height {
             lines.push(Vec::new());

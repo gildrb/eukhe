@@ -143,17 +143,21 @@ async fn generate_prime_challenge(
     let response = http.post_json(&url, &body, None, timeout_ms).await?;
     if !(200..300).contains(&response.status) {
         return Err(format!(
-            "Failed to generate Prime login challenge: {}",
+            "Failed to generate Prime login challenge (HTTP {}): {}",
+            response.status,
             read_response_message(response.status, &response.body)
         ));
     }
+    let invalid = || {
+        format!(
+            "Prime login challenge returned an invalid response (HTTP {}): {}",
+            response.status,
+            eukhe_ai::oauth::response_snippet(&response.body)
+        )
+    };
     let data: Value = serde_json::from_str(&response.body)
-        .map_err(|_| "Prime login challenge returned an invalid response".to_string())
-        .and_then(|data: Value| {
-            data.is_object()
-                .then_some(data)
-                .ok_or_else(|| "Prime login challenge returned an invalid response".to_string())
-        })?;
+        .map_err(|_| invalid())
+        .and_then(|data: Value| data.is_object().then_some(data).ok_or_else(invalid))?;
     let string_field = |key: &str| {
         data.get(key)
             .and_then(Value::as_str)
@@ -196,17 +200,21 @@ async fn poll_prime_challenge_result(
         }
         if !(200..300).contains(&response.status) {
             return Err(format!(
-                "Failed to check Prime login status: {}",
+                "Failed to check Prime login status (HTTP {}): {}",
+                response.status,
                 read_response_message(response.status, &response.body)
             ));
         }
+        let invalid = || {
+            format!(
+                "Prime login status returned an invalid response (HTTP {}): {}",
+                response.status,
+                eukhe_ai::oauth::response_snippet(&response.body)
+            )
+        };
         let data: Value = serde_json::from_str(&response.body)
-            .map_err(|_| "Prime login status returned an invalid response".to_string())
-            .and_then(|data: Value| {
-                data.is_object()
-                    .then_some(data)
-                    .ok_or_else(|| "Prime login status returned an invalid response".to_string())
-            })?;
+            .map_err(|_| invalid())
+            .and_then(|data: Value| data.is_object().then_some(data).ok_or_else(invalid))?;
         if let Some(encrypted) = data
             .get("result")
             .and_then(Value::as_str)

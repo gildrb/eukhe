@@ -60,6 +60,11 @@ impl CodexLoginUi for PanelCodexLoginUi {
         }))
     }
 
+    fn on_input_rejected(&self, reason: &str) {
+        // The warning row under the re-mounted paste field.
+        self.panel.notice(reason);
+    }
+
     fn on_prompt(&self, message: &str) -> Pin<Box<dyn Future<Output = Option<String>> + Send>> {
         let panel = self.panel.clone();
         let message = message.to_string();
@@ -151,14 +156,19 @@ mod tests {
         }
     }
 
-    /// A scripted surface: a fixed paste answer and a shared cancel flag.
+    /// A scripted surface: one paste answer (a re-prompt cancels), the
+    /// rejections, and a shared cancel flag.
     struct ScriptedUi {
+        answered: AtomicBool,
+        rejections: std::sync::Mutex<Vec<String>>,
         cancelled: Arc<AtomicBool>,
     }
 
     impl ScriptedUi {
         fn new() -> Self {
             ScriptedUi {
+                answered: AtomicBool::new(false),
+                rejections: std::sync::Mutex::new(Vec::new()),
                 cancelled: Arc::new(AtomicBool::new(false)),
             }
         }
@@ -176,9 +186,14 @@ mod tests {
         ) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send>>> {
             // A paste with no state echoes (TS's falsy state skips the
             // check): the code is used as-is.
-            Some(Box::pin(std::future::ready(Some(
-                "http://localhost:1455/auth/callback?code=abc".to_string(),
-            ))))
+            let first = !self.answered.swap(true, Ordering::SeqCst);
+            Some(Box::pin(std::future::ready(first.then(|| {
+                "http://localhost:1455/auth/callback?code=abc".to_string()
+            }))))
+        }
+
+        fn on_input_rejected(&self, reason: &str) {
+            self.rejections.lock().unwrap().push(reason.to_string());
         }
 
         fn on_prompt(
@@ -325,8 +340,10 @@ mod tests {
         );
     }
 
+    /// A failed exchange is a notice on the same panel (the transport's
+    /// real reason), and the cancelled re-prompt ends the login silently.
     #[tokio::test]
-    async fn a_failed_flow_reports_the_ts_error_row() {
+    async fn a_failed_exchange_notices_and_re_prompts() {
         let dir = tempfile::tempdir().expect("temp dir");
         let agent = dir.path().join("agent");
         std::fs::create_dir_all(&agent).expect("agent dir");
@@ -341,13 +358,17 @@ mod tests {
                 &ui
             )
             .await,
-            ProviderAuthOutcome::Error(
-                "Failed to login to ChatGPT Plus/Pro (Codex Subscription): \
-                 OpenAI Codex token exchange error: https://auth.openai.com/oauth/token was not \
-                 scripted"
-                    .to_string()
-            )
+            ProviderAuthOutcome::Cancelled
         );
+        let rejections = ui.rejections.lock().unwrap().clone();
+        assert!(
+            rejections.contains(&eukhe_ai::oauth::exchange_retry_notice(
+                "OpenAI Codex token exchange error: https://auth.openai.com/oauth/token was not \
+                 scripted"
+            )),
+            "{rejections:?}"
+        );
+        assert!(!agent.join("auth.json").exists());
     }
 
     /// The credential round-trip: the flow's stored credential reloads,

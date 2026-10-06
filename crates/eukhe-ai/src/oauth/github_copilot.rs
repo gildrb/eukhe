@@ -18,7 +18,10 @@ use std::time::Duration;
 
 use url::Url;
 
-use super::provider_http::{ProviderHttp, ProviderHttpMethod, ProviderHttpRequest};
+use super::provider_http::{
+    ProviderHttp, ProviderHttpMethod, ProviderHttpRequest, ProviderHttpResponse,
+};
+use super::response_snippet::response_snippet;
 use super::types::{OAuthLoginUi, OAuthPrompt};
 
 /// The OAuth app the TS flow ships (TS stores the id base64-encoded;
@@ -227,17 +230,18 @@ pub async fn refresh_github_copilot_token(
             },
             REFRESH_TIMEOUT_MS,
         )
-        .await?;
+        .await
+        .map_err(|error| format!("Copilot token request failed: {error}"))?;
     if !response.ok() {
-        return Err(format!(
-            "{} {}: {}",
-            response.status,
-            status_text(response.status),
-            response.body
-        ));
+        return Err(http_failure(&response));
     }
-    let json: serde_json::Value = serde_json::from_str(&response.body)
-        .map_err(|_| "Invalid Copilot token response".to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&response.body).map_err(|_| {
+        format!(
+            "Invalid Copilot token response (HTTP {}): {}",
+            response.status,
+            response_snippet(&response.body)
+        )
+    })?;
     let token = json
         .get("token")
         .and_then(serde_json::Value::as_str)
@@ -333,18 +337,18 @@ async fn start_device_flow(http: &dyn ProviderHttp, domain: &str) -> Result<Devi
             },
             DEFAULT_TOKEN_TIMEOUT_MS,
         )
-        .await?;
+        .await
+        .map_err(|error| format!("GitHub device code request failed: {error}"))?;
     if !response.ok() {
-        // TS `fetchJson` throws the `status statusText: text` form.
-        return Err(format!(
-            "{} {}: {}",
-            response.status,
-            status_text(response.status),
-            response.body
-        ));
+        return Err(http_failure(&response));
     }
-    let json: serde_json::Value = serde_json::from_str(&response.body)
-        .map_err(|_| "Invalid device code response".to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&response.body).map_err(|_| {
+        format!(
+            "Invalid device code response (HTTP {}): {}",
+            response.status,
+            response_snippet(&response.body)
+        )
+    })?;
     let field = |name: &str| {
         json.get(name)
             .cloned()
@@ -447,18 +451,28 @@ async fn poll_for_github_access_token(
                 },
                 DEFAULT_TOKEN_TIMEOUT_MS,
             )
-            .await?;
-        if !response.ok() {
-            // TS `fetchJson` throws the `status statusText: text` form.
-            return Err(format!(
-                "{} {}: {}",
-                response.status,
-                status_text(response.status),
-                response.body
-            ));
+            .await
+            .map_err(|error| format!("GitHub device token request failed: {error}"))?;
+        // RFC 8628 answers the poll states as HTTP 400 with an OAuth
+        // `error` (GitHub answers 200): either status reaches the state
+        // match; a failed status without one is the HTTP failure.
+        let json = serde_json::from_str::<serde_json::Value>(&response.body).ok();
+        let error = json
+            .as_ref()
+            .and_then(|json| json.get("error"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if !response.ok() && error.is_empty() {
+            return Err(http_failure(&response));
         }
-        let json: serde_json::Value = serde_json::from_str(&response.body)
-            .map_err(|_| "Invalid device code response".to_string())?;
+        let Some(json) = json else {
+            return Err(format!(
+                "Invalid device token response (HTTP {}): {}",
+                response.status,
+                response_snippet(&response.body)
+            ));
+        };
         if let Some(access_token) = json
             .get("access_token")
             .and_then(serde_json::Value::as_str)
@@ -466,11 +480,12 @@ async fn poll_for_github_access_token(
         {
             return Ok(access_token.to_string());
         }
-        let error = json
-            .get("error")
+        let description = json
+            .get("error_description")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+            .map(str::trim)
+            .filter(|description| !description.is_empty());
+        let suffix = description.map_or_else(String::new, |description| format!(": {description}"));
         match error.as_str() {
             "authorization_pending" => {}
             "slow_down" => {
@@ -487,15 +502,17 @@ async fn poll_for_github_access_token(
                 interval_ms = advertised_ms;
                 interval_multiplier = SLOW_DOWN_POLL_INTERVAL_MULTIPLIER;
             }
+            "access_denied" => {
+                return Err(format!("GitHub device authorization was denied{suffix}"));
+            }
+            "expired_token" => {
+                return Err(format!("GitHub device code expired; sign in again{suffix}"));
+            }
             other => {
-                let description = json
-                    .get("error_description")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
-                let suffix = if description.is_empty() {
-                    String::new()
+                let other = if other.is_empty() {
+                    format!("no access_token in {}", response_snippet(&response.body))
                 } else {
-                    format!(": {description}")
+                    other.to_string()
                 };
                 return Err(format!("Device flow failed: {other}{suffix}"));
             }
@@ -520,6 +537,23 @@ async fn cancel_aware_sleep(ui: &dyn OAuthLoginUi, total: Duration) -> Result<()
             return Ok(());
         }
         tokio::time::sleep(remaining.min(CANCEL_POLL_INTERVAL)).await;
+    }
+}
+
+/// The `status statusText: body` failure (TS `fetchJson`'s throw), the
+/// body bounded to one line.
+fn http_failure(response: &ProviderHttpResponse) -> String {
+    match status_text(response.status) {
+        "" => format!(
+            "HTTP {}: {}",
+            response.status,
+            response_snippet(&response.body)
+        ),
+        reason => format!(
+            "{} {reason}: {}",
+            response.status,
+            response_snippet(&response.body)
+        ),
     }
 }
 
@@ -716,6 +750,10 @@ mod tests {
             &self,
         ) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send + '_>>> {
             None
+        }
+
+        fn on_input_rejected(&self, reason: &str) {
+            panic!("the device flow has no paste surface to re-prompt: {reason}");
         }
 
         fn is_cancelled(&self) -> bool {
@@ -945,7 +983,56 @@ mod tests {
             );
         let ui = ScriptedUi::new(ScriptedAnswer::value(""));
         let error = login_github_copilot(&http, &ui).await.unwrap_err();
-        assert_eq!(error, "Device flow failed: access_denied: user denied");
+        assert_eq!(error, "GitHub device authorization was denied: user denied");
+    }
+
+    /// The RFC 8628 shape: the poll states arrive as HTTP 400 with an
+    /// OAuth `error`. A pending 400 keeps polling (it used to fail the
+    /// login as a bare `400 Bad Request`) and an expired code says so.
+    #[tokio::test]
+    async fn rfc_8628_error_statuses_reach_the_poll_states() {
+        let http = ScriptedHttp::new()
+            .queue(
+                "https://github.com/login/device/code",
+                vec![ScriptedHttp::entry(
+                    200,
+                    r#"{"device_code":"dev-1","user_code":"CODE-1","verification_uri":"https://github.com/login/device","interval":0,"expires_in":900}"#,
+                )],
+            )
+            .queue(
+                "https://github.com/login/oauth/access_token",
+                vec![
+                    ScriptedHttp::entry(400, r#"{"error":"authorization_pending"}"#),
+                    ScriptedHttp::entry(400, r#"{"error":"expired_token"}"#),
+                ],
+            );
+        let ui = ScriptedUi::new(ScriptedAnswer::value(""));
+        let error = login_github_copilot(&http, &ui).await.unwrap_err();
+        assert_eq!(error, "GitHub device code expired; sign in again");
+        assert_eq!(
+            http.bodies_for("https://github.com/login/oauth/access_token")
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_poll_quotes_the_bounded_body() {
+        let http = ScriptedHttp::new()
+            .queue(
+                "https://github.com/login/device/code",
+                vec![ScriptedHttp::entry(
+                    200,
+                    r#"{"device_code":"dev-1","user_code":"CODE-1","verification_uri":"https://github.com/login/device","interval":0,"expires_in":900}"#,
+                )],
+            )
+            .queue(
+                "https://github.com/login/oauth/access_token",
+                vec![ScriptedHttp::entry(502, "<html>\n  upstream down\n</html>")],
+            );
+        let ui = ScriptedUi::new(ScriptedAnswer::value(""));
+        let error = login_github_copilot(&http, &ui).await.unwrap_err();
+        assert_eq!(error, "502 Bad Gateway: <html> upstream down </html>");
     }
 
     #[tokio::test]

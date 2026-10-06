@@ -35,10 +35,17 @@ pub trait OAuthLoginUi: Send + Sync {
     fn on_progress(&self, message: &str);
     /// TS `onManualCodeInput`: the paste racing the browser callback;
     /// `None` when the surface offers none. Resolving `None` cancels
-    /// the login.
+    /// the login. The flow asks again after a rejected paste or a failed
+    /// exchange, so each call mounts a fresh paste field.
     fn on_manual_code_input(
         &self,
     ) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send + '_>>>;
+    /// A paste or an exchange failed but the login goes on: show `reason`
+    /// where the next paste field appears (the flow calls
+    /// [`OAuthLoginUi::on_manual_code_input`] right after). Only flows
+    /// with a paste surface call it; the panel shows a warning row that
+    /// clears on the next submit.
+    fn on_input_rejected(&self, reason: &str);
     /// The driving surface's cooperative cancel state (#2770): the
     /// pane that mounted the login marks it on exit and the flow
     /// checks it between its poll steps and before its network steps.

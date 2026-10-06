@@ -178,13 +178,14 @@ async fn run_traces_login_inner(
 }
 
 /// TS `armManualInput`'s loop: the prompt repeats until a non-empty line
-/// arrives; a closed input cancels.
+/// arrives; a closed input cancels. The key is cleaned like every paste
+/// (surrounding quotes, whitespace, and line breaks of a copy dropped).
 async fn prompt_non_empty(ui: &dyn TracesLoginUi, prompt: &str) -> Option<String> {
     loop {
         let line = ui.prompt_line(prompt).await?;
-        let trimmed = line.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
+        let key = eukhe_ai::oauth::clean_paste(&line);
+        if !key.is_empty() {
+            return Some(key);
         }
     }
 }
@@ -739,7 +740,7 @@ mod tests {
         let outcome = run_traces_login_inner(&inputs, ui.as_ref()).await;
         assert!(matches!(outcome, TraceLoginOutcome::Status(_)));
         let (progress, _auth, prompts) = ui.logs();
-        assert!(progress.contains(&"Browser sign-in unavailable (Failed to generate Prime login challenge: Service Unavailable).".to_string()));
+        assert!(progress.contains(&"Browser sign-in unavailable (Failed to generate Prime login challenge (HTTP 503): Service Unavailable).".to_string()));
         assert_eq!(prompts, vec![FALLBACK_PROMPT.to_string()]);
         // The pasted key was stored.
         let mut storage = AuthStorage::create(&agent);

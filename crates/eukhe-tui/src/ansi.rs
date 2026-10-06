@@ -93,7 +93,7 @@ fn bg_code(color: Color) -> String {
 /// resets the previous span's attributes first, so a plain span after a
 /// bold one is not painted bold.
 #[must_use]
-pub fn line_to_ansi(line: &Line) -> String {
+pub fn line_to_ansi(line: &[Span]) -> String {
     let mut out = String::new();
     let mut open = false;
     let mut current = crate::style::Style::default();

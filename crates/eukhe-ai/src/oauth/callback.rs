@@ -2,11 +2,10 @@
 //! `openai-codex.ts`'s `startLocalOAuthServer` + `oauth-page.ts`): one
 //! listener on the app registration's redirect port serving the
 //! callback route with the product's success/error pages. Only a
-//! matching redirect settles the login — a state mismatch, a missing
+//! matching redirect settles the login -- a state mismatch, a missing
 //! code, or an unknown route answers its error page and keeps waiting
-//! (TS calls `settleWait` on success only). A bind failure is not an
-//! error: TS resolves a server whose wait settles empty, so the login
-//! continues on the manual paste.
+//! (TS calls `settleWait` on success only). A bind failure is the
+//! caller's to handle: the login continues on the manual paste.
 
 use std::sync::Arc;
 
@@ -18,7 +17,7 @@ pub(crate) const CALLBACK_HOST_ENV: &str = "EUKHE_OAUTH_CALLBACK_HOST";
 
 /// The app registration's redirect: `http://localhost:1455/auth/callback`
 /// (TS `REDIRECT_URI`; the port is the registration's, not a scan range).
-const CALLBACK_PORT: u16 = 1455;
+pub(crate) const CALLBACK_PORT: u16 = 1455;
 const CALLBACK_PATH: &str = "/auth/callback";
 
 /// The authorization code the browser redirect carries.
@@ -51,35 +50,37 @@ impl CallbackShared {
     }
 }
 
-/// A running callback server. A `None` slot is the never-bound server
-/// (TS's bind-error branch): its wait settles empty immediately.
+/// A running callback server.
 ///
-/// Dropping the server aborts its accept loop, releasing the listener's
-/// port — a settled or cancelled login never wedges the registered
-/// redirect port for the next one.
+/// The server owns the only strong handle on its listener (the accept
+/// loop upgrades a weak one per poll), so dropping the server closes
+/// the socket synchronously: a settled or cancelled login never wedges
+/// the registered redirect port for the next one.
 pub struct CodexCallbackServer {
-    shared: Option<Arc<CallbackShared>>,
-    port: Option<u16>,
-    task: Option<tokio::task::JoinHandle<()>>,
+    shared: Arc<CallbackShared>,
+    port: u16,
+    /// Held, never read: the one strong handle (see above).
+    _listener: Arc<TcpListener>,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl Drop for CodexCallbackServer {
     fn drop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
-        }
+        self.task.abort();
     }
 }
 
 impl CodexCallbackServer {
     /// Bind the registered redirect port on the callback host (TS
-    /// `server.listen(1455, CALLBACK_HOST)`); a bind failure leaves the
-    /// dead server (TS's error branch resolves the same shape).
-    pub async fn start(state: &str) -> Self {
+    /// `server.listen(1455, CALLBACK_HOST)`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the listener cannot be bound (the login
+    /// continues on the manual paste).
+    pub async fn start(state: &str) -> Result<Self, String> {
         let host = std::env::var(CALLBACK_HOST_ENV).unwrap_or_else(|_| "127.0.0.1".to_string());
-        Self::bind(&host, CALLBACK_PORT, state)
-            .await
-            .unwrap_or_else(|_| CodexCallbackServer::dead())
+        Self::bind(&host, CALLBACK_PORT, state).await
     }
 
     /// Bind one exact host and port; the caller owns the failure (tests
@@ -93,12 +94,21 @@ impl CodexCallbackServer {
             .await
             .map_err(|error| format!("port {port}: {error}"))?;
         let bound_port = listener.local_addr().map_or(port, |addr| addr.port());
+        let listener = Arc::new(listener);
+        let weak_listener = Arc::downgrade(&listener);
         let shared = Arc::new(CallbackShared::default());
         let task_shared = Arc::clone(&shared);
         let state = state.to_string();
         let task = tokio::spawn(async move {
             loop {
-                let Ok((stream, _)) = listener.accept().await else {
+                // The strong handle lives only inside one poll: a dropped
+                // server closes the listener even while this loop waits.
+                let accepted = std::future::poll_fn(|context| match weak_listener.upgrade() {
+                    Some(listener) => listener.poll_accept(context).map(Some),
+                    None => std::task::Poll::Ready(None),
+                })
+                .await;
+                let Some(Ok((stream, _))) = accepted else {
                     break;
                 };
                 let shared = Arc::clone(&task_shared);
@@ -109,46 +119,34 @@ impl CodexCallbackServer {
             }
         });
         Ok(CodexCallbackServer {
-            shared: Some(shared),
-            port: Some(bound_port),
-            task: Some(task),
+            shared,
+            port: bound_port,
+            _listener: listener,
+            task,
         })
     }
 
-    /// The never-bound server: its wait settles empty (the login's
-    /// manual paste is the remaining path).
+    /// The bound port.
     #[must_use]
-    pub fn dead() -> Self {
-        CodexCallbackServer {
-            shared: None,
-            port: None,
-            task: None,
-        }
-    }
-
-    /// The bound port (`None` on the dead server).
-    #[must_use]
-    pub fn port(&self) -> Option<u16> {
+    pub fn port(&self) -> u16 {
         self.port
     }
 
     /// Wait for the browser redirect to settle: the code, or `None`
-    /// when the wait was cancelled.
+    /// when the wait was cancelled. A taken code re-arms the slot for
+    /// the next redirect.
     pub async fn wait_for_code(&self) -> Option<CallbackCode> {
-        let shared = self.shared.as_ref()?;
         loop {
-            if let Some(result) = shared.result.lock().await.take() {
+            if let Some(result) = self.shared.result.lock().await.take() {
                 return result;
             }
-            shared.notify.notified().await;
+            self.shared.notify.notified().await;
         }
     }
 
     /// Cancel: settle the waiter with `None` (TS `cancelWait`).
     pub async fn cancel(&self) {
-        if let Some(shared) = &self.shared {
-            shared.settle(None).await;
-        }
+        self.shared.settle(None).await;
     }
 }
 
@@ -354,7 +352,7 @@ mod tests {
         let server = CodexCallbackServer::bind("127.0.0.1", 0, state)
             .await
             .expect("a free loopback port binds");
-        let port = server.port().expect("a bound server carries its port");
+        let port = server.port();
         (server, port)
     }
 
@@ -393,10 +391,7 @@ mod tests {
         let server = CodexCallbackServer::bind("127.0.0.1", 0, "the-state")
             .await
             .expect("a free loopback port binds");
-        let shared = server
-            .shared
-            .as_ref()
-            .expect("a bound server carries its shared slot");
+        let shared = &server.shared;
         // The wait's shape, with the race window staged exactly: the
         // slot check ran (empty), the `notified` future exists but has
         // not registered yet, and the settle lands in that window.
@@ -497,11 +492,15 @@ mod tests {
         assert_eq!(server.wait_for_code().await, None);
     }
 
+    /// The port-release regression: a dropped server frees its port
+    /// before the next statement (an aborted accept task holding the
+    /// listener kept it bound until the runtime polled it).
     #[tokio::test]
-    async fn the_dead_server_settles_empty_immediately() {
-        let server = CodexCallbackServer::dead();
-        assert_eq!(server.port(), None);
-        assert_eq!(server.wait_for_code().await, None);
+    async fn a_dropped_server_releases_its_port_at_once() {
+        let (server, port) = live("the-state").await;
+        drop(server);
+        std::net::TcpListener::bind(("127.0.0.1", port))
+            .expect("the dropped server's port binds again immediately");
     }
 
     #[tokio::test]

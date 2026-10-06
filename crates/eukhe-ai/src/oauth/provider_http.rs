@@ -114,7 +114,10 @@ impl ProviderHttp for ReqwestProviderHttp {
             }
             let response = request_builder.send().await.map_err(|error| {
                 if error.is_timeout() {
-                    "the request timed out".to_string()
+                    format!(
+                        "the request to {} timed out after {timeout_ms} ms",
+                        request.url
+                    )
                 } else {
                     super::transport_failure(&error)
                 }

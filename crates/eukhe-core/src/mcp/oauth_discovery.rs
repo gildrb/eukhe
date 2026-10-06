@@ -381,7 +381,11 @@ pub(crate) async fn register_client(
     };
     let response = http.request(request).await?;
     if !(200..300).contains(&response.status) {
-        bail!("POST {registration_endpoint} failed: {}", response.status);
+        bail!(
+            "POST {registration_endpoint} failed: {}: {}",
+            response.status,
+            eukhe_ai::oauth::response_snippet(&response.body)
+        );
     }
     let value: serde_json::Value = serde_json::from_str(&response.body)
         .with_context(|| format!("POST {registration_endpoint} returned invalid JSON"))?;
@@ -422,12 +426,17 @@ pub(crate) async fn exchange_token(
     let response = http.request(request).await?;
     if !(200..300).contains(&response.status) {
         bail!(
-            "Token request to {token_endpoint} failed: {}",
-            response.status
+            "Token request to {token_endpoint} failed: {}: {}",
+            response.status,
+            eukhe_ai::oauth::response_snippet(&response.body)
         );
     }
-    let token: serde_json::Value = serde_json::from_str(&response.body)
-        .map_err(|_| anyhow!("Token request to {token_endpoint} returned invalid JSON"))?;
+    let token: serde_json::Value = serde_json::from_str(&response.body).map_err(|_| {
+        anyhow!(
+            "Token request to {token_endpoint} returned invalid JSON: {}",
+            eukhe_ai::oauth::response_snippet(&response.body)
+        )
+    })?;
     let access_token = token.get("access_token").and_then(|v| v.as_str());
     let access_token = match access_token {
         Some(token) if !token.is_empty() => token.to_string(),
@@ -476,40 +485,6 @@ pub(crate) fn generate_pkce() -> (String, String) {
 /// A random, URL-safe CSRF `state`, independent of the PKCE verifier.
 pub(crate) fn random_state() -> String {
     base64url(&random_bytes(32))
-}
-
-/// The pasted authorization input: a full redirect URL, a query string, or
-/// a bare code. A `state` that disagrees with the login's own is an error.
-pub(crate) fn parse_redirect_input(input: &str, expected_state: &str) -> Result<(String, String)> {
-    let value = input.trim();
-    let (code, state) = if let Ok(url) = Url::parse(value) {
-        let get = |name: &str| {
-            url.query_pairs()
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.to_string())
-        };
-        (get("code"), get("state"))
-    } else if value.contains('=') {
-        let get = |name: &str| {
-            url::form_urlencoded::parse(value.as_bytes())
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.to_string())
-        };
-        (get("code"), get("state"))
-    } else {
-        (Some(value.to_string()), None)
-    };
-    if let Some(state) = &state {
-        if state != expected_state {
-            bail!("OAuth state mismatch");
-        }
-    }
-    match code {
-        Some(code) if !code.is_empty() => {
-            Ok((code, state.unwrap_or_else(|| expected_state.to_string())))
-        }
-        _ => bail!("Missing authorization code"),
-    }
 }
 
 #[cfg(test)]
@@ -674,32 +649,6 @@ mod tests {
         );
         assert_eq!(header_resource_metadata(None), None);
         assert_eq!(header_resource_metadata(Some("Basic realm=\"x\"")), None);
-    }
-
-    #[test]
-    fn redirect_input_parsing() {
-        assert_eq!(
-            parse_redirect_input(
-                "http://localhost:53700/callback?code=the-code&state=st",
-                "st"
-            )
-            .unwrap(),
-            ("the-code".to_string(), "st".to_string())
-        );
-        assert_eq!(
-            parse_redirect_input("code=a&state=st", "st").unwrap(),
-            ("a".to_string(), "st".to_string())
-        );
-        assert_eq!(
-            parse_redirect_input("the-bare-code", "st").unwrap(),
-            ("the-bare-code".to_string(), "st".to_string())
-        );
-        let error = parse_redirect_input("code=a&state=other", "st")
-            .unwrap_err()
-            .to_string();
-        assert_eq!(error, "OAuth state mismatch");
-        let error = parse_redirect_input("", "st").unwrap_err().to_string();
-        assert_eq!(error, "Missing authorization code");
     }
 
     #[test]

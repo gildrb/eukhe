@@ -310,6 +310,9 @@ mod tests {
                 Some(format!("{redirect}?code=the-code&state={state}"))
             }))
         }
+        fn on_input_rejected(&self, reason: &str) {
+            panic!("the derived paste is always valid: {reason}");
+        }
     }
 
     fn manager(

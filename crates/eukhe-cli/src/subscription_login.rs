@@ -117,6 +117,11 @@ impl OAuthLoginUi for PanelSubscriptionLoginUi {
         }))
     }
 
+    fn on_input_rejected(&self, reason: &str) {
+        // The warning row under the re-mounted paste field.
+        self.panel.notice(reason);
+    }
+
     fn is_cancelled(&self) -> bool {
         self.panel.cancelled()
     }
@@ -336,11 +341,14 @@ mod tests {
         Cancel,
     }
 
-    /// A scripted surface: the prompt answer, the manual paste, and a
-    /// shared cancel flag.
+    /// A scripted surface: the prompt answer, the manual paste (answered
+    /// once; a re-prompt cancels), the rejections, and a shared cancel
+    /// flag.
     struct ScriptedUi {
         prompt: Answer,
         manual: Option<String>,
+        manual_answered: AtomicBool,
+        rejections: std::sync::Mutex<Vec<String>>,
         cancelled: Arc<AtomicBool>,
     }
 
@@ -349,6 +357,8 @@ mod tests {
             ScriptedUi {
                 prompt: Answer::Value(String::new()),
                 manual: None,
+                manual_answered: AtomicBool::new(false),
+                rejections: std::sync::Mutex::new(Vec::new()),
                 cancelled: Arc::new(AtomicBool::new(false)),
             }
         }
@@ -387,9 +397,13 @@ mod tests {
         fn on_manual_code_input(
             &self,
         ) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send + '_>>> {
-            self.manual
-                .as_ref()
-                .map(|answer| Box::pin(std::future::ready(Some(answer.clone()))) as _)
+            let answer = self.manual.as_ref()?;
+            let first = !self.manual_answered.swap(true, Ordering::SeqCst);
+            Some(Box::pin(std::future::ready(first.then(|| answer.clone()))))
+        }
+
+        fn on_input_rejected(&self, reason: &str) {
+            self.rejections.lock().unwrap().push(reason.to_string());
         }
 
         fn is_cancelled(&self) -> bool {
@@ -571,6 +585,35 @@ mod tests {
         );
     }
 
+    /// A failed Anthropic exchange is a notice on the same panel, not an
+    /// error row: the login re-prompts, and the cancelled re-prompt ends
+    /// it silently without a credential.
+    #[tokio::test]
+    async fn a_failed_anthropic_exchange_notices_and_re_prompts() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let agent = agent_dir(&dir);
+        let http = ScriptedHttp::new().queue(
+            "https://platform.claude.com/v1/oauth/token",
+            vec![ScriptedHttp::entry(400, "{\"error\":\"invalid_grant\"}\n")],
+        );
+        let mut ui = ScriptedUi::new().cancelled_prompt();
+        ui.manual = Some("http://localhost:53692/callback?code=anthropic-code".to_string());
+        assert_eq!(
+            run_anthropic_login(&agent, "Anthropic (Claude Pro/Max)", &http, &ui).await,
+            ProviderAuthOutcome::Cancelled
+        );
+        let rejections = ui.rejections.lock().unwrap().clone();
+        let notice = rejections
+            .iter()
+            .find(|reason| reason.starts_with("Login did not complete: Token exchange"))
+            .expect("the failed exchange is a notice");
+        assert!(
+            notice.contains("status=400") && notice.contains(r#"body={"error":"invalid_grant"}"#),
+            "{notice}"
+        );
+        assert!(!agent.join("auth.json").exists());
+    }
+
     /// A cancelled pane never receives the credential (#2770: no write
     /// after the exit) -- the regression test for the abort-cleanup
     /// contract.
@@ -601,7 +644,7 @@ mod tests {
         assert_eq!(
             run_github_copilot_login(&agent, "GitHub Copilot", &http, &ui).await,
             ProviderAuthOutcome::Error(
-                "Failed to login to GitHub Copilot: \
+                "Failed to login to GitHub Copilot: GitHub device code request failed: \
                  https://github.com/login/device/code was not scripted"
                     .to_string()
             )
@@ -612,7 +655,9 @@ mod tests {
         assert_eq!(
             run_xai_login(&agent, "xAI (Grok)", &http, &ui).await,
             ProviderAuthOutcome::Error(
-                "Failed to login to xAI (Grok): xAI OAuth request failed. Check your connection and try again."
+                "Failed to login to xAI (Grok): xAI OAuth request failed: \
+                 https://auth.x.ai/oauth2/device/code was not scripted. Check your connection \
+                 and try again."
                     .to_string()
             )
         );

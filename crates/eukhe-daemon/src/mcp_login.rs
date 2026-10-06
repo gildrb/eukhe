@@ -74,6 +74,13 @@ impl McpLoginUi for WorkerMcpLoginUi {
     ) -> Option<std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>> {
         None
     }
+
+    // The worker offers no paste surface, so the flow never re-prompts and
+    // never calls this; a rejection there is the login's error instead.
+    // Logged like progress should a future flow report one anyway.
+    fn on_input_rejected(&self, reason: &str) {
+        eprintln!("eukhe-daemon: MCP login: {reason}");
+    }
 }
 
 /// Wire the worker login into a manager so its `mcp.begin_login` host
@@ -209,6 +216,10 @@ mod tests {
         ) -> Option<std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>>
         {
             None
+        }
+
+        fn on_input_rejected(&self, reason: &str) {
+            self.progress.lock().unwrap().push(reason.to_string());
         }
     }
 

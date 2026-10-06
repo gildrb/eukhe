@@ -151,6 +151,7 @@ impl AgentView {
         // re-budgets an open panel every frame, never a stale open-time
         // value): read before the panel borrow below.
         let info_viewport_rows = crate::session_ui::picker_viewport_rows(self.terminal_rows());
+        let dock_height = self.terminal_rows();
         let kb = self.editor.keybindings();
         let picker_dock: Option<Vec<Line>> = if let Some(picker) = self.model_picker.as_mut() {
             Some(picker.render(&self.theme, width, kb))
@@ -196,7 +197,7 @@ impl AgentView {
         } else if let Some(selector) = self.provider_auth.as_mut() {
             Some(selector.render(&self.theme, width, kb))
         } else if let Some(panel) = self.auth_panel.as_mut() {
-            Some(panel.render(&self.theme, width, kb))
+            Some(panel.render(&self.theme, width, usize::from(dock_height), kb))
         } else if let Some(message) = self.reload_box.as_ref() {
             Some(self.render_reload_box(message, width))
         } else if let Some(menu) = self.settings_menu.as_ref() {
