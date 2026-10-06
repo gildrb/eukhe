@@ -481,6 +481,9 @@ fn a_descriptorless_leftover_dies_and_its_session_resumes() {
 /// gets the SIGTERM -> SIGKILL escalation instead of an invisible
 /// lease-holder's life sentence.
 #[test]
+// One linear scenario (create, freeze, stop, resume); splitting it would
+// only scatter the steps the assertions depend on.
+#[allow(clippy::too_many_lines)]
 fn an_owned_stop_kills_a_worker_that_missed_the_shutdown() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
@@ -527,6 +530,27 @@ fn an_owned_stop_kills_a_worker_that_missed_the_shutdown() {
         .status()
         .expect("SIGSTOP the worker");
     assert!(stop.success(), "SIGSTOP the session worker");
+    // `kill` returns once SIGSTOP is queued, not once it took hold: the
+    // kernel stops a multi-threaded process when the thread it picked for
+    // the signal next runs, and until then the other threads keep serving
+    // the worker's socket (the routed shutdown could still be answered).
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !std::fs::read_dir(format!("/proc/{worker_process_id}/task"))
+        .expect("the worker's threads")
+        .flatten()
+        .all(|task| {
+            std::fs::read_to_string(task.path().join("stat")).is_ok_and(|stat| {
+                stat.rsplit_once(')')
+                    .is_some_and(|(_, rest)| rest.trim_start().starts_with('T'))
+            })
+        })
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the worker never stopped after SIGSTOP"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 
     // The owner stops its session: the stop must confirm the worker's
     // process death (escalating to SIGKILL) before retiring its

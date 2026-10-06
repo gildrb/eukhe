@@ -315,6 +315,27 @@ fn a_hung_worker_is_killed_within_the_escalation_window_and_its_lease_frees() {
         .status()
         .expect("SIGSTOP the worker");
     assert!(stopped.success(), "SIGSTOP must reach the worker");
+    // `kill` returns once SIGSTOP is queued, not once it took hold: the
+    // kernel stops a multi-threaded process when the thread it picked for
+    // the signal next runs, and until then the other threads keep serving
+    // the worker's socket (the routed kill below could still be answered).
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !std::fs::read_dir(format!("/proc/{worker_pid}/task"))
+        .expect("the worker's threads")
+        .flatten()
+        .all(|task| {
+            std::fs::read_to_string(task.path().join("stat")).is_ok_and(|stat| {
+                stat.rsplit_once(')')
+                    .is_some_and(|(_, rest)| rest.trim_start().starts_with('T'))
+            })
+        })
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the worker never stopped after SIGSTOP"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 
     // THE STOP: the wire kill of the hung worker. The route times out;
     // the stop completes anyway (TS's root-kill `finally`) and escalates.

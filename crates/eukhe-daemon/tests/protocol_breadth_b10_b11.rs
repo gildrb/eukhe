@@ -1034,6 +1034,11 @@ fn worker_pid(agent_dir: &std::path::Path) -> u32 {
     }
 }
 
+/// SIGSTOP `pid` and wait until the stop took hold. `kill` returns once
+/// the signal is queued: the kernel stops a multi-threaded process when
+/// the thread it picked for the signal next runs, and until then the
+/// other threads keep serving the worker's socket. Once `ps` reports the
+/// stop, every thread has it pending.
 fn stop(pid: u32) {
     assert!(
         Command::new("kill")
@@ -1043,6 +1048,23 @@ fn stop(pid: u32) {
             .success(),
         "SIGSTOP {pid} failed"
     );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !String::from_utf8_lossy(
+        &Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .expect("ps")
+            .stdout,
+    )
+    .trim_start()
+    .starts_with('T')
+    {
+        assert!(
+            Instant::now() < deadline,
+            "{pid} never stopped after SIGSTOP"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 fn cont(pid: u32) {

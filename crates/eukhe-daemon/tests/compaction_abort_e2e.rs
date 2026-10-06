@@ -853,6 +853,28 @@ fn wedged_worker_abort_acks_immediately_and_declares_terminal() {
     assert_eq!(attached2["success"], true, "second attach: {attached2}");
     let pid = worker_pid(&agent_dir);
     signal(pid, "-STOP");
+    // `kill` returns once SIGSTOP is queued, not once it took hold: the
+    // kernel stops a multi-threaded process when the thread it picked for
+    // the signal next runs, and until then the other threads keep serving
+    // the worker's socket (the routed abort could still be answered). Once
+    // `ps` reports the stop, every thread has it pending.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !String::from_utf8_lossy(
+        &Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .expect("ps")
+            .stdout,
+    )
+    .trim_start()
+    .starts_with('T')
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the worker never stopped after SIGSTOP"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 
     // The abort acknowledges immediately from the supervisor plane (TS
     // daemon-mode's in-process `abortCompaction` always replies instantly;
