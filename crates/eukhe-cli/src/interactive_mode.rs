@@ -24,7 +24,7 @@ use eukhe_tui::interactive::{InteractiveOptions, ModelSelection, SessionSelectio
 // runtime's and the integration tests' paths stable.
 mod daemon;
 
-pub use daemon::{ensure_daemon_running, ensure_daemon_running_with};
+pub use daemon::{ensure_daemon_running, ensure_daemon_running_with, DaemonReady};
 
 // The first-run onboarding concern (the startup-model probe, the
 // settings sink over the eukhe-tui trait, and the startup task assembly)
@@ -124,7 +124,12 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
             .track(client);
         }
         let attach_started = std::time::Instant::now();
-        ensure_daemon_running(&tui_options.socket_path, &tui_options.cwd).await?;
+        // A kept daemon of another version is announced by the session
+        // view itself (from its hello); the agents view gets it as its
+        // status line.
+        let daemon_notice = ensure_daemon_running(&tui_options.socket_path, &tui_options.cwd)
+            .await?
+            .notice();
         if let Some(client) = startup_telemetry.as_ref() {
             eukhe_telemetry::AgentStartupStage {
                 stage: "session_attach",
@@ -178,7 +183,7 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         // passes the quick-exit join below.
         let run = async {
             if agents_view {
-                let (anchor, notice) = continue_view.map_or((None, None), |view| {
+                let (anchor, notice) = continue_view.map_or((None, daemon_notice), |view| {
                     (Some(view.session_id), Some(view.notice))
                 });
                 run_agents_view_flow(tui_options, anchor, notice).await

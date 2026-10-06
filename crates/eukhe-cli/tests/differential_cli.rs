@@ -353,6 +353,8 @@ fn run(binary: &Path, args: &[&str], sandbox: &Path) -> InvocationOutput {
         // TMPDIR, and `shutdown --force` on the TS binary has no
         // containment guard at all.
         .env("TMPDIR", sandbox.join("tmp"))
+        // An inherited daemon socket would aim discovery at the real daemon.
+        .env_remove("EUKHE_DAEMON_SOCKET")
         .env("EUKHE_OFFLINE", "1")
         .current_dir(sandbox.join("cwd"))
         .current_dir(sandbox.join("cwd"))

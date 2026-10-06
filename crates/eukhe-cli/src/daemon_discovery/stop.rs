@@ -209,7 +209,7 @@ fn run_shutdown_converging(json: bool, force: bool, root: &DaemonStateRoot) -> i
 
     let daemons: Vec<DaemonInfo> = discover_daemons(root)
         .into_iter()
-        .filter(|daemon| !super::is_worker_socket_path(&daemon.socket_path, &root.socket_dir))
+        .filter(|daemon| !super::is_worker_socket_path(&daemon.socket_path))
         .collect();
     let action_order = |kind: &ReapActionKind| match kind {
         ReapActionKind::Shutdown => 0,

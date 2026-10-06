@@ -150,7 +150,7 @@ pub(crate) fn parse_ps_etimes(stdout: &str) -> HashMap<u32, u64> {
 
 /// Run one command, capturing stdout; a missing tool or failure yields None
 /// (TS `spawnSyncHidden` + error/status guards).
-fn capture_stdout(program: &str, args: &[&str]) -> Option<String> {
+pub(super) fn capture_stdout(program: &str, args: &[&str]) -> Option<String> {
     let output = std::process::Command::new(program)
         .args(args)
         .stdin(std::process::Stdio::null())
@@ -191,7 +191,7 @@ pub(crate) fn merge_discovered(
 /// the hex flag parse and drops out; unnamed and non-listening rows (no
 /// path, or no `SS_ACCEPTCONN`) drop out too.
 #[cfg(target_os = "linux")]
-fn parse_proc_net_unix(bytes: &[u8]) -> Vec<(String, String)> {
+pub(super) fn parse_proc_net_unix(bytes: &[u8]) -> Vec<(String, String)> {
     const SS_ACCEPTCONN: u32 = 0x0001_0000;
     let mut listeners = Vec::new();
     for line in bytes.split(|byte| *byte == b'\n') {
@@ -262,7 +262,7 @@ fn split_first_token(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
 /// deterministic; processes whose fd directory or comm cannot be read
 /// (permission, or the process exited mid-scan) are skipped silently.
 #[cfg(target_os = "linux")]
-fn proc_socket_inodes() -> Vec<(u32, String, std::collections::HashSet<String>)> {
+pub(super) fn proc_socket_inodes() -> Vec<(u32, String, std::collections::HashSet<String>)> {
     let mut processes = Vec::new();
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return processes;

@@ -694,6 +694,18 @@ async fn run_interactive_surface(
             session.attach_event_sequence,
         );
     }
+    // The launcher kept a daemon of another eukhe version because it had
+    // active work: say so once, the restart happens on a later idle start.
+    if let Some(version) = session.client.outdated_daemon_version() {
+        view.push_entry(crate::chat::ChatEntry::Status {
+            text: format!(
+                "\u{26a0} {}",
+                crate::daemon_client::outdated_daemon_notice(&version)
+            ),
+            kind: crate::chat::StatusKind::Warning,
+        });
+        session.dirty = true;
+    }
     if let Some(notice) = check_tmux_keyboard_setup().await {
         view.push_entry(crate::chat::ChatEntry::Status {
             text: format!("\u{26a0} {notice}"),

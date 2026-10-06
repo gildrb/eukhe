@@ -69,6 +69,11 @@ eukhe doctor [--fix]       # check or repair the daemon
 eukhe shutdown [--force]   # stop all agents and the daemon
 ```
 
+After an upgrade, the next `eukhe` start replaces an idle daemon of another
+version, or a pre-rename `prime-agent` daemon on the socket. A daemon with
+active work keeps running until the next idle start; `eukhe shutdown`
+restarts it sooner. Sessions persist and reattach.
+
 > [!WARNING]
 > eukhe runs model-generated Python and shell commands with your user
 > permissions. It is not a sandbox. Use trusted repositories only.

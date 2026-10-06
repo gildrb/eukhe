@@ -20,15 +20,18 @@
 //! that started it. That registry is not ported: a daemon on a custom socket
 //! is in scope only for invocations configured with that same socket.)
 //!
-//! Containment (operator-mandated): every scan, probe,
-//! and stop is scoped to an explicit [`DaemonStateRoot`] handed in by the
-//! caller — the CLI passes the env-resolved current root, tests pass only
-//! fixture directories they created — and [`NEVER_TOUCH_SOCKET_DIRS`] is a
-//! hard exclusion list the scan, probe, and unlink paths check
-//! unconditionally, so a state root that resolves onto this box's ambient
-//! mission daemons (via a leaked HOME/TMPDIR) still cannot enumerate, probe,
-//! or stop them. A daemon outside the root an invocation was given is
-//! invisible to it, always.
+//! Containment: every scan, probe, and stop is scoped to an explicit
+//! [`DaemonStateRoot`] handed in by the caller — the CLI passes the
+//! env-resolved current root, tests pass only fixture directories they
+//! created. A daemon outside the root an invocation was given is invisible
+//! to it, always. Unit tests additionally refuse the never-touch dirs (see
+//! `NEVER_TOUCH_SOCKET_DIRS`); integration tests pin their whole state root
+//! (agent dir, TMPDIR, daemon socket) inside fixtures instead.
+//!
+//! Pids come from the listener census (by process name) and, for a socket
+//! whose holder the census missed (a renamed or older build), from the
+//! socket's own holder ([`owner`]), verified as this user's eukhe-family
+//! supervisor before anything may signal it.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -41,6 +44,7 @@ use crate::daemon_client::DaemonClient;
 
 mod format;
 mod kill;
+pub(crate) mod owner;
 pub(crate) mod plan;
 pub(crate) mod scan;
 pub(crate) mod stop;
@@ -70,20 +74,14 @@ pub(crate) struct DaemonStateRoot {
     pub default_socket_path: PathBuf,
 }
 
-/// Directories the discovery code must never touch, unconditionally
-/// (operator-mandated containment guard; see the module docs).
-/// These hold this box's live mission infrastructure;
-/// an ambient `HOME`/`TMPDIR` leaking into a test process makes
-/// `current_state_root()` resolve onto them, so root matching alone cannot
-/// be trusted. NOTE: `/tmp/eukhe-1000` is also the product-default
-/// socket dir for uid 1000 — the exclusion is deliberate and mission-local.
-/// The `-0` entries are the uid-0
-/// twins: the product-default socket dir is `<tmpdir>/eukhe-<uid>`,
-/// so on a root-user Linux box (uid 0 — the fleet's root-uid gate and
-/// mission topology) the ambient mission daemon lives under
-/// `/tmp/eukhe-0` / `/tmp/mission-tmp/eukhe-0`, and the guard
-/// must cover it exactly like the uid-1000 pair; without them the whole
-/// never-touch protection silently disappears at uid 0.
+/// Directories the lib's unit tests must never touch: the developer box's
+/// live product-default socket dirs (`<tmp>/eukhe-<uid>` for uid 1000 and
+/// root) and mission sockets. A unit test whose root leaks onto the ambient
+/// environment still cannot enumerate, probe, unlink, or stop them. Test
+/// builds only: in the shipped binary `/tmp/eukhe-1000` is the real default
+/// socket dir, and hiding it would make `status`/`doctor`/`shutdown` blind
+/// to the user's own daemon.
+#[cfg(test)]
 pub(crate) const NEVER_TOUCH_SOCKET_DIRS: &[&str] = &[
     "/tmp/eukhe-1000",
     "/tmp/mission-tmp/eukhe-1000",
@@ -92,11 +90,20 @@ pub(crate) const NEVER_TOUCH_SOCKET_DIRS: &[&str] = &[
     "/tmp/mission-tmp/eukhe-0",
 ];
 
-/// True when `path` is or sits inside a never-touch directory.
+/// True when `path` is or sits inside a never-touch directory (unit-test
+/// builds only; always false in the product).
 pub(crate) fn is_never_touch(path: &Path) -> bool {
-    NEVER_TOUCH_SOCKET_DIRS
-        .iter()
-        .any(|dir| path.starts_with(Path::new(dir)))
+    #[cfg(test)]
+    {
+        NEVER_TOUCH_SOCKET_DIRS
+            .iter()
+            .any(|dir| path.starts_with(Path::new(dir)))
+    }
+    #[cfg(not(test))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 /// Discovered-daemon classification (TS `DaemonStatus`).
@@ -187,14 +194,11 @@ fn inside(directory: Option<&Path>, parent: &Path) -> bool {
     }
 }
 
-/// Worker sockets: `worker-*.sock` in the given socket dir (TS
-/// `isWorkerSocketPath`) — the supervisor's own socket is never a worker
-/// socket. The socket dir comes from the state root, never the ambient
-/// environment.
-pub(crate) fn is_worker_socket_path(socket_path: &Path, socket_dir: &Path) -> bool {
-    if socket_path.parent() != Some(socket_dir) {
-        return false;
-    }
+/// Worker sockets: `worker-*.sock` files (TS `isWorkerSocketPath`) — the
+/// supervisor's own socket is never a worker socket. A worker socket sits
+/// beside its own supervisor's socket, wherever that is, so the name alone
+/// identifies it; every caller applies the state-root scope separately.
+pub(crate) fn is_worker_socket_path(socket_path: &Path) -> bool {
     let Some(name) = socket_path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
@@ -214,7 +218,8 @@ pub(crate) fn scan_listening_daemons(root: &DaemonStateRoot) -> Vec<DiscoveredDa
 
 /// True when the pid still listens on exactly this socket (TS
 /// `isDaemonProcessListening`): a fresh scan against the same root, so a
-/// re-probe sees the same listener set the discovery did.
+/// re-probe sees the same listener set the discovery did, or the socket's
+/// verified holder (a renamed build the name census misses).
 pub(crate) fn is_daemon_process_listening(
     pid: u32,
     socket_path: &Path,
@@ -223,6 +228,10 @@ pub(crate) fn is_daemon_process_listening(
     scan_listening_daemons(root)
         .iter()
         .any(|daemon| daemon.pid == pid && daemon.socket_path == socket_path)
+        || matches!(
+            owner::socket_holder(socket_path),
+            Some(owner::SocketHolder::Daemon(holder)) if holder.pid == pid
+        )
 }
 
 /// Socket files in the given socket dir (TS `scanSocketDir`): live daemons
@@ -246,12 +255,6 @@ fn scan_socket_dir(socket_dir: &Path) -> Vec<PathBuf> {
 fn is_socket_file(path: &Path) -> bool {
     use std::os::unix::fs::FileTypeExt;
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_socket())
-}
-
-/// Windows endpoints are named pipes, never socket files.
-#[cfg(not(unix))]
-fn is_socket_file(_path: &Path) -> bool {
-    false
 }
 
 /// One tracked worker from a supervisor descriptor (TS `TrackedWorker`).
@@ -323,6 +326,9 @@ fn read_tracked_worker(path: &Path) -> Option<TrackedWorker> {
 pub(crate) struct ProbeResult {
     version: Option<String>,
     protocol_version: Option<u64>,
+    /// The hello's `protocol.name`: another product's (a pre-rename build's)
+    /// daemon is never current, whatever its version numbers say.
+    protocol_name: Option<String>,
     schema_id: Option<String>,
     build_id: Option<String>,
     executable_path: Option<String>,
@@ -354,8 +360,12 @@ pub(crate) fn probe_daemon(socket_path: &Path) -> ProbeResult {
             .get("appVersion")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string);
-        probe.protocol_version = hello
-            .get("protocol")
+        let protocol = hello.get("protocol");
+        probe.protocol_name = protocol
+            .and_then(|protocol| protocol.get("name"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        probe.protocol_version = protocol
             .and_then(|protocol| protocol.get("version"))
             .and_then(serde_json::Value::as_u64);
         probe.schema_id = hello
@@ -418,7 +428,8 @@ const LIST_TIMEOUT_MS: u64 = 30_000;
 /// Reachable daemons are `current` only when the protocol, schema, and app
 /// version all match this build (TS `classifyReachable`).
 fn classify_reachable(probe: &ProbeResult) -> DaemonStatus {
-    if probe.protocol_version == Some(eukhe_types::daemon::DAEMON_PROTOCOL_VERSION)
+    if probe.protocol_name.as_deref() == Some(eukhe_types::daemon::DAEMON_PROTOCOL_NAME)
+        && probe.protocol_version == Some(eukhe_types::daemon::DAEMON_PROTOCOL_VERSION)
         && probe.schema_id.as_deref() == Some(eukhe_types::daemon::DAEMON_SCHEMA_ID)
         && probe.version.as_deref() == Some(config::version())
     {
@@ -459,7 +470,7 @@ pub(crate) fn verify_hello_supervisor_pid(
 pub(crate) fn discover_daemons(root: &DaemonStateRoot) -> Vec<DaemonInfo> {
     let mut process_by_socket = std::collections::HashMap::new();
     for daemon in scan_listening_daemons(root) {
-        if is_worker_socket_path(&daemon.socket_path, &root.socket_dir) {
+        if is_worker_socket_path(&daemon.socket_path) {
             continue;
         }
         process_by_socket.insert(daemon.socket_path.clone(), daemon);
@@ -475,7 +486,7 @@ pub(crate) fn discover_daemons(root: &DaemonStateRoot) -> Vec<DaemonInfo> {
         .chain(
             scan_socket_dir(&root.socket_dir)
                 .into_iter()
-                .filter(|path| !is_worker_socket_path(path, &root.socket_dir)),
+                .filter(|path| !is_worker_socket_path(path)),
         )
         .chain(worker_sockets.iter().cloned())
         // The invocation's own socket is always a candidate: a custom
@@ -491,7 +502,16 @@ pub(crate) fn discover_daemons(root: &DaemonStateRoot) -> Vec<DaemonInfo> {
         .map(|socket_path| {
             let proc = process_by_socket.get(&socket_path);
             let probe = probe_daemon(&socket_path);
-            let pid = proc.map(|daemon| daemon.pid).or_else(|| {
+            // The listener census matches by process name; a renamed or
+            // older build holding the socket is found by the socket itself.
+            let listener_pid =
+                proc.map(|daemon| daemon.pid).or_else(|| {
+                    match owner::socket_holder(&socket_path) {
+                        Some(owner::SocketHolder::Daemon(holder)) => Some(holder.pid),
+                        Some(owner::SocketHolder::Other { .. }) | None => None,
+                    }
+                });
+            let pid = listener_pid.or_else(|| {
                 verify_hello_supervisor_pid(
                     probe.supervisor_pid,
                     probe.supervisor_process_start_id.as_deref(),
@@ -500,14 +520,14 @@ pub(crate) fn discover_daemons(root: &DaemonStateRoot) -> Vec<DaemonInfo> {
             let has_tracked_workers = worker_sockets.contains(&socket_path);
             let status = if probe.reachable {
                 classify_reachable(&probe)
-            } else if proc.is_some() || has_tracked_workers {
+            } else if listener_pid.is_some() || has_tracked_workers {
                 DaemonStatus::Unreachable
             } else {
                 DaemonStatus::OrphanFile
             };
             DaemonInfo {
                 pid_source: pid.map(|_| {
-                    if proc.is_some() {
+                    if listener_pid.is_some() {
                         PidSource::Listener
                     } else {
                         PidSource::Hello
@@ -571,17 +591,15 @@ mod tests {
     }
 
     #[test]
-    fn worker_socket_paths_are_scoped_to_the_given_socket_dir() {
+    fn worker_sockets_are_named_worker_sock_wherever_they_sit() {
         let dir = Path::new("/fixture/agent/sockets");
-        assert!(is_worker_socket_path(&dir.join("worker-abc-123.sock"), dir));
-        assert!(!is_worker_socket_path(&dir.join("daemon.sock"), dir));
+        assert!(is_worker_socket_path(&dir.join("worker-abc-123.sock")));
+        assert!(is_worker_socket_path(Path::new(
+            "/fixture/custom/worker-abc-123.sock"
+        )));
+        assert!(!is_worker_socket_path(&dir.join("daemon.sock")));
         assert!(!is_worker_socket_path(
-            &dir.join("nested/worker-a.sock"),
-            dir
-        ));
-        assert!(!is_worker_socket_path(
-            &dir.join("worker-a.sock"),
-            Path::new("/fixture/other-sockets")
+            &dir.join("worker-abc-123.sock.lock")
         ));
     }
 

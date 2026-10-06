@@ -667,3 +667,86 @@ async fn without_capability_upgrade_is_a_no_op() {
     assert_eq!(client.direct_session_id(), None);
     client.close();
 }
+
+/// The launcher's view of a greeting: another eukhe version is outdated
+/// (from `appVersion`, else `runtime.buildId`), a hello without either is
+/// not, and another protocol name or a non-JSON first line is a typed
+/// foreign holder — never a plain connect failure the launcher would read
+/// as "nothing listening".
+#[tokio::test]
+async fn greetings_classify_outdated_and_foreign_daemons() {
+    let hello = |extra: Value| {
+        let mut hello = json!({
+            "type": "daemon_hello",
+            "protocol": { "name": "eukhe.daemon", "version": 7 },
+        });
+        if let (Some(hello), Some(extra)) = (hello.as_object_mut(), extra.as_object()) {
+            hello.extend(extra.clone());
+        }
+        hello.to_string()
+    };
+    let cases = [
+        hello(json!({ "appVersion": CLIENT_APP_VERSION })),
+        hello(json!({ "appVersion": "0.0.1-old" })),
+        hello(json!({ "runtime": { "buildId": "eukhe-daemon-rs-0.0.1-old" } })),
+        hello(json!({})),
+        json!({
+            "type": "daemon_hello",
+            "protocol": { "name": "prime-agent.daemon", "version": 7 },
+            "appVersion": "0.9.9-eukhe.1",
+        })
+        .to_string(),
+        "HTTP/1.1 400 Bad Request".to_string(),
+    ];
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut outcomes = Vec::new();
+    for (index, greeting) in cases.into_iter().enumerate() {
+        let socket = dir.path().join(format!("d{index}.sock"));
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            let (reader, mut writer) = stream.into_split();
+            writer
+                .write_all(format!("{greeting}\n").as_bytes())
+                .await
+                .unwrap();
+            // Hold the connection until the client hangs up.
+            let mut line = String::new();
+            let _ = BufReader::new(reader).read_line(&mut line).await;
+        });
+        let outcome = match DaemonClient::connect(&socket).await {
+            Ok((client, _events)) => {
+                let outdated = client.outdated_daemon_version();
+                client.close();
+                Ok(outdated)
+            }
+            Err(error) => Err((
+                is_foreign_daemon(&error),
+                error
+                    .to_string()
+                    .replace(&socket.display().to_string(), "<socket>"),
+            )),
+        };
+        outcomes.push(outcome);
+        server.abort();
+    }
+    assert_eq!(
+        outcomes,
+        vec![
+            Ok(None),
+            Ok(Some("0.0.1-old".to_string())),
+            Ok(Some("0.0.1-old".to_string())),
+            Ok(None),
+            Err((
+                true,
+                "the daemon on <socket> speaks an unknown protocol \"prime-agent.daemon\""
+                    .to_string()
+            )),
+            Err((
+                true,
+                "the daemon on <socket> sent an unparseable handshake: HTTP/1.1 400 Bad Request"
+                    .to_string()
+            )),
+        ]
+    );
+}

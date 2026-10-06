@@ -51,6 +51,57 @@ pub fn is_daemon_rejection(error: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<RequestRejected>().is_some())
 }
 
+/// Something accepted the daemon socket's connection but did not greet as
+/// this product's daemon: its hello names another protocol (a pre-rename
+/// `prime-agent.daemon` build), or its first line is not a parseable
+/// frame. The holder keeps the socket bound, so a supervisor spawned beside
+/// it cannot listen; a launcher must stop the holder first.
+#[derive(Debug, PartialEq)]
+pub struct ForeignDaemon {
+    pub socket_path: std::path::PathBuf,
+    pub greeting: ForeignGreeting,
+}
+
+/// What the socket's holder answered instead of this product's hello.
+#[derive(Debug, PartialEq)]
+pub enum ForeignGreeting {
+    /// A hello whose `protocol.name` is not this product's.
+    Protocol(String),
+    /// A first line that is not JSON (clipped for the message).
+    Unparseable(String),
+}
+
+impl std::fmt::Display for ForeignDaemon {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let socket = self.socket_path.display();
+        match &self.greeting {
+            ForeignGreeting::Protocol(name) => {
+                write!(
+                    f,
+                    "the daemon on {socket} speaks an unknown protocol \"{name}\""
+                )
+            }
+            ForeignGreeting::Unparseable(line) => {
+                write!(
+                    f,
+                    "the daemon on {socket} sent an unparseable handshake: {line}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ForeignDaemon {}
+
+/// Whether a connect failed because a foreign process holds the socket (see
+/// [`ForeignDaemon`]), as opposed to nothing listening or a slow daemon.
+#[must_use]
+pub fn is_foreign_daemon(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<ForeignDaemon>().is_some())
+}
+
 /// Whether an error is a response/handshake timeout ("Timed out after
 /// Nms waiting for the Eukhe daemon (response|handshake)"): a
 /// transient under-load failure, not a protocol error — the caller

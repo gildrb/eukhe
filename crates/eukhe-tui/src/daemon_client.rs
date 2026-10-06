@@ -32,8 +32,9 @@ mod tests;
 
 use errors::{command_type_debug, response_data_or_error, DirectRequestError};
 pub use errors::{
-    is_daemon_rejection, is_daemon_timeout, is_daemon_unreachable, is_kernel_not_running,
-    rejected_provider_unauthenticated, RequestRejected,
+    is_daemon_rejection, is_daemon_timeout, is_daemon_unreachable, is_foreign_daemon,
+    is_kernel_not_running, rejected_provider_unauthenticated, ForeignDaemon, ForeignGreeting,
+    RequestRejected,
 };
 
 /// Default response timeout (TS `DEFAULT_DAEMON_REQUEST_TIMEOUT_MS`).
@@ -55,6 +56,21 @@ const HELLO_TIMEOUT_MS: u64 = 15_000;
 pub(crate) const CONNECT_ATTEMPTS: u32 = 3;
 /// The first retry's backoff; each further attempt doubles it.
 const CONNECT_RETRY_BACKOFF_MS: u64 = 1_000;
+/// The product version this client build expects its daemon to run: the
+/// workspace version the supervisor reports as its hello `appVersion`.
+const CLIENT_APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The supervisor's `runtime.buildId` prefix; the product version follows.
+const DAEMON_BUILD_ID_PREFIX: &str = "eukhe-daemon-rs-";
+
+/// The one-line notice a client shows when it keeps using a daemon that
+/// runs another eukhe version (the daemon had active work, so the launcher
+/// did not replace it).
+#[must_use]
+pub fn outdated_daemon_notice(daemon_version: &str) -> String {
+    format!(
+        "The background service runs eukhe {daemon_version}; it restarts on the next idle start (or run: eukhe shutdown)."
+    )
+}
 
 /// A non-response frame forwarded to the UI event loop. Payloads that are
 /// owned by the session engine stay raw JSON (`Value`) so the client keeps
@@ -340,7 +356,7 @@ impl DaemonClient {
         // observe a supervisor socket loss — the watch is the observable
         // signal the UI loop arms its reconnect driver on.
         let (reader_dead_tx, reader_dead_rx) = tokio::sync::watch::channel(false);
-        let (hello_tx, hello_rx) = oneshot::channel::<Value>();
+        let (hello_tx, hello_rx) = oneshot::channel::<std::result::Result<Value, String>>();
         let shared = Arc::new(Shared {
             pending: Mutex::new(HashMap::new()),
         });
@@ -374,6 +390,13 @@ impl DaemonClient {
                     Ok(_) => {}
                 }
                 let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
+                    // A first line that is not JSON is no hello at all: a
+                    // foreign server holds the socket.
+                    if !line.trim().is_empty() {
+                        if let Some(tx) = hello_tx.take() {
+                            let _ = tx.send(Err(line.trim().chars().take(120).collect()));
+                        }
+                    }
                     continue;
                 };
                 let frame_type = value
@@ -383,7 +406,7 @@ impl DaemonClient {
                 match frame_type {
                     "daemon_hello" => {
                         let Some(tx) = hello_tx.take() else { continue };
-                        let _ = tx.send(value);
+                        let _ = tx.send(Ok(value));
                     }
                     "response" => {
                         if let Ok(response) =
@@ -422,6 +445,13 @@ impl DaemonClient {
             .map_err(|_| {
                 reader_task.abort();
                 anyhow!("the daemon connection closed before the handshake")
+            })?
+            .map_err(|line| {
+                reader_task.abort();
+                anyhow::Error::new(ForeignDaemon {
+                    socket_path: socket_path.to_path_buf(),
+                    greeting: ForeignGreeting::Unparseable(line),
+                })
             })?;
         let protocol = hello
             .get("protocol")
@@ -433,11 +463,10 @@ impl DaemonClient {
             });
         if protocol.name != DAEMON_PROTOCOL_NAME {
             reader_task.abort();
-            return Err(anyhow!(
-                "the daemon on {} speaks an unknown protocol \"{}\"",
-                socket_path.display(),
-                protocol.name
-            ));
+            return Err(anyhow::Error::new(ForeignDaemon {
+                socket_path: socket_path.to_path_buf(),
+                greeting: ForeignGreeting::Protocol(protocol.name),
+            }));
         }
         // Envelope protocol version: the shared minimum (TS `request`).
         let version = protocol.version.min(DAEMON_PROTOCOL_VERSION);
@@ -533,6 +562,28 @@ impl DaemonClient {
     #[must_use]
     pub fn hello(&self) -> &Value {
         &self.hello
+    }
+
+    /// The product version the daemon runs when it is not this client's
+    /// build: the hello `appVersion`, else the version inside
+    /// `runtime.buildId`. `None` when it matches, or when the daemon reports
+    /// neither (nothing to compare).
+    #[must_use]
+    pub fn outdated_daemon_version(&self) -> Option<String> {
+        let app_version = self.hello.get("appVersion").and_then(Value::as_str);
+        let build_id = self
+            .hello
+            .get("runtime")
+            .and_then(|runtime| runtime.get("buildId"))
+            .and_then(Value::as_str);
+        let version = match (app_version, build_id) {
+            (Some(version), _) => version,
+            (None, Some(build_id)) => build_id
+                .strip_prefix(DAEMON_BUILD_ID_PREFIX)
+                .unwrap_or(build_id),
+            (None, None) => return None,
+        };
+        (version != CLIENT_APP_VERSION).then(|| version.to_string())
     }
 
     /// Send one command envelope and wait for the matching response, using

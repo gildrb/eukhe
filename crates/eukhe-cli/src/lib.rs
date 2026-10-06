@@ -74,7 +74,7 @@ pub use print_runtime::PrintRuntime;
 /// Daemon wiring shared by the interactive runtime and the integration
 /// tests: spawn/probe the supervisor on a socket, and map `--daemon-socket`.
 pub use interactive_mode::{
-    ensure_daemon_running, ensure_daemon_running_with, resolve_socket_path,
+    ensure_daemon_running, ensure_daemon_running_with, resolve_socket_path, DaemonReady,
 };
 
 /// Entry point shared by the binary and the integration tests. Returns the

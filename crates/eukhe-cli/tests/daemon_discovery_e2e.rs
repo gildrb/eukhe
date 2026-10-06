@@ -34,8 +34,10 @@ use serde_json::Value;
 
 /// Environment keys this box's own eukhe worker sets; they must not
 /// leak into spawned supervisors (the same scrub list as
-/// `daemon_commands_e2e.rs`).
-const SCRUB_ENV: [&str; 9] = [
+/// `daemon_commands_e2e.rs`). An inherited `EUKHE_DAEMON_SOCKET` would
+/// point the invocation's state root at the real daemon.
+const SCRUB_ENV: [&str; 10] = [
+    "EUKHE_DAEMON_SOCKET",
     "EUKHE_INTERNAL_DAEMON_WORKER",
     "EUKHE_INTERNAL_DAEMON_WORKER_TOKEN",
     "EUKHE_INTERNAL_DAEMON_WORKER_ACTIVE_SESSION_ID",
