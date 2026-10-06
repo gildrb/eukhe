@@ -71,14 +71,19 @@ impl AgentView {
         rows
     }
 
+    /// The brand splash rows: none under `quietStartup` or while the chat
+    /// opened straight into content.
+    pub(super) fn splash_rows(&self, width: usize) -> Vec<Line> {
+        if self.splash_suppressed || self.quiet_startup {
+            return Vec::new();
+        }
+        render_splash(&self.chrome, &self.theme, width)
+    }
+
     /// The splash and every entry: the rows inline mode leaves in
     /// scrollback, which a fullscreen exit prints to the normal screen.
     pub(crate) fn render_history(&self, width: usize) -> Vec<Line> {
-        let mut rows = if self.splash_suppressed {
-            Vec::new()
-        } else {
-            render_splash(&self.chrome, &self.theme, width)
-        };
+        let mut rows = self.splash_rows(width);
         for index in 0..self.chat.len() {
             rows.extend(self.render_entry_at(index, width));
         }

@@ -329,8 +329,9 @@ pub fn render_text_rows(text: &str, style: Style, width: usize) -> Vec<Line> {
     out
 }
 
-/// The user-message block (TS `UserMessageComponent`: Box(2,1) on
-/// `userMessageBg`, markdown inside colored `userMessageText`). The
+/// The user-message block (TS `UserMessageComponent` on `userMessageBg`
+/// without its blank top and bottom rows, the tight layout), markdown
+/// inside colored `userMessageText`. The
 /// prompt-highlight tokens (the accent command segment of a recognized
 /// leading slash command, the `@path`/`--flag` argument tokens) render in
 /// their own colors: TS masks them to same-width placeholders before the
@@ -351,8 +352,6 @@ pub fn render_user_block(
     let mask = geometry::user_mask(text);
     let rendered = crate::markdown::render_markdown(&mask.text, content_width, &md);
     let mut rows: Vec<Line> = Vec::new();
-    let blank = vec![Span::styled(" ".repeat(width), bg)];
-    rows.push(blank.clone());
     if rendered.is_empty() {
         let row = vec![
             Span::styled("  ".to_string(), bg),
@@ -384,7 +383,6 @@ pub fn render_user_block(
         row.extend(mask.restore_line(theme, &restyled));
         rows.push(pad_to(row, width, bg));
     }
-    rows.push(blank);
     // Zone markers: `A` on the first block row, `B`/`C` on the last (TS
     // `UserMessageComponent.render`).
     if let Some(first) = rows.first_mut() {

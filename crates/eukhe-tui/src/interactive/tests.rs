@@ -297,13 +297,10 @@ fn the_headless_settle_names_every_stuck_member() {
 }
 
 /// The pre-attach placeholder (painted for a NEW chat before the attach
-/// lands) carries the zero dock the fresh session mounts: the landed
-/// frame keeps the placeholder's geometry, so the splash never reflows
-/// two rows when the session attaches. The factory group stays off the
-/// placeholder (the opt-in gate: the group mounts only after the
-/// daemon's hello advertises the `factory_activity` lane).
+/// lands) is the composer the fresh session mounts: the empty prompt and
+/// the status line, with no activity segments while nothing is live.
 #[test]
-fn the_startup_placeholder_carries_the_dock_a_fresh_session_mounts() {
+fn the_startup_placeholder_is_the_prompt_and_the_status_line() {
     let mut view = AgentView::new(crate::theme::Theme::builtin(
         "eukhe",
         crate::theme::ColorMode::TrueColor,
@@ -314,14 +311,8 @@ fn the_startup_placeholder_carries_the_dock_a_fresh_session_mounts() {
         .iter()
         .map(|line| line.iter().map(|span| span.content.as_str()).collect())
         .collect();
-    assert_eq!(
-        rows[rows.len() - 2..],
-        [
-            "-".repeat(100),
-            " 0 subagents  -  0 heartbeats  -  0 shells".to_string(),
-        ],
-        "the placeholder's last two rows are the dock's rule and zero row"
-    );
+    // The empty prompt shows the cursor cell; `/tmp` is a scratch root.
+    assert_eq!(rows, [">  ", " [T] /tmp"]);
 }
 
 /// A fullscreen exit leaves the alternate screen first, then prints the

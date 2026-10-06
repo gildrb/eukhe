@@ -1,47 +1,39 @@
-//! The editor box: the shared renderer for every editor-bearing surface --
-//! the chat's prompt dock and the agents view's action composers. This
-//! module owns "the editor box" (TS `Editor.render` on its background
-//! surface, plus `CustomEditor.render`'s header-block and placeholder
-//! insertions); the surfaces compose it with their own headers and
-//! placeholders.
+//! The borderless composer: the shared renderer for every editor-bearing
+//! surface -- the chat's prompt and the agents view's action composers.
+//! The surfaces compose it with their own headers and placeholders.
 //!
-//! The box's row shape (TS `Editor.render` with a background surface):
-//! the top bg row (a scroll indicator once content hides above), the
-//! header block's two rows (the caller's header line plus its blank
-//! companion, TS `getHeaderLine` via `renderHeaderContentLine`), the
-//! content rows (`> ` prompt, styled text, the reverse-video cursor),
-//! and the trailing bg row (a `v N more` indicator once content hides
-//! below). An empty editor with a placeholder shows the placeholder row
-//! in place of the first content row (TS `renderPlaceholderLine`: the
-//! cursor cell, then the dim placeholder).
+//! The row shape (omp `composer.shape: borderless`): the caller's header
+//! line when one is set, then the content rows -- `> ` on the first row,
+//! wrapped rows indented under it, the reverse-video cursor -- on the
+//! terminal's own background. A `^ N more` / `v N more` row shows only
+//! while content hides above or below the editor's window. An empty
+//! editor with a placeholder shows the cursor cell, then the dim
+//! placeholder.
 
 use super::chunk_selection;
-use super::frame::indicator_row;
 use crate::editor::Editor;
 use crate::prompt_highlight::{
     command_token, editor_chunk_highlights, editor_text_spans, find_arg_tokens, ArgTokenSpan,
 };
-use crate::style::Modifier;
+use crate::style::{Modifier, Style};
 use crate::theme::{Theme, ThemeBg, ThemeColor};
 use crate::width::{str_width, truncate_to_width};
 use crate::{Line, Span};
 use eukhe_types::slash_commands::SlashCommandRegistry;
 
-/// The composed editor box and the cursor's cell.
+/// The composed editor rows and the cursor's cell.
 pub(crate) struct EditorBox {
-    /// The box's rows, top bg row first.
+    /// The rows, the header (when set) first.
     pub(crate) rows: Vec<Line>,
-    /// The cursor's row within the box and its column (`None` while the
+    /// The cursor's row within `rows` and its column (`None` while the
     /// editor's window shows no cursor).
     pub(crate) cursor: Option<(usize, usize)>,
 }
 
-/// Compose one editor box (TS `Editor.render` + `CustomEditor.render`'s
-/// insertions). `header` carries the caller's header line (the chat's
-/// queue-browse header, an action composer's own header): it renders as
-/// the two-row block under the top row. `placeholder` replaces the first
-/// content row while the editor is empty (TS `renderPlaceholderLine`, the
-/// placeholder dim).
+/// Compose the editor rows. `header` carries the caller's header line
+/// (the chat's queue-browse header, an action composer's own header).
+/// `placeholder` replaces the first content row while the editor is empty
+/// (TS `renderPlaceholderLine`, the placeholder dim).
 pub(crate) fn render(
     editor: &mut Editor,
     theme: &Theme,
@@ -50,42 +42,33 @@ pub(crate) fn render(
     header: Option<Line>,
     placeholder: Option<&str>,
 ) -> EditorBox {
-    let bg = crate::chrome::editor_background(theme);
-    let border = theme.fg_style(ThemeColor::BorderMuted);
-    let padding_x = 2usize;
-    let content_width = width.saturating_sub(padding_x * 2).max(1);
-    // TS `getPromptPrefix` + `getRenderMetrics`: a bang first line
-    // swaps the `> ` for the `! `/`!! ` prompt (styled through the
-    // editor border color, `formatPromptPrefix`), which also narrows
-    // the input width.
+    let plain = Style::default();
+    let dim = theme.fg_style(ThemeColor::Dim);
+    // TS `getPromptPrefix`: a bang first line swaps the `> ` for the
+    // `! `/`!! ` prompt (styled through the bash-mode color), which also
+    // narrows the input width.
     let bash_prompt = editor.bash_prompt_prefix();
     let prompt = bash_prompt.unwrap_or("> ");
-    let prompt_width = str_width(prompt);
-    let input_width = content_width.saturating_sub(prompt_width).max(1);
-    let layout_width = input_width;
-    let (visible, scroll_offset, _hidden_above, hidden_below) =
-        editor.visible_window(layout_width, terminal_rows);
-    let content_offset = usize::from(header.is_some()) * 2;
-    let mut rows: Vec<Line> = Vec::new();
-    if scroll_offset > 0 {
-        let indicator = format!(" {} {scroll_offset} more", crate::glyphs::UP);
-        rows.push(indicator_row(&indicator, bg, border, width));
+    let prompt_style = if bash_prompt.is_some() {
+        theme.fg_style(ThemeColor::BashMode)
     } else {
-        rows.push(vec![Span::styled(" ".repeat(width), bg)]);
-    }
-    // The header block (TS `renderHeaderContentLine`): the caller's line
-    // on the editor background, padded and truncated to the content
-    // width, plus its empty companion row -- the box grows by two rows
-    // while a header shows (TS `getContentLineOffset` shifts the click
-    // regions with it).
+        plain
+    };
+    let prompt_width = str_width(prompt);
+    let input_width = width.saturating_sub(prompt_width).max(1);
+    let (visible, scroll_offset, _hidden_above, hidden_below) =
+        editor.visible_window(input_width, terminal_rows);
+    let mut rows: Vec<Line> = Vec::new();
     if let Some(header) = header {
-        let mut row: Line = vec![Span::styled(" ".repeat(padding_x), bg)];
-        row.extend(crate::width::truncate_line(&header, content_width, "..."));
-        let used = crate::width::line_width(&row);
-        row.push(Span::styled(" ".repeat(width.saturating_sub(used)), bg));
-        rows.push(row);
-        rows.push(vec![Span::styled(" ".repeat(width), bg)]);
+        rows.push(crate::width::truncate_line(&header, width, "..."));
     }
+    if scroll_offset > 0 {
+        rows.push(vec![Span::styled(
+            format!("{} {scroll_offset} more", crate::glyphs::UP),
+            dim,
+        )]);
+    }
+    let content_offset = rows.len();
     // TS `CustomEditor.render`: a bare `--` separator highlights only
     // while the first line opens with an argument-taking slash command.
     let selection = editor.selection_range();
@@ -100,45 +83,24 @@ pub(crate) fn render(
         .map(|line| find_arg_tokens(line, 0, include_bare_separator))
         .collect();
     let mut cursor: Option<(usize, usize)> = None;
-    // The placeholder row (TS `renderPlaceholderLine`): while the editor
-    // is empty, the first content row is the cursor cell followed by the
-    // dim placeholder (the placeholder color is the agents view's dim,
-    // `placeholderColor`).
     let placeholder_row = placeholder.filter(|_| editor.get_text().is_empty());
     for (index, line) in visible.iter().enumerate() {
-        if index == 0 && placeholder_row.is_some() {
-            let mut row: Line = vec![Span::styled(" ".to_string(), bg)];
-            let style = if bash_prompt.is_some() { border } else { bg };
-            row.push(Span::styled(prompt.to_string(), style));
-            row.push(Span::styled(" ".to_string(), bg));
-            let placeholder_width = input_width.saturating_sub(1);
-            let text = truncate_to_width(placeholder_row.unwrap_or(""), placeholder_width, "");
-            let fill = " ".repeat(placeholder_width.saturating_sub(str_width(&text)));
-            row.push(Span::styled(
-                " ".to_string(),
-                bg.add_modifier(Modifier::REVERSED),
-            ));
-            row.push(Span::styled(
-                text,
-                bg.patch(theme.fg_style(ThemeColor::Dim)),
-            ));
-            row.push(Span::styled(fill, bg));
-            row.push(Span::styled(" ".repeat(padding_x), bg));
-            rows.push(row);
-            cursor = Some((1 + content_offset, prompt_width + 2));
+        let lead = if index == 0 && scroll_offset == 0 {
+            Span::styled(prompt.to_string(), prompt_style)
+        } else {
+            Span::raw(" ".repeat(prompt_width))
+        };
+        if let (0, Some(text)) = (index, placeholder_row) {
+            let text = truncate_to_width(text, input_width.saturating_sub(1), "");
+            rows.push(vec![
+                lead,
+                Span::styled(" ".to_string(), plain.add_modifier(Modifier::REVERSED)),
+                Span::styled(text, dim),
+            ]);
+            cursor = Some((content_offset, prompt_width));
             continue;
         }
-        let mut row: Line = vec![Span::styled(" ".to_string(), bg)];
-        // The `> ` prompt prefix renders plain on the surface
-        // background; the `!` bash prompts render through the editor
-        // border color (TS `formatPromptPrefix`).
-        if index == 0 {
-            let style = if bash_prompt.is_some() { border } else { bg };
-            row.push(Span::styled(prompt.to_string(), style));
-        } else {
-            row.push(Span::styled(" ".repeat(prompt_width), bg));
-        }
-        row.push(Span::styled(" ".to_string(), bg));
+        let mut row: Line = vec![lead];
         let text: &str = &line.text;
         let cursor_pos = line
             .has_cursor
@@ -164,47 +126,29 @@ pub(crate) fn render(
             &highlights,
             chunk_selection(selection, line.source_line, line.source_start, text),
             cursor_pos,
-            bg,
+            plain,
         ));
-        let mut used = str_width(text);
-        if cursor_pos == Some(text.chars().count()) {
-            // The end-of-line cursor appends one reversed cell.
-            used += 1;
-        }
         if let Some(position) = cursor_pos {
             let head = split_at_chars(text, position).0;
-            cursor = Some((
-                1 + content_offset + index,
-                str_width(head) + prompt_width + 2,
-            ));
+            cursor = Some((content_offset + index, str_width(head) + prompt_width));
         }
-        row.push(Span::styled(
-            " ".repeat(input_width.saturating_sub(used)),
-            bg,
-        ));
-        row.push(Span::styled(" ".repeat(padding_x), bg));
         rows.push(row);
     }
     if hidden_below > 0 {
-        rows.push(indicator_row(
-            &format!(" {} {hidden_below} more", crate::glyphs::DOWN),
-            bg,
-            border,
-            width,
-        ));
-    } else {
-        rows.push(vec![Span::styled(" ".repeat(width), bg)]);
+        rows.push(vec![Span::styled(
+            format!("{} {hidden_below} more", crate::glyphs::DOWN),
+            dim,
+        )]);
     }
     EditorBox { rows, cursor }
 }
 
-/// The autocomplete dropdown, mounted just above the editor surface (TS
-/// anchors the overlay immediately above the cursor row; the editor's
-/// first content row carries the cursor in the common single-line
-/// case). The panel opens with the one full-width muted rule every
-/// inline menu panel opens with (the operator's 2026-09-26 top-border
-/// directive), its rows pad to the input width and float on the popup
-/// background between the editor's left padding and prompt prefix, and
+/// The autocomplete dropdown, mounted just above the prompt (TS anchors
+/// the overlay immediately above the cursor row; the editor's first
+/// content row carries the cursor in the common single-line case). The
+/// panel opens with the one full-width muted rule every inline menu panel
+/// opens with (the operator's 2026-09-26 top-border directive), its rows
+/// start under the input column and float on the popup background, and
 /// the selected row's wash spans the panel's full width like the
 /// `/model` picker's selected row.
 pub(crate) fn overlay(editor: &Editor, theme: &Theme, width: usize) -> Vec<Line> {
@@ -213,13 +157,11 @@ pub(crate) fn overlay(editor: &Editor, theme: &Theme, width: usize) -> Vec<Line>
     };
     let bg = theme.bg_style(ThemeBg::ToolPanelBg);
     let selection = theme.soft_selection_style();
-    let padding_x = 2usize;
     // The overlay anchors against the live prompt prefix (TS
     // `getRenderMetrics`'s `promptPrefixWidth`, the `!`/`!!` prompts
     // included).
     let prompt_width = str_width(editor.bash_prompt_prefix().unwrap_or("> "));
-    let content_width = width.saturating_sub(padding_x * 2).max(1);
-    let input_width = content_width.saturating_sub(prompt_width).max(1);
+    let input_width = width.saturating_sub(prompt_width).max(1);
     // The panel's top border: the muted rule that separates an
     // inline menu panel from the rows above it, drawn on the panel
     // surface.
@@ -247,13 +189,12 @@ pub(crate) fn overlay(editor: &Editor, theme: &Theme, width: usize) -> Vec<Line>
         }
         let used: usize = line.iter().map(|s| str_width(&s.content)).sum();
         let edge = if selected { bg.patch(selection) } else { bg };
-        let mut row: Line = vec![Span::styled(" ".repeat(padding_x + prompt_width), edge)];
+        let mut row: Line = vec![Span::styled(" ".repeat(prompt_width), edge)];
         row.extend(line);
         row.push(Span::styled(
             " ".repeat(input_width.saturating_sub(used)),
             edge,
         ));
-        row.push(Span::styled(" ".repeat(padding_x), edge));
         rows.push(row);
     }
     rows

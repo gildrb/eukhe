@@ -1,15 +1,14 @@
-//! Chat chrome: the brand splash header, the prompt context line (chat
-//! name, spend, detail mode), and the tray line under the editor. Ports
-//! the TS components `BrandSplashHeader` (interactive-mode.ts),
-//! `top-bar.ts` (its name and spend now ride the prompt context line),
-//! and `subagent-summary-line.ts` row layout.
+//! Chat chrome: the chat state the status line reads, the activity dock's
+//! groups, the brand splash header, and the `/speed` footer. Ports the TS
+//! component `BrandSplashHeader` (interactive-mode.ts); the status line
+//! itself lives in `status_line`.
 
 use crate::style::Style;
 use crate::width::str_width;
 use crate::{Line, Span};
 use serde_json::Value;
 
-use crate::theme::{Theme, ThemeBg, ThemeColor};
+use crate::theme::{Theme, ThemeColor};
 
 /// Truncate a plain string to a visible width (TS `truncateToWidth` for
 /// plain strings: cut on grapheme boundaries, appending the ellipsis).
@@ -48,36 +47,38 @@ pub struct ChromeState {
     /// agents view's `agents N running, ...` count row and, in scoped
     /// mode, the `depth N` row). Empty renders none.
     pub extra_metadata: Vec<(String, String)>,
-    /// Top-bar chat name (session name or the cwd basename).
-    pub chat_name: String,
-    /// Session spend (USD) beside the chat name: the family rollup
-    /// (the session's own whole-file spend plus every subagent
-    /// descendant's -- the same number the agents view bills the row).
+    /// The session's name; `None` while it is unnamed (the status line
+    /// shows a name segment only for a named session).
+    pub session_name: Option<String>,
+    /// Session spend (USD): the family rollup (the session's own
+    /// whole-file spend plus every subagent descendant's -- the same
+    /// number the agents view bills the row).
     pub cost_usd: Option<f64>,
-    /// Context usage: tokens, window, percent (tray right label).
+    /// Context usage: tokens and window (the status line's right side).
     pub context: Option<ContextUsage>,
-    /// `<- manage` hint: shown for persisted (attachable) sessions.
-    pub show_manage: bool,
+    /// Where the cwd sits in git, from the background probe; `None`
+    /// outside a repository or before the first probe lands.
+    pub git: Option<crate::git_placement::GitPlacement>,
     /// The attached session's RLM depth (TS `formatAgentDepthLabel`): a
-    /// subagent session renders `depth N` after the manage hint; a root
-    /// session (depth 0 or unknown) renders none.
+    /// subagent session shows a `depth N` segment; a root session (depth
+    /// 0 or unknown) none.
     pub tray_depth: Option<u32>,
-    /// Thinking effort suffix rendered as `model:effort` in the tray (TS
-    /// `getModelContextLabel`); `None` keeps the bare model id.
+    /// The model's thinking level (wire name), shown after the model (TS
+    /// `getModelContextLabel`); `None` for a model without reasoning.
     pub thinking_suffix: Option<String>,
     /// The session's effective service tier as its wire name (TS
-    /// `connectionState.serviceTier`): the tray badge after the model --
-    /// `fast` for priority, the tier name for any other non-default tier.
+    /// `connectionState.serviceTier`): the badge after the model -- `>>`
+    /// for priority, the tier name for any other non-default tier.
     /// `None` (or `default`) renders no badge.
     pub service_tier: Option<String>,
     /// Startup warning (tmux keyboard setup), rendered as a status row.
     pub tmux_notice: Option<String>,
-    /// Tray override label (TS `getTrayOverrideLabel`): while the Ctrl+C
-    /// exit hint is armed, it replaces the tray's location label.
+    /// The status line's leading hint (TS `getTrayOverrideLabel`): the
+    /// armed Ctrl+C exit hint or the streaming follow-up hint.
     pub tray_override: Option<String>,
-    /// The compact, borderless activity dock under the editor: a live
-    /// session always mounts it; `None` means no session owns this
-    /// view (the replay and app surfaces).
+    /// The activity groups the status line shows while they count
+    /// something; `None` means no session owns this view (the replay and
+    /// app surfaces).
     pub activity: Option<ActivityDock>,
     /// The footer's tok/sec readout (TS `FooterComponent` under `/speed`):
     /// the dim bottom row's text; `None` renders no row. The client keeps
@@ -121,10 +122,9 @@ pub enum ActivityDirection {
     Next,
 }
 
-/// The bottom activity dock: it renders in every session, the all-zero
-/// row included (the operator's 2026-09-28 directive; TS
-/// `SubagentSummaryLine` renders nothing at zero, a sanctioned
-/// divergence).
+/// The activity groups behind the status line's activity segments: every
+/// group stays arrow-traversable while the dock is focused (a focused dock
+/// shows every group, the zero counts included).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActivityDock {
     /// The directly-running children right now (one addend of the
@@ -244,16 +244,6 @@ pub fn format_token_count(count: u64) -> String {
         return format!("{:.1}M", count as f64 / 1_000_000.0);
     }
     format!("{}M", (count as f64 / 1_000_000.0).round() as u64)
-}
-
-/// The top-bar chat name for an unnamed session: the cwd basename
-/// (TS `path.basename(getCurrentCwd())`).
-#[must_use]
-pub fn display_name(cwd: &str) -> String {
-    std::path::Path::new(cwd).file_name().map_or_else(
-        || cwd.to_string(),
-        |name| name.to_string_lossy().to_string(),
-    )
 }
 
 /// The `~`-compressed cwd for the splash line (TS `formatSplashCwd`).
@@ -383,146 +373,12 @@ pub fn render_splash(state: &ChromeState, theme: &Theme, width: usize) -> Vec<Li
     lines
 }
 
-/// The plain row above the prompt: the chat name and its spend left (TS
-/// `TopBar`'s content), the detail status right (TS `PromptContextLine`,
-/// always `["", row]`). The name gives way first when the row is short.
-#[must_use]
-pub fn render_prompt_context(
-    state: &ChromeState,
-    detail_label: &str,
-    theme: &Theme,
-    width: usize,
-) -> Vec<Line> {
-    if width < 1 {
-        return Vec::new();
-    }
-    let padding_x = usize::from(width > 2);
-    let content_width = width.saturating_sub(padding_x * 2);
-    let dim = theme.fg_style(ThemeColor::Dim);
-    let label = truncate_to_width(detail_label, content_width, "");
-    let mut left: Line = Vec::new();
-    let name = state
-        .chat_name
-        .chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .replace(char::is_whitespace, " ")
-        .trim()
-        .to_string();
-    let room = content_width.saturating_sub(str_width(&label) + 2);
-    if !name.is_empty() && room > 0 {
-        let text = match state.cost_usd.filter(|cost| *cost >= 0.0) {
-            Some(cost) => format!("{name}  ${cost:.2}"),
-            None => name,
-        };
-        left.push(Span::styled(
-            truncate_to_width(&text, room, crate::glyphs::ELLIPSIS),
-            theme.fg_style(ThemeColor::Muted),
-        ));
-    }
-    let used = crate::width::line_width(&left) + str_width(&label);
-    let mut row = vec![Span::raw(" ".repeat(padding_x))];
-    row.extend(left);
-    row.push(Span::raw(" ".repeat(content_width.saturating_sub(used))));
-    row.push(Span::styled(label, dim));
-    row.push(Span::raw(" ".repeat(padding_x)));
-    vec![Vec::new(), row]
-}
-
-/// The conversation-detail status label (TS `formatConversationDetailStatus`):
-/// "Expanded" (all output), "Details" (thinking + diffs, output collapsed), or
-/// "Collapsed"; only Expanded flips the key hint to "collapse".
-#[must_use]
-pub fn conversation_detail_status(all_output: bool, details: bool, key_display: &str) -> String {
-    let label = if all_output {
-        "Expanded"
-    } else if details {
-        "Details"
-    } else {
-        "Collapsed"
-    };
-    let action = if all_output { "collapse" } else { "expand" };
-    format!("{label} mode ({key_display} to {action})")
-}
-
-/// The tray row under the editor (TS `SubagentSummaryLine.renderInfoLine`):
-/// location label left, context label right, over the full width.
-#[must_use]
-pub fn render_tray(state: &ChromeState, theme: &Theme, width: usize) -> Line {
-    let dim = theme.fg_style(ThemeColor::Dim);
-    let muted = theme.fg_style(ThemeColor::Muted);
-    let mut left: Line = Vec::new();
-    if let Some(override_label) = &state.tray_override {
-        // TS `renderInfoLine`: the override label replaces the location
-        // label on the left while it is set.
-        left.push(Span::styled(override_label.clone(), muted));
-    } else if state.show_manage {
-        left.push(Span::styled(crate::glyphs::KEY_LEFT.to_string(), dim));
-        left.push(Span::styled(" to manage".to_string(), muted));
-        // TS `getTrayLocationLabel`: a subagent session joins its
-        // `depth N` label onto the manage hint (a root session
-        // renders none).
-        if let Some(depth) = state.tray_depth.filter(|depth| *depth > 0) {
-            left.push(Span::styled("  ".to_string(), muted));
-            left.push(Span::styled(format!("depth {depth}"), muted));
-        }
-    }
-    let mut right: Line = Vec::new();
-    if let Some(model) = &state.model_id {
-        let mut label = model.clone();
-        if let Some(suffix) = &state.thinking_suffix {
-            label.push(':');
-            label.push_str(suffix);
-        }
-        if !right.is_empty() {
-            right.push(Span::styled(crate::glyphs::SEP.to_string(), dim));
-        }
-        right.push(Span::styled(label, dim));
-    }
-    // TS footer badge (#2144): `fast` for the priority tier, the tier name
-    // for any other non-default tier.
-    let tier_badge = match state.service_tier.as_deref() {
-        Some("priority") => Some("fast"),
-        Some(tier) if tier != "default" => Some(tier),
-        _ => None,
-    };
-    if let Some(badge) = tier_badge {
-        if !right.is_empty() {
-            right.push(Span::styled(crate::glyphs::SEP.to_string(), dim));
-        }
-        right.push(Span::styled(badge.to_string(), dim));
-    }
-    if let Some(context) = &state.context {
-        if !right.is_empty() {
-            right.push(Span::styled(crate::glyphs::SEP.to_string(), dim));
-        }
-        right.push(Span::styled(
-            format!(
-                "{} ({:.0}%)",
-                format_token_count(context.tokens),
-                context.percent()
-            ),
-            dim,
-        ));
-    }
-    let left_width: usize = left.iter().map(|s| str_width(&s.content)).sum();
-    let right_width: usize = right.iter().map(|s| str_width(&s.content)).sum();
-    let gap = width.saturating_sub(left_width + right_width);
-    let mut line: Line = Vec::new();
-    line.extend(left);
-    line.push(Span::styled(" ".repeat(gap), Style::default()));
-    line.extend(right);
-    line
-}
-
-/// The tray model label's thinking-effort suffix (TS `getModelContextLabel`:
+/// The model's thinking-level label (TS `getModelContextLabel`:
 /// `model.reasoning ? connectionState.thinkingLevel : undefined` -- a model
-/// without reasoning renders the bare id, and so does a level outside the
-/// wire vocabulary, which TS would render raw). The state's level parses
-/// to its wire name, so the suffix is always one of the TS `ThinkingLevel`
-/// strings, including "off" when the session explicitly turned thinking
-/// off -- the tray shows `model:off` like TS; only the agents-view Model
-/// column hides "off" (`formatSessionModel`).
+/// without reasoning shows the bare id, and so does a level outside the
+/// wire vocabulary). The state's level parses to its wire name, so the
+/// label is always one of the TS `ThinkingLevel` strings, including "off"
+/// when the session explicitly turned thinking off.
 pub(crate) fn tray_thinking_suffix(state: &Value) -> Option<String> {
     let reasoning = state
         .get("model")
@@ -542,7 +398,7 @@ pub(crate) fn tray_thinking_suffix(state: &Value) -> Option<String> {
 /// Truncate a styled span row to a visible width, replacing the tail with
 /// the ellipsis when it does not fit (TS `truncateToWidth` on the composed
 /// row).
-fn truncate_spans_to_width(spans: &[crate::Span], width: usize) -> Vec<crate::Span> {
+pub(crate) fn truncate_spans_to_width(spans: &[crate::Span], width: usize) -> Vec<crate::Span> {
     let mut out: Vec<crate::Span> = Vec::new();
     let mut remaining = width;
     for (index, span) in spans.iter().enumerate() {
@@ -641,117 +497,6 @@ fn land_marker(out: &mut Vec<crate::Span>, width: usize) {
     }
 }
 
-/// The framed activity dock: a muted separator rule above one row of
-/// the actionable groups -- the row renders in every session, all-zero
-/// included. The TS summary line wraps its content in an accent-colored
-/// box; the inline design language keeps the separation with the same
-/// muted rule that frames the pickers' search fields.
-///
-/// The row color-codes live activity (the operator's 2026-09-24
-/// directive): every count-holding segment goes green while its count
-/// is above zero (subagents, heartbeats, shells, factory, the active
-/// goal) and stays neutral at zero. The subagents segment is one
-/// consolidated item -- `N subagents` (the operator's 2026-09-25
-/// consolidation: the separate running cluster was redundant).
-#[must_use]
-pub fn render_activity_dock(dock: &ActivityDock, theme: &Theme, width: usize) -> Vec<Line> {
-    // The live-only number: the count of actively-running subagents
-    // right now, direct children and nested descendants together (the
-    // operator's 2026-09-28 ask: ONE number). Idle and finished
-    // descendants stay out of the indicator; they render in the scoped
-    // agents view.
-    let running_color = |count: usize| {
-        if count > 0 {
-            ThemeColor::Success
-        } else {
-            ThemeColor::Muted
-        }
-    };
-    let running = dock.subagents_running_direct + dock.subagents_running_nested;
-    // The row and the arrows share one group order (`groups()`): a
-    // group renders exactly when it stays traversable, so the focused
-    // selection never binds to a hidden segment and no group can be
-    // skipped by its emptiness.
-    let separator = format!(" {} ", crate::glyphs::SEP);
-    let mut line = vec![Span::raw(" ")];
-    for (index, group) in dock.groups().into_iter().enumerate() {
-        if index > 0 {
-            line.push(theme.fg_span(ThemeColor::Dim, separator.clone()));
-        }
-        let spans = match group {
-            ActivityGroup::Subagents => {
-                vec![theme.fg_span(running_color(running), format!("{running} subagents"))]
-            }
-            ActivityGroup::Heartbeats => {
-                let mut heartbeats = vec![theme.fg_span(
-                    running_color(dock.heartbeats),
-                    format!(
-                        "{} heartbeat{}",
-                        dock.heartbeats,
-                        if dock.heartbeats == 1 { "" } else { "s" }
-                    ),
-                )];
-                if dock.heartbeats_paused > 0 {
-                    heartbeats.push(theme.fg_span(ThemeColor::Dim, crate::glyphs::SEP));
-                    heartbeats.push(theme.fg_span(
-                        ThemeColor::Warning,
-                        format!("{} paused", dock.heartbeats_paused),
-                    ));
-                }
-                heartbeats
-            }
-            // Only live bash runs count in the dock's indicator (operator
-            // scoping); the bash view keeps the finished rows. The label is
-            // "shell(s)" (operator directive via #2677): the tool name stays
-            // bash() everywhere else.
-            ActivityGroup::Bash => vec![theme.fg_span(
-                running_color(dock.bash_running),
-                format!(
-                    "{} shell{}",
-                    dock.bash_running,
-                    if dock.bash_running == 1 { "" } else { "s" }
-                ),
-            )],
-            // The factory page's indicator counts live runs only
-            // (running, stopping, paused): done and failed runs stay as
-            // panels inside the factory page, never in the indicator.
-            ActivityGroup::Factory => vec![theme.fg_span(
-                running_color(dock.factory_runs),
-                format!("{} factory", dock.factory_runs),
-            )],
-            // The goal row carries the dock's activity convention: an
-            // actively pursued goal reads green, and the paused and
-            // budget-limited states read amber (the paused heartbeat
-            // cluster's own warning color) -- the dock is the goal's one
-            // chrome surface, so every live state stays visible.
-            ActivityGroup::Goal => {
-                let goal = dock.goal_label.as_deref().unwrap_or_default();
-                let goal_color = if goal.starts_with("Pursuing goal") {
-                    ThemeColor::Success
-                } else {
-                    ThemeColor::Warning
-                };
-                vec![theme.fg_span(goal_color, goal.to_string())]
-            }
-        };
-        if dock.focused && dock.selected == group {
-            // The focused group reads as one unit behind the shared
-            // selection band; each span keeps its own status color, so
-            // the selection never repaints the text.
-            let band = theme.selection_row_style();
-            for span in spans {
-                line.push(Span::styled(span.content.clone(), span.style.patch(band)));
-            }
-        } else {
-            line.extend(spans);
-        }
-    }
-    vec![
-        vec![theme.fg_span(ThemeColor::BorderMuted, crate::glyphs::RULE.repeat(width))],
-        truncate_spans_to_width(&line, width),
-    ]
-}
-
 /// The footer's tok/sec row (TS `FooterComponent::render` under `/speed`):
 /// one dim line -- the dock's last row -- truncated with no ellipsis when it
 /// overflows the width.
@@ -762,10 +507,5 @@ pub fn render_speed_footer(text: &str, theme: &Theme, width: usize) -> Line {
     vec![Span::styled(text, dim)]
 }
 
-/// The editor surface background: `userMessageBg` (TS `getEditorTheme`).
-#[must_use]
-pub fn editor_background(theme: &Theme) -> crate::style::Style {
-    theme.bg_style(ThemeBg::UserMessageBg)
-}
 #[cfg(test)]
 mod tests;

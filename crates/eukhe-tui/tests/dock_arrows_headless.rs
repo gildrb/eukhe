@@ -439,11 +439,11 @@ fn dock_arrows_visit_each_empty_section_in_order_both_directions() {
     ];
     let outcome = run_plan(steps, None, Some(live_goal()));
     let all = outcome.frames.join("\n");
-    // The dock row itself: every section renders, empty ones included,
-    // with its live count.
+    // The focused dock shows every section, empty ones included, with
+    // its live count.
     assert!(
-        all.contains(" 0 subagents  -  0 heartbeats  -  0 shells  -  Pursuing goal (0s)"),
-        "the dock renders every section with its zero count:\n{all}"
+        all.contains(" - 0 subagents - 0 heartbeats - 0 shells - Pursuing goal (0s)"),
+        "the focused dock renders every section with its zero count:\n{all}"
     );
     // Entering an empty section opens its view, and the empty state is
     // the pane's own grammar row.
@@ -528,8 +528,8 @@ fn dock_arrows_visit_the_same_sections_when_one_has_rows() {
     let outcome = run_plan(steps, Some(canary_heartbeats()), Some(live_goal()));
     let all = outcome.frames.join("\n");
     assert!(
-        all.contains(" 0 subagents  -  1 heartbeat  -  0 shells  -  Pursuing goal (0s)"),
-        "the dock row reads the live counts:\n{all}"
+        all.contains(" - 0 subagents - 1 heartbeat - 0 shells - Pursuing goal (0s)"),
+        "the focused dock reads the live counts:\n{all}"
     );
     assert!(
         all.contains("lane canary"),
@@ -578,25 +578,38 @@ fn left_from_the_subagents_selection_opens_the_agents_view() {
 }
 
 /// The all-zero dock (the operator's 2026-09-28 directive): with no
-/// subagents, heartbeats, shells, or goal, the dock row still renders
-/// its zero counts, alt+a takes the focus, and Enter on the Subagents
-/// group opens the scoped agents view — whose empty roster is the
-/// view's own `No sessions yet.` state.
+/// subagents, heartbeats, shells, or goal, the status line shows no
+/// activity segment; alt+a takes the focus and shows the zero counts, and
+/// Enter on the Subagents group opens the scoped agents view -- whose
+/// empty roster is the view's own `No sessions yet.` state.
 #[test]
 fn an_all_zero_dock_renders_and_opens_the_empty_scoped_agents_view() {
     let steps = vec![
         HeadlessStep::WaitRender {
-            needle: " 0 subagents  -  0 heartbeats  -  0 shells".to_string(),
+            needle: "dock arrows session".to_string(),
             timeout_ms: 5_000,
         },
         HeadlessStep::Key(alt_a()),
+        HeadlessStep::WaitRender {
+            needle: " - 0 subagents - 0 heartbeats - 0 shells".to_string(),
+            timeout_ms: 5_000,
+        },
         HeadlessStep::Key(enter()),
     ];
     let outcome = run_plan(steps, None, None);
     let all = outcome.frames.join("\n");
     assert!(
-        all.contains(" 0 subagents  -  0 heartbeats  -  0 shells"),
-        "the all-zero dock renders:\n{all}"
+        all.contains(" - 0 subagents - 0 heartbeats - 0 shells"),
+        "the focused all-zero dock renders:\n{all}"
+    );
+    let attached = outcome
+        .frames
+        .iter()
+        .find(|frame| frame.contains("dock arrows session"))
+        .expect("an attached frame");
+    assert!(
+        !attached.contains("subagents"),
+        "the unfocused all-zero dock shows no segment:\n{attached}"
     );
     assert!(
         outcome.return_to_agents_view,

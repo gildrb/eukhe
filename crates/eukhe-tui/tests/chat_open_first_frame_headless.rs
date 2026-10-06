@@ -1,10 +1,9 @@
 //! Headless e2e for the chat-open first frame (the operator's
 //! 2026-09-26 layout-shift report): opening a chat view must paint its
-//! final geometry in the FIRST frame. The activity dock — the muted
-//! divider rule plus the panel row that render under the prompt bar —
-//! and the session title on the prompt context row ride the first content frame together with
-//! the transcript, and a chat that opens directly into content never
-//! renders the brand splash at all.
+//! final geometry in the FIRST frame. The status line's activity counts
+//! and the session name ride the first content frame together with the
+//! transcript, and a chat that opens directly into content never renders
+//! the brand splash at all.
 //!
 //! The mock supervisor serves the attach snapshot immediately but
 //! delays the `heartbeats_list` and `list_kernel_bash` responses (the
@@ -307,41 +306,33 @@ fn run_open(transcript: &OpeningTranscript) -> Vec<String> {
     outcome.frames
 }
 
-/// The dock's divider rule: one full-width row of rule cells.
-fn is_divider_row(line: &str, width: usize) -> bool {
-    !line.is_empty() && line.len() == width && line.chars().all(|c| c == '-')
-}
-
-/// The dock's counts (the activity panel row under the prompt bar) are
-/// first-frame state: every captured frame carries both rows with the
-/// final count, so the delayed dock data never repaints the row in
-/// late — the first frame is the final geometry (the operator's
-/// zero-layout-shift report).
+/// The activity counts on the status line are first-frame state: every
+/// captured frame carries the final count, so the delayed dock data
+/// never repaints the line in late -- the first frame is the final
+/// geometry (the operator's zero-layout-shift report).
 #[test]
-fn the_activity_dock_is_in_every_frame_from_the_first() {
+fn the_activity_segments_are_in_every_frame_from_the_first() {
     let frames = run_open(&OpeningTranscript::Empty);
     assert!(!frames.is_empty(), "frames were captured");
     let offenders: Vec<usize> = frames
         .iter()
         .enumerate()
-        .filter(|(_, frame)| {
-            !frame.contains(" 1 heartbeat") || !frame.lines().any(|line| is_divider_row(line, 100))
-        })
+        .filter(|(_, frame)| !frame.contains(" - 1 heartbeat"))
         .map(|(index, _)| index)
         .collect();
     assert!(
         offenders.is_empty(),
-        "every frame from the first carries the dock divider plus the \
-         heartbeat panel row (frames {offenders:?} lack it) — the dock \
-         data must fold with the attach, never land as a late repaint:\n{}",
+        "every frame from the first carries the heartbeat segment (frames \
+         {offenders:?} lack it) -- the dock data must fold with the attach, \
+         never land as a late repaint:\n{}",
         frames.join("\n---frame---\n")
     );
 }
 
 /// A chat that opens directly into content paints its first frame from
-/// the snapshot: the transcript, the session title on the prompt context
-/// row, and the dock all ride that same frame, and the brand splash (the
-/// new chat's header) never renders.
+/// the snapshot: the transcript, the session name on the status line,
+/// and the activity counts all ride that same frame, and the brand
+/// splash (the new chat's header) never renders.
 #[test]
 fn a_direct_open_into_content_never_renders_the_splash() {
     let frames = run_open(&OpeningTranscript::Content);

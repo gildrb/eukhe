@@ -683,7 +683,7 @@ impl SessionUi {
         // `resetCurrentSessionRenderState` clears the selection).
         let _ = self.queue_selection.reset();
         view.queue_selected = None;
-        view.chrome.chat_name = self.session_display();
+        view.chrome.session_name.clone_from(&self.session_name);
         view.chrome.context = self.context;
         self.update_subagent_summary(view);
         // The rebuilt transcript invalidates the announcement row tracking;

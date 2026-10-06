@@ -1,5 +1,5 @@
-//! Headless e2e for the prompt's Down into the activity dock (the tray
-//! row under the editor), the operator's 2026-10-01 consistency ruling:
+//! Headless e2e for the prompt's Down into the activity dock (the status
+//! line's activity segments), the operator's 2026-10-01 consistency ruling:
 //! Down at the end of the prompt ALWAYS hands the focus to the dock — the
 //! all-zero dock and a dock with only shells running included —
 //! Left/Right walk its groups, Enter opens the focused group's view even
@@ -295,8 +295,11 @@ fn run_plan(
     outcome
 }
 
-/// The all-zero dock row.
-const ALL_ZERO_DOCK: &str = " 0 subagents  -  0 heartbeats  -  0 shells";
+/// The attached session's name on the status line.
+const ATTACHED: &str = "tray session";
+
+/// The focused all-zero dock: every group with its zero count.
+const FOCUSED_ZERO_DOCK: &str = " - 0 subagents - 0 heartbeats - 0 shells";
 
 /// Bug 1: with zero subagents (every count zero), the prompt's Down
 /// enters the dock on its subagents group, and Enter opens the scoped
@@ -305,10 +308,14 @@ const ALL_ZERO_DOCK: &str = " 0 subagents  -  0 heartbeats  -  0 shells";
 fn prompt_down_enters_the_all_zero_dock_and_enter_opens_subagents() {
     let steps = vec![
         HeadlessStep::WaitRender {
-            needle: ALL_ZERO_DOCK.to_string(),
+            needle: ATTACHED.to_string(),
             timeout_ms: 5_000,
         },
         HeadlessStep::Key(down()),
+        HeadlessStep::WaitRender {
+            needle: FOCUSED_ZERO_DOCK.to_string(),
+            timeout_ms: 5_000,
+        },
         HeadlessStep::Key(enter()),
         HeadlessStep::WaitMs(300),
     ];
@@ -327,7 +334,7 @@ fn prompt_down_enters_the_all_zero_dock_and_enter_opens_subagents() {
 fn prompt_down_reaches_every_empty_group() {
     let steps = vec![
         HeadlessStep::WaitRender {
-            needle: ALL_ZERO_DOCK.to_string(),
+            needle: ATTACHED.to_string(),
             timeout_ms: 5_000,
         },
         HeadlessStep::Key(down()),
@@ -365,7 +372,7 @@ fn prompt_down_reaches_every_empty_group() {
 fn prompt_down_reaches_the_shells_group_with_zero_subagents() {
     let steps = vec![
         HeadlessStep::WaitRender {
-            needle: "0 subagents  -  0 heartbeats  -  1 shell".to_string(),
+            needle: " - 1 shell".to_string(),
             timeout_ms: 5_000,
         },
         HeadlessStep::Key(down()),
@@ -395,7 +402,7 @@ fn up_and_esc_return_from_the_dock_to_the_prompt() {
     for back in [up(), escape()] {
         let steps = vec![
             HeadlessStep::WaitRender {
-                needle: ALL_ZERO_DOCK.to_string(),
+                needle: ATTACHED.to_string(),
                 timeout_ms: 5_000,
             },
             HeadlessStep::Key(down()),

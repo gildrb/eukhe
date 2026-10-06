@@ -349,22 +349,22 @@ fn run_plan(session: MockSession, steps: Vec<HeadlessStep>) -> Vec<String> {
     outcome.frames
 }
 
-/// `/effort` moves the tray's `model:effort` label live: the attach state
-/// seeds `glm-5.3:medium`, the switch's level lands as `glm-5.3:high`,
-/// and the frame that reports the switch carries the new label only.
+/// `/effort` moves the status line's thinking label live: the attach
+/// state seeds `[med]`, the switch's level lands as `[high]`, and the
+/// frame that reports the switch carries the new label only.
 #[test]
 fn effort_command_moves_the_tray_model_label() {
     let steps = vec![
         HeadlessStep::Submit("/effort high".to_string()),
         HeadlessStep::WaitRender {
-            needle: "glm-5.3:high".to_string(),
+            needle: HIGH.to_string(),
             timeout_ms: 10_000,
         },
         HeadlessStep::WaitMs(200),
     ];
     let frames = run_plan(reasoning_session(), steps);
     assert!(
-        frames.iter().any(|frame| frame.contains("glm-5.3:medium")),
+        frames.iter().any(|frame| frame.contains(MEDIUM)),
         "the attach state seeds the level suffix:\n{}",
         frames.join("\n---\n")
     );
@@ -374,11 +374,11 @@ fn effort_command_moves_the_tray_model_label() {
         .find(|frame| frame.contains("Thinking level: high"))
         .expect("the switch's status note rendered");
     assert!(
-        switched.contains("glm-5.3:high"),
+        switched.contains(HIGH),
         "the tray label follows the switch:\n{switched}"
     );
     assert!(
-        !switched.contains("glm-5.3:medium"),
+        !switched.contains(MEDIUM),
         "the pre-switch label is gone:\n{switched}"
     );
 }
@@ -406,31 +406,36 @@ fn effort_switch_with_failed_state_read_never_keeps_the_stale_suffix() {
         .find(|frame| frame.contains("Thinking level: high"))
         .expect("the switch's status note rendered");
     assert!(
-        switched.contains("glm-5.3:high"),
+        switched.contains(HIGH),
         "the failed read falls back to the requested level:\n{switched}"
     );
     assert!(
-        !switched.contains("glm-5.3:medium"),
+        !switched.contains(MEDIUM),
         "the pre-switch suffix never survives a switch:\n{switched}"
     );
 }
 
 /// A model without reasoning renders the bare id: the state's level is
-/// "off" but the tray never carries a suffix.
+/// "off" but the status line never carries a thinking label.
 #[test]
 fn tray_label_stays_bare_without_reasoning() {
     let steps = vec![HeadlessStep::WaitRender {
-        needle: "gpt-4o-mini".to_string(),
+        needle: "[M] gpt-4o-mini".to_string(),
         timeout_ms: 10_000,
     }];
     let frames = run_plan(plain_session(), steps);
     let all = frames.join("\n---\n");
     assert!(
-        frames.iter().any(|frame| frame.contains("gpt-4o-mini")),
-        "the bare model id renders in the tray:\n{all}"
+        frames.iter().any(|frame| frame.contains("[M] gpt-4o-mini")),
+        "the bare model id renders on the status line:\n{all}"
     );
     assert!(
-        !all.contains("gpt-4o-mini:"),
-        "a model without reasoning never carries an effort suffix:\n{all}"
+        !all.contains("[M] gpt-4o-mini - ["),
+        "a model without reasoning never carries a thinking label:\n{all}"
     );
 }
+
+/// The status line's model segment at each thinking level (the session
+/// reports the `auto` service tier, the badge after the model).
+const MEDIUM: &str = "[M] glm-5.3 auto - [med]";
+const HIGH: &str = "[M] glm-5.3 auto - [high]";

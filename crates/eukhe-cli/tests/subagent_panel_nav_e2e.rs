@@ -330,18 +330,6 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
             .await
             .expect("parent session run");
 
-    // The dock renders at attach as the one-line activity row (unfocused,
-    // hint-free by design; Enter is the direct launcher). The subagents
-    // segment reads `\u{25c6} N subagents` — one consolidated item (the
-    // operator's 2026-09-25 consolidation), the running count riding
-    // the label in the dock's color: the passivated child is finished,
-    // so the count reads zero — the dock stays mounted and selectable
-    // because the child remains browsable history.
-    let attached = first_frame_of(&parent_run.frames, "subagent");
-    assert!(
-        attached.contains("0 subagents"),
-        "the unfocused dock shows the consolidated subagents segment:\n{attached}"
-    );
     // The single Enter opened the scoped agents view directly: no
     // grouped panel frame ever renders.
     assert!(
@@ -445,8 +433,8 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
             .expect("child session run");
     let child_frame = frame_of(&child_run.frames, "work complete alpha");
     assert!(
-        child_frame.contains("left to manage  depth 1"),
-        "the drilled-in child tray shows the manage hint and its depth:\n{child_frame}"
+        child_frame.contains(" - depth 1"),
+        "the drilled-in child's status line shows its depth:\n{child_frame}"
     );
     assert!(
         child_run.return_to_agents_view,

@@ -199,6 +199,7 @@ async fn run_interactive_surface(
         // value (interactive-mode.ts `new TUI(..., getShowHardwareCursor())`);
         // the settings menu's toggle updates it in place.
         view.show_hardware_cursor = settings.show_hardware_cursor();
+        view.quiet_startup = settings.quiet_startup();
         // TS #2709: the interactive-mode constructor assigns the persisted
         // `chatDetail` level (`assignChatDetail(getChatDetail())`), so a
         // chat opens at the level the last Ctrl+O pick saved - and an
@@ -209,6 +210,9 @@ async fn run_interactive_surface(
         view.detail = crate::chat::Detail::from_wire_name(&settings.chat_detail());
     }
     apply_startup_chrome(&mut view, &options);
+    // The status line's git segments: probed off the render path, every
+    // change folded in by the loop below.
+    let mut git_rx = crate::git_placement::watch(options.cwd.clone());
     let (ui_tx, mut ui_rx) = mpsc::unbounded_channel::<UiInput>();
     // Headless verification runs capture the OSC 52 clipboard channel
     // instead of writing it to the plain pipes.
@@ -1474,6 +1478,12 @@ async fn run_interactive_surface(
             maybe_chat_view = chat_view_rx.recv() => {
                 if let Some(update) = maybe_chat_view {
                     session.apply_chat_view(update, &mut view);
+                }
+            }
+            Some(placement) = git_rx.recv() => {
+                if view.chrome.git != placement {
+                    view.chrome.git = placement;
+                    session.dirty = true;
                 }
             }
             maybe_prompt = prompt_rx.recv() => {

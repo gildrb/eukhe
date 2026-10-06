@@ -12,7 +12,6 @@
 
 use super::frame::{ChatFrame, FrameStart};
 use super::AgentView;
-use crate::chrome::render_splash;
 use crate::inline_term::LiveCursor;
 use crate::screen_mode::WheelDirection;
 use crate::theme::ThemeColor;
@@ -100,8 +99,7 @@ impl Blocks<'_> {
         let (view, width) = (self.view, self.width);
         self.settled[block].get_or_insert_with(|| match block.checked_sub(1) {
             Some(index) => view.render_entry_at(index, width),
-            None if view.splash_suppressed => Vec::new(),
-            None => render_splash(&view.chrome, &view.theme, width),
+            None => view.splash_rows(width),
         })
     }
 

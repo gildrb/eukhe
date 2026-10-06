@@ -398,15 +398,25 @@ fn ctrl_o() -> KeyEvent {
     KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)
 }
 
-const DETAILS_LABEL: &str = "Details mode (Ctrl+O to expand)";
-const ALL_LABEL: &str = "Expanded mode (Ctrl+O to collapse)";
-const OVERVIEW_LABEL: &str = "Collapsed mode (Ctrl+O to expand)";
+/// The status line's detail segments; the default `overview` level shows
+/// none.
+const DETAILS_LABEL: &str = " - details";
+const ALL_LABEL: &str = " - expanded";
 
 fn wait_label(label: &str) -> HeadlessStep {
     HeadlessStep::WaitRender {
         needle: label.to_string(),
         timeout_ms: 10_000,
     }
+}
+
+/// The first frame showing the attached session (its name on the status
+/// line).
+fn first_attached_frame<'a>(frames: &'a [String], name: &str) -> &'a str {
+    frames
+        .iter()
+        .find(|frame| frame.contains(name))
+        .unwrap_or_else(|| panic!("no frame shows {name:?}: {}", frames.join("\n")))
 }
 
 /// TS #2709's regression shape: pick a level with Ctrl+O in one chat;
@@ -430,16 +440,17 @@ fn ctrl_o_pick_persists_and_a_later_chat_reopens_at_it() {
             name: "detail persist session",
         },
         vec![
-            wait_label(OVERVIEW_LABEL),
+            wait_label("detail persist session"),
             HeadlessStep::Key(ctrl_o()),
             wait_label(DETAILS_LABEL),
         ],
     );
-    let all = frames.join("\n");
+    let attached = first_attached_frame(&frames, "detail persist session");
     assert!(
-        all.contains(OVERVIEW_LABEL),
-        "the chat starts at the collapsed startup level: {all}"
+        !attached.contains(DETAILS_LABEL) && !attached.contains(ALL_LABEL),
+        "the chat starts at the collapsed startup level: {attached}"
     );
+    let all = frames.join("\n");
     assert!(
         all.contains(DETAILS_LABEL),
         "ctrl+o reveals the thinking level: {all}"
@@ -466,14 +477,10 @@ fn ctrl_o_pick_persists_and_a_later_chat_reopens_at_it() {
         },
         vec![wait_label(DETAILS_LABEL)],
     );
-    let all = frames.join("\n");
+    let attached = first_attached_frame(&frames, "the next chat");
     assert!(
-        !all.contains(OVERVIEW_LABEL),
-        "a later chat opens at the saved level, not the collapsed default: {all}"
-    );
-    assert!(
-        all.contains(DETAILS_LABEL),
-        "a later chat renders the saved details level: {all}"
+        attached.contains(DETAILS_LABEL),
+        "a later chat opens at the saved details level: {attached}"
     );
     assert_eq!(
         run_two.stored().as_deref(),
@@ -499,13 +506,15 @@ fn the_cycle_saves_the_overview_wrap_too() {
         vec![
             wait_label(ALL_LABEL),
             HeadlessStep::Key(ctrl_o()),
-            wait_label(OVERVIEW_LABEL),
+            // The typed text renders after the Ctrl+O was handled.
+            HeadlessStep::Type("x".to_string()),
+            wait_label("> x"),
         ],
     );
-    let all = frames.join("\n");
+    let last = frames.last().expect("a frame");
     assert!(
-        all.contains(OVERVIEW_LABEL),
-        "ctrl+o wraps all -> overview: {all}"
+        last.contains("wrap session") && !last.contains(ALL_LABEL) && !last.contains(DETAILS_LABEL),
+        "ctrl+o wraps all -> overview: {last}"
     );
     assert_eq!(
         settings.stored().as_deref(),

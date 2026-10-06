@@ -498,13 +498,6 @@ impl Theme {
             .collect()
     }
 
-    /// Editor surface background (userMessageBg) -- in the TS theme the editor
-    /// and user messages share the surface color.
-    #[must_use]
-    pub fn editor_background(&self) -> Option<Style> {
-        Some(self.bg_style(ThemeBg::UserMessageBg))
-    }
-
     /// Filled effort squares: a pastel purple that reads softer than the
     /// theme accent (TS `getEffortSquareColor`). The TS theme picks a light
     /// pastel on light terminal backgrounds; the Rust theme does not yet

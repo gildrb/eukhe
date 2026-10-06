@@ -375,8 +375,8 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
             .expect("child session run");
     let child_frame = frame_of(&child_run.frames, "work complete alpha");
     assert!(
-        child_frame.contains("left to manage  depth 1"),
-        "the drilled-in child tray shows the manage hint and its depth:\n{child_frame}"
+        child_frame.contains(" - depth 1"),
+        "the drilled-in child's status line shows its depth:\n{child_frame}"
     );
     assert!(
         child_run.return_to_agents_view,

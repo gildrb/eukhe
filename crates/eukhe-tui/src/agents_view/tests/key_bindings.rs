@@ -185,22 +185,18 @@ fn rename_key_composes_edits_and_dispatches() {
         "p name",
         "the prefill is the session name"
     );
-    // The rendered frame: the real editor box (TS SF1 closes: the
-    // warning header rides INSIDE the box, top and bottom bg rows
-    // included); the hint: save/cancel.
+    // The rendered frame: the borderless composer -- the warning header
+    // directly above the prompt row; the hint: save/cancel.
     let (frame, _) = mode.render_frame(120, 20);
     let rendered: Vec<String> = frame.iter().map(flat).collect();
     let header_row = rendered
         .iter()
-        .position(|row| row.starts_with("  Rename agent session"))
-        .expect("the rename header rendered with TS's two-space indent");
-    assert!(
-        rendered[header_row - 1].trim().is_empty(),
-        "the box's top bg row rides above the header"
-    );
-    assert!(
-        rendered.iter().any(|row| row.contains("p name")),
-        "the prefilled draft renders in the box:\n{}",
+        .position(|row| row == "Rename agent session")
+        .expect("the rename header rendered");
+    assert_eq!(
+        rendered[header_row + 1],
+        "> p name ",
+        "the prefilled draft renders on the prompt row:\n{}",
         rendered.join("\n")
     );
     assert_eq!(

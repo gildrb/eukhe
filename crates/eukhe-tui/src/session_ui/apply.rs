@@ -367,7 +367,7 @@ impl SessionUi {
             // path also sets it locally; this is the other-client arm).
             TurnUpdate::SessionInfoChanged { name } => {
                 self.session_name = name;
-                view.chrome.chat_name = self.session_display();
+                view.chrome.session_name.clone_from(&self.session_name);
                 self.dirty = true;
             }
             // `service_tier_changed`: keep the local tier state current (TS

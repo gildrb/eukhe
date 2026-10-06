@@ -61,9 +61,9 @@ use eukhe_tui::interactive::{
 /// resume, and the suspend releases it before the process group stops.
 const PASTE_ENABLE: &str = "\x1b[?2004h";
 const PASTE_DISABLE: &str = "\x1b[?2004l";
-/// The activity dock's row: every session renders it (all-zero counts
-/// included), so it marks the first complete frame.
-const DOCK_ROW: &str = "0 subagents";
+/// The status line's path segment: every session renders it, so it marks
+/// the first complete frame.
+const DOCK_ROW: &str = "[T] /tmp";
 
 /// The kitty capability query crossterm's support check writes (`\x1b[?u`
 /// then the primary-device-attributes query in one write). The port runs

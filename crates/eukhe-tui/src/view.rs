@@ -1,12 +1,12 @@
 //! Interactive agent view: the chat surface composed for the inline
 //! terminal. Settled chat entries move into scrollback (history) once;
 //! the live area below holds the unsettled entries, the transcript tail
-//! (pending bash cards, loaders), toasts, and the dock (prompt-context
-//! line, editor surface or the open panel, tray, footer). The session
-//! loop folds events into the view; this module owns the composition.
+//! (pending bash cards, loaders), toasts, and the dock (the borderless
+//! composer and the status line, or the open panel). The session loop
+//! folds events into the view; this module owns the composition.
 
 use crate::chat::{ChatEntry, CompactionState, Detail, WorkingState};
-use crate::chrome::{conversation_detail_status, ChromeState};
+use crate::chrome::ChromeState;
 use crate::editor::Editor;
 use crate::session::TranscriptItem;
 use crate::theme::Theme;
@@ -157,6 +157,8 @@ pub struct AgentView {
     /// `BrandSplashHeader` is the new chat's header, `quietStartup` and
     /// the onboarding `getHidden` are TS's own suppression gates).
     pub splash_suppressed: bool,
+    /// The `quietStartup` setting: the brand splash never renders.
+    pub quiet_startup: bool,
     /// Rows of the terminal the editor and the live area lay out against.
     terminal_rows: u16,
     /// Cursor cell within the last dock render: (dock row, column).
@@ -331,6 +333,7 @@ impl AgentView {
             show_images: true,
             show_hardware_cursor: false,
             splash_suppressed: false,
+            quiet_startup: false,
             terminal_rows: 24,
             dock_cursor: None,
             committed: 0,
@@ -493,21 +496,6 @@ impl AgentView {
         if index < self.committed {
             self.replay_requested = true;
         }
-    }
-
-    /// The conversation-detail label for the prompt-context row.
-    fn detail_label(&self) -> String {
-        let key = self
-            .editor
-            .keybindings()
-            .first_key("app.tools.expand")
-            .map(|key| crate::keybindings::format_key_text(&key))
-            .unwrap_or_default();
-        conversation_detail_status(
-            self.detail.tool_output_expanded(),
-            self.detail.show_thinking(),
-            &key,
-        )
     }
 
     /// The terminal changed size: its scrollback reflowed, so the next

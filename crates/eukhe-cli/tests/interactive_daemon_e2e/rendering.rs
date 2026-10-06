@@ -152,8 +152,8 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
 /// User-keybinding verifier (TS `keybindings.json` parity, roadmap item
 /// "keybinding customization"): a settings fixture rebinding
 /// `app.tools.expand` from `ctrl+o` to `ctrl+alt+x` drives the whole
-/// surface — the prompt-context hint renders the OVERRIDE key, the
-/// override key fires the action, the default key no longer does, and
+/// surface -- the override key fires the action (the status line shows
+/// the `details` segment), the default key no longer does, and
 /// `/hotkeys` documents the effective binding instead of the default.
 #[tokio::test]
 async fn tui_renders_and_fires_user_keybindings_from_settings() {
@@ -268,23 +268,17 @@ async fn tui_renders_and_fires_user_keybindings_from_settings() {
         .expect("interactive run");
     let rendered = outcome.frames.join("\n");
 
-    // The hint renders the user's binding, not the default, at the
-    // collapsed startup detail level (the overview mode; operator
-    // directive 2026-09-28).
+    // The override key fired the action: the detail cycled from the
+    // collapsed startup level (no status segment) to the thinking-reveal
+    // level.
     assert!(
-        rendered.contains("Collapsed mode (Ctrl+Alt+X to expand)"),
-        "the prompt-context hint renders the override:\n{rendered}"
-    );
-    // The override key fired the action: the detail cycled to the
-    // thinking-reveal level.
-    assert!(
-        rendered.contains("Details mode (Ctrl+Alt+X to expand)"),
+        rendered.contains(" - details"),
         "the override key cycled conversation detail:\n{rendered}"
     );
     // The default key leaves the detail unchanged: the default ctrl+o is
     // no longer bound, so the level never reaches the expanded mode.
     assert!(
-        !rendered.contains("Expanded mode (Ctrl+Alt+X to collapse)"),
+        !rendered.contains(" - expanded"),
         "the default ctrl+o must not cycle after the override:\n{rendered}"
     );
     // The scripted turn still ran under the custom bindings.
@@ -319,8 +313,8 @@ async fn tui_renders_and_fires_user_keybindings_from_settings() {
         "the hotkeys guide never lands in the transcript:\n{last}"
     );
     assert!(
-        last.contains("Details mode (Ctrl+Alt+X to expand)"),
-        "the dock returned after the panel closed:\n{last}"
+        last.contains(" - details"),
+        "the composer returned after the panel closed:\n{last}"
     );
     drop(supervisor);
 }
@@ -551,12 +545,12 @@ async fn tui_flagged_model_turn_reports_the_ts_preflight_error_without_credentia
         "the auth-blind turn resolution must not report the resolver's empty-catalog error:\n{rendered}"
     );
     let last = outcome.frames.last().expect("a final frame");
-    // The reasoning fixture renders its live effort suffix (TS
+    // The reasoning fixture renders its live thinking label (TS
     // `getModelContextLabel`): the label the failed pick must hold is
-    // `model:effort`, with the daemon's effective level for glm-5.3.
+    // the model with the daemon's effective level for glm-5.3.
     assert!(
-        last.contains("z-ai/glm-5.3:high -"),
-        "the footer label holds the resolved flagged model (the failed pick switched nothing):\n{last}"
+        last.contains("[M] z-ai/glm-5.3 - [high]"),
+        "the status line holds the resolved flagged model (the failed pick switched nothing):\n{last}"
     );
     drop(supervisor);
 }
@@ -685,8 +679,8 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
     );
     let last = outcome.frames.last().expect("a final frame");
     assert!(
-        last.contains("mock-2 -"),
-        "the footer label refreshed to the picked model:\n{last}"
+        last.contains("[M] mock-2"),
+        "the status line refreshed to the picked model:\n{last}"
     );
     drop(supervisor);
 }

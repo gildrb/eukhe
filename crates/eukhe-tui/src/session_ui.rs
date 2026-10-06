@@ -688,12 +688,6 @@ impl SessionUi {
         }
     }
 
-    fn session_display(&self) -> String {
-        self.session_name
-            .clone()
-            .unwrap_or_else(|| crate::chrome::display_name(&self.cwd.to_string_lossy()))
-    }
-
     /// The active model's provider from the daemon's state (TS
     /// `getCurrentModel().provider`); best-effort, silent on failure.
     pub(crate) async fn current_model_provider(&mut self) -> Option<String> {

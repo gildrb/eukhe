@@ -1,4 +1,3 @@
-use super::frame::indicator_row;
 use super::*;
 use crate::chat::{AssistantMessage, MessageBlock};
 use crate::style::Modifier;
@@ -123,11 +122,6 @@ fn text_of(line: &Line) -> String {
     line.iter().map(|s| s.content.as_str()).collect::<String>()
 }
 
-/// A rendered hint row carries the platform's alt label: the queue
-/// browse header quotes `app.message.navigateOlder` and friends through
-/// the shared `format_key_text`, so the row shows `Alt+up` on
-/// Linux hosts and `Option+up` on macOS (TS
-/// `formatKeyPart`'s darwin branch).
 /// A fresh chat starts at the collapsed conversation-detail level
 /// (operator directive 2026-09-28): the collapse mode renders every
 /// activity item exactly as `details` does, with only the thinking
@@ -148,40 +142,30 @@ fn a_chat_starts_at_the_collapsed_detail_level() {
 }
 
 /// The `!`/`!!` prompt (TS `getBashPromptInfo` + `formatPromptPrefix`):
-/// the typed prefix hides behind the styled `! `/`!! ` prompt, later
-/// lines keep the prompt column, and the prompt carries the editor
-/// border color.
+/// the typed prefix hides behind the styled `! `/`!! ` prompt, and the
+/// prompt carries the bash-mode color.
 #[test]
 fn bang_prompt_renders_in_place_of_the_typed_prefix() {
     let mut v = view();
     v.editor.set_text("!echo hi");
     let frame = v.render_dock(80);
-    let joined = frame.iter().map(text_of).collect::<Vec<_>>().join("\n");
-    assert!(
-        joined.contains("!  echo hi"),
-        "the prompt swallows the typed prefix:\n{joined}"
-    );
-    assert!(
-        !joined.contains("> echo hi"),
-        "the default prompt does not render for a bang line:\n{joined}"
-    );
-    let border = v.theme.fg_style(ThemeColor::BorderMuted);
     let prompt_row = frame
         .iter()
-        .find(|line| text_of(line).contains("!  echo hi"))
+        .find(|line| text_of(line).starts_with('!'))
         .expect("the prompt row");
-    assert!(
-        prompt_row.iter().any(|span| span.style == border),
-        "the bang prompt renders through the editor border color"
+    assert_eq!(text_of(prompt_row), "! echo hi ");
+    assert_eq!(
+        prompt_row[0],
+        crate::Span::styled("! ", v.theme.fg_style(ThemeColor::BashMode))
     );
 
     let mut v = view();
     v.editor.set_text("!!echo quiet");
     let frame = v.render_dock(80);
-    let joined = frame.iter().map(text_of).collect::<Vec<_>>().join("\n");
+    let texts: Vec<String> = frame.iter().map(text_of).collect();
     assert!(
-        joined.contains("!!  echo quiet"),
-        "the !! prompt hides its typed prefix:\n{joined}"
+        texts.iter().any(|row| row == "!! echo quiet "),
+        "the !! prompt hides its typed prefix: {texts:?}"
     );
 }
 
@@ -421,49 +405,6 @@ fn compaction_streams_the_summary_under_the_loader_in_expanded_detail() {
     );
 }
 
-/// The mode-exit follow recompute (operator directive 2026-09-26):
-/// pausing in an expanded mode and collapsing back to `overview`
-/// when the collapsed transcript fits the window resumes following --
-/// the view already shows the transcript tail, so the follow hint
-/// does not render and the tail keeps following new content.
-/// The height-exact boundary (the review bots' finding): a window
-/// whose bottom lands exactly on the transcript's final chat row --
-/// with the empty tail section below it -- is at the bottom, not
-/// paused above new content: the follow state re-derives and the
-/// hint does not render.
-/// The recompute is not a blanket un-pause: a collapse that leaves
-/// real rows below the window keeps following paused and the hint
-/// rendered (following would actually scroll).
-/// The prompt bar's scroll indicators paint on the editor surface's
-/// background (operator directive 2026-09-26): the `up N more` row
-/// reads as part of the bar, not as text floating on the terminal's
-/// bare background.
-#[test]
-fn the_more_indicator_carry_the_bar_background() {
-    let bg = crate::style::Style::default().bg(crate::style::Color::Rgb(10, 11, 12));
-    let border = crate::style::Style::default().fg(crate::style::Color::Rgb(1, 2, 3));
-    for label in [" ^ 14 more", " v 3 more"] {
-        let row = indicator_row(label, bg, border, 20);
-        for span in &row {
-            assert_eq!(
-                span.style.bg,
-                Some(crate::style::Color::Rgb(10, 11, 12)),
-                "every span of {label:?} carries the bar background"
-            );
-        }
-    }
-}
-
-/// The hover affordance (operator directive 2026-09-26): a
-/// buttonless motion over a clickable card row brightens that row --
-/// Muted spans to the theme's foreground, Dim to Muted -- and only
-/// the state change costs a render; a motion across the same row
-/// re-styles nothing.
-/// The render-side revalidation (the review bots' finding): the
-/// hover is a screen coordinate, and the layout moves -- a scroll
-/// that brings other content onto the hovered row clears the
-/// affordance with the next frame instead of brightening whatever
-/// landed there.
 /// A settled transcript renders identically from the layout cache and
 /// from a fresh layout: caching must never change the frame.
 #[test]
@@ -693,15 +634,10 @@ fn shell_completion_row() -> ChatEntry {
     }))
 }
 
-/// TS `createConversationSpacing.shouldAddLeadingSpace` for one
-/// spacing-driven row: scan back over hidden assistant rows, honor the
-/// trailing space of a visible assistant, and sit flush against compact
-/// TS `UserMessageComponent` is a Box(2,1): its vertical padding row
-/// under the content is the first of two blanks before a tool card
-/// (the card's `shouldAddLeadingSpace` spacer is the second). The f20
-/// spawn frame shows exactly this seam.
+/// The tight layout: a user message carries no padding rows of its own,
+/// so the tool card's leading spacer is the one blank between them.
 #[test]
-fn tool_card_after_user_message_keeps_ts_two_blank_seam() {
+fn tool_card_after_user_message_has_one_blank_seam() {
     let mut view = view_with(vec![
         ChatEntry::User {
             text: "run the cell".to_string(),
@@ -717,19 +653,17 @@ fn tool_card_after_user_message_keeps_ts_two_blank_seam() {
         .iter()
         .position(|r| r.contains("run the cell"))
         .expect("user row");
-    // The box padding row carries the OSC 133 zone-end markers behind
-    // its background spaces; both seam rows are visually empty (zero
-    // printable width once the blank padding is trimmed away).
-    let empty = |row: &str| crate::width::str_width(row.trim()) == 0;
-    assert!(empty(&flat[user + 1]), "box bottom padding row");
-    assert!(empty(&flat[user + 2]), "tool leading spacer row");
+    assert_eq!(flat[user + 1], "", "tool leading spacer row");
     assert!(
-        flat[user + 3].trim().starts_with("bash"),
-        "card after the two blanks: {:?}",
-        &flat[user + 3..]
+        flat[user + 2].trim().starts_with("bash"),
+        "card after the one blank: {:?}",
+        &flat[user + 2..]
     );
 }
 
+/// TS `createConversationSpacing.shouldAddLeadingSpace` for one
+/// spacing-driven row: scan back over hidden assistant rows, honor the
+/// trailing space of a visible assistant, and sit flush against compact
 /// neighbors (tool cards, agent messages, shell completions).
 #[test]
 fn conversation_leading_matches_ts_spacing_rules() {
@@ -1089,11 +1023,10 @@ fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
     );
 }
 
-/// The browse header inserts BELOW the editor's top row with an empty
-/// companion row (TS `CustomEditor.render`'s two header rows), so the
-/// content rows shift down two rows while a parked message is selected.
+/// The browse header sits directly above the prompt row while a parked
+/// message is selected (no padding rows around it).
 #[test]
-fn browse_header_pair_sits_below_the_editor_top_row() {
+fn browse_header_sits_directly_above_the_prompt() {
     let mut v = view();
     v.queue_selected = Some(crate::queued::QueueSelectionItem {
         lane: crate::queued::QueueLane::Steering,
@@ -1103,27 +1036,17 @@ fn browse_header_pair_sits_below_the_editor_top_row() {
     });
     let frame = composed_rows(&mut v, 80, 24);
     let joined: Vec<String> = frame.iter().map(text_of).collect();
-    // The header truncates at the content width; `browse` sits inside
-    // the visible prefix (the strip hint row is absent - the queue is
-    // empty here, only the selection is set).
+    // The header truncates at the width; `browse` sits inside the
+    // visible prefix (the strip hint row is absent - the queue is empty
+    // here, only the selection is set).
     let header_row = joined
         .iter()
         .position(|row| row.contains("browse"))
         .expect("the queue browse header renders");
     assert!(
-        joined[header_row - 1].trim().is_empty(),
-        "the editor top row stays above the header: {:?}",
-        joined[header_row - 1]
-    );
-    assert!(
-        joined[header_row + 1].trim().is_empty(),
-        "the empty companion row follows the header: {:?}",
+        joined[header_row + 1].starts_with("> "),
+        "the prompt row follows the header: {:?}",
         joined[header_row + 1]
-    );
-    assert!(
-        joined[header_row + 2].contains("> "),
-        "the content rows shift below the header pair: {:?}",
-        joined[header_row + 2]
     );
 }
 // ------------------------------------------------------------------

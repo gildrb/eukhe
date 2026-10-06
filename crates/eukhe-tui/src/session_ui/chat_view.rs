@@ -61,18 +61,19 @@ impl SessionUi {
 
     /// Fold a landed chat-view fetch into the transcript: the view as the
     /// collapsed block, a failure as a warning row, nothing for a session
-    /// without the chat memory.
+    /// without the chat memory or with an empty view (the agent sees
+    /// nothing, so there is nothing to print).
     pub(crate) fn apply_chat_view(&mut self, update: ChatViewUpdate, view: &mut AgentView) {
         if update.epoch < self.chat_view_epoch {
             return;
         }
         match update.view {
-            Ok(Some(snapshot)) => {
+            Ok(Some(snapshot)) if snapshot.lines > 0 || snapshot.messages > 0 => {
                 view.push_entry(ChatEntry::ChatView(Box::new(snapshot)));
                 self.last_status_index = None;
                 self.dirty = true;
             }
-            Ok(None) => {}
+            Ok(Some(_) | None) => {}
             Err(error) => {
                 self.note_as(
                     &format!("Chat view unavailable: {error}"),

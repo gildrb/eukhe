@@ -171,13 +171,11 @@ impl AgentsViewMode {
                     Some((0, 4 + str_width(&self.query).min(width.saturating_sub(5)))),
                 )
             }
-            // The reply composer's real editor box (the rename box's
-            // shape): the target's header line rides INSIDE the box, the
-            // placeholder names the action by the target's state, and
-            // the cursor comes from the box. An open completion renders
-            // its overlay panel above the box -- the chat's stacking (TS
-            // draws the same dropdown through the editor's TUI overlay,
-            // editor.ts `showOverlay`, anchored over the box).
+            // The reply composer (the rename composer's shape): the
+            // target's header line above the prompt, the placeholder names
+            // the action by the target's state, and the cursor comes from
+            // the composer. An open completion renders its overlay panel
+            // above it -- the chat's stacking.
             Composer::Reply(reply) => {
                 let overlay = crate::view::editor_surface::overlay(&reply.editor, theme, width);
                 let header = reply.header_line(theme);
@@ -192,12 +190,9 @@ impl AgentsViewMode {
                 );
                 (overlay, surface.rows, surface.cursor)
             }
-            // The rename composer's real editor box (TS `CustomEditor.render`
-            // over `Editor.render`): the warning header rides INSIDE the box
-            // (the header block under the top row, TS `getHeaderLine` via
-            // `renderHeaderContentLine`), the draft renders through the
-            // editor's own surface, and the cursor comes from the box --
-            // the #3117 SF1 2-row shape closes.
+            // The rename composer: the warning header above the prompt,
+            // the draft through the editor's own rows, the cursor from
+            // the composer.
             Composer::Rename(rename) => {
                 let header =
                     vec![theme.fg(ThemeColor::Warning, "Rename agent session".to_string())];

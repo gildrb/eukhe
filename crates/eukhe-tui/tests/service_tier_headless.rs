@@ -354,7 +354,7 @@ fn tier_command_shows_applies_and_rejects() {
         "the error lists the available tiers:\n{all}"
     );
     // `flex` applies through the daemon switch; the state refresh reports
-    // the applied tier and the tray badge shows it.
+    // the applied tier and the status line's model badge shows it.
     assert!(
         all.contains("Service tier: flex"),
         "the applied-tier note rendered:\n{all}"
@@ -362,7 +362,7 @@ fn tier_command_shows_applies_and_rejects() {
     assert!(
         frames
             .iter()
-            .any(|frame| frame.contains("openai/gpt-5.5 - flex")),
-        "the tray badge rendered the applied tier:\n{all}"
+            .any(|frame| frame.contains("[M] openai/gpt-5.5 flex")),
+        "the model badge rendered the applied tier:\n{all}"
     );
 }

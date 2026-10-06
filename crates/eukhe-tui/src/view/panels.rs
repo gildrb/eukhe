@@ -1,42 +1,37 @@
-//! The panel assembly: the dock -- prompt-context rows, the queued-input
-//! strip, the autocomplete overlay, the editor surface, the tray, the
-//! subagent summary box (TS `SubagentSummaryLine`) -- plus the share
-//! loader and reload-box panels that replace the editor in flight.
+//! The panel assembly: the dock -- the queued-input strip, the
+//! autocomplete overlay, the borderless composer, the status line, and
+//! the `/speed` footer -- plus the share loader and reload-box panels
+//! that replace the composer in flight.
 
 use super::editor_surface;
 use super::{AgentView, ShareLoader};
-use crate::chrome::render_tray;
 use crate::style::Style;
 use crate::theme::ThemeColor;
 use crate::{Line, Span};
 
 impl AgentView {
-    /// Render the dock: prompt-context row(s), the autocomplete overlay
-    /// (when showing), the editor surface, the tray, and the subagent
-    /// summary box (TS `SubagentSummaryLine` under the tray).
+    /// Render the dock: the queued-input strip, the autocomplete overlay
+    /// (when showing), the composer, and the status line under it.
     pub fn render_dock(&mut self, width: usize) -> Vec<Line> {
-        // The queued-input strip sits directly above the prompt dock rows
-        // (TS `queuedMessagesContainer` above the editor).
+        // The queued-input strip sits directly above the prompt (TS
+        // `queuedMessagesContainer` above the editor).
         let browse_key = {
             let kb = self.editor.keybindings();
             crate::keybindings::format_key_text(&kb.get_keys("app.message.navigateOlder").join("/"))
         };
         let queue_rows = crate::queued::render_queue(&self.theme, &self.queued, &browse_key, width);
         let mut lines = queue_rows;
-        lines.extend(self.prompt_context_rows(width));
         lines.extend(self.render_autocomplete_overlay(width));
         let editor_row = lines.len();
         let (editor_rows, cursor) = self.render_editor_surface(width);
         self.dock_cursor = cursor.map(|(row, col)| (editor_row + row, col));
         lines.extend(editor_rows);
-        lines.push(render_tray(&self.chrome, &self.theme, width));
-        if let Some(dock) = &self.chrome.activity {
-            lines.extend(crate::chrome::render_activity_dock(
-                dock,
-                &self.theme,
-                width,
-            ));
-        }
+        lines.push(crate::status_line::render_status_line(
+            &self.chrome,
+            self.detail,
+            &self.theme,
+            width,
+        ));
         // The `/speed` footer (TS `footerSlot`, the main container's last
         // child): a dim row only while the display is on with a sample.
         if let Some(speed) = &self.chrome.speed_text {
@@ -49,26 +44,17 @@ impl AgentView {
         lines
     }
 
-    /// The autocomplete dropdown, mounted just above the editor surface (TS
-    /// anchors the overlay immediately above the cursor row; the editor's
-    /// first content row carries the cursor in the common single-line
-    /// case). The panel opens with the one full-width muted rule every
-    /// inline menu panel opens with (the operator's 2026-09-26 top-border
-    /// directive), its rows pad to the input width and float on the popup
-    /// background between the editor's left padding and prompt prefix, and
-    /// the selected row's wash spans the panel's full width like the
-    /// `/model` picker's selected row.
+    /// The autocomplete dropdown, mounted just above the prompt.
     fn render_autocomplete_overlay(&mut self, width: usize) -> Vec<Line> {
         editor_surface::overlay(&self.editor, &self.theme, width)
     }
 
-    /// The editor surface (TS `Editor.render` with a background): a blank
-    /// bg row, content rows with the `> ` prompt and a reverse-video cursor,
-    /// and a trailing bg row. Scroll indicators replace the blank rows.
+    /// The composer (omp `composer.shape: borderless`): the `> ` prompt
+    /// row and its wrapped rows, the queue-browse header above them while
+    /// a parked message is selected.
     fn render_editor_surface(&mut self, width: usize) -> (Vec<Line>, Option<(usize, usize)>) {
         // TS `getQueueSelectionHeader` (the editor's header line while a
-        // parked message is selected): the dim browse text on the editor
-        // background, rendered by the shared box's header block.
+        // parked message is selected): the dim browse text.
         let header = self.queue_selected.as_ref().map(|selected| {
             let keys = {
                 let kb = self.editor.keybindings();
@@ -82,8 +68,7 @@ impl AgentView {
                     follow_up: display("app.message.followUp"),
                 }
             };
-            let dim = crate::chrome::editor_background(&self.theme)
-                .patch(self.theme.fg_style(ThemeColor::Dim));
+            let dim = self.theme.fg_style(ThemeColor::Dim);
             vec![Span::styled(
                 crate::queued::browse_header_text(selected, &keys),
                 dim,

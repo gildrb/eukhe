@@ -3,11 +3,9 @@
 //! toasts, and the dock or the open panel -- and the caret.
 
 use super::AgentView;
-use crate::chrome::render_splash;
 use crate::inline_term::LiveCursor;
-use crate::style::{Modifier, Style};
-use crate::width::str_width;
-use crate::{Line, Span};
+use crate::style::Modifier;
+use crate::Line;
 
 /// What the scrollback was rendered at. A frame at another shape
 /// replays the history.
@@ -82,8 +80,8 @@ impl AgentView {
         let mut history = Vec::new();
         // The splash goes into scrollback once, with the surface's first
         // frame, and again with every replay.
-        if start != FrameStart::Continue && !self.splash_suppressed {
-            history = render_splash(&self.chrome, &self.theme, width);
+        if start != FrameStart::Continue {
+            history = self.splash_rows(width);
         }
         while self.committed < self.chat.len() && self.entry_settled(self.committed) {
             history.extend(self.render_entry_at(self.committed, width));
@@ -145,96 +143,64 @@ impl AgentView {
     }
 
     /// The dock rows and whether the editor holds the focus: the docked
-    /// pickers and panels replace the editor part of the dock (TS
+    /// pickers and panels replace the composer and the status line (TS
     /// `showConfigurationMenu`/`showSelector` replace the editor
-    /// container) and keep the prompt context above them.
+    /// container).
     pub(super) fn compose_dock(&mut self, width: usize) -> (Vec<Line>, bool) {
-        let prompt_context = self.prompt_context_rows(width);
         // The read-only info panel's CURRENT row budget (a terminal resize
         // re-budgets an open panel every frame, never a stale open-time
         // value): read before the panel borrow below.
         let info_viewport_rows = crate::session_ui::picker_viewport_rows(self.terminal_rows());
+        let kb = self.editor.keybindings();
         let picker_dock: Option<Vec<Line>> = if let Some(picker) = self.model_picker.as_mut() {
-            let mut dock = prompt_context;
-            dock.extend(picker.render(&self.theme, width, self.editor.keybindings()));
-            Some(dock)
+            Some(picker.render(&self.theme, width, kb))
         } else if let Some(picker) = &self.effort_picker {
-            let mut dock = prompt_context;
-            dock.extend(picker.render(&self.theme, width, self.editor.keybindings()));
-            Some(dock)
+            Some(picker.render(&self.theme, width, kb))
         } else if let Some(mcp_view) = self.mcp_view.as_mut() {
-            let mut dock = prompt_context;
-            dock.extend(mcp_view.render(&self.theme, width, self.editor.keybindings()));
-            Some(dock)
+            Some(mcp_view.render(&self.theme, width, kb))
         } else if let Some(factory_view) = self.factory_view.as_ref() {
-            let mut dock = prompt_context;
-            dock.extend(factory_view.render(&self.theme, width, self.editor.keybindings()));
-            Some(dock)
+            Some(factory_view.render(&self.theme, width, kb))
         } else if let Some(picker) = &self.heartbeats_picker {
-            let mut dock = prompt_context;
-            dock.extend(picker.render(&self.theme, width, self.editor.keybindings()));
-            Some(dock)
+            Some(picker.render(&self.theme, width, kb))
         } else if let Some(panel) = &self.goal_panel {
-            let mut dock = prompt_context;
-            dock.extend(crate::goal_surface::render_goal_panel(
+            Some(crate::goal_surface::render_goal_panel(
                 panel,
                 &self.theme,
                 width,
-                self.editor.keybindings(),
-            ));
-            Some(dock)
+                kb,
+            ))
         } else if let Some(view) = self.bash_view.as_ref() {
-            let mut dock = prompt_context;
-            dock.extend(view.render(&self.theme, width, self.editor.keybindings()));
-            Some(dock)
+            Some(view.render(&self.theme, width, kb))
         } else if let Some(panel) = self.info_panel.as_mut() {
-            let mut dock = prompt_context;
-            dock.extend(panel.render(
+            Some(panel.render(
                 &self.theme,
                 width,
-                self.editor.keybindings(),
+                kb,
                 &self.code_block_indent,
                 info_viewport_rows,
-            ));
-            Some(dock)
+            ))
         } else {
             None
         };
         // The tree and fork selectors mount in the editor container (TS
-        // `showSelector`): an auto-height pane over the dock's rows with the
+        // `showSelector`): an auto-height pane in the dock's place with the
         // transcript above it.
-        let selector_dock: Option<Vec<Line>> = if self.tree_selector.is_some()
-            || self.fork_selector.is_some()
-            || self.share_loader.is_some()
-            || self.confirm.is_some()
-            || self.provider_auth.is_some()
-            || self.auth_panel.is_some()
-            || self.reload_box.is_some()
-            || self.settings_menu.is_some()
-        {
-            // TS's editor container holds the prompt context (the detail
-            // hint) and the editor; `showSelector` replaces only the editor
-            // part, so the hint stays above the pane.
-            let mut dock = self.prompt_context_rows(width);
-            if let Some(selector) = self.tree_selector.as_ref() {
-                dock.extend(selector.render(&self.theme, width, self.editor.keybindings()));
-            } else if let Some(selector) = self.fork_selector.as_ref() {
-                dock.extend(selector.render(&self.theme, width, self.editor.keybindings()));
-            } else if let Some(loader) = self.share_loader.as_ref() {
-                dock.extend(self.render_share_loader(loader, width));
-            } else if let Some(confirm) = self.confirm.as_ref() {
-                dock.extend(confirm.render(&self.theme, width, self.editor.keybindings()));
-            } else if let Some(selector) = self.provider_auth.as_mut() {
-                dock.extend(selector.render(&self.theme, width, self.editor.keybindings()));
-            } else if let Some(panel) = self.auth_panel.as_mut() {
-                let kb = self.editor.keybindings();
-                dock.extend(panel.render(&self.theme, width, kb));
-            } else if let Some(message) = self.reload_box.as_ref() {
-                dock.extend(self.render_reload_box(message, width));
-            } else if let Some(menu) = self.settings_menu.as_ref() {
-                dock.extend(menu.render(&self.theme, width, self.editor.keybindings()));
-            }
-            Some(dock)
+        let selector_dock: Option<Vec<Line>> = if let Some(selector) = self.tree_selector.as_ref() {
+            Some(selector.render(&self.theme, width, kb))
+        } else if let Some(selector) = self.fork_selector.as_ref() {
+            Some(selector.render(&self.theme, width, kb))
+        } else if let Some(loader) = self.share_loader.as_ref() {
+            Some(self.render_share_loader(loader, width))
+        } else if let Some(confirm) = self.confirm.as_ref() {
+            Some(confirm.render(&self.theme, width, kb))
+        } else if let Some(selector) = self.provider_auth.as_mut() {
+            Some(selector.render(&self.theme, width, kb))
+        } else if let Some(panel) = self.auth_panel.as_mut() {
+            Some(panel.render(&self.theme, width, kb))
+        } else if let Some(message) = self.reload_box.as_ref() {
+            Some(self.render_reload_box(message, width))
+        } else if let Some(menu) = self.settings_menu.as_ref() {
+            Some(menu.render(&self.theme, width, kb))
         } else {
             picker_dock
         };
@@ -256,21 +222,4 @@ impl AgentView {
             None => (self.render_dock(width), true),
         }
     }
-
-    /// The prompt-context rows above the editor or the open panel.
-    pub(super) fn prompt_context_rows(&self, width: usize) -> Vec<Line> {
-        crate::chrome::render_prompt_context(&self.chrome, &self.detail_label(), &self.theme, width)
-    }
-}
-
-/// One scroll-indicator surface row (`^ N more` on the editor background).
-pub(super) fn indicator_row(indicator: &str, bg: Style, border: Style, width: usize) -> Line {
-    // The indicator text paints on the editor surface's background too
-    // (operator directive 2026-09-26): the bar's `up/down N more` rows read
-    // as part of the prompt bar, not as text floating on the terminal's
-    // bare background.
-    let mut row: Line = vec![Span::styled(indicator.to_string(), border.patch(bg))];
-    let used = str_width(indicator);
-    row.push(Span::styled(" ".repeat(width.saturating_sub(used)), bg));
-    row
 }

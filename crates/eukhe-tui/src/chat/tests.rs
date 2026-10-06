@@ -115,16 +115,25 @@ fn detail_wire_names_round_trip_with_the_startup_fallback() {
     assert_eq!(Detail::from_wire_name("verbose"), Detail::Overview);
 }
 
+/// The user block's rows with the zone-marker spans stripped.
+fn user_rows(text: &str, width: usize) -> Vec<Line> {
+    render_user_block(text, &theme(), "  ", width)
+        .into_iter()
+        .map(|mut row| {
+            crate::osc133::strip(&mut row);
+            row
+        })
+        .collect()
+}
+
 #[test]
-fn user_block_renders_box_rows() {
-    let rows = render_user_block("Run a quick check.", &theme(), "  ", 60);
-    assert_eq!(rows.len(), 3);
-    let text = rows[1]
+fn user_block_renders_its_lines_without_padding_rows() {
+    let rows = user_rows("Run a quick check.", 60);
+    let text: Vec<String> = rows
         .iter()
-        .map(|s| s.content.as_str())
-        .collect::<String>();
-    assert_eq!(text.trim(), "Run a quick check.");
-    assert_eq!(text.len(), 60);
+        .map(|row| row.iter().map(|s| s.content.as_str()).collect())
+        .collect();
+    assert_eq!(text, [format!("  Run a quick check.{}", " ".repeat(40))]);
 }
 
 /// The user block's styling tiers: the row background, the
@@ -168,10 +177,10 @@ fn user_block_keeps_the_link_affordance() {
     crate::hyperlinks::set_hyperlinks_override(Some(true));
     let (bg, body, _, _, _) = user_block_styles();
     let link_url = bg.patch(theme().fg_style(ThemeColor::MdLinkUrl));
-    let rows = render_user_block("see [docs](https://x.dev/a)", &theme(), "  ", 60);
-    assert_eq!(rows.len(), 3);
+    let rows = user_rows("see [docs](https://x.dev/a)", 60);
+    assert_eq!(rows.len(), 1);
     assert_eq!(
-        row_runs(&rows[1]),
+        row_runs(&rows[0]),
         vec![
             ("  ".to_string(), bg),
             ("see ".to_string(), body),
@@ -195,10 +204,10 @@ fn user_block_highlights_argument_tokens() {
     // TS `PromptTokenMask`: the argument tokens render in their own
     // colors inside the `userMessageText` body.
     let (bg, body, _, success, md_link) = user_block_styles();
-    let rows = render_user_block("fix @Cargo.toml --quiet now", &theme(), "  ", 60);
-    assert_eq!(rows.len(), 3);
+    let rows = user_rows("fix @Cargo.toml --quiet now", 60);
+    assert_eq!(rows.len(), 1);
     assert_eq!(
-        row_runs(&rows[1]),
+        row_runs(&rows[0]),
         vec![
             ("  ".to_string(), bg),
             ("fix ".to_string(), body),
@@ -217,17 +226,17 @@ fn user_block_accents_a_recognized_leading_command() {
     // command masks in accent over the whole command segment; an
     // unrecognized one renders like any other text.
     let (bg, body, accent, _, _) = user_block_styles();
-    let rows = render_user_block("/hotkeys", &theme(), "  ", 40);
+    let rows = user_rows("/hotkeys", 40);
     assert_eq!(
-        row_runs(&rows[1]),
+        row_runs(&rows[0]),
         vec![
             ("  ".to_string(), bg),
             ("/hotkeys".to_string(), accent),
             (" ".repeat(40 - 2 - 8), bg),
         ]
     );
-    let rows = render_user_block("/definitely-not-builtin now", &theme(), "  ", 40);
-    let styled = row_runs(&rows[1]);
+    let rows = user_rows("/definitely-not-builtin now", 40);
+    let styled = row_runs(&rows[0]);
     // The unrecognized row stays uniform `userMessageText`.
     assert_eq!(
         styled
@@ -252,14 +261,14 @@ fn user_block_mask_shields_tokens_from_markdown() {
     // text: an `@path` full of asterisks renders verbatim in the token
     // color, and a long token wraps like plain text.
     let (_, _, _, success, _) = user_block_styles();
-    let rows = render_user_block("use @a*b_c and more", &theme(), "  ", 60);
-    let text: String = rows[1].iter().map(|s| s.content.as_str()).collect();
+    let rows = user_rows("use @a*b_c and more", 60);
+    let text: String = rows[0].iter().map(|s| s.content.as_str()).collect();
     assert!(
         text.contains("@a*b_c"),
         "the token renders verbatim: {text:?}"
     );
     assert!(
-        row_runs(&rows[1])
+        row_runs(&rows[0])
             .iter()
             .any(|(t, s)| t == "@a*b_c" && *s == success),
         "the token renders in success color"
@@ -272,8 +281,8 @@ fn user_block_plain_sources_stay_plain() {
     // `MASK_LITERAL_PATTERN`) masks nothing at all: the token colors
     // would alias the literals, so the row renders whole.
     let (bg, body, _, _, _) = user_block_styles();
-    let rows = render_user_block("look \u{E000} at @file", &theme(), "  ", 60);
-    let styled: Vec<(String, Style)> = rows[1]
+    let rows = user_rows("look \u{E000} at @file", 60);
+    let styled: Vec<(String, Style)> = rows[0]
         .iter()
         .map(|s| (s.content.clone(), s.style))
         .collect();
@@ -305,7 +314,8 @@ fn user_block_plain_sources_stay_plain() {
 
 #[test]
 fn user_block_carries_zone_markers() {
-    let rows = render_user_block("Run a quick check.", &theme(), "  ", 60);
+    let rows = render_user_block("first\n\nsecond", &theme(), "  ", 60);
+    assert_eq!(rows.len(), 3);
     // The zone-start sequence leads the first block row; the end and
     // final sequences lead the last block row (TS prepends both).
     assert!(crate::osc133::row_markers(&rows[0]).start);
