@@ -1,0 +1,1450 @@
+{
+	"batches": [
+		[
+			{
+				"type": "conversation",
+				"value": {
+					"id": 2
+				}
+			},
+			{
+				"type": "entry",
+				"value": {
+					"model": [
+						{
+							"role": "user",
+							"content": "hello   \"world\" é😀",
+							"timestamp": 1700000000000
+						}
+					],
+					"kind": "pi.user",
+					"id": 3,
+					"conversationId": 2
+				}
+			},
+			{
+				"type": "entry",
+				"value": {
+					"model": [
+						{
+							"role": "system",
+							"content": "",
+							"sections": {
+								"preamble": "Be brief.",
+								"old": null
+							},
+							"timestamp": 1700000000001
+						}
+					],
+					"kind": "pi.system",
+					"id": 4,
+					"conversationId": 2
+				}
+			},
+			{
+				"type": "entry",
+				"value": {
+					"model": [
+						{
+							"role": "assistant",
+							"content": [
+								{
+									"type": "thinking",
+									"thinking": "hmm"
+								},
+								{
+									"type": "text",
+									"text": "Calling"
+								},
+								{
+									"type": "toolCall",
+									"id": "call_1",
+									"name": "read",
+									"arguments": {
+										"path": "a.txt",
+										"lines": [
+											1,
+											2.5
+										]
+									}
+								}
+							],
+							"api": "anthropic-messages",
+							"provider": "anthropic",
+							"model": "claude",
+							"usage": {
+								"input": 1,
+								"output": 2,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 3,
+								"cost": {
+									"input": 0.001,
+									"output": 0.002,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0.003
+								}
+							},
+							"stopReason": "toolUse",
+							"timestamp": 1700000000002
+						}
+					],
+					"kind": "pi.assistant",
+					"id": 5,
+					"conversationId": 2
+				}
+			},
+			{
+				"type": "entry",
+				"value": {
+					"model": [
+						{
+							"role": "toolResult",
+							"toolCallId": "call_1",
+							"toolName": "read",
+							"content": [
+								{
+									"type": "text",
+									"text": "contents"
+								}
+							],
+							"isError": false,
+							"timestamp": 1700000000003
+						}
+					],
+					"data": {
+						"diagnostics": [
+							{
+								"severity": "warn",
+								"message": "truncated",
+								"code": "truncated"
+							},
+							{
+								"severity": "info",
+								"message": "ok"
+							}
+						]
+					},
+					"kind": "pi.tool-result",
+					"id": 6,
+					"conversationId": 2
+				}
+			},
+			{
+				"type": "entry",
+				"value": {
+					"kind": "t.edits",
+					"edits": [
+						{
+							"target": 3,
+							"action": "omit"
+						},
+						{
+							"target": 5,
+							"action": "replace",
+							"messages": [
+								{
+									"role": "user",
+									"content": [
+										{
+											"type": "text",
+											"text": "x"
+										}
+									],
+									"timestamp": 5
+								}
+							]
+						}
+					],
+					"data": null,
+					"id": 7,
+					"conversationId": 2
+				}
+			},
+			{
+				"type": "entry",
+				"value": {
+					"data": {
+						"text": "n",
+						"nested": [
+							1,
+							-0.5,
+							1e+21,
+							true,
+							null
+						]
+					},
+					"kind": "t.note",
+					"id": 8,
+					"conversationId": 2
+				}
+			},
+			{
+				"type": "entry",
+				"value": {
+					"kind": "pi.reset",
+					"id": 9,
+					"conversationId": 2,
+					"head": 9
+				}
+			},
+			{
+				"type": "entry",
+				"value": {
+					"kind": "pi.compaction",
+					"model": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "summary"
+								}
+							],
+							"timestamp": 6
+						}
+					],
+					"data": {
+						"reason": "threshold"
+					},
+					"id": 10,
+					"conversationId": 2,
+					"head": 3
+				}
+			},
+			{
+				"type": "submission",
+				"value": {
+					"conversationId": 2,
+					"requestId": "req-1",
+					"type": "input",
+					"status": "queued",
+					"id": 19
+				}
+			},
+			{
+				"type": "submission",
+				"value": {
+					"conversationId": 2,
+					"type": "input",
+					"status": "placed",
+					"entry": 3,
+					"id": 20
+				}
+			},
+			{
+				"type": "submission",
+				"value": {
+					"conversationId": 2,
+					"type": "write",
+					"status": "queued",
+					"id": 21
+				}
+			},
+			{
+				"type": "submission",
+				"value": {
+					"conversationId": 2,
+					"type": "write",
+					"status": "unanswered",
+					"reason": "stale",
+					"id": 22
+				}
+			},
+			{
+				"type": "submission",
+				"value": {
+					"conversationId": 2,
+					"type": "write",
+					"status": "done",
+					"entry": 3,
+					"id": 23
+				}
+			},
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "pending",
+						"checkpoint": {
+							"phase": "run",
+							"input": {
+								"text": "hi"
+							}
+						}
+					}
+				}
+			},
+			{
+				"type": "task",
+				"value": {
+					"id": 17,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": null,
+					"owner": 16,
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "pending",
+						"checkpoint": {
+							"phase": "run",
+							"input": null
+						}
+					}
+				}
+			},
+			{
+				"type": "document.create",
+				"record": {
+					"id": 11,
+					"kind": "t.session",
+					"scope": {
+						"kind": "session"
+					}
+				},
+				"content": {
+					"version": 1,
+					"kind": "base",
+					"value": {
+						"value": 1
+					}
+				}
+			},
+			{
+				"type": "document.create",
+				"record": {
+					"id": 12,
+					"kind": "t.latest",
+					"scope": {
+						"kind": "conversation",
+						"conversationId": 2
+					},
+					"history": "latest",
+					"fork": "current"
+				},
+				"content": {
+					"version": 1,
+					"kind": "base",
+					"value": {
+						"value": 0
+					}
+				}
+			},
+			{
+				"type": "document.create",
+				"record": {
+					"id": 13,
+					"kind": "t.rewindable",
+					"scope": {
+						"kind": "conversation",
+						"conversationId": 2
+					},
+					"history": "rewindable",
+					"fork": "asOf"
+				},
+				"content": {
+					"version": 2,
+					"kind": "base",
+					"value": {
+						"value": 0
+					}
+				}
+			},
+			{
+				"type": "document.create",
+				"record": {
+					"id": 14,
+					"kind": "t.initial",
+					"scope": {
+						"kind": "conversation",
+						"conversationId": 2
+					},
+					"history": "rewindable",
+					"fork": "initial"
+				},
+				"content": {
+					"version": 1,
+					"kind": "base",
+					"value": {
+						"value": 0
+					}
+				}
+			},
+			{
+				"type": "document.create",
+				"record": {
+					"id": 15,
+					"kind": "t.family",
+					"key": "k\"ey",
+					"scope": {
+						"kind": "conversation",
+						"conversationId": 2
+					},
+					"history": "latest",
+					"fork": "initial"
+				},
+				"content": {
+					"version": 1,
+					"kind": "base",
+					"value": {
+						"1": "first",
+						"2": "index",
+						"value": 7
+					}
+				}
+			},
+			{
+				"type": "document.create",
+				"record": {
+					"id": 18,
+					"kind": "t.task",
+					"scope": {
+						"kind": "task",
+						"taskId": 16
+					}
+				},
+				"content": {
+					"version": 1,
+					"kind": "base",
+					"value": {
+						"value": 0
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "submission",
+				"value": {
+					"conversationId": 2,
+					"requestId": "req-1",
+					"type": "input",
+					"status": "placed",
+					"id": 19,
+					"entry": 3
+				}
+			},
+			{
+				"type": "submission",
+				"value": {
+					"conversationId": 2,
+					"type": "write",
+					"status": "done",
+					"id": 21,
+					"entry": 3
+				}
+			},
+			{
+				"type": "submission",
+				"value": {
+					"conversationId": 2,
+					"type": "input",
+					"status": "unanswered",
+					"entry": 3,
+					"id": 20,
+					"reason": "failed",
+					"detail": {
+						"codes": [
+							"x"
+						]
+					}
+				}
+			},
+			{
+				"type": "document.change",
+				"id": 13,
+				"content": {
+					"version": 2,
+					"kind": "delta",
+					"ops": [
+						[
+							"s",
+							[
+								"value"
+							],
+							2
+						]
+					]
+				}
+			},
+			{
+				"type": "document.change",
+				"id": 12,
+				"content": {
+					"version": 1,
+					"kind": "delta",
+					"ops": [
+						[
+							"s",
+							[
+								"value"
+							],
+							3
+						]
+					]
+				}
+			},
+			{
+				"type": "document.change",
+				"id": 15,
+				"content": {
+					"version": 1,
+					"kind": "delta",
+					"ops": [
+						[
+							"s",
+							[
+								"list"
+							],
+							[
+								"a",
+								{
+									"b": 1
+								}
+							]
+						]
+					]
+				}
+			}
+		],
+		[
+			{
+				"type": "submission",
+				"value": {
+					"conversationId": 2,
+					"requestId": "req-1",
+					"type": "input",
+					"status": "done",
+					"id": 19,
+					"entry": 3,
+					"answer": 5
+				}
+			},
+			{
+				"type": "document.retire",
+				"id": 11
+			}
+		],
+		[
+			{
+				"type": "conversation",
+				"value": {
+					"id": 24,
+					"owner": {
+						"conversationId": 2,
+						"taskId": 16
+					}
+				}
+			},
+			{
+				"type": "conversation",
+				"value": {
+					"id": 25,
+					"parent": {
+						"conversationId": 2,
+						"at": 5
+					}
+				}
+			},
+			{
+				"type": "document.copy",
+				"record": {
+					"id": 26,
+					"kind": "t.rewindable",
+					"scope": {
+						"kind": "conversation",
+						"conversationId": 25
+					},
+					"history": "rewindable",
+					"fork": "asOf"
+				},
+				"source": {
+					"id": 13,
+					"at": 1
+				}
+			},
+			{
+				"type": "document.copy",
+				"record": {
+					"id": 27,
+					"kind": "t.latest",
+					"scope": {
+						"kind": "conversation",
+						"conversationId": 25
+					},
+					"history": "latest",
+					"fork": "current"
+				},
+				"source": {
+					"id": 12,
+					"at": "current"
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "running",
+						"checkpoint": {
+							"phase": "run",
+							"input": {
+								"text": "hi"
+							}
+						}
+					},
+					"memos": {
+						"kept": true,
+						"n": 1
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": true,
+					"state": {
+						"status": "waiting",
+						"checkpoint": {
+							"phase": "wait"
+						},
+						"on": [
+							17
+						],
+						"policy": "allSettled"
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "waiting",
+						"checkpoint": {
+							"phase": "wait"
+						},
+						"on": [
+							17
+						],
+						"policy": "failFast"
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "completing",
+						"outcome": {
+							"status": "failed",
+							"error": {
+								"message": "held",
+								"detail": {
+									"reason": "model_error"
+								}
+							},
+							"result": {
+								"entryId": 3
+							}
+						}
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "terminal",
+						"outcome": {
+							"status": "completed",
+							"result": {
+								"entryId": 4,
+								"control": {
+									"terminate": true
+								}
+							}
+						}
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "terminal",
+						"outcome": {
+							"status": "aborted"
+						}
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "terminal",
+						"outcome": {
+							"status": "aborted",
+							"reason": "user",
+							"result": null
+						}
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "terminal",
+						"outcome": {
+							"status": "orphaned",
+							"reason": "missing_task"
+						}
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "terminal",
+						"outcome": {
+							"status": "faulted",
+							"error": {
+								"message": "threw"
+							}
+						}
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "task",
+				"value": {
+					"id": 16,
+					"conversationId": 2,
+					"kind": "t.echo",
+					"version": 3,
+					"input": {
+						"text": "hi"
+					},
+					"background": false,
+					"abortRequested": false,
+					"state": {
+						"status": "terminal",
+						"outcome": {
+							"status": "completed",
+							"result": null
+						}
+					}
+				}
+			}
+		]
+	],
+	"records": {
+		"conversations": [
+			{
+				"id": 2
+			},
+			{
+				"id": 24,
+				"owner": {
+					"conversationId": 2,
+					"taskId": 16
+				}
+			},
+			{
+				"id": 25,
+				"parent": {
+					"conversationId": 2,
+					"at": 5
+				}
+			}
+		],
+		"entries": [
+			{
+				"kind": "pi.compaction",
+				"model": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "summary"
+							}
+						],
+						"timestamp": 6
+					}
+				],
+				"data": {
+					"reason": "threshold"
+				},
+				"id": 10,
+				"conversationId": 2,
+				"head": 3
+			},
+			{
+				"kind": "pi.reset",
+				"id": 9,
+				"conversationId": 2,
+				"head": 9
+			},
+			{
+				"data": {
+					"text": "n",
+					"nested": [
+						1,
+						-0.5,
+						1e+21,
+						true,
+						null
+					]
+				},
+				"kind": "t.note",
+				"id": 8,
+				"conversationId": 2
+			},
+			{
+				"kind": "t.edits",
+				"edits": [
+					{
+						"target": 3,
+						"action": "omit"
+					},
+					{
+						"target": 5,
+						"action": "replace",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "x"
+									}
+								],
+								"timestamp": 5
+							}
+						]
+					}
+				],
+				"data": null,
+				"id": 7,
+				"conversationId": 2
+			},
+			{
+				"model": [
+					{
+						"role": "toolResult",
+						"toolCallId": "call_1",
+						"toolName": "read",
+						"content": [
+							{
+								"type": "text",
+								"text": "contents"
+							}
+						],
+						"isError": false,
+						"timestamp": 1700000000003
+					}
+				],
+				"data": {
+					"diagnostics": [
+						{
+							"severity": "warn",
+							"message": "truncated",
+							"code": "truncated"
+						},
+						{
+							"severity": "info",
+							"message": "ok"
+						}
+					]
+				},
+				"kind": "pi.tool-result",
+				"id": 6,
+				"conversationId": 2
+			},
+			{
+				"model": [
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "thinking",
+								"thinking": "hmm"
+							},
+							{
+								"type": "text",
+								"text": "Calling"
+							},
+							{
+								"type": "toolCall",
+								"id": "call_1",
+								"name": "read",
+								"arguments": {
+									"path": "a.txt",
+									"lines": [
+										1,
+										2.5
+									]
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude",
+						"usage": {
+							"input": 1,
+							"output": 2,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 3,
+							"cost": {
+								"input": 0.001,
+								"output": 0.002,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0.003
+							}
+						},
+						"stopReason": "toolUse",
+						"timestamp": 1700000000002
+					}
+				],
+				"kind": "pi.assistant",
+				"id": 5,
+				"conversationId": 2
+			},
+			{
+				"model": [
+					{
+						"role": "system",
+						"content": "",
+						"sections": {
+							"preamble": "Be brief.",
+							"old": null
+						},
+						"timestamp": 1700000000001
+					}
+				],
+				"kind": "pi.system",
+				"id": 4,
+				"conversationId": 2
+			},
+			{
+				"model": [
+					{
+						"role": "user",
+						"content": "hello   \"world\" é😀",
+						"timestamp": 1700000000000
+					}
+				],
+				"kind": "pi.user",
+				"id": 3,
+				"conversationId": 2
+			}
+		],
+		"entryLookup": {
+			"entry": {
+				"model": [
+					{
+						"role": "user",
+						"content": "hello   \"world\" é😀",
+						"timestamp": 1700000000000
+					}
+				],
+				"kind": "pi.user",
+				"id": 3,
+				"conversationId": 2
+			},
+			"commitSeq": 1
+		},
+		"tasks": [
+			{
+				"id": 17,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": null,
+				"owner": 16,
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "pending",
+					"checkpoint": {
+						"phase": "run",
+						"input": null
+					}
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "running",
+					"checkpoint": {
+						"phase": "run",
+						"input": {
+							"text": "hi"
+						}
+					}
+				},
+				"memos": {
+					"kept": true,
+					"n": 1
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": true,
+				"state": {
+					"status": "waiting",
+					"checkpoint": {
+						"phase": "wait"
+					},
+					"on": [
+						17
+					],
+					"policy": "allSettled"
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "waiting",
+					"checkpoint": {
+						"phase": "wait"
+					},
+					"on": [
+						17
+					],
+					"policy": "failFast"
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "completing",
+					"outcome": {
+						"status": "failed",
+						"error": {
+							"message": "held",
+							"detail": {
+								"reason": "model_error"
+							}
+						},
+						"result": {
+							"entryId": 3
+						}
+					}
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "terminal",
+					"outcome": {
+						"status": "completed",
+						"result": {
+							"entryId": 4,
+							"control": {
+								"terminate": true
+							}
+						}
+					}
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "terminal",
+					"outcome": {
+						"status": "aborted"
+					}
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "terminal",
+					"outcome": {
+						"status": "aborted",
+						"reason": "user",
+						"result": null
+					}
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "terminal",
+					"outcome": {
+						"status": "orphaned",
+						"reason": "missing_task"
+					}
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "terminal",
+					"outcome": {
+						"status": "faulted",
+						"error": {
+							"message": "threw"
+						}
+					}
+				}
+			},
+			{
+				"id": 16,
+				"conversationId": 2,
+				"kind": "t.echo",
+				"version": 3,
+				"input": {
+					"text": "hi"
+				},
+				"background": false,
+				"abortRequested": false,
+				"state": {
+					"status": "terminal",
+					"outcome": {
+						"status": "completed",
+						"result": null
+					}
+				}
+			}
+		],
+		"submissions": [
+			{
+				"conversationId": 2,
+				"requestId": "req-1",
+				"type": "input",
+				"status": "done",
+				"id": 19,
+				"entry": 3,
+				"answer": 5
+			},
+			{
+				"conversationId": 2,
+				"type": "input",
+				"status": "unanswered",
+				"entry": 3,
+				"id": 20,
+				"reason": "failed",
+				"detail": {
+					"codes": [
+						"x"
+					]
+				}
+			},
+			{
+				"conversationId": 2,
+				"type": "write",
+				"status": "done",
+				"id": 21,
+				"entry": 3
+			},
+			{
+				"conversationId": 2,
+				"type": "write",
+				"status": "unanswered",
+				"reason": "stale",
+				"id": 22
+			},
+			{
+				"conversationId": 2,
+				"type": "write",
+				"status": "done",
+				"entry": 3,
+				"id": 23
+			}
+		],
+		"documents": [
+			{
+				"id": 12,
+				"kind": "t.latest",
+				"scope": {
+					"kind": "conversation",
+					"conversationId": 2
+				},
+				"history": "latest",
+				"fork": "current",
+				"createdAt": 1
+			},
+			{
+				"id": 13,
+				"kind": "t.rewindable",
+				"scope": {
+					"kind": "conversation",
+					"conversationId": 2
+				},
+				"history": "rewindable",
+				"fork": "asOf",
+				"createdAt": 1
+			},
+			{
+				"id": 14,
+				"kind": "t.initial",
+				"scope": {
+					"kind": "conversation",
+					"conversationId": 2
+				},
+				"history": "rewindable",
+				"fork": "initial",
+				"createdAt": 1
+			},
+			{
+				"id": 15,
+				"kind": "t.family",
+				"key": "k\"ey",
+				"scope": {
+					"kind": "conversation",
+					"conversationId": 2
+				},
+				"history": "latest",
+				"fork": "initial",
+				"createdAt": 1
+			},
+			{
+				"id": 26,
+				"kind": "t.rewindable",
+				"scope": {
+					"kind": "conversation",
+					"conversationId": 25
+				},
+				"history": "rewindable",
+				"fork": "asOf",
+				"createdAt": 4
+			},
+			{
+				"id": 27,
+				"kind": "t.latest",
+				"scope": {
+					"kind": "conversation",
+					"conversationId": 25
+				},
+				"history": "latest",
+				"fork": "current",
+				"createdAt": 4
+			},
+			{
+				"id": 18,
+				"kind": "t.task",
+				"scope": {
+					"kind": "task",
+					"taskId": 16
+				},
+				"createdAt": 1
+			},
+			{
+				"id": 11,
+				"kind": "t.session",
+				"scope": {
+					"kind": "session"
+				},
+				"createdAt": 1,
+				"retiredAt": 3
+			}
+		],
+		"stored": {
+			"record": {
+				"id": 13,
+				"kind": "t.rewindable",
+				"scope": {
+					"kind": "conversation",
+					"conversationId": 2
+				},
+				"history": "rewindable",
+				"fork": "asOf",
+				"createdAt": 1
+			},
+			"version": 2,
+			"value": {
+				"value": 2
+			},
+			"deltasSinceBase": 1
+		}
+	}
+}

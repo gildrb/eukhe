@@ -1,0 +1,440 @@
+{
+ "schema": [
+  {
+   "type": "table",
+   "name": "conversations",
+   "tbl_name": "conversations",
+   "sql": "CREATE TABLE conversations (\n\t\tid INTEGER PRIMARY KEY,\n\t\towner_conversation_id INTEGER,\n\t\towner_task_id INTEGER,\n\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t) STRICT"
+  },
+  {
+   "type": "index",
+   "name": "conversations_by_owner_conversation",
+   "tbl_name": "conversations",
+   "sql": "CREATE INDEX conversations_by_owner_conversation ON conversations (owner_conversation_id, id)"
+  },
+  {
+   "type": "index",
+   "name": "conversations_by_owner_task",
+   "tbl_name": "conversations",
+   "sql": "CREATE INDEX conversations_by_owner_task ON conversations (owner_task_id, id)"
+  },
+  {
+   "type": "table",
+   "name": "document_revisions",
+   "tbl_name": "document_revisions",
+   "sql": "CREATE TABLE document_revisions (\n\t\tdocument_id INTEGER NOT NULL,\n\t\tseq INTEGER NOT NULL,\n\t\tkind TEXT NOT NULL CHECK (kind IN ('base', 'delta')),\n\t\tversion INTEGER NOT NULL,\n\t\tcontent TEXT NOT NULL CHECK (json_valid(content)),\n\t\tPRIMARY KEY (document_id, seq)\n\t) STRICT"
+  },
+  {
+   "type": "index",
+   "name": "document_revisions_by_kind",
+   "tbl_name": "document_revisions",
+   "sql": "CREATE INDEX document_revisions_by_kind ON document_revisions (document_id, kind, seq DESC)"
+  },
+  {
+   "type": "table",
+   "name": "documents",
+   "tbl_name": "documents",
+   "sql": "CREATE TABLE documents (\n\t\tid INTEGER PRIMARY KEY,\n\t\tkind TEXT NOT NULL,\n\t\tfamily INTEGER NOT NULL CHECK (family IN (0, 1)),\n\t\tkey_value TEXT NOT NULL,\n\t\tscope_kind TEXT NOT NULL CHECK (scope_kind IN ('session', 'conversation', 'task')),\n\t\towner_id INTEGER NOT NULL,\n\t\tcreated_at INTEGER NOT NULL,\n\t\tretired_at INTEGER,\n\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t) STRICT"
+  },
+  {
+   "type": "index",
+   "name": "documents_by_address",
+   "tbl_name": "documents",
+   "sql": "CREATE INDEX documents_by_address\n\t\tON documents (kind, scope_kind, owner_id, family, key_value, created_at DESC, retired_at)"
+  },
+  {
+   "type": "index",
+   "name": "documents_by_scope",
+   "tbl_name": "documents",
+   "sql": "CREATE INDEX documents_by_scope ON documents (scope_kind, owner_id, id)"
+  },
+  {
+   "type": "index",
+   "name": "documents_by_scope_kind",
+   "tbl_name": "documents",
+   "sql": "CREATE INDEX documents_by_scope_kind ON documents (scope_kind, owner_id, kind, id)"
+  },
+  {
+   "type": "table",
+   "name": "durable_metadata",
+   "tbl_name": "durable_metadata",
+   "sql": "CREATE TABLE durable_metadata (\n\t\tsingleton INTEGER PRIMARY KEY CHECK (singleton = 1),\n\t\tnext_id TEXT NOT NULL,\n\t\tnext_seq INTEGER NOT NULL\n\t) STRICT"
+  },
+  {
+   "type": "table",
+   "name": "durable_schema",
+   "tbl_name": "durable_schema",
+   "sql": "CREATE TABLE durable_schema (\n\t\t\tsingleton INTEGER PRIMARY KEY CHECK (singleton = 1),\n\t\t\tversion INTEGER NOT NULL CHECK (version >= 0)\n\t\t) STRICT"
+  },
+  {
+   "type": "table",
+   "name": "entries",
+   "tbl_name": "entries",
+   "sql": "CREATE TABLE entries (\n\t\tid INTEGER PRIMARY KEY,\n\t\tconversation_id INTEGER NOT NULL,\n\t\thead INTEGER,\n\t\tcommit_seq INTEGER NOT NULL,\n\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t) STRICT"
+  },
+  {
+   "type": "index",
+   "name": "entries_by_conversation",
+   "tbl_name": "entries",
+   "sql": "CREATE INDEX entries_by_conversation ON entries (conversation_id, id DESC)"
+  },
+  {
+   "type": "index",
+   "name": "entry_heads_by_conversation",
+   "tbl_name": "entries",
+   "sql": "CREATE INDEX entry_heads_by_conversation ON entries (conversation_id, id DESC) WHERE head IS NOT NULL"
+  },
+  {
+   "type": "table",
+   "name": "record_ids",
+   "tbl_name": "record_ids",
+   "sql": "CREATE TABLE record_ids (\n\t\tid INTEGER PRIMARY KEY,\n\t\trecord_type TEXT NOT NULL CHECK (record_type IN ('conversation', 'entry', 'task', 'submission', 'document'))\n\t) STRICT"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_document_revisions_1",
+   "tbl_name": "document_revisions",
+   "sql": null
+  },
+  {
+   "type": "table",
+   "name": "submissions",
+   "tbl_name": "submissions",
+   "sql": "CREATE TABLE submissions (\n\t\tid INTEGER PRIMARY KEY,\n\t\tconversation_id INTEGER NOT NULL,\n\t\trequest_id TEXT,\n\t\tstatus TEXT NOT NULL CHECK (status IN ('queued', 'placed', 'done', 'unanswered')),\n\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t) STRICT"
+  },
+  {
+   "type": "index",
+   "name": "submissions_by_conversation",
+   "tbl_name": "submissions",
+   "sql": "CREATE INDEX submissions_by_conversation ON submissions (conversation_id, id)"
+  },
+  {
+   "type": "index",
+   "name": "submissions_by_request",
+   "tbl_name": "submissions",
+   "sql": "CREATE INDEX submissions_by_request ON submissions (conversation_id, request_id)"
+  },
+  {
+   "type": "index",
+   "name": "submissions_by_status",
+   "tbl_name": "submissions",
+   "sql": "CREATE INDEX submissions_by_status ON submissions (status, id)"
+  },
+  {
+   "type": "table",
+   "name": "tasks",
+   "tbl_name": "tasks",
+   "sql": "CREATE TABLE tasks (\n\t\tid INTEGER PRIMARY KEY,\n\t\tconversation_id INTEGER NOT NULL,\n\t\tkind TEXT NOT NULL,\n\t\tstatus TEXT NOT NULL CHECK (status IN ('pending', 'running', 'waiting', 'completing', 'terminal')),\n\t\tabort_requested INTEGER NOT NULL CHECK (abort_requested IN (0, 1)),\n\t\tbackground INTEGER NOT NULL CHECK (background IN (0, 1)),\n\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t) STRICT"
+  },
+  {
+   "type": "index",
+   "name": "tasks_by_abort_requested",
+   "tbl_name": "tasks",
+   "sql": "CREATE INDEX tasks_by_abort_requested ON tasks (abort_requested, id)"
+  },
+  {
+   "type": "index",
+   "name": "tasks_by_background",
+   "tbl_name": "tasks",
+   "sql": "CREATE INDEX tasks_by_background ON tasks (background, id)"
+  },
+  {
+   "type": "index",
+   "name": "tasks_by_conversation",
+   "tbl_name": "tasks",
+   "sql": "CREATE INDEX tasks_by_conversation ON tasks (conversation_id, id)"
+  },
+  {
+   "type": "index",
+   "name": "tasks_by_kind",
+   "tbl_name": "tasks",
+   "sql": "CREATE INDEX tasks_by_kind ON tasks (kind, id)"
+  },
+  {
+   "type": "index",
+   "name": "tasks_by_status",
+   "tbl_name": "tasks",
+   "sql": "CREATE INDEX tasks_by_status ON tasks (status, id)"
+  }
+ ],
+ "tables": {
+  "conversations": [
+   {
+    "id": 1,
+    "owner_conversation_id": null,
+    "owner_task_id": null,
+    "record": "{\"id\":1}"
+   },
+   {
+    "id": 8,
+    "owner_conversation_id": 1,
+    "owner_task_id": 5,
+    "record": "{\"id\":8,\"parent\":{\"conversationId\":1,\"at\":3},\"owner\":{\"conversationId\":1,\"taskId\":5}}"
+   }
+  ],
+  "document_revisions": [
+   {
+    "document_id": 11,
+    "seq": 8,
+    "kind": "base",
+    "version": 2,
+    "content": "{\"theme\":\"light\",\"n\":2}"
+   },
+   {
+    "document_id": 11,
+    "seq": 9,
+    "kind": "delta",
+    "version": 2,
+    "content": "[[\"s\",[\"n\"],3]]"
+   },
+   {
+    "document_id": 12,
+    "seq": 6,
+    "kind": "base",
+    "version": 1,
+    "content": "{\"items\":[\"a\"],\"count\":1}"
+   },
+   {
+    "document_id": 12,
+    "seq": 7,
+    "kind": "delta",
+    "version": 1,
+    "content": "[[\"p\",[\"items\"],1,0,[\"b\",\"ç\"]],[\"s\",[\"count\"],2]]"
+   },
+   {
+    "document_id": 12,
+    "seq": 8,
+    "kind": "delta",
+    "version": 1,
+    "content": "[[\"a\",[\"items\",0],\"z\"],[\"d\",[\"count\"]]]"
+   },
+   {
+    "document_id": 15,
+    "seq": 11,
+    "kind": "base",
+    "version": 1,
+    "content": "{\"v\":2}"
+   },
+   {
+    "document_id": 16,
+    "seq": 12,
+    "kind": "base",
+    "version": 1,
+    "content": "{\"items\":[\"a\",\"b\",\"ç\"],\"count\":2}"
+   }
+  ],
+  "documents": [
+   {
+    "id": 11,
+    "kind": "\"session.settings\"",
+    "family": 0,
+    "key_value": "\"\"",
+    "scope_kind": "session",
+    "owner_id": 0,
+    "created_at": 6,
+    "retired_at": null,
+    "record": "{\"id\":11,\"kind\":\"session.settings\",\"scope\":{\"kind\":\"session\"},\"createdAt\":6}"
+   },
+   {
+    "id": 12,
+    "kind": "\"conversation.notes\"",
+    "family": 0,
+    "key_value": "\"\"",
+    "scope_kind": "conversation",
+    "owner_id": 1,
+    "created_at": 6,
+    "retired_at": null,
+    "record": "{\"id\":12,\"kind\":\"conversation.notes\",\"scope\":{\"kind\":\"conversation\",\"conversationId\":1},\"history\":\"rewindable\",\"fork\":\"asOf\",\"createdAt\":6}"
+   },
+   {
+    "id": 13,
+    "kind": "\"conversation.member\"",
+    "family": 1,
+    "key_value": "\"k-1\"",
+    "scope_kind": "conversation",
+    "owner_id": 1,
+    "created_at": 6,
+    "retired_at": 11,
+    "record": "{\"id\":13,\"kind\":\"conversation.member\",\"key\":\"k-1\",\"scope\":{\"kind\":\"conversation\",\"conversationId\":1},\"history\":\"latest\",\"fork\":\"current\",\"createdAt\":6,\"retiredAt\":11}"
+   },
+   {
+    "id": 14,
+    "kind": "\"task.scratch\"",
+    "family": 0,
+    "key_value": "\"\"",
+    "scope_kind": "task",
+    "owner_id": 5,
+    "created_at": 10,
+    "retired_at": 11,
+    "record": "{\"id\":14,\"kind\":\"task.scratch\",\"scope\":{\"kind\":\"task\",\"taskId\":5},\"createdAt\":10,\"retiredAt\":11}"
+   },
+   {
+    "id": 15,
+    "kind": "\"conversation.member\"",
+    "family": 1,
+    "key_value": "\"k-1\"",
+    "scope_kind": "conversation",
+    "owner_id": 1,
+    "created_at": 11,
+    "retired_at": null,
+    "record": "{\"id\":15,\"kind\":\"conversation.member\",\"key\":\"k-1\",\"scope\":{\"kind\":\"conversation\",\"conversationId\":1},\"history\":\"latest\",\"fork\":\"current\",\"createdAt\":11}"
+   },
+   {
+    "id": 16,
+    "kind": "\"conversation.notes\"",
+    "family": 0,
+    "key_value": "\"\"",
+    "scope_kind": "conversation",
+    "owner_id": 8,
+    "created_at": 12,
+    "retired_at": null,
+    "record": "{\"id\":16,\"kind\":\"conversation.notes\",\"scope\":{\"kind\":\"conversation\",\"conversationId\":8},\"history\":\"rewindable\",\"fork\":\"asOf\",\"createdAt\":12}"
+   }
+  ],
+  "durable_metadata": [
+   {
+    "singleton": 1,
+    "next_id": "17",
+    "next_seq": 13
+   }
+  ],
+  "durable_schema": [
+   {
+    "singleton": 1,
+    "version": 1
+   }
+  ],
+  "entries": [
+   {
+    "id": 2,
+    "conversation_id": 1,
+    "head": null,
+    "commit_seq": 2,
+    "record": "{\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"héllo ✓ 𝄞\"}],\"timestamp\":1700000000000}],\"kind\":\"user\",\"id\":2,\"conversationId\":1}"
+   },
+   {
+    "id": 3,
+    "conversation_id": 1,
+    "head": null,
+    "commit_seq": 2,
+    "record": "{\"data\":{\"nested\":[1,2.5,-3,null,true],\"s\":\"x\"},\"kind\":\"note\",\"id\":3,\"conversationId\":1}"
+   },
+   {
+    "id": 4,
+    "conversation_id": 1,
+    "head": 3,
+    "commit_seq": 2,
+    "record": "{\"data\":null,\"kind\":\"marker\",\"id\":4,\"conversationId\":1,\"head\":3}"
+   },
+   {
+    "id": 10,
+    "conversation_id": 8,
+    "head": 10,
+    "commit_seq": 5,
+    "record": "{\"edits\":[{\"target\":2,\"action\":\"omit\"}],\"kind\":\"assistant\",\"id\":10,\"conversationId\":8,\"head\":10,\"byTaskId\":5}"
+   }
+  ],
+  "record_ids": [
+   {
+    "id": 1,
+    "record_type": "conversation"
+   },
+   {
+    "id": 2,
+    "record_type": "entry"
+   },
+   {
+    "id": 3,
+    "record_type": "entry"
+   },
+   {
+    "id": 4,
+    "record_type": "entry"
+   },
+   {
+    "id": 5,
+    "record_type": "task"
+   },
+   {
+    "id": 6,
+    "record_type": "submission"
+   },
+   {
+    "id": 7,
+    "record_type": "submission"
+   },
+   {
+    "id": 8,
+    "record_type": "conversation"
+   },
+   {
+    "id": 9,
+    "record_type": "task"
+   },
+   {
+    "id": 10,
+    "record_type": "entry"
+   },
+   {
+    "id": 11,
+    "record_type": "document"
+   },
+   {
+    "id": 12,
+    "record_type": "document"
+   },
+   {
+    "id": 13,
+    "record_type": "document"
+   },
+   {
+    "id": 14,
+    "record_type": "document"
+   },
+   {
+    "id": 15,
+    "record_type": "document"
+   },
+   {
+    "id": 16,
+    "record_type": "document"
+   }
+  ],
+  "submissions": [
+   {
+    "id": 6,
+    "conversation_id": 1,
+    "request_id": "\"req-1\"",
+    "status": "unanswered",
+    "record": "{\"conversationId\":1,\"requestId\":\"req-1\",\"type\":\"input\",\"status\":\"unanswered\",\"entry\":2,\"reason\":\"closed\",\"detail\":{\"retry\":false},\"id\":6}"
+   },
+   {
+    "id": 7,
+    "conversation_id": 1,
+    "request_id": "\"req-2\"",
+    "status": "done",
+    "record": "{\"conversationId\":1,\"requestId\":\"req-2\",\"type\":\"write\",\"status\":\"done\",\"entry\":10,\"id\":7}"
+   }
+  ],
+  "tasks": [
+   {
+    "id": 5,
+    "conversation_id": 1,
+    "kind": "\"test.task\"",
+    "status": "terminal",
+    "abort_requested": 0,
+    "background": 0,
+    "record": "{\"id\":5,\"conversationId\":1,\"kind\":\"test.task\",\"version\":1,\"input\":{\"value\":\"in\"},\"background\":false,\"abortRequested\":false,\"state\":{\"status\":\"terminal\",\"outcome\":{\"status\":\"completed\",\"result\":{\"ok\":true}}}}"
+   },
+   {
+    "id": 9,
+    "conversation_id": 8,
+    "kind": "\"test.waiter\"",
+    "status": "waiting",
+    "abort_requested": 0,
+    "background": 1,
+    "record": "{\"id\":9,\"conversationId\":8,\"kind\":\"test.waiter\",\"version\":2,\"input\":[1,2],\"owner\":5,\"background\":true,\"abortRequested\":false,\"state\":{\"status\":\"waiting\",\"checkpoint\":{\"n\":0},\"on\":[5],\"policy\":\"allSettled\"}}"
+   }
+  ]
+ }
+}

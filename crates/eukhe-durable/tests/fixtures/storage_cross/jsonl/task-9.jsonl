@@ -1,0 +1,1 @@
+{"format":1,"type":"record","seq":4,"ordinal":1,"payload":{"type":"task","value":{"id":9,"conversationId":8,"kind":"test.waiter","version":2,"input":[1,2],"owner":5,"background":true,"abortRequested":false,"state":{"status":"waiting","checkpoint":{"n":0},"on":[5],"policy":"allSettled"}}}}
