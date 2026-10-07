@@ -461,6 +461,7 @@ mod tests {
                     size: 7,
                 },
             ],
+            scopes: std::collections::HashMap::new(),
             problems: Vec::new(),
         };
         let mut problems = Vec::new();
@@ -506,6 +507,7 @@ mod tests {
             Loaded {
                 messages: (0..total).map(|_| meta(Kind::User)).collect(),
                 nodes,
+                scopes: std::collections::HashMap::new(),
                 problems: Vec::new(),
             },
             &mut problems,

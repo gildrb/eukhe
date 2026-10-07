@@ -36,9 +36,9 @@ use tokio::sync::{oneshot, Mutex};
 use super::chat::{free_text, Chat, Step, Zoom};
 use super::compactor::{build_line, NodeRequest, Summarizer};
 use super::prompts::{compress_step, merge_step};
-use super::store::{LoadMode, MessageRecord, NodeRecord, Store};
+use super::store::{note_scope, LoadMode, MessageRecord, NodeRecord, ScopeMark, Store};
 use super::view::{pieces, Part};
-use super::{labeled, Kind, RETRY};
+use super::{labeled, AppendKey, Kind, RETRY};
 use turn::{Origin, Turns};
 
 pub use turn::TurnLease;
@@ -72,6 +72,16 @@ impl RenderedView {
     }
 }
 
+/// What a keyed append ([`Memory::append_keyed`]) did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyedAppend {
+    /// Logged now, as this message id.
+    Written(u64),
+    /// The log already held the key: nothing written. The id is the newest
+    /// message of the key's scope.
+    AlreadyLogged(u64),
+}
+
 /// A snapshot of the chat for status displays.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,12 +112,16 @@ pub(crate) struct ImportItem {
 enum Request {
     /// Log one message. `dedupe` re-sends after a lost connection: a copy
     /// with the same kind, date and text among the newest messages is
-    /// answered instead of written twice.
+    /// answered instead of written twice. A `key` makes the append
+    /// idempotent across processes and restarts: a key at or below its
+    /// scope's newest logged key is answered `AlreadyAppended`.
     Append {
         kind: Kind,
         text: String,
         date: String,
         dedupe: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<AppendKey>,
     },
     /// Log a batch at once, only when the log has exactly `expect_start`
     /// messages (imports that keep their ids).
@@ -147,13 +161,31 @@ enum Request {
     rename_all_fields = "camelCase"
 )]
 enum Reply {
-    Appended { id: u64 },
-    Imported { first: u64, count: u64 },
-    Rendered { view: RenderedView },
-    Text { text: String },
-    Status { status: MemoryStatus },
+    Appended {
+        id: u64,
+    },
+    /// A keyed append whose key the log already holds: nothing written;
+    /// `id` is the newest message of the key's scope.
+    AlreadyAppended {
+        id: u64,
+    },
+    Imported {
+        first: u64,
+        count: u64,
+    },
+    Rendered {
+        view: RenderedView,
+    },
+    Text {
+        text: String,
+    },
+    Status {
+        status: MemoryStatus,
+    },
     Persisting,
-    Parts { parts: Vec<(u32, u64)> },
+    Parts {
+        parts: Vec<(u32, u64)>,
+    },
     Granted,
     Released,
 }
@@ -267,10 +299,44 @@ impl Memory {
                 text: text.to_string(),
                 date,
                 dedupe: false,
+                key: None,
             })
             .await?
         {
             Reply::Appended { id } => Ok(id),
+            other => Err(unexpected(&other)),
+        }
+    }
+
+    /// Log one message once per `key` (written and fsynced before this
+    /// returns): the owner answers [`KeyedAppend::AlreadyLogged`] when the
+    /// log already holds a message of the key's scope at or past
+    /// `key.seq`, across owner restarts too (the key is stored on the
+    /// line). A logger that numbers its messages per scope in order may so
+    /// re-send what it is unsure about after a crash.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the message cannot be written.
+    pub async fn append_keyed(
+        &self,
+        kind: Kind,
+        text: &str,
+        key: AppendKey,
+    ) -> anyhow::Result<KeyedAppend> {
+        let date = crate::platform::local_time(SystemTime::now())?.rfc3339();
+        match self
+            .request(Request::Append {
+                kind,
+                text: text.to_string(),
+                date,
+                dedupe: false,
+                key: Some(key),
+            })
+            .await?
+        {
+            Reply::Appended { id } => Ok(KeyedAppend::Written(id)),
+            Reply::AlreadyAppended { id } => Ok(KeyedAppend::AlreadyLogged(id)),
             other => Err(unexpected(&other)),
         }
     }
@@ -943,6 +1009,8 @@ struct Actor {
     view_waiters: Vec<oneshot::Sender<Outcome>>,
     /// The root-turn lease.
     turns: Turns,
+    /// The newest keyed message of each append scope (keyed appends).
+    scopes: HashMap<String, ScopeMark>,
     failures: HashMap<Part, Failure>,
     /// Nodes that failed and wait out their retry delay (a subset of the
     /// chat's busy set).
@@ -966,8 +1034,9 @@ impl Actor {
         runtime: tokio::runtime::Handle,
         commands: mpsc::Sender<Command>,
     ) -> anyhow::Result<Actor> {
-        let (store, loaded) = Store::open(dir, LoadMode::Repair)?;
+        let (store, mut loaded) = Store::open(dir, LoadMode::Repair)?;
         let mut problems = loaded.problems.clone();
+        let scopes = std::mem::take(&mut loaded.scopes);
         let chat = Chat::from_loaded(loaded, &mut problems);
         for problem in problems {
             tracing::warn!(target: "chat_memory", "{problem}");
@@ -981,6 +1050,7 @@ impl Actor {
             commands,
             view_waiters: Vec::new(),
             turns: Turns::default(),
+            scopes,
             failures: HashMap::new(),
             waiting: HashSet::new(),
             persisting: false,
@@ -1036,8 +1106,21 @@ impl Actor {
                 text,
                 date,
                 dedupe,
+                key: Some(key),
+            } => match self.scopes.get(&key.scope) {
+                Some(mark) if key.seq <= mark.seq => Ok(Reply::AlreadyAppended { id: mark.id }),
+                _ => self
+                    .append(kind, text, date, dedupe, Some(key))
+                    .map(|id| Reply::Appended { id }),
+            },
+            Request::Append {
+                kind,
+                text,
+                date,
+                dedupe,
+                key: None,
             } => self
-                .append(kind, text, date, dedupe)
+                .append(kind, text, date, dedupe, None)
                 .map(|id| Reply::Appended { id }),
             Request::Import {
                 expect_start,
@@ -1083,6 +1166,7 @@ impl Actor {
         text: String,
         date: String,
         dedupe: bool,
+        key: Option<AppendKey>,
     ) -> anyhow::Result<u64> {
         if dedupe {
             let total = self.chat.total();
@@ -1098,21 +1182,32 @@ impl Actor {
                 }
             }
         }
-        let id = self.write_message(kind, text, date)?;
+        let id = self.write_message(kind, text, date, key)?;
         self.pump();
         Ok(id)
     }
 
-    fn write_message(&mut self, kind: Kind, text: String, date: String) -> anyhow::Result<u64> {
+    fn write_message(
+        &mut self,
+        kind: Kind,
+        text: String,
+        date: String,
+        key: Option<AppendKey>,
+    ) -> anyhow::Result<u64> {
         let day = crate::platform::local_time(SystemTime::now())?.date();
+        let i = self.chat.total();
         let record = MessageRecord {
-            i: self.chat.total(),
+            i,
             kind,
             size: labeled(kind, &text).len(),
             text,
             date,
+            key,
         };
         let meta = self.store.append_message(&record, &day)?;
+        if let Some(key) = &record.key {
+            note_scope(&mut self.scopes, key, i);
+        }
         Ok(self.chat.push_message(meta))
     }
 
@@ -1131,7 +1226,7 @@ impl Actor {
         }
         let count = items.len() as u64;
         for item in items {
-            self.write_message(item.kind, item.text, item.date)?;
+            self.write_message(item.kind, item.text, item.date, None)?;
         }
         self.pump();
         Ok(Reply::Imported { first, count })

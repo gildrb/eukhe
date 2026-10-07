@@ -19,6 +19,11 @@ eukhe-ai.workspace = true
 eukhe-models = { path = "../eukhe-models" }
 eukhe-agent.workspace = true
 eukhe-telemetry.workspace = true
+# The eukhe agent on the durable Harness (`durable` module): the Harness,
+# its pi-ai model layer, and chord contexts/JSON.
+eukhe-durable.workspace = true
+eukhe-pi-ai.workspace = true
+eukhe-chord.workspace = true
 base64 = "0.22"
 fancy-regex = "0.14"
 # The traces browser login's auth challenge (RSA-2048 keypair, OAEP-SHA256

@@ -3,6 +3,12 @@
 //! `session-manager.ts` (`findMostRecentSessionForCwd`): the CLI turns a
 //! user selector into a concrete session file path, or a typed selector
 //! error the caller renders.
+//!
+//! These scans see legacy `<id>.jsonl` files only. Durable storages
+//! (`<sessions_dir>/<id>/`) and legacy files not imported yet are listed
+//! and resolved by [`crate::durable::list_sessions`] and
+//! [`crate::durable::resolve_session`], which share this module's selector
+//! tiers and messages.
 
 use std::path::{Path, PathBuf};
 
@@ -110,9 +116,9 @@ fn normalize_cwd(cwd: &Path) -> PathBuf {
     std::path::absolute(cwd).unwrap_or_else(|_| cwd.to_path_buf())
 }
 
-/// True when a session header's cwd matches the given cwd.
-fn header_matches_cwd(header: &SessionHeaderInfo, cwd: &Path) -> bool {
-    !header.cwd.is_empty() && normalize_cwd(Path::new(&header.cwd)) == normalize_cwd(cwd)
+/// True when a session's recorded cwd matches the given cwd.
+pub(crate) fn session_cwd_matches(session_cwd: &str, cwd: &Path) -> bool {
+    !session_cwd.is_empty() && normalize_cwd(Path::new(session_cwd)) == normalize_cwd(cwd)
 }
 
 /// Scan a session directory for valid session headers (invalid files skip).
@@ -147,7 +153,7 @@ pub fn scan_session_headers(session_dir: &Path) -> Vec<SessionHeaderInfo> {
 pub fn find_most_recent_session_for_cwd(session_dir: &Path, cwd: &Path) -> Option<PathBuf> {
     let mut candidates: Vec<(std::time::SystemTime, PathBuf)> = scan_session_headers(session_dir)
         .into_iter()
-        .filter(|header| header_matches_cwd(header, cwd))
+        .filter(|header| session_cwd_matches(&header.cwd, cwd))
         .filter_map(|header| {
             std::fs::metadata(&header.path)
                 .and_then(|meta| meta.modified())
@@ -170,20 +176,81 @@ fn matches_saved_session_selector(candidate: &str, selector: &str) -> bool {
     candidate.starts_with(selector)
 }
 
-/// Resolve one resolved session among the matching tier, erroring on ties
-/// like `resolveUniqueMatch`.
-fn resolve_unique_match(
+/// The tier a saved session matched a selector in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SavedSessionMatch<'a, T> {
+    /// A saved session whose cwd matches the current one.
+    Local(&'a T),
+    /// A saved session belonging to a different project.
+    Global(&'a T),
+}
+
+/// Resolve one session among the matching tier, erroring on ties like
+/// `resolveUniqueMatch`.
+fn resolve_unique_match<'a, T>(
     selector: &str,
-    matches: Vec<SessionHeaderInfo>,
-) -> Result<Option<SessionHeaderInfo>, SessionSelectorError> {
+    matches: Vec<&'a T>,
+    id: impl Fn(&T) -> &str,
+) -> Result<Option<&'a T>, SessionSelectorError> {
     match matches.len() {
         0 => Ok(None),
         1 => Ok(matches.into_iter().next()),
         _ => Err(SessionSelectorError::Ambiguous {
             selector: selector.to_string(),
-            matches: matches.iter().map(|header| header.id.clone()).collect(),
+            matches: matches
+                .iter()
+                .map(|session| id(session).to_owned())
+                .collect(),
         }),
     }
+}
+
+/// The saved-session tiers of `resolveSessionPath` (after its path check)
+/// over any session listing: exact local, exact global, partial local,
+/// partial global, else not found with a "did you mean" suggestion.
+///
+/// # Errors
+///
+/// [`SessionSelectorError::Ambiguous`] when a tier holds several sessions,
+/// [`SessionSelectorError::NotFound`] when none matches.
+pub(crate) fn match_saved_session<'a, T>(
+    selector: &str,
+    sessions: &'a [T],
+    id: impl Fn(&T) -> &str + Copy,
+    is_local: impl Fn(&T) -> bool,
+) -> Result<SavedSessionMatch<'a, T>, SessionSelectorError> {
+    let local: Vec<&T> = sessions
+        .iter()
+        .filter(|session| is_local(session))
+        .collect();
+
+    // Exact local, then exact global.
+    let normalized_selector = normalize_session_id(selector);
+    let exact = |session: &&T| normalize_session_id(id(session)) == normalized_selector;
+    let exact_local: Vec<&T> = local.iter().copied().filter(exact).collect();
+    let exact_global: Vec<&T> = sessions.iter().filter(exact).collect();
+    if let Some(session) = resolve_unique_match(selector, exact_local, id)? {
+        return Ok(SavedSessionMatch::Local(session));
+    }
+    if let Some(session) = resolve_unique_match(selector, exact_global, id)? {
+        return Ok(SavedSessionMatch::Global(session));
+    }
+
+    // Partial local, then partial global.
+    let partial = |session: &&T| matches_saved_session_selector(id(session), selector);
+    let partial_local: Vec<&T> = local.iter().copied().filter(partial).collect();
+    let partial_global: Vec<&T> = sessions.iter().filter(partial).collect();
+    if let Some(session) = resolve_unique_match(selector, partial_local, id)? {
+        return Ok(SavedSessionMatch::Local(session));
+    }
+    if let Some(session) = resolve_unique_match(selector, partial_global, id)? {
+        return Ok(SavedSessionMatch::Global(session));
+    }
+
+    Err(SessionSelectorError::NotFound {
+        selector: selector.to_string(),
+        suggestion: find_closest_session_id(selector, sessions.iter().map(id)),
+    })
 }
 
 /// Resolve a `--resume` selector against the session directory, mirroring
@@ -203,89 +270,42 @@ pub fn resolve_session_path(
     if looks_like_session_path(selector) {
         return Ok(ResolvedSession::Path(PathBuf::from(selector)));
     }
-
     let headers = scan_session_headers(session_dir);
-    let local: Vec<SessionHeaderInfo> = headers
-        .iter()
-        .filter(|header| header_matches_cwd(header, cwd))
-        .cloned()
-        .collect();
-
-    // Exact local, then exact global.
-    let normalized_selector = normalize_session_id(selector);
-    let exact_local = local
-        .iter()
-        .filter(|header| normalize_session_id(&header.id) == normalized_selector)
-        .cloned()
-        .collect::<Vec<_>>();
-    let exact_global = headers
-        .iter()
-        .filter(|header| normalize_session_id(&header.id) == normalized_selector)
-        .cloned()
-        .collect::<Vec<_>>();
-
-    if let Some(header) = resolve_unique_match(selector, exact_local)? {
-        return Ok(ResolvedSession::Local(header.path));
-    }
-    if let Some(header) = resolve_unique_match(selector, exact_global)? {
-        return Ok(ResolvedSession::Global {
-            path: header.path,
-            cwd: PathBuf::from(header.cwd),
-        });
-    }
-
-    // Partial local, then partial global.
-    let partial_local = local
-        .iter()
-        .filter(|header| matches_saved_session_selector(&header.id, selector))
-        .cloned()
-        .collect::<Vec<_>>();
-    let partial_global = headers
-        .iter()
-        .filter(|header| matches_saved_session_selector(&header.id, selector))
-        .cloned()
-        .collect::<Vec<_>>();
-
-    if let Some(header) = resolve_unique_match(selector, partial_local)? {
-        return Ok(ResolvedSession::Local(header.path));
-    }
-    if let Some(header) = resolve_unique_match(selector, partial_global)? {
-        return Ok(ResolvedSession::Global {
-            path: header.path,
-            cwd: PathBuf::from(header.cwd),
-        });
-    }
-
-    Err(SessionSelectorError::NotFound {
-        selector: selector.to_string(),
-        suggestion: find_closest_session_id(selector, &local, &headers),
+    let matched = match_saved_session(
+        selector,
+        &headers,
+        |header| header.id.as_str(),
+        |header| session_cwd_matches(&header.cwd, cwd),
+    )?;
+    Ok(match matched {
+        SavedSessionMatch::Local(header) => ResolvedSession::Local(header.path.clone()),
+        SavedSessionMatch::Global(header) => ResolvedSession::Global {
+            path: header.path.clone(),
+            cwd: PathBuf::from(&header.cwd),
+        },
     })
 }
 
-/// `findClosestSessionId`: the unique closest id within the tolerance, if any.
-fn find_closest_session_id(
+/// `findClosestSessionId`: the unique closest id within the tolerance, if
+/// any, among every saved session id (the local ones are a subset).
+fn find_closest_session_id<'a>(
     selector: &str,
-    local: &[SessionHeaderInfo],
-    all: &[SessionHeaderInfo],
+    ids: impl Iterator<Item = &'a str>,
 ) -> Option<String> {
     let normalized_selector = normalize_session_id(selector);
     if normalized_selector.len() < SUGGESTION_MIN_LENGTH {
         return None;
     }
 
-    let mut unique_ids: Vec<String> = local
-        .iter()
-        .chain(all)
-        .map(|header| header.id.clone())
-        .collect();
-    unique_ids.sort();
+    let mut unique_ids: Vec<&str> = ids.collect();
+    unique_ids.sort_unstable();
     unique_ids.dedup();
 
     let normalized_selector: Vec<char> = normalized_selector.chars().collect();
-    let mut closest: Option<(String, usize)> = None;
+    let mut closest: Option<(&str, usize)> = None;
     let mut tied = false;
     for id in unique_ids {
-        let normalized_id: Vec<char> = normalize_session_id(&id).chars().collect();
+        let normalized_id: Vec<char> = normalize_session_id(id).chars().collect();
         let length = normalized_selector.len().min(normalized_id.len());
         let prefix_distance = edit_distance(&normalized_selector, &normalized_id[..length]);
         let suffix_distance = edit_distance(
@@ -305,7 +325,7 @@ fn find_closest_session_id(
 
     let maximum_distance = (normalized_selector.len() / 5).max(1);
     match closest {
-        Some((id, distance)) if !tied && distance <= maximum_distance => Some(id),
+        Some((id, distance)) if !tied && distance <= maximum_distance => Some(id.to_owned()),
         _ => None,
     }
 }

@@ -3,11 +3,12 @@
 //! written with one `write` and an `fsync` before the append returns; a
 //! torn last line (a crash mid-write) is reported and skipped at load.
 
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use super::Kind;
+use super::{AppendKey, Kind};
 
 /// One message line of `main/`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -19,6 +20,17 @@ pub(crate) struct MessageRecord {
     pub size: usize,
     /// ISO time the message was written (imports keep their source date).
     pub date: String,
+    /// The idempotency key of a keyed append; absent on every other line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<AppendKey>,
+}
+
+/// The newest keyed message of one append scope: a keyed append at or
+/// below `seq` is already in the log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScopeMark {
+    pub seq: u64,
+    pub id: u64,
 }
 
 /// One node line of `tree/`.
@@ -59,6 +71,8 @@ pub(crate) enum LoadMode {
 pub(crate) struct Loaded {
     pub messages: Vec<MessageMeta>,
     pub nodes: Vec<NodeRecord>,
+    /// The newest keyed message of each append scope.
+    pub scopes: HashMap<String, ScopeMark>,
     /// Problems found and skipped (torn lines, foreign nodes).
     pub problems: Vec<String>,
 }
@@ -109,17 +123,22 @@ impl Store {
             files.push(path.clone());
             for (offset, line) in read_lines(&path, mode, &mut loaded.problems)? {
                 match serde_json::from_slice::<MessageRecord>(&line) {
-                    Ok(record) => messages.push((
-                        record.i,
-                        MessageMeta {
-                            kind: record.kind,
-                            size: super::labeled(record.kind, &record.text).len(),
-                            date: record.date,
-                            file: index,
-                            offset,
-                            len: line.len(),
-                        },
-                    )),
+                    Ok(record) => {
+                        if let Some(key) = &record.key {
+                            note_scope(&mut loaded.scopes, key, record.i);
+                        }
+                        messages.push((
+                            record.i,
+                            MessageMeta {
+                                kind: record.kind,
+                                size: super::labeled(record.kind, &record.text).len(),
+                                date: record.date,
+                                file: index,
+                                offset,
+                                len: line.len(),
+                            },
+                        ));
+                    }
                     Err(error) => loaded.problems.push(format!(
                         "{}: skipped a torn message line at byte {offset}: {error}",
                         path.display()
@@ -236,6 +255,19 @@ impl Store {
     }
 }
 
+/// Record that message `id` carries `key`: its scope's mark moves up to it.
+pub(crate) fn note_scope(scopes: &mut HashMap<String, ScopeMark>, key: &AppendKey, id: u64) {
+    let mark = ScopeMark { seq: key.seq, id };
+    scopes
+        .entry(key.scope.clone())
+        .and_modify(|current| {
+            if current.seq < key.seq {
+                *current = mark;
+            }
+        })
+        .or_insert(mark);
+}
+
 impl Appender {
     /// Write `line` to the day file (created on first use), then fsync it.
     /// Returns the line's offset.
@@ -346,6 +378,7 @@ mod tests {
             text: text.to_string(),
             size: super::super::labeled(Kind::User, text).len(),
             date: "2026-10-05T09:00:00.000+02:00".to_string(),
+            key: None,
         }
     }
 

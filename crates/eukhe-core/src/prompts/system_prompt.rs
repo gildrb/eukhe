@@ -359,7 +359,7 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_ipython: bool) -
     lines.join("\n")
 }
 
-fn today() -> String {
+pub(crate) fn today() -> String {
     // UTC date in YYYY-MM-DD form; the prompt is date context only.
     let days = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

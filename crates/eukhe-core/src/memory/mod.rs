@@ -37,7 +37,7 @@ pub use prompts::{
     memory_system_layer, subagent_system_layer, AGENT_NAME, DATE_TOOL_DESCRIPTION,
     ZOOM_TOOL_DESCRIPTION,
 };
-pub use service::{Memory, MemoryStatus, RenderedView, TurnLease};
+pub use service::{KeyedAppend, Memory, MemoryStatus, RenderedView, TurnLease};
 pub use summarizer::SettingsSummarizer;
 
 /// Target size of one summary line, in UTF-8 bytes.
@@ -70,6 +70,17 @@ pub enum MemoryRole {
 #[must_use]
 pub fn chat_dir(agent_dir: &std::path::Path) -> std::path::PathBuf {
     agent_dir.join("chat")
+}
+
+/// The idempotency key of a keyed append ([`Memory::append_keyed`]): the
+/// appender's scope (one logger, e.g. one conversation of one session) and
+/// the message's position in that scope, counted from 0 in log order.
+/// Stored on the logged line, so the owner knows every scope's newest key
+/// after a restart.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct AppendKey {
+    pub scope: String,
+    pub seq: u64,
 }
 
 /// What a logged message is.

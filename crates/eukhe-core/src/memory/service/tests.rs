@@ -18,11 +18,12 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::turn::TURN_FILE;
 use super::{
-    commit, Client, ImportItem, Memory, MemoryStatus, Outcome, RenderedView, Reply, Request,
+    commit, Client, ImportItem, KeyedAppend, Memory, MemoryStatus, Outcome, RenderedView, Reply,
+    Request,
 };
 use crate::memory::compactor::tests::{reply, Scripted};
 use crate::memory::prompts::{compress_step, merge_step, COMPACT};
-use crate::memory::{Kind, Summarizer, SummarizerFuture, NODE, PLACEHOLDER, RETRY};
+use crate::memory::{AppendKey, Kind, Summarizer, SummarizerFuture, NODE, PLACEHOLDER, RETRY};
 
 /// A compactor call the test answers with the line.
 type Call = oneshot::Sender<String>;
@@ -556,6 +557,7 @@ async fn a_resent_append_is_written_once() {
         text: "once".to_string(),
         date: "2026-10-05T09:00:00.000+02:00".to_string(),
         dedupe,
+        key: None,
     };
     let mut replies = Vec::new();
     for dedupe in [false, true, false] {
@@ -568,6 +570,74 @@ async fn a_resent_append_is_written_once() {
             Reply::Appended { id: 0 },
             Reply::Appended { id: 1 },
         ]
+    );
+}
+
+/// A keyed append is written once per key, across an owner restart too:
+/// the key rides on the logged line, and a key at or below its scope's
+/// newest is answered without a write. Other scopes count on their own.
+#[tokio::test]
+async fn a_keyed_append_is_written_once_across_owner_restarts() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = |scope: &str, seq| AppendKey {
+        scope: scope.to_string(),
+        seq,
+    };
+    let memory = Memory::open(dir.path(), no_model()).await.unwrap();
+    let mut outcomes = vec![
+        memory
+            .append_keyed(Kind::User, "a", key("s", 0))
+            .await
+            .unwrap(),
+        memory
+            .append_keyed(Kind::Talk, "b", key("s", 1))
+            .await
+            .unwrap(),
+        memory
+            .append(Kind::User, "unkeyed")
+            .await
+            .map(KeyedAppend::Written)
+            .unwrap(),
+        memory
+            .append_keyed(Kind::User, "a", key("s", 0))
+            .await
+            .unwrap(),
+    ];
+    drop(memory);
+    let memory = Memory::open(dir.path(), no_model()).await.unwrap();
+    outcomes.extend([
+        memory
+            .append_keyed(Kind::User, "a", key("s", 0))
+            .await
+            .unwrap(),
+        memory
+            .append_keyed(Kind::Talk, "b", key("s", 1))
+            .await
+            .unwrap(),
+        memory
+            .append_keyed(Kind::Echo, "c", key("s", 2))
+            .await
+            .unwrap(),
+        memory
+            .append_keyed(Kind::User, "a", key("t", 0))
+            .await
+            .unwrap(),
+    ]);
+    assert_eq!(
+        (outcomes, memory.status().await.unwrap().messages),
+        (
+            vec![
+                KeyedAppend::Written(0),
+                KeyedAppend::Written(1),
+                KeyedAppend::Written(2),
+                KeyedAppend::AlreadyLogged(1),
+                KeyedAppend::AlreadyLogged(1),
+                KeyedAppend::AlreadyLogged(1),
+                KeyedAppend::Written(3),
+                KeyedAppend::Written(4),
+            ],
+            5
+        )
     );
 }
 

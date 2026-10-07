@@ -218,7 +218,13 @@ pub struct ExecuteOptions {
     pub internal: bool,
     /// The protocol repair's own request; exempt from waiting on the repair it belongs to.
     pub protocol_repair: bool,
+    /// The durable tool call executing this cell. Host requests the cell
+    /// sends while it runs carry it to a [`KernelHostDispatch`].
+    pub call: Option<KernelCallContext>,
 }
+
+/// The durable tool call (`ipython` invocation) that runs a kernel cell.
+pub type KernelCallContext = Arc<dyn eukhe_durable::harness::types::ToolExecutionApi>;
 
 /// The error raised when a new cell cannot start because the previously
 /// interrupted cell is still running.
@@ -233,6 +239,34 @@ pub struct HostRequestPayload {
     pub data: Value,
     /// Source of the cell that triggered the request, when attributable.
     pub cell_source_code: Option<String>,
+}
+
+/// One host request as a [`KernelHostDispatch`] receives it: the request
+/// type, the payload with `cellSourceCode` merged in when known, the cell
+/// source on its own, and the durable call running the requesting cell
+/// (`None` when no cell is active, e.g. a detached task after its cell
+/// settled).
+#[derive(Clone)]
+pub struct KernelHostRequest {
+    pub request_type: String,
+    pub data: Value,
+    pub cell_source_code: Option<String>,
+    pub call: Option<KernelCallContext>,
+}
+
+/// Answers kernel host requests per request, looking the handler up at
+/// dispatch time. Installed with [`HostRequestHandlers::with_dispatch`], it
+/// replaces the static handler map: implementations resolve
+/// `request.request_type` against their own registry and answer
+/// [`host_request_unavailable`] for an unknown type.
+pub trait KernelHostDispatch: Send + Sync {
+    fn dispatch(&self, request: KernelHostRequest) -> HostHandlerFuture;
+}
+
+/// The error a session answers for a host request type it does not serve.
+#[must_use]
+pub fn host_request_unavailable(request_type: &str) -> anyhow::Error {
+    anyhow::anyhow!("host request type \"{request_type}\" is not available in this session")
 }
 
 pub type HostHandlerFuture = Pin<Box<dyn Future<Output = anyhow::Result<Value>> + Send>>;
@@ -262,16 +296,41 @@ where
     Arc::new(move |payload| Box::pin(f(payload)) as HostHandlerFuture)
 }
 
-/// Host request handlers keyed by request type (e.g. `rlm.run`, `goal.complete`).
+/// Host request handlers keyed by request type (e.g. `rlm.run`, `goal.complete`),
+/// or a per-request dispatch that replaces the map.
 #[derive(Clone, Default)]
 pub struct HostRequestHandlers {
     handlers: Arc<HashMap<String, HostHandlerFn>>,
+    dispatch: Option<Arc<dyn KernelHostDispatch>>,
 }
 
 impl HostRequestHandlers {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Handlers answered by `dispatch` per request: the kernel hands every
+    /// host request (with its durable call context) to it instead of the map.
+    #[must_use]
+    pub fn with_dispatch(dispatch: Arc<dyn KernelHostDispatch>) -> Self {
+        Self {
+            handlers: Arc::default(),
+            dispatch: Some(dispatch),
+        }
+    }
+
+    /// The per-request dispatch, when installed.
+    #[must_use]
+    pub fn dispatch(&self) -> Option<&Arc<dyn KernelHostDispatch>> {
+        self.dispatch.as_ref()
+    }
+
+    /// The registered handlers, in no particular order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &HostHandlerFn)> {
+        self.handlers
+            .iter()
+            .map(|(request_type, handler)| (request_type.as_str(), handler))
     }
 
     pub fn register(&mut self, request_type: impl Into<String>, handler: HostHandlerFn) {
@@ -282,8 +341,12 @@ impl HostRequestHandlers {
     }
 
     /// Merge another registry into this one; the other registry's entries
-    /// win on key collisions (later registrations override).
+    /// (and its dispatch, when it has one) win on key collisions (later
+    /// registrations override).
     pub fn merge(&mut self, other: Self) {
+        if other.dispatch.is_some() {
+            self.dispatch = other.dispatch;
+        }
         let other_map = Arc::try_unwrap(other.handlers).unwrap_or_else(|shared| (*shared).clone());
         let mut map = Arc::try_unwrap(std::mem::take(&mut self.handlers))
             .unwrap_or_else(|shared| (*shared).clone());

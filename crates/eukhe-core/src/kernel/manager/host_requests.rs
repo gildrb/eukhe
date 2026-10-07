@@ -5,6 +5,7 @@ use super::{
     anyhow, json, lock, Arc, Duration, HostRequestPayload, Inner, Value,
     MAX_HANDLED_HOST_REQUEST_IDS,
 };
+use crate::kernel::shared::{host_request_unavailable, KernelHostRequest};
 
 /// The cell source attached to a host request is capped at this many
 /// characters (TS #2475: `MAX_CELL_SOURCE_CHARS`, repl-manager.ts:81-82):
@@ -85,28 +86,41 @@ impl Inner {
             .and_then(Value::as_str)
             .filter(|t| !t.is_empty())
             .ok_or_else(|| anyhow!("host request payload must have a string type"))?;
+        // Tag the request with the cell that triggered it. A blocking call is
+        // still the in-flight execution; detached spawns fire after the
+        // scheduling cell goes idle, so fall back to that last cell's source.
+        // The durable call context only rides an active execution: a settled
+        // call's API rejects every operation.
+        let (cell_source_code, call) = {
+            let g = lock(&self.guarded);
+            let active = g.active_execution.as_ref();
+            (
+                active
+                    .map(|e| cap_cell_source(&e.code))
+                    .or_else(|| g.last_cell_code.as_deref().map(cap_cell_source)),
+                active.and_then(|e| e.opts.call.clone()),
+            )
+        };
+        let mut payload = obj.clone();
+        if let Some(code) = &cell_source_code {
+            payload.insert("cellSourceCode".to_string(), Value::String(code.clone()));
+        }
+        if let Some(dispatch) = self.options.host_handlers.dispatch() {
+            return dispatch
+                .dispatch(KernelHostRequest {
+                    request_type: request_type.to_string(),
+                    data: Value::Object(payload),
+                    cell_source_code,
+                    call,
+                })
+                .await;
+        }
         let handler = self
             .options
             .host_handlers
             .get(request_type)
-            .ok_or_else(|| {
-                anyhow!("host request type \"{request_type}\" is not available in this session")
-            })?
+            .ok_or_else(|| host_request_unavailable(request_type))?
             .clone();
-        // Tag the request with the cell that triggered it. A blocking call is
-        // still the in-flight execution; detached spawns fire after the
-        // scheduling cell goes idle, so fall back to that last cell's source.
-        let cell_source_code = {
-            let g = lock(&self.guarded);
-            g.active_execution
-                .as_ref()
-                .map(|e| cap_cell_source(&e.code))
-                .or_else(|| g.last_cell_code.as_deref().map(cap_cell_source))
-        };
-        let mut payload = obj.clone();
-        if let Some(code) = cell_source_code {
-            payload.insert("cellSourceCode".to_string(), Value::String(code));
-        }
         handler(HostRequestPayload {
             data: Value::Object(payload),
             cell_source_code: None,
