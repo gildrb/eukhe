@@ -3,33 +3,35 @@
 //! `set_scoped_models`, `cycle_thinking_level`, `set_service_tier`,
 //! `set_transport`, `set_steering_mode`, `set_follow_up_mode`,
 //! `set_auto_compaction`, `set_auto_retry`, `abort_retry` (TS daemon-mode
-//! cases). The wire
-//! contracts are TS-verbatim; the durable rows and settings defaults follow
-//! the same TS session methods the existing `set_model` /
-//! `set_thinking_level` arms port.
+//! cases). The wire contracts are TS-verbatim. Model and thinking switches
+//! configure the main conversation (`model_switch`); everything else is a
+//! settings write the Harness reads per use (`EukheSettings` reloads on
+//! change), and the connection state reads the same settings back.
 
+use std::path::Path;
+
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::settings::{QueueModeSetting, SettingsManager, TransportSetting};
+use eukhe_durable::harness::types::ConversationAbortOptions;
+use eukhe_pi_ai::auth::AuthOperationOptions;
+use eukhe_pi_ai::models::get_supported_thinking_levels;
+use eukhe_types::ai::{ServiceTier, Transport};
+use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
-use eukhe_types::ai::{ServiceTier, Transport};
-
-use crate::engine::EngineModelSelection;
+use crate::model_switch::{apply_model, THINKING_LEVELS};
 use crate::protocol::{response_failure, response_success, DaemonResponse};
-use crate::worker::Worker;
+use crate::worker::{model_metadata, Worker};
 
 /// The queue-mode wire vocabulary (TS `AgentConnectionQueueMode`).
 const QUEUE_MODES: &[&str] = &["all", "one-at-a-time"];
 
-/// TS `supportsServiceTier` as the worker sees it: the engine's resolved
-/// model metadata (provider, api, id) against the shared eukhe-types
-/// eligibility fields. A session without a resolved model supports only
-/// the `default` tier, exactly like the TS `model == null` arm.
-pub(crate) fn engine_supports_service_tier(
-    engine: &dyn crate::engine::SessionEngine,
-    tier: ServiceTier,
-) -> bool {
-    let model = engine.model_metadata();
+/// TS `supportsServiceTier` over the shown model's wire metadata
+/// (provider, api, id) against the shared eukhe-types eligibility fields.
+/// A session without a resolved catalog model supports only the `default`
+/// tier, exactly like the TS `model == null` arm.
+pub(crate) fn model_supports_service_tier(model: Option<&Value>, tier: ServiceTier) -> bool {
     model
-        .as_ref()
         .and_then(|model| {
             Some(eukhe_types::ai::supports_service_tier_fields(
                 model.get("provider")?.as_str()?,
@@ -38,9 +40,8 @@ pub(crate) fn engine_supports_service_tier(
                 tier,
             ))
         })
-        // A session without a resolved model still accepts `default` (TS
-        // `supportsServiceTier` answers the default tier true for any
-        // model, including none).
+        // TS `supportsServiceTier` answers the default tier true for any
+        // model, including none.
         .unwrap_or(tier == ServiceTier::Default)
 }
 
@@ -56,19 +57,47 @@ pub(crate) fn service_tier_wire_name(tier: ServiceTier) -> &'static str {
 }
 
 /// TS `_getEffectiveServiceTier` (#2144's `clampServiceTier`): a tier the
-/// current model does not support degrades to `default`. An unset
-/// (`null`) preference passes through; `None` on the wire reads as `auto`
-/// (see [`service_tier_wire_name`]).
+/// model does not support degrades to `default`. An unset (`null`)
+/// preference passes through; `None` on the wire reads as `auto` (see
+/// [`service_tier_wire_name`]).
 pub(crate) fn effective_service_tier(
     tier: Option<ServiceTier>,
-    engine: &dyn crate::engine::SessionEngine,
+    model: Option<&Value>,
 ) -> Option<ServiceTier> {
     match tier {
         None | Some(ServiceTier::Default) => tier,
-        Some(tier) => engine_supports_service_tier(engine, tier)
+        Some(tier) => model_supports_service_tier(model, tier)
             .then_some(tier)
             .or(Some(ServiceTier::Default)),
     }
+}
+
+/// The `cycle_model` candidates: the scoped entries that are available,
+/// each with its pinned level, else the whole available catalog (TS
+/// `_cycleScopedModel` / `_cycleAvailableModel`).
+fn cycle_candidates(
+    scoped: &[Value],
+    available: Vec<Model>,
+) -> Vec<(Option<ModelThinkingLevel>, Model)> {
+    if scoped.is_empty() {
+        return available.into_iter().map(|model| (None, model)).collect();
+    }
+    scoped
+        .iter()
+        .filter_map(|entry| {
+            let model = entry.get("model")?;
+            let provider = model.get("provider")?.as_str()?;
+            let id = model.get("id")?.as_str()?;
+            let candidate = available
+                .iter()
+                .find(|candidate| candidate.provider == provider && candidate.id == id)?;
+            let level = entry
+                .get("thinkingLevel")
+                .and_then(Value::as_str)
+                .and_then(ModelThinkingLevel::parse);
+            Some((level, candidate.clone()))
+        })
+        .collect()
 }
 
 impl Worker {
@@ -77,68 +106,47 @@ impl Worker {
     /// available catalog), else within the available catalog. Fewer than
     /// two candidates answer success with `null` data, like TS.
     pub(crate) async fn handle_cycle_model(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("cycle_model") {
-            return response;
-        }
-        // Same serialization as `set_model`: the cycle's model switch and
-        // tier re-clamp run under the replacement gate.
+        const COMMAND: &str = "cycle_model";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        // Same serialization as `set_model`: the cycle's switch and tier
+        // re-clamp run under the replacement gate.
         let _replacement_gate = self.replacement_gate.lock().await;
         let backward = payload.get("direction").and_then(Value::as_str) == Some("backward");
-        let (scoped, current) = {
-            let core = self.core.lock().unwrap();
-            (
-                core.scoped_models.clone(),
-                self.engine.model_metadata().and_then(|model| {
-                    Some((
-                        model.get("provider")?.as_str()?.to_string(),
-                        model.get("id")?.as_str()?.to_string(),
-                    ))
-                }),
-            )
+        let scoped = self
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .scoped_models
+            .clone();
+        let current = match hosted.main() {
+            Ok(main) => match main.agent(&BACKGROUND_CONTEXT).await {
+                Ok(agent) => agent.model,
+                Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+            },
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
-        // The candidate list: scoped entries (available ones only), else
-        // the available catalog (TS `_cycleScopedModel` / `_cycleAvailableModel`).
-        let registry = crate::state_getters::worker_model_registry(&self.config.agent_dir);
-        let available: Vec<eukhe_types::ai::Model> =
-            registry.get_available().into_iter().cloned().collect();
+        let available = match hosted
+            .deps()
+            .models
+            .get_available(None, AuthOperationOptions::default())
+            .await
+        {
+            Ok(available) => available,
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+        };
         let is_scoped = !scoped.is_empty();
-        let candidates: Vec<(Option<String>, Option<eukhe_types::ai::Model>)> = if is_scoped {
-            scoped
-                .iter()
-                .filter_map(|entry| {
-                    let model = entry.get("model")?;
-                    let provider = model.get("provider")?.as_str()?;
-                    let id = model.get("id")?.as_str()?;
-                    available
-                        .iter()
-                        .find(|candidate| candidate.provider == provider && candidate.id == id)
-                        .map(|candidate| {
-                            (
-                                entry
-                                    .get("thinkingLevel")
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string),
-                                Some(candidate.clone()),
-                            )
-                        })
-                })
-                .collect()
-        } else {
-            available
-                .into_iter()
-                .map(|model| (None, Some(model)))
-                .collect()
-        };
+        let candidates = cycle_candidates(&scoped, available);
         if candidates.len() <= 1 {
             // TS `result ?? null`: no cycle happened.
-            return response_success(None, "cycle_model", Some(Value::Null));
+            return response_success(None, COMMAND, Some(Value::Null));
         }
         let current_index = current
-            .and_then(|(provider, id)| {
-                candidates.iter().position(|(_, candidate)| {
-                    candidate
-                        .as_ref()
-                        .is_some_and(|model| model.provider == provider && model.id == id)
+            .and_then(|current| {
+                candidates.iter().position(|(_, model)| {
+                    model.provider == current.provider && model.id == current.model_id
                 })
             })
             .unwrap_or(0);
@@ -148,140 +156,57 @@ impl Worker {
         } else {
             (current_index + 1) % len
         };
-        let (scoped_thinking, next_model) =
-            candidates.get(next_index).cloned().unwrap_or((None, None));
-        let Some(next_model) = next_model else {
-            return response_success(None, "cycle_model", Some(Value::Null));
+        let (scoped_thinking, next_model) = &candidates[next_index];
+        // The daemon model allowlist gate, before the switch: an off-list
+        // candidate answers the cycle with the loud refusal.
+        if let Some(refusal) = self.model_allowlist_refusal(COMMAND, next_model) {
+            return refusal;
+        }
+        // A scoped entry may pin the level for the switched-to model (TS
+        // `_getThinkingLevelForModelSwitch(next.thinkingLevel)`).
+        let thinking_level = match apply_model(&hosted, next_model, *scoped_thinking).await {
+            Ok(level) => level,
+            Err(error) => return response_failure(None, COMMAND, &error, None),
         };
-        let provider = next_model.provider.clone();
-        let model_id = next_model.id.clone();
-        // The daemon model allowlist gate, before the switch attempt: an
-        // off-list candidate answers the cycle with the loud refusal (the
-        // engine's switch guard would also refuse it, but the response
-        // should say why) and emits the `model refused` event.
-        {
-            let selector = format!("{provider}/{model_id}");
-            let cwd = {
-                let core = self.core.lock().unwrap();
-                core.cwd.clone()
-            };
-            let allowlist =
-                crate::model_allowlist::load(std::path::Path::new(&cwd), &self.config.agent_dir);
-            if let Err(refusal) = crate::model_allowlist::assert_allowed(&allowlist, &selector) {
-                // The event rides the typed refusal only (the other seams'
-                // rule): a fail-closed unreadable-allowlist error is a
-                // settings problem, not an allowlist refusal.
-                if refusal
-                    .downcast_ref::<eukhe_core::models::ModelAllowlistRefusal>()
-                    .is_some()
-                {
-                    if let Some(agent_engine) = &self.agent_engine {
-                        agent_engine.note_model_refused("cycle_model", &selector);
-                    }
-                }
-                return response_failure(None, "cycle_model", &refusal.to_string(), None);
-            }
-        }
-        let engine = std::sync::Arc::clone(&self.engine);
-        let core = std::sync::Arc::clone(&self.core);
-        let agent_dir = self.config.agent_dir.clone();
-        let switched = tokio::task::spawn_blocking(move || {
-            if !engine.switch_model(EngineModelSelection {
-                provider: Some(provider.clone()),
-                model: Some(model_id.clone()),
-                api_key: None,
-                thinking: None,
-            }) {
-                return None;
-            }
-            // A scoped entry may pin the level for the switched-to model
-            // (TS `_getThinkingLevelForModelSwitch(next.thinkingLevel)`).
-            if let Some(level) = scoped_thinking
-                .as_deref()
-                .and_then(eukhe_ai::models::thinking_level_from_str)
-            {
-                if !engine.switch_thinking_level(level) {
-                    return None;
-                }
-            }
-            let cwd = {
-                let mut core = core.lock().unwrap();
-                if let Some(store) = core.store.as_mut() {
-                    // TS `appendModelChange` records every switch.
-                    let _ = store.persist_entry(
-                        "model_change",
-                        json!({ "provider": provider, "modelId": model_id }),
-                    );
-                }
-                core.cwd.clone()
-            };
-            // TS persists the default so the next session starts here.
-            let mut settings = eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir);
-            let _ = settings.set_default_model_and_provider(&provider, &model_id);
-            Some(())
-        })
-        .await
-        .unwrap_or(None);
-        if switched.is_none() {
-            return response_failure(
-                None,
-                "cycle_model",
-                "This session does not support model switching",
-                None,
-            );
-        }
-        // The new model may not keep the priority tier (TS
-        // `_clampServiceTierForModel`): the clamp runs BEFORE the roster
-        // flush so the published snapshot carries the clamped tier with
-        // the switched-to model (never the previous model's tier).
+        // The clamp runs BEFORE the roster flush so the published snapshot
+        // carries the clamped tier with the switched-to model.
         self.clamp_service_tier_for_model();
-        // The cycled model (and any level the switch clamps) reaches the
-        // roster surfaces immediately: the TS `cycle_model` daemon handler
-        // schedules a roster flush after the switch, matching `set_model`.
         self.push_roster_delta();
-        let (thinking_level, service_tier) = {
-            let core = self.core.lock().unwrap();
-            (
-                self.engine
-                    .effective_thinking_level()
-                    .unwrap_or_else(|| "off".to_string()),
-                effective_service_tier(core.service_tier, self.engine.as_ref())
-                    .unwrap_or(ServiceTier::Auto),
-            )
-        };
+        let service_tier = self
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .active_service_tier
+            .unwrap_or(ServiceTier::Auto);
         response_success(
             None,
-            "cycle_model",
+            COMMAND,
             Some(json!({
                 "model": next_model,
-                "thinkingLevel": thinking_level,
+                "thinkingLevel": thinking_level.as_str(),
                 "serviceTier": service_tier_wire_name(service_tier),
                 "isScoped": is_scoped,
             })),
         )
     }
 
-    /// Re-clamp the effective service tier for the engine's current model
-    /// (TS `_clampServiceTierForModel` on a model switch, #2144's
-    /// `clampServiceTier`): a preference the switched-to model does not
-    /// support degrades to `default`. The engine's request slot ALWAYS
-    /// follows the model switch (TS sets `agent.state.serviceTier` on
-    /// every switch — skipping the write would strand the slot on the
-    /// previous model's clamp after switching back to a capable model);
-    /// the `service_tier_changed` event fires only when the ACTIVE tier
-    /// moves. The stored preference keeps the requested tier, so switching
-    /// back to (or resuming on) a capable model re-applies it.
+    /// Re-clamp the active service tier for the shown model (TS
+    /// `_clampServiceTierForModel` on a model switch, #2144's
+    /// `clampServiceTier`): a preference the model does not support
+    /// degrades to `default`; the `service_tier_changed` event fires only
+    /// when the ACTIVE tier moves. The stored preference keeps the
+    /// requested tier, so switching back to (or resuming on) a capable
+    /// model re-applies it.
     pub(crate) fn clamp_service_tier_for_model(&self) {
-        // The core preference/active pair and the engine's request slot move
-        // together under one lock: worker commands dispatch concurrently,
-        // so a model switch's clamp must never expose a window where the
-        // active tier and the provider target disagree.
         let (changed, clamped) = {
-            let mut core = self.core.lock().unwrap();
-            let clamped = effective_service_tier(core.service_tier, self.engine.as_ref());
+            let mut core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let model = model_metadata(&core, &self.session);
+            let clamped = effective_service_tier(core.service_tier, model.as_ref());
             let previous_active = core.active_service_tier;
             core.active_service_tier = clamped;
-            self.engine.configure_service_tier(clamped);
             (clamped != previous_active, clamped)
         };
         if changed {
@@ -293,28 +218,22 @@ impl Worker {
     }
 
     /// The replacement sessions (`new_session` / `switch_session` /
-    /// `import_jsonl` / `fork`) re-seed the service tier like a create
-    /// (TS `createAgentSession` over the moved-to file): the file's
-    /// `service_tier_change` row when it has one, else the settings
-    /// default, then the active tier re-clamps against the restored
-    /// model (the clamp's configure + event contract).
+    /// `import_jsonl` / `fork`) re-seed the service tier like a create: the
+    /// settings default preference, then the active tier re-clamps against
+    /// the restored model (the clamp's event contract).
     pub(crate) fn reseed_service_tier_for_replacement(&self) {
-        let (restored, cwd) = {
-            let core = self.core.lock().unwrap();
-            let restored = core.store.as_ref().and_then(|store| {
-                store
-                    .has_service_tier()
-                    .then(|| store.restored_settings().service_tier)
-            });
-            (restored, core.cwd.clone())
-        };
+        let cwd = self
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .cwd
+            .clone();
         let default_tier =
-            eukhe_core::settings::SettingsManager::create(&cwd, &self.config.agent_dir)
-                .get_default_service_tier();
-        {
-            let mut core = self.core.lock().unwrap();
-            core.service_tier = restored.unwrap_or(Some(default_tier));
-        }
+            SettingsManager::create(&cwd, &self.config.agent_dir).get_default_service_tier();
+        self.core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .service_tier = Some(default_tier);
         self.clamp_service_tier_for_model();
     }
 
@@ -322,13 +241,14 @@ impl Worker {
     /// `session.setScopedModels`): store the scoped model list the cycler
     /// and the connection state surface.
     pub(crate) fn handle_set_scoped_models(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("set_scoped_models") {
+        const COMMAND: &str = "set_scoped_models";
+        if let Err(response) = self.require_created(COMMAND) {
             return response;
         }
         let Some(scoped) = payload.get("scopedModels").and_then(Value::as_array) else {
             return response_failure(
                 None,
-                "set_scoped_models",
+                COMMAND,
                 "set_scoped_models requires a scopedModels array",
                 None,
             );
@@ -344,88 +264,96 @@ impl Worker {
             if model.is_none() {
                 return response_failure(
                     None,
-                    "set_scoped_models",
+                    COMMAND,
                     "set_scoped_models requires scopedModels entries with a model",
                     None,
                 );
             }
             if let Some(level) = entry.get("thinkingLevel") {
-                if level
-                    .as_str()
-                    .and_then(eukhe_ai::models::thinking_level_from_str)
-                    .is_none()
-                {
+                if level.as_str().and_then(ModelThinkingLevel::parse).is_none() {
                     return response_failure(
                         None,
-                        "set_scoped_models",
-                        "Invalid thinking level: expected one of off, minimal, low, medium, high, xhigh, max",
+                        COMMAND,
+                        &format!(
+                            "Invalid thinking level: expected one of {}",
+                            THINKING_LEVELS.join(", ")
+                        ),
                         None,
                     );
                 }
             }
         }
-        self.core.lock().unwrap().scoped_models.clone_from(scoped);
-        response_success(None, "set_scoped_models", None)
+        self.core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .scoped_models
+            .clone_from(scoped);
+        response_success(None, COMMAND, None)
     }
 
     /// `cycle_thinking_level` (TS `session.cycleThinkingLevel`): models
     /// without reasoning answer success with `null` data; reasoning models
-    /// cycle through their supported levels (the same durable-row and
-    /// settings flow as `set_thinking_level`).
+    /// cycle through their supported levels (the `set_thinking_level`
+    /// flow).
     pub(crate) async fn handle_cycle_thinking_level(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("cycle_thinking_level") {
-            return response;
-        }
-        // TS `supportsThinking()`: the model must support reasoning.
-        let reasoning = self
-            .engine
-            .model_metadata()
-            .and_then(|model| model.get("reasoning").and_then(Value::as_bool))
-            .unwrap_or(false);
-        if !reasoning {
-            return response_success(None, "cycle_thinking_level", Some(Value::Null));
-        }
-        let levels = self
-            .engine
-            .supported_thinking_levels()
-            .unwrap_or_else(|| vec!["off".to_string()]);
-        if levels.is_empty() {
-            return response_success(None, "cycle_thinking_level", Some(Value::Null));
-        }
-        let current = self
-            .engine
-            .effective_thinking_level()
-            .unwrap_or_else(|| "off".to_string());
-        // TS: `indexOf` -1 cycles to the first level.
-        let index = levels.iter().position(|level| *level == current);
-        let next = match index {
-            Some(index) => &levels[(index + 1) % levels.len()],
-            None => &levels[0],
+        const COMMAND: &str = "cycle_thinking_level";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
         };
+        let agent = match hosted.main() {
+            Ok(main) => match main.agent(&BACKGROUND_CONTEXT).await {
+                Ok(agent) => agent,
+                Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+            },
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+        };
+        // TS `supportsThinking()`: the model must support reasoning.
+        let Some(model) = agent
+            .model
+            .as_ref()
+            .and_then(|model| {
+                hosted
+                    .deps()
+                    .models
+                    .get_model(&model.provider, &model.model_id)
+            })
+            .filter(|model| model.reasoning)
+        else {
+            return response_success(None, COMMAND, Some(Value::Null));
+        };
+        let levels = get_supported_thinking_levels(&model);
+        let Some(first) = levels.first() else {
+            return response_success(None, COMMAND, Some(Value::Null));
+        };
+        // TS: `indexOf` -1 cycles to the first level.
+        let next = levels
+            .iter()
+            .position(|level| *level == agent.thinking_level)
+            .map_or(*first, |index| levels[(index + 1) % levels.len()]);
         let applied = self
-            .handle_set_thinking_level(&json!({ "level": next }))
+            .handle_set_thinking_level(&json!({ "level": next.as_str() }))
             .await;
         if !applied.success {
             return applied;
         }
-        response_success(None, "cycle_thinking_level", Some(json!({ "level": next })))
+        response_success(None, COMMAND, Some(json!({ "level": next.as_str() })))
     }
 
     /// `set_service_tier { serviceTier }` (TS `session.setServiceTier`,
-    /// #2144 semantics): the preference and the durable `service_tier_change`
-    /// row keep the REQUESTED tier (only the active state clamps), so
-    /// switching to (or resuming on) a capable model re-applies it; the
-    /// settings default persists only when the model supports the tier; and
-    /// the `service_tier_changed` event follows an effective change. An
-    /// unchanged request answers success without side effects.
+    /// #2144 semantics): the preference keeps the REQUESTED tier (only the
+    /// active state clamps), so switching to a capable model re-applies it;
+    /// the settings default (which the durable stream reads) persists only
+    /// when the model supports the tier; and the `service_tier_changed`
+    /// event follows an effective change. An unchanged request answers
+    /// success without side effects.
     pub(crate) async fn handle_set_service_tier(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("set_service_tier") {
+        const COMMAND: &str = "set_service_tier";
+        if let Err(response) = self.require_created(COMMAND) {
             return response;
         }
-        // Worker commands dispatch concurrently: the tier mutation runs
-        // under the replacement gate so a session swap's re-seed (TS
-        // `createAgentSession` reading the moved-to file) can never
-        // interleave with a user's in-flight tier change.
+        // The tier mutation runs under the replacement gate so a session
+        // swap's re-seed never interleaves with it.
         let _replacement_gate = self.replacement_gate.lock().await;
         let Some(tier) = payload
             .get("serviceTier")
@@ -435,44 +363,42 @@ impl Worker {
         else {
             return response_failure(
                 None,
-                "set_service_tier",
+                COMMAND,
                 "set_service_tier requires a serviceTier",
                 None,
             );
         };
-        let effective = effective_service_tier(Some(tier), self.engine.as_ref()).unwrap_or(tier);
-        let (preference_changed, effective_changed, cwd) = {
-            let mut core = self.core.lock().unwrap();
-            // The engine's request slot moves under the SAME lock as the
-            // core publish (the clamp's contract): a concurrent turn must
-            // never read the new connection state while its provider
-            // target still carries the old tier.
-            self.engine.configure_service_tier(Some(effective));
-            let preference = core.service_tier;
-            let previous_active = core.active_service_tier;
+        let (preference_changed, effective_changed, supported, effective, cwd) = {
+            let mut core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let model = model_metadata(&core, &self.session);
+            let effective = effective_service_tier(Some(tier), model.as_ref()).unwrap_or(tier);
+            let supported = model_supports_service_tier(model.as_ref(), tier);
+            let preference_changed = core.service_tier != Some(tier);
+            let effective_changed = core.active_service_tier != Some(effective);
             core.service_tier = Some(tier);
             core.active_service_tier = Some(effective);
-            let effective_changed = previous_active != Some(effective);
-            let preference_changed = preference != Some(tier);
-            let mut cwd = core.cwd.clone();
-            if preference_changed {
-                if let Some(store) = core.store.as_mut() {
-                    // The same durable row the creation prefix writes (TS
-                    // `appendServiceTierChange(serviceTier)` — the
-                    // REQUESTED tier, not the clamped one).
-                    let _ =
-                        store.persist_entry("service_tier_change", json!({ "serviceTier": tier }));
-                }
-                cwd.clone_from(&core.cwd);
-            }
-            (preference_changed, effective_changed, cwd)
+            (
+                preference_changed,
+                effective_changed,
+                supported,
+                effective,
+                core.cwd.clone(),
+            )
         };
-        if preference_changed && engine_supports_service_tier(self.engine.as_ref(), tier) {
+        if preference_changed && supported {
             // TS persists the default only when the model supports the
             // tier (#2144: `supportsServiceTier(this.model, serviceTier)`).
-            let mut settings =
-                eukhe_core::settings::SettingsManager::create(&cwd, &self.config.agent_dir);
-            let _ = settings.set_default_service_tier(tier);
+            let mut settings = SettingsManager::create(&cwd, &self.config.agent_dir);
+            if let Err(error) = settings.set_default_service_tier(tier) {
+                // The session already switched; the default is best-effort
+                // like TS.
+                eprintln!(
+                    "eukhe-daemon worker: persisting the default service tier failed: {error}"
+                );
+            }
         }
         if effective_changed {
             self.emit_worker_event(json!({
@@ -480,87 +406,57 @@ impl Worker {
                 "serviceTier": service_tier_wire_name(effective),
             }));
         }
-        response_success(None, "set_service_tier", None)
+        response_success(None, COMMAND, None)
     }
 
     /// `set_transport { transport }` (TS `settingsManager.setTransport` +
     /// `agent.transport`): persist the transport setting. The live stream
-    /// resolves transport per request from settings in this port, so the
-    /// persisted default is the whole switch.
+    /// resolves transport per request from settings, so the persisted
+    /// default is the whole switch.
     pub(crate) fn handle_set_transport(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("set_transport") {
+        const COMMAND: &str = "set_transport";
+        if let Err(response) = self.require_created(COMMAND) {
             return response;
         }
-        let transport = payload
+        let Some(transport) = payload
             .get("transport")
             .cloned()
-            .and_then(|value| serde_json::from_value::<Transport>(value).ok());
-        let Some(transport) = transport else {
-            return response_failure(
-                None,
-                "set_transport",
-                "set_transport requires a transport",
-                None,
-            );
+            .and_then(|value| serde_json::from_value::<Transport>(value).ok())
+        else {
+            return response_failure(None, COMMAND, "set_transport requires a transport", None);
         };
-        let core = self.core.lock().unwrap();
-        let cwd = core.cwd.clone();
-        drop(core);
         let setting = match transport {
-            Transport::Auto => eukhe_core::settings::TransportSetting::Auto,
-            Transport::Sse => eukhe_core::settings::TransportSetting::Sse,
-            Transport::Websocket | Transport::WebsocketCached => {
-                eukhe_core::settings::TransportSetting::WebSocket
-            }
+            Transport::Auto => TransportSetting::Auto,
+            Transport::Sse => TransportSetting::Sse,
+            Transport::Websocket | Transport::WebsocketCached => TransportSetting::WebSocket,
         };
-        let mut settings =
-            eukhe_core::settings::SettingsManager::create(&cwd, &self.config.agent_dir);
-        if let Err(error) = settings.set_transport(setting) {
-            return response_failure(None, "set_transport", &error.to_string(), None);
+        if let Err(error) = self.settings().set_transport(setting) {
+            return response_failure(None, COMMAND, &error.to_string(), None);
         }
-        response_success(None, "set_transport", None)
+        response_success(None, COMMAND, None)
     }
 
     /// `set_steering_mode` / `set_follow_up_mode { mode }` (TS
     /// `session.setSteeringMode` / `setFollowUpMode`): the queue delivery
-    /// mode, persisted to settings and surfaced on the connection state.
+    /// mode, persisted to settings; the session's inbox placement and the
+    /// connection state read it back.
     pub(crate) fn handle_set_queue_mode(&self, command: &str, payload: &Value) -> DaemonResponse {
         if let Err(response) = self.require_created(command) {
             return response;
         }
-        let Some(mode) = payload.get("mode").and_then(Value::as_str) else {
-            return response_failure(
-                None,
-                command,
-                &format!("{command} requires mode \"all\" or \"one-at-a-time\""),
-                None,
-            );
-        };
-        if !QUEUE_MODES.contains(&mode) {
-            return response_failure(
-                None,
-                command,
-                &format!("{command} requires mode \"all\" or \"one-at-a-time\""),
-                None,
-            );
-        }
-        let setting = match mode {
-            "all" => eukhe_core::settings::QueueModeSetting::All,
-            _ => eukhe_core::settings::QueueModeSetting::OneAtATime,
-        };
-        {
-            let mut core = self.core.lock().unwrap();
-            if command == "set_steering_mode" {
-                core.steering_mode = mode.to_string();
-            } else {
-                core.follow_up_mode = mode.to_string();
+        let setting = match payload.get("mode").and_then(Value::as_str) {
+            Some(mode) if mode == QUEUE_MODES[0] => QueueModeSetting::All,
+            Some(mode) if mode == QUEUE_MODES[1] => QueueModeSetting::OneAtATime,
+            _ => {
+                return response_failure(
+                    None,
+                    command,
+                    &format!("{command} requires mode \"all\" or \"one-at-a-time\""),
+                    None,
+                );
             }
-        }
-        let core = self.core.lock().unwrap();
-        let cwd = core.cwd.clone();
-        drop(core);
-        let mut settings =
-            eukhe_core::settings::SettingsManager::create(&cwd, &self.config.agent_dir);
+        };
+        let mut settings = self.settings();
         let persisted = if command == "set_steering_mode" {
             settings.set_steering_mode(setting)
         } else {
@@ -569,792 +465,102 @@ impl Worker {
         if let Err(error) = persisted {
             return response_failure(None, command, &error.to_string(), None);
         }
-        // TS `session.setSteeringMode`/`setFollowUpMode` write the live
-        // agent's queue mode (`this.agent.steeringMode = mode`): the
-        // engine's agent-level queues drain per the new mode from the
-        // next boundary (the worker lane's delivery mode already carries
-        // the `core.steering_mode`/`core.follow_up_mode` update above).
-        if command == "set_steering_mode" {
-            self.engine.set_queue_modes(Some(mode), None);
-        } else {
-            self.engine.set_queue_modes(None, Some(mode));
-        }
         response_success(None, command, None)
     }
 
     /// `set_auto_retry { enabled }` (TS `session.setAutoRetryEnabled`):
-    /// the provider retry policy reads the setting on every turn.
+    /// the provider retry policy reads the setting on every request.
     pub(crate) fn handle_set_auto_retry(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("set_auto_retry") {
+        const COMMAND: &str = "set_auto_retry";
+        if let Err(response) = self.require_created(COMMAND) {
             return response;
         }
         let Some(enabled) = payload.get("enabled").and_then(Value::as_bool) else {
-            return response_failure(
-                None,
-                "set_auto_retry",
-                "set_auto_retry requires enabled",
-                None,
-            );
+            return response_failure(None, COMMAND, "set_auto_retry requires enabled", None);
         };
-        let core = self.core.lock().unwrap();
-        let cwd = core.cwd.clone();
-        drop(core);
-        let mut settings =
-            eukhe_core::settings::SettingsManager::create(&cwd, &self.config.agent_dir);
-        if let Err(error) = settings.set_retry_enabled(enabled) {
-            return response_failure(None, "set_auto_retry", &error.to_string(), None);
+        if let Err(error) = self.settings().set_retry_enabled(enabled) {
+            return response_failure(None, COMMAND, &error.to_string(), None);
         }
-        response_success(None, "set_auto_retry", None)
+        response_success(None, COMMAND, None)
     }
 
-    /// `set_auto_compaction { enabled }` (TS `session.setAutoCompactionEnabled`
-    /// → `settingsManager.setCompactionEnabled`): the connection-state flag
-    /// and the settings value change together — TS's connection state reads
-    /// the settings manager, so the persisted write is the change and a
-    /// restarted session re-seeds its flag from it. A failed settings save
-    /// fails the command without flipping the flag.
+    /// `set_auto_compaction { enabled }` (TS
+    /// `session.setAutoCompactionEnabled` →
+    /// `settingsManager.setCompactionEnabled`): the settings value is the
+    /// switch — the Harness's compaction policy and the connection state
+    /// both read it, so a restarted session keeps it. A failed settings
+    /// save fails the command and flips nothing.
     pub(crate) fn handle_set_auto_compaction(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("set_auto_compaction") {
+        const COMMAND: &str = "set_auto_compaction";
+        if let Err(response) = self.require_created(COMMAND) {
             return response;
         }
         let enabled = payload
             .get("enabled")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let core = self.core.lock().unwrap();
-        let cwd = core.cwd.clone();
-        drop(core);
-        let mut settings =
-            eukhe_core::settings::SettingsManager::create(&cwd, &self.config.agent_dir);
-        if let Err(error) = settings.set_compaction_enabled(enabled) {
-            return response_failure(None, "set_auto_compaction", &error.to_string(), None);
+        if let Err(error) = self.settings().set_compaction_enabled(enabled) {
+            return response_failure(None, COMMAND, &error.to_string(), None);
         }
-        self.compaction.set_auto_compaction(enabled);
-        response_success(None, "set_auto_compaction", None)
+        response_success(None, COMMAND, None)
     }
 
-    /// `abort_retry` (TS `session.abortRetry`): stop an in-flight retry.
-    /// The turn's abort probe reads the flag (the retry wait loop polls
-    /// it); the next turn start clears it.
-    pub(crate) fn handle_abort_retry(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("abort_retry") {
-            return response;
+    /// `abort_retry` (TS `session.abortRetry`): stop an in-flight provider
+    /// retry. A retry is part of the main conversation's run, so stopping
+    /// it aborts the run; the queued inputs the abort withdraws stay
+    /// suspended (shown, resubmitted by `resume_queue`), like `abort`.
+    /// Without a retry in progress the command is a success no-op.
+    pub(crate) async fn handle_abort_retry(&self) -> DaemonResponse {
+        const COMMAND: &str = "abort_retry";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        let withdrawn = {
+            let core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            core.view
+                .as_ref()
+                .filter(|view| view.translator.mirror().retry_attempt.is_some())
+                .map(|view| view.inbox.clone())
+        };
+        let Some(withdrawn) = withdrawn else {
+            return response_success(None, COMMAND, None);
+        };
+        let aborted = match hosted.main() {
+            Ok(main) => main
+                .abort(ConversationAbortOptions::default(), &BACKGROUND_CONTEXT)
+                .await
+                .map_err(|error| error.to_string()),
+            Err(error) => Err(error.to_string()),
+        };
+        if let Err(error) = aborted {
+            return response_failure(None, COMMAND, &error, None);
         }
-        self.core.lock().unwrap().retry_abort_requested = true;
-        response_success(None, "abort_retry", None)
+        self.core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .suspended
+            .extend(withdrawn);
+        self.emit_action_update();
+        hosted.events_delivered().await;
+        response_success(None, COMMAND, None)
+    }
+
+    /// The session's settings manager for a write (the session cwd's
+    /// project scope over this worker's agent dir).
+    fn settings(&self) -> SettingsManager {
+        let cwd = self
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .cwd
+            .clone();
+        SettingsManager::create(Path::new(&cwd), &self.config.agent_dir)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::sync::Arc;
-
-    fn worker_config(dir: &std::path::Path) -> crate::worker::WorkerConfig {
-        crate::worker::WorkerConfig {
-            socket_path: dir.join("worker.sock"),
-            supervisor_socket_path: std::path::PathBuf::new(),
-            token: "token".to_string(),
-            worker_instance_id: String::new(),
-            active_session_id: "switch-session".to_string(),
-            agent_dir: dir.join("agent"),
-            recovery_journal_path: dir.join("recovery.jsonl"),
-            telemetry_disabled: None,
-            script: Some(json!({ "responses": ["ack"] })),
-        }
-    }
-
-    async fn created_worker() -> Arc<Worker> {
-        let dir = std::env::temp_dir().join(format!("pa-worker-sw-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let worker = Arc::new(Worker::new(worker_config(&dir), None));
-        let created = worker
-            .dispatch("create", &json!({ "noSession": true, "cwd": dir }))
-            .await;
-        assert!(created.success, "create failed: {created:?}");
-        worker
-    }
-
-    /// The connection state carries the settings-seeded switches: the TS
-    /// default service tier ("default", not the old hard-coded "auto")
-    /// and the queue modes. The steering default is "all" (every queued
-    /// steer co-delivers as ONE turn at the next tool-call boundary);
-    /// the follow-up default is "one-at-a-time".
-    #[tokio::test]
-    async fn connection_state_seeds_the_settings_switches() {
-        let worker = created_worker().await;
-        let response = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        let data = response.data.expect("data");
-        assert_eq!(data["serviceTier"], json!("default"));
-        assert_eq!(
-            data["steeringMode"],
-            json!("all"),
-            "the product default batches the parked steering prefix"
-        );
-        assert_eq!(
-            data["followUpMode"],
-            json!("one-at-a-time"),
-            "the follow-up default keeps the TS one-per-turn behavior"
-        );
-        assert_eq!(data["scopedModels"], json!([]));
-    }
-
-    /// A models.json fixture the registry reads (one provider with
-    /// `count` mock models, all auth-configured).
-    fn models_fixture(dir: &std::path::Path, count: usize) {
-        std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
-        let models: Vec<Value> = (1..=count)
-            .map(|index| {
-                json!({
-                    "id": format!("mock-{index}"), "name": format!("Mock {index}"),
-                    "api": "openai-completions", "baseUrl": "http://127.0.0.1:9/v1",
-                    "contextWindow": 128_000, "maxTokens": 4096, "reasoning": true,
-                })
-            })
-            .collect();
-        std::fs::write(
-            dir.join("agent").join("models.json"),
-            json!({
-                "providers": {
-                    "prime-inference": {
-                        "api": "openai-completions",
-                        "baseUrl": "http://127.0.0.1:9/v1",
-                        "apiKey": "sk-test",
-                        "models": models,
-                    }
-                }
-            })
-            .to_string(),
-        )
-        .expect("write models.json");
-    }
-
-    /// Two candidates on a session that cannot switch (the scripted
-    /// harness) fail with the `set_model` refusal; the response command
-    /// stays `cycle_model`.
-    #[tokio::test]
-    async fn cycle_model_on_a_non_switching_engine_fails_like_set_model() {
-        let dir = std::env::temp_dir().join(format!("pa-worker-cm2-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        models_fixture(&dir, 2);
-        let worker = Arc::new(Worker::new(worker_config(&dir), None));
-        let created = worker
-            .dispatch("create", &json!({ "noSession": true, "cwd": dir }))
-            .await;
-        assert!(created.success);
-        let response = worker
-            .dispatch(
-                "cycle_model",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert!(!response.success);
-        assert_eq!(response.command, "cycle_model");
-        assert_eq!(
-            response.error.as_deref(),
-            Some("This session does not support model switching")
-        );
-    }
-
-    /// `cycle_model` answers the daemon model-allowlist refusal with the
-    /// loud message (the refusal reason, not the generic non-switching
-    /// error) and never attempts the switch. The scoped list pins the
-    /// cycle to the two fixture models, so the next candidate is the
-    /// off-allowlist mock.
-    #[tokio::test]
-    async fn cycle_model_refuses_models_outside_the_allowlist() {
-        let dir = std::env::temp_dir().join(format!("pa-worker-cm3-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        models_fixture(&dir, 2);
-        std::fs::create_dir_all(dir.join("agent")).unwrap();
-        std::fs::write(
-            dir.join("agent").join("settings.json"),
-            json!({ "allowedModels": ["anthropic/*"] }).to_string(),
-        )
-        .unwrap();
-        let worker = Arc::new(Worker::new(worker_config(&dir), None));
-        let created = worker
-            .dispatch("create", &json!({ "noSession": true, "cwd": dir }))
-            .await;
-        assert!(created.success);
-        let scoped = worker
-            .dispatch(
-                "set_scoped_models",
-                &json!({
-                    "activeSessionId": "switch-session",
-                    "scopedModels": [
-                        { "model": { "provider": "prime-inference", "id": "mock-1" } },
-                        { "model": { "provider": "prime-inference", "id": "mock-2" } }
-                    ]
-                }),
-            )
-            .await;
-        assert!(scoped.success, "scoped fixture: {scoped:?}");
-        let response = worker
-            .dispatch(
-                "cycle_model",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert!(!response.success);
-        assert_eq!(response.command, "cycle_model");
-        let error = response.error.expect("refusal message");
-        assert!(
-            error.contains("blocked by the daemon model allowlist"),
-            "{error}"
-        );
-        assert!(
-            !error.contains("does not support model switching"),
-            "{error}"
-        );
-    }
-
-    /// The create's `models` config resolves into the session's scoped
-    /// list (TS main.ts:838-851: `config.models ?? enabledModels` →
-    /// `resolveModelScope`): the connection state carries the entries in
-    /// the request's order, a fresh session starts on the first scoped
-    /// model (no explicit model flags, TS main.ts:548-568), and a create
-    /// without `models` falls back to the settings `enabledModels`.
-    #[tokio::test]
-    async fn create_resolves_the_models_scope_for_the_session() {
-        let dir = std::env::temp_dir().join(format!("pa-worker-scope-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        models_fixture(&dir, 2);
-        // The real engine (no script): the startup chain resolves the
-        // session's model against the registry.
-        let mut config = worker_config(&dir);
-        config.script = None;
-        let worker = Arc::new(Worker::new(config, None));
-        let created = worker
-            .dispatch(
-                "create",
-                &json!({
-                    "noSession": true,
-                    "cwd": dir,
-                    "models": ["prime-inference/mock-2:high", "prime-inference/mock-1"],
-                }),
-            )
-            .await;
-        assert!(created.success, "create failed: {created:?}");
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        let data = state.data.expect("state data");
-        let scoped = data["scopedModels"].as_array().expect("scopedModels");
-        let scoped_keys = scoped
-            .iter()
-            .map(|entry| {
-                format!(
-                    "{}/{}",
-                    entry["model"]["provider"].as_str().unwrap_or_default(),
-                    entry["model"]["id"].as_str().unwrap_or_default()
-                )
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            scoped_keys,
-            vec!["prime-inference/mock-2", "prime-inference/mock-1"],
-            "the scope keeps the request's order: {data}"
-        );
-        // No explicit model flags, a fresh session: the startup chain
-        // starts on the first scoped model.
-        assert_eq!(data["model"]["id"], "mock-2", "the state's model: {data}");
-        // The scoped entry's `:thinking` rides the picked startup model
-        // (TS main.ts:556-566; `--thinking` stays absent here).
-        assert_eq!(
-            data["thinkingLevel"], "high",
-            "the scoped entry's level set the startup thinking: {data}"
-        );
-
-        // The settings `enabledModels` fallback (TS `config.models ??
-        // settingsManager.getEnabledModels()`): a create without
-        // `models` resolves the same way.
-        std::fs::write(
-            dir.join("agent").join("settings.json"),
-            json!({ "enabledModels": ["prime-inference/mock-1", "prime-inference/mock-2"] })
-                .to_string(),
-        )
-        .unwrap();
-        let mut config = worker_config(&dir);
-        config.script = None;
-        let fallback = Arc::new(Worker::new(config, None));
-        let created = fallback
-            .dispatch("create", &json!({ "noSession": true, "cwd": dir }))
-            .await;
-        assert!(created.success, "fallback create failed: {created:?}");
-        let state = fallback
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        let data = state.data.expect("state data");
-        let ids = data["scopedModels"]
-            .as_array()
-            .expect("scopedModels")
-            .iter()
-            .map(|entry| entry["model"]["id"].clone())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            ids,
-            vec![json!("mock-1"), json!("mock-2")],
-            "the settings fallback resolved the same scope: {data}"
-        );
-    }
-
-    /// A fresh, file-backed `--models` create persists the SCOPED startup
-    /// pick in its creation prefix: the file's `model_change` and
-    /// `thinking_level_change` entries must resolve through the registered
-    /// scope (the scoped entry's `:thinking` level included), because a
-    /// resume, a worker respawn, and every session-file reader restore
-    /// from the file — an unscoped prefix would reopen the session on the
-    /// default model instead of the scoped one. The create also must not
-    /// treat its brand-new `sessionPath` as a continuing session (the
-    /// pre-create existence check the scope reads), or the scope would be
-    /// skipped for the startup model entirely.
-    #[tokio::test]
-    async fn a_fresh_scoped_create_persists_the_scoped_startup_pick_in_its_file() {
-        let dir =
-            std::env::temp_dir().join(format!("pa-worker-scope-file-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        models_fixture(&dir, 2);
-        let mut config = worker_config(&dir);
-        config.script = None;
-        let worker = Arc::new(Worker::new(config, None));
-        // A session path that does NOT exist yet: the fresh file-backed
-        // arm (the exact path class the review flagged — a post-create
-        // existence check would see the file this create just wrote).
-        let session_path = dir.join("fresh-scoped-session.jsonl");
-        let created = worker
-            .dispatch(
-                "create",
-                &json!({
-                    "sessionPath": session_path,
-                    "cwd": dir,
-                    "models": ["prime-inference/mock-2:high", "prime-inference/mock-1"],
-                }),
-            )
-            .await;
-        assert!(created.success, "create failed: {created:?}");
-        // The live startup state starts scoped (the same pick the
-        // in-memory test pins): mock-2 with its `:high` entry.
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        let data = state.data.expect("state data");
-        assert_eq!(data["model"]["id"], "mock-2", "the state's model: {data}");
-        assert_eq!(
-            data["thinkingLevel"], "high",
-            "the state's thinking: {data}"
-        );
-        // The FILE agrees: the creation prefix's entries carry the scoped
-        // pick, so the session restores scoped after a reopen or respawn.
-        let file = std::fs::read_to_string(&session_path).expect("the session file");
-        assert!(
-            file.contains("\"type\":\"model_change\"")
-                && file.contains("\"provider\":\"prime-inference\"")
-                && file.contains("\"modelId\":\"mock-2\""),
-            "the prefix's model_change carries the scoped pick: {file}"
-        );
-        assert!(
-            file.contains("\"type\":\"thinking_level_change\"")
-                && file.contains("\"thinkingLevel\":\"high\""),
-            "the prefix's thinking_level_change carries the scoped level: {file}"
-        );
-    }
-
-    /// `set_scoped_models` stores the list (visible on the connection
-    /// state) and rejects malformed entries with daemon-level failures.
-    #[tokio::test]
-    async fn set_scoped_models_stores_and_validates() {
-        let worker = created_worker().await;
-        let scoped = json!([
-            { "model": { "provider": "prime-inference", "id": "mock-1" } },
-            {
-                "model": { "provider": "prime-inference", "id": "mock-2" },
-                "thinkingLevel": "high",
-            },
-        ]);
-        let response = worker
-            .dispatch(
-                "set_scoped_models",
-                &json!({ "activeSessionId": "switch-session", "scopedModels": scoped }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert_eq!(state.data.expect("data")["scopedModels"], scoped);
-
-        for bad in [
-            json!({ "activeSessionId": "switch-session" }),
-            json!({ "activeSessionId": "switch-session", "scopedModels": [{}] }),
-            json!({
-                "activeSessionId": "switch-session",
-                "scopedModels": [{ "model": { "provider": "p", "id": "m" }, "thinkingLevel": "sideways" }],
-            }),
-        ] {
-            let response = worker.dispatch("set_scoped_models", &bad).await;
-            assert!(!response.success, "must reject: {bad}");
-        }
-    }
-
-    /// `cycle_thinking_level` without a reasoning model answers success
-    /// with `null` data (TS `supportsThinking()`).
-    #[tokio::test]
-    async fn cycle_thinking_level_without_reasoning_answers_null() {
-        let worker = created_worker().await;
-        let response = worker
-            .dispatch(
-                "cycle_thinking_level",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert!(response.success);
-        assert_eq!(response.data, Some(Value::Null));
-    }
-
-    /// `set_service_tier` records the durable row on change (the row keeps
-    /// the REQUESTED tier while an unsupported request clamps to `default`
-    /// in the active state — TS #2144), and an unchanged request records
-    /// nothing more.
-    #[tokio::test]
-    async fn set_service_tier_records_the_durable_row() {
-        let worker = created_worker().await;
-        let tier_rows = |worker: &Worker| {
-            worker
-                .core
-                .lock()
-                .unwrap()
-                .store
-                .as_ref()
-                .map(|store| {
-                    store
-                        .entries()
-                        .iter()
-                        .filter(|entry| entry.type_ == "service_tier_change")
-                        .map(|entry| entry.fields.clone())
-                        .collect::<Vec<serde_json::Value>>()
-                })
-                .unwrap_or_default()
-        };
-        let baseline = tier_rows(&worker).len();
-        let response = worker
-            .dispatch(
-                "set_service_tier",
-                &json!({ "activeSessionId": "switch-session", "serviceTier": "priority" }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        // The scripted engine reports no model: priority clamps to default
-        // in the active state...
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert_eq!(state.data.expect("data")["serviceTier"], json!("default"));
-        // ...but the durable row keeps the requested tier, so resuming on
-        // a capable model re-applies it.
-        let rows = tier_rows(&worker);
-        assert_eq!(rows.len(), baseline + 1, "one new preference row");
-        assert_eq!(
-            rows.last().and_then(|row| row.get("serviceTier")),
-            Some(&json!("priority"))
-        );
-        // An unchanged request is a no-op success (no new row).
-        let response = worker
-            .dispatch(
-                "set_service_tier",
-                &json!({ "activeSessionId": "switch-session", "serviceTier": "priority" }),
-            )
-            .await;
-        assert!(response.success);
-        assert_eq!(tier_rows(&worker).len(), baseline + 1);
-        // A `flex` preference clamps the same way (the scripted engine
-        // reports no model) and records its own requested tier.
-        let response = worker
-            .dispatch(
-                "set_service_tier",
-                &json!({ "activeSessionId": "switch-session", "serviceTier": "flex" }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        let rows = tier_rows(&worker);
-        assert_eq!(rows.len(), baseline + 2);
-        assert_eq!(
-            rows.last().and_then(|row| row.get("serviceTier")),
-            Some(&json!("flex"))
-        );
-        let response = worker
-            .dispatch(
-                "set_service_tier",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert!(!response.success);
-    }
-
-    /// The replacement re-seed restores the moved-to file's tier
-    /// preference (else the settings default) and re-clamps the active
-    /// tier against the restored model (no model on the scripted engine:
-    /// the active tier degrades to `default`).
-    #[tokio::test]
-    async fn replacement_reseed_restores_the_tier_preference() {
-        let worker = created_worker().await;
-        // No durable row and the settings default "default": the reseed
-        // keeps the default preference.
-        worker.reseed_service_tier_for_replacement();
-        let (preference, active) = {
-            let core = worker.core.lock().unwrap();
-            (core.service_tier, core.active_service_tier)
-        };
-        assert_eq!(preference, Some(ServiceTier::Default));
-        assert_eq!(active, Some(ServiceTier::Default));
-        // A moved-to file carrying its own tier row re-seeds the
-        // preference; the active tier still clamps against the
-        // model-less engine.
-        {
-            let mut core = worker.core.lock().unwrap();
-            if let Some(store) = core.store.as_mut() {
-                let _ = store
-                    .persist_entry("service_tier_change", json!({ "serviceTier": "priority" }));
-            }
-        }
-        worker.reseed_service_tier_for_replacement();
-        let (preference, active) = {
-            let core = worker.core.lock().unwrap();
-            (core.service_tier, core.active_service_tier)
-        };
-        assert_eq!(preference, Some(ServiceTier::Priority));
-        assert_eq!(active, Some(ServiceTier::Default));
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert_eq!(state.data.expect("data")["serviceTier"], json!("default"));
-    }
-
-    /// `set_transport` persists the settings value; an unknown transport
-    /// fails the command.
-    #[tokio::test]
-    async fn set_transport_persists_the_setting() {
-        let dir = std::env::temp_dir().join(format!("pa-worker-tr-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(dir.join("agent")).unwrap();
-        let worker = Arc::new(Worker::new(worker_config(&dir), None));
-        let created = worker
-            .dispatch("create", &json!({ "noSession": true, "cwd": dir }))
-            .await;
-        assert!(created.success);
-        let response = worker
-            .dispatch(
-                "set_transport",
-                &json!({ "activeSessionId": "switch-session", "transport": "websocket" }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        let settings = eukhe_core::settings::SettingsManager::create(&dir, dir.join("agent"));
-        assert!(matches!(
-            settings.get_transport(),
-            eukhe_core::settings::TransportSetting::WebSocket
-        ));
-        let response = worker
-            .dispatch(
-                "set_transport",
-                &json!({ "activeSessionId": "switch-session", "transport": "teleport" }),
-            )
-            .await;
-        assert!(!response.success);
-    }
-
-    /// The queue-mode switches update the connection state and reject the
-    /// values outside the TS vocabulary.
-    #[tokio::test]
-    async fn queue_mode_switches_update_the_state() {
-        let worker = created_worker().await;
-        for (command, field) in [
-            ("set_steering_mode", "steeringMode"),
-            ("set_follow_up_mode", "followUpMode"),
-        ] {
-            let response = worker
-                .dispatch(
-                    command,
-                    &json!({ "activeSessionId": "switch-session", "mode": "one-at-a-time" }),
-                )
-                .await;
-            assert!(response.success, "{command} failed: {response:?}");
-            let state = worker
-                .dispatch(
-                    "get_connection_state",
-                    &json!({ "activeSessionId": "switch-session" }),
-                )
-                .await;
-            assert_eq!(state.data.expect("data")[field], json!("one-at-a-time"));
-            let response = worker
-                .dispatch(
-                    command,
-                    &json!({ "activeSessionId": "switch-session", "mode": "bogus" }),
-                )
-                .await;
-            assert!(!response.success);
-            let response = worker
-                .dispatch(
-                    command,
-                    &json!({ "activeSessionId": "switch-session", "mode": "all" }),
-                )
-                .await;
-            assert!(response.success);
-        }
-    }
-
-    /// `set_auto_retry` persists the toggle the retry policy reads.
-    #[tokio::test]
-    async fn set_auto_retry_persists_the_toggle() {
-        let dir = std::env::temp_dir().join(format!("pa-worker-ar-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(dir.join("agent")).unwrap();
-        let worker = Arc::new(Worker::new(worker_config(&dir), None));
-        let created = worker
-            .dispatch("create", &json!({ "noSession": true, "cwd": dir }))
-            .await;
-        assert!(created.success);
-        let response = worker
-            .dispatch(
-                "set_auto_retry",
-                &json!({ "activeSessionId": "switch-session", "enabled": false }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        let settings = eukhe_core::settings::SettingsManager::create(&dir, dir.join("agent"));
-        let policy = settings.get_provider_retry_policy();
-        assert!(!policy.enabled);
-    }
-
-    /// `set_auto_compaction` flips the connection-state flag and persists
-    /// the settings value; a session created afterwards re-seeds its flag
-    /// from the persisted toggle (TS: the connection state reads the
-    /// settings manager, so the value survives a daemon restart).
-    #[tokio::test]
-    async fn set_auto_compaction_persists_the_toggle() {
-        let dir = std::env::temp_dir().join(format!("pa-worker-ac-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(dir.join("agent")).unwrap();
-        let worker = Arc::new(Worker::new(worker_config(&dir), None));
-        let created = worker
-            .dispatch("create", &json!({ "noSession": true, "cwd": dir }))
-            .await;
-        assert!(created.success);
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        // TS default: auto-compaction is on until the user opts out.
-        assert_eq!(
-            state.data.expect("data")["autoCompactionEnabled"],
-            json!(true)
-        );
-        let response = worker
-            .dispatch(
-                "set_auto_compaction",
-                &json!({ "activeSessionId": "switch-session", "enabled": false }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert_eq!(
-            state.data.expect("data")["autoCompactionEnabled"],
-            json!(false)
-        );
-        let settings = eukhe_core::settings::SettingsManager::create(&dir, dir.join("agent"));
-        assert!(!settings.get_compaction_enabled());
-        // A restarted session on the same dirs re-seeds the flag from the
-        // persisted setting (the `create` settings-seeded switches).
-        let worker = Arc::new(Worker::new(worker_config(&dir), None));
-        let created = worker
-            .dispatch("create", &json!({ "noSession": true, "cwd": dir }))
-            .await;
-        assert!(created.success);
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert_eq!(
-            state.data.expect("data")["autoCompactionEnabled"],
-            json!(false)
-        );
-    }
-
-    /// A failed settings write fails the command and leaves the flag
-    /// unchanged (TS: the connection state is the settings value, so a
-    /// thrown save flips nothing).
-    #[tokio::test]
-    async fn set_auto_compaction_fails_without_flipping_on_a_failed_save() {
-        let dir = std::env::temp_dir().join(format!("pa-worker-acf-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        // A file where the agent dir would be: the settings save cannot
-        // create agent/settings.json.
-        std::fs::write(dir.join("agent"), b"not a directory").unwrap();
-        let worker = Arc::new(Worker::new(worker_config(&dir), None));
-        let created = worker
-            .dispatch("create", &json!({ "noSession": true, "cwd": dir }))
-            .await;
-        assert!(created.success);
-        let response = worker
-            .dispatch(
-                "set_auto_compaction",
-                &json!({ "activeSessionId": "switch-session", "enabled": false }),
-            )
-            .await;
-        assert!(!response.success, "must fail: {response:?}");
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert_eq!(
-            state.data.expect("data")["autoCompactionEnabled"],
-            json!(true)
-        );
-    }
-
-    /// `abort_retry` always answers success (TS aborts only an in-flight
-    /// retry; without one the command is still a success).
-    #[tokio::test]
-    async fn abort_retry_answers_success() {
-        let worker = created_worker().await;
-        let response = worker
-            .dispatch(
-                "abort_retry",
-                &json!({ "activeSessionId": "switch-session" }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-    }
-}
+mod tests;

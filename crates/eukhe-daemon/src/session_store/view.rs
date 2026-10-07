@@ -237,33 +237,6 @@ impl SessionFile {
                 .any(|entry| entry.type_ == "thinking_level_change")
     }
 
-    pub(crate) fn has_service_tier(&self) -> bool {
-        self.window
-            .as_ref()
-            .is_some_and(|window| window.has_service_tier)
-            || self
-                .branch()
-                .iter()
-                .any(|entry| entry.type_ == "service_tier_change")
-    }
-
-    pub(crate) fn compaction_count(&self) -> usize {
-        match &self.window {
-            Some(window) => {
-                window.compaction_count
-                    + self.entries[window.loaded_entries..]
-                        .iter()
-                        .filter(|entry| entry.type_ == "compaction")
-                        .count()
-            }
-            None => self
-                .entries
-                .iter()
-                .filter(|entry| entry.type_ == "compaction")
-                .count(),
-        }
-    }
-
     /// Session name from the latest `session_info` entry.
     pub fn session_name(&self) -> Option<&str> {
         self.entries()

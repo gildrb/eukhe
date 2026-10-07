@@ -188,14 +188,8 @@ impl Worker {
             .release(pause_id, &owner_client_id, &active_session_id)
         {
             ReleaseOutcome::Released => {
-                // The gate lifted: queued input admits again, and the
-                // release is a TS `_maybeResumeGoalContinuationAfterRlmWork`
-                // site (the deferral held while the pause owned admission
-                // re-evaluates).
-                self.work_notify.notify_one();
-                if let Some(engine) = self.agent_engine.as_ref() {
-                    engine.retry_owed_goal_continuation();
-                }
+                // The gate lifted: inputs held while paused admit now.
+                self.resume_inputs_after_pause();
                 response_success(None, "release_session_input_pause", None)
             }
             ReleaseOutcome::Unknown => response_success(None, "release_session_input_pause", None),
@@ -212,8 +206,26 @@ impl Worker {
     /// detaching session goes with the detach.
     pub(crate) fn release_input_pauses_for_detach(&self, owner_client_id: &str) {
         if self.input_pauses.release_all_for_owner(owner_client_id) {
-            self.work_notify.notify_one();
+            self.resume_inputs_after_pause();
         }
+    }
+
+    /// Admit the inputs the pause held (`core.suspended`) once no pause
+    /// remains.
+    fn resume_inputs_after_pause(&self) {
+        if self.input_pauses.paused() {
+            return;
+        }
+        let Some(hosted) = self.session.get() else {
+            return;
+        };
+        let core = std::sync::Arc::clone(&self.core);
+        let events = std::sync::Arc::clone(&self.events);
+        tokio::spawn(async move {
+            if let Err(error) = crate::worker::resubmit_suspended(&hosted, &core, &events).await {
+                eprintln!("eukhe-daemon worker: resuming paused inputs failed: {error}");
+            }
+        });
     }
 }
 

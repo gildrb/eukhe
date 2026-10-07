@@ -172,9 +172,7 @@ pub(crate) struct SessionWindow {
     message_count: usize,
     first_message: Option<String>,
     loaded_entries: usize,
-    compaction_count: usize,
     has_thinking_level: bool,
-    has_service_tier: bool,
     model: Option<(String, String)>,
     /// The model in effect at the retained-window boundary (the newest
     /// `model_change` in the discarded prefix): the per-model usage fold's

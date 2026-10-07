@@ -114,7 +114,6 @@ pub mod snapshot_stream;
 pub mod socket;
 pub(crate) mod state_getters;
 mod stop_cleanup;
-pub(crate) mod streaming;
 pub mod supervisor;
 pub mod supervisor_link;
 pub(crate) mod supervisor_lost;
@@ -127,5 +126,7 @@ pub mod util;
 pub mod worker;
 pub(crate) mod worker_stderr;
 
+#[cfg(test)]
+pub(crate) mod durable_test_support;
 #[cfg(test)]
 pub(crate) mod test_support;

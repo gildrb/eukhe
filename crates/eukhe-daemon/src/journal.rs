@@ -33,37 +33,6 @@ pub(crate) fn append_record(path: &Path, record: &Value) -> Result<()> {
     Ok(())
 }
 
-/// Append several records as ONE durable write: one open, all lines in one
-/// `write_all`, one `fsync`. The records land together or not at all — a
-/// batched checkpoint keeps its all-or-nothing shape (the busy verdict
-/// never publishes without the queue snapshot it describes), and the
-/// journal's on-disk bytes are exactly what the same records appended one
-/// by one would produce.
-///
-/// # Errors
-///
-/// Returns an error when the parent directory, the open, a serialization,
-/// the write, or the sync fails; a partial write may leave truncated
-/// trailing lines, which the loader skips like any crash-truncated record.
-pub(crate) fn append_records(path: &Path, records: &[Value]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("open journal {}", path.display()))?;
-    let mut lines = Vec::new();
-    for record in records {
-        serde_json::to_writer(&mut lines, record)?;
-        lines.push(b'\n');
-    }
-    file.write_all(&lines)?;
-    file.sync_all()?;
-    Ok(())
-}
-
 /// Whether the temp journal's data rides a full sync before the rename
 /// onto its path: each variant is the sync class its TS counterpart (or
 /// Rust-native owner) carries.
@@ -347,76 +316,11 @@ fn parse_worker_records(path: &Path) -> Result<HashMap<String, WorkerRecoveryRec
     Ok(latest)
 }
 
-/// One parked queue row in a worker queue snapshot: the delivery payload a
-/// respawned worker needs — the message text, the labeled preview, the
-/// injected custom row, the queue key, and the visibility flag — so a
-/// restored queued heartbeat still delivers as the `heartbeat_prompt`
-/// component (and keeps its `Heartbeat prompt:` row) instead of
-/// collapsing into a plain user message.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct WorkerQueueItemRecord {
-    pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub priority: Option<crate::worker::QueuePriority>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preview: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub custom_message: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub queue_key: Option<String>,
-    #[serde(default = "queue_visible_default")]
-    pub queue_visible: bool,
-    /// The item's turn-execution class ("queued"/"injected"/"direct", see
-    /// `worker::TurnPolicy)`: the batch gathering's compatibility gate. A
-    /// record written before the field existed restores as "queued" — the
-    /// dominant lane class, and the only one a fresh snapshot can batch.
-    #[serde(default = "queue_policy_default")]
-    pub policy: String,
-}
-
-fn queue_visible_default() -> bool {
-    true
-}
-
-fn queue_policy_default() -> String {
-    "queued".to_string()
-}
-
-impl WorkerQueueItemRecord {
-    /// The record's turn-execution class; an unknown value restores as
-    /// the dominant "queued" class.
-    pub(crate) fn policy(&self) -> crate::worker::TurnPolicy {
-        match self.policy.as_str() {
-            "injected" => crate::worker::TurnPolicy::Injected,
-            "direct" => crate::worker::TurnPolicy::Direct,
-            _ => crate::worker::TurnPolicy::Queued,
-        }
-    }
-}
-
-/// A worker queue snapshot record: the pending steering/follow-up lanes so a
-/// respawned worker restores its queues. Lives in the worker recovery journal
-/// (TS keeps its session files free of daemon bookkeeping; queue recovery is
-/// worker-private state, so it rides the journal next to the busy records).
-/// Version 2 lanes carry the full item records; a version-1 lane (written
-/// before the item payload existed) is a bare message-text array and
-/// restores as a plain row.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkerQueueSnapshotRecord {
-    pub version: u32,
-    pub r#type: String,
-    pub active_session_id: String,
-    pub steering: Vec<WorkerQueueItemRecord>,
-    pub follow_up: Vec<WorkerQueueItemRecord>,
-    pub recorded_at: String,
-}
-
-/// Port of `WorkerRecoveryJournal`: latest busy/operation per active session,
-/// plus the latest queue snapshot per session.
+/// Port of `WorkerRecoveryJournal`: latest busy/operation per active session
+/// (the durable session resumes its own queue; no queue snapshot rides here).
 pub struct WorkerRecoveryJournal {
     path: std::path::PathBuf,
     latest: HashMap<String, WorkerRecoveryRecord>,
-    queue_snapshots: HashMap<String, WorkerQueueSnapshotRecord>,
 }
 
 impl WorkerRecoveryJournal {
@@ -432,11 +336,9 @@ impl WorkerRecoveryJournal {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let queue_snapshots = parse_queue_snapshot_records(path)?;
         Ok(WorkerRecoveryJournal {
             path: path.to_path_buf(),
             latest: parse_worker_records(path)?,
-            queue_snapshots,
         })
     }
 
@@ -557,219 +459,14 @@ impl WorkerRecoveryJournal {
         self.latest.values().cloned().collect()
     }
 
-    /// Persist the pending queue lanes; latest record wins per session.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the snapshot record cannot be serialized or
-    /// appended.
-    pub fn record_queue_snapshot(
-        &mut self,
-        active_session_id: &str,
-        steering: &[WorkerQueueItemRecord],
-        follow_up: &[WorkerQueueItemRecord],
-    ) -> Result<()> {
-        let record = WorkerQueueSnapshotRecord {
-            version: QUEUE_SNAPSHOT_VERSION,
-            r#type: QUEUE_SNAPSHOT_RECORD_TYPE.to_string(),
-            active_session_id: active_session_id.to_string(),
-            steering: steering.to_vec(),
-            follow_up: follow_up.to_vec(),
-            recorded_at: crate::util::now_iso(),
-        };
-        append_record(&self.path, &serde_json::to_value(&record)?)?;
-        self.queue_snapshots
-            .insert(active_session_id.to_string(), record);
-        Ok(())
-    }
-
-    /// Record the queue snapshot and the busy/operation verdict in ONE
-    /// durable append (the queue-checkpoint pair `checkpoint_queue_recovery`
-    /// writes): the snapshot line and the verdict line share a single open,
-    /// write, and `fsync`, so a checkpoint costs one journal flush instead
-    /// of two. The on-disk order matches the sequential form exactly — the
-    /// snapshot record first, then the verdict — and the verdict still
-    /// never publishes over a snapshot that did not persist (the batch is
-    /// all-or-nothing). An unchanged verdict appends the snapshot alone,
-    /// like the sequential pair does.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when either record cannot be serialized or the
-    /// batched append fails, or when the all-idle compaction fails after a
-    /// changed verdict landed.
-    #[allow(clippy::too_many_arguments)]
-    pub fn record_queue_checkpoint(
-        &mut self,
-        active_session_id: &str,
-        session_id: &str,
-        session_file: Option<&str>,
-        busy: bool,
-        operation: &str,
-        steering: &[WorkerQueueItemRecord],
-        follow_up: &[WorkerQueueItemRecord],
-    ) -> Result<()> {
-        let snapshot = WorkerQueueSnapshotRecord {
-            version: QUEUE_SNAPSHOT_VERSION,
-            r#type: QUEUE_SNAPSHOT_RECORD_TYPE.to_string(),
-            active_session_id: active_session_id.to_string(),
-            steering: steering.to_vec(),
-            follow_up: follow_up.to_vec(),
-            recorded_at: crate::util::now_iso(),
-        };
-        let verdict_unchanged = self.latest.get(active_session_id).is_some_and(|previous| {
-            previous.busy == busy
-                && previous.operation == operation
-                && previous.session_file.as_deref() == session_file
-        });
-        let record = if verdict_unchanged {
-            None
-        } else {
-            Some(WorkerRecoveryRecord {
-                active_session_id: active_session_id.to_string(),
-                session_id: session_id.to_string(),
-                session_file: session_file.map(str::to_string),
-                busy,
-                operation: operation.to_string(),
-                recorded_at: crate::util::now_iso(),
-            })
-        };
-        let mut batch = Vec::with_capacity(2);
-        batch.push(serde_json::to_value(&snapshot)?);
-        if let Some(record) = &record {
-            batch.push(serde_json::to_value(record)?);
-        }
-        append_records(&self.path, &batch)?;
-        self.queue_snapshots
-            .insert(active_session_id.to_string(), snapshot);
-        if let Some(record) = record {
-            self.latest.insert(active_session_id.to_string(), record);
-            // TS parity (the same post-insert check as `record`): the
-            // settle's compaction fires on the all-idle map that includes
-            // the just-landed verdict, never blocked by the session's own
-            // busy admission record.
-            if self.latest.values().all(|entry| !entry.busy) {
-                self.compact()?;
-            }
-        }
-        Ok(())
-    }
-
-    /// The latest persisted queue rows for `active_session_id`.
-    #[must_use]
-    pub fn latest_queue_snapshot(
-        &self,
-        active_session_id: &str,
-    ) -> Option<(Vec<WorkerQueueItemRecord>, Vec<WorkerQueueItemRecord>)> {
-        self.queue_snapshots
-            .get(active_session_id)
-            .map(|record| (record.steering.clone(), record.follow_up.clone()))
-    }
-
-    /// Read the latest queue snapshot for a session straight from a journal
-    /// file (worker restore on a fresh process).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the journal exists but cannot be read (a
-    /// missing journal answers `Ok(None)`).
-    pub fn read_queue_snapshot(
-        path: &Path,
-        active_session_id: &str,
-    ) -> Result<Option<(Vec<WorkerQueueItemRecord>, Vec<WorkerQueueItemRecord>)>> {
-        Ok(parse_queue_snapshot_records(path)?
-            .remove(active_session_id)
-            .map(|record| (record.steering, record.follow_up)))
-    }
-
     fn compact(&self) -> Result<()> {
-        let mut records: Vec<Value> = self
+        let records: Vec<Value> = self
             .latest
             .values()
             .map(serde_json::to_value)
             .collect::<std::result::Result<_, _>>()?;
-        let snapshots: Vec<Value> = self
-            .queue_snapshots
-            .values()
-            .map(serde_json::to_value)
-            .collect::<std::result::Result<_, _>>()?;
-        records.extend(snapshots);
         rewrite_records(&self.path, &records, Finalize::Bare)
     }
-}
-
-/// The record-type tag of a queue snapshot line.
-const QUEUE_SNAPSHOT_RECORD_TYPE: &str = "queue_snapshot";
-/// The current queue-snapshot record version: the lanes carry the full
-/// item records.
-const QUEUE_SNAPSHOT_VERSION: u32 = 2;
-
-fn parse_queue_snapshot_records(path: &Path) -> Result<HashMap<String, WorkerQueueSnapshotRecord>> {
-    let mut latest: HashMap<String, WorkerQueueSnapshotRecord> = HashMap::new();
-    let contents = match fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(latest),
-        Err(error) => {
-            return Err(error).with_context(|| format!("read journal {}", path.display()))
-        }
-    };
-    for line in contents.split('\n').filter(|line| !line.is_empty()) {
-        let Ok(record) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-        if record.get("type").and_then(Value::as_str) != Some(QUEUE_SNAPSHOT_RECORD_TYPE) {
-            continue;
-        }
-        let version = record.get("version").and_then(Value::as_u64);
-        if version != Some(1) && version != Some(u64::from(QUEUE_SNAPSHOT_VERSION)) {
-            continue;
-        }
-        let Some(active_session_id) = record.get("active_session_id").and_then(Value::as_str)
-        else {
-            continue;
-        };
-        let entry = WorkerQueueSnapshotRecord {
-            version: QUEUE_SNAPSHOT_VERSION,
-            r#type: QUEUE_SNAPSHOT_RECORD_TYPE.to_string(),
-            active_session_id: active_session_id.to_string(),
-            steering: parse_snapshot_lane(record.get("steering")),
-            follow_up: parse_snapshot_lane(record.get("follow_up")),
-            recorded_at: record
-                .get("recorded_at")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-        };
-        latest.insert(active_session_id.to_string(), entry);
-    }
-    Ok(latest)
-}
-
-/// One snapshot lane: a version-2 entry is the full item record, while a
-/// version-1 entry is the bare message text and restores as a plain row
-/// (no preview, no injected custom row — the pre-item payload).
-fn parse_snapshot_lane(value: Option<&Value>) -> Vec<WorkerQueueItemRecord> {
-    value
-        .and_then(Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| match entry {
-                    Value::String(message) => Some(WorkerQueueItemRecord {
-                        message: message.clone(),
-                        priority: None,
-                        preview: None,
-                        custom_message: None,
-                        queue_key: None,
-                        queue_visible: true,
-                        policy: queue_policy_default(),
-                    }),
-                    Value::Object(_) => serde_json::from_value(entry.clone()).ok(),
-                    _ => None,
-                })
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -845,113 +542,6 @@ mod tests {
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
-    /// The batched queue checkpoint and the sequential form produce the
-    /// same journal: same lines in the same order, same latest records,
-    /// same restorable queue snapshots (the `recorded_at` stamps differ only
-    /// because the two runs cannot share a clock instant).
-    #[test]
-    fn worker_journal_batched_checkpoint_matches_sequential_form() {
-        let sequential_path = temp_path("sequential.recovery.jsonl");
-        let batched_path = temp_path("batched.recovery.jsonl");
-        let mut sequential = WorkerRecoveryJournal::open(&sequential_path).unwrap();
-        let mut batched = WorkerRecoveryJournal::open(&batched_path).unwrap();
-        let item = WorkerQueueItemRecord {
-            message: "steer me".to_string(),
-            priority: Some(crate::worker::QueuePriority::Human),
-            preview: Some("preview".to_string()),
-            custom_message: None,
-            queue_key: None,
-            queue_visible: true,
-            policy: queue_policy_default(),
-        };
-        // Admitted (snapshot + busy verdict), settle (snapshot + idle
-        // verdict + compaction), then an unchanged-verdict checkpoint whose
-        // snapshot lands alone in both forms.
-        sequential
-            .record_queue_snapshot("s1", std::slice::from_ref(&item), &[])
-            .unwrap();
-        sequential
-            .record("s1", "sess1", Some("/a.jsonl"), true, "prompt_accepted")
-            .unwrap();
-        sequential.record_queue_snapshot("s1", &[], &[]).unwrap();
-        sequential
-            .record("s1", "sess1", Some("/a.jsonl"), false, "turn_end")
-            .unwrap();
-        // An unchanged verdict: the snapshot still lands, alone.
-        sequential.record_queue_snapshot("s1", &[], &[]).unwrap();
-        sequential
-            .record("s1", "sess1", Some("/a.jsonl"), false, "turn_end")
-            .unwrap();
-        batched
-            .record_queue_checkpoint(
-                "s1",
-                "sess1",
-                Some("/a.jsonl"),
-                true,
-                "prompt_accepted",
-                std::slice::from_ref(&item),
-                &[],
-            )
-            .unwrap();
-        batched
-            .record_queue_checkpoint("s1", "sess1", Some("/a.jsonl"), false, "turn_end", &[], &[])
-            .unwrap();
-        batched
-            .record_queue_checkpoint("s1", "sess1", Some("/a.jsonl"), false, "turn_end", &[], &[])
-            .unwrap();
-
-        let strip_stamps = |path: &std::path::Path| -> Vec<Value> {
-            std::fs::read_to_string(path)
-                .unwrap()
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(|line| {
-                    let mut value: Value = serde_json::from_str(line).unwrap();
-                    if let Some(object) = value.as_object_mut() {
-                        object.remove("recordedAt");
-                        object.remove("recorded_at");
-                    }
-                    value
-                })
-                .collect()
-        };
-        assert_eq!(
-            strip_stamps(&sequential_path),
-            strip_stamps(&batched_path),
-            "the batched checkpoint writes the same journal lines as the sequential form"
-        );
-        let latest_a = sequential.get_latest();
-        let latest_b = batched.get_latest();
-        assert_eq!(latest_a.len(), latest_b.len());
-        assert_eq!(latest_a[0].busy, latest_b[0].busy);
-        assert_eq!(latest_a[0].operation, latest_b[0].operation);
-        let restored = WorkerRecoveryJournal::read_queue_snapshot(&batched_path, "s1").unwrap();
-        assert_eq!(restored, Some((Vec::new(), Vec::new())));
-        let _ = fs::remove_dir_all(sequential_path.parent().unwrap());
-        let _ = fs::remove_dir_all(batched_path.parent().unwrap());
-    }
-
-    /// The busy verdict rides the snapshot's single flush: a checkpoint
-    /// whose batched append fails lands NEITHER record (no verdict over an
-    /// unpersisted snapshot, and no snapshot without its flush).
-    #[test]
-    fn worker_journal_batched_checkpoint_is_all_or_nothing() {
-        let path = temp_path("allornothing.recovery.jsonl");
-        fs::write(&path, "").unwrap();
-        let mut journal = WorkerRecoveryJournal::open(&path).unwrap();
-        journal.record("s1", "sess1", None, false, "ready").unwrap();
-        // Replace the journal with a directory: every open for append now
-        // fails, so the checkpoint cannot land either record.
-        fs::remove_file(&path).unwrap();
-        fs::create_dir(&path).unwrap();
-        let result =
-            journal.record_queue_checkpoint("s1", "sess1", None, true, "prompt_accepted", &[], &[]);
-        assert!(result.is_err());
-        // The in-memory verdict did not advance over the failed append.
-        assert!(journal.latest.get("s1").is_some_and(|record| !record.busy));
-        let _ = fs::remove_dir_all(path.parent().unwrap());
-    }
-
     /// TS parity oracle: a single session's settle compacts (the post-
     /// insert all-idle check). The OLD pre-insert check let the session's
     /// own busy admission record block the compaction, so a single-session
@@ -1004,101 +594,24 @@ mod tests {
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
-    /// The settle through the batched checkpoint compacts to the same
-    /// two lines (idle verdict + latest snapshot) and restores the same
-    /// queue lanes a pre-compact append-only history would.
-    #[test]
-    fn worker_journal_batched_settle_compacts_and_restores() {
-        let path = temp_path("batched-settle.recovery.jsonl");
-        let item = WorkerQueueItemRecord {
-            message: "steer me".to_string(),
-            priority: Some(crate::worker::QueuePriority::Human),
-            preview: Some("preview".to_string()),
-            custom_message: None,
-            queue_key: None,
-            queue_visible: true,
-            policy: queue_policy_default(),
-        };
-        let mut journal = WorkerRecoveryJournal::open(&path).unwrap();
-        // Two turns: each admission batch grows the file; each settle
-        // compacts it back — without the compaction the second admission
-        // would stack on the first turn's history (6 lines by the end).
-        journal
-            .record_queue_checkpoint(
-                "s1",
-                "sess1",
-                Some("/a.jsonl"),
-                true,
-                "prompt_accepted",
-                std::slice::from_ref(&item),
-                &[],
-            )
-            .unwrap();
-        journal
-            .record_queue_checkpoint("s1", "sess1", Some("/a.jsonl"), false, "turn_end", &[], &[])
-            .unwrap();
-        let after_first_settle = fs::read_to_string(&path).unwrap().lines().count();
-        journal
-            .record_queue_checkpoint(
-                "s1",
-                "sess1",
-                Some("/a.jsonl"),
-                true,
-                "prompt_accepted",
-                std::slice::from_ref(&item),
-                &[],
-            )
-            .unwrap();
-        let after_second_admission = fs::read_to_string(&path).unwrap().lines().count();
-        journal
-            .record_queue_checkpoint("s1", "sess1", Some("/a.jsonl"), false, "turn_end", &[], &[])
-            .unwrap();
-        let content = fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert_eq!(lines.len(), 2, "the settle compacts to verdict + snapshot");
-        assert_eq!(after_first_settle, 2, "the first settle compacted");
-        assert_eq!(
-            after_second_admission, 4,
-            "the second admission grew the file"
-        );
-        let verdict: Value = serde_json::from_str(lines[0]).unwrap();
-        assert_eq!(verdict["busy"], false);
-        assert_eq!(verdict["operation"], "turn_end");
-        let snapshot: Value = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(snapshot["type"], "queue_snapshot");
-        // the compact keeps the LATEST snapshot per session: the settle's
-        // (empty) lanes, not the admission's parked row.
-        assert_eq!(snapshot["steering"].as_array().map(Vec::len), Some(0));
-        // The reopened journal restores the settled verdict and the
-        // settle's (empty) lanes exactly like the append-only history.
-        let reopened = WorkerRecoveryJournal::open(&path).unwrap();
-        assert!(!WorkerRecoveryJournal::read_interrupted(&path));
-        let restored = reopened.latest_queue_snapshot("s1").unwrap();
-        assert_eq!(restored.0, Vec::new());
-        let _ = fs::remove_dir_all(path.parent().unwrap());
-    }
-
-    /// An unchanged verdict appends the snapshot alone and never compacts
-    /// (TS `record` early-returns before its compaction check): the
-    /// compaction belongs to changed-idle records only.
+    /// An unchanged verdict appends nothing and never compacts (TS
+    /// `record` early-returns before its compaction check).
     #[test]
     fn worker_journal_unchanged_verdict_does_not_compact() {
         let path = temp_path("unchanged-nocompact.recovery.jsonl");
         let mut journal = WorkerRecoveryJournal::open(&path).unwrap();
         journal
-            .record_queue_checkpoint("s1", "sess1", None, true, "prompt_accepted", &[], &[])
+            .record("s1", "sess1", None, true, "run_started")
             .unwrap();
         journal
-            .record_queue_checkpoint("s1", "sess1", None, false, "turn_end", &[], &[])
+            .record("s1", "sess1", None, false, "run_ended")
             .unwrap();
         let lines_after_settle = fs::read_to_string(&path).unwrap().lines().count();
-        // The unchanged settle: the snapshot lands, the verdict does not,
-        // and no compaction runs (the map never changed).
         journal
-            .record_queue_checkpoint("s1", "sess1", None, false, "turn_end", &[], &[])
+            .record("s1", "sess1", None, false, "run_ended")
             .unwrap();
         let lines_after_unchanged = fs::read_to_string(&path).unwrap().lines().count();
-        assert_eq!(lines_after_unchanged, lines_after_settle + 1);
+        assert_eq!(lines_after_unchanged, lines_after_settle);
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 

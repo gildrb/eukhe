@@ -12,6 +12,12 @@ eukhe-core = { path = "../eukhe-core" }
 eukhe-agent = { path = "../eukhe-agent" }
 eukhe-ai = { path = "../eukhe-ai" }
 eukhe-telemetry = { path = "../eukhe-telemetry" }
+# The session worker hosts the eukhe agent on the durable Harness
+# (`eukhe-durable`, the pi-durable port) with `eukhe-pi-ai` models and
+# `eukhe-chord` contexts/JSON.
+eukhe-durable = { path = "../eukhe-durable" }
+eukhe-chord = { path = "../eukhe-chord" }
+eukhe-pi-ai = { path = "../eukhe-pi-ai" }
 anyhow = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

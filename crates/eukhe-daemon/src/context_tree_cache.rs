@@ -9,10 +9,11 @@
 //! refresh and `get_context_tree` serves the cached snapshot instantly:
 //!
 //! - the root node (usage totals, context usage, label, model) is
-//!   computed from the in-memory store on every request
-//!   (`state_getters::handle_get_context_tree`);
-//! - the live roster stays fresh per read: the registry snapshot is read
-//!   per request and its identity/status overlaid on the cached bodies
+//!   computed from the shown conversation's event mirror and active
+//!   context on every request (`state_getters::handle_get_context_tree`);
+//! - the live roster stays fresh per read: the hosted session's child
+//!   roster is read per request and its identity/status overlaid on the
+//!   cached bodies
 //!   (a child that settled between refreshes keeps its last cached row
 //!   until the next refresh files it under the persisted children);
 //! - the cached bodies (usage, model, grandchildren) are as fresh as the
@@ -60,6 +61,21 @@ pub(crate) struct CachedWalk {
     persisted: Vec<Value>,
 }
 
+/// What one background walk reads: the session it serves (the artifact
+/// tree and the ledger's tombstone record) and where its live child roster
+/// comes from (the hosted session's children document).
+#[derive(Debug, Clone)]
+pub(crate) struct WalkRequest {
+    /// The durable session id (the artifact tree key).
+    pub(crate) session_id: String,
+    /// The session's storage path (the ledger's tombstone key).
+    pub(crate) session_file: Option<PathBuf>,
+    /// The hosted session whose live child roster overlays the walk.
+    pub(crate) hosted: Arc<crate::worker::HostedSession>,
+    /// The session's own RLM node id (each child row's `parentId`).
+    pub(crate) parent_id: Option<String>,
+}
+
 /// The per-worker context-tree cache: the data swap under a std mutex
 /// (never held across an await) plus the single-flight refresh guard.
 #[derive(Debug, Default)]
@@ -78,7 +94,7 @@ pub(crate) struct ContextTreeCache {
     /// pending session itself, so the replaced tree does not stay cold
     /// until a later read. The last poke wins (an overwritten earlier
     /// session re-arms on its next read).
-    pending: Mutex<Option<(String, Option<PathBuf>)>>,
+    pending: Mutex<Option<WalkRequest>>,
     /// The session the CURRENT in-flight walk serves (the guard holder's
     /// own record — the published snapshot is NOT a proxy for it: after a
     /// fork the in-flight walk serves the new session while the published
@@ -231,36 +247,29 @@ impl ContextTreeCache {
     /// (a fork/switch replacement must walk its own tree immediately, not
     /// wait out the previous session's TTL). Single flight: while one
     /// walk is in progress, pokes return without spawning (the in-flight
-    /// walk stores a newer snapshot than any poke could). The engine's
-    /// roster snapshot is read inside the task, so sync callers
-    /// (create/attach warm, the request handler) never block on it.
-    pub(crate) fn poke_refresh(
-        self: &Arc<Self>,
-        engine: Arc<dyn crate::engine::SessionEngine>,
-        agent_dir: PathBuf,
-        current_session_id: Option<String>,
-        session_file: Option<PathBuf>,
-    ) {
+    /// walk stores a newer snapshot than any poke could). The live roster
+    /// is read inside the task, so sync callers (create/attach warm, the
+    /// request handler) never block on it. `None` (no session yet) walks
+    /// nothing; the next read re-arms.
+    pub(crate) fn poke_refresh(self: &Arc<Self>, agent_dir: PathBuf, request: Option<WalkRequest>) {
         {
             let state = self
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if state.as_ref().is_some_and(|walk| {
-                Some(walk.session_id.as_str()) == current_session_id.as_deref()
+                Some(walk.session_id.as_str())
+                    == request.as_ref().map(|request| request.session_id.as_str())
                     && walk.computed_at.elapsed() < REFRESH_TTL
             }) {
                 return;
             }
         }
+        let Some(mut request) = request else {
+            return;
+        };
         let cache = Arc::clone(self);
         tokio::spawn(async move {
-            // No session yet (the create path warms before the store
-            // lands): nothing to walk, the next read re-arms.
-            let Some(first) = current_session_id else {
-                return;
-            };
-            let mut request = (first, session_file);
             loop {
                 // Single flight: the guard is taken inside the task,
                 // against the owned cache clone (a guard on `self` cannot
@@ -284,7 +293,7 @@ impl ContextTreeCache {
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
                         in_flight.clone()
                     };
-                    if in_flight.as_deref() != Some(request.0.as_str()) {
+                    if in_flight.as_deref() != Some(request.session_id.as_str()) {
                         *cache
                             .pending
                             .lock()
@@ -292,7 +301,7 @@ impl ContextTreeCache {
                     }
                     return;
                 };
-                let (session_id, session_file) = request;
+                let session_id = request.session_id.clone();
                 *cache
                     .in_flight
                     .lock()
@@ -319,9 +328,7 @@ impl ContextTreeCache {
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .take()
                     {
-                        Some((pending_id, pending_file)) if pending_id != session_id => {
-                            (pending_id, pending_file)
-                        }
+                        Some(pending) if pending.session_id != session_id => pending,
                         _ => {
                             *cache
                                 .in_flight
@@ -332,19 +339,28 @@ impl ContextTreeCache {
                     };
                     continue;
                 }
-                let snapshots = engine.rlm_child_snapshots().await;
-                let registry_dir = agent_dir.clone();
-                let walk_session_id = session_id.clone();
-                let walk_session_file = session_file.clone();
-                let walk = tokio::task::spawn_blocking(move || {
-                    walk_children(
-                        &registry_dir,
-                        &walk_session_id,
-                        &snapshots,
-                        walk_session_file.as_deref(),
-                    )
-                })
-                .await;
+                let walk = match crate::rlm_surface::rlm_child_snapshots(
+                    &request.hosted,
+                    request.parent_id.as_deref(),
+                )
+                .await
+                {
+                    Ok(snapshots) => {
+                        let registry_dir = agent_dir.clone();
+                        let walk_session_id = session_id.clone();
+                        let walk_session_file = request.session_file.clone();
+                        tokio::task::spawn_blocking(move || {
+                            walk_children(
+                                &registry_dir,
+                                &walk_session_id,
+                                &snapshots,
+                                walk_session_file.as_deref(),
+                            )
+                        })
+                        .await
+                    }
+                    Err(error) => Ok(Err(error.context("reading the live child roster"))),
+                };
                 match walk {
                     Ok(Ok((mut live_nodes, mut persisted))) => {
                         let mut invalidated = cache
@@ -390,9 +406,7 @@ impl ContextTreeCache {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .take()
                 {
-                    Some((pending_id, pending_file)) if pending_id != session_id => {
-                        (pending_id, pending_file)
-                    }
+                    Some(pending) if pending.session_id != session_id => pending,
                     _ => {
                         *cache
                             .in_flight

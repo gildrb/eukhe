@@ -2,7 +2,7 @@
 //! `execute_bash`, `execute_bash_and_wait`, and `abort_bash` (TS
 //! daemon-mode cases over `AgentSession.runUserBash` / `executeBash` /
 //! `abortBash`, with `bash_start`/`bash_output`/`bash_end` session events
-//! and the `bashExecution` durable row).
+//! and the durable `eukhe.bash` row, rendered as `bashExecution`).
 //!
 //! The execution port follows the TS stack: the local bash operations
 //! (shell config, cwd guard, merged stdout+stderr streaming, kill on
@@ -16,12 +16,16 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use serde_json::{json, Map, Value};
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::rlm::{kernel_bash_activity, BashActivityAction, BashActivityRequest};
+use eukhe_core::durable::{bash_entry_draft, BashEntryData};
+use eukhe_durable::harness::types::WriteSubmissionDraft;
+use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Mutex;
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
-use crate::worker::Worker;
+use crate::worker::{emit_worker_event_with, HostedSession, Worker};
 
 /// Streaming window: chunks are retained (spilled to disk beyond this).
 const DEFAULT_MAX_BYTES: usize = 50 * 1024;
@@ -107,33 +111,32 @@ impl UserBash {
 
 impl Worker {
     /// Rust-native kernel bash activity commands. These inspect the Python
-    /// handle registry, not the user-bash slot or a client-supplied PID.
+    /// handle registry of the main conversation's kernel (never booting
+    /// one), not the user-bash slot or a client-supplied PID.
     pub(crate) async fn handle_kernel_bash_activity(
         &self,
         command_type: &str,
         payload: &Value,
     ) -> DaemonResponse {
-        if let Err(response) = self.require_created(command_type) {
-            return response;
-        }
-        let Some(engine) = &self.agent_engine else {
-            return response_failure(None, command_type, "Kernel is not running", None);
+        let hosted = match self.hosted(command_type) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
         };
         let action = match command_type {
-            "list_kernel_bash" => "list",
-            "tail_kernel_bash" => "tail",
-            "kill_kernel_bash" => "kill",
+            "list_kernel_bash" => BashActivityAction::List,
+            "tail_kernel_bash" => BashActivityAction::Tail,
+            "kill_kernel_bash" => BashActivityAction::Kill,
             _ => return response_failure(None, command_type, "Unknown kernel bash command", None),
         };
         let activity_id = payload.get("activityId").and_then(Value::as_str);
-        if action != "list" && activity_id.is_none_or(str::is_empty) {
+        if action != BashActivityAction::List && activity_id.is_none_or(str::is_empty) {
             return response_failure(None, command_type, "activityId is required", None);
         }
-        let lines = if action == "tail" {
+        let lines = if action == BashActivityAction::Tail {
             match payload.get("lines") {
                 None => 50,
-                Some(value) => match value.as_u64() {
-                    Some(lines) if (1..=200).contains(&lines) => lines as usize,
+                Some(value) => match value.as_u64().and_then(|lines| usize::try_from(lines).ok()) {
+                    Some(lines) if (1..=200).contains(&lines) => lines,
                     _ => {
                         return response_failure(
                             None,
@@ -147,7 +150,16 @@ impl Worker {
         } else {
             50
         };
-        match engine.bash_activity(action, activity_id, lines).await {
+        let main = match hosted.main() {
+            Ok(main) => main,
+            Err(error) => return response_failure(None, command_type, &error.to_string(), None),
+        };
+        let request = BashActivityRequest {
+            action,
+            activity_id: activity_id.map(str::to_string),
+            lines,
+        };
+        match kernel_bash_activity(hosted.deps(), main.id(), request).await {
             Ok(mut fields) => {
                 if let Some(object) = fields.as_object_mut() {
                     object.remove("event");
@@ -169,7 +181,10 @@ impl Worker {
     /// (TS `runUserBash`): the already-running guard rejects a second
     /// command, the response goes out before the run completes, output
     /// streams as `bash_output` events, and the settled `bash_end` (plus
-    /// the durable `bashExecution` row, unless transient) follows.
+    /// the durable `eukhe.bash` row, unless transient) follows. The row is a
+    /// write submission keyed by the run's request id, so a retried write
+    /// never records the run twice; the Harness inbox places it at the next
+    /// boundary while a run is busy.
     pub(crate) fn handle_execute_bash(&self, payload: &Value) -> DaemonResponse {
         if let Err(response) = self.require_created("execute_bash") {
             return response;
@@ -201,6 +216,7 @@ impl Worker {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let run_id = payload.get("runId").and_then(Value::as_str);
+        let request_id = bash_request_id(run_id);
         let identity = bash_identity(transient, run_id);
         let start = json!({
             "type": "bash_start",
@@ -212,20 +228,14 @@ impl Worker {
         // The run outlives the response (bash can exceed the client's
         // request timeout); completion streams via bash_end.
         let core = Arc::clone(&self.core);
-        let events = self.events.clone();
+        let events = Arc::clone(&self.events);
+        let session = self.session.clone();
         let user_bash = Arc::clone(&self.user_bash);
-        let work_notify = Arc::clone(&self.work_notify);
         let command = command.to_string();
         let agent_dir = self.config.agent_dir.clone();
         tokio::spawn(async move {
-            let cwd = {
-                let core = core.lock().unwrap();
-                core.cwd.clone()
-            };
-            let settings = {
-                let core = core.lock().unwrap();
-                eukhe_core::settings::SettingsManager::create(&core.cwd, &agent_dir)
-            };
+            let cwd = lock(&core).cwd.clone();
+            let settings = eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir);
             let prefix = settings.settings().shell_command_prefix.clone();
             let shell_path = settings.settings().shell_path.clone();
             let end = run_bash(RunBash {
@@ -240,18 +250,24 @@ impl Worker {
             // Persist the durable row (transient runs live only in their
             // pane; reloads and rebuilds cannot resurface them).
             if !transient {
-                record_bash_result(
-                    &core,
-                    &command,
-                    &BashResult {
-                        output: end.output.clone(),
-                        exit_code: end.exit_code,
-                        cancelled: end.cancelled,
-                        truncated: end.truncated,
-                        full_output_path: end.full_output_path.clone(),
-                    },
-                    exclude_from_context,
-                );
+                let result = BashResult {
+                    output: end.output.clone(),
+                    exit_code: end.exit_code,
+                    cancelled: end.cancelled,
+                    truncated: end.truncated,
+                    full_output_path: end.full_output_path.clone(),
+                };
+                if let Some(hosted) = session.get() {
+                    let row = BashRow {
+                        command: &command,
+                        result: &result,
+                        exclude_from_context,
+                        request_id,
+                    };
+                    if let Err(error) = record_bash_result(&hosted, row).await {
+                        eprintln!("eukhe-daemon worker: recording the bash run failed: {error:#}");
+                    }
+                }
             }
             user_bash.release();
             let mut event = json!({
@@ -267,10 +283,7 @@ impl Worker {
                 event["errorMessage"] = json!(error);
             }
             let event = merge_identity(event, &identity);
-            emit_session_event_frame(&core, &events, event);
-            // The queue drains after the slot is released (TS
-            // `_drainQueuedMessagesAfterBash`).
-            work_notify.notify_one();
+            emit_worker_event_with(&core, &events, event);
         });
         response_success(None, "execute_bash", None)
     }
@@ -279,9 +292,10 @@ impl Worker {
     /// awaited path): run to completion, record the row, and answer the
     /// `BashResult` wire shape.
     pub(crate) async fn handle_execute_bash_and_wait(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("execute_bash_and_wait") {
-            return response;
-        }
+        let hosted = match self.hosted("execute_bash_and_wait") {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
         let Some(command) = payload.get("command").and_then(Value::as_str) else {
             return response_failure(
                 None,
@@ -296,18 +310,19 @@ impl Worker {
             .abort_requested
             .store(false, Ordering::SeqCst);
         let (cwd, prefix, shell_path) = {
-            let core = self.core.lock().unwrap();
+            let cwd = lock(&self.core).cwd.clone();
             let settings =
-                eukhe_core::settings::SettingsManager::create(&core.cwd, &self.config.agent_dir);
+                eukhe_core::settings::SettingsManager::create(&cwd, &self.config.agent_dir);
             let settings = settings.settings();
             (
-                core.cwd.clone(),
+                cwd,
                 settings.shell_command_prefix.clone(),
                 settings.shell_path.clone(),
             )
         };
         let user_bash = Arc::clone(&self.user_bash);
         let command = command.to_string();
+        let request_id = bash_request_id(payload.get("runId").and_then(Value::as_str));
         // The awaited run counts toward the session's `isBashRunning` (TS's
         // `executeBash` registers an abort controller, so the flag is true
         // for its whole duration); it owns no exclusive slot, so a streamed
@@ -341,7 +356,15 @@ impl Worker {
             truncated: end.truncated,
             full_output_path: end.full_output_path,
         };
-        record_bash_result(&self.core, &command, &result, false);
+        let row = BashRow {
+            command: &command,
+            result: &result,
+            exclude_from_context: false,
+            request_id,
+        };
+        if let Err(error) = record_bash_result(&hosted, row).await {
+            return response_failure(None, "execute_bash_and_wait", &format!("{error:#}"), None);
+        }
         response_success(
             None,
             "execute_bash_and_wait",
@@ -358,6 +381,22 @@ impl Worker {
         self.user_bash.abort().await;
         response_success(None, "abort_bash", None)
     }
+}
+
+/// The write-submission request id of one bash run: the client's `runId`
+/// when it names the run, else a fresh id minted when the run starts (one
+/// run, one row).
+fn bash_request_id(run_id: Option<&str>) -> String {
+    match run_id.filter(|run_id| !run_id.is_empty()) {
+        Some(run_id) => format!("user-bash:{run_id}"),
+        None => format!("user-bash:{}", uuid::Uuid::new_v4()),
+    }
+}
+
+fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The wire identity echoed on `bash_start`/`bash_end` (TS `identity`).
@@ -485,7 +524,7 @@ impl OutputStream {
             self.retained_bytes -= removed.len();
         }
         if let Some((core, events)) = &self.on_chunk {
-            emit_session_event_frame(
+            emit_worker_event_with(
                 core,
                 events,
                 json!({ "type": "bash_output", "chunk": text }),
@@ -559,7 +598,7 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
             loop {
                 match reader.read(&mut buffer).await {
                     Ok(0) | Err(_) => break,
-                    Ok(read) => stream.lock().unwrap().push(&buffer[..read]),
+                    Ok(read) => lock(&stream).push(&buffer[..read]),
                 }
             }
         }
@@ -620,37 +659,42 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
     }
 }
 
-/// Record one bash outcome as the durable `bashExecution` row (TS
-/// `recordBashResult`; the row renders as a user turn and joins the model
-/// context unless excluded).
-fn record_bash_result(
-    core: &Arc<std::sync::Mutex<crate::worker::SessionCore>>,
-    command: &str,
-    result: &BashResult,
+/// One settled run's durable row.
+struct BashRow<'a> {
+    command: &'a str,
+    result: &'a BashResult,
     exclude_from_context: bool,
-) {
-    let mut core = core.lock().unwrap();
-    let Some(store) = core.store.as_mut() else {
-        return;
+    request_id: String,
+}
+
+/// Record one bash outcome as the durable `eukhe.bash` row (TS
+/// `recordBashResult`; the row renders as a `bashExecution` message and
+/// joins the model context unless excluded) through a write submission on
+/// the main conversation, then wait until its `message_start`/`message_end`
+/// pair reached the wire (so `bash_end` follows the row, as before).
+async fn record_bash_result(hosted: &HostedSession, row: BashRow<'_>) -> anyhow::Result<()> {
+    let data = BashEntryData {
+        command: row.command.to_string(),
+        output: row.result.output.clone(),
+        exit_code: row.result.exit_code,
+        cancelled: row.result.cancelled,
+        truncated: row.result.truncated,
+        full_output_path: row.result.full_output_path.clone(),
+        exclude_from_context: row.exclude_from_context.then_some(true),
     };
-    let mut row = json!({
-        "role": "bashExecution",
-        "command": command,
-        "output": result.output,
-        "cancelled": result.cancelled,
-        "truncated": result.truncated,
-        "timestamp": crate::util::now_ms(),
-    });
-    if let Some(exit_code) = result.exit_code {
-        row["exitCode"] = json!(exit_code);
-    }
-    if let Some(path) = &result.full_output_path {
-        row["fullOutputPath"] = json!(path);
-    }
-    if exclude_from_context {
-        row["excludeFromContext"] = json!(true);
-    }
-    let _ = store.persist_entry("message", json!({ "message": row }));
+    let entry = bash_entry_draft(data, crate::util::now_ms())?;
+    hosted
+        .main()?
+        .submit(
+            WriteSubmissionDraft {
+                request_id: Some(row.request_id),
+                entry,
+            },
+            &BACKGROUND_CONTEXT,
+        )
+        .await?;
+    hosted.events_delivered().await;
+    Ok(())
 }
 
 /// Sanitize one output chunk (TS `strip-ansi` + `sanitizeBinaryOutput` +
@@ -821,109 +865,62 @@ fn truncate_string_to_bytes_from_end(text: &str, max_bytes: usize) -> String {
     text[text.len() - end..].to_string()
 }
 
-/// Sequence and broadcast one `session_event` frame (the free-standing
-/// form of the worker's emitter the spawned bash task uses).
-pub(crate) fn emit_session_event_frame(
-    core: &Arc<std::sync::Mutex<crate::worker::SessionCore>>,
-    events: &Arc<crate::worker::EventPump>,
-    event: Value,
-) {
-    use crate::protocol::create_daemon_event_meta;
-    use crate::protocol::DaemonOutbound;
-    use crate::worker::OutboundFrame;
-    let mut core = core.lock().unwrap();
-    let sequence = core.last_event_sequence + 1;
-    core.last_event_sequence = sequence;
-    let meta = create_daemon_event_meta(
-        &core.active_session_id,
-        sequence,
-        None,
-        Some(&core.generation),
-    );
-    let active_session_id = core.active_session_id.clone();
-    let outbound = DaemonOutbound::SessionEvent {
-        active_session_id,
-        event,
-        meta: Some(meta),
-        rest: Map::default(),
-    };
-    let payload = serde_json::to_vec(&outbound).unwrap_or_default();
-    drop(core);
-    events.send(OutboundFrame::session_event(payload));
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::durable_test_support::{created_worker, worker_rows};
     use serde_json::json;
-    use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
-    async fn created_worker(cwd: &std::path::Path) -> Arc<Worker> {
-        std::fs::create_dir_all(cwd).unwrap();
-        let dir = std::env::temp_dir().join(format!("pa-worker-bash-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let config = crate::worker::WorkerConfig {
-            socket_path: dir.join("worker.sock"),
-            supervisor_socket_path: std::path::PathBuf::new(),
-            token: "token".to_string(),
-            worker_instance_id: String::new(),
-            active_session_id: "bash-session".to_string(),
-            agent_dir: dir.join("agent"),
-            recovery_journal_path: dir.join("recovery.jsonl"),
-            telemetry_disabled: None,
-            script: Some(json!({ "responses": ["ack"] })),
-        };
-        let worker = Arc::new(Worker::new(config, None));
-        let created = worker
-            .dispatch(
-                "create",
-                &json!({ "noSession": true, "cwd": cwd.to_string_lossy(), "name": "bash" }),
-            )
-            .await;
-        assert!(created.success, "create failed: {created:?}");
-        worker
+    const SESSION: &str = "bash-session";
+
+    async fn bash_rows(worker: &Worker) -> Vec<Value> {
+        worker_rows(worker, "eukhe.bash").await
     }
 
-    fn bash_rows(worker: &Worker) -> Vec<Value> {
-        let core = worker.core.lock().unwrap();
-        core.store
-            .as_ref()
-            .map(|store| {
-                store
-                    .entries()
-                    .iter()
-                    .filter(|entry| entry.type_ == "message")
-                    .filter_map(|entry| entry.fields.get("message").cloned())
-                    .filter(|message| {
-                        message.get("role").and_then(Value::as_str) == Some("bashExecution")
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+    async fn bash_running(worker: &Worker) -> bool {
+        let state = worker
+            .dispatch(
+                "get_connection_state",
+                &json!({ "activeSessionId": SESSION }),
+            )
+            .await;
+        state.data.expect("state data")["isBashRunning"] == json!(true)
+    }
+
+    /// Poll the connection state until the bash flag reads `running`.
+    async fn wait_bash_running(worker: &Worker, running: bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while bash_running(worker).await != running {
+            assert!(
+                Instant::now() < deadline,
+                "isBashRunning never became {running}"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 
     /// `execute_bash_and_wait` answers the TS `BashResult` wire shape and
-    /// records the durable `bashExecution` row.
-    #[tokio::test]
+    /// records the durable `eukhe.bash` row (rendered `bashExecution`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn execute_bash_and_wait_matches_the_ts_result_shape() {
-        let cwd = tempfile::tempdir().expect("tempdir");
-        let worker = created_worker(cwd.path()).await;
+        let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
         let response = worker
             .dispatch(
                 "execute_bash_and_wait",
-                &json!({ "activeSessionId": "bash-session", "command": "echo hello" }),
+                &json!({ "activeSessionId": SESSION, "command": "echo hello" }),
             )
             .await;
         assert!(response.success, "failed: {response:?}");
         let data = response.data.expect("data");
-        assert_eq!(data["output"], json!("hello\n"));
-        assert_eq!(data["exitCode"], json!(0));
-        assert_eq!(data["cancelled"], json!(false));
-        assert_eq!(data["truncated"], json!(false));
-        assert!(data.get("fullOutputPath").is_none(), "no spill: {data}");
+        assert_eq!(
+            data,
+            json!({ "output": "hello\n", "exitCode": 0, "cancelled": false, "truncated": false })
+        );
 
-        let rows = bash_rows(&worker);
+        let rows = bash_rows(&worker).await;
         assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["role"], json!("bashExecution"));
         assert_eq!(rows[0]["command"], json!("echo hello"));
         assert_eq!(rows[0]["output"], json!("hello\n"));
         assert_eq!(rows[0]["exitCode"], json!(0));
@@ -933,7 +930,7 @@ mod tests {
         let response = worker
             .dispatch(
                 "execute_bash_and_wait",
-                &json!({ "activeSessionId": "bash-session", "command": "echo boom >&2; exit 3" }),
+                &json!({ "activeSessionId": SESSION, "command": "echo boom >&2; exit 3" }),
             )
             .await;
         assert!(response.success);
@@ -944,7 +941,7 @@ mod tests {
         let response = worker
             .dispatch(
                 "execute_bash_and_wait",
-                &json!({ "activeSessionId": "bash-session" }),
+                &json!({ "activeSessionId": SESSION }),
             )
             .await;
         assert!(!response.success);
@@ -952,6 +949,23 @@ mod tests {
             response.error.as_deref(),
             Some("execute_bash_and_wait requires a command")
         );
+    }
+
+    /// A run's row is a write submission keyed by its `runId`: a retried
+    /// run with the same id never records a second row.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_retried_run_id_records_one_row() {
+        let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
+        for _ in 0..2 {
+            let response = worker
+                .dispatch(
+                    "execute_bash_and_wait",
+                    &json!({ "activeSessionId": SESSION, "command": "echo once", "runId": "run-1" }),
+                )
+                .await;
+            assert!(response.success, "failed: {response:?}");
+        }
+        assert_eq!(bash_rows(&worker).await.len(), 1);
     }
 
     /// The awaited-run bracket releases its count on drop even when the
@@ -975,48 +989,26 @@ mod tests {
     /// `executeBash` registers an abort controller for the run's
     /// duration): the flag reads true while it runs and false once it
     /// settles — without claiming the exclusive user slot.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_awaited_bash_run_reports_running_to_the_connection_state() {
-        let cwd = tempfile::tempdir().expect("tempdir");
-        let worker = created_worker(cwd.path()).await;
-        let runner = std::sync::Arc::clone(&worker);
+        let (dir, worker) = created_worker(SESSION, json!(["ack"])).await;
+        let gate = dir.path().join("gate");
+        let command = format!("while [ ! -f {} ]; do sleep 0.01; done", gate.display());
+        let runner = Arc::clone(&worker);
         let run = tokio::spawn(async move {
             runner
                 .dispatch(
                     "execute_bash_and_wait",
-                    &json!({ "activeSessionId": "bash-session", "command": "sleep 1" }),
+                    &json!({ "activeSessionId": SESSION, "command": command }),
                 )
                 .await
         });
-        let mut saw_running = false;
-        for _ in 0..100 {
-            let state = worker
-                .dispatch(
-                    "get_connection_state",
-                    &json!({ "activeSessionId": "bash-session" }),
-                )
-                .await;
-            if state.data.expect("state data")["isBashRunning"] == json!(true) {
-                saw_running = true;
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert!(
-            saw_running,
-            "the awaited run never reported isBashRunning to the connection state"
-        );
+        wait_bash_running(&worker, true).await;
+        std::fs::write(&gate, "").expect("open the gate");
         let response = run.await.expect("the awaited run task panicked");
         assert!(response.success, "failed: {response:?}");
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "bash-session" }),
-            )
-            .await;
-        assert_eq!(
-            state.data.expect("state data")["isBashRunning"],
-            json!(false),
+        assert!(
+            !bash_running(&worker).await,
             "the settled run left the flag on"
         );
     }
@@ -1025,16 +1017,15 @@ mod tests {
     /// slot (a second command answers the TS already-running refusal),
     /// `abort_bash` kills the run, and the excluded row carries the
     /// `excludeFromContext` flag.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn execute_bash_claims_the_slot_and_aborts() {
-        let cwd = tempfile::tempdir().expect("tempdir");
-        let worker = created_worker(cwd.path()).await;
+        let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
         let response = worker
             .dispatch(
                 "execute_bash",
                 &json!({
-                    "activeSessionId": "bash-session",
-                    "command": "sleep 2",
+                    "activeSessionId": SESSION,
+                    "command": "sleep 30",
                     "excludeFromContext": true,
                 }),
             )
@@ -1043,17 +1034,11 @@ mod tests {
         assert!(response.data.is_none(), "responds before completion");
 
         // The slot is claimed while the command runs.
-        let state = worker
-            .dispatch(
-                "get_connection_state",
-                &json!({ "activeSessionId": "bash-session" }),
-            )
-            .await;
-        assert_eq!(state.data.expect("data")["isBashRunning"], json!(true));
+        assert!(bash_running(&worker).await);
         let refusal = worker
             .dispatch(
                 "execute_bash",
-                &json!({ "activeSessionId": "bash-session", "command": "echo nope" }),
+                &json!({ "activeSessionId": SESSION, "command": "echo nope" }),
             )
             .await;
         assert!(!refusal.success);
@@ -1065,27 +1050,11 @@ mod tests {
         // Abort settles the run; the durable row records the cancelled
         // outcome with the context-exclusion flag.
         let aborted = worker
-            .dispatch("abort_bash", &json!({ "activeSessionId": "bash-session" }))
+            .dispatch("abort_bash", &json!({ "activeSessionId": SESSION }))
             .await;
         assert!(aborted.success, "failed: {aborted:?}");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            let state = worker
-                .dispatch(
-                    "get_connection_state",
-                    &json!({ "activeSessionId": "bash-session" }),
-                )
-                .await;
-            if state.data.expect("data")["isBashRunning"] == json!(false) {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "bash slot never released"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-        let rows = bash_rows(&worker);
+        wait_bash_running(&worker, false).await;
+        let rows = bash_rows(&worker).await;
         assert_eq!(rows.len(), 1, "the cancelled run still records");
         assert_eq!(rows[0]["cancelled"], json!(true));
         assert_eq!(rows[0]["excludeFromContext"], json!(true));
@@ -1096,54 +1065,37 @@ mod tests {
     }
 
     /// Transient runs stay unrecorded (they live only in their pane).
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn transient_execute_bash_records_nothing() {
-        let cwd = tempfile::tempdir().expect("tempdir");
-        let worker = created_worker(cwd.path()).await;
+        let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
         let response = worker
             .dispatch(
                 "execute_bash",
                 &json!({
-                    "activeSessionId": "bash-session",
+                    "activeSessionId": SESSION,
                     "command": "echo transient",
                     "transient": true,
                 }),
             )
             .await;
         assert!(response.success, "failed: {response:?}");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            let state = worker
-                .dispatch(
-                    "get_connection_state",
-                    &json!({ "activeSessionId": "bash-session" }),
-                )
-                .await;
-            if state.data.expect("data")["isBashRunning"] == json!(false) {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "bash slot never released"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-        assert_eq!(bash_rows(&worker).len(), 0, "transient runs record nothing");
+        wait_bash_running(&worker, false).await;
+        assert_eq!(
+            bash_rows(&worker).await.len(),
+            0,
+            "transient runs record nothing"
+        );
     }
 
     /// A missing cwd answers the TS local-operations refusal.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn execute_bash_and_wait_refuses_a_missing_cwd() {
-        let cwd = tempfile::tempdir().expect("tempdir");
-        let worker = created_worker(cwd.path()).await;
-        {
-            let mut core = worker.core.lock().unwrap();
-            core.cwd = "/nonexistent-bash-cwd".to_string();
-        }
+        let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
+        lock(&worker.core).cwd = "/nonexistent-bash-cwd".to_string();
         let response = worker
             .dispatch(
                 "execute_bash_and_wait",
-                &json!({ "activeSessionId": "bash-session", "command": "pwd" }),
+                &json!({ "activeSessionId": SESSION, "command": "pwd" }),
             )
             .await;
         assert!(!response.success);
@@ -1152,6 +1104,32 @@ mod tests {
             Some(
                 "Working directory does not exist: /nonexistent-bash-cwd\nCannot execute bash commands."
             )
+        );
+    }
+
+    /// The kernel bash lane never boots a kernel: before any cell ran it
+    /// answers the definitive refusal; a malformed request fails first.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn kernel_bash_activity_answers_not_running_before_a_kernel_boots() {
+        let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
+        let listed = worker
+            .dispatch("list_kernel_bash", &json!({ "activeSessionId": SESSION }))
+            .await;
+        assert!(!listed.success);
+        assert_eq!(listed.error.as_deref(), Some("Kernel is not running"));
+        let missing = worker
+            .dispatch("tail_kernel_bash", &json!({ "activeSessionId": SESSION }))
+            .await;
+        assert_eq!(missing.error.as_deref(), Some("activityId is required"));
+        let lines = worker
+            .dispatch(
+                "tail_kernel_bash",
+                &json!({ "activeSessionId": SESSION, "activityId": "a", "lines": 0 }),
+            )
+            .await;
+        assert_eq!(
+            lines.error.as_deref(),
+            Some("lines must be between 1 and 200")
         );
     }
 

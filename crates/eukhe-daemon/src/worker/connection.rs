@@ -860,11 +860,29 @@ impl Worker {
             core.attached_client_ids.push(client_id.clone());
         }
         let summary = self.summary_locked(&core);
+        // The transcript of the shown conversation, from the same mirror
+        // (and under the same lock) the event sequence advances with.
         let mut messages: Vec<Value> = core
-            .store
+            .view
             .as_ref()
-            .map(crate::session_store::SessionFile::messages)
+            .map(|view| {
+                super::durable_host::wire_messages::transcript_messages(
+                    &view.translator.mirror().entries,
+                )
+            })
             .unwrap_or_default();
+        // A streaming assistant message is part of the attach state: the
+        // client shows the in-flight partial, later `message_update`s
+        // continue it.
+        if let Some(partial) = core
+            .view
+            .as_ref()
+            .and_then(|view| view.translator.mirror().partial.as_ref())
+        {
+            messages.push(super::durable_host::wire_messages::assistant_wire_message(
+                partial,
+            ));
+        }
         // The image-payload elision (the image-heavy session-open fix): a
         // client that advertised `elide_snapshot_images` reads the
         // transcript without the base64 payloads (their fallback-only
@@ -945,7 +963,11 @@ impl Worker {
             if let Some(config) = crate::herdr::HerdrConfig::from_env(&client_env) {
                 let (active, session_ref, rlm_depth) = {
                     let core = self.core.lock().unwrap();
-                    (core.busy, Worker::herdr_session_ref(&core), core.rlm_depth)
+                    (
+                        core.is_busy(),
+                        Worker::herdr_session_ref(&core),
+                        core.rlm_depth,
+                    )
                 };
                 if rlm_depth == 0 {
                     // The adopt is check-and-install under ONE lock
@@ -1047,10 +1069,6 @@ impl Worker {
                 core.attached_client_ids.retain(|entry| entry != id);
             }
         }
-        drop(core);
-        // The runner's park re-arms: the released hold opens the idle
-        // passivation's unattached gate for a now-detached child.
-        self.work_notify.notify_one();
     }
 
     pub(crate) fn handle_detach(&self, payload: &Value) -> DaemonResponse {
@@ -1086,10 +1104,6 @@ impl Worker {
             core.attached_client_ids.retain(|id| id != &client_id);
         }
         drop(core);
-        // The detach wake: the runner's park computed its idle-passivation
-        // window while this client held the attach; the notify re-arms it
-        // (a now-detached child's window opens for the threshold).
-        self.work_notify.notify_one();
         response_success(None, "detach", None)
     }
 }

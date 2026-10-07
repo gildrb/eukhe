@@ -160,7 +160,6 @@ fn window_preserves_transcript_metadata_and_append_then_hydrate() {
         .unwrap();
     assert!(warm.read_stats().cache_hit);
     assert!(window.has_thinking_level());
-    assert_eq!(window.compaction_count(), full.compaction_count());
     window
         .persist_entry("session_info", json!({"name":"renamed"}))
         .unwrap();

@@ -7,12 +7,24 @@
 //! open, never a kernel round-trip; connected rows carry their record-held
 //! tool count).
 
+use std::sync::{Arc, Mutex, PoisonError};
+
+use eukhe_core::mcp::McpManager;
 use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::Worker;
 
 impl Worker {
+    /// The hosted session's MCP manager (the one its prompt gating and
+    /// kernel MCP bridge read).
+    // DaemonResponse is the wide wire response; the error channel carries it.
+    #[allow(clippy::result_large_err)]
+    fn mcp_manager(&self, command: &str) -> Result<Arc<Mutex<McpManager>>, DaemonResponse> {
+        let hosted = self.hosted(command)?;
+        Ok(Arc::clone(&hosted.deps().mcp))
+    }
+
     /// `get_mcp_connections`: the roster from the session's MCP manager
     /// (auth gating over settings plus the built-in catalog), the resolved
     /// service-catalog views, and the api-key credential rows (the stored
@@ -26,21 +38,16 @@ impl Worker {
     /// gate through the auth store, whose snapshot takes a blocking lock —
     /// never on the runtime.
     pub(crate) async fn handle_get_mcp_connections(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_mcp_connections") {
-            return response;
-        }
-        let Some(manager) = self.engine.acp_mcp_manager() else {
-            return response_failure(
-                None,
-                "get_mcp_connections",
-                "MCP connections are not available in this session",
-                None,
-            );
+        let manager = match self.mcp_manager("get_mcp_connections") {
+            Ok(manager) => manager,
+            Err(response) => return response,
         };
-        let roster_manager = std::sync::Arc::clone(&manager);
+        let roster_manager = Arc::clone(&manager);
         let (roster, services, credentials, diagnostics) =
             match tokio::task::spawn_blocking(move || {
-                let mut manager = roster_manager.lock().unwrap();
+                let mut manager = roster_manager
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
                 // The auth store re-read comes FIRST: the interactive client
                 // stores the api-key credentials through its own storage
                 // instance (the `/mcp` key flow runs client-side), so the
@@ -88,9 +95,10 @@ impl Worker {
     /// the credential bound to the service endpoint (the pin), verifies with
     /// a real handshake, and persists the connection record.
     pub(crate) async fn handle_set_mcp_static_token(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("set_mcp_static_token") {
-            return response;
-        }
+        let manager = match self.mcp_manager("set_mcp_static_token") {
+            Ok(manager) => manager,
+            Err(response) => return response,
+        };
         let Some(server) = payload.get("server").and_then(Value::as_str) else {
             return response_failure(
                 None,
@@ -107,18 +115,10 @@ impl Worker {
                 None,
             );
         };
-        let Some(manager) = self.engine.acp_mcp_manager() else {
-            return response_failure(
-                None,
-                "set_mcp_static_token",
-                "MCP connections are not available in this session",
-                None,
-            );
-        };
         // Gather under a short manager lock; the install (credential store +
         // handshake probe) awaits without holding it.
         let inputs = {
-            let manager = manager.lock().unwrap();
+            let manager = manager.lock().unwrap_or_else(PoisonError::into_inner);
             manager.paste_install_inputs(server)
         };
         let install = match inputs {
@@ -126,7 +126,7 @@ impl Worker {
             Err(message) => Err(message),
         };
         if install.is_ok() {
-            let manager = manager.lock().unwrap();
+            let manager = manager.lock().unwrap_or_else(PoisonError::into_inner);
             manager.note_usage("paste-install", server);
         }
         match install {
@@ -149,9 +149,10 @@ impl Worker {
     /// connection record (the durable endpoint pin) in one step — the
     /// view's remove-account action.
     pub(crate) async fn handle_remove_mcp_connection(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("remove_mcp_connection") {
-            return response;
-        }
+        let manager = match self.mcp_manager("remove_mcp_connection") {
+            Ok(manager) => manager,
+            Err(response) => return response,
+        };
         let Some(server) = payload.get("server").and_then(Value::as_str) else {
             return response_failure(
                 None,
@@ -160,16 +161,8 @@ impl Worker {
                 None,
             );
         };
-        let Some(manager) = self.engine.acp_mcp_manager() else {
-            return response_failure(
-                None,
-                "remove_mcp_connection",
-                "MCP connections are not available in this session",
-                None,
-            );
-        };
         let handles = {
-            let manager = manager.lock().unwrap();
+            let manager = manager.lock().unwrap_or_else(PoisonError::into_inner);
             manager.connection_handles()
         };
         match eukhe_core::mcp::remove_mcp_connection(&handles, server).await {

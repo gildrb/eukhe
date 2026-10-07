@@ -135,7 +135,7 @@ impl Worker {
             );
         };
         if action != HeartbeatManagementAction::Resume {
-            self.scheduled.remove_queued_heartbeat_follow_up(&job);
+            self.scheduled.remove_queued_heartbeat_follow_up(&job).await;
         }
         self.scheduled.wake().await;
         response_success(
@@ -156,21 +156,18 @@ impl Worker {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.bind_store_artifact(&core);
-            let store = match core.store.as_ref() {
-                Some(store) if !store.path.as_os_str().is_empty() => store,
-                _ => {
-                    return response_failure(
-                        None,
-                        "cron_add",
-                        "Cron jobs require a persisted session file",
-                        None,
-                    )
-                }
+            let Some(session_file) = core.session_file() else {
+                return response_failure(
+                    None,
+                    "cron_add",
+                    "Cron jobs require a persisted session file",
+                    None,
+                );
             };
             CreateAgentCronJobInput {
                 active_session_id: core.active_session_id.clone(),
-                session_id: store.session_id().to_string(),
-                session_file: store.path.to_string_lossy().to_string(),
+                session_id: core.session_id.clone(),
+                session_file,
                 cwd: core.cwd.clone(),
                 runtime_kind: Some(core.runtime_kind.clone()),
                 prompt: payload
@@ -223,7 +220,7 @@ impl Worker {
             .cancel(&job_id, crate::util::now_ms())
         {
             Some(job) => {
-                self.scheduled.remove_queued_heartbeat_follow_up(&job);
+                self.scheduled.remove_queued_heartbeat_follow_up(&job).await;
                 self.scheduled.wake().await;
                 response_success(
                     None,
@@ -288,16 +285,13 @@ impl Worker {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.bind_store_artifact(&core);
-            let store = match core.store.as_ref() {
-                Some(store) if !store.path.as_os_str().is_empty() => store,
-                _ => {
-                    return response_failure(
-                        None,
-                        "heartbeat_set",
-                        "Heartbeats require a persisted session file",
-                        None,
-                    )
-                }
+            let Some(session_file) = core.session_file() else {
+                return response_failure(
+                    None,
+                    "heartbeat_set",
+                    "Heartbeats require a persisted session file",
+                    None,
+                );
             };
             let previous = self
                 .scheduled
@@ -311,8 +305,8 @@ impl Worker {
                 previous,
                 CreateAgentCronJobInput {
                     active_session_id: core.active_session_id.clone(),
-                    session_id: store.session_id().to_string(),
-                    session_file: store.path.to_string_lossy().to_string(),
+                    session_id: core.session_id.clone(),
+                    session_file,
                     cwd: core.cwd.clone(),
                     runtime_kind: Some(core.runtime_kind.clone()),
                     delivery_mode,
@@ -334,7 +328,9 @@ impl Worker {
         match self.scheduled.store().create_heartbeat(&input) {
             Ok(job) => {
                 if let Some(previous) = previous {
-                    self.scheduled.remove_queued_heartbeat_follow_up(&previous);
+                    self.scheduled
+                        .remove_queued_heartbeat_follow_up(&previous)
+                        .await;
                 }
                 self.scheduled.wake().await;
                 response_success(
@@ -392,7 +388,7 @@ impl Worker {
         };
         if let Some(job) = &outcome {
             if !resume {
-                self.scheduled.remove_queued_heartbeat_follow_up(job);
+                self.scheduled.remove_queued_heartbeat_follow_up(job).await;
             }
         }
         self.scheduled.wake().await;

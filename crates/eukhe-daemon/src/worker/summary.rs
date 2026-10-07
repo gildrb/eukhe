@@ -1,49 +1,82 @@
-//! The worker's client-visible surface: summaries, snapshots, the
-//! roster push, and the event emission family.
+//! The worker's client-visible surface: summaries, connection state, the
+//! queue projection, the roster push, and the event emission family. Every
+//! read comes from the shown conversation's event mirror on the core, so a
+//! summary never waits on the Harness.
+
+use super::durable_host::bridge::{QueuedMode, ShownView};
+use super::durable_host::wire_messages::entry_wire_message;
 use super::lifecycle::active_lifecycle;
 use super::{
-    checkpoint_queue_recovery, create_daemon_event_meta, is_injected_prompt_item,
-    is_rlm_child_status_item, json, AgentConnectionState, Arc, DaemonOutbound,
-    DaemonSessionClosedReason, EventPump, Map, Mutex, OutboundFrame, QueueCheckpoint, QueuedItem,
-    Result, SessionActionSnapshot, SessionCore, SessionEngine, Value, Worker,
+    create_daemon_event_meta, AgentConnectionState, Arc, DaemonOutbound, DaemonSessionClosedReason,
+    EventPump, Map, Mutex, OutboundFrame, Result, SessionActionSnapshot, SessionCore, SessionSlot,
+    Value, Worker,
 };
+
+use eukhe_types::pi_ai::Model;
+use serde_json::json;
 
 use crate::types::SessionSummary;
 
+/// The shown conversation's model as the wire carries it (`state.model`,
+/// summary `model`): the catalog model when the session's Models knows it,
+/// else `{id, provider}`.
+pub(crate) fn model_metadata(core: &SessionCore, session: &SessionSlot) -> Option<Value> {
+    let model_ref = core
+        .view
+        .as_ref()?
+        .translator
+        .mirror()
+        .agent
+        .model
+        .clone()?;
+    let catalog = catalog_model(session, &model_ref.provider, &model_ref.model_id);
+    Some(match catalog {
+        Some(model) => serde_json::to_value(&model).unwrap_or(Value::Null),
+        None => json!({ "id": model_ref.model_id, "provider": model_ref.provider }),
+    })
+}
+
+fn catalog_model(session: &SessionSlot, provider: &str, model_id: &str) -> Option<Model> {
+    session.get()?.deps().models.get_model(provider, model_id)
+}
+
+/// The shown conversation's thinking level (`off` when unset).
+pub(crate) fn thinking_level(core: &SessionCore) -> String {
+    core.view
+        .as_ref()
+        .and_then(|view| view.translator.mirror().agent.thinking_level)
+        .map_or("off", |level| level.as_str())
+        .to_string()
+}
+
+/// The thinking levels the shown model supports (`["off"]` without a
+/// reasoning model).
+pub(crate) fn available_thinking_levels(core: &SessionCore, session: &SessionSlot) -> Vec<String> {
+    let model = core
+        .view
+        .as_ref()
+        .and_then(|view| view.translator.mirror().agent.model.clone())
+        .and_then(|model_ref| catalog_model(session, &model_ref.provider, &model_ref.model_id));
+    match model {
+        Some(model) => eukhe_pi_ai::models::get_supported_thinking_levels(&model)
+            .into_iter()
+            .map(|level| level.as_str().to_string())
+            .collect(),
+        None => vec!["off".to_string()],
+    }
+}
+
 impl Worker {
     pub(crate) fn summary_locked(&self, core: &SessionCore) -> SessionSummary {
-        // The one summary composer (TS `summaryForActiveSession`): the
-        // roster feed, `get_state`, and list rows all serve it, so the
-        // live flags (`isRunningTools` from the core's in-flight tool
-        // calls, `isBashRunning` from the user bash) never drift between
-        // surfaces.
         let mut summary = session_summary(
             core,
-            &self
-                .engine
-                .effective_thinking_level()
-                .unwrap_or_else(|| "default".to_string()),
-            self.engine.model_metadata(),
-            self.engine.model_fallback_message(),
+            &thinking_level(core),
+            model_metadata(core, &self.session),
             self.user_bash.is_running(),
-            self.engine.is_quota_parked(),
-            self.engine.has_running_subagents(),
         );
-        // The worker's roster-delta counter at snapshot time, and the
-        // process instance that read it — the pair is one snapshot:
-        // the supervisor's pull gate orders the summary against the
-        // watermark of the generation that took it, so a delta still
-        // in flight when the pull answered (a sequence at or below
-        // the counter) is dropped instead of overwriting the pull's
-        // fresher state. Both reads run under the caller's core
-        // lock, and every push stamps its snapshot after the state
-        // change it describes and before its counter increment, so
-        // a counter this summary embeds already includes every
-        // change the snapshot reflects. The PRE-first-push stamp of
-        // zero is a sequenced counter (the supervisor gates it like
-        // any other — a delayed pre-push pull never overwrites a
-        // newer delta's state); only a summary that carries no
-        // counter at all is the unsequenced legacy write.
+        // The worker's roster-delta counter at snapshot time and the
+        // process instance that read it: the supervisor's pull gate orders
+        // this summary against in-flight deltas.
         summary.roster_delta_sequence = Some(
             self.roster_delta_sequence
                 .load(std::sync::atomic::Ordering::SeqCst),
@@ -53,154 +86,98 @@ impl Worker {
         summary
     }
 
-    pub(crate) fn snapshot_locked(core: &SessionCore) -> SessionActionSnapshot {
-        session_snapshot(core)
-    }
-
-    /// Push one roster delta from a command arm (the model/thinking
-    /// switch seams): the same frame the turn runner's busy flips push,
-    /// so a switch reaches the subscribed roster surfaces (the agents
-    /// view) without a turn — the TS roster-flush parity for
-    /// `thinking_level_changed` and the `set_model`/`cycle_model`
-    /// handlers.
+    /// Push one roster delta from a command arm.
     pub(crate) fn push_roster_delta(&self) {
         self.roster_pushes.push();
     }
 
     pub(crate) fn connection_state_locked(&self, core: &SessionCore) -> AgentConnectionState {
-        let store = core.store.as_ref();
-        let model = self.engine.model_metadata();
-
+        let mirror = core.view.as_ref().map(|view| view.translator.mirror());
+        let settings = self.session_settings(core);
         AgentConnectionState {
-            is_streaming: core.busy,
-            is_compacting: core.compacting,
+            is_streaming: core.is_busy(),
+            is_compacting: core.is_compacting(),
             active_session_id: Some(core.active_session_id.clone()),
             cwd: core.cwd.clone(),
-            model,
-            thinking_level: self
-                .engine
-                .effective_thinking_level()
-                .unwrap_or_else(|| "default".to_string()),
-            // The ACTIVE tier: the preference clamped to the model's
-            // tier support (`clampServiceTier`; the worker keeps the
-            // clamped value current on every switch and restore).
+            model: model_metadata(core, &self.session),
+            thinking_level: thinking_level(core),
             service_tier: crate::setting_switches::service_tier_wire_name(
                 core.active_service_tier
                     .unwrap_or(eukhe_types::ai::ServiceTier::Auto),
             )
             .to_string(),
-            // The resolved model's supported levels (TS `getSupportedThinkingLevels`
-            // in `getState`): a non-reasoning model reports ["off"], which the
-            // client treats as no thinking surface.
-            available_thinking_levels: self
-                .engine
-                .supported_thinking_levels()
-                .unwrap_or_else(|| vec!["off".to_string()]),
+            available_thinking_levels: available_thinking_levels(core, &self.session),
             is_bash_running: self.user_bash.is_running(),
-            retry_attempt: 0,
-            steering_mode: core.steering_mode.clone(),
-            follow_up_mode: core.follow_up_mode.clone(),
-            session_file: store.map(|s| s.path.to_string_lossy().to_string()),
-            session_id: store
-                .map(|s| s.session_id().to_string())
-                .unwrap_or_default(),
-            session_name: store.and_then(|s| s.session_name().map(str::to_string)),
-            session_dir: store
-                .and_then(|s| s.path.parent())
-                .map(|p| p.to_string_lossy().to_string()),
-            leaf_id: store.and_then(|s| s.leaf_id().map(str::to_string)),
-            auto_compaction_enabled: core.auto_compaction_enabled,
-            message_count: store.map_or(0, crate::session_store::SessionFile::message_count) as u32,
+            retry_attempt: mirror
+                .and_then(|mirror| mirror.retry_attempt)
+                .map_or(0, |attempt| u32::try_from(attempt).unwrap_or(u32::MAX)),
+            steering_mode: queue_mode_setting(&settings, QueueKind::Steering),
+            follow_up_mode: queue_mode_setting(&settings, QueueKind::FollowUp),
+            session_file: core.session_file(),
+            session_id: core.session_id.clone(),
+            session_name: core.session_name.clone(),
+            session_dir: core
+                .session_dir
+                .as_ref()
+                .and_then(|dir| dir.parent())
+                .map(|dir| dir.to_string_lossy().into_owned()),
+            leaf_id: mirror
+                .and_then(|mirror| mirror.entries.last())
+                .map(|entry| entry.id.to_string()),
+            auto_compaction_enabled: settings.get_compaction_enabled(),
+            message_count: message_count(core),
             session_actions: session_snapshot(core),
-            compaction_count: store.map_or(0, |store| store.compaction_count() as u32),
-            goal: self.engine.goal_state_value(),
+            compaction_count: mirror.map_or(0, |mirror| {
+                let count = mirror
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.kind == "pi.compaction")
+                    .count();
+                u32::try_from(count).unwrap_or(u32::MAX)
+            }),
+            goal: core
+                .view
+                .as_ref()
+                .map_or(Value::Null, |view| view.goal.clone()),
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
             context_usage: None,
         }
     }
 
-    /// One queue-lane recovery checkpoint through the worker's own
-    /// journal: the lane snapshot and the busy verdict ride one locked
-    /// read (`checkpoint_queue_recovery`).
-    pub(crate) fn checkpoint_queue(&self, checkpoint: QueueCheckpoint) {
-        checkpoint_queue_recovery(&self.recovery, &self.core, checkpoint);
-    }
-
-    pub(crate) fn record_recovery(&self, busy: bool, operation: &str) -> Result<()> {
-        let mut guard = self.recovery.lock().unwrap();
-        let Some(journal) = guard.as_mut() else {
-            return Ok(());
-        };
-        let core = self.core.lock().unwrap();
-        let store = core.store.as_ref();
-        journal.record(
-            &core.active_session_id,
-            store.map_or("", crate::session_store::SessionFile::session_id),
-            store
-                .map(|s| s.path.to_string_lossy().to_string())
-                .as_deref(),
-            busy,
-            operation,
+    /// The settings the connection state reads: the hosted session's
+    /// (reloaded when settings.json changes — the same values the Harness
+    /// reads per use), else the session cwd's over this worker's agent dir.
+    fn session_settings(&self, core: &SessionCore) -> Arc<eukhe_core::settings::SettingsManager> {
+        self.session.get().map_or_else(
+            || {
+                Arc::new(eukhe_core::settings::SettingsManager::create(
+                    &core.cwd,
+                    &self.config.agent_dir,
+                ))
+            },
+            |hosted| hosted.deps().settings.manager(),
         )
     }
 
-    /// Sequence and broadcast one `session_event` frame at the worker
-    /// level (the TS `_emit` backing for switch notifications).
+    /// Record the revival evidence through the worker's journal.
+    pub(crate) fn record_recovery(&self, busy: bool, operation: &str) -> Result<()> {
+        super::record_recovery_with(&self.recovery, &self.core, busy, operation);
+        Ok(())
+    }
+
+    /// Sequence and broadcast one `session_event` frame at the worker level.
     pub(crate) fn emit_worker_event(&self, event: Value) {
         emit_worker_event_with(&self.core, &self.events, event);
     }
 
-    /// Record one durable custom row and broadcast its
-    /// `message_start`/`message_end` pair (the TS `_emit` for rows the
-    /// session appends outside a turn: `append_custom_message`, the
-    /// `refine` outcome and notice, restored prefix rows).
-    pub(crate) fn emit_custom_row(&self, message: &Value) {
-        {
-            let mut core = self.core.lock().unwrap();
-            if let Some(store) = core.store.as_mut() {
-                let _ = store.persist_entry(
-                    "custom_message",
-                    json!({
-                        "customType": message.get("customType").cloned().unwrap_or(Value::Null),
-                        "content": message.get("content").cloned().unwrap_or(Value::Null),
-                        "display": message.get("display").cloned().unwrap_or(Value::Bool(true)),
-                        "details": message.get("details").cloned().unwrap_or(Value::Null),
-                    }),
-                );
-            }
-        }
-        self.emit_worker_event(json!({ "type": "message_start", "message": message }));
-        self.emit_worker_event(json!({ "type": "message_end", "message": message }));
-    }
-
-    /// Sequence and broadcast one `session_event` for the queue projection.
-    pub(crate) fn emit_action_update(&self, snapshot: &SessionActionSnapshot) -> Result<()> {
-        let mut core = self.core.lock().unwrap();
-        // TS `_emitQueueUpdate`: an unchanged projection stays silent (an
-        // empty queue before and after a turn is not an update).
-        if core.last_action_snapshot.as_ref() == Some(snapshot) {
-            return Ok(());
-        }
-        core.last_action_snapshot = Some(snapshot.clone());
-        let sequence = core.last_event_sequence + 1;
-        core.last_event_sequence = sequence;
-        let meta = create_daemon_event_meta(
-            &core.active_session_id,
-            sequence,
-            None,
-            Some(&core.generation),
-        );
-        let outbound = DaemonOutbound::SessionEvent {
-            active_session_id: core.active_session_id.clone(),
-            event: json!({ "type": "session_action_update", "actions": snapshot }),
-            meta: Some(meta),
-            rest: Map::default(),
-        };
-        let payload = serde_json::to_vec(&outbound)?;
-        drop(core);
-        self.events.send(OutboundFrame::session_event(payload));
-        Ok(())
+    /// Broadcast the queue projection when it changed.
+    pub(crate) fn emit_action_update(&self) {
+        let mut core = self
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        emit_action_update_locked(&mut core, &self.events);
     }
 
     pub(crate) fn emit_session_closed(
@@ -208,7 +185,10 @@ impl Worker {
         active_session_id: &str,
         reason: DaemonSessionClosedReason,
     ) -> Result<()> {
-        let mut core = self.core.lock().unwrap();
+        let mut core = self
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let sequence = core.last_event_sequence + 1;
         core.last_event_sequence = sequence;
         let meta = create_daemon_event_meta(
@@ -224,18 +204,14 @@ impl Worker {
             rest: Map::default(),
         };
         let payload = serde_json::to_vec(&outbound)?;
-        drop(core);
         self.events.send(OutboundFrame::session_event(payload));
         Ok(())
     }
 }
 
-pub(crate) fn emit_worker_event_with(
-    core: &Arc<Mutex<SessionCore>>,
-    events: &Arc<EventPump>,
-    event: Value,
-) {
-    let mut core = core.lock().unwrap();
+/// Sequence and broadcast one `session_event` under the held core lock (the
+/// event bridge's path: the mirror and the sequence advance together).
+pub(crate) fn emit_event_locked(core: &mut SessionCore, events: &EventPump, event: Value) {
     let sequence = core.last_event_sequence + 1;
     core.last_event_sequence = sequence;
     let meta = create_daemon_event_meta(
@@ -244,37 +220,48 @@ pub(crate) fn emit_worker_event_with(
         None,
         Some(&core.generation),
     );
-    let active_session_id = core.active_session_id.clone();
     let outbound = DaemonOutbound::SessionEvent {
-        active_session_id,
+        active_session_id: core.active_session_id.clone(),
         event,
         meta: Some(meta),
         rest: Map::default(),
     };
-    let payload = serde_json::to_vec(&outbound).unwrap_or_default();
-    drop(core);
-    events.send(OutboundFrame::session_event(payload));
+    match serde_json::to_vec(&outbound) {
+        Ok(payload) => events.send(OutboundFrame::session_event(payload)),
+        Err(error) => eprintln!("eukhe-daemon worker: session event serialization failed: {error}"),
+    }
 }
 
-/// The worker's roster-delta push (the Rust-native form of the TS
-/// `roster_delta` worker frame): the fresh session summary rides the
-/// supervisor link, so subscribed roster surfaces (the agents view) see a
-/// state change without polling. Shared by the turn runner's busy flips
-/// and the worker's command arms (the model/thinking switches). The
-/// supervisor's roster refresh still backstops every push, so this stays
-/// fire-and-forget: a dead link reconnects on the next push, and a
-/// supervisor restart re-seeds the entry from registration.
-///
-/// The TS worker flushes its roster deltas over ONE ordered supervisor
-/// client socket (a coalesced window re-reads the current state), so a
-/// delayed older frame can never overwrite a newer one. The Rust
-/// supervisor link dials an independent socket per request — the pushes
-/// arrive unordered — so every delta carries the worker's monotonic
-/// counter and the supervisor's stale-delta gate drops the delayed older
-/// snapshots.
+/// Emit `session_action_update` when the queue projection changed since
+/// the last broadcast.
+pub(crate) fn emit_action_update_locked(core: &mut SessionCore, events: &EventPump) {
+    let snapshot = session_snapshot(core);
+    if core.last_action_snapshot.as_ref() == Some(&snapshot) {
+        return;
+    }
+    core.last_action_snapshot = Some(snapshot.clone());
+    emit_event_locked(
+        core,
+        events,
+        json!({ "type": "session_action_update", "actions": snapshot }),
+    );
+}
+
+pub(crate) fn emit_worker_event_with(
+    core: &Arc<Mutex<SessionCore>>,
+    events: &Arc<EventPump>,
+    event: Value,
+) {
+    let mut core = core
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    emit_event_locked(&mut core, events, event);
+}
+
+/// The roster push context: what a `worker_roster_delta` summary reads.
 pub(crate) struct RosterPushContext {
     pub(crate) core: Arc<Mutex<SessionCore>>,
-    pub(crate) engine: std::sync::Arc<dyn SessionEngine>,
+    pub(crate) session: SessionSlot,
     pub(crate) user_bash: std::sync::Arc<crate::user_bash::UserBash>,
     pub(crate) roster_link: std::sync::Arc<crate::supervisor_link::SupervisorLink>,
     pub(crate) worker_token: String,
@@ -283,6 +270,9 @@ pub(crate) struct RosterPushContext {
     pub(crate) roster_push_order: std::sync::Arc<std::sync::Mutex<()>>,
 }
 
+/// The worker's roster-delta push: the fresh session summary rides the
+/// supervisor link with the worker's monotonic counter (the supervisor's
+/// stale-delta gate drops delayed older snapshots).
 pub(crate) fn push_roster_delta(context: &RosterPushContext) {
     if std::env::var_os("EUKHE_WORKER_DISABLE_ROSTER_PUSH").is_some() {
         return;
@@ -290,38 +280,28 @@ pub(crate) fn push_roster_delta(context: &RosterPushContext) {
     if context.worker_token.is_empty() || context.roster_link.socket_path().as_os_str().is_empty() {
         return;
     }
-    // The push-order lock holds the snapshot and its sequence stamp
-    // together: a busy-flip push racing a switch push must never let the
-    // older snapshot carry the newer sequence (the supervisor would then
-    // keep the stale row and drop the fresh one), so the pair is atomic
-    // and the pairs themselves order — sequence order is snapshot order.
-    let _order = context.roster_push_order.lock().unwrap();
+    let _order = context
+        .roster_push_order
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut summary = {
-        let core = context.core.lock().unwrap();
+        let core = context
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         session_summary(
             &core,
-            &context
-                .engine
-                .effective_thinking_level()
-                .unwrap_or_else(|| "default".to_string()),
-            context.engine.model_metadata(),
-            context.engine.model_fallback_message(),
+            &thinking_level(&core),
+            model_metadata(&core, &context.session),
             context.user_bash.is_running(),
-            context.engine.is_quota_parked(),
-            context.engine.has_running_subagents(),
         )
     };
-    // The embedded counter is the pre-stamp value read under the order
-    // lock: every sequence this worker stamped before the snapshot is at
-    // or below it. The supervisor's authoritative pulls raise their
-    // watermark to it, so a delta still in flight when the pull answered
-    // is dropped instead of overwriting the pull's fresher state.
     summary.roster_delta_sequence = Some(
         context
             .roster_delta_sequence
             .load(std::sync::atomic::Ordering::SeqCst),
     );
-    let summary = serde_json::to_value(&summary).unwrap_or(serde_json::Value::Null);
+    let summary = serde_json::to_value(&summary).unwrap_or(Value::Null);
     let link = std::sync::Arc::clone(&context.roster_link);
     let worker_token = context.worker_token.clone();
     let worker_instance_id = context.worker_instance_id.clone();
@@ -330,7 +310,7 @@ pub(crate) fn push_roster_delta(context: &RosterPushContext) {
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         + 1;
     tokio::spawn(async move {
-        let command = serde_json::json!({
+        let command = json!({
             "type": "worker_roster_delta",
             "workerToken": worker_token,
             "summary": summary,
@@ -343,61 +323,61 @@ pub(crate) fn push_roster_delta(context: &RosterPushContext) {
     });
 }
 
+/// Messages the transcript shows (attach `messages` rows).
+fn message_count(core: &SessionCore) -> u32 {
+    let count = core.view.as_ref().map_or(0, |view| {
+        view.translator
+            .mirror()
+            .entries
+            .iter()
+            .filter(|entry| entry_wire_message(entry).is_some())
+            .count()
+    });
+    u32::try_from(count).unwrap_or(u32::MAX)
+}
+
+/// The first user message's text (summary `firstMessage`).
+fn first_message(view: &ShownView) -> Option<String> {
+    view.translator
+        .mirror()
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == "pi.user")
+        .find_map(entry_wire_message)
+        .map(|message| crate::types::message_text(&message))
+}
+
+/// The newest message timestamp (ms) of the shown conversation.
+fn last_timestamp_ms(view: &ShownView) -> Option<u64> {
+    view.translator
+        .mirror()
+        .entries
+        .iter()
+        .rev()
+        .find_map(|entry| entry_wire_message(entry)?.get("timestamp")?.as_u64())
+        .filter(|timestamp| *timestamp > 0)
+}
+
 pub(crate) fn session_summary(
     core: &SessionCore,
     thinking_level: &str,
     model: Option<Value>,
-    model_fallback_message: Option<String>,
     bash_running: bool,
-    quota_parked: bool,
-    subagents_running: bool,
 ) -> SessionSummary {
-    let store = core.store.as_ref();
-    let streaming = core.busy;
-    let compacting = core.compacting;
-    let queued = core.steering.len() + core.follow_up.len();
-    // `modified` is the session file mtime; `lastActivityAt` prefers the
-    // newest message timestamp (port of `summaryForActiveSession`).
-    let modified = store
-        .and_then(|store| std::fs::metadata(&store.path).ok())
-        .and_then(|metadata| metadata.modified().ok())
-        .map(|time| {
-            crate::util::iso_from_unix_ms(
-                time.duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or_default(),
-            )
-        });
-    // The scalars derive from one borrowed walk of the same windowed
-    // sequence `SessionFile::messages` folds (scan and fold share the
-    // walk), so the summary never materializes the retained transcript.
-    let scalars = store
-        .map(crate::session_store::SessionFile::scan_message_scalars)
-        .unwrap_or_default();
-    let last_activity_at = scalars
-        .last_timestamp_ms
+    let streaming = core.is_busy();
+    let compacting = core.is_compacting();
+    let queued = core.view.as_ref().map_or(0, |view| view.inbox.len());
+    let messages = message_count(core);
+    let view = core.view.as_ref();
+    let running_tools = view.is_some_and(|view| !view.translator.mirror().tools.is_empty());
+    let last_activity_at = view
+        .and_then(last_timestamp_ms)
         .map(crate::util::iso_from_unix_ms)
-        .or_else(|| modified.clone())
-        .or_else(|| store.map(|store| store.header.timestamp.clone()));
-    // Usage: the whole-file own-usage fold the saved row publishes (TS
-    // `getOwnUsageSummary`). A pathless `--no-session` store runs the
-    // same fold over its in-memory entries.
-    let usage = store
-        .and_then(|store| {
-            if store.path.as_os_str().is_empty() {
-                crate::session_usage::own_usage_summary_of(store.entries())
-            } else {
-                crate::session_store::read_session_info(&store.path).and_then(|info| info.usage)
-            }
-        })
-        .map(|usage| json!(usage));
+        .or_else(|| core.created_at.clone());
     SessionSummary {
         id: core.active_session_id.clone(),
-        lifecycle: active_lifecycle(&core.runtime_kind, scalars.message_count == 0, streaming)
-            .to_string(),
-        // Running children keep the session working after its own turn
-        // ended: every status surface classifies this activity.
-        activity: if streaming || compacting || subagents_running {
+        lifecycle: active_lifecycle(&core.runtime_kind, messages == 0, streaming).to_string(),
+        activity: if streaming || compacting {
             "working"
         } else {
             "idle"
@@ -405,114 +385,84 @@ pub(crate) fn session_summary(
         .to_string(),
         is_session_active: streaming || compacting || queued > 0,
         has_registered_cron_job: Some(false),
-        last_activity_at,
+        last_activity_at: last_activity_at.clone(),
         rlm_depth: Some(core.rlm_depth),
         active_session_id: Some(core.active_session_id.clone()),
-        session_id: store
-            .map(|s| s.session_id().to_string())
-            .unwrap_or_default(),
-        session_file: store.map(|s| s.path.to_string_lossy().to_string()),
-        session_name: store.and_then(|s| s.session_name().map(str::to_string)),
+        session_id: core.session_id.clone(),
+        session_file: core.session_file(),
+        session_name: core.session_name.clone(),
         cwd: core.cwd.clone(),
         thinking_level: Some(thinking_level.to_string()),
         is_streaming: streaming,
         is_compacting: compacting,
-        is_quota_parked: Some(quota_parked),
+        is_quota_parked: Some(false),
         is_bash_running: Some(bash_running),
-        is_running_tools: streaming && !core.running_tool_calls.is_empty(),
-        has_running_subagents: subagents_running,
-        attached_clients: core.attached_client_ids.len() as u32,
-        message_count: store.map_or(0, crate::session_store::SessionFile::message_count) as u32,
+        is_running_tools: streaming && running_tools,
+        has_running_subagents: false,
+        attached_clients: u32::try_from(core.attached_client_ids.len()).unwrap_or(u32::MAX),
+        message_count: messages,
         session_actions: session_snapshot(core),
         streaming_message: None,
-        created: store.map(|s| s.header.timestamp.clone()),
-        modified,
-        first_message: store.and_then(crate::session_store::SessionFile::first_message),
-        parent_session_path: store.and_then(|store| store.header.parent_session.clone()),
+        created: core.created_at.clone(),
+        modified: last_activity_at,
+        first_message: view.and_then(first_message),
+        parent_session_path: None,
         parent_active_session_id: core.parent_active_session_id.clone(),
         parent_session_id: core.parent_session_id.clone(),
         rlm_child_id: core.rlm_child_id.clone(),
-        usage,
+        usage: view.map(|view| json!(view.translator.mirror().usage)),
         worker_state: Some("ready".to_string()),
         worker_pid: Some(std::process::id()),
-        // Set by the caller when the snapshot backs a roster push (the
-        // push-order lock reads the pre-stamp counter); authoritative
-        // pulls embed the live counter in `summary_locked` instead.
-        // The push's sending instance rides the frame envelope, so the
-        // summary itself never carries one here.
         roster_delta_sequence: None,
         worker_instance_id: None,
         model,
-        model_fallback_message,
+        model_fallback_message: None,
         runtime_kind: Some(core.runtime_kind.clone()),
         unfinished_action_count: Some(0),
-        anthropic_warning_shown: store
-            .map(crate::session_store::SessionFile::anthropic_warning_shown),
+        anthropic_warning_shown: core.created.then_some(core.anthropic_warning_shown),
     }
 }
 
-/// One lane's typed-provenance indices: the parked items matching the
-/// classifier, by lane index (the rider shape both projections share).
-fn indices(
-    items: &std::collections::VecDeque<QueuedItem>,
-    classified: impl Fn(&QueuedItem) -> bool,
-) -> Vec<usize> {
-    items
-        .iter()
-        .enumerate()
-        .filter(|(_, item)| classified(item))
-        .map(|(index, _)| index)
-        .collect()
-}
-
-/// The queue snapshot for one core (TS `sessionActions`).
+/// The queue snapshot for one core (TS `sessionActions`): the queued
+/// steer and follow-up inputs of the shown conversation's inbox, then the
+/// inputs an abort suspended.
 pub(crate) fn session_snapshot(core: &SessionCore) -> SessionActionSnapshot {
-    // TS `queuedAgentMessagePreview`: a parked row reads the
-    // delivery's labeled preview when it carries one, else the
-    // message text.
-    let lane = |items: &std::collections::VecDeque<QueuedItem>| {
-        items
-            .iter()
-            .map(|item| item.preview.clone().unwrap_or_else(|| item.message.clone()))
+    let inbox = core
+        .view
+        .as_ref()
+        .map_or(&[][..], |view| view.inbox.as_slice());
+    let queued = || inbox.iter().chain(&core.suspended);
+    let lane = |mode: QueuedMode| {
+        queued()
+            .filter(|input| input.mode == mode)
+            .map(|input| input.text.clone())
             .collect::<Vec<String>>()
     };
-    // The RLM child status notices fold by TYPED provenance: the indices
-    // derive from the parked rows' injected custom rows, so the
-    // classification rides the wire and a user-typed message that
-    // merely looks like a notice preview never marks.
-    let rlm_child_status =
-        |items: &std::collections::VecDeque<QueuedItem>| indices(items, is_rlm_child_status_item);
-    // The engine-minted continuations fold by their own typed
-    // provenance (the injected, queue-invisible admissions): TS's
-    // projection filters these items out entirely — Rust keeps them
-    // visible as the strip's counted row instead (operator directive
-    // 2026-09-28), so the human still sees the parked harness work.
-    let injected_prompts =
-        |items: &std::collections::VecDeque<QueuedItem>| indices(items, is_injected_prompt_item);
     SessionActionSnapshot {
-        queued_count: (core.steering.len() + core.follow_up.len()) as u32,
-        steering: lane(&core.steering),
-        follow_ups: lane(&core.follow_up),
-        rlm_child_status: crate::types::QueueLaneIndices {
-            steering: rlm_child_status(&core.steering),
-            follow_up: rlm_child_status(&core.follow_up),
-        },
-        injected_prompts: crate::types::QueueLaneIndices {
-            steering: injected_prompts(&core.steering),
-            follow_up: injected_prompts(&core.follow_up),
-        },
-        active: core.active_action.clone(),
+        queued_count: u32::try_from(queued().count()).unwrap_or(u32::MAX),
+        steering: lane(QueuedMode::Steer),
+        follow_ups: lane(QueuedMode::FollowUp),
+        rlm_child_status: crate::types::QueueLaneIndices::default(),
+        injected_prompts: crate::types::QueueLaneIndices::default(),
+        active: None,
     }
 }
 
-/// The active action's queue label (TS `compactRlmText(text, 160)`):
-/// collapse whitespace and cap at 160 chars with an ellipsis.
-pub(crate) fn compact_action_label(text: &str) -> String {
-    const MAX_CHARS: usize = 160;
-    let compact: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if compact.chars().count() <= MAX_CHARS {
-        return compact;
+#[derive(Clone, Copy)]
+enum QueueKind {
+    Steering,
+    FollowUp,
+}
+
+/// The configured queue delivery mode (settings; the Harness reads the same
+/// setting per use).
+fn queue_mode_setting(settings: &eukhe_core::settings::SettingsManager, kind: QueueKind) -> String {
+    let mode = match kind {
+        QueueKind::Steering => settings.get_steering_mode(),
+        QueueKind::FollowUp => settings.get_follow_up_mode(),
+    };
+    match mode {
+        eukhe_core::settings::QueueModeSetting::All => "all".to_string(),
+        eukhe_core::settings::QueueModeSetting::OneAtATime => "one-at-a-time".to_string(),
     }
-    let kept: String = compact.chars().take(MAX_CHARS - 3).collect();
-    format!("{}...", kept.trim_end())
 }

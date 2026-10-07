@@ -319,6 +319,12 @@ pub struct SupervisorChildSessions {
 /// with the deleted child's id.
 pub type DeleteNotifier = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
+/// Reads the parent's current model selector (`provider/id`) at spawn time:
+/// the worker answers from its main conversation's agent, so a child spawned
+/// without a model inherits the model the parent runs on now.
+pub type ParentModelSource =
+    std::sync::Arc<dyn Fn() -> futures::future::BoxFuture<'static, Option<String>> + Send + Sync>;
+
 struct SupervisorChildSessionsInner {
     link: Arc<SupervisorLink>,
     agent_dir: PathBuf,
@@ -386,6 +392,12 @@ struct SupervisorChildSessionsInner {
     semantic_edges: std::sync::Mutex<
         Option<std::sync::Arc<eukhe_core::session_engine::semantic_edges::SemanticEdgeRecorder>>,
     >,
+    /// Keyed calls of the durable child host (`durable_host`) this process
+    /// served, and the children it spawned.
+    durable_calls: std::sync::Mutex<durable_host::DurableCalls>,
+    /// The parent's live model reader (the durable worker's main
+    /// conversation); `None` keeps the identity's model.
+    parent_model: std::sync::Mutex<Option<ParentModelSource>>,
 }
 
 impl Clone for SupervisorChildSessions {
@@ -421,6 +433,8 @@ impl SupervisorChildSessions {
                 usage_sink: std::sync::Mutex::new(None),
                 delete_notifier: std::sync::Mutex::new(None),
                 semantic_edges: std::sync::Mutex::new(None),
+                durable_calls: std::sync::Mutex::new(durable_host::DurableCalls::default()),
+                parent_model: std::sync::Mutex::new(None),
             }),
         }
     }
@@ -507,8 +521,9 @@ impl SupervisorChildSessions {
             .contains(name)
     }
 
-    /// The barrier's wake permit (the `settle_notify` field owns the
-    /// semantics).
+    /// The settle barrier's wake permit (the `settle_notify` field owns the
+    /// semantics); the settle-watch tests park on it.
+    #[cfg(test)]
     pub(crate) fn settle_notified(&self) -> tokio::sync::futures::Notified<'_> {
         self.inner.settle_notify.notified()
     }
@@ -565,6 +580,16 @@ impl SupervisorChildSessions {
     /// while holding the lock).
     pub fn set_identity(&self, identity: ParentIdentity) {
         *self.inner.identity.lock().expect("identity lock") = identity;
+    }
+
+    /// Wire the parent's live model reader: each durable spawn and
+    /// `create_session` refreshes the inherited model from it first.
+    pub fn set_parent_model_source(&self, source: ParentModelSource) {
+        *self
+            .inner
+            .parent_model
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
     }
 
     /// Rebuild the children registry from the spawn ledger (a restarted
@@ -685,6 +710,7 @@ impl SupervisorChildSessions {
     /// flag before delivering a no-reply terminal notice (TS
     /// `_parentReplyCount`).
     pub async fn mark_replied(&self, child_active_session_id: &str) {
+        self.mark_durable_child_replied(child_active_session_id);
         let children = self.inner.children.lock().await;
         for record in children.iter() {
             let mut record = record.lock().await;
@@ -984,6 +1010,7 @@ fn spawn_name_unavailable(name: &str, depth: u32) -> anyhow::Error {
     )
 }
 
+mod durable_host;
 mod host;
 mod lifecycle;
 mod registry;

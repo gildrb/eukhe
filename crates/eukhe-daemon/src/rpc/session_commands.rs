@@ -1,21 +1,28 @@
-//! The RPC command surface, part two: session-level commands (fork, tree
-//! messages, name, export, stats, commands listing), the scheduling and
-//! agent-messaging surfaces with their TS in-process semantics, and the
-//! gap-set commands whose backends the in-process transport does not
-//! host (TS `rpc-mode.ts` cases; the daemon-attached transport serves
-//! them for real).
+//! The RPC command surface, part four: session-level commands (switch,
+//! fork, clone, fork messages, name, export, stats, commands listing)
+//! over the durable session, the scheduling and agent-messaging surfaces
+//! with their TS in-process semantics, and the gap-set commands whose
+//! backends the in-process transport does not host (TS `rpc-mode.ts`
+//! cases; the daemon-attached transport serves them for real).
 
 use std::path::Path;
 use std::sync::Arc;
 
-use serde_json::{json, Value};
-
-use eukhe_types::session::FileEntry;
+use eukhe_core::durable::{fork_main_conversation, fork_session, ForkPoint, SessionLocation};
+use eukhe_durable::entries::USER_ENTRY;
+use eukhe_durable::types::{EntryId, EntryRecord};
+use eukhe_types::pi_ai::{Message, UserContent, UserContentBlock};
 use eukhe_types::usage::{calculate_context_tokens, estimate_tokens, valid_assistant_usage};
+use serde_json::{json, Value};
 
 use super::commands::RpcState;
 use super::protocol::ResponseData;
+use super::reads::{
+    agent_model, context_messages, history_entries, last_assistant_text, main_agent, rpc_context,
+};
 use super::session::RpcEngineRequest;
+use crate::session_export::durable::export_html as export_session_html;
+use crate::worker::durable_host::meta::set_session_name as persist_session_name;
 
 /// The TS in-process error texts for the daemon-mode surfaces
 /// (`InProcessAgentConnection`'s throws, verbatim).
@@ -26,6 +33,9 @@ const AGENT_MESSAGING_REQUIRES_DAEMON: &str = "Agent messaging requires daemon m
 /// yet (TS `AgentSession.executeBash`); the daemon-attached transport
 /// serves the command over the worker's bash slot.
 const BASH_BACKEND_GAP: &str = "Bash execution requires the session bash executor, which is not linked into the in-process RPC transport yet; the daemon-attached RPC transport serves it";
+/// The fork refusal for an entry that is not a user message of the
+/// session (TS `runtimeHost.fork`).
+const INVALID_FORK_ENTRY: &str = "Invalid entry ID for forking";
 
 /// Handle one session-level command.
 ///
@@ -83,298 +93,173 @@ pub async fn handle(
     }
 }
 
-/// `switch_session` (TS `runtimeHost.switchSession`): open the session
-/// file as the connection's replacement session.
+/// `switch_session` (TS `runtimeHost.switchSession`): open the session (a
+/// durable storage directory or a legacy file) as the connection's
+/// replacement session.
 async fn switch_session(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
     let session_path = payload
         .get("sessionPath")
         .and_then(Value::as_str)
         .ok_or_else(|| "switch_session requires a sessionPath".to_string())?;
-    let outcome = state
+    state
         .session
         .replace(RpcEngineRequest::Open {
             session_path: std::path::PathBuf::from(session_path),
             reuse_lease: false,
         })
-        .await;
-    if let Err(error) = outcome {
-        super::commands::restart_queue_pump(state).await;
-        return Err(error);
-    }
-    super::commands::resume_pump(state);
+        .await?;
     Ok(ResponseData::Present(json!({ "cancelled": false })))
 }
 
+/// The entry id of a fork command: the string form `get_fork_messages`
+/// answers, or a bare number.
+fn parse_entry_id(value: &Value) -> Option<EntryId> {
+    match value {
+        Value::String(text) => text.parse::<u64>().ok().map(EntryId::from_number),
+        Value::Number(number) => number.as_u64().map(EntryId::from_number),
+        _ => None,
+    }
+}
+
+/// The text of a user entry (its user message's text blocks, joined).
+fn user_entry_text(entry: &EntryRecord) -> Option<String> {
+    if !USER_ENTRY.is(Some(entry)) {
+        return None;
+    }
+    entry
+        .model
+        .as_ref()?
+        .iter()
+        .find_map(|message| match message {
+            Message::User(user) => Some(match &user.content {
+                UserContent::Text(text) => text.clone(),
+                UserContent::Blocks(blocks) => blocks
+                    .iter()
+                    .filter_map(|block| match block {
+                        UserContentBlock::Text(text) => Some(text.text.as_str()),
+                        UserContentBlock::Image(_) => None,
+                    })
+                    .collect(),
+            }),
+            _ => None,
+        })
+}
+
 /// `fork` (TS `runtimeHost.fork(entryId)`, position "before" the user
-/// entry): branch the session file at the entry's parent leaf and move
-/// the connection onto the fork.
+/// entry): fork the main conversation just before the user entry (at its
+/// predecessor, or empty when it is the first entry) and move the
+/// connection onto the fork; the selected text rides the response.
 async fn fork(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
     let entry_id = payload
         .get("entryId")
-        .and_then(Value::as_str)
+        .and_then(parse_entry_id)
         .ok_or_else(|| "fork requires an entryId".to_string())?;
-    // One replacement lease across the leaf resolution AND the branch
-    // (the fork_at tail's contract): a switch_session or new_session
-    // landing between the lookup and the fork would branch the retired
-    // session against the entry just validated on the live one (TS runs
-    // its read/branch synchronously with no interleave).
+    // One replacement lease across the history read AND the fork: a
+    // switch_session or new_session landing between them would fork the
+    // retired session at the entry validated on the live one.
     let lease = state.session.replacement_lease().await;
-    // Position "before" (TS `runtimeHost.fork`'s default): the entry must
-    // be a user message; the branch moves to its PARENT leaf (the user
-    // row is dropped) and the selected text rides the response.
-    let (target_leaf, selected_text) = {
-        let handle = state.session.handle().await;
-        let persistence = handle.engine.session.shared_persistence();
-        let mut manager = persistence.lock().await;
-        // The entry lookup walks the full history: hydrate a windowed
-        // session first (the plain lookup asserts on the window).
-        manager
-            .ensure_full_history()
-            .await
-            .map_err(|error| format!("Cannot hydrate the session history: {error:#}"))?;
-        let Some(entry) = manager.get_entry_by_id(entry_id) else {
-            return Err("Invalid entry ID for forking".to_string());
-        };
-        let FileEntry::Message {
-            message: eukhe_types::session::AgentMessage::User(user),
-            ..
-        } = entry
-        else {
-            return Err("Invalid entry ID for forking".to_string());
-        };
-        (entry.parent_id().map(str::to_string), user.content.text())
+    let history = history_entries(&state.session.session().await.main(), &rpc_context()).await?;
+    let index = history
+        .iter()
+        .position(|entry| entry.id == entry_id)
+        .ok_or_else(|| INVALID_FORK_ENTRY.to_string())?;
+    let text = user_entry_text(&history[index]).ok_or_else(|| INVALID_FORK_ENTRY.to_string())?;
+    let point = match index.checked_sub(1) {
+        Some(previous) => ForkPoint::Entry(history[previous].id),
+        None => ForkPoint::Start,
     };
-    fork_at(state, target_leaf, Some(selected_text), lease).await
+    fork_at(state, point).await?;
+    drop(lease);
+    Ok(ResponseData::Present(
+        json!({ "cancelled": false, "text": text }),
+    ))
 }
 
 /// `clone` (TS `connection.clone` -> `fork(leafId, { position: "at" })`):
-/// the branch moves to the CURRENT leaf (kept inclusive) with no text; a
-/// session without a current entry answers the TS error.
+/// fork at the latest entry; a session without entries answers the TS
+/// error.
 async fn clone(state: &Arc<RpcState>) -> Result<ResponseData, String> {
-    // One replacement lease across the leaf read AND the branch (the
-    // fork path's contract): the clone branches the session its leaf
-    // was read from, not one a concurrent switch moved in between.
     let lease = state.session.replacement_lease().await;
-    let leaf = {
-        let handle = state.session.handle().await;
-        let persistence = handle.engine.session.shared_persistence();
-        let manager = persistence.lock().await;
-        manager.get_leaf_id().map(str::to_string)
-    };
-    let Some(leaf_id) = leaf else {
+    let history = history_entries(&state.session.session().await.main(), &rpc_context()).await?;
+    if history.is_empty() {
         return Err("Cannot clone session: no current entry selected".to_string());
-    };
-    let response = fork_at(state, Some(leaf_id), None, lease).await?;
-    // The clone response drops the fork's text (TS `{ cancelled }`).
-    match response {
-        ResponseData::Present(mut value) => {
-            if let Some(object) = value.as_object_mut() {
-                object.remove("text");
-            }
-            Ok(ResponseData::Present(value))
-        }
-        ResponseData::Absent => Ok(ResponseData::Absent),
     }
+    fork_at(state, ForkPoint::Latest).await?;
+    drop(lease);
+    Ok(ResponseData::Present(json!({ "cancelled": false })))
 }
 
-/// The shared fork tail (TS `runtimeHost.fork`): persisted sessions
-/// branch into a new file the connection switches onto (a `None` leaf
-/// forks at the root into a fresh session under the source); in-memory
-/// sessions move the branch in place — the entry path down to the leaf
-/// replaces the session and the live agent context follows (TS rebuilds
-/// the runtime over the moved branch, `SessionEngine::rebuild_branch_context`
-/// is that context rebuild).
-async fn fork_at(
-    state: &Arc<RpcState>,
-    target_leaf: Option<String>,
-    selected_text: Option<String>,
-    lease: tokio::sync::MutexGuard<'_, ()>,
-) -> Result<ResponseData, String> {
-    // The caller (fork/clone) holds the replacement lease across its
-    // leaf resolution and hands it in: the reads, branch, and swap all
-    // serialize against a concurrent `new_session`/`switch_session` (TS
-    // performs the read/branch synchronously before its async teardown,
-    // so nothing can interleave between them). The lease rides the
-    // guard through the branch; the persisted path releases it at the
-    // replace (the failure restart re-arms the pump unheld).
-    let persisted = {
-        let handle = state.session.handle().await;
-        let persistence = handle.engine.session.shared_persistence();
-        let manager = persistence.lock().await;
-        manager.is_persisted() && manager.get_session_file().is_some()
-    };
-    if !persisted {
-        // The snapshot and the rebuild serialize with the other
-        // context rebuilders through session_ops (compact/refine hold
-        // the same lane): a rebuild installing a snapshot taken beside
-        // a concurrent compaction would overwrite the compaction's
-        // transcript with the stale branch rows.
+/// The shared fork tail (the caller holds the replacement lease): settle
+/// the running turn, then a persisted session forks into a new storage
+/// directory the connection switches onto (TS forks into a new session
+/// file); an in-memory session forks its main conversation in place and
+/// the pump follows the new main.
+async fn fork_at(state: &Arc<RpcState>, point: ForkPoint) -> Result<(), String> {
+    let cx = rpc_context();
+    let session = state.session.session().await;
+    let main = session.main();
+    main.wait_for_idle(&cx)
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(storage_dir) = session.deps().storage_dir.clone() else {
         let _ops = state.session_ops.lock().await;
-        let (branch_entries, engine) = {
-            let handle = state.session.handle().await;
-            let persistence = handle.engine.session.shared_persistence();
-            let manager = persistence.lock().await;
-            let branch_entries = branch_entries_to_leaf(&manager, target_leaf.as_deref());
-            (branch_entries, handle.engine.clone())
-        };
-        // Settle any streaming turn before the rebuild: a turn still
-        // appending would land its later messages on the newly selected
-        // branch instead of the pre-fork session (the persisted
-        // replacement path waits idle for the same reason — its teardown
-        // cannot run under a live turn).
-        engine.session.agent().wait_for_idle().await;
-        engine
-            .session
-            .rebuild_branch_context(branch_entries)
+        fork_main_conversation(session.harness(), &main, point, None, &cx)
             .await
-            .map_err(|error| format!("{error:#}"))?;
-        let mut data = json!({ "cancelled": false });
-        if let Some(text) = selected_text {
-            data["text"] = json!(text);
-        }
-        return Ok(ResponseData::Present(data));
-    }
-    let forked_path = {
-        let handle = state.session.handle().await;
-        let persistence = handle.engine.session.shared_persistence();
-        let manager = persistence.lock().await;
-        let session_file = manager
-            .get_session_file()
-            .ok_or_else(|| "Persisted session is missing a session file".to_string())?
-            .to_path_buf();
-        let session_dir = manager.get_session_dir().to_path_buf();
-        // The source session's own cwd: a session opened from another
-        // project keeps resolving its session-scoped work against that
-        // project's directory (TS's runtime cwd follows a switched
-        // session; the fresh fork records the source's, not the CLI
-        // startup cwd).
-        let source_cwd = manager.get_cwd().display().to_string();
-        drop(manager);
-        drop(handle);
-        let store = crate::session_store::SessionFile::open(&session_file)
-            .map_err(|error| format!("{error:#}"))?;
-        if let Some(leaf) = target_leaf.as_deref() {
-            store
-                .create_branched_file(leaf, &session_dir)
-                .map_err(|error| format!("{error:#}"))?
-                .path
-        } else {
-            // Fork at the root: a fresh session under the source, carrying
-            // the source's RLM depth (TS `rlmDepth: sourceHeader?.rlmDepth
-            // ?? this.session.rlmDepth` — a depth-N session's children
-            // stay depth-N, so depth-0-only behavior follows the fork).
-            let mut forked = crate::session_store::SessionFile::create(
-                &source_cwd,
-                session_file.to_str(),
-                store.rlm_depth().unwrap_or(0),
-            );
-            let file =
-                session_dir.join(crate::session_store::session_file_name(forked.session_id()));
-            forked.set_path(file);
-            if forked.rewrite().is_err() {
-                return Err("Failed to create forked session".to_string());
-            }
-            forked.path
-        }
+            .map_err(|error| error.to_string())?;
+        session
+            .reload_main(&cx)
+            .await
+            .map_err(|error| error.to_string())?;
+        return state.session.reattach_pump(&session).await;
     };
-    let outcome = state
+    let sessions_dir = storage_dir
+        .parent()
+        .ok_or_else(|| format!("Session storage {} has no parent", storage_dir.display()))?;
+    let forked_dir = sessions_dir.join(uuid::Uuid::now_v7().to_string());
+    fork_session(
+        &SessionLocation::Durable(storage_dir.clone()),
+        point,
+        None,
+        &forked_dir,
+        &cx,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    drop(session);
+    state
         .session
         .replace_locked(RpcEngineRequest::Open {
-            session_path: forked_path,
+            session_path: forked_dir,
             reuse_lease: false,
         })
-        .await;
-    drop(lease);
-    if let Err(error) = outcome {
-        super::commands::restart_queue_pump(state).await;
-        return Err(error);
-    }
-    super::commands::resume_pump(state);
-    let mut data = json!({ "cancelled": false });
-    if let Some(text) = selected_text {
-        data["text"] = json!(text);
-    }
-    Ok(ResponseData::Present(data))
-}
-
-/// The active-branch entries from the root down to `leaf` (a `None` leaf
-/// is the root fork's empty branch): walks the parent chain with cycle
-/// protection, the same shape the session's `active_branch_entries`
-/// holds for the current leaf (TS `buildSessionContext` reads the moved
-/// branch; `rebuild_branch_context` adopts exactly this path).
-fn branch_entries_to_leaf(
-    manager: &eukhe_core::session::manager::SessionManager,
-    leaf: Option<&str>,
-) -> Vec<FileEntry> {
-    let Some(leaf_id) = leaf else {
-        return Vec::new();
-    };
-    let entries = manager.get_all_entries();
-    let by_id: std::collections::HashMap<&str, &FileEntry> = entries
-        .iter()
-        .filter_map(|entry| entry.id().map(|id| (id, entry)))
-        .collect();
-    let mut path = Vec::new();
-    let mut visited = std::collections::HashSet::new();
-    let mut current = by_id.get(leaf_id).copied();
-    while let Some(entry) = current {
-        if !visited.insert(entry.id().unwrap_or_default()) {
-            break;
-        }
-        path.push(entry.clone());
-        current = entry
-            .parent_id()
-            .and_then(|parent| by_id.get(parent).copied());
-    }
-    path.reverse();
-    path
+        .await
 }
 
 /// `get_fork_messages` (TS `getUserMessagesForForking`): the user
-/// messages with text, in file order.
+/// messages with text, oldest first.
 async fn get_fork_messages(state: &Arc<RpcState>) -> Result<ResponseData, String> {
-    let handle = state.session.handle().await;
-    let persistence = handle.engine.session.shared_persistence();
-    let mut manager = persistence.lock().await;
-    // The forking list walks the full history: hydrate a windowed
-    // session first.
-    manager
-        .ensure_full_history()
-        .await
-        .map_err(|error| format!("Cannot hydrate the session history: {error:#}"))?;
-    let mut messages = Vec::new();
-    for entry in manager.get_all_entries() {
-        let FileEntry::Message {
-            message: eukhe_types::session::AgentMessage::User(user),
-            base,
-            ..
-        } = entry
-        else {
-            continue;
-        };
-        let text = user.content.text();
-        if text.is_empty() {
-            continue;
-        }
-        messages.push(json!({
-            "entryId": base.id.clone().unwrap_or_default(),
-            "text": text,
-        }));
-    }
+    let history = history_entries(&state.session.session().await.main(), &rpc_context()).await?;
+    let messages: Vec<Value> = history
+        .iter()
+        .filter_map(|entry| {
+            let text = user_entry_text(entry).filter(|text| !text.is_empty())?;
+            Some(json!({ "entryId": entry.id.to_string(), "text": text }))
+        })
+        .collect();
     Ok(ResponseData::Present(json!({ "messages": messages })))
 }
 
 /// `get_last_assistant_text` (TS `getLastAssistantText`): the last
 /// assistant message's concatenated text.
 async fn get_last_assistant_text(state: &Arc<RpcState>) -> Result<ResponseData, String> {
-    let handle = state.session.handle().await;
-    let message = handle.engine.session.last_assistant_message().await;
-    let text = message.as_ref().and_then(assistant_text);
-    Ok(ResponseData::Present(json!({ "text": text })))
+    let messages = context_messages(&state.session.session().await.main(), &rpc_context()).await?;
+    Ok(ResponseData::Present(
+        json!({ "text": last_assistant_text(&messages) }),
+    ))
 }
 
-/// `set_session_name` (TS `session.setSessionName`): the durable
-/// session-info row plus the `session_info_changed` event.
+/// `set_session_name` (TS `session.setSessionName`): the durable session
+/// name plus the `session_info_changed` event.
 async fn set_session_name(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
     let name = payload
         .get("name")
@@ -384,143 +269,61 @@ async fn set_session_name(state: &Arc<RpcState>, payload: &Value) -> Result<Resp
     if name.is_empty() {
         return Err("Session name cannot be empty".to_string());
     }
-    // Serialize the rename with any whole-session replacement (the
-    // replacement lease, held across the durable write AND the event
-    // publication): a switch_session or new_session that moves the
-    // connection between them would publish the retired session's name
-    // as the live session's `session_info_changed` — TS's single thread
-    // runs the write and the emit with no interleave.
+    // Serialize the rename with any whole-session replacement: a switch
+    // between the write and the event would publish the retired
+    // session's name as the live session's.
     let _lease = state.session.replacement_lease().await;
-    {
-        let handle = state.session.handle().await;
-        let persistence = handle.engine.session.shared_persistence();
-        let mut manager = persistence.lock().await;
-        // The durable row owns the name: a persistence failure must
-        // answer the error instead of emitting the change event for a
-        // rename that will not survive a reload.
-        manager
-            .append_session_info(name)
-            .map_err(|error| format!("{error:#}"))?;
-    }
+    let session = state.session.session().await;
+    persist_session_name(session.harness(), Some(name.to_string()), &rpc_context())
+        .await
+        .map_err(|error| error.to_string())?;
     state
         .session
-        .write_connection_output(json!({ "type": "session_info_changed", "name": name }))
-        .await;
+        .outputs()
+        .write(json!({ "type": "session_info_changed", "name": name }));
     Ok(ResponseData::Absent)
 }
 
-/// `get_messages` (TS `session.state.messages`).
+/// `get_messages` (TS `session.state.messages`): the main conversation's
+/// active context.
 async fn get_messages(state: &Arc<RpcState>) -> Result<ResponseData, String> {
-    let handle = state.session.handle().await;
-    let agent = handle.engine.session.agent();
-    let agent_state = agent.state().await;
-    let messages: Vec<Value> = agent_state
-        .messages
-        .iter()
-        .map(|message| serde_json::to_value(message).unwrap_or(Value::Null))
-        .collect();
+    let messages = context_messages(&state.session.session().await.main(), &rpc_context()).await?;
     Ok(ResponseData::Present(json!({ "messages": messages })))
 }
 
 /// `export_html` (TS `session.exportToHtml`): the standalone viewer file
-/// over the live session; the response carries the written path.
+/// over the main conversation; the response carries the written path. A
+/// relative output path lands under the SESSION's project.
 async fn export_html(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
-    let output_path = payload
-        .get("outputPath")
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    let output_path = payload.get("outputPath").and_then(Value::as_str);
     let handle = state.session.handle().await;
-    let persistence = handle.engine.session.shared_persistence();
-    let mut manager = persistence.lock().await;
-    let Some(session_file) = manager.get_session_file().map(Path::to_path_buf) else {
+    let session = &handle.session;
+    let deps = session.deps();
+    if deps.storage_dir.is_none() {
         return Err("Cannot export an in-memory session".to_string());
-    };
-    // The full-history export reads every entry: hydrate a windowed
-    // session before the walk (a plain get_all_entries asserts on the
-    // un-hydrated store).
-    manager
-        .ensure_full_history()
-        .await
-        .map_err(|error| format!("Cannot hydrate the session history: {error:#}"))?;
-    // A relative export lands next to the SESSION's project, not the
-    // CLI startup directory (a switched session's cwd owns its files).
-    let output_path = match output_path {
-        Some(path) => {
-            let path = Path::new(&path);
-            if path.is_absolute() {
-                Some(path.to_path_buf())
-            } else {
-                Some(manager.get_cwd().join(path))
-            }
-        }
-        None => None,
-    };
-    let mut entries: Vec<Value> = Vec::new();
-    let mut header = Value::Null;
-    for entry in manager.get_all_entries() {
-        let value = serde_json::to_value(entry).unwrap_or(Value::Null);
-        if matches!(entry, FileEntry::Header { .. }) {
-            header = value;
-            continue;
-        }
-        entries.push(value);
     }
-    drop(manager);
-    let agent = handle.engine.session.agent();
-    let tools: Vec<Value> = agent
-        .state()
-        .await
-        .tools
-        .iter()
-        .map(|tool| {
-            json!({
-                "name": tool.name(),
-                "description": tool.description(),
-                "parameters": tool.parameters(),
-            })
-        })
-        .collect();
-    let data = eukhe_core::export_html::SessionExportData {
-        header,
-        entries,
-        leaf_id: {
-            let persistence = handle.engine.session.shared_persistence();
-            let manager = persistence.lock().await;
-            manager.get_leaf_id().map(str::to_string)
-        },
-        system_prompt: Some(handle.engine.system_prompt.clone()),
-        tools: Some(tools),
-        rendered_tools: None,
-    };
-    drop(handle);
-    let path = eukhe_core::export_html::export_session_to_html(
-        &data,
-        None,
-        &state.agent_dir,
-        &session_file,
-        output_path
-            .as_deref()
-            .map(|path| path.display().to_string())
-            .as_deref(),
+    let output_path = output_path.map(|path| {
+        let path = Path::new(path);
+        if path.is_absolute() {
+            path.display().to_string()
+        } else {
+            deps.cwd.join(path).display().to_string()
+        }
+    });
+    let path = export_session_html(
+        deps,
+        &session.main(),
+        output_path.as_deref(),
+        &rpc_context(),
     )
+    .await
     .map_err(|error| format!("{error:#}"))?;
     Ok(ResponseData::Present(json!({ "path": path })))
 }
 
-/// `get_session_stats` (TS `getSessionStats` over `state.messages`).
-async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String> {
-    let handle = state.session.handle().await;
-    let engine = &handle.engine;
-    let agent = engine.session.agent();
-    let agent_state = agent.state().await;
-    let messages: Vec<Value> = agent_state
-        .messages
-        .iter()
-        .map(|message| serde_json::to_value(message).unwrap_or(Value::Null))
-        .collect();
-    let persistence = engine.session.shared_persistence();
-    let manager = persistence.lock().await;
-
+/// The per-role counts and token totals of `messages` (TS
+/// `getSessionStats`).
+fn message_stats(messages: &[Value]) -> Value {
     let mut user_messages = 0u64;
     let mut assistant_messages = 0u64;
     let mut tool_calls = 0u64;
@@ -530,7 +333,8 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String
     let mut cache_read = 0u64;
     let mut cache_write = 0u64;
     let mut cost = 0.0;
-    for message in &messages {
+    let usage_field = |usage: &Value, key: &str| usage.get(key).and_then(Value::as_u64);
+    for message in messages {
         match message.get("role").and_then(Value::as_str) {
             Some("user") => user_messages += 1,
             Some("assistant") => {
@@ -541,25 +345,14 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String
                         .filter(|block| {
                             block.get("type").and_then(Value::as_str) == Some("toolCall")
                         })
-                        .count() as u64;
+                        .map(|_| 1)
+                        .sum::<u64>();
                 }
                 if let Some(usage) = message.get("usage") {
-                    input += usage
-                        .get("input")
-                        .and_then(Value::as_u64)
-                        .unwrap_or_default();
-                    output += usage
-                        .get("output")
-                        .and_then(Value::as_u64)
-                        .unwrap_or_default();
-                    cache_read += usage
-                        .get("cacheRead")
-                        .and_then(Value::as_u64)
-                        .unwrap_or_default();
-                    cache_write += usage
-                        .get("cacheWrite")
-                        .and_then(Value::as_u64)
-                        .unwrap_or_default();
+                    input += usage_field(usage, "input").unwrap_or_default();
+                    output += usage_field(usage, "output").unwrap_or_default();
+                    cache_read += usage_field(usage, "cacheRead").unwrap_or_default();
+                    cache_write += usage_field(usage, "cacheWrite").unwrap_or_default();
                     cost += usage
                         .get("cost")
                         .and_then(|cost| cost.get("total"))
@@ -571,18 +364,13 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String
             _ => {}
         }
     }
-    let mut session_stats = json!({
-        "sessionFile": manager
-            .get_session_file()
-            .map(|file| file.display().to_string()),
-        "sessionId": manager.get_session_id(),
+    json!({
         "userMessages": user_messages,
         "assistantMessages": assistant_messages,
         "toolCalls": tool_calls,
         "toolResults": tool_results,
-        // TS `SessionStats.totalMessages` counts the role rows in
-        // `state.messages` (user + assistant); the port's in-context
-        // harness digest rides as a custom row and must not inflate it.
+        // TS `SessionStats.totalMessages` counts the role rows (user +
+        // assistant); custom rows must not inflate it.
         "totalMessages": user_messages + assistant_messages,
         "tokens": {
             "input": input,
@@ -592,33 +380,62 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String
             "total": input + output + cache_read + cache_write,
         },
         "cost": cost,
+    })
+}
+
+/// TS `estimateContextTokens`: the last valid assistant usage anchors the
+/// estimate; messages after it add their char/4 estimates, and no anchor
+/// estimates every message.
+fn context_tokens(messages: &[Value]) -> u64 {
+    let anchor = messages
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(index, message)| valid_assistant_usage(message).map(|usage| (index, usage)));
+    match anchor {
+        Some((index, usage)) => {
+            calculate_context_tokens(&usage)
+                + messages[index + 1..]
+                    .iter()
+                    .map(estimate_tokens)
+                    .sum::<u64>()
+        }
+        None => messages.iter().map(estimate_tokens).sum(),
+    }
+}
+
+/// `get_session_stats` (TS `getSessionStats` over `state.messages`).
+async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+    let handle = state.session.handle().await;
+    let session = &handle.session;
+    let deps = session.deps();
+    let cx = rpc_context();
+    let messages = context_messages(&session.main(), &cx).await?;
+    let agent = main_agent(session, &cx).await?;
+    let mut session_stats = json!({
+        "sessionFile": deps
+            .storage_dir
+            .as_ref()
+            .map(|dir| dir.display().to_string()),
+        "sessionId": deps.session_id,
     });
-    // TS `estimateContextTokens`: the last valid assistant usage anchors
-    // the estimate; messages after it add their char/4 estimates.
-    let context_window = handle.model.context_window;
+    if let (Value::Object(object), Value::Object(counts)) =
+        (&mut session_stats, message_stats(&messages))
+    {
+        object.extend(counts);
+    }
+    let context_window = agent_model(session, &agent).map_or(0, |model| model.context_window);
     if context_window > 0 {
-        // TS `estimateContextTokens`: the last valid assistant usage
-        // anchors the estimate; messages after it add their char/4
-        // estimates, and no anchor estimates every message.
-        let tokens = match messages
-            .iter()
-            .rposition(|message| valid_assistant_usage(message).is_some())
-        {
-            Some(anchor_index) => {
-                let usage =
-                    valid_assistant_usage(&messages[anchor_index]).expect("checked by rposition");
-                calculate_context_tokens(&usage)
-                    + messages[anchor_index + 1..]
-                        .iter()
-                        .map(estimate_tokens)
-                        .sum::<u64>()
-            }
-            None => messages.iter().map(estimate_tokens).sum(),
-        };
+        let tokens = context_tokens(&messages);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "TS computes the percentage over JS doubles"
+        )]
+        let percent = tokens as f64 / context_window as f64 * 100.0;
         session_stats["contextUsage"] = json!({
             "tokens": tokens,
             "contextWindow": context_window,
-            "percent": tokens as f64 / context_window as f64 * 100.0,
+            "percent": percent,
         });
     }
     Ok(ResponseData::Present(session_stats))
@@ -627,10 +444,10 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String
 /// `get_commands` (TS `createAgentConnectionCommands`): prompt
 /// templates, then skills.
 async fn get_commands(state: &Arc<RpcState>) -> Result<ResponseData, String> {
-    let handle = state.session.handle().await;
-    let engine = &handle.engine;
+    let session = state.session.session().await;
+    let resources = &session.deps().resources;
     let mut commands: Vec<Value> = Vec::new();
-    for template in &engine.prompt_templates {
+    for template in &resources.prompts {
         let mut entry = json!({
             "name": template.name,
             "source": "prompt",
@@ -644,7 +461,7 @@ async fn get_commands(state: &Arc<RpcState>) -> Result<ResponseData, String> {
         }
         commands.push(entry);
     }
-    for skill in &engine.skills {
+    for skill in &resources.skills {
         let mut entry = json!({
             "name": format!("skill:{}", skill.name),
             "source": "skill",
@@ -658,20 +475,49 @@ async fn get_commands(state: &Arc<RpcState>) -> Result<ResponseData, String> {
     Ok(ResponseData::Present(json!({ "commands": commands })))
 }
 
-/// The concatenated text blocks of one assistant message (TS
-/// `getLastAssistantText`).
-fn assistant_text(message: &eukhe_types::session::AgentMessage) -> Option<String> {
-    match message {
-        eukhe_types::session::AgentMessage::Assistant(assistant) => Some(
-            assistant
-                .content
-                .iter()
-                .filter_map(|block| match block {
-                    eukhe_types::ai::AssistantContentBlock::Text(text) => Some(text.text.clone()),
-                    _ => None,
-                })
-                .collect::<String>(),
-        ),
-        _ => None,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entry_ids_parse_from_strings_and_numbers() {
+        assert_eq!(parse_entry_id(&json!("12")), Some(EntryId::from_number(12)));
+        assert_eq!(parse_entry_id(&json!(7)), Some(EntryId::from_number(7)));
+        assert_eq!(parse_entry_id(&json!("nope")), None);
+        assert_eq!(parse_entry_id(&Value::Null), None);
+    }
+
+    #[test]
+    fn message_stats_count_roles_and_usage() {
+        let messages = vec![
+            json!({ "role": "user", "content": "hi" }),
+            json!({
+                "role": "assistant",
+                "content": [
+                    { "type": "text", "text": "x" },
+                    { "type": "toolCall", "id": "c", "name": "t", "arguments": {} },
+                ],
+                "usage": {
+                    "input": 10, "output": 5, "cacheRead": 2, "cacheWrite": 1,
+                    "cost": { "total": 0.5 },
+                },
+            }),
+            json!({ "role": "toolResult", "content": [] }),
+            json!({ "role": "custom", "content": "row" }),
+        ];
+        assert_eq!(
+            message_stats(&messages),
+            json!({
+                "userMessages": 1,
+                "assistantMessages": 1,
+                "toolCalls": 1,
+                "toolResults": 1,
+                "totalMessages": 2,
+                "tokens": {
+                    "input": 10, "output": 5, "cacheRead": 2, "cacheWrite": 1, "total": 18,
+                },
+                "cost": 0.5,
+            })
+        );
     }
 }

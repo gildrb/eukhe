@@ -19,7 +19,7 @@ use super::{
 /// settings read (a synchronous file lock under `with_lock`) runs on the
 /// blocking pool, so a contended settings lock never stalls this async
 /// spawn path's Tokio worker.
-async fn resolve_child_model_allowlisted(
+pub(super) async fn resolve_child_model_allowlisted(
     this: &SupervisorChildSessionsInner,
     reference: Option<&str>,
     surface: &'static str,
@@ -127,6 +127,7 @@ impl RlmSubagentHost for SupervisorChildSessions {
                         request.spawned_by_request_id.as_deref(),
                         Some(runtime_metadata),
                         &identity,
+                        /*requested_session_id*/ None,
                     )
                     .await?;
                 let record = ChildRecord {

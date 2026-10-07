@@ -1,15 +1,17 @@
 //! The `factory_activity` worker arm: the `/factory` view's daemon lane.
 
-//! One session-addressed command reaches this session's kernel factory
-//! executor (the bridge registered by the eukhe-core session engine): the
-//! payload's `action` rides the out-of-band kernel frame, and the kernel's
-//! reply returns verbatim (the run registry stays kernel-owned). The
-//! `run` action's model preflight (the allowlist pin, request auth)
-//! happens in the session engine before the frame — a doomed run fails
-//! before any child spawns.
+//! One session-addressed command reaches the main conversation's kernel
+//! factory executor (`eukhe_core::durable::rlm::kernel_factory_activity`):
+//! the payload's `action` rides the out-of-band kernel frame, and the
+//! kernel's reply returns verbatim (the run registry stays kernel-owned).
+//! The `run` action's model preflight (the allowlist pin, request auth)
+//! happens before the frame — a doomed run fails before any child spawns.
 
 use std::path::Path;
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::rlm::kernel_factory_activity;
+use eukhe_core::session_engine::factory_host::FactoryActivityRequest;
 use serde_json::Value;
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
@@ -41,45 +43,41 @@ pub(crate) fn advertised_server_capabilities(agent_dir: &Path) -> Vec<String> {
 }
 
 impl Worker {
-    /// `factory_activity`: one factory action over this session's kernel.
-    /// The arm mirrors `handle_kernel_bash_activity`: the engine owns the
-    /// kernel scope, and a missing session answers with the same "Kernel
-    /// is not running" refusal.
+    /// `factory_activity`: one factory action over the main conversation's
+    /// kernel (never booting one: "Kernel is not running" otherwise). A
+    /// `run` is model-preflighted first (the allowlist pin, request auth).
     pub(crate) async fn handle_factory_activity(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("factory_activity") {
-            return response;
-        }
+        let hosted = match self.hosted("factory_activity") {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
         let action = payload
             .get("action")
             .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+            .unwrap_or_default();
         if action.is_empty() {
             return response_failure(None, "factory_activity", "action is required", None);
         }
-        let run_id = payload
-            .get("runId")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let spec_id = payload
-            .get("specId")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let timeout_ms = payload.get("timeoutMs").and_then(Value::as_u64);
-        let Some(engine) = &self.agent_engine else {
-            return response_failure(
-                None,
-                "factory_activity",
-                eukhe_types::daemon::KERNEL_NOT_RUNNING_MESSAGE,
-                None,
-            );
+        let request = match FactoryActivityRequest::parse(
+            action,
+            payload.get("runId").and_then(Value::as_str),
+            payload.get("specId").and_then(Value::as_str),
+            payload.get("timeoutMs").and_then(Value::as_u64),
+        ) {
+            Ok(request) => request,
+            Err(error) => {
+                return response_failure(None, "factory_activity", &format!("{error:#}"), None)
+            }
         };
-        match engine
-            .factory_activity(&action, run_id.as_deref(), spec_id.as_deref(), timeout_ms)
-            .await
-        {
+        let main = match hosted.main() {
+            Ok(main) => main,
+            Err(error) => {
+                return response_failure(None, "factory_activity", &error.to_string(), None)
+            }
+        };
+        match kernel_factory_activity(hosted.deps(), &main, request, &BACKGROUND_CONTEXT).await {
             Ok(result) => response_success(None, "factory_activity", Some(result)),
-            Err(error) => response_failure(None, "factory_activity", &format!("{error:#}"), None),
+            Err(error) => response_failure(None, "factory_activity", &error.to_string(), None),
         }
     }
 }
@@ -134,5 +132,36 @@ mod tests {
                 .any(|capability| capability == "factory_activity"),
             "the disabled factory lane leaves the advertisement: {disabled_again:?}"
         );
+    }
+
+    /// The lane validates the request, then answers the definitive
+    /// refusal while the session's kernel never booted.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn factory_activity_validates_and_never_boots_a_kernel() {
+        let (_dir, worker) = crate::durable_test_support::created_worker(
+            "factory-session",
+            serde_json::json!(["ack"]),
+        )
+        .await;
+        let session = serde_json::json!({ "activeSessionId": "factory-session" });
+        let missing = worker.dispatch("factory_activity", &session).await;
+        assert_eq!(missing.error.as_deref(), Some("action is required"));
+        let unknown = worker
+            .dispatch(
+                "factory_activity",
+                &serde_json::json!({ "activeSessionId": "factory-session", "action": "nope" }),
+            )
+            .await;
+        assert_eq!(
+            unknown.error.as_deref(),
+            Some("unknown factory activity action")
+        );
+        let graph = worker
+            .dispatch(
+                "factory_activity",
+                &serde_json::json!({ "activeSessionId": "factory-session", "action": "graph" }),
+            )
+            .await;
+        assert_eq!(graph.error.as_deref(), Some("Kernel is not running"));
     }
 }

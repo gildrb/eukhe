@@ -9,6 +9,8 @@
 //! `success(id, command, null)`), which the TS client library treats
 //! differently (`cycle_model`'s no-second-model answer).
 
+use eukhe_durable::harness::types::WhenBusy;
+use eukhe_types::pi_ai::{ImageContent, TextContent, UserContent, UserContentBlock};
 use serde_json::{json, Map, Value};
 
 /// The RPC response data channel: absent (key omitted) or present
@@ -118,7 +120,8 @@ pub fn parse_line(line: &str) -> ParsedLine {
 /// The image attachment of a prompt-family command (TS `ImageContent`:
 /// `{type: "image", data, mimeType}`); entries without payload data or
 /// a mime type are dropped, not failed.
-pub fn command_images(payload: &Value) -> Vec<eukhe_agent::types::ImageContent> {
+#[must_use]
+pub fn command_images(payload: &Value) -> Vec<ImageContent> {
     let Some(images) = payload.get("images").and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -130,7 +133,7 @@ pub fn command_images(payload: &Value) -> Vec<eukhe_agent::types::ImageContent> 
             }
             let data = image.get("data").and_then(Value::as_str)?;
             let mime_type = image.get("mimeType").and_then(Value::as_str)?;
-            Some(eukhe_agent::types::ImageContent {
+            Some(ImageContent {
                 data: data.to_string(),
                 mime_type: mime_type.to_string(),
             })
@@ -138,13 +141,26 @@ pub fn command_images(payload: &Value) -> Vec<eukhe_agent::types::ImageContent> 
         .collect()
 }
 
+/// The user input of a prompt-family command: the text alone, or the text
+/// block followed by the image blocks (TS `{role: "user", content: [text,
+/// ...images]}`).
+#[must_use]
+pub fn command_content(text: &str, images: Vec<ImageContent>) -> UserContent {
+    if images.is_empty() {
+        return UserContent::Text(text.to_string());
+    }
+    let mut blocks = Vec::with_capacity(images.len() + 1);
+    blocks.push(UserContentBlock::Text(TextContent::new(text)));
+    blocks.extend(images.into_iter().map(UserContentBlock::Image));
+    UserContent::Blocks(blocks)
+}
+
 /// The `streamingBehavior` of a prompt command: `"steer"` or `"followUp"`.
-pub fn command_streaming_behavior(
-    payload: &Value,
-) -> Option<eukhe_core::session_engine::StreamingBehavior> {
+#[must_use]
+pub fn command_streaming_behavior(payload: &Value) -> Option<WhenBusy> {
     match payload.get("streamingBehavior").and_then(Value::as_str) {
-        Some("steer") => Some(eukhe_core::session_engine::StreamingBehavior::Steer),
-        Some("followUp") => Some(eukhe_core::session_engine::StreamingBehavior::FollowUp),
+        Some("steer") => Some(WhenBusy::Steer),
+        Some("followUp") => Some(WhenBusy::FollowUp),
         _ => None,
     }
 }
@@ -212,7 +228,29 @@ mod tests {
         assert_eq!(command.command, "prompt");
         assert_eq!(
             command_streaming_behavior(&command.payload),
-            Some(eukhe_core::session_engine::StreamingBehavior::Steer)
+            Some(WhenBusy::Steer)
+        );
+    }
+
+    #[test]
+    fn images_follow_the_text_block() {
+        let payload = json!({
+            "images": [
+                { "type": "image", "data": "aGk=", "mimeType": "image/png" },
+                { "type": "image", "data": "bm8=" },
+            ],
+        });
+        let content = command_content("look", command_images(&payload));
+        assert_eq!(
+            serde_json::to_value(&content).unwrap(),
+            json!([
+                { "type": "text", "text": "look" },
+                { "type": "image", "data": "aGk=", "mimeType": "image/png" },
+            ])
+        );
+        assert_eq!(
+            command_content("plain", Vec::new()),
+            UserContent::Text("plain".to_string())
         );
     }
 }

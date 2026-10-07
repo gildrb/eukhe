@@ -1,18 +1,27 @@
-//! The read-only state getters (protocol breadth wave b2): the worker
-//! arms for the daemon `get_*` commands that surfaced no handler before
-//! this wave (TS daemon-mode `case "get_connection_state"` ... `case
+//! The read-only state getters: the worker arms for the daemon `get_*`
+//! commands (TS daemon-mode `case "get_connection_state"` ... `case
 //! "get_tool_definition"`). Each handler answers the exact TS wire shape;
-//! the data comes from the worker's persisted session store, the engine
-//! seams (`SessionEngine::rlm_child_snapshots` / `connection_commands` /
-//! `resource_snapshot` / `system_prompt` / `tool_definition` /
-//! `rlm_max_depth_status`), and the model registry.
+//! the data comes from the shown conversation's event mirror on the core,
+//! the hosted session (its main conversation's agent and context, its
+//! loaded resources, chat memory, and model collection), and the
+//! context-tree cache.
 
+use std::sync::Arc;
+
+use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_core::models::ModelRegistry;
+use eukhe_durable::harness::types::PromptInput;
+use eukhe_durable::harness::Conversation;
+use eukhe_pi_ai::auth::AuthOperationOptions;
+use eukhe_pi_ai::utils::transcript::get_current_system_message;
+use eukhe_types::pi_ai::IndexMap;
+use eukhe_types::usage::{calculate_context_tokens, estimate_tokens, valid_assistant_usage};
 use serde_json::{json, Value};
 
-use eukhe_core::models::ModelRegistry;
-
+use crate::context_tree_cache::WalkRequest;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
-use crate::worker::Worker;
+use crate::worker::durable_host::wire_messages::transcript_messages;
+use crate::worker::{model_metadata, HostedSession, Worker};
 
 impl Worker {
     /// `get_connection_state`: the connection state block (the same shape
@@ -23,132 +32,88 @@ impl Worker {
         if let Err(response) = self.require_created("get_connection_state") {
             return response;
         }
-        let core = self.core.lock().unwrap();
-        let state = self.connection_state_locked(&core);
-        drop(core);
+        let state = {
+            let core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.connection_state_locked(&core)
+        };
         let mut value = serde_json::to_value(&state).unwrap_or(Value::Null);
         value["heartbeat"] = Value::Null;
         response_success(None, "get_connection_state", Some(value))
     }
 
-    /// `get_rlm_children`: the authoritative child roster plus the
-    /// session's event sequence captured before the walk (TS
-    /// `buildRlmChildSnapshotsWithPassiveRlmSubagents` freshness
-    /// contract).
-    pub(crate) async fn handle_get_rlm_children(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_rlm_children") {
-            return response;
-        }
-        let event_sequence = {
-            let core = self.core.lock().unwrap();
-            core.last_event_sequence
-        };
-        let mut children = self.engine.rlm_child_snapshots().await;
-        // The parent's own RLM node id overlays each child's `parentId`
-        // (TS `_rlmParentNodeId`; absent for top-level sessions, where TS
-        // serializes the field out).
-        let parent_id = {
-            let core = self.core.lock().unwrap();
-            core.rlm_child_id.clone()
-        };
-        if let Some(parent_id) = parent_id {
-            for child in &mut children {
-                child["parentId"] = json!(parent_id);
-            }
-        }
-        response_success(
-            None,
-            "get_rlm_children",
-            Some(json!({ "children": children, "eventSequence": event_sequence })),
-        )
-    }
-
     /// `get_context_tree` (TS `session.getContextTree`): the root node is
-    /// the session itself — label, model, and the cumulative usage totals
-    /// over the persisted branch (own usage excludes child usage
-    /// attributions; the usage walk bridges ghost-parent gaps so one lost
-    /// append cannot zero the session's real spend) — and the children are
-    /// the live RLM roster plus every persisted child session dir under the
-    /// session's artifact tree (TS live runs + resident children +
-    /// `loadContextTreeChildrenFromDisk`): idle, settled, and
-    /// restart-orphaned subagents all appear, with their real usage and
-    /// recursive grandchildren. A live child's node carries its session
-    /// file's usage (the TS disk-fallback shape; the id, label, and status
-    /// come from the live registry, the fresher sources for a running
-    /// child), and ids tombstoned in the RLM ledger stay hidden at every
-    /// depth of the walk. The disk walk and registry reads are blocking
-    /// I/O owned by the background cache refresh
-    /// (`context_tree_cache`): they run on the blocking pool, never the
-    /// runtime worker, and never on this request path — the response
-    /// serves the cached walk with the fresh live identity overlaid
-    /// (usage and grandchildren lag the last completed refresh; a
-    /// running child's status and identity never lag).
+    /// the session itself — label, model, context usage, and the main
+    /// conversation's own spend (`pi.usage`, with the per-model breakdown)
+    /// plus its children's totals — and the children are the live RLM
+    /// roster plus every persisted child session under the session's
+    /// artifact tree. The disk walk is the background refresh of the
+    /// context-tree cache (`context_tree_cache`), never this request path:
+    /// the response serves the cached walk with the fresh live identity
+    /// overlaid.
     pub(crate) async fn handle_get_context_tree(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_context_tree") {
-            return response;
-        }
-        // The root node is in-memory data: the usage totals and the
-        // context estimate walk the live store under the core lock
-        // borrow-based (no owned copy of the history), so the request
-        // answers from memory in bounded time even on a grown store. The
-        // artifact-tree walk is the cache's background refresh
-        // (`context_tree_cache`), never the request path.
-        let (label, context_usage, own_usage, total_usage, session_id, own_usage_by_model) = {
-            let core = self.core.lock().unwrap();
-            let store = core.store.as_ref();
-            let label = store
-                .and_then(|store| store.session_name().map(str::to_string))
-                .unwrap_or_else(|| "main agent".to_string());
-            let context_usage = store.and_then(|store| {
-                crate::session_stats::store_context_usage(store, self.engine.model_context_window())
-            });
-            let session_id = store.map(|store| store.session_id().to_string());
-            // The per-model own-usage breakdown rides the node when every
-            // usage-carrying row resolved to a model (None degrades to the
-            // plain TS totals): a session that switched models mid-run —
-            // or whose subagents billed on other models — shows which
-            // model billed what.
-            let (own_usage, total_usage, own_usage_by_model) = match store {
-                Some(store) => {
-                    let branch = store.branch_bridged();
-                    let all_entries = store.entries();
-                    let (own_usage, total_usage) =
-                        compute_own_and_total_usage(&branch, all_entries);
-                    let own_usage_by_model = compute_own_usage_by_model(
-                        &branch,
-                        all_entries,
-                        &own_usage,
-                        store.window_boundary_model().as_ref(),
-                    );
-                    (own_usage, total_usage, own_usage_by_model)
-                }
-                None => (empty_usage(), empty_usage(), None),
-            };
+        const COMMAND: &str = "get_context_tree";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        let (label, ledger, model, session_id, parent_id) = {
+            let core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             (
-                label,
-                context_usage,
-                own_usage,
-                total_usage,
-                session_id,
-                own_usage_by_model,
+                core.session_name
+                    .clone()
+                    .unwrap_or_else(|| "main agent".to_string()),
+                core.view
+                    .as_ref()
+                    .map(|view| view.translator.mirror().usage.clone())
+                    .unwrap_or_default(),
+                model_metadata(&core, &self.session),
+                (!core.session_id.is_empty()).then(|| core.session_id.clone()),
+                core.rlm_child_id.clone(),
             )
         };
-        let model = self.engine.model_metadata().and_then(|model| {
-            Some(json!({
-                "provider": model.get("provider")?,
-                "id": model.get("id")?,
-            }))
-        });
-        let snapshots = self.engine.rlm_child_snapshots().await;
+        let context_window = model
+            .as_ref()
+            .and_then(|model| model.get("contextWindow"))
+            .and_then(Value::as_u64)
+            .filter(|window| *window > 0);
+        let main = match hosted.main() {
+            Ok(main) => main,
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+        };
+        let context_usage = match context_window {
+            Some(window) => match context_messages(&main, &BACKGROUND_CONTEXT).await {
+                Ok(messages) => Some(context_usage(&messages, window)),
+                Err(error) => return response_failure(None, COMMAND, &error, None),
+            },
+            None => None,
+        };
+        let snapshots =
+            match crate::rlm_surface::rlm_child_snapshots(&hosted, parent_id.as_deref()).await {
+                Ok(snapshots) => snapshots,
+                Err(error) => {
+                    return response_failure(None, COMMAND, &format!("{error:#}"), None);
+                }
+            };
         // The children come from the cache instantly (fresh live-roster
-        // identity and status over the cached bodies; the background walk
-        // in `context_tree_cache` keeps them as fresh as its last
-        // refresh) — the walk itself never blocks this response.
+        // identity and status over the cached bodies).
         let children = self
             .context_tree
             .serve_children(session_id.as_deref(), &snapshots);
         // Re-arm the background refresh for the next read.
         self.poke_context_tree_refresh();
+        let (own_usage, own_usage_by_model) = ledger_usage(&ledger);
+        // The total is the session's own spend plus each child's total
+        // (the children's spend lives in their own sessions).
+        let mut total_usage = own_usage.clone();
+        for child_total in children.iter().filter_map(|child| child.get("totalUsage")) {
+            usage::add_usage(&mut total_usage, child_total);
+        }
         let mut tree = json!({
             "id": "root",
             "label": label,
@@ -157,7 +122,9 @@ impl Worker {
             "totalUsage": total_usage,
             "children": children,
         });
-        if let Some(model) = model {
+        if let Some(model) = model.as_ref().and_then(|model| {
+            Some(json!({ "provider": model.get("provider")?, "id": model.get("id")? }))
+        }) {
             tree["model"] = model;
         }
         if let Some(usage) = context_usage {
@@ -166,200 +133,310 @@ impl Worker {
         if let Some(by_model) = own_usage_by_model {
             tree["ownUsageByModel"] = json!(by_model);
         }
-        response_success(None, "get_context_tree", Some(tree))
+        response_success(None, COMMAND, Some(tree))
     }
 
     /// Arm the background context-tree walk (`context_tree_cache`) for
-    /// this session: the walk inputs resolve against the worker's current
-    /// store (the durable session id for the artifact tree, the session
-    /// file for the ledger's tombstone record), so a replaced session
-    /// never walks the previous tree. Called by the `get_context_tree`
-    /// handler (re-arm on every read older than the TTL), and as the
-    /// warm at session open (create/attach), so the cache is usually
-    /// filled before the first read.
+    /// this session: the durable session id (the artifact tree), the
+    /// storage path (the ledger's tombstone record), and the hosted
+    /// session whose live roster overlays the walk, so a replaced session
+    /// never walks the previous tree. Called by `get_context_tree` (re-arm
+    /// on every read older than the TTL) and as the warm at session open
+    /// (create/attach).
     pub(crate) fn poke_context_tree_refresh(&self) {
-        let (session_id, session_file) = {
-            let core = self.core.lock().unwrap();
-            core.store
-                .as_ref()
-                .map(|store| (store.session_id().to_string(), store.path.clone()))
-                .unzip()
-        };
-        self.context_tree.poke_refresh(
-            self.engine.clone(),
-            self.config.agent_dir.clone(),
-            session_id,
-            session_file,
-        );
+        let request = self.session.get().and_then(|hosted| {
+            let core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            (!core.session_id.is_empty()).then(|| WalkRequest {
+                session_id: core.session_id.clone(),
+                session_file: core.session_file().map(std::path::PathBuf::from),
+                hosted,
+                parent_id: core.rlm_child_id.clone(),
+            })
+        });
+        self.context_tree
+            .poke_refresh(self.config.agent_dir.clone(), request);
     }
 
     /// `get_commands` (TS `createAgentConnectionCommands`): prompt
-    /// templates, then skills.
-    pub(crate) async fn handle_get_commands(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_commands") {
-            return response;
-        }
-        let commands = self.engine.connection_commands().await;
+    /// templates, then skills, from the session's loaded resources.
+    pub(crate) fn handle_get_commands(&self) -> DaemonResponse {
+        let hosted = match self.hosted("get_commands") {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        let commands = resources::connection_commands(&hosted.deps().resources);
         response_success(None, "get_commands", Some(json!({ "commands": commands })))
     }
 
     /// `get_resource_snapshot` (TS
-    /// `createAgentConnectionResourceSnapshot`).
-    pub(crate) async fn handle_get_resource_snapshot(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_resource_snapshot") {
-            return response;
-        }
-        let snapshot = self.engine.resource_snapshot().await;
+    /// `createAgentConnectionResourceSnapshot`) over the session's loaded
+    /// resources.
+    pub(crate) fn handle_get_resource_snapshot(&self) -> DaemonResponse {
+        let hosted = match self.hosted("get_resource_snapshot") {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        let deps = hosted.deps();
+        let snapshot =
+            resources::resource_snapshot(&deps.resources, hosted.session_id(), &deps.cwd);
         response_success(None, "get_resource_snapshot", Some(snapshot))
     }
 
-    /// `get_session_context` (TS `session.buildSessionContext`): the
-    /// resolved model context at the branch leaf — messages, the
-    /// effective thinking level and service tier, and the last model
-    /// selector.
-    pub(crate) fn handle_get_session_context(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_session_context") {
-            return response;
-        }
-        let core = self.core.lock().unwrap();
-        let Some(store) = core.store.as_ref() else {
-            return response_failure(
-                None,
-                "get_session_context",
-                "Session is still initializing",
-                None,
-            );
+    /// `get_session_context` (TS `session.buildSessionContext`): the main
+    /// conversation's active context — its messages (wire `AgentMessage`
+    /// rows from the context head on), the effective thinking level, the
+    /// service-tier preference, and the model selector.
+    pub(crate) async fn handle_get_session_context(&self) -> DaemonResponse {
+        const COMMAND: &str = "get_session_context";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
         };
-        let entries = store.branch_file_entries();
-        let context = eukhe_core::session::build_session_context(&entries, store.leaf_id());
-        let messages: Vec<Value> = context
-            .messages
-            .iter()
-            .map(|message| serde_json::to_value(message).unwrap_or(Value::Null))
-            .collect();
+        let cx = &BACKGROUND_CONTEXT;
+        let read = async {
+            let main = hosted.main().map_err(|error| error.to_string())?;
+            let messages = context_messages(&main, cx).await?;
+            let agent = main.agent(cx).await.map_err(|error| error.to_string())?;
+            Ok::<_, String>((messages, agent))
+        };
+        let (messages, agent) = match read.await {
+            Ok(read) => read,
+            Err(error) => return response_failure(None, COMMAND, &error, None),
+        };
+        let service_tier = self
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .service_tier;
         response_success(
             None,
-            "get_session_context",
+            COMMAND,
             Some(json!({
                 "context": {
                     "messages": messages,
-                    "thinkingLevel": context.thinking_level,
-                    "serviceTier": context.service_tier,
-                    "model": context.model.map(|(provider, model_id)| json!({
-                        "provider": provider,
-                        "modelId": model_id,
+                    "thinkingLevel": agent.thinking_level.as_str(),
+                    "serviceTier": service_tier,
+                    "model": agent.model.map(|model| json!({
+                        "provider": model.provider,
+                        "modelId": model.model_id,
                     })),
                 }
             })),
         )
     }
 
-    /// `get_system_prompt` (TS `{ systemPrompt }`).
+    /// `get_system_prompt` (TS `{ systemPrompt }`): the main conversation's
+    /// system prompt as its next request renders it.
     pub(crate) async fn handle_get_system_prompt(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_system_prompt") {
-            return response;
-        }
-        let prompt = self.engine.system_prompt().await;
-        match prompt {
-            Ok(prompt) => response_success(
-                None,
-                "get_system_prompt",
-                Some(json!({ "systemPrompt": prompt })),
-            ),
-            Err(error) => response_failure(None, "get_system_prompt", &format!("{error:#}"), None),
+        const COMMAND: &str = "get_system_prompt";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        match render_system_prompt(&hosted, &BACKGROUND_CONTEXT).await {
+            Ok(prompt) => response_success(None, COMMAND, Some(json!({ "systemPrompt": prompt }))),
+            Err(error) => response_failure(None, COMMAND, &error, None),
         }
     }
 
     /// `get_chat_view` (Rust-native, advertised by the `chat_view`
     /// capability): the chat memory's current view for the interactive
     /// client's startup block, `{ "view": null }` when the session keeps
-    /// no chat memory.
+    /// no chat memory (a subagent, or a scripted session).
     pub(crate) async fn handle_get_chat_view(&self) -> DaemonResponse {
-        const NAME: &str = "get_chat_view";
-        if let Err(response) = self.require_created(NAME) {
-            return response;
-        }
-        let reply = match self.engine.chat_view().await {
-            Ok(view) => serde_json::to_value(eukhe_types::daemon::ChatViewReply { view }),
-            Err(error) => return response_failure(None, NAME, &format!("{error:#}"), None),
+        const COMMAND: &str = "get_chat_view";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
         };
-        match reply {
-            Ok(data) => response_success(None, NAME, Some(data)),
-            Err(error) => response_failure(None, NAME, &format!("{error:#}"), None),
+        let view = match hosted.deps().memory.as_ref() {
+            Some(memory) => match memory.render().await {
+                Ok(view) => Some(eukhe_types::daemon::ChatViewSnapshot {
+                    // Every line but the `<chat>`/`</chat>` frame is one part.
+                    lines: u64::try_from(view.text.lines().count().saturating_sub(2))
+                        .unwrap_or(u64::MAX),
+                    bytes: u64::try_from(view.text.len()).unwrap_or(u64::MAX),
+                    messages: view.messages,
+                    text: view.text,
+                }),
+                Err(error) => return response_failure(None, COMMAND, &format!("{error:#}"), None),
+            },
+            None => None,
+        };
+        match serde_json::to_value(eukhe_types::daemon::ChatViewReply { view }) {
+            Ok(data) => response_success(None, COMMAND, Some(data)),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }
     }
 
     /// `get_tool_definition { name }` (TS
-    /// `createAgentConnectionToolDefinition`): the definition of one
-    /// active tool; an unknown name answers success with the key omitted,
-    /// exactly like the TS `undefined` field.
+    /// `createAgentConnectionToolDefinition`): the definition of one tool
+    /// the main conversation's next request offers; an unknown name
+    /// answers success with the key omitted, exactly like the TS
+    /// `undefined` field.
     pub(crate) async fn handle_get_tool_definition(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_tool_definition") {
-            return response;
-        }
-        let Some(name) = payload.get("name").and_then(Value::as_str) else {
-            return response_failure(
-                None,
-                "get_tool_definition",
-                "get_tool_definition requires a name",
-                None,
-            );
+        const COMMAND: &str = "get_tool_definition";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
         };
-        let definition = self.engine.tool_definition(name).await;
+        let Some(name) = payload.get("name").and_then(Value::as_str) else {
+            return response_failure(None, COMMAND, "get_tool_definition requires a name", None);
+        };
+        let agent = match hosted.main() {
+            Ok(main) => main.agent(&BACKGROUND_CONTEXT).await,
+            Err(error) => Err(error),
+        };
+        let agent = match agent {
+            Ok(agent) => agent,
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+        };
         let mut data = serde_json::Map::new();
-        if let Some(definition) = definition {
-            data.insert("toolDefinition".to_string(), definition);
+        if let Some(tool) = agent.tools.iter().find(|tool| tool.name == name) {
+            data.insert(
+                "toolDefinition".to_string(),
+                json!({
+                    "name": tool.name,
+                    // Durable tool registrations carry no display label;
+                    // the TS label defaults to the name.
+                    "label": tool.name,
+                    "description": tool.description,
+                    "parameters": serde_json::to_value(&tool.parameters).unwrap_or(Value::Null),
+                }),
+            );
         }
-        response_success(None, "get_tool_definition", Some(Value::Object(data)))
+        response_success(None, COMMAND, Some(Value::Object(data)))
     }
 
-    /// `get_rlm_max_depth_status` (TS `getRlmMaxDepthStatus`).
-    pub(crate) fn handle_get_rlm_max_depth_status(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_rlm_max_depth_status") {
-            return response;
+    /// `get_available_models` (TS `refreshAvailableModels`): the session's
+    /// models whose providers have credentials.
+    pub(crate) async fn handle_get_available_models(&self) -> DaemonResponse {
+        const COMMAND: &str = "get_available_models";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        match hosted
+            .deps()
+            .models
+            .get_available(None, AuthOperationOptions::default())
+            .await
+        {
+            Ok(models) => response_success(None, COMMAND, Some(json!({ "models": models }))),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }
-        response_success(
-            None,
-            "get_rlm_max_depth_status",
-            Some(self.engine.rlm_max_depth_status()),
-        )
-    }
-
-    /// `get_available_models` (TS `refreshAvailableModels`): the
-    /// auth-configured models.
-    pub(crate) fn handle_get_available_models(&self) -> DaemonResponse {
-        if let Err(response) = self.require_created("get_available_models") {
-            return response;
-        }
-        let registry = worker_model_registry(&self.config.agent_dir);
-        let models: Vec<Value> = registry
-            .get_available()
-            .into_iter()
-            .filter_map(|model| serde_json::to_value(model).ok())
-            .collect();
-        response_success(
-            None,
-            "get_available_models",
-            Some(json!({ "models": models })),
-        )
     }
 }
-// The usage math (the model registry resolution, the TS `Usage` wire shape,
-// the add/subtract folds, and the own/total + by-model computations) moved to
-// the child module at the same tree position (state_getters::usage); the
-// re-exports keep the facade's paths stable (context_tree_cache.rs's
-// empty_usage, rlm_child_model.rs's + setting_switches.rs's +
-// worker/create.rs's worker_model_registry, context_tree_children.rs's
-// compute_*). The private add_usage/subtract_usage folds ride with their
-// callers.
+
+/// The active context of `conversation` as wire `AgentMessage` rows (TS
+/// `session.state.messages`).
+async fn context_messages(conversation: &Conversation, cx: &Context) -> Result<Vec<Value>, String> {
+    let view = conversation
+        .context(cx)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(transcript_messages(&view.entries))
+}
+
+/// TS `estimateContextTokens` over `messages` against `context_window`:
+/// the last valid assistant usage anchors the estimate and the messages
+/// after it add their char/4 estimates; no anchor estimates every message.
+fn context_usage(messages: &[Value], context_window: u64) -> Value {
+    let anchor = messages
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(index, message)| valid_assistant_usage(message).map(|usage| (index, usage)));
+    let tokens = match anchor {
+        Some((index, usage)) => {
+            calculate_context_tokens(&usage)
+                + messages[index + 1..]
+                    .iter()
+                    .map(estimate_tokens)
+                    .sum::<u64>()
+        }
+        None => messages.iter().map(estimate_tokens).sum(),
+    };
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "TS computes the percentage over JS doubles"
+    )]
+    let percent = tokens as f64 / context_window as f64 * 100.0;
+    json!({ "tokens": tokens, "contextWindow": context_window, "percent": percent })
+}
+
+/// Render the main conversation's system prompt the way its next request
+/// prepares it: every section of the resolved agent rendered in order over
+/// the sections the transcript already shows (untagged sections as is,
+/// tagged ones as `<key>\n...\n</key>`), joined like the provider prompt
+/// (non-empty parts separated by a blank line). A section that fails keeps
+/// the text the transcript shows for it, as the request preparation does.
+/// Sections render without an execution environment (the eukhe prompt
+/// reads none).
+async fn render_system_prompt(hosted: &HostedSession, cx: &Context) -> Result<String, String> {
+    let main = hosted.main().map_err(|error| error.to_string())?;
+    let agent = Arc::new(main.agent(cx).await.map_err(|error| error.to_string())?);
+    let view = main.context(cx).await.map_err(|error| error.to_string())?;
+    let shown: IndexMap<String, String> = get_current_system_message(&view.messages)
+        .and_then(|message| message.sections)
+        .map(|sections| {
+            sections
+                .into_iter()
+                .filter_map(|(key, value)| value.map(|value| (key, value)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let input = PromptInput {
+        conversation_id: main.id(),
+        agent: Arc::clone(&agent),
+        env: None,
+        shown: shown.clone(),
+        read: Arc::new(hosted.harness().clone()),
+    };
+    let mut parts = Vec::with_capacity(agent.sections.len());
+    for section in &agent.sections {
+        let text = match (section.render)(&input, cx).await {
+            Ok(Some(text)) => {
+                if section.tag == Some(false) {
+                    text
+                } else {
+                    let key = &section.key;
+                    format!("<{key}>\n{text}\n</{key}>")
+                }
+            }
+            Ok(None) => continue,
+            Err(error) => {
+                if cx.aborted() {
+                    return Err(error.to_string());
+                }
+                match shown.get(&section.key) {
+                    Some(kept) => kept.clone(),
+                    None => continue,
+                }
+            }
+        };
+        if !text.is_empty() {
+            parts.push(text);
+        }
+    }
+    Ok(parts.join("\n\n"))
+}
+
+// The usage math (the model registry resolution the create path shares,
+// the TS `Usage` wire shape, the folds, the durable ledger's own spend, and
+// the legacy-file own/total + by-model computations the child walk reads)
+// lives in the child module.
 mod usage;
 
 pub(crate) use usage::{
-    compute_own_and_total_usage, compute_own_usage_by_model, empty_usage, worker_model_registry,
+    compute_own_and_total_usage, compute_own_usage_by_model, empty_usage, ledger_usage,
+    worker_model_registry,
 };
 
-// The getter battery moved to the child module at the same tree position
-// (state_getters::state_getters_tests); the #[cfg(test)] decl rides at the
-// facade tail.
+mod resources;
+
 #[cfg(test)]
 mod state_getters_tests;

@@ -456,31 +456,6 @@ pub fn read_session_usage(path: &Path) -> Option<SessionUsageTotals> {
     scan_file(path).map(|scan| scan.totals())
 }
 
-/// The same own-usage fold (`ScanEntry::fold_into` / `UsageScan`) over
-/// a store's in-memory entries (TS `getOwnUsageSummary` over
-/// `sessionManager.getEntries()`): the pathless `--no-session` worker
-/// has no file to scan, but its live entries carry the rows a flush
-/// would write, so the live row's usage is the one fold over the
-/// second input. An entry that does not parse contributes nothing,
-/// exactly like `scan_file` skipping an invalid line.
-pub(crate) fn own_usage_summary_of(
-    entries: &[crate::session_store::SessionEntry],
-) -> Option<SessionUsageSummary> {
-    let mut scan = UsageScan::default();
-    for entry in entries {
-        // `type`/`id` live on the envelope (`#[serde(flatten)] fields`
-        // keeps only the rest); the usage-bearing fields deserialize
-        // borrowed.
-        let Ok(mut parsed) = ScanEntry::deserialize(&entry.fields) else {
-            continue;
-        };
-        parsed.type_.clone_from(&entry.type_);
-        parsed.id.clone_from(&entry.id);
-        parsed.fold_into(&mut scan);
-    }
-    scan.summary()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

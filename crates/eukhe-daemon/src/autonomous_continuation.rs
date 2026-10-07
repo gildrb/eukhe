@@ -33,10 +33,6 @@ use eukhe_core::session_engine::provider_adapter::json_round_trip;
 
 use crate::agent_engine::AgentSessionEngine;
 
-/// The queue key of a held autonomous continuation item (the worker's
-/// follow-up lane): the `/autonomous off` purge withdraws exactly these.
-pub(crate) const AUTONOMOUS_QUEUE_KEY: &str = "autonomous:continuation";
-
 /// The in-run consult's deadlock-free view of the built session. The
 /// consult runs inside the agent loop's turn end — possibly a compaction
 /// turn, and a compaction run holds the engine's session mutex across its

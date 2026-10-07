@@ -1,54 +1,58 @@
 //! RPC stdio mode: headless operation with JSON commands on stdin and
 //! JSON responses and events on stdout (TS `modes/rpc/rpc-mode.ts`).
 //!
-//! One connection drives one live session. Commands arrive as JSON lines
-//! and answer one ordered stream of response and event frames: the
-//! response `data` channel distinguishes an absent key from JSON `null`,
-//! a `prompt` response is written before the turn's stream events
-//! (events landing while the response is pending are buffered and
-//! flushed after it, TS `promptResponsePending`), prompts serialize on
-//! a stdin-order chain (TS `promptCommandTail`) while other commands
-//! run concurrently, and stdin close settles the running turn before
-//! the process exits. SIGTERM exits 143 and SIGHUP 129 (TS signal exit
-//! codes).
+//! One connection drives one live durable session (`EukheSession`, its
+//! main conversation). Commands arrive as JSON lines and answer one
+//! ordered stream of response and event frames: the response `data`
+//! channel distinguishes an absent key from JSON `null`, a `prompt`
+//! response is written before the turn's stream events (events landing
+//! while the response is pending are buffered and flushed after it, TS
+//! `promptResponsePending`), prompts serialize on a stdin-order chain (TS
+//! `promptCommandTail`) while other commands run concurrently, and stdin
+//! close settles the running turn before the process exits. SIGTERM exits
+//! 143 and SIGHUP 129 (TS signal exit codes).
 //!
-//! The in-process transport serves the session engine directly, exactly
-//! like the TS in-process connection: the scheduling and agent-messaging
-//! surfaces answer their TS in-process "requires daemon mode" errors,
-//! and `observe` sees no other active sessions (the in-process session
-//! hosts no family) — the daemon-attached transport serves those for
-//! real.
+//! The in-process transport serves the session directly, exactly like the
+//! TS in-process connection: the scheduling and agent-messaging surfaces
+//! answer their TS in-process "requires daemon mode" errors, and `observe`
+//! sees no other active sessions (the in-process session hosts no family)
+//! — the daemon-attached transport serves those for real.
 
 pub mod commands;
+mod event_pump;
 pub mod model_commands;
 pub mod prompt_commands;
 pub mod protocol;
+mod reads;
 pub mod session;
 pub mod session_commands;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use eukhe_core::autonomous::AgentAutonomousConfig;
+use eukhe_core::durable::goals::{
+    autonomous_state, seed_initial_goal, set_autonomous, AutonomousChange,
+};
 use serde_json::Value;
 use tokio::io::AsyncBufReadExt;
 
 use protocol::{ParsedLine, RpcCommand};
-use session::{RpcEngineFactory, RpcEngineHandle, RpcSession};
+use reads::rpc_context;
+use session::{ConnectionOutputs, RpcEngineFactory, RpcSession};
 
 /// Everything the composition root hands the mode.
 pub struct RpcOptions {
-    /// The assembled engine the connection adopts first.
-    pub engine: RpcEngineHandle,
-    /// The whole-session replacement seam (`new_session` /
-    /// `switch_session` / `fork`), when wired.
-    pub engine_factory: Option<RpcEngineFactory>,
-    /// The session's cwd (the engine replacement reads it).
-    pub cwd: std::path::PathBuf,
-    /// The agent dir (model registry auth, refinement history).
-    pub agent_dir: std::path::PathBuf,
-    /// The CLI autonomous flags seeding the host-owned autonomous state
-    /// (TS `createAgentSession` parity; `None` starts disabled).
-    pub autonomous_config: Option<eukhe_core::autonomous::AgentAutonomousConfig>,
+    /// The session assembly: opens the startup session
+    /// ([`session::RpcEngineRequest::Startup`]) and every whole-session
+    /// replacement (`new_session` / `switch_session` / `fork`).
+    pub engine_factory: RpcEngineFactory,
+    /// The CLI autonomous flags: enabled on the startup session's main
+    /// conversation unless it already runs autonomously.
+    pub autonomous_config: Option<AgentAutonomousConfig>,
+    /// The CLI `--goal` seed (objective, token budget) for the startup
+    /// session's main conversation.
+    pub initial_goal: Option<(String, Option<u64>)>,
 }
 
 /// The ordered stdout writer: one queue for responses and events, in
@@ -75,6 +79,9 @@ impl LineWriter {
             while let Some(frame) = rx.recv().await {
                 if let Ok(mut line) = serde_json::to_string(&frame) {
                     line.push('\n');
+                    // A broken stdout pipe has no reader left to tell;
+                    // the frames retire so the exit drains never wait on
+                    // it.
                     let _ = stdout.write_all(line.as_bytes()).await;
                     let _ = stdout.flush().await;
                 }
@@ -84,10 +91,26 @@ impl LineWriter {
         Self { tx, pending }
     }
 
+    /// A writer over a channel instead of stdout (the in-crate tests read
+    /// the frames back).
+    #[cfg(test)]
+    pub(crate) fn channel() -> (Self, tokio::sync::mpsc::UnboundedReceiver<Value>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        let writer = Self {
+            tx,
+            pending: Arc::new(AtomicUsize::new(0)),
+        };
+        (writer, rx)
+    }
+
     /// Queue one frame (serializeJsonLine: LF-only framing).
     pub fn write(&self, frame: Value) {
         self.pending.fetch_add(1, Ordering::SeqCst);
-        let _ = self.tx.send(frame);
+        if self.tx.send(frame).is_err() {
+            // The writer task is gone (the runtime is shutting down):
+            // nothing will write the frame, so it must not hold a drain.
+            self.pending.fetch_sub(1, Ordering::SeqCst);
+        }
     }
 
     /// Wait until the writer task has written every queued frame (the
@@ -105,22 +128,7 @@ impl LineWriter {
     /// must fire even against a stalled reader, so the wait is bounded
     /// (a broken or slow pipe retires after the deadline).
     pub async fn drain_bounded(&self) {
-        self.drain_within(std::time::Duration::from_secs(2)).await;
-    }
-
-    /// Wait until the writer task has written every queued frame, giving
-    /// up once `budget` elapses. A frame queued right before a
-    /// non-yielding CPU span would otherwise sit unflushed behind it
-    /// (the writer task cannot run until the executor next polls), so a
-    /// transport that publishes a frame ahead of such a span flushes
-    /// first — TS writes stdout frames synchronously at the emit, and
-    /// the queue's deferral is the only thing that makes the frame late.
-    /// The budget keeps a stalled reader (a full pipe) from wedging the
-    /// command behind it: TS never blocks a command on the reader, so
-    /// the wait retires at the deadline and the writer task keeps its
-    /// queue.
-    pub async fn drain_within(&self, budget: std::time::Duration) {
-        let deadline = std::time::Instant::now() + budget;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while self.pending.load(Ordering::SeqCst) > 0 {
             if std::time::Instant::now() >= deadline {
                 return;
@@ -129,17 +137,6 @@ impl LineWriter {
         }
     }
 }
-
-/// The compaction paths' frame-flush budget: after queueing
-/// `compaction_start` and before entering the compaction's pre-
-/// summarizer CPU span, the handler waits for the writer task to flush
-/// the frame (the span runs to the first `await` without an executor
-/// yield, so the queued frame would otherwise reach the client only
-/// when the span ends). The budget is sized far above a healthy pipe
-/// write (microseconds) and far below the command's own wall, and only
-/// binds against a reader that stopped draining its pipe.
-pub(crate) const COMPACT_FRAME_FLUSH_BUDGET: std::time::Duration =
-    std::time::Duration::from_millis(50);
 
 /// The signal exit codes (TS `runRpcModeWithConnectionInternal`).
 const SIGTERM_EXIT: i32 = 143;
@@ -156,118 +153,90 @@ fn exit_with(code: i32) -> ! {
     std::process::exit(code);
 }
 
-/// The async entry: serve the RPC stdio mode until stdin closes or a
-/// signal exits. Returns the process exit code.
+/// The async entry: open the startup session through the factory, seed
+/// the CLI goal/autonomous state, and serve the RPC stdio mode until stdin
+/// closes or a signal exits. Returns the process exit code.
 ///
 /// # Errors
 ///
-/// Returns an error when the tokio runtime cannot be built; the transport
-/// itself never errors out of the loop (protocol failures answer on
-/// stdout, TS parity).
+/// The startup session cannot open (the factory's error, before any
+/// frame is written), or the CLI goal/autonomous seed fails. The
+/// transport itself never errors out of the loop (protocol failures
+/// answer on stdout, TS parity).
 pub async fn run_rpc_mode(options: RpcOptions) -> anyhow::Result<i32> {
     let writer = LineWriter::spawn();
-    let initial_goal = options.engine.engine.goal_state().await;
-    let session =
-        Arc::new(RpcSession::adopt(options.engine, options.engine_factory, writer.clone()).await);
+    let session = RpcSession::start(
+        options.engine_factory,
+        ConnectionOutputs::new(writer.clone()),
+    )
+    .await
+    .map_err(anyhow::Error::msg)?;
+    seed_startup_state(&session, options.initial_goal, options.autonomous_config).await?;
+    let session = Arc::new(session);
     let state = Arc::new(commands::RpcState {
         session: Arc::clone(&session),
         writer: writer.clone(),
-        cwd: options.cwd,
-        agent_dir: options.agent_dir.clone(),
-        compacting: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-        autonomous: Arc::new(tokio::sync::Mutex::new(
-            eukhe_core::autonomous::create_autonomous_runtime_state(
-                options.autonomous_config.as_ref(),
-                None,
-            ),
-        )),
-        last_goal: Arc::new(tokio::sync::Mutex::new(initial_goal)),
-        queue_pump: Arc::new(tokio::sync::Mutex::new(())),
-        pump_suspended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        model_ops: Arc::new(tokio::sync::Mutex::new(())),
-        session_ops: Arc::new(tokio::sync::Mutex::new(())),
+        model_ops: tokio::sync::Mutex::new(()),
+        session_ops: tokio::sync::Mutex::new(()),
     });
-    // TS session boot resolves the initial model through
-    // `refreshAvailableModels`, which also fetches the live Prime
-    // Inference catalog in the background and caches it on disk; the
-    // daemon worker fires the same refresh from its create path
-    // (worker/create.rs). The RPC mode hosts the session in-process
-    // with no create command, so without this spawn the FIRST
-    // `get_available_models` call would pay the whole awaited refresh
-    // chain (catalog fetches + cache writes) on its response path; with
-    // it, the caches warm during the session's first turn and the
-    // command serves the same snapshot the daemon surface serves.
-    tokio::spawn(async move {
-        let auth = eukhe_core::auth::AuthStorage::create(&options.agent_dir);
-        let mut registry =
-            eukhe_core::models::ModelRegistry::create(auth, options.agent_dir.join("models.json"));
-        let _ = registry.refresh_available_models().await;
-    });
-    spawn_signal_handlers(&session, writer.clone());
+    spawn_signal_handlers(&session, &writer);
     Ok(serve_stdin(state).await)
 }
 
+/// The CLI `--goal` seed and the CLI autonomous flags on the startup
+/// session's main conversation (TS `createAgentSession` parity).
+async fn seed_startup_state(
+    session: &RpcSession,
+    initial_goal: Option<(String, Option<u64>)>,
+    autonomous_config: Option<AgentAutonomousConfig>,
+) -> anyhow::Result<()> {
+    let opened = session.session().await;
+    let main = opened.main().id();
+    let cx = rpc_context();
+    if let Some((objective, token_budget)) = initial_goal {
+        seed_initial_goal(opened.harness(), main, &objective, token_budget, &cx).await?;
+    }
+    if let Some(config) = autonomous_config {
+        if !autonomous_state(opened.harness(), main, &cx).await?.enabled {
+            set_autonomous(opened.harness(), main, AutonomousChange::On(config), &cx).await?;
+        }
+    }
+    Ok(())
+}
+
 /// SIGTERM exits 143, SIGHUP 129 (the TS mode handles exactly this
-/// pair): abort the running turn, settle it, dispose the kernel, drain
+/// pair): abort the running turn, settle it, close the session, drain
 /// the queued frames, exit.
-fn spawn_signal_handlers(session: &Arc<RpcSession>, writer: LineWriter) {
+fn spawn_signal_handlers(session: &Arc<RpcSession>, writer: &LineWriter) {
     use tokio::signal::unix::{signal, SignalKind};
-    let terminate_session = Arc::clone(session);
-    let terminate_writer = writer.clone();
-    tokio::spawn(async move {
-        if let Ok(mut stream) = signal(SignalKind::terminate()) {
+    for (kind, code) in [
+        (SignalKind::terminate(), SIGTERM_EXIT),
+        (SignalKind::hangup(), SIGHUP_EXIT),
+    ] {
+        let session = Arc::clone(session);
+        let writer = writer.clone();
+        tokio::spawn(async move {
+            let Ok(mut stream) = signal(kind) else {
+                return;
+            };
             stream.recv().await;
             // Fire the shutdown broadcast FIRST: a replacement mid-settle
-            // aborts the turn and refuses instead of holding the lease
-            // across the model's runtime, so the exit never queues
-            // behind new_session/switch_session/fork.
-            terminate_session.fire_shutdown();
-            // Serialize with any in-flight whole-session replacement:
-            // the lease holds until the exit, so the handle read below
-            // sees the session that is live NOW and no replacement can
-            // swap under the abort/dispose.
-            let _replacement = terminate_session.replacement_lease().await;
-            let engine = terminate_session.handle().await.engine.clone();
-            // Retire the queued-input pumps BEFORE the abort (the dispose
-            // bumps again — idempotent): the bump closes the admission
-            // window — every delivery that starts after it self-retires
-            // at the pump's per-batch generation check, and the delivery
-            // already running is the turn the abort settles — so no
-            // queued row can start a turn the exit's wait_for_idle would
-            // then have to wait out.
-            terminate_session.retire_pumps();
-            engine.session.agent().abort();
-            terminate_session.dispose().await;
-            terminate_writer.drain_bounded().await;
-            exit_with(SIGTERM_EXIT);
-        }
-    });
-    let hangup_session = Arc::clone(session);
-    let hangup_writer = writer;
-    tokio::spawn(async move {
-        if let Ok(mut stream) = signal(SignalKind::hangup()) {
-            stream.recv().await;
-            // Fire the shutdown broadcast FIRST (the settle racing this
-            // exit aborts and refuses instead of holding the lease).
-            hangup_session.fire_shutdown();
-            // Serialize with any in-flight whole-session replacement
-            // (the lease holds until the exit): the abort and the
-            // dispose target the session that is live NOW.
-            let _replacement = hangup_session.replacement_lease().await;
-            let engine = hangup_session.handle().await.engine.clone();
-            // Retire the queued-input pumps BEFORE the abort (the dispose
-            // bumps again — idempotent): the bump closes the admission
-            // window — every delivery that starts after it self-retires
-            // at the pump's per-batch generation check, and the delivery
-            // already running is the turn the abort settles — so the exit
-            // never waits out a turn a rearmed pump admitted.
-            hangup_session.retire_pumps();
-            engine.session.agent().abort();
-            hangup_session.dispose().await;
-            hangup_writer.drain_bounded().await;
-            exit_with(SIGHUP_EXIT);
-        }
-    });
+            // refuses instead of holding the lease across the model's
+            // runtime, so the exit never queues behind
+            // new_session/switch_session/fork.
+            session.fire_shutdown();
+            // Serialize with any in-flight replacement: the lease holds
+            // until the exit, so the abort and the close target the
+            // session that is live NOW.
+            let _replacement = session.replacement_lease().await;
+            if let Err(error) = session.abort().await {
+                eprintln!("eukhe-daemon: rpc signal abort failed: {error}");
+            }
+            session.dispose().await;
+            writer.drain_bounded().await;
+            exit_with(code);
+        });
+    }
 }
 
 /// The stdin loop: parse every line, dispatch commands concurrently
@@ -275,9 +244,7 @@ fn spawn_signal_handlers(session: &Arc<RpcSession>, writer: LineWriter) {
 async fn serve_stdin(state: Arc<commands::RpcState>) -> i32 {
     // TS `promptCommandTail`: prompt commands chain on their stdin-order
     // predecessor — the chain hands each prompt the previous prompt's
-    // completion, so execution and response order follow the read order
-    // (the spawned tasks' scheduling order is not the guarantee, exactly
-    // the TS tail's role).
+    // completion, so execution and response order follow the read order.
     let mut prompt_tail: Option<tokio::sync::oneshot::Receiver<()>> = None;
     // The in-flight handlers EOF waits for (TS `pendingInputHandlers`).
     let mut pending = tokio::task::JoinSet::new();
@@ -304,23 +271,21 @@ async fn serve_stdin(state: Arc<commands::RpcState>) -> i32 {
                 }
                 pending.spawn(async move {
                     if let Some(previous) = previous {
+                        // A dropped predecessor (its task panicked) still
+                        // releases the chain.
                         let _ = previous.await;
                     }
                     dispatch_one(state, command).await;
+                    // The successor may already be gone (EOF dropped it).
                     let _ = done_tx.send(());
                 });
             }
         }
     }
-    // stdin closed: settle the in-flight handlers, wait the session
-    // idle, dispose, drain the queued frames, exit 0 (TS `onInputEnd`).
+    // stdin closed: settle the in-flight handlers, wait the session idle,
+    // close it, drain the queued frames, exit 0 (TS `onInputEnd`).
     while pending.join_next().await.is_some() {}
-    // Serialize with any in-flight queued-input pump before the settle
-    // (dispose retires the pumps; the lane ensures none is mid-delivery).
-    {
-        let _pump = state.queue_pump.lock().await;
-        state.session.dispose().await;
-    }
+    state.session.dispose().await;
     state.writer.drain().await;
     0
 }
@@ -335,11 +300,12 @@ async fn dispatch_one(state: Arc<commands::RpcState>, command: RpcCommand) {
         state.writer.write(response);
         return;
     }
-    state.session.set_prompt_response_pending(true).await;
+    let outputs = state.session.outputs();
+    outputs.arm();
     let response = commands::handle_command(&state, command).await;
     // The response writes while the buffer stays armed (TS `output` of
     // the response precedes the buffered events); the flush then
     // disarms and emits them in arrival order.
     state.writer.write(response);
-    state.session.flush_connection_events().await;
+    outputs.flush();
 }

@@ -3,6 +3,8 @@
 //! add/subtract folds, and the own/total + by-model attribution computations;
 //! the unit battery rides inline.
 use super::{json, ModelRegistry, Value};
+use eukhe_durable::harness::usage::{add_usage as add_ledger_usage, UsageState};
+use eukhe_types::pi_ai::Usage;
 
 /// The worker's model registry (auth storage + `models.json`, with the
 /// on-disk private-authorization cache adopted so create-time resolution
@@ -32,8 +34,38 @@ pub(crate) fn empty_usage() -> Value {
     })
 }
 
+/// The wire form of a durable `Usage` (the TS `Usage` shape: token
+/// counters, `totalTokens`, and the `cost` block).
+fn wire_usage(usage: &Usage) -> Value {
+    serde_json::to_value(usage).unwrap_or_else(|_| empty_usage())
+}
+
+/// A conversation's own spend from its `pi.usage` ledger: every bucket
+/// summed (`ownUsage`), and the per-model breakdown (`ownUsageByModel`,
+/// first-seen order, keyed `provider/modelId`) when every spend names its
+/// model. Tool-result spend carries no model identity, so a ledger with
+/// tool usage omits the breakdown: buckets that cannot add up to the
+/// node's total are worse than none.
+pub(crate) fn ledger_usage(state: &UsageState) -> (Value, Option<Vec<Value>>) {
+    let mut own = Usage::default();
+    for usage in state.models.values().chain(state.tools.values()) {
+        add_ledger_usage(&mut own, usage);
+    }
+    let by_model = state.tools.is_empty().then(|| {
+        state
+            .models
+            .iter()
+            .map(|(key, usage)| {
+                let (provider, model_id) = key.split_once('/').unwrap_or((key.as_str(), ""));
+                json!({ "provider": provider, "id": model_id, "ownUsage": wire_usage(usage) })
+            })
+            .collect()
+    });
+    (wire_usage(&own), by_model)
+}
+
 /// TS `addAssistantUsage`: fold one usage block into a running total.
-fn add_usage(total: &mut Value, usage: &Value) {
+pub(crate) fn add_usage(total: &mut Value, usage: &Value) {
     let add_field = |total: &mut Value, field: &str, usage: &Value| {
         let current = total.get(field).and_then(Value::as_u64).unwrap_or(0);
         let add = usage.get(field).and_then(Value::as_u64).unwrap_or(0);

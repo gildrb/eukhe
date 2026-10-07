@@ -74,6 +74,10 @@ impl SupervisorChildSessionsInner {
         spawned_by_request_id: Option<&str>,
         runtime_metadata: Option<Value>,
         identity: &ParentIdentity,
+        // The session id the child must persist under (the durable child
+        // task derives it, so a rerun finds the same child); `None` lets
+        // the worker mint one.
+        requested_session_id: Option<&str>,
     ) -> Result<CreatedChild> {
         let mut config = json!({
             "cwd": cwd,
@@ -81,6 +85,9 @@ impl SupervisorChildSessionsInner {
             "rlmDepth": depth,
             "rlmMaxDepth": identity.rlm_max_depth,
         });
+        if let Some(session_id) = requested_session_id {
+            config["sessionId"] = json!(session_id);
+        }
         if let Some((provider, id)) = model.split_once('/') {
             config["provider"] = json!(provider);
             config["model"] = json!(id);
@@ -178,6 +185,7 @@ impl SupervisorChildSessionsInner {
                 /*spawned_by_request_id*/ None,
                 runtime_metadata,
                 identity,
+                /*requested_session_id*/ None,
             )
             .await?;
         // A failed prompt tears the just-created session down (TS kills the
@@ -326,7 +334,7 @@ impl SupervisorChildSessionsInner {
     }
 
     /// The child's final answer text, compacted for the roster preview.
-    async fn child_answer(&self, active_session_id: &str) -> Result<Option<String>> {
+    pub(super) async fn child_answer(&self, active_session_id: &str) -> Result<Option<String>> {
         let command = DaemonCommand::GetLastAssistantText {
             id: None,
             active_session_id: active_session_id.to_string(),

@@ -1,13 +1,21 @@
 //! The custom-message & session-command surface (protocol breadth wave
 //! b4): the worker arms for `append_custom_message`, `restore_next_turn`,
-//! `restore_actions`, `refine`, and `reload`
-//! (TS daemon-mode cases). Wire contracts are TS-verbatim; the durable rows
-//! and broadcasts go through the same paths the turn runner uses.
+//! `restore_actions`, `refine`, and `reload` (TS daemon-mode cases). Wire
+//! contracts are TS-verbatim. Custom rows are `eukhe.custom` write
+//! submissions on the main conversation (the event bridge broadcasts their
+//! `message_start`/`message_end`); restored actions are input submissions
+//! keyed by their action id, so a repeated restore never queues twice.
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::custom_entry_draft;
+use eukhe_core::durable::rlm::{refine_now, RefineRequest};
+use eukhe_durable::harness::types::{WhenBusy, WriteSubmissionDraft};
+use eukhe_durable::harness::Conversation;
+use eukhe_types::pi_ai::UserContent;
 use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
-use crate::worker::Worker;
+use crate::worker::{parse_prompt_images, submit_input, InputRequest, Worker};
 
 /// The session-action recovery snapshot format this port restores (TS
 /// `SESSION_ACTION_RECOVERY_FORMAT_VERSION`).
@@ -15,12 +23,13 @@ const SESSION_ACTION_RECOVERY_FORMAT_VERSION: u64 = 1;
 
 impl Worker {
     /// `append_custom_message { message }` (TS `session.sendCustomMessage`
-    /// default path): append the custom row durably, then broadcast its
-    /// `message_start`/`message_end` pair.
-    pub(crate) fn handle_append_custom_message(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("append_custom_message") {
-            return response;
-        }
+    /// default path): append the custom row durably; the event bridge
+    /// broadcasts its `message_start`/`message_end` pair.
+    pub(crate) async fn handle_append_custom_message(&self, payload: &Value) -> DaemonResponse {
+        let hosted = match self.hosted("append_custom_message") {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
         let Some(message) = custom_message_value(payload.get("message")) else {
             return response_failure(
                 None,
@@ -29,18 +38,28 @@ impl Worker {
                 None,
             );
         };
-        self.emit_custom_row(&message);
-        response_success(None, "append_custom_message", None)
+        let written = async {
+            let main = hosted.main()?;
+            write_custom_row(&main, &message).await
+        }
+        .await;
+        match written {
+            Ok(()) => response_success(None, "append_custom_message", None),
+            Err(error) => {
+                response_failure(None, "append_custom_message", &format!("{error:#}"), None)
+            }
+        }
     }
 
     /// `restore_next_turn { messages }` (TS
-    /// `restorePendingNextTurnMessages`): park the custom rows; the next
-    /// delivered turn replays them as prefix rows, in order, before the
-    /// accepted prompt.
-    pub(crate) fn handle_restore_next_turn(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("restore_next_turn") {
-            return response;
-        }
+    /// `restorePendingNextTurnMessages`): the custom rows land, in order,
+    /// before the next delivered turn's prompt — written now when the
+    /// conversation is idle, else queued in the inbox for the next boundary.
+    pub(crate) async fn handle_restore_next_turn(&self, payload: &Value) -> DaemonResponse {
+        let hosted = match self.hosted("restore_next_turn") {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
         let Some(messages) = payload.get("messages").and_then(Value::as_array) else {
             return response_failure(
                 None,
@@ -61,19 +80,31 @@ impl Worker {
             };
             rows.push(row);
         }
-        self.core.lock().unwrap().pending_next_turn.extend(rows);
-        response_success(None, "restore_next_turn", None)
+        let written = async {
+            let main = hosted.main()?;
+            for row in &rows {
+                write_custom_row(&main, row).await?;
+            }
+            anyhow::Ok(())
+        }
+        .await;
+        match written {
+            Ok(()) => response_success(None, "restore_next_turn", None),
+            Err(error) => response_failure(None, "restore_next_turn", &format!("{error:#}"), None),
+        }
     }
 
     /// `restore_actions { snapshot }` (TS `restoreSessionActions`): the
     /// crash-recovery snapshot of queued session actions. The TS-verbatim
-    /// validation errors fail the command; every restored action lands in
-    /// its delivery lane (steering for `next_turn_boundary`, follow-up
-    /// for `when_run_idle`) and the response carries the restored count.
-    pub(crate) fn handle_restore_actions(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("restore_actions") {
-            return response;
-        }
+    /// validation errors fail the command; every restored action is
+    /// admitted on its delivery lane (steer for `next_turn_boundary`,
+    /// follow-up for `when_run_idle`) under the request id
+    /// `restored-action:<id>`, and the response carries the restored count.
+    pub(crate) async fn handle_restore_actions(&self, payload: &Value) -> DaemonResponse {
+        let hosted = match self.hosted("restore_actions") {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
         let Some(snapshot) = payload.get("snapshot").and_then(Value::as_object) else {
             return response_failure(
                 None,
@@ -162,125 +193,56 @@ impl Worker {
                 }
             }
         }
-        // Restore pass: each action lands in its delivery lane (TS
-        // `_deliveryPolicy`: `next_turn_boundary` is the steering
-        // schedule, `when_run_idle` the follow-up one).
-        let restored = {
-            let mut core = self.core.lock().unwrap();
-            for action in actions {
-                let payload = action.get("payload").unwrap_or(&Value::Null);
-                let lane_follow_up =
-                    action.get("delivery").and_then(Value::as_str) != Some("next_turn_boundary");
-                let item = crate::worker::QueuedItem {
-                    priority: match action.get("priority").and_then(Value::as_str) {
-                        Some("pinned") => crate::worker::QueuePriority::Pinned,
-                        Some("user") => crate::worker::QueuePriority::Human,
-                        Some(_) => crate::worker::QueuePriority::Background,
-                        None if payload
-                            .get("customMessage")
-                            .is_some_and(|message| !message.is_null())
-                            || eukhe_core::session_engine::agent_messaging::is_agent_session_message_id(
-                                action.get("agentMessageId").and_then(Value::as_str),
-                            )
-                            || !matches!(
-                                action.get("source").and_then(Value::as_str),
-                                Some("interactive" | "rpc")
-                            ) =>
-                        {
-                            crate::worker::QueuePriority::Background
-                        }
-                        _ => crate::worker::QueuePriority::Human,
-                    },
-                    // TS `restoreSessionActions` restores the labeled
-                    // preview with the payload (`...(recovered.payload.preview
-                    // ? { preview: recovered.payload.preview } : {})`), so
-                    // a restored heartbeat keeps its `Heartbeat prompt:`
-                    // queue row instead of falling back to the lane-labeled
-                    // raw text.
-                    // TS truthiness (`...(recovered.payload.preview ? {
-                    // preview: recovered.payload.preview } : {})`):
-                    // an empty-string preview restores as `None`, so the
-                    // queue row falls back to the action's text instead of
-                    // rendering blank.
-                    preview: payload
-                        .get("preview")
-                        .and_then(Value::as_str)
-                        .filter(|preview| !preview.is_empty())
-                        .map(str::to_string),
-                    message: payload
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    custom_message: payload
-                        .get("customMessage")
-                        .filter(|message| !message.is_null())
-                        .cloned(),
-                    agent_message: None,
-                    // TS `restoreSessionActions` restores the action's
-                    // queue key (`...(recovered.queueKey ? { queueKey:
-                    // recovered.queueKey } : {})`), so a restored
-                    // heartbeat keeps its `heartbeat:<id>` replace-
-                    // instead-of-stack addressing.
-                    queue_key: action
-                        .get("queueKey")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                    admission_id: None,
-                    images: crate::worker::parse_prompt_images(payload),
-                    done: None,
-                    // TS restores the action's own visibility flag
-                    // (`queueVisible: action.payload.queueVisible`);
-                    // the stored default is visible.
-                    queue_visible: payload
-                        .get("queueVisible")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(true),
-                    // TS restores the action's execution policy
-                    // (`executionPolicy`): the batch-gathering class maps
-                    // from its shape — `nextTurnContextTiming` "commit"
-                    // is the client-queued policy, "preparation" is the
-                    // direct-prompt hand-off. An absent policy restores
-                    // as the dominant queued class.
-                    policy: crate::worker::restored_turn_policy(payload),
-                    forced_batch: false,
-                };
-                if lane_follow_up {
-                    core.follow_up.push_back(item);
-                } else {
-                    core.steering.push_back(item);
-                }
+        let main = match hosted.main() {
+            Ok(main) => main,
+            Err(error) => {
+                return response_failure(None, "restore_actions", &error.to_string(), None)
             }
-            actions.len()
         };
-        // TS records the worker recovery state once per successful restore
-        // with busy=true: restored lanes are undelivered live work. The
-        // claim must be true — the lane snapshot rides the same locked
-        // read as the verdict (one checkpoint), so a revived worker
-        // replays them and a concurrent queue clear cannot leave a
-        // stale snapshot behind.
-        if restored > 0 {
-            self.checkpoint_queue(crate::worker::QueueCheckpoint::Admitted {
-                operation: "actions_restored",
-            });
-            self.work_notify.notify_one();
+        for action in actions {
+            let id = action.get("id").and_then(Value::as_str).unwrap_or_default();
+            let payload = action.get("payload").unwrap_or(&Value::Null);
+            let request = InputRequest {
+                text: payload
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                images: parse_prompt_images(payload),
+                custom_row: payload
+                    .get("customMessage")
+                    .filter(|message| !message.is_null())
+                    .cloned(),
+                when_busy: if action.get("delivery").and_then(Value::as_str)
+                    == Some("next_turn_boundary")
+                {
+                    WhenBusy::Steer
+                } else {
+                    WhenBusy::FollowUp
+                },
+                request_id: Some(format!("restored-action:{id}")),
+            };
+            if let Err(error) = submit_input(&main, &request, &BACKGROUND_CONTEXT).await {
+                return response_failure(None, "restore_actions", &format!("{error:#}"), None);
+            }
         }
         response_success(
             None,
             "restore_actions",
-            Some(json!({ "restored": restored })),
+            Some(json!({ "restored": actions.len() })),
         )
     }
 
     /// `refine { instructions?, rollbackId?, global? }` (TS
-    /// `session.refine`): run the refinement (plan, apply, persist the
-    /// harness state), emit the durable outcome and notice rows, and
-    /// answer the `RefinementResult`.
+    /// `session.refine`): run the refinement on the main conversation
+    /// (plan, apply, persist the harness state, commit the audit, outcome
+    /// and notice rows) and answer the `RefinementResult`.
     pub(crate) async fn handle_refine(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("refine") {
-            return response;
-        }
-        let options = eukhe_core::session_engine::refine::RefineOptions {
+        let hosted = match self.hosted("refine") {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        let request = RefineRequest {
             instructions: payload
                 .get("instructions")
                 .and_then(Value::as_str)
@@ -294,56 +256,69 @@ impl Worker {
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
         };
-        let engine = std::sync::Arc::clone(&self.engine);
-        let result = tokio::task::spawn_blocking(move || engine.run_refinement(options))
-            .await
-            .unwrap_or_else(|error| Err(anyhow::anyhow!("refinement task failed: {error}")));
-        let result = match result {
-            Ok(result) => result,
-            Err(error) => {
-                return response_failure(None, "refine", &format!("{error:#}"), None);
-            }
-        };
-        // The refinement's durable rows: the TUI outcome, plus the
-        // model-facing notice when edits applied (TS emits both through
-        // the session's row flow).
-        if let Ok(typed) =
-            serde_json::from_value::<eukhe_core::refinement::RefinementResult>(result.clone())
-        {
-            let outcome =
-                eukhe_core::session_engine::refine::create_refinement_outcome_message(&typed);
-            if let Ok(value) =
-                serde_json::to_value(eukhe_types::session::AgentMessage::Custom(outcome))
-            {
-                self.emit_custom_row(&value);
-            }
-            if typed.applied_edits.iter().any(|edit| edit.applied) {
-                let notice = eukhe_core::session_engine::refine::create_refinement_notice_message(
-                    &typed,
-                    eukhe_core::session_engine::refine::RefinementSource::User,
-                );
-                if let Ok(value) =
-                    serde_json::to_value(eukhe_types::session::AgentMessage::Custom(notice))
-                {
-                    self.emit_custom_row(&value);
-                }
-            }
+        let refined = async {
+            let main = hosted.main()?;
+            refine_now(hosted.deps(), &main, request, &BACKGROUND_CONTEXT).await
         }
-        response_success(None, "refine", Some(result))
+        .await;
+        match refined {
+            Ok(result) => {
+                hosted.events_delivered().await;
+                response_success(
+                    None,
+                    "refine",
+                    Some(serde_json::to_value(&result).unwrap_or(Value::Null)),
+                )
+            }
+            Err(error) => response_failure(None, "refine", &format!("{error:#}"), None),
+        }
     }
 
     /// `reload` (TS `session.reload`): re-read the session's live inputs —
     /// settings, provider auth, and the MCP user-server config. This port
-    /// resolves each of those per use (settings on every read, auth on
-    /// every model resolution, MCP user servers on every store resolve), so
-    /// the reload's observable state is already fresh and the command is
-    /// the TS success with no extra work to perform.
+    /// resolves each of those per use (the settings source reloads on file
+    /// change, auth on every model resolution, MCP user servers on every
+    /// store resolve), so the reload's observable state is already fresh and
+    /// the command is the TS success with no extra work to perform.
     pub(crate) fn handle_reload(&self) -> DaemonResponse {
         if let Err(response) = self.require_created("reload") {
             return response;
         }
         response_success(None, "reload", None)
     }
+}
+
+/// Write one wire custom row (`custom_message_value` shape) as an
+/// `eukhe.custom` entry on `conversation`: at once when idle, else at the
+/// next boundary.
+async fn write_custom_row(conversation: &Conversation, row: &Value) -> anyhow::Result<()> {
+    let custom_type = row
+        .get("customType")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let content: UserContent =
+        serde_json::from_value(row.get("content").cloned().unwrap_or(Value::Null))?;
+    let display = row.get("display").and_then(Value::as_bool).unwrap_or(true);
+    let details = row
+        .get("details")
+        .cloned()
+        .filter(|details| !details.is_null());
+    let timestamp = row
+        .get("timestamp")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(crate::util::now_ms);
+    let entry = custom_entry_draft(custom_type, content, display, details, timestamp)?;
+    conversation
+        .submit(
+            WriteSubmissionDraft {
+                request_id: None,
+                entry,
+            },
+            &BACKGROUND_CONTEXT,
+        )
+        .await?;
+    Ok(())
 }
 
 /// The wire `CustomMessage` form (TS `Pick<CustomMessage, "customType" |
@@ -375,575 +350,4 @@ fn custom_message_value(message: Option<&Value>) -> Option<Value> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::sync::Arc;
-
-    async fn created_worker() -> Arc<Worker> {
-        let dir = std::env::temp_dir().join(format!("pa-worker-sc-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let config = crate::worker::WorkerConfig {
-            socket_path: dir.join("worker.sock"),
-            supervisor_socket_path: std::path::PathBuf::new(),
-            token: "token".to_string(),
-            worker_instance_id: String::new(),
-            active_session_id: "custom-session".to_string(),
-            agent_dir: dir.join("agent"),
-            recovery_journal_path: dir.join("recovery.jsonl"),
-            telemetry_disabled: None,
-            script: Some(json!({ "responses": ["ack"] })),
-        };
-        let worker = Arc::new(Worker::new(config, None));
-        let created = worker
-            .dispatch(
-                "create",
-                &json!({ "noSession": true, "cwd": "/tmp", "name": "custom" }),
-            )
-            .await;
-        assert!(created.success, "create failed: {created:?}");
-        worker
-    }
-
-    fn custom_entries(worker: &Worker) -> Vec<(String, Value)> {
-        let core = worker.core.lock().unwrap();
-        core.store
-            .as_ref()
-            .map(|store| {
-                store
-                    .entries()
-                    .iter()
-                    .filter(|entry| entry.type_ == "custom_message")
-                    .map(|entry| {
-                        (
-                            entry
-                                .fields
-                                .get("customType")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_string(),
-                            entry.fields.get("content").cloned().unwrap_or(Value::Null),
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    /// `append_custom_message` records the durable custom row (the TS
-    /// `sendCustomMessage` default path) and rejects malformed messages.
-    #[tokio::test]
-    async fn append_custom_message_records_the_row() {
-        let worker = created_worker().await;
-        let response = worker
-            .dispatch(
-                "append_custom_message",
-                &json!({
-                    "activeSessionId": "custom-session",
-                    "message": {
-                        "customType": "notice",
-                        "content": "hello row",
-                        "display": true,
-                        "details": { "why": "test" },
-                    },
-                }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        let rows = custom_entries(&worker);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].0, "notice");
-        assert_eq!(rows[0].1, json!("hello row"));
-
-        for bad in [
-            json!({ "activeSessionId": "custom-session" }),
-            json!({ "activeSessionId": "custom-session", "message": { "customType": 3 } }),
-            json!({ "activeSessionId": "custom-session", "message": { "customType": "x" } }),
-        ] {
-            let response = worker.dispatch("append_custom_message", &bad).await;
-            assert!(!response.success, "must reject: {bad}");
-        }
-    }
-
-    /// `restore_next_turn` parks the rows and the next delivered turn
-    /// replays them first (TS `prefixMessages` order).
-    #[tokio::test]
-    async fn restore_next_turn_replays_before_the_next_prompt() {
-        let worker = created_worker().await;
-        let response = worker
-            .dispatch(
-                "restore_next_turn",
-                &json!({
-                    "activeSessionId": "custom-session",
-                    "messages": [
-                        { "customType": "pending", "content": "first", "display": true },
-                        { "customType": "pending", "content": "second", "display": true },
-                    ],
-                }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        assert_eq!(custom_entries(&worker).len(), 0, "parked, not appended");
-
-        let _ = worker
-            .dispatch(
-                "prompt_and_wait",
-                &json!({ "activeSessionId": "custom-session", "message": "go" }),
-            )
-            .await;
-        let rows = custom_entries(&worker);
-        assert_eq!(
-            rows,
-            vec![
-                ("pending".to_string(), json!("first")),
-                ("pending".to_string(), json!("second")),
-            ],
-            "parked rows replay with the next turn"
-        );
-
-        let response = worker
-            .dispatch(
-                "restore_next_turn",
-                &json!({ "activeSessionId": "custom-session" }),
-            )
-            .await;
-        assert!(!response.success);
-    }
-
-    /// `restore_actions` restores each action into its delivery lane and
-    /// answers the restored count; the TS-verbatim validation errors fail
-    /// the command without touching the lanes.
-    #[tokio::test]
-    async fn restore_actions_restores_and_validates() {
-        let worker = created_worker().await;
-        let snapshot = |actions: Value| {
-            json!({
-                "activeSessionId": "custom-session",
-                "snapshot": { "formatVersion": 1, "actions": actions },
-            })
-        };
-        let turn = |id: &str, delivery: &str, text: &str| {
-            json!({
-                "id": id,
-                "source": "user",
-                "delivery": delivery,
-                "wake": "wake",
-                "payload": {
-                    "kind": "turn",
-                    "text": text,
-                    "records": [
-                        { "id": format!("{id}-r1"), "role": "primary", "message": { "role": "user", "content": text }, "ownerActionId": id },
-                    ],
-                    "executionPolicy": { "preparation": {} },
-                    "queueVisible": true,
-                    "acceptedAgentMessage": false,
-                    "acceptedBeforeCompletion": false,
-                },
-            })
-        };
-        let response = worker
-            .dispatch(
-                "restore_actions",
-                &snapshot(json!([
-                    turn("a1", "when_run_idle", "one"),
-                    turn("a2", "next_turn_boundary", "two")
-                ])),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        assert_eq!(response.data, Some(json!({ "restored": 2 })));
-
-        // Validation failures leave the lanes alone.
-        let lanes_before = {
-            let core = worker.core.lock().unwrap();
-            (
-                core.steering
-                    .iter()
-                    .map(|item| item.message.clone())
-                    .collect::<Vec<_>>(),
-                core.follow_up
-                    .iter()
-                    .map(|item| item.message.clone())
-                    .collect::<Vec<_>>(),
-            )
-        };
-        for (label, bad) in [
-            (
-                "format version",
-                snapshot(json!({ "formatVersion": 2, "actions": [] })),
-            ),
-            (
-                "duplicate id",
-                snapshot(json!([
-                    turn("a1", "when_run_idle", "x"),
-                    turn("a1", "when_run_idle", "y")
-                ])),
-            ),
-            (
-                "correlation",
-                snapshot(json!([turn("b1", "when_run_idle", "z")])),
-            ),
-        ] {
-            // The correlation failure needs a record with a foreign owner.
-            let bad = match label {
-                "correlation" => {
-                    let mut value = snapshot(json!([turn("b1", "when_run_idle", "z")]));
-                    value["snapshot"]["actions"][0]["payload"]["records"][0]["ownerActionId"] =
-                        json!("someone-else");
-                    value
-                }
-                "format version" => json!({
-                    "activeSessionId": "custom-session",
-                    "snapshot": { "formatVersion": 2, "actions": [] },
-                }),
-                _ => bad,
-            };
-            let response = worker.dispatch("restore_actions", &bad).await;
-            assert!(!response.success, "{label} must fail: {response:?}");
-        }
-        let lanes_after = {
-            let core = worker.core.lock().unwrap();
-            (
-                core.steering
-                    .iter()
-                    .map(|item| item.message.clone())
-                    .collect::<Vec<_>>(),
-                core.follow_up
-                    .iter()
-                    .map(|item| item.message.clone())
-                    .collect::<Vec<_>>(),
-            )
-        };
-        assert_eq!(lanes_before, lanes_after, "failed restores change nothing");
-        let expected_error = worker
-            .dispatch(
-                "restore_actions",
-                &json!({
-                    "activeSessionId": "custom-session",
-                    "snapshot": { "formatVersion": 2, "actions": [] },
-                }),
-            )
-            .await;
-        assert_eq!(
-            expected_error.error.as_deref(),
-            Some("Unsupported session action recovery format version: 2")
-        );
-    }
-
-    #[tokio::test]
-    async fn restore_actions_keeps_priority_tags_and_source_fallback() {
-        let worker = created_worker().await;
-        let pause = worker.dispatch("acquire_session_input_pause", &json!({
-            "activeSessionId": "custom-session", "leaseKey": "restore-priority", "clientId": "test"
-        })).await;
-        assert!(pause.success, "pause failed: {pause:?}");
-        let action = |id: &str,
-                      source: &str,
-                      priority: Option<&str>,
-                      agent_id: Option<&str>,
-                      custom: bool| {
-            let mut row = json!({
-                "id": id, "source": source, "delivery": "next_turn_boundary", "wake": "immediate",
-                "payload": { "kind": "turn", "text": id, "records": [], "queueVisible": true }
-            });
-            if let Some(priority) = priority {
-                row["priority"] = json!(priority);
-            }
-            if let Some(agent_id) = agent_id {
-                row["agentMessageId"] = json!(agent_id);
-            }
-            if custom {
-                row["payload"]["customMessage"] = json!({
-                    "role": "custom", "customType": "heartbeat_prompt", "content": id
-                });
-            }
-            row
-        };
-        let mut null_custom = action("null-custom", "rpc", None, None, false);
-        null_custom["payload"]["customMessage"] = Value::Null;
-        let restored = worker
-            .dispatch(
-                "restore_actions",
-                &json!({
-                    "activeSessionId": "custom-session",
-                    "snapshot": { "formatVersion": 1, "actions": [
-                        action("pinned", "internal", Some("pinned"), None, true),
-                        action("user-tag", "internal", Some("user"), None, true),
-                        action("background-tag", "rpc", Some("background"), None, false),
-                        action("custom-fallback", "rpc", None, None, true),
-                        action("agent-id-fallback", "rpc", None, Some("agentmsg_abc"), false),
-                        action("internal-fallback", "internal", None, None, false),
-                        action("synthetic-waiter", "rpc", None, Some("prompt-waiter-1"), false),
-                        action("unknown-priority", "rpc", Some("future_priority"), None, false),
-                        null_custom,
-                    ] }
-                }),
-            )
-            .await;
-        assert!(restored.success, "restore failed: {restored:?}");
-        let core = worker.core.lock().unwrap();
-        assert_eq!(
-            core.steering
-                .iter()
-                .map(|item| item.message.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "pinned",
-                "user-tag",
-                "background-tag",
-                "custom-fallback",
-                "agent-id-fallback",
-                "internal-fallback",
-                "synthetic-waiter",
-                "unknown-priority",
-                "null-custom"
-            ]
-        );
-        assert_eq!(
-            core.steering
-                .iter()
-                .map(|item| item.priority)
-                .collect::<Vec<_>>(),
-            [
-                crate::worker::QueuePriority::Pinned,
-                crate::worker::QueuePriority::Human,
-                crate::worker::QueuePriority::Background,
-                crate::worker::QueuePriority::Background,
-                crate::worker::QueuePriority::Background,
-                crate::worker::QueuePriority::Background,
-                crate::worker::QueuePriority::Human,
-                crate::worker::QueuePriority::Background,
-                crate::worker::QueuePriority::Human,
-            ]
-        );
-    }
-
-    /// The queue-fold anti-spoof on the restore surface: a custom row
-    /// claiming a reserved child-status kind is caller-supplied here, so
-    /// the whole snapshot is refused loudly before any action admits —
-    /// only the daemon-written recovery journal may restore a parked
-    /// reserved-kind row.
-    #[tokio::test]
-    async fn restore_actions_refuses_the_reserved_child_status_kinds() {
-        let worker = created_worker().await;
-        let notice_row = json!({
-            "role": "custom",
-            "customType": "rlm_child_terminal_notice",
-            "content": "[child-exited: no-reply child:lane]",
-        });
-        let snapshot_with_notice = json!({
-            "activeSessionId": "custom-session",
-            "snapshot": {
-                "formatVersion": 1,
-                "actions": [
-                    {
-                        "id": "spoof-1",
-                        "source": "user",
-                        "delivery": "when_run_idle",
-                        "wake": "wake",
-                        "payload": {
-                            "kind": "turn",
-                            "text": "harmless text",
-                            "records": [
-                                { "id": "spoof-1-r1", "role": "primary", "message": { "role": "user", "content": "harmless text" }, "ownerActionId": "spoof-1" },
-                            ],
-                            "customMessage": notice_row,
-                            "executionPolicy": { "preparation": {} },
-                            "queueVisible": true,
-                            "acceptedAgentMessage": false,
-                            "acceptedBeforeCompletion": false,
-                        },
-                    },
-                ],
-            },
-        });
-        let response = worker
-            .dispatch("restore_actions", &snapshot_with_notice)
-            .await;
-        assert!(
-            !response.success,
-            "a restored reserved-kind row must refuse the whole snapshot: {response:?}"
-        );
-        assert!(
-            response
-                .error
-                .as_deref()
-                .unwrap_or_default()
-                .contains("reserved for daemon-injected RLM child status notices"),
-            "the rejection names the reserved kinds: {response:?}"
-        );
-        let lanes = {
-            let core = worker.core.lock().unwrap();
-            (core.steering.len(), core.follow_up.len())
-        };
-        assert_eq!(lanes, (0, 0), "nothing parked from the refused snapshot");
-    }
-
-    /// A restored action keeps its labeled preview (TS
-    /// `restoreSessionActions` restores `payload.preview`), so a restored
-    /// queued heartbeat still reads `Heartbeat prompt: <text>` in the
-    /// queue strip and still delivers as the `heartbeat_prompt` component.
-    #[tokio::test]
-    async fn restore_actions_restores_the_labeled_preview() {
-        let worker = created_worker().await;
-        let content = "[heartbeat: every 10m run#0]\n\nnudge the mission";
-        let response = worker
-            .dispatch(
-                "restore_actions",
-                &json!({
-                    "activeSessionId": "custom-session",
-                    "snapshot": {
-                        "formatVersion": 1,
-                        "actions": [
-                            {
-                                "id": "hb-1",
-                                "source": "user",
-                                "delivery": "next_turn_boundary",
-                                "wake": "wake",
-                                "queueKey": "heartbeat:hb-1",
-                                "payload": {
-                                    "kind": "turn",
-                                    "text": content,
-                                    "preview": format!(
-                                        "{}: {content}",
-                                        eukhe_core::session_engine::messages::HEARTBEAT_PROMPT_PREVIEW_LABEL
-                                    ),
-                                    "records": [
-                                        {
-                                            "id": "hb-1-r1",
-                                            "role": "primary",
-                                            "message": {
-                                                "role": "custom",
-                                                "customType": "heartbeat_prompt",
-                                                "content": content,
-                                                "display": true,
-                                            },
-                                            "ownerActionId": "hb-1",
-                                        },
-                                    ],
-                                    "customMessage": {
-                                        "role": "custom",
-                                        "customType": "heartbeat_prompt",
-                                        "content": content,
-                                        "display": true,
-                                    },
-                                    "executionPolicy": { "preparation": {} },
-                                    "queueVisible": true,
-                                    "acceptedAgentMessage": false,
-                                    "acceptedBeforeCompletion": false,
-                                },
-                            },
-                        ],
-                    },
-                }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        assert_eq!(response.data, Some(json!({ "restored": 1 })));
-        // The queue strip serves the labeled preview (TS
-        // `queuedAgentMessagePreview`), not the lane-labeled raw text.
-        let queue = worker.dispatch("get_queue", &json!({})).await;
-        let data = queue.data.expect("queue data");
-        assert_eq!(
-            data["steering"][0],
-            format!(
-                "{}: {content}",
-                eukhe_core::session_engine::messages::HEARTBEAT_PROMPT_PREVIEW_LABEL
-            )
-        );
-        // The injected custom row rides the restored item.
-        {
-            let core = worker.core.lock().unwrap();
-            let item = core.steering.front().expect("the restored row");
-            assert_eq!(
-                item.custom_message
-                    .as_ref()
-                    .and_then(|row| row.get("customType")),
-                Some(&json!("heartbeat_prompt"))
-            );
-            // The queue key rides the restored row (TS restores
-            // `recovered.queueKey`), so a later fire replaces it instead
-            // of stacking.
-            assert_eq!(item.queue_key.as_deref(), Some("heartbeat:hb-1"));
-        }
-
-        // TS truthiness: an empty-string preview restores as `None`, so
-        // the queue row falls back to the action's text (never a blank
-        // row).
-        let plain_text = "recover me";
-        let response = worker
-            .dispatch(
-                "restore_actions",
-                &json!({
-                    "activeSessionId": "custom-session",
-                    "snapshot": {
-                        "formatVersion": 1,
-                        "actions": [
-                            {
-                                "id": "a-plain",
-                                "source": "user",
-                                "delivery": "next_turn_boundary",
-                                "wake": "wake",
-                                "payload": {
-                                    "kind": "turn",
-                                    "text": plain_text,
-                                    "preview": "",
-                                    "records": [
-                                        {
-                                            "id": "a-plain-r1",
-                                            "role": "primary",
-                                            "message": { "role": "user", "content": plain_text },
-                                            "ownerActionId": "a-plain",
-                                        },
-                                    ],
-                                    "executionPolicy": { "preparation": {} },
-                                    "queueVisible": true,
-                                    "acceptedAgentMessage": false,
-                                    "acceptedBeforeCompletion": false,
-                                },
-                            },
-                        ],
-                    },
-                }),
-            )
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        {
-            let core = worker.core.lock().unwrap();
-            let item = core.steering.back().expect("the empty-preview row");
-            assert_eq!(item.preview, None);
-            assert_eq!(item.message, plain_text);
-        }
-    }
-
-    /// `refine` on a session without refinement support answers the
-    /// failure the engine seam carries (the scripted harness has no
-    /// refiner).
-    #[tokio::test]
-    async fn refine_surfaces_the_engine_failure() {
-        let worker = created_worker().await;
-        let response = worker
-            .dispatch(
-                "refine",
-                &json!({ "activeSessionId": "custom-session", "instructions": "tidy up" }),
-            )
-            .await;
-        assert!(!response.success);
-        assert_eq!(
-            response.error.as_deref(),
-            Some("This session does not support refinement")
-        );
-    }
-
-    /// `reload` answers the TS success (the live inputs this port
-    /// re-reads are already fresh).
-    #[tokio::test]
-    async fn reload_answers_success() {
-        let worker = created_worker().await;
-        let response = worker
-            .dispatch("reload", &json!({ "activeSessionId": "custom-session" }))
-            .await;
-        assert!(response.success, "failed: {response:?}");
-        assert!(response.data.is_none());
-    }
-}
+mod tests;

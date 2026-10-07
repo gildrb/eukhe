@@ -254,9 +254,7 @@ impl SessionFile {
                 .map(message_text)
                 .filter(|text| !text.is_empty()),
             loaded_entries: file.entries.len(),
-            compaction_count: window.compaction_count(),
             has_thinking_level: window.has_thinking_level(),
-            has_service_tier: window.has_service_tier(),
             model: context.model,
             boundary_model: window.boundary_model().cloned(),
             thinking_level: context.thinking_level,
@@ -284,7 +282,8 @@ impl SessionFile {
     }
 
     /// Merge appends made while the disk snapshot loaded without holding the store lock.
-    pub(crate) fn install_full_history(&mut self, mut full: Self) {
+    #[cfg(test)]
+    fn install_full_history(&mut self, mut full: Self) {
         let Some(window) = &self.window else {
             return;
         };

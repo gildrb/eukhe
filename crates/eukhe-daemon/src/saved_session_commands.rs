@@ -3,32 +3,53 @@
 //! `delete_saved_session`, and `list_agent_peers` (TS daemon-supervisor
 //! cases), the worker arms the selector forms forward to (TS daemon-mode
 //! cases), and the shared catalog writes (TS daemon-catalog-process
-//! `rename`/`delete` over `SessionManager.open().appendSessionInfo` /
-//! `deleteSessionFile`).
+//! `rename`/`delete`).
+//!
+//! A saved session is a durable storage (`<sessions_dir>/<id>/`) or a
+//! legacy `<id>.jsonl` file not imported yet ([`SessionLocation`]). Its
+//! name lives in the storage's `eukhe.daemon.session` document; reads go
+//! through a read-only view (the session may be live in another process),
+//! and writes to an offline storage happen only while holding its session
+//! lease. Renaming a legacy file imports it first (the import is how it
+//! opens anyway, and the name has no legacy-row form the import carries).
+//! A durable storage records no RLM role (depth, parent): only a legacy
+//! header answers those, so a durable-only session is never "positively
+//! top-level" and never a known depth-0 family row.
 //!
 //! Rename walks the TS ladder: the name-reservation input (live roster row
 //! or saved session, else `Session not found`), the pending-name
 //! reservation, the family name-availability assertion, and then either
-//! the offline catalog rename (append the `session_info` entry, the RLM
-//! ledger rename, the roster row rewrite) or the forward to the live
-//! worker. Delete refuses the active session, tombstones the RLM ledger
-//! unless the session is positively top-level, deletes the file (trash
-//! first, unlink fallback — plus the artifact partition), and drops the
-//! roster row.
+//! the offline catalog rename (the name document, the RLM ledger rename,
+//! the roster row rewrite) or the forward to the live worker. Delete
+//! refuses the active session, tombstones the RLM ledger unless the
+//! session is positively top-level, deletes the storage and legacy file
+//! (trash first, removal fallback — plus the artifact partition), and drops
+//! the roster row.
 
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 use std::sync::Arc;
 
+use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_core::durable::{
+    import_legacy_session, list_sessions, read_session_document, SessionLocation,
+};
+use eukhe_durable::harness::json::assign_json;
+use eukhe_durable::session::{Session, SessionError};
+use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use serde_json::{json, Map, Value};
 
 use eukhe_types::daemon::DaemonCommand;
 
 use crate::lease::canonical_session_path;
 use crate::protocol::{response_failure, response_line, response_success, DaemonResponse};
-use crate::session_store::{read_session_info, SessionFile};
+use crate::session_store::read_session_info;
 use crate::supervisor::Supervisor;
+use crate::worker::durable_host::meta::SESSION_META_DOC;
 use crate::worker::Worker;
+
+/// The durable storage's commit log; a directory without it is no session.
+const MAIN_FILE: &str = "main.jsonl";
 
 /// The session-name-unavailability error (TS
 /// `formatAgentSessionNameUnavailable`).
@@ -93,48 +114,212 @@ fn same_name_parent(left: &FamilyRow, right: &NameScope) -> bool {
     left.parent_session_path.is_some() && left.parent_session_path == right.parent_session_path
 }
 
-/// Append one `session_info` name entry to a saved session file (TS
-/// catalog `rename`).
-pub(crate) fn append_saved_session_name(path: &Path, name: &str) -> anyhow::Result<()> {
-    let mut session = SessionFile::open(path)?;
-    session.append_session_info(name);
-    session.rewrite()
+/// The catalog facts of one saved session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SavedSessionInfo {
+    pub(crate) id: String,
+    pub(crate) name: Option<String>,
+    /// The RLM depth and parent a legacy header recorded; `None` for a
+    /// durable-only session (its role is not stored).
+    pub(crate) role: Option<SavedRole>,
 }
 
-/// Delete a session file (TS `deleteSessionFile`): try the `trash` CLI
-/// first, fall back to unlink, run the after-file-removed hook, and remove
-/// the session's artifact partition once the file itself is gone. Answers
-/// the TS `DeleteSessionFileResult` wire object.
-pub(crate) fn delete_session_file(path: &Path) -> Value {
-    delete_session_file_after_file_removed(path, &|_| {})
+/// The RLM role a legacy header recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SavedRole {
+    pub(crate) rlm_depth: u32,
+    pub(crate) parent_session_path: Option<String>,
 }
 
-/// TS `deleteSessionFile` with its `afterFileRemoved` hook: the hook runs
-/// once the file is gone but BEFORE the artifact partition's removal (the
-/// daemon's `cancelScheduledJobsForSessionFile`, which needs the partition
-/// registered on the store).
-pub(crate) fn delete_session_file_after_file_removed(
-    path: &Path,
-    after_file_removed: &dyn Fn(&Path),
-) -> Value {
-    let trash = StdCommand::new("trash").arg("--").arg(path).output();
-    let removed_by_trash = match trash {
-        Ok(output) => output.status.success() || !path.exists(),
-        Err(_) => false,
-    };
-    if removed_by_trash {
-        after_file_removed(path);
-        remove_session_artifacts(path);
-        return json!({ "ok": true, "method": "trash" });
-    }
-    match std::fs::remove_file(path) {
-        Ok(()) => {
-            after_file_removed(path);
-            remove_session_artifacts(path);
-            json!({ "ok": true, "method": "unlink" })
+/// Whether `dir` holds a durable storage.
+fn is_storage(dir: &Path) -> bool {
+    dir.join(MAIN_FILE).is_file()
+}
+
+/// The saved session at `path` (a storage directory or a legacy file):
+/// the durable name document when a storage exists, the legacy header's
+/// role and name otherwise. `None` when nothing is saved there.
+pub(crate) async fn read_saved_session(path: &Path, cx: &Context) -> Option<SavedSessionInfo> {
+    let location = SessionLocation::from_path(path.to_path_buf());
+    let storage_dir = location.storage_dir();
+    let legacy = match &location {
+        SessionLocation::Legacy(file) if file.is_file() => {
+            let file = file.clone();
+            tokio::task::spawn_blocking(move || read_session_info(&file))
+                .await
+                .ok()
+                .flatten()
         }
+        SessionLocation::Legacy(_) | SessionLocation::Durable(_) => None,
+    };
+    let role = legacy.as_ref().map(|info| SavedRole {
+        rlm_depth: info.rlm_depth,
+        parent_session_path: info.parent_session_path.clone(),
+    });
+    if is_storage(&storage_dir) {
+        let durable = SessionLocation::Durable(storage_dir.clone());
+        let name = match read_session_document(&durable, &SESSION_META_DOC, (), cx).await {
+            Ok(meta) => meta.and_then(|meta| meta.name),
+            Err(error) => {
+                eprintln!(
+                    "eukhe-daemon: reading the session name of {} failed: {error}",
+                    storage_dir.display()
+                );
+                None
+            }
+        };
+        let id = storage_dir
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        return Some(SavedSessionInfo { id, name, role });
+    }
+    legacy.map(|info| SavedSessionInfo {
+        id: info.id,
+        name: info.name,
+        role,
+    })
+}
+
+/// Hold the runtime session lease of `storage_dir` (refused while another
+/// process owns the session).
+async fn acquire_offline_lease(
+    storage_dir: &Path,
+    agent_dir: &Path,
+) -> anyhow::Result<crate::lease::SessionLease> {
+    let (dir, agent_dir) = (storage_dir.to_path_buf(), agent_dir.to_path_buf());
+    tokio::task::spawn_blocking(move || {
+        crate::lease::acquire_runtime_session_lease(&dir, &agent_dir)
+    })
+    .await?
+}
+
+/// Record `name` as the saved session's name (TS catalog `rename`), under
+/// the session lease: a legacy file not imported yet is imported first,
+/// then the `eukhe.daemon.session` document takes the name in one commit.
+///
+/// # Errors
+///
+/// Nothing is saved at `path`, another process holds the session, or the
+/// import, the storage open, or the commit fails.
+pub(crate) async fn rename_saved_session_storage(
+    path: &Path,
+    name: &str,
+    agent_dir: &Path,
+    cx: &Context,
+) -> anyhow::Result<()> {
+    let location = SessionLocation::from_path(path.to_path_buf());
+    let storage_dir = location.storage_dir();
+    let _lease = acquire_offline_lease(&storage_dir, agent_dir).await?;
+    if !is_storage(&storage_dir) {
+        match &location {
+            SessionLocation::Legacy(file) if file.is_file() => {
+                import_legacy_session(file, &storage_dir, cx).await?;
+            }
+            SessionLocation::Legacy(_) | SessionLocation::Durable(_) => {
+                anyhow::bail!("Session not found: {}", path.display());
+            }
+        }
+    }
+    let directory = storage_dir.to_str().ok_or_else(|| {
+        anyhow::anyhow!(
+            "session storage path {} is not UTF-8",
+            storage_dir.display()
+        )
+    })?;
+    let storage =
+        open_native_jsonl_storage(directory, cx, JsonlStorageOptions { fsync: true }).await?;
+    let session = Session::new(Arc::new(storage));
+    let value = eukhe_chord::json::to_json(&name).map_err(SessionError::other)?;
+    let committed = session
+        .commit(
+            move |tx| async move {
+                let draft = tx.doc(&SESSION_META_DOC, ()).await?;
+                assign_json(&draft, "name", &value)?;
+                Ok(())
+            },
+            cx,
+        )
+        .await;
+    let closed = session.close(cx).await;
+    committed?;
+    closed?;
+    Ok(())
+}
+
+/// Delete a saved session (TS `deleteSessionFile`) under its session
+/// lease: its storage directory and its legacy file, each through the
+/// `trash` CLI first with a removal fallback; then the after-removal hook
+/// runs and the session's artifact partition goes. The hook runs once the
+/// session is gone but BEFORE the artifact partition's removal (the
+/// daemon's `cancelScheduledJobsForSessionFile`, which needs the
+/// partition registered on the store). Answers the TS
+/// `DeleteSessionFileResult` wire object.
+pub(crate) async fn delete_saved_session_storage(
+    path: &Path,
+    agent_dir: &Path,
+    after_removed: &(dyn Fn(&Path) + Sync),
+) -> Value {
+    let location = SessionLocation::from_path(path.to_path_buf());
+    let storage_dir = location.storage_dir();
+    let lease = match acquire_offline_lease(&storage_dir, agent_dir).await {
+        Ok(lease) => lease,
+        Err(error) => return json!({ "ok": false, "error": error.to_string() }),
+    };
+    let mut targets = Vec::new();
+    match &location {
+        SessionLocation::Durable(dir) => {
+            if dir.exists() {
+                targets.push(dir.clone());
+            }
+        }
+        SessionLocation::Legacy(file) => {
+            if is_storage(&storage_dir) {
+                targets.push(storage_dir);
+            }
+            if std::fs::symlink_metadata(file).is_ok() {
+                targets.push(file.clone());
+            }
+        }
+    }
+    let removed = tokio::task::spawn_blocking(move || remove_all(&targets)).await;
+    drop(lease);
+    match removed {
+        Ok(Ok(method)) => {
+            after_removed(path);
+            remove_session_artifacts(path);
+            json!({ "ok": true, "method": method })
+        }
+        Ok(Err(error)) => json!({ "ok": false, "error": error }),
         Err(error) => json!({ "ok": false, "error": error.to_string() }),
     }
+}
+
+/// Remove every target (trash first, then unlink / recursive removal);
+/// answers `"trash"` when the trash took them all, else `"unlink"`.
+fn remove_all(targets: &[PathBuf]) -> Result<&'static str, String> {
+    if targets.is_empty() {
+        return Err(std::io::Error::from(std::io::ErrorKind::NotFound).to_string());
+    }
+    let mut method = "trash";
+    for target in targets {
+        let trashed = StdCommand::new("trash")
+            .arg("--")
+            .arg(target)
+            .output()
+            .is_ok_and(|output| output.status.success() || !target.exists());
+        if trashed {
+            continue;
+        }
+        method = "unlink";
+        let removed = if target.is_dir() {
+            std::fs::remove_dir_all(target)
+        } else {
+            std::fs::remove_file(target)
+        };
+        removed.map_err(|error| error.to_string())?;
+    }
+    Ok(method)
 }
 
 /// Remove the session's artifact partition (TS `deleteSessionArtifacts`):
@@ -275,8 +460,10 @@ pub(crate) fn tombstone_saved_session_delete_captured(
 
 impl Supervisor {
     /// The family-catalog rows (TS `familyCatalogEntries`): the roster
-    /// rows plus the saved depth-0 sessions the roster does not know.
-    fn family_rows(&self, extra_sessions_dir: Option<&Path>) -> Vec<FamilyRow> {
+    /// rows plus the saved depth-0 sessions the roster does not know. A
+    /// durable-only session (no recorded role) counts as depth 0, the role
+    /// every session without a parent header opens with.
+    async fn family_rows(&self, extra_sessions_dir: Option<&Path>) -> Vec<FamilyRow> {
         let mut rows = Vec::new();
         {
             let roster = self
@@ -306,13 +493,22 @@ impl Supervisor {
         if let Some(dir) = extra_sessions_dir {
             // TS scans the catalog for depth-0 rows only: a parented file
             // without a recorded depth reads as -1 and stays out.
-            for info in crate::session_store::list_sessions(dir) {
-                if info.rlm_depth != 0 || info.parent_session_path.is_some() {
+            for listing in list_sessions(dir, &BACKGROUND_CONTEXT).await {
+                let Some(info) =
+                    read_saved_session(listing.location.path(), &BACKGROUND_CONTEXT).await
+                else {
+                    continue;
+                };
+                if info
+                    .role
+                    .as_ref()
+                    .is_some_and(|role| role.rlm_depth != 0 || role.parent_session_path.is_some())
+                {
                     continue;
                 }
                 rows.push(FamilyRow {
-                    id: info.id.clone(),
-                    name: info.name.clone(),
+                    id: info.id,
+                    name: info.name,
                     depth: 0,
                     parent_session_path: None,
                 });
@@ -323,8 +519,8 @@ impl Supervisor {
 
     /// TS `assertAgentSessionNameAvailable`: a same-name, same-depth,
     /// same-parent row that is not the renamed session itself conflicts.
-    fn assert_family_name_available(&self, scope: &NameScope) -> Result<(), String> {
-        let rows = self.family_rows(self.sessions_dir_path().as_deref());
+    async fn assert_family_name_available(&self, scope: &NameScope) -> Result<(), String> {
+        let rows = self.family_rows(self.sessions_dir_path().as_deref()).await;
         for row in rows {
             if row.id == scope.id || row.name.as_deref() != Some(scope.name.as_str()) {
                 continue;
@@ -342,9 +538,10 @@ impl Supervisor {
     }
 
     /// The name-reservation input (TS `savedSessionNameReservationInput`):
-    /// the live roster row for the path, else the saved session info;
-    /// a miss answers `Session not found`.
-    fn saved_session_name_scope(
+    /// the live roster row for the path, else the saved session (depth 0
+    /// without a parent when its role is not recorded); a miss answers
+    /// `Session not found`.
+    async fn saved_session_name_scope(
         &self,
         session_path: &str,
         name: String,
@@ -381,14 +578,20 @@ impl Supervisor {
         if let Some(scope) = roster_row {
             return Ok(scope);
         }
-        match read_session_info(Path::new(session_path)) {
-            Some(info) => Ok(NameScope {
-                id: info.id.clone(),
-                name,
-                depth: info.rlm_depth,
-                parent_session_id: None,
-                parent_session_path: info.parent_session_path,
-            }),
+        match read_saved_session(Path::new(session_path), &BACKGROUND_CONTEXT).await {
+            Some(info) => {
+                let role = info.role.unwrap_or(SavedRole {
+                    rlm_depth: 0,
+                    parent_session_path: None,
+                });
+                Ok(NameScope {
+                    id: info.id,
+                    name,
+                    depth: role.rlm_depth,
+                    parent_session_id: None,
+                    parent_session_path: role.parent_session_path,
+                })
+            }
             None => Err(format!("Session not found: {session_path}")),
         }
     }
@@ -420,7 +623,10 @@ impl Supervisor {
                 false,
             );
         };
-        let scope = match self.saved_session_name_scope(session_path, name.trim().to_string()) {
+        let scope = match self
+            .saved_session_name_scope(session_path, name.trim().to_string())
+            .await
+        {
             Ok(scope) => scope,
             Err(error) => {
                 return (
@@ -456,7 +662,7 @@ impl Supervisor {
                 false,
             );
         }
-        let availability = self.assert_family_name_available(&scope);
+        let availability = self.assert_family_name_available(&scope).await;
         self.pending_session_names
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -473,11 +679,17 @@ impl Supervisor {
             );
         }
         if active_session_id.is_none() {
-            // The offline catalog rename (TS `catalog.rename`): append the
-            // session_info entry, the ledger rename, and the roster row
-            // rewrite.
-            let path = Path::new(session_path);
-            if let Err(error) = append_saved_session_name(path, &scope.name) {
+            // The offline catalog rename (TS `catalog.rename`): the name
+            // document (under the session lease), the ledger rename, and
+            // the roster row rewrite.
+            if let Err(error) = rename_saved_session_storage(
+                Path::new(session_path),
+                &scope.name,
+                &self.options.agent_dir,
+                &BACKGROUND_CONTEXT,
+            )
+            .await
+            {
                 return (
                     vec![response_line(&response_failure(
                         Some(command_id),
@@ -656,7 +868,9 @@ impl Supervisor {
                 .and_then(|entry| entry.summary.get("runtimeKind"))
                 .and_then(Value::as_str),
         );
-        let result = delete_session_file(Path::new(session_path));
+        let result =
+            delete_saved_session_storage(Path::new(session_path), &self.options.agent_dir, &|_| {})
+                .await;
         let removed = result.get("ok").and_then(Value::as_bool) == Some(true);
         if removed {
             // The deleted session file can carry passive scheduled rows: the
@@ -832,12 +1046,26 @@ fn agent_peer_summary(summary: &Value) -> Value {
     peer
 }
 
+/// Whether `session_path` names `hosted`'s own storage (its directory, or
+/// the legacy file it was imported from).
+fn is_own_session(hosted: Option<&crate::worker::HostedSession>, session_path: &Path) -> bool {
+    let Some(own) = hosted.and_then(crate::worker::HostedSession::storage_dir) else {
+        return false;
+    };
+    if session_path.as_os_str().is_empty() {
+        return false;
+    }
+    let target = SessionLocation::from_path(session_path.to_path_buf()).storage_dir();
+    canonical_session_path(&target) == canonical_session_path(own)
+}
+
 impl Worker {
-    /// `rename_saved_session` (TS daemon-mode case): a live target renames
-    /// through the session's own rename path (answering with no data, the
-    /// TS shape); an offline file gets the catalog append.
-    pub(crate) fn handle_rename_saved_session(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("rename_saved_session") {
+    /// `rename_saved_session` (TS daemon-mode case): the live session
+    /// renames through its own rename path (answering with no data, the TS
+    /// shape); an offline session gets the catalog rename.
+    pub(crate) async fn handle_rename_saved_session(&self, payload: &Value) -> DaemonResponse {
+        const COMMAND: &str = "rename_saved_session";
+        if let Err(response) = self.require_created(COMMAND) {
             return response;
         }
         let name = payload
@@ -847,57 +1075,47 @@ impl Worker {
             .trim()
             .to_string();
         if name.is_empty() {
-            return response_failure(
-                None,
-                "rename_saved_session",
-                "Session name cannot be empty",
-                None,
-            );
+            return response_failure(None, COMMAND, "Session name cannot be empty", None);
         }
         let session_path = payload
             .get("sessionPath")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let own_file = {
-            let core = self
-                .core
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            core.store.as_ref().is_some_and(|store| {
-                !store.path.as_os_str().is_empty()
-                    && canonical_session_path(&store.path)
-                        == canonical_session_path(Path::new(session_path))
-            })
-        };
-        if own_file {
+        let path = Path::new(session_path);
+        if is_own_session(self.session.get().as_deref(), path) {
             // The live form answers `success(id, "rename_saved_session")`
             // with no data, unlike the `rename` command's summary.
             let mut payload = Map::new();
             payload.insert("name".to_string(), json!(name));
-            let mut response = self.handle_rename("rename_saved_session", &Value::Object(payload));
+            let mut response = self.handle_rename(COMMAND, &Value::Object(payload)).await;
             response.data = None;
             return response;
         }
-        let path = Path::new(session_path);
-        if read_session_info(path).is_none() {
+        if read_saved_session(path, &BACKGROUND_CONTEXT)
+            .await
+            .is_none()
+        {
             return response_failure(
                 None,
-                "rename_saved_session",
+                COMMAND,
                 &format!("Session not found: {session_path}"),
                 None,
             );
         }
-        match append_saved_session_name(path, &name) {
-            Ok(()) => response_success(None, "rename_saved_session", None),
-            Err(error) => response_failure(None, "rename_saved_session", &error.to_string(), None),
+        match rename_saved_session_storage(path, &name, &self.config.agent_dir, &BACKGROUND_CONTEXT)
+            .await
+        {
+            Ok(()) => response_success(None, COMMAND, None),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }
     }
 
     /// `delete_saved_session` (TS daemon-mode case): refuse the live
-    /// session, tombstone the ledger, delete the file and its artifacts,
-    /// answer the delete result.
+    /// session, delete the saved session and its artifacts, tombstone the
+    /// ledger, answer the delete result.
     pub(crate) async fn handle_delete_saved_session(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("delete_saved_session") {
+        const COMMAND: &str = "delete_saved_session";
+        if let Err(response) = self.require_created(COMMAND) {
             return response;
         }
         let session_path = payload
@@ -905,20 +1123,10 @@ impl Worker {
             .and_then(Value::as_str)
             .unwrap_or_default();
         let path = Path::new(session_path);
-        let own_file = {
-            let core = self
-                .core
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            core.store.as_ref().is_some_and(|store| {
-                !store.path.as_os_str().is_empty()
-                    && canonical_session_path(&store.path) == canonical_session_path(path)
-            })
-        };
-        if own_file {
+        if is_own_session(self.session.get().as_deref(), path) {
             return response_failure(
                 None,
-                "delete_saved_session",
+                COMMAND,
                 "Cannot delete the currently active session",
                 None,
             );
@@ -929,14 +1137,15 @@ impl Worker {
         // tombstone append waits for the removal to SUCCEED — a failed
         // delete must not bill a live transcript as deleted spend.
         let capture = capture_saved_session_delete(session_path, None);
-        // TS `delete_saved_session`: the hook runs between the file's
+        // TS `delete_saved_session`: the hook runs between the session's
         // removal and the artifact partition's removal — the durable job
         // cancel (belt: the partition removal is the load-bearing delete,
         // a failed removal still leaves cancelled jobs that can never
-        // fire). The partition registers only when its store file exists.
-        let result = delete_session_file_after_file_removed(path, &|deleted| {
+        // fire).
+        let result = delete_saved_session_storage(path, &self.config.agent_dir, &|deleted| {
             self.cancel_deleted_session_jobs(deleted);
-        });
+        })
+        .await;
         if result.get("ok").and_then(Value::as_bool) == Some(true) {
             let _captured = tombstone_saved_session_delete_captured(
                 &self.config.agent_dir,
@@ -945,13 +1154,120 @@ impl Worker {
             );
             self.scheduled.wake().await;
         }
-        response_success(None, "delete_saved_session", Some(result))
+        response_success(None, COMMAND, Some(result))
+    }
+}
+
+#[cfg(test)]
+mod durable_saved_session_tests {
+    use super::*;
+    use crate::durable_test_support::{cx, Fixture, SESSION_ID};
+
+    /// A closed durable session of the fixture.
+    async fn saved_session(fixture: &Fixture) -> PathBuf {
+        let session = fixture.open(SESSION_ID).await;
+        session.close(cx()).await.expect("close");
+        fixture.storage_dir(SESSION_ID)
+    }
+
+    /// An offline rename writes the name document of the storage; the
+    /// read-only view reads it back.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn renames_a_durable_storage() {
+        let fixture = Fixture::new();
+        let dir = saved_session(&fixture).await;
+        assert_eq!(
+            read_saved_session(&dir, cx()).await,
+            Some(SavedSessionInfo {
+                id: SESSION_ID.to_owned(),
+                name: None,
+                role: None,
+            })
+        );
+        rename_saved_session_storage(&dir, "renamed", &fixture.agent_dir, cx())
+            .await
+            .expect("rename");
+        let info = read_saved_session(&dir, cx()).await.expect("saved");
+        assert_eq!(info.name.as_deref(), Some("renamed"));
+    }
+
+    /// Offline writes need the session lease: a session another owner
+    /// holds is neither renamed nor deleted.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn refuses_writes_while_the_lease_is_held() {
+        let fixture = Fixture::new();
+        let dir = saved_session(&fixture).await;
+        let held = crate::lease::acquire_runtime_session_lease(&dir, &fixture.agent_dir)
+            .expect("hold the lease");
+        let renamed = rename_saved_session_storage(&dir, "x", &fixture.agent_dir, cx()).await;
+        assert!(renamed.is_err(), "{renamed:?}");
+        let deleted = delete_saved_session_storage(&dir, &fixture.agent_dir, &|_| {}).await;
+        assert_eq!(deleted["ok"], false, "{deleted}");
+        assert!(dir.is_dir());
+        drop(held);
+        let deleted = delete_saved_session_storage(&dir, &fixture.agent_dir, &|_| {}).await;
+        assert_eq!(deleted["ok"], true, "{deleted}");
+        assert!(!dir.exists());
+    }
+
+    /// A legacy file is imported by its rename (the name has no legacy
+    /// form the import carries); its header still answers the role, and
+    /// the delete removes both the storage and the file.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn renames_and_deletes_a_legacy_file() {
+        let fixture = Fixture::new();
+        let legacy = fixture.sessions.join(format!("{SESSION_ID}.jsonl"));
+        std::fs::write(
+            &legacy,
+            format!(
+                "{}\n",
+                json!({
+                    "type": "session",
+                    "id": SESSION_ID,
+                    "timestamp": "2026-09-21T00:00:00.000Z",
+                    "cwd": fixture.cwd.to_string_lossy(),
+                })
+            ),
+        )
+        .unwrap();
+        rename_saved_session_storage(&legacy, "imported", &fixture.agent_dir, cx())
+            .await
+            .expect("rename");
+        let storage = fixture.storage_dir(SESSION_ID);
+        assert!(is_storage(&storage));
+        let info = read_saved_session(&legacy, cx()).await.expect("saved");
+        assert_eq!(info.name.as_deref(), Some("imported"));
+        assert_eq!(
+            info.role,
+            Some(SavedRole {
+                rlm_depth: 0,
+                parent_session_path: None
+            })
+        );
+        let removed = std::sync::Mutex::new(Vec::new());
+        let deleted = delete_saved_session_storage(&legacy, &fixture.agent_dir, &|path| {
+            removed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(path.to_path_buf());
+        })
+        .await;
+        assert_eq!(deleted["ok"], true, "{deleted}");
+        assert!(!storage.exists() && !legacy.exists());
+        assert_eq!(
+            *removed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            vec![legacy.clone()]
+        );
+        assert!(read_saved_session(&legacy, cx()).await.is_none());
     }
 }
 
 #[cfg(test)]
 mod tombstone_usage_tests {
     use super::*;
+    use crate::session_store::SessionFile;
     use serde_json::json;
 
     /// TS `tombstoneSavedSessionDelete`: the two phases in one call. The

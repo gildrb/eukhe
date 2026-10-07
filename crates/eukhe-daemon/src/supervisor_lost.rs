@@ -122,9 +122,7 @@ async fn exit_orphaned(worker: &Worker, absent_since: tokio::time::Instant) {
         worker.config.supervisor_socket_path.display(),
         absent_since.elapsed().as_secs()
     );
-    if let Some(agent_engine) = &worker.agent_engine {
-        agent_engine.dispose_kernel().await;
-    }
+    worker.close_hosted_session().await;
     let _ = worker.record_recovery(false, "shutdown");
     // The bind-time identity (captured in `serve`) is the unlink's
     // expected identity, so a REPLACED file at the path - a successor

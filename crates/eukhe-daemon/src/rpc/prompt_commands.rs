@@ -1,38 +1,47 @@
 //! The RPC command surface, part two: the prompt-family handlers —
-//! `prompt` (with the session-command execution the admitted turn hands
-//! back), `steer`/`follow_up` queueing, and the queued-work pump that
-//! delivers the agent's queues turn by turn (TS `prompt`/`steer`/
-//! `followUp` over `_pumpSessionInputs`).
+//! `prompt` (with the session commands it admits) and `steer`/`follow_up`
+//! — as durable input submissions on the main conversation (TS
+//! `prompt`/`steer`/`followUp`). The conversation's inbox owns the queued
+//! inputs and their delivery.
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use eukhe_chord::context::Context;
+use eukhe_core::durable::{
+    classify_session_command, execute_session_command, EukheSession, SessionCommand,
+};
+use eukhe_durable::errors::ConversationBusy;
+use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
+use eukhe_durable::harness::Conversation;
+use eukhe_durable::session::SessionError;
+use eukhe_durable::types::TaskOutcome;
 use serde_json::Value;
 
-use eukhe_agent::types::AgentEvent;
-use eukhe_agent::types::AgentMessage;
-use eukhe_core::session_engine::session_commands::{
-    execute_session_command, session_command_echo_row, SessionCommandParams,
-};
-use eukhe_core::session_engine::session_events::agent_event_json;
-use eukhe_core::session_engine::{PromptOptions, PromptOutcome};
-use eukhe_types::session::CustomMessage;
-
-use super::commands::{compaction_frame, kick_queue_pump, resume_pump, RpcState};
+use super::commands::RpcState;
 use super::protocol::{self, ResponseData};
+use super::reads::rpc_context;
+
+/// The busy refusal of a prompt without a `streamingBehavior` (TS
+/// `AgentSession.prompt`).
+const PROMPT_WHILE_BUSY: &str =
+    "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.";
+
+/// The text a durable compaction that ended without a result answers.
+const COMPACTION_CANCELLED: &str = "Compaction cancelled";
 
 /// `prompt` (TS `connection.prompt(message, {images, streamingBehavior,
 /// source: "rpc"})`): admission-level success — the response fires once
-/// the admitted turn's run registers (TS `preflightResult` over
-/// `returnAfterAccepted: true`; the turn's events follow on the ordered
-/// stream, buffered behind the response). Session commands execute
-/// like the ACP prompt path (the eukhe-core executor persists the durable
-/// rows) and their result still rides the response.
+/// the input is durably admitted (TS `preflightResult` over
+/// `returnAfterAccepted: true`; the run's events follow on the ordered
+/// stream, buffered behind the response). A busy conversation queues the
+/// input per `streamingBehavior` and refuses it without one. Session
+/// commands (`/compact`, `/refine`, `/goal`, `/autonomous`) execute
+/// through the shared durable executor, which commits their rows.
 ///
 /// # Errors
 ///
-/// Returns the admission error (a missing message, a refused turn) and
-/// the admitted session command's own error.
+/// A missing message, the busy refusal, the admission failure, and the
+/// admitted session command's own error.
 pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
     let message = payload
         .get("message")
@@ -40,213 +49,86 @@ pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseDa
         .ok_or_else(|| "prompt requires a message".to_string())?;
     let images = protocol::command_images(payload);
     let behavior = protocol::command_streaming_behavior(payload);
+    // The handle guard stays held through the admission (and a session
+    // command's execution): a concurrent replacement cannot close the
+    // session under it.
     let handle = state.session.handle().await;
-    let engine = handle.engine.clone();
-    let admission = engine
-        .session
-        .prompt_with_images(
-            message,
-            images,
-            PromptOptions {
-                streaming_behavior: behavior,
-                return_after_accepted: true,
-                ..PromptOptions::default()
-            },
-        )
-        .await
-        .map_err(|error| format!("{error:#}"))?;
-    resume_pump(state);
-    let PromptOutcome::SessionCommand(command) = admission else {
-        // The admitted model turn parks the queued rows behind it
-        // (the pump delivers when the session idles): TS `connection.prompt`
-        // resumes admission and schedules the session-input pump at the
-        // admission.
-        kick_queue_pump(state, &engine);
+    let session = &handle.session;
+    let main = session.main();
+    let cx = rpc_context();
+    if let Some(command) = classify_session_command(message) {
+        run_session_command(state, session, &main, &command, &cx).await?;
         return Ok(ResponseData::Absent);
+    }
+    let draft = InputSubmissionDraft {
+        request_id: None,
+        content: protocol::command_content(message, images),
+        when_busy: Some(behavior.unwrap_or(WhenBusy::Reject)),
     };
-    // The handle guard stays held through the admitted session command's
-    // execution: a concurrent whole-session replacement (whose swap
-    // waits on the write guard) can never dispose the kernel mid-command
-    // (TS runs the admitted command before the next queued line can
-    // start a replacement). The model and key pass THROUGH (no second
-    // handle acquisition): a read re-acquisition queued behind a waiting
-    // writer would deadlock the command against its own guard.
-    let model = handle.model.clone();
-    let api_key = handle.api_key.clone();
-    let command_result =
-        run_session_command(state.as_ref(), engine.clone(), &command, model, api_key).await;
-    drop(handle);
-    // TS schedules the session-input pump only after the admitted
-    // session command settles (agent-session.ts: compact's finally
-    // calls `_notifySessionInputCheckpointChange` +
-    // `_scheduleSessionInputPump`): a kick before the command would let
-    // the pump deliver parked rows into the rebuild's window. The
-    // command's own error still answers; the pump re-arms either way.
-    kick_queue_pump(state, &engine);
-    command_result?;
+    main.submit(draft, &cx).await.map_err(|error| {
+        if is_busy_refusal(&error) {
+            PROMPT_WHILE_BUSY.to_string()
+        } else {
+            error.to_string()
+        }
+    })?;
     Ok(ResponseData::Absent)
 }
 
-/// One durable session-command row as its `message_start`/`message_end`
-/// pair (the loop's event shape for persisted rows; the daemon's ACP seam
-/// emits the same pair through its engine-event surface — the RPC stream
-/// forwards the frames verbatim through the connection-output seam).
-async fn write_command_row(state: &RpcState, message: &CustomMessage) {
-    // The row's loop shape (TS messages.ts: the `custom` role carries
-    // the session-command rows — the role rides BESIDE the row's own
-    // fields, exactly this construction; a bare round-trip cannot
-    // recover it, the session row type carries no role).
-    let custom = eukhe_agent::types::CustomAgentMessage {
-        role: "custom".to_string(),
-        payload: serde_json::to_value(message).unwrap_or(serde_json::Value::Null),
-    };
-    for event in [
-        AgentEvent::MessageStart {
-            message: AgentMessage::Custom(custom.clone()),
-        },
-        AgentEvent::MessageEnd {
-            message: AgentMessage::Custom(custom),
-        },
-    ] {
-        if let Some(event) = agent_event_json(&event) {
-            state.session.write_connection_output(event).await;
-        }
+/// Whether a submission failed because the conversation was busy.
+fn is_busy_refusal(error: &SessionError) -> bool {
+    match error {
+        SessionError::Other(inner) => inner.downcast_ref::<ConversationBusy>().is_some(),
+        _ => false,
     }
 }
 
-/// Execute one session command the prompt admitted (the ACP prompt path's
-/// segment: the eukhe-core executor persists the echo/result rows, the
-/// compaction publishes its events, the goal publishes on change, and a
-/// goal start/resume continuation runs as the turn's model segment).
+/// Execute one session command the prompt admitted. A `/compact` waits
+/// for its compaction task, so the response reports the compaction's
+/// failure and the compaction frames (buffered behind the response) are
+/// all published once the response is.
 async fn run_session_command(
     state: &RpcState,
-    engine: Arc<eukhe_core::session_engine::engine::SessionEngine>,
-    command: &eukhe_core::session_engine::slash_commands::SessionSlashCommand,
-    model: eukhe_types::ai::Model,
-    api_key: Option<String>,
+    session: &EukheSession,
+    main: &Conversation,
+    command: &SessionCommand,
+    cx: &Context,
 ) -> Result<(), String> {
-    let is_compact = command.name == "compact";
-    // The compact frames carry the command's arguments as the
-    // `customInstructions` they compact under (TS `session.compact`'s
-    // frames pass the same `customInstructions` the call received): an
-    // admitted `/compact focus on tests` reports its instructions, not
-    // an omitted field.
-    let frame_instructions = if is_compact && !command.args.is_empty() {
-        Some(command.args.as_str())
-    } else {
-        None
-    };
-    // The attempted command's durable echo row streams BEFORE the
-    // execution (TS `_executeSelectedSessionCommand` records the attempt
-    // first; the daemon's ACP seam emits the same pair) — the client
-    // sees the command it ran the moment it runs, as a message pair on
-    // the event stream.
-    write_command_row(state, &session_command_echo_row(command)).await;
-    if is_compact {
-        state.compacting.fetch_add(1, Ordering::SeqCst);
-        // The direct compact command's contract (TS session.compact
-        // aborts the running turn before the snapshot,
-        // agent-session.ts): an admitted turn that started streaming
-        // behind the admission (a parked row the pump delivered, a
-        // steer queued in the same window) is aborted and drained
-        // BEFORE the start frame publishes — the frame means the
-        // transcript is settled, exactly as the direct command's order
-        // (and TS's) reads. The gate (armed above) holds the pump out
-        // of the rebuild's window either way.
-        engine.session.agent().abort();
-        engine.session.agent().wait_for_idle().await;
-        state
-            .session
-            .write_connection_output(compaction_frame(
-                "compaction_start",
-                frame_instructions,
-                None,
-            ))
-            .await;
-        // NO flush here, by TS parity: a prompt-admitted command runs
-        // with the prompt-response buffer armed (TS rpc-mode's
-        // `promptResponsePending`), so this `compaction_start` rides
-        // the buffered seam and publishes AFTER the prompt's response —
-        // the TS wire order (`outputConnectionEvent` buffers connection
-        // events while a prompt is pending; `handleInputLine`'s finally
-        // disarms and flushes them). The direct `compact` command's
-        // early flush lives in its own handler, where no prompt buffer
-        // stands between the frame and the writer.
-    }
-    let execution = {
-        // The executor rebuilds session context on its compact branch
-        // (like the direct `compact`/`refine` commands): serialize the
-        // context rebuilders against one another.
+    let outcome = {
         let _ops = state.session_ops.lock().await;
-        let mut autonomous = state.autonomous.lock().await;
-        let mut params = SessionCommandParams {
-            model: &model,
-            api_key: api_key.clone(),
-            global_harness_dir: state.agent_dir.clone(),
-            autonomous: &mut autonomous,
-        };
-        // The executor never errors out of the call: failures ride the
-        // execution (`execution.error`), the durable rows, and the
-        // session events — the handler surfaces them below.
-        execute_session_command(&engine, &mut params, command).await
+        execute_session_command(session, main, command, cx).await
     };
-    if is_compact {
-        // The post-compaction kernel notice rides between the start and
-        // the settled end (TS `_syncKernelStateAfterCompaction` runs
-        // inside `_performCompaction`, so the message pair precedes
-        // `compaction_end` on the wire — the ACP seam's order).
-        if let Some(message) = execution
-            .compaction
-            .as_ref()
-            .and_then(|compaction| compaction.ipython_state.as_ref())
-        {
-            write_command_row(state, message).await;
-        }
-        state.compacting.fetch_sub(1, Ordering::SeqCst);
-        let result = execution.compaction.as_ref().map(|compaction| {
-            crate::compaction::compaction_result_value(&compaction.result, &compaction.entry)
-        });
-        state
-            .session
-            .write_connection_output(compaction_frame(
-                "compaction_end",
-                frame_instructions,
-                result.as_ref(),
-            ))
-            .await;
+    if let Some(error) = outcome.error {
+        return Err(error);
     }
-    // The executor's first row is the echo (emitted above); the rest of
-    // the durable rows stream in order — the command results
-    // (`/autonomous`, `/goal`, invalid-command failures, refinement
-    // notices) the ACP seam forwards the same way (its skip(1)).
-    for message in execution.messages.iter().skip(1) {
-        write_command_row(state, message).await;
-    }
-    // The handle guard is still held here (the admitted command's
-    // guard-pass-through): publishing over the held engine's goal state
-    // avoids re-acquiring the handle behind any queued writer.
-    let goal = engine.goal_state().await;
-    state.publish_goal_update_for(&goal).await;
-    if let Some(error) = &execution.error {
-        return Err(error.clone());
-    }
-    if let Some(continuation) = execution.continuation_message {
-        engine
-            .session
-            .prompt_injected_message(&continuation)
+    if let Some(task) = outcome.compaction {
+        let settled = session
+            .harness()
+            .wait_for_task(task, cx)
             .await
-            .map_err(|error| format!("{error:#}"))?;
-        engine.session.agent().wait_for_idle().await;
+            .map_err(|error| error.to_string())?;
+        match settled.outcome {
+            TaskOutcome::Completed { .. } => {}
+            TaskOutcome::Failed { error, .. } | TaskOutcome::Faulted { error } => {
+                return Err(error.message);
+            }
+            TaskOutcome::Aborted { reason, .. } => {
+                return Err(reason.unwrap_or_else(|| COMPACTION_CANCELLED.to_string()));
+            }
+            TaskOutcome::Orphaned { reason } => return Err(reason),
+        }
     }
     Ok(())
 }
 
-/// `steer` / `follow_up` (TS `connection.steer/followUp(message, images)`):
-/// queue onto the agent lane regardless of the busy state.
+/// `steer` / `follow_up` (TS `connection.steer/followUp(message,
+/// images)`): admit the input with `whenBusy` steer/followUp — a busy
+/// conversation queues it for its boundary, an idle one starts a run with
+/// it.
 ///
 /// # Errors
 ///
-/// Returns the missing-message error when the command carries no text.
+/// The missing-message error, or the admission failure.
 pub async fn steer_or_follow_up(
     state: &Arc<RpcState>,
     payload: &Value,
@@ -257,45 +139,35 @@ pub async fn steer_or_follow_up(
         .and_then(Value::as_str)
         .ok_or_else(|| format!("{name} requires a message"))?;
     let images = protocol::command_images(payload);
-    let handle = state.session.handle().await;
-    let engine = handle.engine.clone();
-    let agent = engine.session.agent();
-    let batch = user_prompt_message(message, &images);
-    if name == "steer" {
-        agent.steer(batch);
+    let when_busy = if name == "steer" {
+        WhenBusy::Steer
     } else {
-        agent.follow_up(batch);
-    }
-    // A steer/follow-up command is a TS pump-resume site: queued input
-    // (including the one just queued) delivers when the session idles.
-    resume_pump(state);
-    kick_queue_pump(state, &engine);
+        WhenBusy::FollowUp
+    };
+    let handle = state.session.handle().await;
+    let draft = InputSubmissionDraft {
+        request_id: None,
+        content: protocol::command_content(message, images),
+        when_busy: Some(when_busy),
+    };
+    handle
+        .session
+        .main()
+        .submit(draft, &rpc_context())
+        .await
+        .map_err(|error| error.to_string())?;
     Ok(ResponseData::Absent)
 }
 
-/// The user prompt message in the loop's normalized shape (text part
-/// first, image parts after), the same shape a directly admitted prompt
-/// carries (TS `AgentSession.steer`'s message build).
-fn user_prompt_message(text: &str, images: &[eukhe_agent::types::ImageContent]) -> AgentMessage {
-    let mut parts = vec![eukhe_agent::types::UserPart::Text(
-        eukhe_agent::types::TextContent {
-            text: text.to_string(),
-            text_signature: None,
-            cache_breakpoint: None,
-        },
-    )];
-    for image in images {
-        parts.push(eukhe_agent::types::UserPart::Image(image.clone()));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eukhe_durable::types::ConversationId;
+
+    #[test]
+    fn busy_refusals_are_recognized() {
+        let busy = SessionError::other(ConversationBusy::new(ConversationId::from_number(1)));
+        assert!(is_busy_refusal(&busy));
+        assert!(!is_busy_refusal(&SessionError::error("other")));
     }
-    AgentMessage::Standard(eukhe_agent::types::Message::User(
-        eukhe_agent::types::UserMessage {
-            content: eukhe_agent::types::UserContent::Parts(parts),
-            timestamp: now_millis() as i64,
-        },
-    ))
-}
-fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_millis() as u64)
 }

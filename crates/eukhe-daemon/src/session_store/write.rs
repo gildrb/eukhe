@@ -27,23 +27,6 @@ impl SessionEntry {
 }
 
 impl SessionFile {
-    /// Persist only the newly appended creation records on a resumed file.
-    pub(crate) fn persist_appended(&self, start: usize) -> Result<()> {
-        let mut bytes = Vec::new();
-        for entry in &self.entries[start..] {
-            write_line(&mut bytes, entry)?;
-        }
-        match &self.lease {
-            Some(lease) => lease.append(&self.path, &bytes)?,
-            None => eukhe_core::session::window::append_cached(
-                &self.path,
-                &bytes,
-                eukhe_core::session::window::AppendOwnership::Unleased,
-            )?,
-        }
-        Ok(())
-    }
-
     pub fn append_entry(&mut self, type_: &str, fields: Value) -> String {
         let parent_id = self.leaf_id.clone();
         let mut entry = SessionEntry::new(

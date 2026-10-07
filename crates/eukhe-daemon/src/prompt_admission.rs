@@ -514,11 +514,12 @@ impl Supervisor {
 // ---------------------------------------------------------------------------
 
 /// The worker's admission registry: admission id -> status (the TS
-/// daemon-mode `promptAdmissions` map). Shared with the turn runner,
-/// which clears an admitted prompt when its turn settles.
+/// daemon-mode `promptAdmissions` map), plus the durable submission each
+/// owned admission became (its request id is the admission id).
 #[derive(Default, Clone)]
 pub(crate) struct WorkerAdmissions {
     admissions: Arc<Mutex<HashMap<String, AdmissionStatus>>>,
+    submissions: Arc<Mutex<HashMap<String, eukhe_durable::types::SubmissionId>>>,
 }
 
 impl WorkerAdmissions {
@@ -556,6 +557,30 @@ impl WorkerAdmissions {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(admission_id);
+        self.submissions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(admission_id);
+    }
+
+    /// The owned admission became durable submission `submission`.
+    pub(crate) fn admitted(
+        &self,
+        admission_id: &str,
+        submission: eukhe_durable::types::SubmissionId,
+    ) {
+        self.submissions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(admission_id.to_string(), submission);
+    }
+
+    fn submission(&self, admission_id: &str) -> Option<eukhe_durable::types::SubmissionId> {
+        self.submissions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(admission_id)
+            .copied()
     }
 
     /// Cancel one admission: a waiting one marks cancelled (its queued
@@ -580,69 +605,69 @@ impl WorkerAdmissions {
 
 impl Worker {
     /// Register a prompt's admission (the worker-side bookkeeping the
-    /// forwarded cancellations read); the queued item carries the id so
-    /// the turn runner can commit it.
+    /// forwarded cancellations read).
     pub(crate) fn register_prompt_admission(&self, admission_id: &str) {
         self.prompt_admissions.register(admission_id);
     }
 
     /// `cancel_prompt_admission` (the worker arm the supervisor forwards
-    /// to): the TS status ladder over the worker's registry.
-    pub(crate) fn handle_cancel_prompt_admission(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("cancel_prompt_admission") {
-            return response;
-        }
+    /// to): the TS status ladder over the worker's registry. An owned
+    /// admission with `cancelOwned` withdraws its queued submission, or
+    /// aborts the run that placed it.
+    pub(crate) async fn handle_cancel_prompt_admission(&self, payload: &Value) -> DaemonResponse {
+        const COMMAND: &str = "cancel_prompt_admission";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
         let admission_id = payload
             .get("admissionId")
             .and_then(Value::as_str)
             .unwrap_or_default();
         let cancel_owned = payload.get("cancelOwned").and_then(Value::as_bool) == Some(true);
-        let (status, dropped_queued, abort_running) = {
-            // The enqueue/commit transition holds this same lock. Decide
-            // whether the owned admission is still queued atomically with
-            // removing it; never abort a different in-flight turn.
-            let mut core = self.core.lock().unwrap();
-            let status = self.prompt_admissions.cancel(admission_id);
-            let queued = core
-                .steering
-                .iter()
-                .chain(&core.follow_up)
-                .any(|item| item.admission_id.as_deref() == Some(admission_id));
-            let dropped_queued = matches!(status, Some(AdmissionStatus::Cancelled))
-                || (cancel_owned && status == Some(AdmissionStatus::Owned) && queued);
-            if dropped_queued {
-                core.steering
-                    .retain(|item| item.admission_id.as_deref() != Some(admission_id));
-                core.follow_up
-                    .retain(|item| item.admission_id.as_deref() != Some(admission_id));
-                self.prompt_admissions.clear(admission_id);
-            }
-            let abort_running = cancel_owned
-                && status == Some(AdmissionStatus::Owned)
-                && core.running_admission_ids.contains(admission_id);
-            if abort_running {
-                core.abort_requested = true;
-            }
-            (status, dropped_queued, abort_running)
-        };
-        if dropped_queued {
-            self.checkpoint_queue(crate::worker::QueueCheckpoint::Settle {
-                operation: "queue_dropped",
-            });
+        let status = self.prompt_admissions.cancel(admission_id);
+        if matches!(status, Some(AdmissionStatus::Cancelled)) {
+            self.prompt_admissions.clear(admission_id);
         }
-        if abort_running {
-            self.engine.abort_in_flight_turn();
+        let submission = self.prompt_admissions.submission(admission_id);
+        if let (true, Some(AdmissionStatus::Owned), Some(submission)) =
+            (cancel_owned, status, submission)
+        {
+            let cx = eukhe_chord::context::BACKGROUND_CONTEXT.clone();
+            let main = hosted.main();
+            match hosted
+                .harness()
+                .abort_submission(
+                    submission,
+                    main.as_ref()
+                        .ok()
+                        .map(eukhe_durable::harness::Conversation::id),
+                    &cx,
+                )
+                .await
+            {
+                Ok(eukhe_durable::harness::AbortSubmissionResult::AlreadyPlaced) => {
+                    if let Ok(main) = main {
+                        let _ = main
+                            .abort(
+                                eukhe_durable::harness::types::ConversationAbortOptions::default(),
+                                &cx,
+                            )
+                            .await;
+                    }
+                }
+                Ok(_) => self.prompt_admissions.clear(admission_id),
+                Err(error) => {
+                    return response_failure(None, COMMAND, &error.to_string(), None);
+                }
+            }
         }
         let status = match status {
             None => "unknown",
             Some(AdmissionStatus::Owned) => "owned",
             Some(AdmissionStatus::Waiting | AdmissionStatus::Cancelled) => "cancelled",
         };
-        response_success(
-            None,
-            "cancel_prompt_admission",
-            Some(json!({ "status": status })),
-        )
+        response_success(None, COMMAND, Some(json!({ "status": status })))
     }
 }
 

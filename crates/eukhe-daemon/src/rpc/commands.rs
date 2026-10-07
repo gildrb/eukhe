@@ -1,222 +1,56 @@
-//! The RPC command surface, part one: the dispatch table plus the
-//! prompting, state, model, thinking, queue-mode, and compaction
-//! handlers (TS `rpc-mode.ts`'s `handleCommand` cases). Session-level and
-//! scheduling commands live in [`super::session_commands`].
+//! The RPC command surface, part one: the dispatch table plus the state,
+//! abort, new-session, compaction, refinement, and settings-toggle
+//! handlers (TS `rpc-mode.ts`'s `handleCommand` cases). Prompting lives in
+//! [`super::prompt_commands`], model/thinking/queue switches in
+//! [`super::model_commands`], session-level and scheduling commands in
+//! [`super::session_commands`].
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use eukhe_core::durable::goals::goal_state;
+use eukhe_core::durable::rlm::{refine_now, RefineRequest};
+use eukhe_core::durable::EukheSession;
+use eukhe_core::settings::QueueModeSetting;
+use eukhe_core::settings::SettingsManager;
+use eukhe_durable::harness::types::ConversationAbortOptions;
+use eukhe_durable::harness::InboxItem;
 use serde_json::{json, Value};
-
-use eukhe_core::autonomous::AutonomousRuntimeState;
-use eukhe_core::session_engine::provider_adapter::json_round_trip;
-
-use eukhe_types::goal::GoalState;
 
 use super::model_commands;
 use super::prompt_commands;
 use super::protocol::{self, ResponseData};
+use super::reads::{
+    agent_model, content_preview, context_messages, inbox_state, is_busy, live_state, main_agent,
+    rpc_context,
+};
 use super::session::{RpcEngineRequest, RpcSession};
 use super::session_commands;
 use super::LineWriter;
-use super::COMPACT_FRAME_FLUSH_BUDGET;
+use crate::compaction::durable::{run_manual_compaction, ManualCompactionError};
+use crate::worker::durable_host::meta::read_session_meta;
 
-/// The shared handler state: the live session plus the fixed identity and
-/// the session-scoped runtime pieces the handlers own.
+/// The shared handler state: the live session plus the command lanes.
 pub struct RpcState {
     pub session: Arc<RpcSession>,
     pub writer: LineWriter,
-    pub cwd: std::path::PathBuf,
-    pub agent_dir: std::path::PathBuf,
-    /// The compact handler's in-flight flag (TS `session.isCompacting`):
-    /// `get_state` reports it while a compact command runs.
-    pub compacting: Arc<AtomicUsize>,
-    /// The host-owned autonomous runtime state (`/autonomous` mutates it;
-    /// the CLI flags seed it, TS `createAgentSession` parity).
-    pub autonomous: Arc<tokio::sync::Mutex<AutonomousRuntimeState>>,
-    /// The last `goal_update` event payload published (change-gated emits).
-    pub last_goal: Arc<tokio::sync::Mutex<GoalState>>,
-    /// The queued-work pump's serialization lane (one pump at a time).
-    pub queue_pump: Arc<tokio::sync::Mutex<()>>,
-    /// TS `_sessionInputPumpSuspended`: an abort suspends queued-input
-    /// delivery; the next prompt/steer/follow-up resumes it.
-    pub pump_suspended: Arc<std::sync::atomic::AtomicBool>,
     /// The model-selection commands' serialization lane (TS runs every
     /// command on one loop: `set_model`/`cycle_model` and the thinking
     /// switches serialize read-then-apply instead of racing).
-    pub model_ops: Arc<tokio::sync::Mutex<()>>,
+    pub model_ops: tokio::sync::Mutex<()>,
     /// The context-rebuilding commands' serialization lane (`compact`,
-    /// `refine`, and the prompt-admitted session command executor: they
-    /// rebuild the session context and install the rebuilt transcript,
-    /// so they must not interleave).
-    pub session_ops: Arc<tokio::sync::Mutex<()>>,
+    /// `refine`, and the prompt-admitted session commands).
+    pub session_ops: tokio::sync::Mutex<()>,
 }
 
-impl RpcState {
-    /// Publish the current goal state as a `goal_update` session event
-    /// when it changed (TS `_emitGoalUpdate`).
-    pub async fn publish_goal_update(&self) {
-        let handle = self.session.handle().await;
-        let goal = handle.engine.goal_state().await;
-        drop(handle);
-        self.publish_goal_update_for(&goal).await;
-    }
-
-    /// The same publication over an already-held engine's goal state: the
-    /// prompt-admitted session-command path holds the handle guard
-    /// through its execution, and re-acquiring the handle there can
-    /// starve behind a queued writer (a `set_model` or replacement
-    /// waiting on the same guard) — the caller passes the state it
-    /// already holds.
-    pub async fn publish_goal_update_for(&self, goal: &eukhe_core::goals::GoalState) {
-        let goal = goal.clone();
-        let changed = {
-            let mut last = self.last_goal.lock().await;
-            if *last == goal {
-                false
-            } else {
-                *last = goal.clone();
-                true
-            }
-        };
-        if changed {
-            self.session
-                .write_connection_output(json!({
-                    "type": "goal_update",
-                    "goal": serde_json::to_value(&goal).unwrap_or(Value::Null),
-                }))
-                .await;
-        }
-    }
-}
-
-impl RpcState {
-    /// The live session's project directory (TS builds every session's
-    /// `SettingsManager` over the session's own cwd): the settings
-    /// writes follow it, so after a `switch_session`/`fork` adopts
-    /// another project the persisted defaults land there, not under the
-    /// CLI startup directory.
-    pub async fn settings_cwd(&self) -> std::path::PathBuf {
-        let handle = self.session.handle().await;
-        let persistence = handle.engine.session.shared_persistence();
-        let manager = persistence.lock().await;
-        manager.get_cwd().to_path_buf()
-    }
-}
-
-/// Resume queued-input delivery (TS `_resumeSessionInputAdmission`): the
-/// pump restarts with the next queued batch.
-pub fn resume_pump(state: &Arc<RpcState>) {
-    state
-        .pump_suspended
-        .store(false, std::sync::atomic::Ordering::SeqCst);
-}
-
-/// Restart the queued-work pump on the LIVE session after a failed
-/// whole-session replacement: the pre-settle pump-epoch bump retired the
-/// old pump, and the still-serving session's parked steer/follow-up rows
-/// must keep delivering (a failed assembly never owned them — the
-/// success paths resume delivery the same way). A signal exit never
-/// rearms delivery: the parked rows stay parked for the exit's dispose
-/// (TS never resumes admission on a signal — the process exits), so a
-/// rearmed pump cannot race the exit's retire/abort and admit one last
-/// turn the exit's settle would then have to wait out.
-pub async fn restart_queue_pump(state: &Arc<RpcState>) {
-    if state.session.shutdown_fired() {
-        return;
-    }
-    resume_pump(state);
-    let engine = state.session.handle().await.engine.clone();
-    kick_queue_pump(state, &engine);
-}
-
-/// Kick the queued-work pump (TS `_pumpSessionInputs`): deliver queued
-/// steering/follow-up batches as runs, one settled turn at a time, until
-/// nothing is queued or an abort suspends delivery. Serialized behind the
-/// pump lane so concurrent kicks never double-deliver.
-pub fn kick_queue_pump(
-    state: &Arc<RpcState>,
-    engine: &Arc<eukhe_core::session_engine::engine::SessionEngine>,
-) {
-    let state = Arc::clone(state);
-    let engine = Arc::clone(engine);
-    // The generation this pump serves: a whole-session replacement
-    // (new_session/switch_session/fork) retires it — the pump must never
-    // deliver queued input to the disposed session it was spawned with.
-    let generation = state.session.pump_generation();
-    tokio::spawn(async move {
-        let _lane = state.queue_pump.lock().await;
-        if state.session.pump_generation() != generation
-            || !state.session.engine_is_live(&engine).await
-            || state.session.is_replacing()
-        {
-            return;
-        }
-        let agent = engine.session.agent();
-        loop {
-            if state.session.pump_generation() != generation
-                || !state.session.engine_is_live(&engine).await
-                || state.session.is_replacing()
-            {
-                return;
-            }
-            if state
-                .pump_suspended
-                .load(std::sync::atomic::Ordering::SeqCst)
-            {
-                break;
-            }
-            // TS's session-input pump holds its checkpoint while a
-            // compaction is in flight (`_compactionOperation` gates the
-            // pump; compact's finally re-schedules it): a parked row
-            // never delivers into the rebuild's window. The count (not
-            // a bool) keeps a second compact waiting on session_ops
-            // gated while the first clears its own increment.
-            if state.compacting.load(std::sync::atomic::Ordering::SeqCst) > 0 {
-                break;
-            }
-            agent.wait_for_idle().await;
-            // Re-check after the idle wait: a replacement that lands in
-            // the wait window must retire this pump before it delivers
-            // onto the disposed session. The identity check pairs with
-            // the generation check: a kick can sample the engine and the
-            // generation apart (a replace bumps the generation before it
-            // swaps the handle), so the passing-generation-with-old-engine
-            // window retires on the engine identity instead. A
-            // compaction that armed while this pump was parked on the
-            // idle wait parks it again (the count covers the whole
-            // abort-to-rebuild window; the rebuild re-kicks the pump
-            // once it settles).
-            if state.compacting.load(std::sync::atomic::Ordering::SeqCst) > 0 {
-                break;
-            }
-            if state.session.pump_generation() != generation
-                || !state.session.engine_is_live(&engine).await
-                || state.session.is_replacing()
-            {
-                return;
-            }
-            if !agent.has_queued_messages() {
-                break;
-            }
-            if state
-                .pump_suspended
-                .load(std::sync::atomic::Ordering::SeqCst)
-            {
-                break;
-            }
-            // Deliver the queued batches through the session's admission
-            // (a chat-memory root takes them all at once as a fresh call;
-            // otherwise `continue_run` drains the steering lane first, then
-            // follow-ups); a delivery failure ends the pump run (the error
-            // surfaced to the client through the aborting command's own
-            // channel in TS; here the queue stays and the next kick
-            // retries).
-            if engine.session.deliver_queued().await.is_err() {
-                break;
-            }
-        }
-    });
+/// A settings manager over the live session's project (TS builds every
+/// session's `SettingsManager` over the session's own cwd): the settings
+/// writes follow it, so after a `switch_session`/`fork` adopts another
+/// project the persisted defaults land there, not under the CLI startup
+/// directory. The session's settings source re-reads the files when they
+/// change, so a write here is the live change too.
+pub(crate) fn settings_for(session: &EukheSession) -> SettingsManager {
+    let deps = session.deps();
+    SettingsManager::create(&deps.cwd, &deps.agent_dir)
 }
 
 /// Dispatch one command to its handler; the unknown-type error answers
@@ -228,14 +62,8 @@ pub async fn handle_command(state: &Arc<RpcState>, command: protocol::RpcCommand
     let outcome: Result<ResponseData, String> = match name {
         "prompt" => prompt_commands::prompt(state, &payload).await,
         "steer" | "follow_up" => prompt_commands::steer_or_follow_up(state, &payload, name).await,
-        "abort" => {
-            state.session.handle().await.engine.session.agent().abort();
-            // TS `requestAbort` suspends queued-input delivery; the next
-            // prompt/steer/follow-up resumes it.
-            state.pump_suspended.store(true, Ordering::SeqCst);
-            Ok(ResponseData::Absent)
-        }
-        "new_session" => new_session(state, &payload).await,
+        "abort" => state.session.abort().await.map(|()| ResponseData::Absent),
+        "new_session" => new_session(state).await,
         "get_state" => get_state(state).await,
         "set_model" => model_commands::set_model(state, &payload).await,
         "cycle_model" => model_commands::cycle_model(state).await,
@@ -250,7 +78,8 @@ pub async fn handle_command(state: &Arc<RpcState>, command: protocol::RpcCommand
         "set_auto_compaction" => set_auto_compaction(state, &payload).await,
         "set_auto_retry" => set_auto_retry(state, &payload).await,
         // TS `abortRetry` always answers success (it aborts only an
-        // in-flight retry; the in-process turn path has no parked retry).
+        // in-flight retry; the durable retry backoff ends with the abort
+        // of its run).
         "abort_retry" => Ok(ResponseData::Absent),
         other => session_commands::handle(state, other, &payload).await,
     };
@@ -260,282 +89,205 @@ pub async fn handle_command(state: &Arc<RpcState>, command: protocol::RpcCommand
     }
 }
 
-/// `new_session` (TS `runtimeHost.newSession`): a fresh session,
-/// optionally under a parent session.
-async fn new_session(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
-    let parent = payload
-        .get("parentSession")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    // The fresh session builds over the ACTIVE session's project (TS
-    // `runtimeHost.newSession` over `this.cwd`), so a session adopted
-    // from another project does not seed the new one back into the CLI
-    // startup directory.
-    // Serialize the cwd sample with the replacement it seeds (the
-    // replacement lease, held across both): a `switch_session` landing
-    // between the sample and the replace would build the child over the
-    // retired session's stale project cwd — TS's synchronous `this.cwd`
-    // read has no such window. The sample's guards drop before
-    // `replace_locked` (the write guard is not re-entrant).
+/// `new_session` (TS `runtimeHost.newSession`): a fresh session over the
+/// ACTIVE session's project. A `parentSession` is accepted for protocol
+/// compatibility but has no durable record to land in (durable storage
+/// carries no session header with a parent link).
+async fn new_session(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+    // Serialize the cwd sample with the replacement it seeds: a
+    // `switch_session` landing between them would build the session over
+    // the retired session's project.
     let lease = state.session.replacement_lease().await;
-    let cwd = {
-        let handle = state.session.handle().await;
-        let persistence = handle.engine.session.shared_persistence();
-        let manager = persistence.lock().await;
-        manager.get_cwd().to_path_buf()
-    };
+    let cwd = state.session.session().await.deps().cwd.clone();
     let outcome = state
         .session
-        .replace_locked(RpcEngineRequest::New {
-            parent_session: parent,
-            cwd: Some(cwd),
-        })
+        .replace_locked(RpcEngineRequest::New { cwd: Some(cwd) })
         .await;
     drop(lease);
-    if let Err(error) = outcome {
-        restart_queue_pump(state).await;
-        return Err(error);
-    }
-    resume_pump(state);
+    outcome?;
     Ok(ResponseData::Present(json!({ "cancelled": false })))
 }
 
-/// `get_state` (TS `RpcSessionState`).
+/// The wire name of a queue mode setting (TS `"all"`/`"one-at-a-time"`).
+pub(crate) fn queue_mode_wire_name(mode: QueueModeSetting) -> &'static str {
+    match mode {
+        QueueModeSetting::All => "all",
+        QueueModeSetting::OneAtATime => "one-at-a-time",
+    }
+}
+
+/// `get_state` (TS `RpcSessionState`) over the main conversation.
 async fn get_state(state: &Arc<RpcState>) -> Result<ResponseData, String> {
     let handle = state.session.handle().await;
-    let engine = &handle.engine;
-    let agent = engine.session.agent();
-    let agent_state = agent.state().await;
-    let persistence = engine.session.shared_persistence();
-    let manager = persistence.lock().await;
+    let session = &handle.session;
+    let harness = session.harness();
+    let deps = session.deps();
+    let cx = rpc_context();
+    let main = session.main();
+    let agent = main_agent(session, &cx).await?;
+    let live = live_state(harness, main.id(), &cx).await?;
+    let inbox = inbox_state(harness, main.id(), &cx).await?;
+    let messages = context_messages(&main, &cx).await?;
+    let meta = read_session_meta(harness, &cx)
+        .await
+        .map_err(|error| error.to_string())?;
+    let goal = goal_state(harness, main.id(), &cx)
+        .await
+        .map_err(|error| error.to_string())?;
+    let settings = deps.settings.manager();
 
     let mut object = serde_json::Map::new();
-    if let Some(model) = json_round_trip(&agent_state.model) {
-        object.insert("model".to_string(), model);
+    if let Some(model) = agent_model(session, &agent) {
+        object.insert(
+            "model".to_string(),
+            serde_json::to_value(model).map_err(|error| error.to_string())?,
+        );
     }
     object.insert(
         "thinkingLevel".to_string(),
-        serde_json::to_value(agent_state.thinking_level).unwrap_or(json!("off")),
+        json!(agent.thinking_level.as_str()),
     );
-    object.insert("isStreaming".to_string(), json!(agent_state.is_streaming));
+    let streaming = live.run.is_some();
+    object.insert("isStreaming".to_string(), json!(streaming));
     object.insert(
         "isCompacting".to_string(),
-        json!(state.compacting.load(Ordering::SeqCst) > 0),
+        json!(live
+            .compactions
+            .as_ref()
+            .is_some_and(|compactions| !compactions.is_empty())),
     );
     object.insert(
         "steeringMode".to_string(),
-        json!(queue_mode_wire_name(agent.steering_mode())),
+        json!(queue_mode_wire_name(settings.get_steering_mode())),
     );
     object.insert(
         "followUpMode".to_string(),
-        json!(queue_mode_wire_name(agent.follow_up_mode())),
+        json!(queue_mode_wire_name(settings.get_follow_up_mode())),
     );
-    if let Some(file) = manager.get_session_file() {
-        object.insert("sessionFile".to_string(), json!(file.display().to_string()));
+    if let Some(dir) = &deps.storage_dir {
+        object.insert("sessionFile".to_string(), json!(dir.display().to_string()));
     }
-    object.insert("sessionId".to_string(), json!(manager.get_session_id()));
-    if let Some(name) = manager.get_session_name() {
+    object.insert("sessionId".to_string(), json!(deps.session_id));
+    if let Some(name) = meta.name {
         object.insert("sessionName".to_string(), json!(name));
     }
     object.insert(
         "autoCompactionEnabled".to_string(),
-        json!(engine.session.auto_compaction_enabled()),
+        json!(settings.get_compaction_enabled()),
     );
-    object.insert(
-        "messageCount".to_string(),
-        json!(agent_state.messages.len()),
-    );
+    object.insert("messageCount".to_string(), json!(messages.len()));
     object.insert(
         "sessionActions".to_string(),
-        session_actions_snapshot(agent.as_ref(), &agent_state),
+        session_actions_snapshot(&inbox.items, streaming),
     );
-    // Release the persistence guard before the goal-driver read: goal
-    // mutations take the driver first and persistence second, so holding
-    // the persistence mutex across the driver wait inverts the lock order.
-    drop(manager);
-    // The guard binding keeps the driver mutex alive across the read (a
-    // chained temporary would free before the borrow ends).
-    let goal_driver = engine.goal_driver.lock().await;
     object.insert(
         "goal".to_string(),
-        serde_json::to_value(goal_driver.state_with_creation_elapsed()).unwrap_or(Value::Null),
+        serde_json::to_value(goal).map_err(|error| error.to_string())?,
     );
     Ok(ResponseData::Present(Value::Object(object)))
 }
 
-/// The TS `SessionActionSnapshot` over the agent's queues: previews per
-/// queued batch, the total, and the running turn as the active action.
-fn session_actions_snapshot(
-    agent: &eukhe_agent::agent::Agent,
-    state: &eukhe_agent::agent::AgentStateSnapshot,
-) -> Value {
-    let steering = agent.steering_previews();
-    let follow_ups = agent.follow_up_previews();
+/// The TS `SessionActionSnapshot` over the conversation's inbox: one
+/// preview per queued input, the total, and the running turn as the
+/// active action. Queued passive writes are not session actions.
+fn session_actions_snapshot(items: &[InboxItem], streaming: bool) -> Value {
+    let mut steering = Vec::new();
+    let mut follow_ups = Vec::new();
+    for item in items {
+        match item {
+            InboxItem::Steer { content, .. } => steering.push(content_preview(content)),
+            InboxItem::FollowUp { content, .. } => follow_ups.push(content_preview(content)),
+            InboxItem::Write { .. } => {}
+        }
+    }
     let mut snapshot = json!({
         "queuedCount": steering.len() + follow_ups.len(),
         "steering": steering,
         "followUps": follow_ups,
     });
-    if state.is_streaming {
+    if streaming {
         snapshot["active"] = json!({ "kind": "turn", "phase": "running" });
     }
     snapshot
 }
 
-/// The wire names of the agent queue modes (TS `"all"`/`"one-at-a-time"`).
-fn queue_mode_wire_name(mode: eukhe_agent::agent::QueueMode) -> &'static str {
-    match mode {
-        eukhe_agent::agent::QueueMode::All => "all",
-        eukhe_agent::agent::QueueMode::OneAtATime => "one-at-a-time",
-    }
-}
-
-/// `compact` (TS `session.compact(customInstructions)`): run the
-/// compaction, emit its session events, and answer with the
+/// `compact` (TS `session.compact(customInstructions)`): abort the
+/// running turn, run a manual durable compaction and answer with the TS
 /// `CompactionResult`; a skip answers the TS `CompactionSkippedError`
-/// message.
+/// message with the compaction frames around it (a compaction that ran
+/// publishes its own frames through the event pump).
 async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
     let instructions = payload
         .get("customInstructions")
         .and_then(Value::as_str)
         .map(str::to_string);
-    // The handle guard stays held through the compaction (the
-    // prompt-admitted path's guard-pass-through): a concurrent
-    // whole-session replacement (whose swap waits on the write guard)
-    // can never dispose the kernel mid-compaction or land a `set_model`
-    // between the snapshot and the summarization — the compaction's
-    // frames and file writes stay on the live session, under the model
-    // the session runs.
+    // The handle guard stays held through the compaction: a concurrent
+    // whole-session replacement cannot close the session mid-compaction.
     let handle = state.session.handle().await;
-    let model = handle.model.clone();
-    let api_key = handle.api_key.clone();
-    let engine = handle.engine.clone();
-    // The compaction is in flight from the abort onward: the gate arms
-    // BEFORE the turn settles, so a pump woken by the abort's idle
-    // settle sees it and parks instead of admitting a queued row into
-    // the snapshot window. The gate is a COUNT: two overlapping compact
-    // commands (a second waiting on session_ops behind the first) each
-    // arm their own increment, and the first's clear leaves the
-    // second's window still gated.
-    state.compacting.fetch_add(1, Ordering::SeqCst);
-    // TS `session.compact` aborts the running turn before the snapshot
-    // (`if (!options.skipAbort) await this.abort()`, agent-session.ts):
-    // the compaction summarizes a SETTLED transcript, never one a live
-    // turn is still appending — the abort settles the turn first.
-    engine.session.agent().abort();
-    engine.session.agent().wait_for_idle().await;
-    // Compact rebuilds the session context (like refine): serialize the
-    // context-rebuilding commands so their rebuilds cannot interleave
-    // and install an older snapshot over a newer one.
+    let session = &handle.session;
+    let main = session.main();
+    let cx = rpc_context();
     let _ops = state.session_ops.lock().await;
-    state
-        .session
-        .write_connection_output(compaction_frame(
-            "compaction_start",
-            instructions.as_deref(),
-            None,
-        ))
-        .await;
-    // Flush the queued `compaction_start` BEFORE the compaction enters
-    // its pre-summarizer CPU span (digest capture, cut scan, token
-    // estimation, details extraction): that span runs to the
-    // summarizer's `await` without an executor yield, and the writer
-    // task would hold the frame until the span ends — at a large
-    // session the client sees the compaction start only tens of
-    // milliseconds after it was published, where TS (a synchronous
-    // stdout write at the emit) shows it immediately. The wait is
-    // budgeted (see `COMPACT_FRAME_FLUSH_BUDGET`): a stalled reader
-    // never wedges the compaction.
-    state.writer.drain_within(COMPACT_FRAME_FLUSH_BUDGET).await;
-    let outcome = engine
-        .session
-        .compact_on_request(instructions.as_deref(), &model, api_key, None)
-        .await;
-    state.compacting.fetch_sub(1, Ordering::SeqCst);
-    // TS compact's finally re-schedules the session-input pump
-    // (`_notifySessionInputCheckpointChange` + `_scheduleSessionInputPump`):
-    // the parked rows deliver after the rebuild settles, never into its
-    // window (the pump's compacting gate holds them out mid-rebuild).
-    resume_pump(state);
-    kick_queue_pump(state, &engine);
-    let outcome = match outcome {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            // The failed compaction still publishes its end frame (TS
-            // writes `compaction_end` around every completed attempt —
-            // success, skip, and failure alike).
-            state
-                .session
-                .write_connection_output(compaction_frame(
-                    "compaction_end",
-                    instructions.as_deref(),
-                    None,
-                ))
-                .await;
-            return Err(format!("{error:#}"));
+    // TS `session.compact` aborts the running turn before the snapshot:
+    // the compaction summarizes a settled transcript.
+    if !matches!(is_busy(session.harness(), main.id(), &cx).await, Ok(false)) {
+        main.abort(ConversationAbortOptions::default(), &cx)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    match run_manual_compaction(
+        session.harness(),
+        session.deps(),
+        &main,
+        instructions.clone(),
+        &cx,
+    )
+    .await
+    {
+        Ok(result) => Ok(ResponseData::Present(result)),
+        Err(ManualCompactionError::Skipped(message)) => {
+            let outputs = state.session.outputs();
+            outputs.write(compaction_frame(
+                "compaction_start",
+                instructions.as_deref(),
+                None,
+            ));
+            outputs.write(compaction_frame(
+                "compaction_end",
+                instructions.as_deref(),
+                None,
+            ));
+            Err(message.to_string())
         }
-    };
-    let outcome_value = match &outcome {
-        eukhe_core::session_engine::compact_session::CompactOutcome::Ran(run) => {
-            let result = crate::compaction::compaction_result_value(&run.result, &run.entry);
-            state
-                .session
-                .write_connection_output(compaction_frame(
-                    "compaction_end",
-                    instructions.as_deref(),
-                    Some(&result),
-                ))
-                .await;
-            ResponseData::Present(result)
-        }
-        eukhe_core::session_engine::compact_session::CompactOutcome::Skipped(message) => {
-            // TS `compaction_end` omits an undefined `result` (the skip
-            // is observable, the result is not).
-            state
-                .session
-                .write_connection_output(compaction_frame(
-                    "compaction_end",
-                    instructions.as_deref(),
-                    None,
-                ))
-                .await;
-            return Err(message.to_string());
-        }
-    };
-    Ok(outcome_value)
+        Err(error) => Err(error.to_string()),
+    }
 }
 
-/// One compaction frame in the TS key order, omitting the optional
-/// fields that are absent (TS `JSON.stringify`'s `undefined` handling):
-/// `compaction_start {type, reason, customInstructions?}` and
+/// One requested-compaction frame in the TS key order, omitting the
+/// optional fields that are absent (TS `JSON.stringify`'s `undefined`
+/// handling): `compaction_start {type, reason, customInstructions?}` and
 /// `compaction_end {type, reason, result?, aborted, willRetry,
 /// customInstructions?}`.
 #[must_use]
 pub fn compaction_frame(kind: &str, instructions: Option<&str>, result: Option<&Value>) -> Value {
-    if kind == "compaction_start" {
-        let mut frame = json!({ "type": kind, "reason": "requested" });
-        if let Some(instructions) = instructions {
-            frame["customInstructions"] = json!(instructions);
-        }
-        frame
-    } else {
-        let mut frame = json!({ "type": kind, "reason": "requested" });
+    let mut frame = json!({ "type": kind, "reason": "requested" });
+    if kind != "compaction_start" {
         if let Some(result) = result {
             frame["result"] = result.clone();
         }
         frame["aborted"] = json!(false);
         frame["willRetry"] = json!(false);
-        if let Some(instructions) = instructions {
-            frame["customInstructions"] = json!(instructions);
-        }
-        frame
     }
+    if let Some(instructions) = instructions {
+        frame["customInstructions"] = json!(instructions);
+    }
+    frame
 }
 
-/// `refine` (TS `session.refine`): run the refinement and answer with the
-/// `RefinementResult`.
+/// `refine` (TS `session.refine`): run the refinement on the main
+/// conversation and answer with the `RefinementResult`.
 async fn refine(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
-    let options = eukhe_core::session_engine::refine::RefineOptions {
+    let request = RefineRequest {
         global: payload
             .get("global")
             .and_then(Value::as_bool)
@@ -549,38 +301,19 @@ async fn refine(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, 
             .and_then(Value::as_str)
             .map(str::to_string),
     };
-    // The handle guard stays held through the refinement (the compact
-    // handler's guard-pass-through): a concurrent whole-session
-    // replacement or `set_model` cannot interleave between the snapshot
-    // and the refinement's file writes.
     let handle = state.session.handle().await;
-    let model = handle.model.clone();
-    let api_key = handle.api_key.clone();
-    let engine = handle.engine.clone();
-    let global_harness_dir = eukhe_core::refinement::get_global_harness_state_dir(&state.agent_dir);
-    // Refine appends durable rows and pushes them into the live loop
-    // context (TS `_appendDurableRefineMessage`); it shares compact's
-    // one-command-at-a-time serialization (one session-context-mutating
-    // command at a time).
+    let session = &handle.session;
     let _ops = state.session_ops.lock().await;
-    let result = engine
-        .session
-        .refine(
-            &options,
-            eukhe_core::session_engine::refine::RefinementSource::User,
-            &model,
-            api_key,
-            global_harness_dir,
-        )
+    let result = refine_now(session.deps(), &session.main(), request, &rpc_context())
         .await
         .map_err(|error| format!("{error:#}"))?;
     Ok(ResponseData::Present(
-        serde_json::to_value(result).unwrap_or(Value::Null),
+        serde_json::to_value(result).map_err(|error| error.to_string())?,
     ))
 }
 
 /// `set_auto_compaction` (TS `session.setAutoCompactionEnabled`): the
-/// live settings toggle plus the settings default TS persists.
+/// settings default the session's compaction policy reads.
 async fn set_auto_compaction(
     state: &Arc<RpcState>,
     payload: &Value,
@@ -589,18 +322,9 @@ async fn set_auto_compaction(
         .get("enabled")
         .and_then(Value::as_bool)
         .ok_or_else(|| "set_auto_compaction requires enabled".to_string())?;
-    // Persist the settings default first: a settings failure must leave
-    // the live toggle untouched (the session keeps its configured
-    // behavior instead of half-applying the request).
-    let mut settings = eukhe_core::settings::SettingsManager::create(
-        &state.settings_cwd().await,
-        &state.agent_dir,
-    );
-    settings
+    settings_for(&*state.session.session().await)
         .set_compaction_enabled(enabled)
         .map_err(|error| error.to_string())?;
-    let handle = state.session.handle().await;
-    handle.engine.session.set_auto_compaction_enabled(enabled);
     Ok(ResponseData::Absent)
 }
 
@@ -611,12 +335,60 @@ async fn set_auto_retry(state: &Arc<RpcState>, payload: &Value) -> Result<Respon
         .get("enabled")
         .and_then(Value::as_bool)
         .ok_or_else(|| "set_auto_retry requires enabled".to_string())?;
-    let mut settings = eukhe_core::settings::SettingsManager::create(
-        &state.settings_cwd().await,
-        &state.agent_dir,
-    );
-    settings
+    settings_for(&*state.session.session().await)
         .set_retry_enabled(enabled)
         .map_err(|error| error.to_string())?;
     Ok(ResponseData::Absent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eukhe_durable::types::SubmissionId;
+    use eukhe_types::pi_ai::UserContent;
+
+    #[test]
+    fn session_actions_preview_queued_inputs_only() {
+        let items = vec![
+            InboxItem::Steer {
+                id: SubmissionId::from_number(1),
+                content: UserContent::Text("steer this".into()),
+            },
+            InboxItem::Write {
+                id: SubmissionId::from_number(2),
+                entry: eukhe_chord::json::JsonValue::Null,
+            },
+            InboxItem::FollowUp {
+                id: SubmissionId::from_number(3),
+                content: UserContent::Text("fu this".into()),
+            },
+        ];
+        assert_eq!(
+            session_actions_snapshot(&items, true),
+            json!({
+                "queuedCount": 2,
+                "steering": ["steer this"],
+                "followUps": ["fu this"],
+                "active": { "kind": "turn", "phase": "running" },
+            })
+        );
+        assert_eq!(
+            session_actions_snapshot(&[], false),
+            json!({ "queuedCount": 0, "steering": [], "followUps": [] })
+        );
+    }
+
+    #[test]
+    fn compaction_frames_keep_the_ts_key_order() {
+        let start = compaction_frame("compaction_start", Some("focus"), None);
+        assert_eq!(
+            serde_json::to_string(&start).unwrap(),
+            r#"{"type":"compaction_start","reason":"requested","customInstructions":"focus"}"#
+        );
+        let end = compaction_frame("compaction_end", None, None);
+        assert_eq!(
+            serde_json::to_string(&end).unwrap(),
+            r#"{"type":"compaction_end","reason":"requested","aborted":false,"willRetry":false}"#
+        );
+    }
 }
