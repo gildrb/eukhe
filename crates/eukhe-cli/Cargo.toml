@@ -14,6 +14,12 @@ eukhe-agent = { path = "../eukhe-agent" }
 eukhe-daemon = { path = "../eukhe-daemon" }
 eukhe-tui = { path = "../eukhe-tui" }
 eukhe-telemetry = { path = "../eukhe-telemetry" }
+# The durable agent session the print/json/rpc modes run on (submissions,
+# event streams, faux-script models, chord contexts).
+eukhe-durable = { workspace = true }
+eukhe-pi-ai = { workspace = true }
+eukhe-chord = { workspace = true }
+futures = { workspace = true }
 uuid = { version = "1", features = ["v4", "v7"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }

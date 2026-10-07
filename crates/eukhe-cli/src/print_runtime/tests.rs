@@ -1,97 +1,180 @@
-// --- print-mode MCP wiring (TS `createAgentSessionServices` parity) ---
+use std::path::Path;
 
-/// The arm records the routed target it writes, so the settle
-/// restores the captured session target only while the slot still
-/// holds the route; a mid-run `/model` switch rewrote the slot with
-/// the new session target, and the settle must leave it (the
-/// regression this pins: the arm once skipped the `armed_to` write,
-/// so the settle's still-routed guard always passed and dragged the
-/// slot back to the pre-route session target).
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::{open_session, ModelRequest, SessionConfig, SessionStorage};
+use eukhe_pi_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
+
+use super::*;
+use crate::headless_terminal::HeadlessPrimary;
+use crate::mode::{RuntimeConfig, SessionOptions};
+
+/// A memory session on the scripted faux provider (the print harness's
+/// `EUKHE_FAUX_SCRIPT` models without the environment).
+async fn faux_session(dir: &Path, script: &serde_json::Value) -> EukheSession {
+    let script = parse_faux_script(&script.to_string()).expect("faux script");
+    let model = script.model.id.clone();
+    let (models, _provider) = create_faux_script_models(script);
+    let mut config = SessionConfig::new(
+        dir.join("agent"),
+        dir,
+        "0198f000-0000-7000-8000-000000000000",
+        SessionStorage::Memory,
+    );
+    config.models = Some(models);
+    config.model = Some(ModelRequest {
+        provider: Some("faux".to_owned()),
+        pattern: model,
+    });
+    open_session(config, &BACKGROUND_CONTEXT)
+        .await
+        .expect("open the faux session")
+}
+
+fn run_options(dir: &Path, prompts: &[&str]) -> RunOptions {
+    RunOptions {
+        app_mode: AppMode::Print,
+        config: RuntimeConfig {
+            cwd: dir.to_path_buf(),
+            agent_dir: dir.join("agent"),
+            ..RuntimeConfig::default()
+        },
+        session: SessionOptions::default(),
+        messages: prompts[1..]
+            .iter()
+            .map(|&prompt| prompt.to_owned())
+            .collect(),
+        file_args: Vec::new(),
+        daemon_socket: None,
+        list_models: None,
+        initial_message: prompts.first().map(|&prompt| prompt.to_owned()),
+        initial_images: Vec::new(),
+        verbose: false,
+        offline: false,
+        agents_view_requested: false,
+        attach_agent: None,
+    }
+}
+
+/// Run the prompt loop on a faux session and select the terminal result.
+async fn run(
+    script: &serde_json::Value,
+    prompts: &[&str],
+) -> (
+    Option<String>,
+    crate::headless_terminal::HeadlessTerminalResult,
+) {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let session = faux_session(dir.path(), script).await;
+    let conversation = session.main();
+    let cx = &*BACKGROUND_CONTEXT;
+    let failure = drive_prompts(
+        &session,
+        &conversation,
+        &run_options(dir.path(), prompts),
+        cx,
+    )
+    .await
+    .expect("the prompt loop runs");
+    let result = select_terminal_result(&conversation, cx)
+        .await
+        .expect("terminal selection");
+    session.close(cx).await.expect("close");
+    (failure, result)
+}
+
+#[tokio::test]
+async fn every_prompt_answers_in_order_and_the_last_answer_is_the_result() {
+    let (failure, result) = run(
+        &serde_json::json!({ "responses": ["first answer", "second answer"] }),
+        &["one", "two"],
+    )
+    .await;
+    assert_eq!(failure, None);
+    let primary = result.primary.expect("a primary answer");
+    assert_eq!(primary.failure(), None);
+    assert_eq!(primary.stdout_text(), "second answer");
+}
+
+#[tokio::test]
+async fn an_unscripted_request_fails_the_run_with_its_error() {
+    let (failure, result) = run(&serde_json::json!({ "responses": [] }), &["hi"]).await;
+    assert_eq!(failure, None);
+    let primary = result.primary.expect("the failed assistant turn");
+    assert!(
+        matches!(primary, HeadlessPrimary::Assistant(_)),
+        "{primary:?}"
+    );
+    let stderr = primary.failure().expect("exit 1").expect("stderr text");
+    assert!(!stderr.is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_session_command_stops_the_prompt_loop() {
+    let (failure, result) = run(
+        &serde_json::json!({ "responses": ["never"] }),
+        &["/autonomous status extra", "never asked"],
+    )
+    .await;
+    let error = failure.expect("the command failed");
+    assert!(!error.is_empty());
+    // The later prompt never ran: the failure row is the terminal entry.
+    match result.primary.expect("the failure row") {
+        HeadlessPrimary::SlashCommandResult {
+            content, success, ..
+        } => {
+            assert!(!success);
+            assert_eq!(content, format!("Command failed: {error}"));
+        }
+        HeadlessPrimary::Assistant(message) => panic!("no model turn expected: {message:?}"),
+    }
+}
+
 #[test]
-fn headless_image_router_settle_preserves_a_mid_run_model_switch() {
-    fn fixture_model(id: &str) -> eukhe_types::ai::Model {
-        eukhe_types::ai::Model {
-            id: id.to_string(),
-            name: id.to_string(),
-            api: "anthropic-messages".to_string(),
-            provider: "anthropic".to_string(),
-            base_url: "https://x".to_string(),
-            reasoning: true,
-            thinking_level_map: None,
-            input: vec![
-                eukhe_types::ai::ModelInput::Text,
-                eukhe_types::ai::ModelInput::Image,
-            ],
-            cost: eukhe_types::ai::ModelCost {
-                input: 1.0.into(),
-                output: 2.0.into(),
-                cache_read: 0.0.into(),
-                cache_write: 0.0.into(),
-            },
-            context_window: 200_000,
-            max_tokens: 8192,
-            featured: None,
-            headers: None,
-            compat: None,
-        }
-    }
-    fn target(
-        model: eukhe_types::ai::Model,
-    ) -> eukhe_core::session_engine::provider_adapter::ProviderTarget {
-        eukhe_core::session_engine::provider_adapter::ProviderTarget {
-            model,
-            service_tier: None,
-        }
-    }
-    let home = tempfile::TempDir::new().unwrap();
-    let agent_dir = home.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let session_model = fixture_model("session-model");
-    let provider_target =
-        std::sync::Arc::new(std::sync::RwLock::new(Some(target(session_model.clone()))));
-    let armed_target: std::sync::Arc<
-        std::sync::Mutex<Option<eukhe_core::session_engine::provider_adapter::ProviderTarget>>,
-    > = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let router = super::headless_image_model_router(
-        &provider_target,
-        std::sync::Arc::clone(&armed_target),
-        home.path().to_path_buf(),
-        agent_dir,
-        session_model,
+fn the_session_header_carries_the_ts_fields_in_order() {
+    let opened_cwd = std::path::PathBuf::from("/work/project");
+    let header = header_for("0198f000-0000-7000-8000-000000000001", &opened_cwd, None);
+    let keys: Vec<&str> = header
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        ["type", "version", "id", "timestamp", "cwd", "rlmDepth"]
     );
-    let expected_route = eukhe_core::models::ResolvedImageModel {
-        model: fixture_model("image-model"),
-        thinking_level: eukhe_types::ai::ModelThinkingLevel::High,
-        service_tier: None,
+    assert_eq!(header["type"], "session");
+    assert_eq!(header["version"], 3);
+    assert_eq!(header["cwd"], "/work/project");
+    assert_eq!(header["rlmDepth"], 0);
+    let forked = header_for(
+        "0198f000-0000-7000-8000-000000000002",
+        &opened_cwd,
+        Some(Path::new("/sessions/source")),
+    );
+    assert_eq!(forked["parentSession"], "/sessions/source");
+}
+
+#[test]
+fn image_prompts_carry_the_text_then_the_images() {
+    assert_eq!(
+        user_content("plain", Vec::new()),
+        UserContent::Text("plain".to_owned())
+    );
+    let image = ImageContent {
+        data: "aGk=".to_owned(),
+        mime_type: "image/png".to_owned(),
     };
-    // Arm: the slot now serves the routed image model.
-    (router.swap_target)(Some(&expected_route));
     assert_eq!(
-        provider_target.read().unwrap().as_ref().unwrap().model.id,
-        "image-model"
-    );
-    // A mid-run `/model` switch rewrites the live slot with the new
-    // session target while the route is still armed.
-    let switched_to = target(fixture_model("switched-model"));
-    *provider_target.write().unwrap() = Some(switched_to);
-    // Settle: the switch wins; the settle must not drag the slot back
-    // to the pre-route session target.
-    (router.swap_target)(None);
-    assert_eq!(
-        provider_target.read().unwrap().as_ref().unwrap().model.id,
-        "switched-model"
-    );
-    // The next episode captures the live slot at ITS first arm, so its
-    // baseline is the post-switch session model: the plain arm ->
-    // serve -> settle contract restores that baseline (the
-    // capture-at-arm, restore-at-settle pair).
-    (router.swap_target)(Some(&expected_route));
-    (router.swap_target)(None);
-    assert_eq!(
-        provider_target.read().unwrap().as_ref().unwrap().model.id,
-        "switched-model"
+        user_content("look", vec![image.clone()]),
+        UserContent::Blocks(vec![
+            UserContentBlock::Text(eukhe_types::pi_ai::TextContent::new("look")),
+            UserContentBlock::Image(image),
+        ])
     );
 }
+
+// --- print-mode MCP wiring (TS `createAgentSessionServices` parity) ---
 
 /// The print session's MCP manager serves a settings-declared server
 /// through the `mcp.config` host request the kernel dispatches

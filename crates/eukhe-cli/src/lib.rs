@@ -41,6 +41,8 @@ pub(crate) mod factory_command;
 pub(crate) mod file_processor;
 pub(crate) mod global_flags;
 pub(crate) mod headless_autonomous;
+pub(crate) mod headless_session;
+pub(crate) mod headless_terminal;
 pub(crate) mod incident;
 pub(crate) mod initial_message;
 pub(crate) mod interactive_mode;
@@ -64,11 +66,7 @@ pub(crate) mod traces_login;
 /// into the `eukhe` binary, plus the entry point that drives it.
 pub use mode::{AppMode, MissingSubsystem, RunOptions, Runtime, UnavailableRuntime};
 pub(crate) mod piped_stdin;
-pub(crate) mod print_autonomous;
-pub(crate) mod print_boundary;
-pub(crate) mod print_goal;
 pub mod print_runtime;
-pub(crate) mod print_session_command;
 pub mod util_time;
 pub use print_runtime::PrintRuntime;
 

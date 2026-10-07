@@ -235,6 +235,33 @@ fn is_leased(leased: &[String], session_file: &str) -> bool {
     })
 }
 
+/// Whether a durable session storage directory under `sessions_dir`
+/// (each `<sessions_dir>/<id>/` holds `main.jsonl` plus its sidecars)
+/// carries `needle` in one of its JSONL files. The legacy session file
+/// the storage was imported from (`legacy`) is never read: only the
+/// durable rows count.
+fn durable_storage_contains(
+    sessions_dir: &std::path::Path,
+    legacy: &std::path::Path,
+    needle: &str,
+) -> bool {
+    let Ok(dirs) = std::fs::read_dir(sessions_dir) else {
+        return false;
+    };
+    dirs.flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir() && path.as_path() != legacy)
+        .any(|dir| {
+            std::fs::read_dir(&dir).is_ok_and(|files| {
+                files.flatten().any(|file| {
+                    let path = file.path();
+                    path.extension().is_some_and(|ext| ext == "jsonl")
+                        && std::fs::read_to_string(&path).is_ok_and(|text| text.contains(needle))
+                })
+            })
+        })
+}
+
 impl Drop for RpcChild {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -377,10 +404,9 @@ fn rpc_parse_and_unknown_command_errors() {
 }
 
 /// Steer and follow-up queue behind a running turn; abort settles it
-/// and parks the rows; the next prompt's run folds the parked steer
-/// into its own turn and delivers the follow-up as its second turn
-/// (TS `runLoop`'s run-start steering poll and post-turn follow-up
-/// poll over the parked queues).
+/// and withdraws the queued inputs (the durable `Conversation.abort()`:
+/// queued inputs are withdrawn, the ordinary scope settles); the next
+/// prompt runs alone.
 #[test]
 fn rpc_steer_and_follow_up_queue_then_abort() {
     let script = json!({
@@ -446,20 +472,13 @@ fn rpc_steer_and_follow_up_queue_then_abort() {
     {
         client.wait_event("agent_end", TIMEOUT);
     }
-    let parked = client.request(&json!({ "type": "get_state" }));
+    let withdrawn = client.request(&json!({ "type": "get_state" }));
     assert_eq!(
-        parked["data"]["sessionActions"]["queuedCount"], 2,
-        "the abort parks the queued rows: {parked}"
+        withdrawn["data"]["sessionActions"]["queuedCount"], 0,
+        "the abort withdraws the queued inputs: {withdrawn}"
     );
-    // The next prompt resumes delivery and its run FOLDS the parked
-    // rows (TS `runLoop`, agent-loop.ts): the run-start steering poll
-    // folds the parked steer into the prompt's own turn's input
-    // (`skip_initial=false` — the TS loop folds anything queued before
-    // the turn starts), and the run's post-turn follow-up poll
-    // delivers the parked follow-up as the run's second turn. One run,
-    // two turns: the prompt's turn answers on the second script step,
-    // the follow-up turn on the third, and the single `agent_end`
-    // carries the whole folded run.
+    assert_eq!(withdrawn["data"]["isStreaming"], false);
+    // The next prompt runs alone: no withdrawn row reappears.
     let second = client.request(&json!({ "type": "prompt", "message": "continue" }));
     assert_eq!(second["success"], true);
     let end = client.wait_event("agent_end", TIMEOUT);
@@ -468,29 +487,26 @@ fn rpc_steer_and_follow_up_queue_then_abort() {
         .expect("the run's messages on agent_end")
         .iter()
         .map(|message| {
-            message["content"]
-                .as_array()
-                .and_then(|content| content.first())
-                .and_then(|part| part.get("text"))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
+            // A user message's content is a plain string or text parts.
+            message["content"].as_str().unwrap_or_else(|| {
+                message["content"]
+                    .as_array()
+                    .and_then(|content| content.first())
+                    .and_then(|part| part.get("text"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+            })
         })
         .collect::<Vec<_>>();
     assert_eq!(
         texts,
-        vec![
-            "continue",
-            "steer this",
-            "continue reply",
-            "fu this",
-            "steer answer"
-        ],
-        "the folded run carries the parked rows in TS order: {end}"
+        vec!["continue", "continue reply"],
+        "the run after the abort carries only its own prompt: {end}"
     );
     let text = client.request(&json!({ "type": "get_last_assistant_text" }));
     assert_eq!(
-        text["data"]["text"], "steer answer",
-        "the folded follow-up turn ran last: {text}"
+        text["data"]["text"], "continue reply",
+        "the prompt's turn ran last: {text}"
     );
     client.drain_stderr();
 }
@@ -1128,6 +1144,7 @@ fn write_corpus_fixture(path: &std::path::Path, size_mib: usize) {
                 "message": {
                     "role": "toolResult",
                     "toolCallId": call_id,
+                    "toolName": "ipython",
                     "content": [{ "type": "text", "text": format!("corpus {turn}\n[0, 1, 2]\n") }],
                     "isError": false,
                     "timestamp": 1_789_584_016_603_i64 + turn as i64,
@@ -1428,12 +1445,11 @@ fn rpc_compact_flushes_the_start_frame_before_the_pipeline() {
     );
 }
 
-/// The flush is bounded against a stalled reader: with the client's
-/// pipe full (an unread multi-MiB `get_state` response) the writer task
-/// blocks mid-write, and the compaction must still complete — the
-/// budget expires, the command proceeds, and every frame flows once the
-/// reader drains. An unbounded drain would wedge the compaction behind
-/// the reader forever (TS never blocks a command on the reader).
+/// A stalled reader never wedges a compaction: with the client's pipe
+/// full (an unread multi-MiB `get_messages` response) the writer task
+/// blocks mid-write, and the compaction must still complete — its
+/// durable entry lands, and every frame flows once the reader drains
+/// (TS never blocks a command on the reader).
 #[test]
 fn rpc_compact_flush_is_bounded_against_a_stalled_reader() {
     let home = tempfile::TempDir::new().unwrap();
@@ -1452,34 +1468,21 @@ fn rpc_compact_flush_is_bounded_against_a_stalled_reader() {
     let mut client = TimedRpcChild::spawn_stalled(&fixture, &script);
     // No reader thread touches stdout: the get_messages response (the
     // session's whole serialized context, well over the pipe capacity)
-    // fills the pipe and the writer task blocks mid-write — `pending`
-    // stays nonzero through the compaction, so its start-frame flush can
-    // only retire by hitting the budget.
+    // fills the pipe and the writer task blocks mid-write — the queued
+    // frames stay unwritten through the compaction.
     let (messages, _) = client.command(&json!({ "type": "get_messages" }));
     let (id, _) = client.command(&json!({ "type": "compact" }));
-    // The compaction must run BEHIND the stalled pipe: the budget
-    // expired (50ms) instead of waiting the reader out, so the durable
-    // compaction row lands in the session file while no reader drains
-    // the child. The row's appearance IS the readiness signal (polled,
-    // never a fixed sleep): an unbounded drain would still be spinning
-    // in its wait loop — no row ever lands while the reader is
-    // stalled, and the poll deadline fails right here.
-    // The compaction runs BEHIND the stalled pipe: the budget expired
-    // (50ms) instead of waiting the reader out, so the durable
-    // compaction row lands in the session file while no reader drains
-    // the child. An unbounded drain would still be spinning in its wait
-    // loop — no row ever lands while the reader is stalled, and the
-    // poll deadline fails right here. (The row's landing time varies
-    // with the pipe-stall CPU contention, hence the poll instead of a
-    // fixed sleep.)
+    // The compaction runs BEHIND the stalled pipe: the durable
+    // compaction entry lands in the imported session's durable storage
+    // while no reader drains the child. The entry's appearance IS the
+    // readiness signal (polled, never a fixed sleep): a command wedged
+    // on the reader never lands it, and the poll deadline fails right
+    // here.
+    let sessions_dir = fixture.parent().unwrap();
     let row_deadline = Instant::now() + Duration::from_secs(4);
     let mut compacted_behind_the_stall = false;
     while Instant::now() < row_deadline {
-        let session = std::fs::read_to_string(&fixture).expect("session file");
-        if session
-            .lines()
-            .any(|line| line.contains("\"type\":\"compaction\""))
-        {
+        if durable_storage_contains(sessions_dir, &fixture, "\"kind\":\"pi.compaction\"") {
             compacted_behind_the_stall = true;
             break;
         }

@@ -24,6 +24,11 @@
 
 use std::process::Command;
 
+#[path = "support/durable_store.rs"]
+mod durable_store;
+
+use durable_store::{read_transcript, session_dirs};
+
 fn run(args: &[&str], script: &serde_json::Value) -> (String, String, i32) {
     let home = tempfile::TempDir::new().unwrap();
     let bin = env!("CARGO_BIN_EXE_eukhe");
@@ -145,28 +150,13 @@ fn run_in_home(
     )
 }
 
+/// The durable session storages a run left (`<sessions>/<id>/`).
 fn session_files(home: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let dir = home.join(".eukhe/sessions");
-    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-                .collect()
-        })
-        .unwrap_or_default();
-    files.sort();
-    files
+    session_dirs(&home.join(".eukhe/sessions"))
 }
 
-fn read_entries(path: &std::path::Path) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(serde_json::from_str)
-        .collect::<Result<_, _>>()
-        .unwrap()
+fn storage_id(dir: &std::path::Path) -> String {
+    dir.file_name().unwrap().to_string_lossy().into_owned()
 }
 
 #[test]
@@ -178,32 +168,21 @@ fn print_mode_persists_a_session_file_by_default() {
     assert_eq!(stdout, "persisted answer\n");
 
     let files = session_files(home.path());
-    assert_eq!(files.len(), 1, "one session file, got {files:?}");
-    let entries = read_entries(&files[0]);
+    assert_eq!(files.len(), 1, "one session storage, got {files:?}");
+    let transcript = read_transcript(&files[0]);
 
-    // Header first, then the creation prefix, then user + assistant.
-    let types: Vec<&str> = entries
-        .iter()
-        .map(|entry| entry["type"].as_str().unwrap_or_default())
-        .collect();
-    assert_eq!(types[0], "session");
-    assert!(types.contains(&"model_change"));
-    assert!(types.contains(&"thinking_level_change"));
-    let user = entries
-        .iter()
-        .find(|entry| entry["type"] == "message" && entry["message"]["role"] == "user")
-        .expect("user message persisted");
-    assert_eq!(user["message"]["content"][0]["text"], "hello there");
-    let assistant = entries
-        .iter()
-        .find(|entry| entry["type"] == "message" && entry["message"]["role"] == "assistant")
-        .expect("assistant message persisted");
-    assert_eq!(
-        assistant["message"]["content"][0]["text"],
-        "persisted answer"
-    );
-    // The header records the run cwd (the isolated HOME).
-    assert_eq!(entries[0]["cwd"], home.path().display().to_string());
+    // The main conversation's agent: the run's model, thinking, and cwd
+    // (the isolated HOME).
+    assert_eq!(transcript.agent["model"]["provider"], "faux");
+    assert!(transcript.agent["thinkingLevel"].is_string());
+    assert_eq!(transcript.agent["cwd"], home.path().display().to_string());
+    // The user prompt, then the assistant answer.
+    let texts = transcript.message_texts();
+    let user_at = texts.iter().position(|text| text == "hello there");
+    let answer_at = texts.iter().position(|text| text == "persisted answer");
+    assert!(user_at.is_some() && user_at < answer_at, "{texts:?}");
+    assert_eq!(transcript.of_kind("pi.user").len(), 1);
+    assert_eq!(transcript.of_kind("pi.assistant").len(), 1);
 }
 
 #[test]
@@ -226,11 +205,8 @@ fn print_mode_resume_appends_to_the_same_session_file() {
     let files = session_files(home.path());
     assert_eq!(files.len(), 1);
 
-    let session_id = read_entries(&files[0])[0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let before = read_entries(&files[0]).len();
+    let session_id = storage_id(&files[0]);
+    let before = read_transcript(&files[0]).entries.len();
 
     // A uuid-v7 prefix selects the saved session; the run continues it.
     let selector = &session_id[..8];
@@ -245,14 +221,12 @@ fn print_mode_resume_appends_to_the_same_session_file() {
 
     let after_files = session_files(home.path());
     assert_eq!(after_files.len(), 1, "resume reuses the saved session");
-    let entries = read_entries(&after_files[0]);
-    assert!(entries.len() > before, "new messages were appended");
-    let texts: Vec<&str> = entries
-        .iter()
-        .filter(|entry| entry["type"] == "message")
-        .filter_map(|entry| entry["message"]["content"][0]["text"].as_str())
-        .collect();
-    assert!(texts.contains(&"second"));
+    let transcript = read_transcript(&after_files[0]);
+    assert!(
+        transcript.entries.len() > before,
+        "new entries were appended"
+    );
+    assert!(transcript.message_texts().contains(&"second".to_owned()));
 }
 
 #[test]
@@ -308,13 +282,8 @@ fn print_mode_thinking_max_persists_the_clamped_high_level() {
     assert_eq!(stdout, "clamped answer\n");
 
     let files = session_files(home.path());
-    assert_eq!(files.len(), 1, "one session file, got {files:?}");
-    let entries = read_entries(&files[0]);
-    let level = entries
-        .iter()
-        .find(|entry| entry["type"] == "thinking_level_change")
-        .expect("thinking_level_change persisted");
-    assert_eq!(level["thinkingLevel"], "high");
+    assert_eq!(files.len(), 1, "one session storage, got {files:?}");
+    assert_eq!(read_transcript(&files[0]).agent["thinkingLevel"], "high");
 }
 
 /// The clamp also applies on the way down: a non-reasoning faux model maps
@@ -329,13 +298,8 @@ fn print_mode_thinking_clamps_to_off_for_non_reasoning_models() {
     assert_eq!(stdout, "plain answer\n");
 
     let files = session_files(home.path());
-    assert_eq!(files.len(), 1, "one session file, got {files:?}");
-    let entries = read_entries(&files[0]);
-    let level = entries
-        .iter()
-        .find(|entry| entry["type"] == "thinking_level_change")
-        .expect("thinking_level_change persisted");
-    assert_eq!(level["thinkingLevel"], "off");
+    assert_eq!(files.len(), 1, "one session storage, got {files:?}");
+    assert_eq!(read_transcript(&files[0]).agent["thinkingLevel"], "off");
 }
 
 // ---------------------------------------------------------------------------
@@ -413,27 +377,23 @@ fn print_mode_overflow_compacts_retries_once_then_reports() {
     // and no re-added user message for the retried turn.
     let files = session_files(home.path());
     assert_eq!(files.len(), 1);
-    let entries = read_entries(&files[0]);
-    let compactions = entries
-        .iter()
-        .filter(|entry| entry["type"] == "compaction")
-        .count();
-    assert_eq!(compactions, 1, "one compaction entry");
-    // A custom-row file entry flattens its payload: `customType` and the
-    // details sit at the top level of the JSONL line.
-    let outcome = entries
-        .iter()
-        .find(|entry| entry["customType"] == "compaction_outcome")
-        .expect("the durable outcome row");
+    let transcript = read_transcript(&files[0]);
+    assert_eq!(
+        transcript.of_kind("pi.compaction").len(),
+        1,
+        "one compaction entry"
+    );
+    let outcomes = transcript.custom_rows("compaction_outcome");
+    let outcome = outcomes.first().expect("the durable outcome row");
     let outcome_content = serde_json::to_string(&outcome["content"]).unwrap();
     assert!(outcome_content.contains(OVERFLOW_RECOVERY_FAILED));
     assert_eq!(outcome["details"]["reason"], "overflow");
     assert_eq!(outcome["details"]["outcome"], "failed");
-    let users = entries
-        .iter()
-        .filter(|entry| entry["type"] == "message" && entry["message"]["role"] == "user")
-        .count();
-    assert_eq!(users, 2, "the retry re-issued without re-adding the prompt");
+    assert_eq!(
+        transcript.of_kind("pi.user").len(),
+        2,
+        "the retry re-issued without re-adding the prompt"
+    );
 }
 
 /// The retry on the compacted context recovers the turn: the final answer
@@ -460,16 +420,10 @@ fn print_mode_overflow_retry_recovers_the_turn() {
     assert_eq!(stdout, "recovered reply\n");
     assert!(stderr.is_empty(), "stderr: {stderr}");
     let files = session_files(home.path());
-    let entries = read_entries(&files[0]);
-    let compactions = entries
-        .iter()
-        .filter(|entry| entry["type"] == "compaction")
-        .count();
-    assert_eq!(compactions, 1);
+    let transcript = read_transcript(&files[0]);
+    assert_eq!(transcript.of_kind("pi.compaction").len(), 1);
     assert!(
-        !entries
-            .iter()
-            .any(|entry| entry["customType"] == "compaction_outcome"),
+        transcript.custom_rows("compaction_outcome").is_empty(),
         "no failure rows on a recovered retry"
     );
 }
@@ -650,12 +604,11 @@ fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
     // The recovery compaction is durable in the resumed session file.
     let files = session_files(home.path());
     assert_eq!(files.len(), 1, "the resume reuses the session file");
-    let entries = read_entries(&files[0]);
-    let compactions = entries
-        .iter()
-        .filter(|entry| entry["type"] == "compaction")
-        .count();
-    assert_eq!(compactions, 1, "the pre-turn recovery compacted");
+    assert_eq!(
+        read_transcript(&files[0]).of_kind("pi.compaction").len(),
+        1,
+        "the pre-turn recovery compacted"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -867,9 +820,10 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
     // The compaction entry is durable.
     let files = session_files(home.path());
     assert_eq!(files.len(), 1);
-    let entries = read_entries(&files[0]);
     assert!(
-        entries.iter().any(|entry| entry["type"] == "compaction"),
+        !read_transcript(&files[0])
+            .of_kind("pi.compaction")
+            .is_empty(),
         "the compaction persisted"
     );
 }
@@ -902,9 +856,10 @@ fn run_in_home_cwd(
 }
 
 /// TS `createSessionManager`'s fork arm: `--fork <selector>` copies the
-/// source session into a NEW session file (TS `SessionManager.forkFrom`),
-/// the run continues the copy — the source keeps its rows untouched — and
-/// the fork header parents at the source.
+/// source session into a NEW session storage, and the run continues the
+/// copy — the source keeps its entries untouched. (The fork's lineage is
+/// the copied history; durable storages carry no `parentSession` header —
+/// the json stream's session line reports it.)
 #[test]
 fn print_mode_fork_copies_the_session_into_a_new_file() {
     let home = isolated_home();
@@ -915,7 +870,7 @@ fn print_mode_fork_copies_the_session_into_a_new_file() {
     let files = session_files(home.path());
     assert_eq!(files.len(), 1);
     let source = &files[0];
-    let session_id = read_entries(source)[0]["id"].as_str().unwrap().to_string();
+    let session_id = storage_id(source);
 
     // Fork by the same prefix selector shape resume uses.
     let selector = session_id[..8].to_string();
@@ -928,36 +883,25 @@ fn print_mode_fork_copies_the_session_into_a_new_file() {
     assert_eq!(code, 0, "stderr: {stderr}");
     assert_eq!(stdout, "second answer\n");
 
-    // A new session file; the source is untouched.
+    // A new session storage; the source is untouched.
     let after = session_files(home.path());
-    assert_eq!(after.len(), 2, "fork creates a new session file");
+    assert_eq!(after.len(), 2, "fork creates a new session storage");
     let fork = after
         .iter()
         .find(|path| path.as_path() != source.as_path())
-        .expect("the fork file");
-    let source_entries = read_entries(source);
+        .expect("the fork storage");
     assert!(
-        !source_entries
-            .iter()
-            .any(|entry| entry["message"]["content"][0]["text"] == "second"),
-        "the source keeps its rows untouched"
+        !read_transcript(source)
+            .message_texts()
+            .contains(&"second".to_owned()),
+        "the source keeps its entries untouched"
     );
-    let fork_entries = read_entries(fork);
-    // Fresh header: new id, the source path as parentSession.
-    assert_ne!(fork_entries[0]["id"], session_id.as_str());
-    assert_eq!(
-        fork_entries[0]["parentSession"],
-        source.display().to_string()
-    );
-    // The copied branch answers the follow-up.
-    let texts: Vec<&str> = fork_entries
-        .iter()
-        .filter(|entry| entry["type"] == "message")
-        .filter_map(|entry| entry["message"]["content"][0]["text"].as_str())
-        .collect();
-    assert!(texts.contains(&"first"));
-    assert!(texts.contains(&"second"));
-    assert!(texts.contains(&"second answer"));
+    // A fresh session id; the copied history answers the follow-up.
+    assert_ne!(storage_id(fork), session_id);
+    let texts = read_transcript(fork).message_texts();
+    assert!(texts.contains(&"first".to_owned()), "{texts:?}");
+    assert!(texts.contains(&"second".to_owned()), "{texts:?}");
+    assert!(texts.contains(&"second answer".to_owned()), "{texts:?}");
 }
 
 /// `--fork` is the cross-project path: a session saved under another
@@ -974,10 +918,7 @@ fn print_mode_fork_imports_a_global_session_into_this_cwd() {
     assert_eq!(stdout, "global answer\n");
     let files = session_files(home.path());
     assert_eq!(files.len(), 1);
-    let session_id = read_entries(&files[0])[0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let session_id = storage_id(&files[0]);
     let selector = session_id[..8].to_string();
 
     // The same session is GLOBAL for the other project: resume refuses.
@@ -1014,23 +955,15 @@ fn print_mode_fork_imports_a_global_session_into_this_cwd() {
         .iter()
         .find(|path| path.as_path() != files[0].as_path())
         .expect("the fork file");
-    let fork_entries = read_entries(fork);
+    let transcript = read_transcript(fork);
     assert_eq!(
-        fork_entries[0]["cwd"],
+        transcript.agent["cwd"],
         project.display().to_string(),
         "the fork adopts the TARGET cwd"
     );
-    assert_eq!(
-        fork_entries[0]["parentSession"],
-        files[0].display().to_string()
-    );
-    let texts: Vec<&str> = fork_entries
-        .iter()
-        .filter(|entry| entry["type"] == "message")
-        .filter_map(|entry| entry["message"]["content"][0]["text"].as_str())
-        .collect();
-    assert!(texts.contains(&"origin"));
-    assert!(texts.contains(&"continue here"));
+    let texts = transcript.message_texts();
+    assert!(texts.contains(&"origin".to_owned()), "{texts:?}");
+    assert!(texts.contains(&"continue here".to_owned()), "{texts:?}");
 }
 
 /// TS `forkFrom`'s failure contract on the CLI: an empty source file

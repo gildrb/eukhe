@@ -1,28 +1,33 @@
-//! The headless print runtime: single-shot prompt -> answer over the eukhe-core
-//! session engine with a real eukhe-ai provider. Port of the text-mode half of
-//! modes/print-mode.ts wired onto `create_session` (the Rust engine facade).
+//! The headless runtimes: print/json (single-shot prompts -> answer over an
+//! `eukhe_core::durable::EukheSession`, the pi-durable print pattern:
+//! submit, wait for the submission, wait for the conversation to go idle),
+//! the RPC mode's session factory, and the ACP daemon create.
 
-use std::sync::Arc;
+use std::future::Future;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_agent::types::Model as AgentModel;
-use eukhe_core::session::discovery::{
-    find_most_recent_session_for_cwd, resolve_session_path, ResolvedSession, SessionSelectorError,
+use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_core::durable::goals::{
+    autonomous_state, seed_initial_goal, set_autonomous, AutonomousChange,
 };
-use eukhe_types::ai::Model;
+use eukhe_core::durable::{classify_session_command, execute_session_command, EukheSession};
+use eukhe_core::session::discovery::SessionSelectorError;
+use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
+use eukhe_durable::harness::types::InputSubmissionDraft;
+use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
+use eukhe_types::pi_ai::{ImageContent, UserContent, UserContentBlock};
+use futures::FutureExt;
 
-use crate::headless_autonomous::{autonomous_runtime_config, HeadlessAutonomous};
+use crate::headless_autonomous::{autonomous_exit_stderr, autonomous_runtime_config};
+use crate::headless_session::{
+    open_headless_session, sessions_dir, stderr_turn_wait, HeadlessSession, HeadlessTarget,
+    Selection,
+};
+use crate::headless_terminal::select_terminal_result;
 use crate::mode::{AppMode, MissingSubsystem, RunOptions};
-use eukhe_agent::stream::{LlmContext, StreamFn, StreamRequestOptions};
-use eukhe_core::session_engine::provider_adapter::{
-    json_round_trip, map_thinking_level, stream_with_auth, switchable_stream_fn, ProviderTarget,
-    RequestAuthFn,
-};
-use eukhe_core::session_engine::session_events::agent_event_json;
 
-mod model_selection;
-
-/// The runtime: implements the print (text) mode against the merged session
-/// engine. Modes not wired here still report their typed missing subsystem.
+/// The runtime: print/json, rpc, acp, daemon, and interactive dispatch.
 pub struct PrintRuntime;
 
 impl crate::mode::Runtime for PrintRuntime {
@@ -42,7 +47,7 @@ impl crate::mode::Runtime for PrintRuntime {
         match options.app_mode {
             // Runtime failures print themselves and exit non-zero; the typed
             // MissingSubsystem channel stays reserved for unwired subsystems.
-            AppMode::Print | AppMode::Json => match run_print_mode(options) {
+            AppMode::Print | AppMode::Json => match run_on_runtime(print_mode_main(options)) {
                 Ok(code) => Ok(code),
                 Err(message) => {
                     eprintln!("Error: {message}");
@@ -51,8 +56,7 @@ impl crate::mode::Runtime for PrintRuntime {
             },
             // The interactive TUI attaches through the daemon (spawning a
             // supervisor when none is running); the daemon mode runs the
-            // supervisor in-process. Runtime failures print themselves and
-            // exit non-zero, so the typed channel stays for unwired modes.
+            // supervisor in-process.
             AppMode::Interactive => match crate::interactive_mode::run_interactive_mode(options) {
                 Ok(code) => Ok(code),
                 Err(error) => {
@@ -71,20 +75,19 @@ impl crate::mode::Runtime for PrintRuntime {
             }
             // ACP mode: a thin JSON-RPC stdio transport over a daemon
             // session.
-            AppMode::Acp => match run_acp_mode(options) {
+            AppMode::Acp => match run_on_runtime(acp_mode_main(options)) {
                 Ok(code) => Ok(code),
                 Err(error) => {
-                    eprintln!("Error: {error:#}");
+                    eprintln!("Error: {error}");
                     Ok(1)
                 }
             },
             // RPC mode: the TS `modes/rpc` JSONL command surface over the
-            // same in-process session engine the print mode uses
-            // (daemon-attached transport: the follow-up lane).
-            AppMode::Rpc => match run_rpc_mode(options) {
+            // same in-process durable session the print mode uses.
+            AppMode::Rpc => match run_on_runtime(rpc_mode_main(options)) {
                 Ok(code) => Ok(code),
                 Err(error) => {
-                    eprintln!("Error: {error:#}");
+                    eprintln!("Error: {error}");
                     Ok(1)
                 }
             },
@@ -92,26 +95,25 @@ impl crate::mode::Runtime for PrintRuntime {
     }
 }
 
+fn run_on_runtime(future: impl Future<Output = Result<i32, String>>) -> Result<i32, String> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?
+        .block_on(future)
+}
+
 /// The ACP headless mode (TS main.ts, `useDaemonClient`): ensure a
 /// supervisor is listening (spawning one detached), create the daemon
 /// session the CLI session flags select, and serve the ACP surface over it
 /// until the client disconnects. Any startup failure is an `Error:` exit 1
 /// before the first ACP frame.
-fn run_acp_mode(options: &RunOptions) -> Result<i32, String> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| error.to_string())?;
-    rt.block_on(acp_mode_main(options))
-}
-
 async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
     // The disclosure prints on the ACP client's stderr before any
-    // transport starts (TS pushes the daemon-created session's diagnostics
-    // to the client; the Rust stderr surface prints it here).
+    // transport starts.
     crate::telemetry_notice::print_if_due(&options.config);
-    // Flag > env > default: the same `EUKHE_DAEMON_SOCKET` contract
-    // as every other mode.
+    // Flag > env > default: the same `EUKHE_DAEMON_SOCKET` contract as
+    // every other mode.
     let socket_path = crate::config::resolve_daemon_socket_path(options.daemon_socket.as_deref());
     let ready = crate::interactive_mode::ensure_daemon_running(&socket_path, &options.config.cwd)
         .await
@@ -120,7 +122,7 @@ async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
     if let Some(notice) = ready.notice() {
         eprintln!("{notice}");
     }
-    let (actual_cwd, create) = daemon_acp_create(options)?;
+    let (actual_cwd, create) = daemon_acp_create(options, &BACKGROUND_CONTEXT).await?;
     eukhe_daemon::acp::daemon::run_daemon_attached_acp_mode(
         eukhe_daemon::acp::daemon::DaemonAcpOptions {
             socket_path,
@@ -134,47 +136,55 @@ async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
 }
 
 /// The ACP daemon session's create (TS main.ts `defaultSessionConfig` +
-/// the startup create): the session the flags select, client-owned only
-/// for `--no-session`, plus the session's cwd. The worker opens and
-/// leases the selected file itself.
-fn daemon_acp_create(
+/// the startup create): the session the flags select (a durable storage
+/// dir or a not-yet-imported legacy file; `--fork` forks into a fresh
+/// storage here first), client-owned only for `--no-session`, plus the
+/// session's cwd. The worker opens and leases the selected session itself.
+async fn daemon_acp_create(
     options: &RunOptions,
-) -> Result<(std::path::PathBuf, eukhe_types::daemon::DaemonCommand), String> {
+    cx: &Context,
+) -> Result<(PathBuf, eukhe_types::daemon::DaemonCommand), String> {
     use eukhe_types::daemon::DaemonSessionLifecycle;
     let config = &options.config;
-    let session_dir = replacement_session_dir(options);
-    let (cwd, session_path, lifecycle) = if options.session.no_session {
-        (
+    let (cwd, session_path, lifecycle) = match crate::headless_session::select(options, cx).await? {
+        Selection::Memory => (
             config.cwd.clone(),
             None,
             DaemonSessionLifecycle::ClientOwned,
-        )
-    } else {
-        let (cwd, session_path) = match select_headless_session(options)? {
-            HeadlessSession::Fork(source) => {
-                let fork = eukhe_core::session::manager::SessionManager::fork_from(
-                    &source,
-                    &config.cwd,
-                    &session_dir,
-                )?;
-                (
-                    config.cwd.clone(),
-                    fork.get_session_file().map(std::path::Path::to_path_buf),
-                )
-            }
-            HeadlessSession::Open(path) => (
-                stored_session_cwd(&path, &config.cwd, explicit_cwd_override(options))?,
-                Some(path),
-            ),
-            HeadlessSession::Fresh => (config.cwd.clone(), None),
-        };
-        (cwd, session_path, DaemonSessionLifecycle::Resident)
+        ),
+        Selection::Fresh { cwd } => (cwd, None, DaemonSessionLifecycle::Resident),
+        Selection::Open {
+            location,
+            cwd_override,
+            ..
+        } => (
+            crate::headless_session::stored_cwd(
+                &location,
+                &config.cwd,
+                cwd_override.as_deref(),
+                cx,
+            )
+            .await?,
+            Some(location.path().to_path_buf()),
+            DaemonSessionLifecycle::Resident,
+        ),
+        Selection::Fork { source } => {
+            // The fork's lease drops here: the daemon worker takes the
+            // storage's lease when it opens it.
+            let (_, dir, _lease) =
+                crate::headless_session::fork_into_fresh(options, &source, &config.cwd, cx).await?;
+            (
+                config.cwd.clone(),
+                Some(dir),
+                DaemonSessionLifecycle::Resident,
+            )
+        }
     };
-    // The CLI session flags, under the TS `runtimeConfigFromArgs`
-    // names. `--api-key` stays off: the create config is persisted.
+    // The CLI session flags, under the TS `runtimeConfigFromArgs` names.
+    // `--api-key` stays off: the create config is persisted.
     let mut create_config = serde_json::json!({
         "cwd": cwd.display().to_string(),
-        "sessionDir": session_dir.display().to_string(),
+        "sessionDir": sessions_dir(options).display().to_string(),
         // The telemetry execution mode (TS main.ts `executionMode: appMode`).
         "executionMode": "acp",
     });
@@ -213,9 +223,8 @@ fn daemon_acp_create(
     if let Some(script) = std::env::var_os("EUKHE_FAUX_SCRIPT") {
         create_config["script"] = serde_json::Value::String(script.to_string_lossy().to_string());
     }
-    // Verification seam (the TS child runtime inherits the parent's
-    // `sessionConfig`): a scripted parent session's children run this script
-    // FILE. The product never sets it.
+    // Verification seam: a scripted parent session's children run this
+    // script FILE. The product never sets it.
     if let Some(child_script) = std::env::var_os("EUKHE_FAUX_CHILD_SCRIPT") {
         create_config["childScript"] =
             serde_json::Value::String(child_script.to_string_lossy().to_string());
@@ -237,1125 +246,54 @@ fn daemon_acp_create(
     Ok((cwd, create))
 }
 
-/// The RPC headless mode: build the in-process session engine the print
-/// mode does, then serve the TS `modes/rpc` JSONL command surface over
-/// stdio until the client closes stdin.
-fn run_rpc_mode(options: &RunOptions) -> Result<i32, String> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| error.to_string())?;
-    rt.block_on(rpc_mode_main(options))
-}
-
+/// The RPC headless mode: the TS `modes/rpc` JSONL command surface over
+/// stdio, on durable sessions this module's factory opens.
 async fn rpc_mode_main(options: &RunOptions) -> Result<i32, String> {
+    crate::telemetry_notice::print_if_due(&options.config);
     let config = &options.config;
-    let (parts, initial_lease) = build_headless_engine_parts_with_lease(options, "rpc").await?;
-    // The CLI `--goal` seed rides the first session like the print mode.
-    if let Some(goal) = &config.initial_goal {
-        parts
-            .engine
-            .seed_initial_goal(&goal.objective, goal.token_budget.map(u64::from))
-            .await
-            .map_err(|error| format!("{error:#}"))?;
-    }
-    let factory = rpc_engine_factory(options);
-    let mut engine_handle = eukhe_daemon::rpc::session::RpcEngineHandle::from(parts);
-    // The initial (possibly resumed) session's runtime lease rides the
-    // handle: a later whole-session replacement releases it exactly when
-    // the initial engine stops writing (instead of holding the file
-    // until the process exits).
-    engine_handle.session_lease = initial_lease;
-    let exit_code = eukhe_daemon::rpc::run_rpc_mode(eukhe_daemon::rpc::RpcOptions {
-        engine: engine_handle,
-        engine_factory: Some(factory),
-        cwd: config.cwd.clone(),
-        agent_dir: config.agent_dir.clone(),
-        autonomous_config: options
-            .config
-            .autonomous
+    eukhe_daemon::rpc::run_rpc_mode(eukhe_daemon::rpc::RpcOptions {
+        engine_factory: rpc_engine_factory(options),
+        autonomous_config: config.autonomous.as_ref().map(autonomous_runtime_config),
+        initial_goal: config
+            .initial_goal
             .as_ref()
-            .map(autonomous_runtime_config),
+            .map(|goal| (goal.objective.clone(), goal.token_budget.map(u64::from))),
     })
     .await
-    .map_err(|error| format!("{error:#}"))?;
-    Ok(exit_code)
+    .map_err(|error| format!("{error:#}"))
 }
 
-/// The engine-replacement seam the RPC mode's `new_session` /
-/// `switch_session` / `fork` commands drive (TS `runtimeHost`
-/// replacement flows): eukhe-cli owns the assembly, the mode owns the swap.
+/// The session factory the RPC mode drives: the startup selection (the CLI
+/// session flags) and the `new_session` / `switch_session` / `fork`
+/// replacements (TS `runtimeHost` replacement flows): eukhe-cli owns the
+/// assembly, the mode owns the swap.
 fn rpc_engine_factory(options: &RunOptions) -> eukhe_daemon::rpc::session::RpcEngineFactory {
     let options = options.clone();
-    std::sync::Arc::new(move |request| {
-        let mut options = options.clone();
-        // The replacement sessions ignore the CLI's session-selection
-        // flags (TS replacement flows build their own manager).
-        options.session.resume = None;
-        options.session.resume_bare = false;
-        options.session.continue_recent = false;
-        options.session.fork = None;
-        Box::pin(async move {
-            // The runtime lease the replacement acquired for its target
-            // file: it rides the handle (dropping with the engine on the
-            // next replacement, exactly when the old session stops
-            // writing).
-            let (manager, opened_lease) = match &request {
-                eukhe_daemon::rpc::session::RpcEngineRequest::New {
-                    parent_session,
-                    cwd,
-                } => {
-                    let session_dir = replacement_session_dir(&options);
-                    // The active session's cwd when the command passed
-                    // one (TS `runtimeHost.newSession` over `this.cwd`),
-                    // else the CLI startup directory.
-                    let cwd = cwd.clone().unwrap_or_else(|| options.config.cwd.clone());
-                    let manager = match parent_session {
-                        Some(parent) => {
-                            let mut manager =
-                                eukhe_core::session::manager::SessionManager::persisted(
-                                    &cwd,
-                                    &session_dir,
-                                );
-                            manager.new_session(&eukhe_core::session::manager::NewSessionOptions {
-                                parent_session: Some(parent.clone()),
-                                ..Default::default()
-                            });
-                            manager
-                        }
-                        None => eukhe_core::session::manager::SessionManager::persisted(
-                            &cwd,
-                            &session_dir,
-                        ),
-                    };
-                    // TS `acquireReplacementLease(sessionManager.getSessionFile())`:
-                    // the fresh session's file is leased BEFORE the
-                    // replacement can write it -- the runtime lease is the
-                    // cross-process ownership record, and the handle's
-                    // lease slot releases exactly when the engine that
-                    // owned it goes away.
-                    let lease = eukhe_daemon::lease::acquire_runtime_session_lease(
-                        manager
-                            .get_session_file()
-                            .expect("a fresh session knows its file"),
-                        &options.config.agent_dir,
-                    )
-                    .map_err(|error| format!("{error:#}"))?;
-                    (manager, Some(lease))
-                }
-                eukhe_daemon::rpc::session::RpcEngineRequest::Open {
+    Arc::new(move |request, turn_wait| {
+        let options = options.clone();
+        async move {
+            use eukhe_daemon::rpc::session::RpcEngineRequest;
+            let target = match request {
+                RpcEngineRequest::Startup => HeadlessTarget::Selected,
+                RpcEngineRequest::New { cwd } => HeadlessTarget::New { cwd },
+                RpcEngineRequest::Open {
                     session_path,
                     reuse_lease,
-                } => {
-                    let session_dir = replacement_session_dir(&options);
-                    let cwd = options.config.cwd.clone();
-                    // The ownership guard every in-process open applies:
-                    // refuse a file a live daemon worker or another
-                    // process already hosts (a second writer over a
-                    // persisted history), and hold its runtime lease for
-                    // the opened session. A same-path reopen skips the
-                    // guard (TS `acquireReplacementLease` reuses the
-                    // current lease; the session layer adopted it).
-                    let lease = if *reuse_lease {
-                        None
-                    } else {
-                        Some(session_open_guard(
-                            options.daemon_socket.as_deref(),
-                            session_path,
-                        )?)
-                    };
-                    // A failed open's early return drops the lease
-                    // (released), so errors never leave an orphaned hold.
-                    let manager = open_session_file(session_path, &session_dir, &cwd, None)?;
-                    // The replacement ADOPTS the opened session's own
-                    // cwd (TS createRuntime builds the runtime over the
-                    // session's project, not the CLI startup
-                    // directory): tools, settings, and file work run
-                    // against the session's repository.
-                    options.config.cwd = manager.get_cwd().to_path_buf();
-                    (manager, lease)
-                }
-            };
-            let engine = if let Ok(script) = std::env::var("EUKHE_FAUX_SCRIPT") {
-                build_faux_engine_with(&options, &script, Some(manager), "rpc").await?
-            } else {
-                build_headless_engine_with(&options, Some(manager), "rpc").await?
-            };
-            let mut handle = eukhe_daemon::rpc::session::RpcEngineHandle::from(engine);
-            handle.session_lease = opened_lease;
-            Ok(handle)
-        })
-    })
-}
-
-/// The replacement builds' session dir (the resolved one, else the
-/// default under the agent dir).
-fn replacement_session_dir(options: &RunOptions) -> std::path::PathBuf {
-    options
-        .session
-        .session_dir
-        .clone()
-        .unwrap_or_else(|| options.config.agent_dir.join("sessions"))
-}
-
-/// The RPC mode's engine-handle conversion (the composition root's
-/// `HeadlessEngine` into the mode's handle).
-impl From<HeadlessEngine> for eukhe_daemon::rpc::session::RpcEngineHandle {
-    fn from(parts: HeadlessEngine) -> Self {
-        Self {
-            engine: std::sync::Arc::new(parts.engine),
-            model: parts.model,
-            api_key: parts.api_key,
-            provider_target: parts.provider_target,
-            session_lease: None,
-        }
-    }
-}
-
-fn run_print_mode(options: &RunOptions) -> Result<i32, String> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| error.to_string())?;
-    rt.block_on(print_mode_main(options))
-}
-
-async fn print_mode_main(options: &RunOptions) -> Result<i32, String> {
-    // `print` or `json`: the telemetry execution mode is the app mode (TS
-    // main.ts `executionMode: appMode`).
-    let headless = build_headless_engine(options, options.app_mode.as_str()).await?;
-    let engine = std::sync::Arc::new(headless.engine);
-    // The CLI `--goal` seed (TS constructor seeding): a fresh root branch
-    // starts the goal and queues its continuation context as the first
-    // turn's leading row; a resumed or already-seeded branch keeps its
-    // persisted goal. Depth 0 only -- the print session is a root session
-    // (TS main.ts gates `initialGoal` on `rlmDepth === 0` the same way).
-    if let Some(goal) = &options.config.initial_goal {
-        engine
-            .seed_initial_goal(&goal.objective, goal.token_budget.map(u64::from))
-            .await
-            .map_err(|error| format!("{error:#}"))?;
-    }
-    run_prompts_and_emit(&engine, &headless.model, headless.api_key.clone(), options).await
-}
-
-/// Assemble the in-process session engine for a headless run: model
-/// resolution, session persistence, and the engine facade. The faux-script
-/// seam (`EUKHE_FAUX_SCRIPT`) drives the same assembly without the
-/// network; verification harness only, never set by the product.
-///
-/// The switchable provider target the session's stream reads per call
-/// (shared with the RPC mode, whose picker model switches swap it live).
-pub type ProviderTargetSlot = std::sync::Arc<std::sync::RwLock<Option<ProviderTarget>>>;
-
-/// The assembled headless engine plus the model and request auth it runs
-/// on, so host transports can drive session-command executors
-/// (compact/refine) with the session's own model.
-struct HeadlessEngine {
-    engine: eukhe_core::session_engine::engine::SessionEngine,
-    model: Model,
-    api_key: Option<String>,
-    /// The live provider target: the stream reads it per call, and the
-    /// RPC mode's picker switches swap it (TS `setModel`'s stream
-    /// re-registration; `set_model` swaps it without rebuilding the
-    /// session).
-    provider_target: ProviderTargetSlot,
-}
-
-async fn build_headless_engine_parts(
-    options: &RunOptions,
-    execution_mode: &str,
-) -> Result<HeadlessEngine, String> {
-    let (engine, lease) = build_headless_engine_parts_with_lease(options, execution_mode).await?;
-    std::mem::forget(lease);
-    Ok(engine)
-}
-
-/// The same assembly, returning the opened session's runtime lease
-/// alongside (a long-lived connection holds it on the engine handle so a
-/// replacement releases it with the engine it guarded; the one-shot
-/// modes forget it for the process lifetime).
-async fn build_headless_engine_parts_with_lease(
-    options: &RunOptions,
-    execution_mode: &str,
-) -> Result<(HeadlessEngine, Option<eukhe_daemon::lease::SessionLease>), String> {
-    // Every headless mode discloses immediately (TS main: only the
-    // interactive `deferTelemetryNoticeForOnboarding` holds the notice
-    // back behind onboarding; `--list-models` never reaches this
-    // assembly, matching the TS exit before its diagnostics report).
-    crate::telemetry_notice::print_if_due(&options.config);
-    let (session_manager, lease) = select_session_manager_with_lease(options)?;
-    if let Ok(script) = std::env::var("EUKHE_FAUX_SCRIPT") {
-        let engine =
-            build_faux_engine_with(options, &script, session_manager, execution_mode).await?;
-        return Ok((engine, lease));
-    }
-    let engine = build_headless_engine_with(options, session_manager, execution_mode).await?;
-    Ok((engine, lease))
-}
-
-/// The session-manager selection every engine build shares
-/// (`--no-session` keeps the engine in-memory; anything else resolves
-/// through the flag order), returning the opened session's runtime
-/// lease.
-fn select_session_manager_with_lease(
-    options: &RunOptions,
-) -> Result<
-    (
-        Option<eukhe_core::session::manager::SessionManager>,
-        Option<eukhe_daemon::lease::SessionLease>,
-    ),
-    String,
-> {
-    if options.session.no_session {
-        return Ok((None, None));
-    }
-    let (manager, lease) = build_session_manager_with_lease(options)?;
-    Ok((Some(manager), lease))
-}
-
-/// The real-provider engine assembly over one session-manager selection
-/// (the print/json path and the RPC mode's replacement builds).
-async fn build_headless_engine_with(
-    options: &RunOptions,
-    session_manager: Option<eukhe_core::session::manager::SessionManager>,
-    execution_mode: &str,
-) -> Result<HeadlessEngine, String> {
-    let config = &options.config;
-
-    // Model registry: composed catalog + models.json with real auth.
-    let auth = eukhe_core::auth::AuthStorage::create(&config.agent_dir);
-    let mut registry =
-        eukhe_core::models::ModelRegistry::create(auth, config.agent_dir.join("models.json"));
-    registry.load_private_authorization_from_cache();
-    let model = model_selection::select_model(&registry, config, &options.session)?;
-
-    // Resolve the session model's request auth once at build: the session
-    // commands and summarizer passes take its key, and it serves the first
-    // request, so a single-shot run resolves (and refreshes an expired
-    // OAuth token) once, like TS's one request-time resolution. Later
-    // requests resolve when issued (TS `streamFn`). The merged headers ship
-    // on the request (the TS `getApiKeyAndHeaders` single-owner path; TS
-    // #2497 removed the provider-side team-header fallback, so the stored
-    // team / `PRIME_TEAM_ID` reach the wire through these headers).
-    let resolved = registry.get_api_key_and_headers(&model, model.headers.as_ref());
-
-    // The stream reads the provider target per call (the switchable seam
-    // the ACP pickers swap on a model switch; image-model routing swaps it
-    // per dispatched batch).
-    let provider_target: ProviderTargetSlot =
-        std::sync::Arc::new(std::sync::RwLock::new(Some(ProviderTarget {
-            model: model.clone(),
-            service_tier: None,
-        })));
-    // The armed image route's target, shared with the stream seam: while
-    // an episode is armed the stream serves THIS target (TS keeps the
-    // routed override over the whole turn, picker switches included), so
-    // a concurrent `set_model` picker write to the slot below cannot
-    // redirect an in-flight routed turn's continuation requests. The
-    // settle clears the slot, and the switch lands there (the settle's
-    // still-routed guard leaves it).
-    let armed_target: std::sync::Arc<std::sync::Mutex<Option<ProviderTarget>>> =
-        std::sync::Arc::new(std::sync::Mutex::new(None));
-    let request_auth: RequestAuthFn = {
-        let agent_dir = config.agent_dir.clone();
-        std::sync::Arc::new(move |model: &Model| {
-            eukhe_core::models::resolve_request_auth(&agent_dir, None, model)
-        })
-    };
-    let stream_fn = route_authoritative_stream_fn(
-        std::sync::Arc::clone(&provider_target),
-        std::sync::Arc::clone(&armed_target),
-        request_auth,
-        (model.clone(), resolved.clone()),
-    );
-    // TS settings.imageModel routing (the headless surfaces' host seam):
-    // image-attaching batches on a session model without image input
-    // route to the configured image model or fail the turn with the
-    // actionable refusal naming the setting.
-    // The routing decision reads the resolved session model live (a
-    // mid-run switch rewrites the serving slot) and receives the LIVE
-    // thinking level per batch (the engine passes its agent state's level,
-    // so a mid-run `/effort` or model switch never routes at a stale level).
-    let image_model_router = headless_image_model_router(
-        &provider_target,
-        std::sync::Arc::clone(&armed_target),
-        config.cwd.clone(),
-        config.agent_dir.clone(),
-        model.clone(),
-    );
-    let agent_model: AgentModel = json_round_trip(&model).ok_or("model conversion failed")?;
-
-    // Telemetry (TS `installAgentTelemetry` parity for headless sessions):
-    // the CLI's env/settings opt-out decides; enabled sessions resolve the
-    // configured sinks. Depth 0 only, enforced by the engine.
-    let telemetry = (!config.telemetry_disabled).then(|| {
-        let settings =
-            eukhe_core::settings::SettingsManager::create(&config.cwd, &config.agent_dir);
-        eukhe_core::session_engine::telemetry::TelemetryWiring {
-            client: eukhe_core::session_engine::telemetry::build_client(
-                &settings,
-                &config.agent_dir,
-            ),
-            execution_mode: Some(execution_mode.to_string()),
-            now: None,
-            telemetry_enabled: Some(
-                eukhe_core::session_engine::telemetry::telemetry_enabled_switch(
-                    &config.cwd,
-                    &config.agent_dir,
-                ),
-            ),
-        }
-    });
-    // TS `sdk.ts` seeds the Agent's queue modes from the settings manager
-    // (`steeringMode`/`followUpMode`): the print runtime reads the same
-    // settings its telemetry does, so the agent-level queues drain per
-    // the configured modes (the steering default is "all"; follow-ups
-    // keep "one-at-a-time").
-    let queue_settings =
-        eukhe_core::settings::SettingsManager::create(&config.cwd, &config.agent_dir);
-    let queue_mode = |mode: eukhe_core::settings::QueueModeSetting| match mode {
-        eukhe_core::settings::QueueModeSetting::All => eukhe_agent::agent::QueueMode::All,
-        eukhe_core::settings::QueueModeSetting::OneAtATime => {
-            eukhe_agent::agent::QueueMode::OneAtATime
-        }
-    };
-    let steering_mode = Some(queue_mode(queue_settings.get_steering_mode()));
-    let follow_up_mode = Some(queue_mode(queue_settings.get_follow_up_mode()));
-    // TS `createAgentSessionServices` builds every CLI session -- print
-    // included -- on a manager whose `getUserServers`/`getCatalogSources`
-    // closures re-read settings on every resolution (construction and
-    // each later `refresh()`: the API the remote-catalog change
-    // subscription drives mid-session), and whose declared local catalog
-    // sources resolve. The session's `mcp.config` host handler keeps
-    // serving the registration-time integrations (the eukhe-core handler
-    // design, shared with the daemon worker). Auth construction blocks;
-    // run it off the async runtime like the engine's own gating does.
-    let mcp_manager = {
-        let cwd = config.cwd.clone();
-        let agent_dir = config.agent_dir.clone();
-        let manager = tokio::task::spawn_blocking(move || {
-            crate::mcp_login::cli_mcp_manager(&cwd, &agent_dir)
-        })
-        .await
-        .map_err(|error| format!("MCP manager construction failed: {error}"))?;
-        std::sync::Arc::new(std::sync::Mutex::new(manager))
-    };
-    // TS print mode records too (`semanticEdgeLedgerPath`): the session
-    // id names the ledger under the session artifact dir; `--no-session`
-    // runs on the in-memory manager (no artifact dir), so the identity is
-    // ledger-less but the request ids still go on the wire.
-    let session_manager = session_manager
-        .unwrap_or_else(|| eukhe_core::session::manager::SessionManager::in_memory(&config.cwd));
-    let semantic_edges = Some(
-        eukhe_core::session_engine::semantic_edges::SemanticEdgeIdentity {
-            session_id: session_manager.get_session_id().to_string(),
-            ledger_path: eukhe_core::session_engine::semantic_edges::semantic_edge_ledger_path(
-                None,
-                session_manager.get_session_artifact_dir().as_deref(),
-            ),
-            parent_session_id: None,
-            spawned_by_request_id: None,
-        },
-    );
-    // The chat memory: this process owns it when no daemon (or other
-    // process) does, else it is the owner's client.
-    let memory = eukhe_core::memory::Memory::open(
-        eukhe_core::memory::chat_dir(&config.agent_dir),
-        std::sync::Arc::new(eukhe_core::memory::SettingsSummarizer::new(
-            config.agent_dir.clone(),
-        )),
-    )
-    .await
-    .map_err(|error| format!("cannot open the chat memory: {error:#}"))?;
-    let engine = eukhe_core::session_engine::engine::create_session(
-        eukhe_core::session_engine::engine::SessionEngineConfig {
-            memory: Some(memory),
-            cron_store: None,
-            semantic_edges,
-            telemetry,
-            steering_mode,
-            follow_up_mode,
-            cwd: config.cwd.clone(),
-            agent_dir: config.agent_dir.clone(),
-            mcp_manager: Some(mcp_manager),
-            model: Some(agent_model),
-            thinking_level: Some(resolve_thinking_level(config, &model)),
-            stream_fn: Some(stream_fn),
-            tools: builtin_tools(&config.cwd),
-            custom_system_prompt: config.system_prompt.clone(),
-            prompt_guidelines: config.append_system_prompt.clone(),
-            generic_mcp_servers: vec![],
-            allow_recursion: None,
-            session_manager: Some(session_manager),
-            extra_host_handlers: None,
-            conversation_log_path: None,
-            additional_skill_paths: config
-                .skills
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect(),
-            additional_prompt_paths: config
-                .prompt_templates
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect(),
-            extra_builtin_skill_overrides: vec![],
-            rlm_subagent_host: None,
-            rlm_depth: None,
-            model_info: Some(model.clone()),
-            // TS print/headless sessions build through the same
-            // `createDefaultRuntimeFactory` runtime (prewarmIpythonKernel:
-            // true), so the kernel boots in the background at creation;
-            // the engine's depth-0 gate matches the TS session's.
-            prewarm_ipython_kernel: Some(true),
-            on_background_work_settled: None,
-            queued_goal_context_purge: None,
-            queued_steering_probe: None,
-            image_model_router: Some(image_model_router),
-        },
-    )
-    .await
-    .map_err(|error| format!("{error:#}"))?;
-    Ok(HeadlessEngine {
-        engine,
-        model,
-        api_key: resolved.api_key,
-        provider_target,
-    })
-}
-
-/// The headless stream seam over the shared provider-target slot with the
-/// armed image route kept AUTHORITATIVE while an episode is armed (TS
-/// keeps the routed override over the whole turn, mid-turn picker switches
-/// included): a `set_model` picker write to the slot lands only when the
-/// settle clears the armed target, exactly when TS's next dispatch would
-/// re-evaluate against the new selection.
-///
-/// Each request resolves its auth when issued (TS `streamFn`): an expired
-/// OAuth token refreshes, and a failed refresh ends the request as an
-/// error turn carrying the reason. The build-time resolution serves the
-/// first request while it still targets the build's model, so the run
-/// never resolves twice back to back.
-fn route_authoritative_stream_fn(
-    provider_target: ProviderTargetSlot,
-    armed_target: std::sync::Arc<std::sync::Mutex<Option<ProviderTarget>>>,
-    request_auth: RequestAuthFn,
-    build_auth: (Model, eukhe_core::models::ResolvedRequestAuth),
-) -> StreamFn {
-    let build_auth = std::sync::Mutex::new(Some(build_auth));
-    std::sync::Arc::new(
-        move |_requested: AgentModel, context: LlmContext, options: StreamRequestOptions| {
-            let armed = armed_target
-                .lock()
-                .expect("armed image target lock")
-                .clone();
-            let target = armed
-                .or_else(|| {
-                    provider_target
-                        .read()
-                        .expect("provider target lock")
-                        .clone()
-                })
-                .expect("provider target set before the first stream");
-            let ProviderTarget {
-                model,
-                service_tier,
-            } = target;
-            let build_auth = build_auth
-                .lock()
-                .expect("build auth lock")
-                .take()
-                .filter(|(auth_model, _)| {
-                    auth_model.provider == model.provider && auth_model.id == model.id
-                })
-                .map(|(_, auth)| auth);
-            let request_auth = std::sync::Arc::clone(&request_auth);
-            Box::pin(async move {
-                let auth = if let Some(auth) = build_auth {
-                    auth
-                } else {
-                    let auth_model = model.clone();
-                    tokio::task::spawn_blocking(move || request_auth(&auth_model)).await?
-                };
-                stream_with_auth(&model, service_tier, auth, context, options)
-            })
-        },
-    )
-}
-
-/// The headless image-model router (TS `resolveImageModelOverride` over the
-/// CLI's settings + registry, applied to the session's swappable stream
-/// target): the routing decision for one dispatched batch -- `Err` is the
-/// actionable refusal that fails the turn -- and the serving-target swap
-/// (`None` restores the session target).
-fn headless_image_model_router(
-    provider_target: &std::sync::Arc<
-        std::sync::RwLock<Option<eukhe_core::session_engine::provider_adapter::ProviderTarget>>,
-    >,
-    armed_target: std::sync::Arc<
-        std::sync::Mutex<Option<eukhe_core::session_engine::provider_adapter::ProviderTarget>>,
-    >,
-    cwd: std::path::PathBuf,
-    agent_dir: std::path::PathBuf,
-    session_model: eukhe_types::ai::Model,
-) -> eukhe_core::session_engine::image_model_routing::ImageModelRouter {
-    // The pre-route session target, captured at the FIRST arm (not at
-    // build): a mid-run model switch rewrites the live slot, and the
-    // capture-then-restore contract (arm -> serve the route -> settle ->
-    // restore) must return the SWITCHED-TO target, never the build-time
-    // snapshot. Cleared on every settle so the next arm re-captures
-    // whatever the session serves by then.
-    let armed_from = std::sync::Arc::new(std::sync::Mutex::new(None));
-    // `armed_target` (the caller's slot, shared with the stream seam) holds
-    // the routed target the arm wrote, so the settle can tell a slot that
-    // still holds the route from one a mid-run `/model` switch rewrote.
-    let armed_to = armed_target;
-    let decide_agent_dir = agent_dir;
-    let decide_provider_target = std::sync::Arc::clone(provider_target);
-    let decide_armed_from = std::sync::Arc::clone(&armed_from);
-    let decide = std::sync::Arc::new(
-        move |carries_images: bool,
-              thinking_level: eukhe_types::ai::ModelThinkingLevel|
-              -> Result<Option<eukhe_core::models::ResolvedImageModel>, String> {
-            if !carries_images {
-                return Ok(None);
-            }
-            // The routing decision runs at commit and needs the SESSION
-            // model. During an armed episode the live slot holds the
-            // ROUTED target (a consecutive image batch re-decides before
-            // the previous episode settles), so the capture is the
-            // session model; un-armed, the live slot is the session
-            // target (a mid-run model switch rewrote it). The build-time
-            // pair is the fallback only when both are somehow empty.
-            let armed_capture = decide_armed_from
-                .lock()
-                .expect("armed-from lock")
-                .as_ref()
-                .map(
-                    |target: &eukhe_core::session_engine::provider_adapter::ProviderTarget| {
-                        target.model.clone()
-                    },
-                );
-            let session_model = armed_capture
-                .or_else(|| {
-                    decide_provider_target
-                        .read()
-                        .expect("provider target lock")
-                        .as_ref()
-                        .map(|target| target.model.clone())
-                })
-                .unwrap_or_else(|| session_model.clone());
-            let settings = eukhe_core::settings::SettingsManager::create(&cwd, &decide_agent_dir);
-            let image_model_reference = settings.get_image_model();
-            let block_images = settings.get_block_images();
-            let auth = eukhe_core::auth::AuthStorage::create(&decide_agent_dir);
-            let mut registry = eukhe_core::models::ModelRegistry::create(
-                auth,
-                decide_agent_dir.join("models.json"),
-            );
-            registry.load_private_authorization_from_cache();
-            let available: Vec<eukhe_types::ai::Model> =
-                registry.get_available().into_iter().cloned().collect();
-            // Route acceptance runs the same request-auth resolution the
-            // routed requests will: a provider can be signed in (the status
-            // probe) while its key resolution still fails, and a route
-            // accepted on the status probe alone would arm an
-            // unauthenticated target -- the image turn's content would
-            // reach the provider without credentials instead of the
-            // actionable unresolvable-reference refusal (TS resolves the
-            // auth at request time and fails the turn before any request
-            // leaves; the port refuses the reference up front).
-            let resolvable_auth: std::collections::HashSet<(String, String)> = available
-                .iter()
-                .filter(|model| {
-                    registry
-                        .get_api_key_and_headers(model, model.headers.as_ref())
-                        .ok
-                })
-                .map(|model| (model.provider.clone(), model.id.clone()))
-                .collect();
-            eukhe_core::models::resolve_image_model_override(
-                &eukhe_core::models::ImageModelRoutingInputs {
-                    session_model: &session_model,
-                    thinking_level,
-                    service_tier: None,
-                    image_model_reference: image_model_reference.as_deref(),
-                    available_models: &available,
-                    // Keyed (provider, id): one provider's authenticated
-                    // row must not vouch for another provider's same-id
-                    // model (the catalog allows shared ids across
-                    // providers).
-                    has_configured_auth: &|model| {
-                        resolvable_auth.contains(&(model.provider.clone(), model.id.clone()))
-                    },
-                    block_images,
+                } => HeadlessTarget::Open {
+                    location: session_path,
+                    reuse_lease,
                 },
-            )
-        },
-    );
-    let swap_target = {
-        let provider_target = std::sync::Arc::clone(provider_target);
-        let armed_to = std::sync::Arc::clone(&armed_to);
-        std::sync::Arc::new(
-            move |route: Option<&eukhe_core::models::ResolvedImageModel>| {
-                if let Some(resolved) = route {
-                    // The first swap of the episode captures the session
-                    // target it replaces (the later arms re-write the slot,
-                    // so only the arm preceding them holds it).
-                    let mut armed_from = armed_from.lock().expect("armed-from lock");
-                    if armed_from.is_none() {
-                        armed_from
-                            .clone_from(&provider_target.read().expect("provider target lock"));
-                    }
-                    // The stream resolves the routed model's request auth
-                    // per request, like the session model's.
-                    let target = eukhe_core::session_engine::provider_adapter::ProviderTarget {
-                        model: resolved.model.clone(),
-                        service_tier: resolved.service_tier,
-                    };
-                    // The arm records the routed target it writes so the
-                    // settle's still-routed guard can tell a slot the route
-                    // still holds from one a mid-run `/model` switch rewrote
-                    // (without this write the guard always passes).
-                    *armed_to.lock().expect("armed-to lock") = Some(target.clone());
-                    *provider_target.write().expect("provider target lock") = Some(target);
-                } else {
-                    // Restore the captured session target ONLY when the slot
-                    // still holds the routed target the arm wrote: a mid-run
-                    // `/model` switch rewrote the slot with the new session
-                    // target, and the settle must not drag requests back to
-                    // the pre-route model.
-                    let captured = armed_from.lock().expect("armed-from lock").take();
-                    let routed = armed_to.lock().expect("armed-to lock").take();
-                    let current = provider_target
-                        .read()
-                        .expect("provider target lock")
-                        .clone();
-                    // The full serving target: an ACP model switch may land
-                    // on a same-id model of another provider, and the guard
-                    // must treat that slot as switched, not as the route's
-                    // own (the request auth is resolved per request, so it
-                    // is no part of the target).
-                    let still_routed = match (&current, &routed) {
-                        (Some(current), Some(routed)) => {
-                            current.model.provider == routed.model.provider
-                                && current.model.id == routed.model.id
-                                && current.service_tier == routed.service_tier
-                        }
-                        _ => true,
-                    };
-                    if still_routed {
-                        if let Some(target) = captured.or(current) {
-                            *provider_target.write().expect("provider target lock") = Some(target);
-                        }
-                    }
-                }
-            },
-        )
-    };
-    eukhe_core::session_engine::image_model_routing::ImageModelRouter {
-        decide,
-        swap_target,
-    }
-}
-
-/// The engine alone (callers that do not drive session commands).
-async fn build_headless_engine(
-    options: &RunOptions,
-    execution_mode: &str,
-) -> Result<HeadlessEngine, String> {
-    build_headless_engine_parts(options, execution_mode).await
-}
-
-/// The session header line: the session file's `type: "session"` entry in
-/// the TS wire shape and field order (`getSessionHeader` ->
-/// `JSON.stringify`), so a fresh run reports the same identity row the TS
-/// json stream leads with.
-async fn session_header_json(
-    engine: &eukhe_core::session_engine::engine::SessionEngine,
-) -> Option<String> {
-    let persistence = engine.session.shared_persistence();
-    let session = persistence.lock().await;
-    let header = session.get_header()?;
-    // The TS field order, optional fields only when present.
-    let mut object = serde_json::Map::new();
-    let field = |map: &mut serde_json::Map<String, serde_json::Value>,
-                 key: &str,
-                 value: Option<serde_json::Value>| {
-        if let Some(value) = value {
-            map.insert(key.to_string(), value);
-        }
-    };
-    field(&mut object, "type", Some(serde_json::json!("session")));
-    field(
-        &mut object,
-        "version",
-        header.version.map(serde_json::Value::from),
-    );
-    field(&mut object, "id", Some(serde_json::json!(header.id)));
-    field(
-        &mut object,
-        "timestamp",
-        Some(serde_json::json!(header.timestamp)),
-    );
-    field(&mut object, "cwd", Some(serde_json::json!(header.cwd)));
-    field(
-        &mut object,
-        "parentSession",
-        header
-            .parent_session
-            .as_ref()
-            .map(|parent| serde_json::json!(parent)),
-    );
-    field(
-        &mut object,
-        "rlmDepth",
-        header.rlm_depth.map(serde_json::Value::from),
-    );
-    field(
-        &mut object,
-        "git",
-        header
-            .git
-            .as_ref()
-            .map(|git| serde_json::to_value(git).unwrap_or(serde_json::Value::Null)),
-    );
-    Some(serde_json::Value::Object(object).to_string())
-}
-
-/// Resolve the session thinking level with the sdk.ts `createAgentSession`
-/// order: the CLI flag, then the settings default, then "medium" -- always
-/// clamped to what the model supports.
-fn resolve_thinking_level(
-    config: &crate::mode::RuntimeConfig,
-    model: &Model,
-) -> eukhe_agent::types::ThinkingLevel {
-    use eukhe_types::ai::ModelThinkingLevel;
-    let settings = eukhe_core::settings::SettingsManager::create(&config.cwd, &config.agent_dir);
-    let requested = config
-        .thinking
-        .or_else(|| {
-            settings
-                .get_default_thinking_level()
-                .map(eukhe_core::settings::ThinkingLevelSetting::model_level)
-        })
-        // TS `DEFAULT_THINKING_LEVEL`.
-        .unwrap_or(ModelThinkingLevel::Medium);
-    let clamped = eukhe_ai::models::clamp_thinking_level(model, requested);
-    map_thinking_level(clamped)
-}
-
-/// The headless session selection, in the flag order of TS
-/// `createSessionManager` (noSession -> fork -> resume -> continue ->
-/// create). `--no-session` never reaches here: its callers skip the
-/// selection.
-enum HeadlessSession {
-    /// Fork this source session into a fresh file.
-    Fork(std::path::PathBuf),
-    /// Open this existing session file.
-    Open(std::path::PathBuf),
-    Fresh,
-}
-
-/// main.ts `explicitCwdOverride`: with --cwd, the flag's directory wins
-/// over the stored session cwd on resume.
-fn explicit_cwd_override(options: &RunOptions) -> Option<&std::path::Path> {
-    options
-        .session
-        .cwd_from_flag
-        .then_some(options.config.cwd.as_path())
-}
-
-fn select_headless_session(options: &RunOptions) -> Result<HeadlessSession, String> {
-    let cwd = &options.config.cwd;
-    let session_dir = replacement_session_dir(options);
-    // TS `createSessionManager`'s fork arm: every resolution shape forks --
-    // a GLOBAL session is exactly what --fork is for (a different
-    // project's session copied into this cwd) -- with no daemon-active
-    // guard: the copy writes a fresh file, never the hosted source.
-    if let Some(selector) = &options.session.fork {
-        // A leading `~` expands against the home dir (the resume
-        // selector's convention; the interactive fork arm matches).
-        let expanded = crate::config::expand_tilde_path(selector);
-        let selector = expanded.to_string_lossy();
-        let resolved = resolve_session_path(&selector, cwd, &session_dir)
-            .map_err(|error| render_selector_error(&error))?;
-        let source = match resolved {
-            ResolvedSession::Path(path)
-            | ResolvedSession::Local(path)
-            | ResolvedSession::Global { path, .. } => path,
-        };
-        return Ok(HeadlessSession::Fork(source));
-    }
-    if let Some(selector) = &options.session.resume {
-        let resolved = resolve_session_path(selector, cwd, &session_dir)
-            .map_err(|error| render_selector_error(&error))?;
-        return match resolved {
-            ResolvedSession::Path(path) | ResolvedSession::Local(path) => {
-                Ok(HeadlessSession::Open(
-                    std::path::absolute(&path).map_err(|error| error.to_string())?,
-                ))
-            }
-            ResolvedSession::Global {
-                path: _,
-                cwd: session_cwd,
-            } => {
-                // Headless modes have no fork prompt; mirror the TS non-TTY path.
-                Err(format!(
-                    "session {selector} belongs to a different project ({}). Pass --fork {selector} to use it here, or run from that project's directory.",
-                    session_cwd.display()
-                ))
-            }
-        };
-    }
-    if options.session.continue_recent {
-        // Absolute like the resume arm (TS `setSessionFile` resolves it).
-        if let Some(path) = find_most_recent_session_for_cwd(&session_dir, cwd) {
-            return Ok(HeadlessSession::Open(
-                std::path::absolute(&path).map_err(|error| error.to_string())?,
-            ));
-        }
-    }
-    Ok(HeadlessSession::Fresh)
-}
-
-/// The in-process session manager for the selected session. The opened
-/// session's runtime lease returns alongside (a long-lived connection
-/// holds it on the engine handle; the one-shot modes forget it for the
-/// process lifetime).
-fn build_session_manager_with_lease(
-    options: &RunOptions,
-) -> Result<
-    (
-        eukhe_core::session::manager::SessionManager,
-        Option<eukhe_daemon::lease::SessionLease>,
-    ),
-    String,
-> {
-    let cwd = options.config.cwd.clone();
-    let session_dir = replacement_session_dir(options);
-    match select_headless_session(options)? {
-        HeadlessSession::Fork(source) => {
-            let manager = eukhe_core::session::manager::SessionManager::fork_from(
-                &source,
-                &cwd,
-                &session_dir,
-            )?;
-            // The materialized fork leases its own file before the engine
-            // writes it (the fresh-session rule): another process resuming
-            // the new file can never become a second writer while this
-            // engine appends -- the source was only read, never leased.
-            Ok(lease_fresh_manager(manager))
-        }
-        HeadlessSession::Open(path) => {
-            let lease = session_open_guard(options.daemon_socket.as_deref(), &path)?;
-            // A failed open's early return drops the lease (released),
-            // never leaving an orphaned hold behind.
-            let manager =
-                open_session_file(&path, &session_dir, &cwd, explicit_cwd_override(options))?;
-            Ok((manager, Some(lease)))
-        }
-        HeadlessSession::Fresh => Ok(fresh_session_with_lease(&cwd, &session_dir)),
-    }
-}
-
-/// Build a FRESH persisted manager and lease its eagerly selected file
-/// before the engine can write it (the replacement `New` path's rule --
-/// TS leases the freshly created session too, `acquireReplacementLease`):
-/// another process can never claim the first lease while this one writes.
-fn fresh_session_with_lease(
-    cwd: &std::path::Path,
-    session_dir: &std::path::Path,
-) -> (
-    eukhe_core::session::manager::SessionManager,
-    Option<eukhe_daemon::lease::SessionLease>,
-) {
-    let manager = eukhe_core::session::manager::SessionManager::persisted(cwd, session_dir);
-    lease_fresh_manager(manager)
-}
-
-/// Lease a freshly materialized session file before the engine can write
-/// it (the fresh `create`/`continue` paths and the `--fork` copy): the
-/// UNGATED runtime acquire the resume path and the daemon's replacement
-/// `New` arm share -- `acquire_session_lease` answers `Ok(None)` whenever
-/// the env gate is unset, so it would leave production fresh sessions
-/// unleased. A fresh file's lease cannot be contended (its uuid is new);
-/// an acquire failure here is environmental (the lease directory), so
-/// the session proceeds with a warning instead of failing startup.
-fn lease_fresh_manager(
-    manager: eukhe_core::session::manager::SessionManager,
-) -> (
-    eukhe_core::session::manager::SessionManager,
-    Option<eukhe_daemon::lease::SessionLease>,
-) {
-    let lease = match manager.get_session_file() {
-        Some(path) => {
-            match eukhe_daemon::lease::acquire_runtime_session_lease(
-                path,
-                &crate::config::get_agent_dir(),
-            ) {
-                Ok(lease) => Some(lease),
-                Err(error) => {
-                    eprintln!("eukhe: could not lease the fresh session file: {error:#}");
-                    None
-                }
-            }
-        }
-        None => None,
-    };
-    (manager, lease)
-}
-
-/// Open a session file with the TS `SessionManager.open` cwd semantics: an
-/// explicit `--cwd` override wins, else the header's cwd, falling back to the
-/// process cwd for unreadable or new files. Resumed sessions keep the
-/// missing-cwd guard from main.ts.
-/// Guard an in-process open of a persisted session file: probe the
-/// daemon's live roster (`-c`/`-r` refuse a file a live daemon worker
-/// already hosts, `SessionAlreadyActiveError`), then acquire the runtime
-/// lease. Returns the HELD lease -- the caller owns its lifetime (the
-/// one-shot print paths forget it for the process lifetime; a
-/// long-lived connection holds it per session and drops it with the
-/// engine it guards).
-fn session_open_guard(
-    socket_path: Option<&str>,
-    session_path: &std::path::Path,
-) -> Result<eukhe_daemon::lease::SessionLease, String> {
-    let socket = crate::interactive_mode::resolve_socket_path(socket_path);
-    if let Ok(mut client) = crate::daemon_client::DaemonClient::connect(&socket) {
-        let list = client
-            .request(eukhe_types::daemon::DaemonCommand::List {
-                id: None,
-                all: None,
-                cwd: None,
-                session_dir: None,
-                include_client_owned: None,
-                rest: serde_json::Map::default(),
-            })
-            .map_err(|error| format!("Could not check active sessions: {error:#}"))?;
-        if list.success {
-            let target = eukhe_daemon::lease::canonical_session_path(session_path);
-            for row in list
-                .data
-                .and_then(|data| data.get("sessions").cloned())
-                .and_then(|sessions| sessions.as_array().cloned())
-                .unwrap_or_default()
-            {
-                let Some(file) = row.get("sessionFile").and_then(serde_json::Value::as_str) else {
-                    continue;
-                };
-                if eukhe_daemon::lease::canonical_session_path(std::path::Path::new(file)) != target
-                {
-                    continue;
-                }
-                let active_session_id = row
-                    .get("activeSessionId")
-                    .or_else(|| row.get("id"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
-                // The descriptive refusal (operator-directed): the TS-identical
-                // first line, then the holder's identity and the next steps --
-                // attach to the live session instead of reopening its file.
-                let message = match eukhe_tui::session_open_error::holder_from_roster(
-                    std::slice::from_ref(&row),
-                    &target,
-                ) {
-                    Some(holder) => {
-                        eukhe_tui::session_open_error::already_active_error(&holder, &target)
-                    }
-                    None => format!(
-                        "Session is already active in {active_session_id}: {}",
-                        target.display()
-                    ),
-                };
-                return Err(message);
-            }
-        }
-    }
-    // The daemon's roster covers only its own sessions; the session store
-    // is shared, so the file may instead be held by a live process no
-    // roster here names - typically the TypeScript product's daemon or one
-    // of its surviving workers, with this Rust daemon running beside it
-    // (each product owns its daemon; the store is the shared part). The
-    // runtime lease table is the one cross-daemon ownership record the
-    // shared agent dir offers, so a live holder refuses the in-process
-    // open with the same refusal the daemon's create path answers - a
-    // print-mode run over a held file would be a second writer on it.
-    let agent_dir = crate::config::get_agent_dir();
-    // Acquire, not observe: a probe leaves a window where a daemon worker
-    // (or another CLI) acquires the file's runtime lease after the check
-    // and before this in-process open - two writers on one file. The
-    // acquire is atomic against the shared lease table: a live foreign
-    // holder answers with the session-hold refusal, and the returned
-    // lease is the caller's to hold (the one-shot print run IS the
-    // writer and forgets it for the process lifetime, whose dead pid
-    // the liveness probes treat as released).
-    match eukhe_daemon::lease::acquire_runtime_session_lease(session_path, &agent_dir) {
-        Ok(lease) => Ok(lease),
-        Err(error) => {
-            let Some(active) =
-                error.downcast_ref::<eukhe_daemon::lease::SessionAlreadyActiveError>()
-            else {
-                // The lease table itself failed (io, permissions): never
-                // silently proceed over an undeterminable ownership record.
-                return Err(format!(
-                    "could not verify the session file is not held: {error:#}"
-                ));
             };
-            Err(eukhe_daemon::hold_refusal::refusal_message(
-                &eukhe_daemon::hold_refusal::HoldIdentity {
-                    pid: active.holder_pid,
-                    active_session_id: active.active_session_id.clone(),
-                },
-                Some(session_path),
-            ))
+            let opened =
+                open_headless_session(&options, target, Some(turn_wait), &BACKGROUND_CONTEXT)
+                    .await?;
+            Ok(eukhe_daemon::rpc::session::RpcEngineHandle {
+                session: opened.session,
+                session_lease: opened.lease,
+            })
         }
-    }
-}
-
-fn open_session_file(
-    path: &std::path::Path,
-    session_dir: &std::path::Path,
-    fallback_cwd: &std::path::Path,
-    explicit_cwd_override: Option<&std::path::Path>,
-) -> Result<eukhe_core::session::manager::SessionManager, String> {
-    let session_cwd = stored_session_cwd(path, fallback_cwd, explicit_cwd_override)?;
-    Ok(eukhe_core::session::manager::SessionManager::open(
-        &session_cwd,
-        session_dir,
-        path,
-    ))
-}
-
-/// The cwd an opened session runs in: the explicit override (main.ts
-/// `explicitCwdOverride`), else the stored session cwd, else the
-/// fallback. A session stored against a deleted directory must not
-/// silently continue somewhere else (main.ts `getMissingSessionCwdIssue`).
-fn stored_session_cwd(
-    path: &std::path::Path,
-    fallback_cwd: &std::path::Path,
-    explicit_cwd_override: Option<&std::path::Path>,
-) -> Result<std::path::PathBuf, String> {
-    let session_cwd = explicit_cwd_override.map_or_else(
-        || {
-            let header = eukhe_core::session::manager::read_session_header(path);
-            header.filter(|header| !header.cwd.is_empty()).map_or_else(
-                || fallback_cwd.to_path_buf(),
-                |header| std::path::PathBuf::from(&header.cwd),
-            )
-        },
-        std::path::Path::to_path_buf,
-    );
-    if !session_cwd.exists() {
-        return Err(format!(
-            "Stored session working directory does not exist: {}\nSession file: {}\nCurrent working directory: {}",
-            session_cwd.display(),
-            path.display(),
-            fallback_cwd.display()
-        ));
-    }
-    Ok(session_cwd)
+        .boxed()
+    })
 }
 
 /// Render a selector failure with the main.ts formatting: the error message
@@ -1368,268 +306,117 @@ pub(crate) fn render_selector_error(error: &SessionSelectorError) -> String {
     )
 }
 
-/// Model tools for the print runtime: `ipython` only (the TS product exposes
-/// only the REPL tool to the model; `bash` and `edit` live in the kernel).
-/// The engine adds the kernel-backed `ipython` tool itself.
-fn builtin_tools(_cwd: &std::path::Path) -> Vec<Arc<dyn eukhe_agent::types::AgentTool>> {
-    Vec::new()
-}
-
-/// Admit prompts, stream json events when requested, and decide the exit code
-/// from the headless terminal result plus the autonomous gate contract.
-/// Shared by the real and faux paths. The turn-boundary compaction checks
-/// (the overflow compact-and-retry arm, the requested compaction/refinement
-/// consumption, and the threshold arm) run through
-/// [`crate::print_boundary::TurnBoundary`] at every prompt's quiescent
-/// boundaries. The autonomous continuation loop rides the agent's
-/// natural-turn-end hook (the TS in-run shape: continuations churn inside
-/// the one prompt wait with no run boundary between them); a held
-/// threshold continuation drains through the boundary pair, and a stop
-/// surfaces only through the headless exit contract (TS: no row, no
-/// stream frame).
-async fn run_prompts_and_emit(
-    engine: &std::sync::Arc<eukhe_core::session_engine::engine::SessionEngine>,
-    model: &Model,
-    api_key: Option<String>,
-    options: &RunOptions,
-) -> Result<i32, String> {
-    let json_mode = options.app_mode == AppMode::Json;
-    let mut unsubscribe: Option<eukhe_agent::agent::Subscription> = None;
-    if json_mode {
-        if let Some(header) = session_header_json(engine).await {
-            println!("{header}");
-        }
-        unsubscribe = Some(
-            engine
-                .session
-                .agent()
-                .subscribe(|event, _signal| {
-                    Box::pin(async move {
-                        if let Some(json) = agent_event_json(&event) {
-                            println!("{json}");
-                        }
-                        Ok(())
-                    })
-                })
-                .await,
-        );
-    }
-    // A prompt queued behind another window's turn on the shared chat
-    // says so on stderr (stdout stays the answer or the JSON stream).
-    if let Some(chat_memory) = engine.session.chat_memory() {
-        chat_memory.set_turn_wait_sink(std::sync::Arc::new(|wait| match wait {
-            eukhe_core::session_engine::chat_memory::TurnWait::Waiting => {
-                eprintln!("{}", eukhe_types::daemon::CHAT_TURN_WAIT_NOTICE);
-            }
-            eukhe_core::session_engine::chat_memory::TurnWait::Cleared => {}
-        }));
-    }
-    // The goal continuation surface (the #252 residue): the usage
-    // accounting publishes `goal_update` frames, the in-loop hook runs an
-    // active goal's continuations inside the same agent run (the TS
-    // `getContinuationMessages` seam), and the driver drains the queued
-    // turns (the budget-limit steer, the threshold-held continuation) as
-    // this invocation's follow-up runs. Wired in every output mode -- the
-    // loop runs identically in text mode, only silently.
-    let goal = std::sync::Arc::new(crate::print_goal::PrintGoalSurface::new(json_mode));
-    goal.seed_publish_baseline(engine).await;
-    let goal_accounting = goal.wire_accounting(engine, engine.session.agent()).await;
-    // The autonomous run (the verifier/eval composition seam): the CLI
-    // flags enable it, a no-flag session starts disabled and `/autonomous`
-    // rewrites it live. Per-message accounting runs against the one shared
-    // state, and the composed in-run continuation hook drives both the
-    // CLI-flag run and the flipped session state (TS: the continuation rides
-    // the agent loop's natural-turn-end hook, in-run).
-    let autonomous = std::sync::Arc::new(match options.config.autonomous.as_ref() {
-        Some(config) => HeadlessAutonomous::from_cli(config, &options.config.cwd),
-        None => HeadlessAutonomous::disabled(&options.config.cwd),
-    });
-    let accounting = autonomous.wire_accounting(engine.session.agent()).await;
-    // The composed natural-turn-end hook (TS `_getContinuationMessages`):
-    // the goal arm first (exclusive priority), the autonomous arm on the
-    // fall-through, the boundary gates shared (queued input, a requested
-    // compaction, the threshold arm's held continuation).
-    crate::print_autonomous::wire_continuation_hook(
-        engine,
-        engine.session.agent(),
-        model,
-        &goal,
-        &autonomous,
-    );
-    let global_harness_dir =
-        eukhe_core::refinement::get_global_harness_state_dir(&options.config.agent_dir);
-    let mut boundary = crate::print_boundary::TurnBoundary::new(json_mode);
-    // The autonomous runtime state the session-command executor mutates --
-    // the run's own shared state (the session always carries one, TS
-    // `createAgentSession`), so `/autonomous` rewrites the state the hook,
-    // the accounting, and the exit contract read.
-    let autonomous_state = autonomous.state_handle();
-    // A failed session command rejects the prompt wait (TS print-mode's
-    // catch): the raw error prints to stderr and the run exits 1 without
-    // the later prompts or the terminal selection.
-    let mut command_failure: Option<String> = None;
-    // The `@file` image attachments ride the initial prompt only (TS
-    // `initialImages`); the later CLI messages stay text.
-    'prompts: for (prompt, images) in options
-        .initial_message
-        .iter()
-        .map(|prompt| (prompt, options.initial_images.clone()))
-        .chain(options.messages.iter().map(|prompt| (prompt, Vec::new())))
-    {
-        // Session commands (TS `_normalizeSubmission`'s `sessionCommand`
-        // arm) never reach the model loop: the pre-turn boundary stays
-        // theirs to skip and the prompt's turn never exists.
-        if let Some(command) = engine.session.classify_session_command(prompt) {
-            let execution = crate::print_session_command::execute_prompt_session_command(
-                engine,
-                &goal,
-                model,
-                api_key.clone(),
-                global_harness_dir.clone(),
-                &autonomous_state,
-                &command,
-            )
-            .await;
-            if let Some(error) = execution.error {
-                command_failure = Some(error);
-                break 'prompts;
-            }
-            // A `/goal` start (or resume) scheduled its continuation as
-            // queued session input: the prompt wait drains it inside the
-            // same wait, as the queued turn with its action frames.
-            if let Some(continuation) = execution.continuation_message {
-                goal.run_session_command_continuation(
-                    engine,
-                    &mut boundary,
-                    model,
-                    api_key.clone(),
-                    global_harness_dir.clone(),
-                    &continuation,
-                )
-                .await?;
-            }
-            // The same queue drain a settled turn gets: held continuations
-            // and armed steers run as this prompt's follow-up turns.
-            goal.drive_boundary(
-                engine,
-                &mut boundary,
-                model,
-                api_key.clone(),
-                global_harness_dir.clone(),
-            )
-            .await?;
-            continue;
-        }
-        // The chat's turn stays this prompt's through its overflow retry
-        // and boundary turns (dropped at the end of the iteration).
-        let _turn_hold = engine
-            .session
-            .chat_memory()
-            .map(eukhe_core::session_engine::chat_memory::ChatMemory::hold_turn);
-        // The pre-turn boundary (TS `_runPreTurnCompaction`, the full
-        // `_checkCompaction` pass): an aborted trailing turn drops pending
-        // requests, a stale overflow error from a previous run gets its
-        // recovery attempt, and a resumed context above the reserve
-        // headroom (or a pending model request) compacts before the
-        // admitted prompt runs on the compacted context.
-        boundary
-            .run_pre_turn(engine, model, api_key.clone())
-            .await?;
-        engine
-            .session
-            .prompt_with_images(
-                prompt,
-                images,
-                eukhe_core::session_engine::PromptOptions::default(),
-            )
+/// Print/json mode: open the selected session, run every prompt, print the
+/// result, close the session.
+async fn print_mode_main(options: &RunOptions) -> Result<i32, String> {
+    // Every headless mode discloses immediately.
+    crate::telemetry_notice::print_if_due(&options.config);
+    let cx = &*BACKGROUND_CONTEXT;
+    let opened = open_headless_session(
+        options,
+        HeadlessTarget::Selected,
+        Some(stderr_turn_wait()),
+        cx,
+    )
+    .await?;
+    let result = run_prompts(&opened, options, cx).await;
+    let HeadlessSession { session, lease, .. } = opened;
+    // Every other holder (the event stream, the prompt loop) is gone.
+    if let Ok(session) = Arc::try_unwrap(session) {
+        session
+            .close(cx)
             .await
             .map_err(|error| format!("{error:#}"))?;
-        engine.session.agent().wait_for_idle().await;
-        // The settled-turn boundary (TS `agent_end`): the overflow
-        // compact-and-retry arm, the turn-boundary requests the kernel
-        // scheduled mid-turn (`compact.run` / `refine.run`), and the
-        // threshold arm. The outcomes persist in the session entries the
-        // terminal result reads.
-        boundary
-            .run_at_settled_turn(engine, model, api_key.clone(), global_harness_dir.clone())
-            .await?;
-        // The goal boundary's queue drain: the threshold-held continuation
-        // (minted ahead of the boundary's compaction) and the budget-limit
-        // steer (armed at the crossing turn's message end) run as this
-        // invocation's follow-up turns, each crossing the same boundary
-        // pair; a turn that still ends in a terminal error fails an active
-        // goal once the arms could not save it (TS
-        // `_finishGoalForTerminalAssistantMessage` at `agent_end`, after
-        // `_checkCompaction`).
-        let goal_owns_boundary = goal
-            .drive_boundary(
-                engine,
-                &mut boundary,
-                model,
-                api_key.clone(),
-                global_harness_dir.clone(),
-            )
-            .await?;
-        // The autonomous arm runs only when the goal does not own the
-        // boundary (TS `_getContinuationMessages`: the goal arm takes
-        // exclusive priority; autonomous is never consulted while a goal
-        // is active).
-        if !goal_owns_boundary {
-            // The held threshold continuation drains as this invocation's
-            // follow-up turn (TS's queued `followUp` admission); its own
-            // natural end churns the in-run hook again. The stop surfaces
-            // only through the headless exit contract (TS: no row, no
-            // stream frame).
-            autonomous
-                .drive_boundary(
-                    engine,
-                    &mut boundary,
-                    model,
-                    api_key.clone(),
-                    global_harness_dir.clone(),
-                )
-                .await
-                .map_err(|error| format!("{error:#}"))?;
-        }
     }
-    goal_accounting.unsubscribe().await;
-    accounting.unsubscribe().await;
-    if let Some(subscription) = unsubscribe {
-        subscription.unsubscribe().await;
+    // The lease outlives the writer it guards.
+    drop(lease);
+    result
+}
+
+/// The prompts of this invocation: the combined initial message (with the
+/// `@file` images; TS `initialImages`), then the later CLI messages.
+fn prompts(options: &RunOptions) -> impl Iterator<Item = (&str, Vec<ImageContent>)> {
+    let images = options
+        .initial_images
+        .iter()
+        .map(|image| ImageContent {
+            data: image.data.clone(),
+            mime_type: image.mime_type.clone(),
+        })
+        .collect::<Vec<_>>();
+    options
+        .initial_message
+        .iter()
+        .map(move |prompt| (prompt.as_str(), images.clone()))
+        .chain(
+            options
+                .messages
+                .iter()
+                .map(|prompt| (prompt.as_str(), Vec::new())),
+        )
+}
+
+fn user_content(prompt: &str, images: Vec<ImageContent>) -> UserContent {
+    if images.is_empty() {
+        return UserContent::Text(prompt.to_owned());
     }
-    // The rejected prompt wait (TS print-mode's catch): print the raw
-    // command error to stderr and exit 1 -- no later prompts ran, the
-    // terminal selection is skipped, and the disposal drain still runs.
-    if let Some(error) = command_failure {
+    let mut blocks = vec![UserContentBlock::Text(
+        eukhe_types::pi_ai::TextContent::new(prompt),
+    )];
+    blocks.extend(images.into_iter().map(UserContentBlock::Image));
+    UserContent::Blocks(blocks)
+}
+
+/// Run the prompts, stream json events when requested, and decide the exit
+/// code: session commands run through the durable executor (a failure
+/// prints its raw error and exits 1 without later prompts, TS print-mode's
+/// catch); every other prompt is submitted and waited for, then the
+/// conversation runs idle (goal and autonomous continuations, compaction).
+/// Text mode prints the terminal result; both modes apply the autonomous
+/// exit contract.
+async fn run_prompts(
+    opened: &HeadlessSession,
+    options: &RunOptions,
+    cx: &Context,
+) -> Result<i32, String> {
+    let session = &opened.session;
+    let json_mode = options.app_mode == AppMode::Json;
+    let conversation = session.main();
+    let harness = session.harness();
+    let events = if json_mode {
+        println!("{}", session_header(opened));
+        Some(JsonEvents::start(session, &conversation, cx).await?)
+    } else {
+        None
+    };
+    let failure = drive_prompts(session, &conversation, options, cx).await;
+    if let Some(events) = events {
+        events.finish().await;
+    }
+    let failure = failure?;
+    // The rejected prompt wait (TS print-mode's catch): the raw command
+    // error on stderr, exit 1, no terminal selection.
+    if let Some(error) = failure {
         eprintln!("{error}");
-        boundary
-            .drain_compact_auto_refine_at_disposal(engine, model, api_key, global_harness_dir)
-            .await;
         return Ok(1);
     }
-    let state = engine.session.agent().state().await;
-    let messages: Vec<eukhe_types::session::AgentMessage> =
-        state.messages.iter().filter_map(json_round_trip).collect();
-    let result = eukhe_core::session_engine::headless::select_headless_terminal_result(&messages);
-    // The TS print-mode exit contract (modes/print-mode.ts): json mode
-    // never derives the exit code from the terminal selection -- the event
-    // stream carries everything, and only the autonomous gates (or a thrown
-    // error) exit non-zero. Text mode prints the primary message (an error
-    // primary to stderr with exit 1, a settled answer to stdout) and the
-    // trailing compaction-outcome disclosures to stderr. A run with no
-    // terminal message -- e.g. an overflow turn dropped by the
-    // compact-and-retry recovery whose outcome row is the only surface --
-    // prints nothing and leaves the exit code to the outcome rows.
     let mut exit_code = 0;
+    // The TS print-mode exit contract: json mode never derives the exit
+    // code from the terminal selection (the event stream carries
+    // everything); text mode prints the primary (an error primary to
+    // stderr with exit 1, a settled answer to stdout) and the trailing
+    // compaction outcomes to stderr.
     if !json_mode {
+        let result = select_terminal_result(&conversation, cx).await?;
         if let Some(primary) = result.primary {
-            if let Some(stderr) = primary.stderr_text(&mut exit_code) {
-                eprintln!("{stderr}");
-            }
-            if exit_code == 0 {
-                if let Some(text) = primary.stdout_text() {
-                    println!("{text}");
+            match primary.failure() {
+                Some(stderr) => {
+                    exit_code = 1;
+                    if let Some(stderr) = stderr {
+                        eprintln!("{stderr}");
+                    }
                 }
+                None => println!("{}", primary.stdout_text()),
             }
         }
         for outcome in result.compaction_outcomes {
@@ -1640,197 +427,176 @@ async fn run_prompts_and_emit(
         }
     }
     // The TS print-mode autonomous contract applies to both output modes.
-    if let Some(stderr) = autonomous.exit_stderr().await {
+    let autonomous = autonomous_state(harness, conversation.id(), cx)
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    if let Some(stderr) = autonomous_exit_stderr(&autonomous.to_runtime()) {
         eprintln!("{stderr}");
         exit_code = 1;
     }
-    // The TS disposal order: print mode returns its exit code first, then
-    // the connection teardown disposes the session -- which drains a
-    // compact-trigger auto-refine that no later boundary consumed (TS
-    // `dispose`: "a serialized compaction can finish without another model
-    // turn"). The event subscription is already gone at this point, so the
-    // round's surface stays off the stream; the durable rows and the
-    // harness state persist.
-    boundary
-        .drain_compact_auto_refine_at_disposal(engine, model, api_key, global_harness_dir)
-        .await;
     Ok(exit_code)
 }
 
-/// The faux-script engine: identical session assembly, scripted provider.
-/// The faux assembly over one session-manager selection (the RPC mode's
-/// replacement builds share it under the same script).
-async fn build_faux_engine_with(
+/// The prompt loop. `Ok(Some(error))` is a failed session command.
+async fn drive_prompts(
+    session: &EukheSession,
+    conversation: &Conversation,
     options: &RunOptions,
-    script: &str,
-    session_manager: Option<eukhe_core::session::manager::SessionManager>,
-    // The faux harness installs no product telemetry, so the execution
-    // mode label carries through the real path only.
-    _execution_mode: &str,
-) -> Result<HeadlessEngine, String> {
+    cx: &Context,
+) -> Result<Option<String>, String> {
+    let harness = session.harness();
     let config = &options.config;
-    let script: serde_json::Value = serde_json::from_str(script)
-        .map_err(|error| format!("invalid EUKHE_FAUX_SCRIPT: {error}"))?;
-    // Response entries: a plain string answers with fixed text;
-    // `{"systemPrompt": true}` answers with the request's system prompt
-    // (binary-level verification of session assembly; never used by the
-    // product); any other object goes through the shared faux-script
-    // parser the daemon worker seam uses -- `{"text": ...}`,
-    // `{"content": [...]}` blocks (thinking, text, tool calls), and the
-    // scripted `stopReason`/`errorMessage`/`delayMs` fields the
-    // overflow-recovery harnesses script provider error turns with.
-    let response_steps: Vec<eukhe_ai::faux::FauxResponseStep> = script
-        .get("responses")
-        .and_then(serde_json::Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|entry| match entry {
-                    serde_json::Value::String(text) => {
-                        Ok(eukhe_ai::faux::FauxResponseStep::Message(
-                            eukhe_ai::faux::faux_assistant_text_message(
-                                text,
-                                eukhe_ai::faux::FauxAssistantMessageOptions::default(),
-                            ),
-                        ))
-                    }
-                    serde_json::Value::Object(map)
-                        if map.get("systemPrompt").and_then(serde_json::Value::as_bool)
-                            == Some(true) =>
-                    {
-                        Ok(eukhe_ai::faux::FauxResponseStep::Factory(
-                            std::sync::Arc::new(|context, _options, _call, _model| {
-                                Ok(eukhe_ai::faux::faux_assistant_text_message(
-                                    context.system_prompt.as_deref().unwrap_or_default(),
-                                    eukhe_ai::faux::FauxAssistantMessageOptions::default(),
-                                ))
-                            }),
-                        ))
-                    }
-                    serde_json::Value::Object(_) => {
-                        eukhe_ai::faux::script::parse_faux_script(&serde_json::json!({
-                            "responses": [entry]
-                        }))
-                        .map(|parsed| {
-                            let mut steps = parsed.responses.into_iter();
-                            let first = steps
-                                .next()
-                                .expect("an object entry parses into one response step");
-                            debug_assert!(steps.next().is_none());
-                            first
-                        })
-                    }
-                    _ => Ok(eukhe_ai::faux::FauxResponseStep::Message(
-                        eukhe_ai::faux::faux_assistant_text_message(
-                            "",
-                            eukhe_ai::faux::FauxAssistantMessageOptions::default(),
-                        ),
-                    )),
-                })
-                .collect::<Result<Vec<_>, String>>()
-        })
-        .ok_or_else(|| "EUKHE_FAUX_SCRIPT requires a responses array".to_string())??;
-    // The same faux-script model contract as the daemon worker seam: a
-    // `reasoning` model makes the harness script thinking-capable turns so
-    // thinking-level resolution can be verified without the network.
-    let reasoning = script
-        .get("reasoning")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
-    // The script pins the context window (the harness contract):
-    // threshold/overflow verifiers size it to the probe they run.
-    let context_window = script
-        .get("contextWindow")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(100_000);
-    // The stable faux identity (`api: "faux"`, `provider: "faux"`) the
-    // daemon's scripted engine registers under: verification fixtures can
-    // declare faux-provider models in models.json, and the ACP pickers'
-    // in-process discovery then resolves them like real auth-configured
-    // models.
-    let registration =
-        eukhe_ai::faux::register_faux_provider(eukhe_ai::faux::RegisterFauxProviderOptions {
-            api: Some("faux".to_string()),
-            provider: Some("faux".to_string()),
-            models: Some(vec![eukhe_ai::faux::FauxModelDefinition {
-                id: "faux-1".to_string(),
-                name: Some("Faux Model".to_string()),
-                reasoning: Some(reasoning),
-                input: Some(vec![eukhe_types::ai::ModelInput::Text]),
-                cost: None,
-                context_window: Some(context_window),
-                max_tokens: Some(4_096),
-            }]),
-            ..Default::default()
-        });
-    registration.set_responses(response_steps);
-    let model = registration.get_model();
-    let agent_model = json_round_trip(&model).ok_or("model conversion failed")?;
-    let provider_target: ProviderTargetSlot =
-        std::sync::Arc::new(std::sync::RwLock::new(Some(ProviderTarget {
-            model: model.clone(),
-            service_tier: None,
-        })));
-    // The scripted provider takes no credentials: every request resolves
-    // to no key, without reading auth storage.
-    let stream_fn = switchable_stream_fn(
-        std::sync::Arc::clone(&provider_target),
-        std::sync::Arc::new(|_model: &Model| eukhe_core::models::ResolvedRequestAuth {
-            ok: true,
-            ..Default::default()
-        }),
-    );
-    // The faux path shares the session-manager wiring (persist / --no-session
-    // / --resume / --continue) with the real provider path so binary-level
-    // tests can verify persistence without the network.
-    let engine = eukhe_core::session_engine::engine::create_session(
-        eukhe_core::session_engine::engine::SessionEngineConfig {
-            // Faux verification harness: the classic conversation (its
-            // scripts assert carried context; no compactor model offline).
-            memory: None,
-            cron_store: None,
-            // Faux verification harness: no product telemetry.
-            semantic_edges: None,
-            steering_mode: None,
-            follow_up_mode: None,
-            telemetry: None,
-            cwd: config.cwd.clone(),
-            agent_dir: config.agent_dir.clone(),
-            mcp_manager: None,
-            model: Some(agent_model),
-            thinking_level: Some(resolve_thinking_level(config, &model)),
-            stream_fn: Some(stream_fn),
-            tools: builtin_tools(&config.cwd),
-            custom_system_prompt: config.system_prompt.clone(),
-            prompt_guidelines: config.append_system_prompt.clone(),
-            generic_mcp_servers: vec![],
-            allow_recursion: None,
-            session_manager,
-            extra_host_handlers: None,
-            conversation_log_path: None,
-            additional_skill_paths: vec![],
-            additional_prompt_paths: vec![],
-            extra_builtin_skill_overrides: vec![],
-            rlm_subagent_host: None,
-            rlm_depth: None,
-            model_info: Some(model.clone()),
-            // The faux engine is a Rust-only verification harness, not a
-            // product surface: no background kernel boot in tests.
-            prewarm_ipython_kernel: None,
-            on_background_work_settled: None,
-            queued_goal_context_purge: None,
-            queued_steering_probe: None,
-            image_model_router: None,
-        },
+    // The CLI autonomous flags enable the run on the main conversation; a
+    // run without flags keeps the session's state (`/autonomous` rewrites
+    // it live).
+    if let Some(autonomous) = &config.autonomous {
+        set_autonomous(
+            harness,
+            conversation.id(),
+            AutonomousChange::On(autonomous_runtime_config(autonomous)),
+            cx,
+        )
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    }
+    // The CLI `--goal` seed: a fresh conversation starts the goal and
+    // queues its continuation; a resumed or already-seeded one keeps its
+    // persisted goal.
+    if let Some(goal) = &config.initial_goal {
+        seed_initial_goal(
+            harness,
+            conversation.id(),
+            &goal.objective,
+            goal.token_budget.map(u64::from),
+            cx,
+        )
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+        idle(conversation, cx).await?;
+    }
+    let resources = &session.deps().resources;
+    for (prompt, images) in prompts(options) {
+        // TS `_finishSubmissionNormalization` order: skill commands expand
+        // first (`/skill:<name>` into its `<skill>` block), prompt
+        // templates second.
+        let (prompt, _) = eukhe_core::skills::expand_skill_command(prompt, &resources.skills);
+        let prompt = eukhe_core::skills::expand_prompt_template(&prompt, &resources.prompts);
+        // Session commands never reach the model loop.
+        if let Some(command) = classify_session_command(&prompt) {
+            let outcome = execute_session_command(session, conversation, &command, cx).await;
+            if let Some(error) = outcome.error {
+                return Ok(Some(error));
+            }
+        } else {
+            let submission = conversation
+                .submit(
+                    InputSubmissionDraft {
+                        request_id: None,
+                        content: user_content(&prompt, images),
+                        when_busy: None,
+                    },
+                    cx,
+                )
+                .await
+                .map_err(|error| format!("{error:#}"))?;
+            submission
+                .wait(cx)
+                .await
+                .map_err(|error| format!("{error:#}"))?;
+        }
+        // Continuations (goal, autonomous), queued input, and compaction
+        // run before the next prompt.
+        idle(conversation, cx).await?;
+    }
+    Ok(None)
+}
+
+async fn idle(conversation: &Conversation, cx: &Context) -> Result<(), String> {
+    conversation
+        .wait_for_idle(cx)
+        .await
+        .map_err(|error| format!("{error:#}"))
+}
+
+/// The json stream's leading identity line (the TS session header shape and
+/// field order: `type`, `version`, `id`, `timestamp`, `cwd`,
+/// `parentSession?`, `rlmDepth`).
+fn session_header(opened: &HeadlessSession) -> serde_json::Value {
+    header_for(
+        &opened.session_id,
+        &opened.cwd,
+        opened.parent_session.as_deref(),
     )
-    .await
-    .map_err(|error| format!("{error:#}"))?;
-    Ok(HeadlessEngine {
-        engine,
-        model,
-        api_key: None,
-        provider_target,
-    })
+}
+
+fn header_for(
+    session_id: &str,
+    cwd: &std::path::Path,
+    parent_session: Option<&std::path::Path>,
+) -> serde_json::Value {
+    let mut header = serde_json::Map::new();
+    header.insert("type".into(), "session".into());
+    header.insert("version".into(), 3.into());
+    header.insert("id".into(), session_id.into());
+    header.insert("timestamp".into(), crate::util_time::now_iso8601().into());
+    header.insert("cwd".into(), cwd.display().to_string().into());
+    if let Some(parent) = parent_session {
+        header.insert("parentSession".into(), parent.display().to_string().into());
+    }
+    header.insert("rlmDepth".into(), 0.into());
+    serde_json::Value::Object(header)
+}
+
+/// The json mode's event stream: the main conversation's durable events in
+/// today's wire shapes (the daemon worker's translator), one line each.
+struct JsonEvents {
+    stream: AgentEventStream,
+    translator: Arc<Mutex<EventTranslator>>,
+}
+
+impl JsonEvents {
+    async fn start(
+        session: &EukheSession,
+        conversation: &Conversation,
+        cx: &Context,
+    ) -> Result<Self, String> {
+        let stream = watch_events(session.harness(), conversation.id(), cx)
+            .await
+            .map_err(|error| format!("{error:#}"))?;
+        let translator = Arc::new(Mutex::new(EventTranslator::new(
+            stream.snapshot(),
+            CoalesceMode::Immediate,
+        )));
+        let listener_translator = Arc::clone(&translator);
+        stream
+            .start(Arc::new(move |batch, _cx| {
+                let frames = listener_translator
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .translate_batch(&batch);
+                for frame in frames {
+                    println!("{frame}");
+                }
+                futures::future::ready(Ok(())).boxed()
+            }))
+            .map_err(|error| format!("{error:#}"))?;
+        Ok(Self { stream, translator })
+    }
+
+    /// Let every committed batch reach the listener, print the translator's
+    /// parked frame, and stop.
+    async fn finish(self) {
+        self.stream.delivered().await;
+        self.stream.stop().await;
+        let parked = self
+            .translator
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .flush();
+        if let Some(frame) = parked {
+            println!("{frame}");
+        }
+    }
 }
 
 #[cfg(test)]
