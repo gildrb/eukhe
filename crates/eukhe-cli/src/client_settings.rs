@@ -174,6 +174,21 @@ impl ClientSettings for CliClientSettings {
     fn image_model(&self) -> Option<String> {
         self.manager().get_image_model()
     }
+
+    fn memory_model(&self) -> Option<String> {
+        self.manager()
+            .global_settings()
+            .memory
+            .as_ref()
+            .and_then(|memory| memory.model.as_deref())
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(str::to_string)
+    }
+
+    fn set_memory_model(&self, provider: &str, model_id: &str) -> Result<()> {
+        self.manager().set_memory_model(provider, model_id)
+    }
     setting!(
         enable_skill_commands,
         set_enable_skill_commands,
