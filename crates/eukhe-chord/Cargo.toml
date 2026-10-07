@@ -1,0 +1,30 @@
+[package]
+name = "eukhe-chord"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Rust port of @earendil-works/chord: contexts, JSON deltas, replicated state, services, facets."
+
+[dependencies]
+futures.workspace = true
+# JsonObject storage: insertion-ordered map with order-preserving removal and
+# positional insertion, which JS own-property order needs (Apache-2.0 OR MIT;
+# already in the lock through serde_json's preserve_order).
+indexmap = "2.2"
+# ECMAScript Number::toString digits (shortest, ties to even) for
+# JSON.stringify-exact number output (Apache-2.0 OR BSL-1.0).
+ryu-js = "0.2"
+serde.workspace = true
+# float_roundtrip: JSON.parse rounds every decimal to the nearest double;
+# serde_json's default float parser is best-effort and can be one ULP off.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+# Uncaught failures (TS rethrows them from a microtask) are logged at error
+# level; already a workspace dependency (MIT).
+tracing.workspace = true
+
+[lints]
+workspace = true

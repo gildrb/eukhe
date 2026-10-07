@@ -3,7 +3,10 @@ resolver = "2"
 members = [
     "crates/eukhe-telemetry",
     "crates/eukhe-types",
+    "crates/eukhe-chord",
     "crates/eukhe-ai",
+    "crates/eukhe-pi-ai",
+    "crates/eukhe-durable",
     "crates/eukhe-models",
     "crates/eukhe-agent",
     "crates/eukhe-core",
@@ -42,6 +45,9 @@ tracing = { version = "0.1", features = ["attributes"] }
 eukhe-telemetry = { path = "crates/eukhe-telemetry" }
 eukhe-types = { path = "crates/eukhe-types" }
 eukhe-ai = { path = "crates/eukhe-ai" }
+eukhe-chord = { path = "crates/eukhe-chord" }
+eukhe-pi-ai = { path = "crates/eukhe-pi-ai" }
+eukhe-durable = { path = "crates/eukhe-durable" }
 eukhe-agent = { path = "crates/eukhe-agent" }
 thiserror = "2"
 futures = "0.3"
