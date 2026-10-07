@@ -1,0 +1,31 @@
+//! Ports of the `openai-completions` TS tests, one module per TS test file.
+
+mod azure_openai_completions;
+mod baseten_models;
+mod cache_breakpoint_marks;
+mod cache_control_format;
+mod empty_tools;
+mod fetch_option;
+mod fireworks_models;
+mod opencode_provider_headers;
+mod openrouter_cache_control_models;
+mod openrouter_cache_write_repro;
+mod openrouter_reasoning_options;
+mod prompt_cache;
+mod provider_stream_event;
+mod qwen_token_plan_models;
+mod raw_stop_reason;
+mod reasoning_details;
+mod response_model;
+mod retry;
+mod sampling_options;
+mod service_tier;
+mod stream_failure;
+mod support;
+mod telemetry_options;
+mod thinking_as_text;
+mod thinking_token_budget;
+mod tool_choice;
+mod tool_choice_2;
+mod tool_result_images;
+mod vllm_priority;

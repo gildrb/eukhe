@@ -16,6 +16,10 @@ libc = "0.2"
 # The incident classifier's log-message patterns are the TS regexes
 # (src/cli/incident.ts); the `regex` crate keeps their semantics 1:1.
 regex = "1"
+# pi_ai: ordered string maps (headers, env, thinking-level maps, prompt
+# sections) keep JS object insertion order; the same crate backs
+# serde_json's `preserve_order` Map.
+indexmap = { version = "2", features = ["serde"] }
 
 [dev-dependencies]
 tempfile = "3"

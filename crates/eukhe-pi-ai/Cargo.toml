@@ -1,0 +1,81 @@
+[package]
+name = "eukhe-pi-ai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Rust port of @earendil-works/pi-ai v1.0.4: models, providers, streaming, transcripts."
+
+[dependencies]
+eukhe-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+# AbortSignal / AbortController for cancellation (auth, OAuth flows).
+eukhe-chord.workspace = true
+# HTTP client: the TS `fetch` (OAuth endpoints, provider catalogs); rustls only.
+# `stream`: streamed SSE response bodies (`bytes_stream`) and streamed mock bodies.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+# WebSocket transport of openai-codex-responses (TS global `WebSocket`); same version and
+# rustls feature set the old eukhe-ai port resolves.
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+# zstd request-body compression of the Codex SSE transport (TS `zlib.zstdCompressSync` at
+# level 3); binds the same libzstd Node uses. License: MIT (zstd-sys/zstd-safe MIT OR Apache-2.0).
+zstd = { version = "0.13", default-features = false }
+# Response body chunks of reqwest's `bytes_stream` (SSE parsing).
+bytes = "1"
+# WHATWG-style URL parsing and query encoding for OAuth URLs (TS `URL`/`URLSearchParams`).
+url = "2"
+# PKCE S256 challenge (TS `crypto.subtle.digest("SHA-256")`).
+sha2 = "0.10"
+# base64url for PKCE and JWT payload decoding (TS `btoa`/`atob`).
+base64 = "0.22"
+# OAuth state/verifier randomness (TS `crypto.getRandomValues` / `randomBytes`).
+getrandom = "0.3"
+# Hex OAuth state for OpenAI Codex (TS `randomBytes(16).toString("hex")`).
+hex = "0.4"
+# Random callback paths / states (TS `crypto.randomUUID()`).
+uuid = { version = "1", features = ["v4"] }
+# Kernel release for the pi user agent (Node `os.release()`), via safe `uname`.
+rustix = { version = "1", features = ["system"] }
+# Provider error classification patterns (retry.ts, overflow.ts): the TS regexes.
+regex = "1"
+# `Math.random()` jitter of the provider retry backoff (provider-retry.ts).
+rand = "0.9"
+# ECMAScript `RegExp` with the `u` flag for TypeBox `pattern`/`patternProperties`/`format`
+# checks in utils/validation (Rust `regex` lacks lookaround and ECMAScript syntax).
+regress = "0.12"
+# `String.prototype.normalize("NFC")` for TypeBox's `idn-email`/`idn-hostname` formats.
+unicode-normalization = "0.1"
+# RS256 signing of the Google service-account JWT assertion (google-auth-library's `gtoken`
+# flow for Vertex AI ADC). Already in the tree via rustls. License: Apache-2.0 AND ISC.
+ring = "0.17"
+# HMAC-SHA256 of AWS Signature Version 4 (bedrock-converse-stream; the AWS SDK's
+# `@smithy/signature-v4`). License: MIT OR Apache-2.0.
+hmac = "0.12"
+# SHA-1 of the AWS SSO token cache file name (the AWS SDK's `getSSOTokenFilepath`).
+# License: MIT OR Apache-2.0.
+sha1 = "0.10"
+# CRC-32 checksums of the AWS `vnd.amazon.eventstream` frames (Bedrock responses).
+# License: MIT OR Apache-2.0.
+crc32fast = "1"
+# eukhe addition: the `provider stream failure` log line of `utils::stream_failure`
+# (the incident classifier reads it). License: MIT.
+tracing.workspace = true
+
+[dev-dependencies]
+# Paused tokio time for the device-code polling tests (TS fake timers).
+tokio = { workspace = true, features = ["test-util"] }
+# Temporary auth files for the CLI tests.
+tempfile = "3"
+# Mock HTTP responses for the `fetch` option in provider tests (`http::Response` → `reqwest::Response`).
+http = "1"
+# Differential tests of the eukhe faux-script format: the old eukhe-ai faux provider is the
+# reference the scripted provider must match (eukhe-ai does not depend on this crate).
+eukhe-ai.workspace = true
+
+[lints]
+workspace = true
