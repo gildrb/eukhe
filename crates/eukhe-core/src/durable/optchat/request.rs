@@ -94,7 +94,7 @@ pub(super) async fn transform(
 
 /// Whether `conversation` is a root conversation of the session (no task
 /// owns it): only those start from the view and are logged.
-pub(super) async fn is_root_conversation(
+pub(crate) async fn is_root_conversation(
     harness: &Harness,
     conversation: ConversationId,
     cx: &Context,

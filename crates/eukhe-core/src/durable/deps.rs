@@ -30,6 +30,10 @@ pub struct ParentLink {
     pub task_id: Option<String>,
     /// Human-readable parent name for the child prompt doctrine.
     pub agent_name: Option<String>,
+    /// The parent's in-flight model request the spawn anchored to (TS
+    /// `spawnedByRequestId`): the child's semantic-edge ledger registers
+    /// with it.
+    pub spawned_by_request_id: Option<String>,
 }
 
 /// Where a session sits in the RLM tree.
@@ -131,6 +135,12 @@ impl From<ModelRef> for ModelRequest {
 /// Receives [`TurnWait`] changes synchronously (the daemon shows them).
 pub type TurnWaitSink = Arc<dyn Fn(TurnWait) + Send + Sync>;
 
+/// Receives every text delta a compaction summary streams while it
+/// generates (the daemon's live `compaction_summary_delta` seam; the old
+/// engine's `set_compaction_summary_sink`). Fire-and-forget: emissions
+/// never gate the compaction.
+pub type SummaryDeltaSink = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// What an eukhe session opens with.
 #[derive(Clone)]
 pub struct SessionConfig {
@@ -160,6 +170,9 @@ pub struct SessionConfig {
     pub now: Option<Clock>,
     /// Turn-wait notifications (`OptChat` root-turn lease).
     pub turn_wait: Option<TurnWaitSink>,
+    /// Live compaction-summary deltas (the daemon's TUI block); `None`
+    /// keeps the one-shot completion.
+    pub summary_delta: Option<SummaryDeltaSink>,
     /// The embedding's kernel cron wiring (the daemon worker's store).
     pub cron: Option<KernelCronWiring>,
     /// The embedding's extra kernel host handlers (daemon message/observe
@@ -186,6 +199,7 @@ impl SessionConfig {
             model: None,
             thinking: None,
             memory: None,
+            summary_delta: None,
             children: None,
             prompt: PromptConfig::default(),
             models: None,
@@ -322,6 +336,8 @@ pub struct HostDeps {
     pub memory: Option<Memory>,
     pub children: Option<Arc<dyn RlmSubagentHost>>,
     pub prompt: PromptConfig,
+    /// Live compaction-summary deltas (the daemon's TUI block).
+    pub summary_delta: Option<SummaryDeltaSink>,
     /// Resources loaded at open (skills, context files, `SYSTEM.md`, prompt
     /// templates).
     pub resources: Arc<LoadedResources>,
@@ -337,6 +353,15 @@ pub struct HostDeps {
     pub harness: HarnessCell,
     pub host_requests: HostRequestRegistry,
     services: Mutex<Vec<ServiceStart>>,
+    /// The provider runtime (failover, quota park, image routing, request
+    /// timing), set when the session's own model collection is wrapped at
+    /// open; `None` for sessions that share a collection (faux scripts).
+    pub provider_runtime: OnceLock<Arc<super::models::provider::ProviderRuntime>>,
+    /// The session's semantic-edge recorder (the ACP request-id ledger):
+    /// mints the id every model request carries on the wire, and anchors
+    /// child spawns and returns. Always built by `open_session` (a memory
+    /// storage keeps it in memory-only mode).
+    pub semantic_edges: Arc<super::observe::semantic_edges::SemanticEdgeRecorder>,
     /// The `eukhe.rlm` kernel pool, set when the extension installs (the
     /// daemon's out-of-band kernel lanes, [`super::rlm::kernel_bash_activity`]).
     pub(crate) rlm_kernels: OnceLock<Weak<super::rlm::KernelPool>>,
@@ -351,6 +376,7 @@ pub(crate) struct ResolvedServices {
     pub generic_mcp_servers: Vec<String>,
     pub mcp: Arc<Mutex<crate::mcp::McpManager>>,
     pub python_skills: Vec<KernelPythonSkill>,
+    pub semantic_edges: Arc<super::observe::semantic_edges::SemanticEdgeRecorder>,
 }
 
 impl HostDeps {
@@ -362,6 +388,7 @@ impl HostDeps {
             storage_dir: services.storage_dir,
             role: config.role.clone(),
             settings: services.settings,
+            summary_delta: config.summary_delta.clone(),
             models: services.models,
             memory: config.memory.clone(),
             children: config.children.clone(),
@@ -376,7 +403,9 @@ impl HostDeps {
             harness: HarnessCell::default(),
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),
+            provider_runtime: std::sync::OnceLock::new(),
             rlm_kernels: OnceLock::new(),
+            semantic_edges: services.semantic_edges,
         }
     }
 

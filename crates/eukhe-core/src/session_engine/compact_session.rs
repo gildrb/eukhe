@@ -20,10 +20,9 @@ use crate::session::manager::SessionManager;
 // `super::compaction_utils::` path literals resolving unchanged, and the
 // re-exports keep the facade and `branch_summarization` caller paths stable.
 mod summarization;
-pub(crate) use summarization::summarizer_request_tokens;
-use summarization::{
-    estimate_summary_request_tokens, history_summary_completion_budget,
-    turn_prefix_summary_completion_budget,
+use summarization::turn_prefix_summary_completion_budget;
+pub(crate) use summarization::{
+    estimate_summary_request_tokens, history_summary_completion_budget, summarizer_request_tokens,
 };
 
 // The recent-state-anchor selection (the newest retained assistant text

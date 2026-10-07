@@ -170,7 +170,7 @@ async fn run_pending(
 
 /// The audit row, the outcome row, and (when an edit applied) the
 /// model-facing notice row of `source`, in the old write order.
-fn outcome_drafts(
+pub(crate) fn outcome_drafts(
     result: &RefinementResult,
     source: RefinementSource,
 ) -> SessionResult<Vec<EntryDraft>> {
@@ -218,7 +218,7 @@ fn notice(message: eukhe_types::session::CustomMessage) -> CustomNotice {
 
 /// Plan, re-read, apply, and persist one refinement of the session's
 /// harness state (`execute_refinement_with_rows` without the session rows).
-async fn refine(
+pub(crate) async fn refine(
     deps: &HostDeps,
     conversation: &Conversation,
     request: RefineRequest,
@@ -336,7 +336,7 @@ const LOCAL_REFINEMENT_NEEDS_DIR: &str =
 
 /// The refinements recorded in this conversation (its audit rows), oldest
 /// first.
-async fn session_refinement_history(
+pub(crate) async fn session_refinement_history(
     conversation: &Conversation,
     cx: &Context,
 ) -> anyhow::Result<Vec<RefinementResult>> {
@@ -370,7 +370,9 @@ async fn session_refinement_history(
 
 /// The conversation's model context in the session message shape the
 /// refinement planner serializes (system markers carry no content).
-fn transcript(messages: &[Message]) -> anyhow::Result<Vec<eukhe_types::session::AgentMessage>> {
+pub(crate) fn transcript(
+    messages: &[Message],
+) -> anyhow::Result<Vec<eukhe_types::session::AgentMessage>> {
     messages
         .iter()
         .filter(|message| !matches!(message, Message::System(_)))
@@ -383,7 +385,7 @@ fn transcript(messages: &[Message]) -> anyhow::Result<Vec<eukhe_types::session::
 
 /// The planner's model description: it reads the context window and output
 /// budget; the request itself goes through the session's [`Models`].
-fn legacy_model(model: &eukhe_types::pi_ai::Model) -> eukhe_types::ai::Model {
+pub(crate) fn legacy_model(model: &eukhe_types::pi_ai::Model) -> eukhe_types::ai::Model {
     let cost = eukhe_types::ai::ModelCost {
         input: model.cost.input.into(),
         output: model.cost.output.into(),
@@ -417,7 +419,11 @@ fn legacy_model(model: &eukhe_types::pi_ai::Model) -> eukhe_types::ai::Model {
 
 /// The planner's model call over the session's models: the request model
 /// with the planner's output budget, one user prompt, and the reply's text.
-fn refiner(deps: &HostDeps, model: eukhe_types::pi_ai::Model, model_ref: ModelRef) -> RefinerFn {
+pub(crate) fn refiner(
+    deps: &HostDeps,
+    model: eukhe_types::pi_ai::Model,
+    model_ref: ModelRef,
+) -> RefinerFn {
     let models = deps.models.clone();
     Box::new(move |request, system_prompt, prompt| {
         Box::pin(async move {

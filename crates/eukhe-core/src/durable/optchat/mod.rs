@@ -17,7 +17,7 @@
 mod docs;
 mod lines;
 mod logger;
-mod request;
+pub(crate) mod request;
 mod tools;
 mod turn;
 

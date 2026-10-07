@@ -26,6 +26,9 @@ pub(crate) const TOO_SHORT_TO_COMPACT: &str =
     "Session is too short to compact -- try again once it grows";
 /// The skip of a context that already starts at its compaction summary.
 pub(crate) const ALREADY_COMPACTED: &str = "Already compacted";
+/// The skip of a chat-memory root (the old `CompactSkip::ChatMemory`).
+pub(crate) const CHAT_MEMORY_SKIP: &str =
+    "Nothing to compact: the chat memory keeps this chat, and every turn starts fresh from its view";
 /// The error of an aborted manual compaction (TS `compact()` abort arm).
 pub(crate) const COMPACTION_CANCELLED: &str = "Compaction cancelled";
 
@@ -123,6 +126,15 @@ pub(crate) async fn run_manual_compaction(
         .context(cx)
         .await
         .map_err(|error| ManualCompactionError::session(&error))?;
+    // A chat-memory root between calls: its next turn starts fresh from
+    // the view, so there is no carried context to compact (the old
+    // engine's `CompactSkip::ChatMemory`).
+    if eukhe_core::durable::compaction::chat_memory_root(deps, conversation.id(), cx)
+        .await
+        .unwrap_or(false)
+    {
+        return Err(ManualCompactionError::Skipped(CHAT_MEMORY_SKIP));
+    }
     if already_compacted(&view) {
         return Err(ManualCompactionError::Skipped(ALREADY_COMPACTED));
     }

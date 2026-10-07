@@ -12,7 +12,7 @@ mod activity;
 mod boundary;
 mod host;
 mod kernels;
-mod refine;
+pub(crate) mod refine;
 mod tool;
 
 #[cfg(test)]
@@ -34,8 +34,8 @@ use super::entries::custom_entry_draft;
 use super::{HostDeps, OpenedSession, ServiceStop};
 
 pub use self::activity::{
-    kernel_bash_activity, kernel_factory_activity, BashActivityAction, BashActivityRequest,
-    KernelActivityError,
+    kernel_bash_activity, kernel_factory_activity, release_settled_kernel, BashActivityAction,
+    BashActivityRequest, KernelActivityError,
 };
 pub use self::boundary::{BoundaryState, PendingRefine, BOUNDARY_DOC};
 pub use self::refine::{refine_now, RefineRequest};

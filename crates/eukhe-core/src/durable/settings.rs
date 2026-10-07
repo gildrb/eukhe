@@ -152,7 +152,12 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
             keep_recent_tokens: compaction
                 .and_then(|compaction| compaction.keep_recent_tokens)
                 .map(u64_to_f64),
-            background_tokens: None,
+            // The old engine had no background compaction: its threshold
+            // arm fired at turn boundaries only, and the durable overflow
+            // arm is the safety net. `0` keeps that behavior (the durable
+            // default would start mid-run compactions 32768 tokens below
+            // the blocking threshold).
+            background_tokens: Some(0.0),
         }),
         progress: None,
         tool_execution: None,
@@ -254,7 +259,7 @@ mod tests {
                 enabled: false,
                 reserve_tokens: 1000.0,
                 keep_recent_tokens: 2000.0,
-                background_tokens: 32768.0,
+                background_tokens: 0.0,
             }
         );
         assert_eq!(resolved.steering_mode, QueueMode::OneAtATime);
