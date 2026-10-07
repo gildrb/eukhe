@@ -400,6 +400,90 @@ mod tests {
         );
     }
 
+    /// A custom model on a loopback OpenAI-compatible server (llama.cpp,
+    /// vLLM, SGLang) must not receive `store`: those servers reject unknown
+    /// fields with a 400 ("Unsupported chat request field: store"), and
+    /// omitting it is correct for real OpenAI too, where the
+    /// chat-completions default is already false.
+    #[test]
+    fn loopback_custom_models_omit_the_store_field() {
+        use eukhe_types::JsNumber;
+
+        fn custom_model(base_url: &str) -> Model {
+            Model {
+                id: "qwen3.8-27b".into(),
+                name: "qwen3.8-27b".into(),
+                api: "openai-completions".into(),
+                provider: "elpis-fast".into(),
+                base_url: base_url.into(),
+                reasoning: true,
+                thinking_level_map: None,
+                input: vec![crate::types::ModelInput::Text],
+                cost: crate::types::ModelCost {
+                    input: JsNumber::from(0.0),
+                    output: JsNumber::from(0.0),
+                    cache_read: JsNumber::from(0.0),
+                    cache_write: JsNumber::from(0.0),
+                },
+                context_window: 262_144,
+                max_tokens: 8192,
+                featured: None,
+                headers: None,
+                compat: None,
+            }
+        }
+
+        let context = Context {
+            system_prompt: None,
+            messages: vec![Message::User(UserMessage {
+                content: UserMessageContent::Text("Hi".into()),
+                timestamp: 1,
+                rest: Map::default(),
+            })],
+            tools: None,
+        };
+        let options = OpenAICompletionsOptions::from_base(StreamOptions {
+            api_key: Some("test".into()),
+            ..Default::default()
+        });
+
+        for base_url in [
+            "http://127.0.0.1:18020/v1",
+            "http://localhost:8080/v1",
+            "http://[::1]:8080/v1",
+        ] {
+            let model = custom_model(base_url);
+            let compat = crate::providers::openai_completions::get_compat(&model);
+            assert!(!compat.supports_store, "{base_url} must disable store");
+            let params = build_params(
+                &model,
+                &context,
+                Some(&options),
+                &compat,
+                CacheRetention::None,
+                None,
+            );
+            assert!(
+                params.get("store").is_none(),
+                "{base_url} must not receive a store field: {params}"
+            );
+        }
+
+        // A non-loopback custom endpoint keeps the detected default.
+        let model = custom_model("http://10.0.0.7:18020/v1");
+        let compat = crate::providers::openai_completions::get_compat(&model);
+        assert!(compat.supports_store);
+        let params = build_params(
+            &model,
+            &context,
+            Some(&options),
+            &compat,
+            CacheRetention::None,
+            None,
+        );
+        assert_eq!(params.get("store"), Some(&json!(false)));
+    }
+
     /// Assemble params for a compiled catalog model with a reasoning level
     /// requested. Mirrors `streamSimpleOpenAICompletions`: the requested
     /// level clamps through the model's thinking-level map, the effort

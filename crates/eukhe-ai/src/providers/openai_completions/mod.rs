@@ -131,6 +131,18 @@ pub fn detect_compat(model: &Model) -> ResolvedCompat {
     let is_prime_inference =
         provider == "prime-inference" || base_url.contains("api.pinference.ai");
 
+    // Local OpenAI-compatible servers (llama.cpp, vLLM, SGLang) reject unknown
+    // fields such as `store` with a 400. Omitting it is correct for real
+    // OpenAI too, where the chat-completions default is already false.
+    let is_loopback = [
+        "//localhost",
+        "//127.0.0.1",
+        "//[::1]",
+        "//[0:0:0:0:0:0:0:1]",
+    ]
+    .iter()
+    .any(|host| base_url.contains(host));
+
     let is_non_standard = provider == "cerebras"
         || base_url.contains("cerebras.ai")
         || provider == "xai"
@@ -161,7 +173,7 @@ pub fn detect_compat(model: &Model) -> ResolvedCompat {
         };
 
     ResolvedCompat {
-        supports_store: !is_non_standard,
+        supports_store: !is_non_standard && !is_loopback,
         supports_developer_role: !is_non_standard,
         supports_reasoning_effort: !is_grok && !is_zai && !is_moonshot && !is_cloudflare_ai_gateway,
         supports_usage_in_streaming: true,
