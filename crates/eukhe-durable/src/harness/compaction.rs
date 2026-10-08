@@ -37,6 +37,7 @@ use crate::harness::live::run::{timestamp, CompactionInput};
 use crate::harness::live::{compaction_status, remove_compaction_status, LiveRetry, LIVE_DOC};
 use crate::harness::provider::ensure_provider_session_id;
 use crate::harness::submissions::admit_submission;
+use crate::harness::types::CompactionSnapshot;
 use crate::harness::types::{
     CompactionDecision, CompactionHooks, CompactionRequest, CompactionResult,
     ConversationStreamOptions, ModelRef, SubmissionDraft, WriteSubmissionDraft,
@@ -44,7 +45,6 @@ use crate::harness::types::{
 use crate::harness::usage::{record_usage, UsageBucket};
 use crate::session::{SessionError, SessionResult, Tx};
 use crate::tasks::{define_task, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime};
-use crate::harness::types::CompactionSnapshot;
 use crate::types::{EntryDraft, EntryHead, EntryId, TaskOutcome, TaskOutcomeError};
 
 /// The pinned summarization request.
@@ -497,10 +497,12 @@ async fn place_summary(
     let conversation_id = runtime.conversation_id();
     remove_compaction_status(live, task_id)?;
     let text = format!("{SUMMARY_PREFIX}{summary}{SUMMARY_SUFFIX}");
-    let snapshot = extra
-        .as_ref()
-        .map(|snapshot| (Some(snapshot.harness_digest.clone()), Some(snapshot.harness_state_fingerprint.clone())))
-        .unwrap_or((None, None));
+    let snapshot = extra.as_ref().map_or((None, None), |snapshot| {
+        (
+            Some(snapshot.harness_digest.clone()),
+            Some(snapshot.harness_state_fingerprint.clone()),
+        )
+    });
     let entry = EntryDraft {
         kind: COMPACTION_ENTRY.kind().to_owned(),
         model: Some(vec![Message::User(UserMessage {

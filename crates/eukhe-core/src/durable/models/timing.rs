@@ -722,11 +722,7 @@ mod tests {
             "entries: {entries:?}"
         );
         let mut summary = strip_measured(&entries[1], &["totalMs"]);
-        summary
-            .as_object_mut()
-            .unwrap()
-            .remove("phases")
-            .unwrap();
+        summary.as_object_mut().unwrap().remove("phases").unwrap();
         assert_eq!(
             strip_reserved(summary),
             json!({

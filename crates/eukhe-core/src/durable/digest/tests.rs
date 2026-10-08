@@ -369,7 +369,12 @@ async fn a_reopen_redelivers_only_when_the_state_changed() {
     submit(&session, "second").await;
     assert_eq!(digest_entries(&entries(&session).await).len(), 1);
     let seen = lock(&requests).clone();
-    assert_eq!(frames(&seen[1]).len(), 1, "frames: {frames:?}", frames = frames(&seen[1]));
+    assert_eq!(
+        frames(&seen[1]).len(),
+        1,
+        "frames: {frames:?}",
+        frames = frames(&seen[1])
+    );
 
     // The learned state changes: the next request delivers a fresh digest,
     // and only the newest reaches the model.
@@ -451,10 +456,7 @@ async fn a_compaction_snapshot_of_the_current_state_suppresses_redelivery() {
     // frame (the old engine's `harnessDigest` on the summary).
     let all = entries(&session).await;
     let answer = all.last().expect("the answer entry");
-    let summary = format!(
-        "{}[compaction] early work",
-        digest_block(&delivered_digest)
-    );
+    let summary = format!("{}[compaction] early work", digest_block(&delivered_digest));
     let fingerprint = delivered_fingerprint(&entries(&session).await);
     compaction_head(&session, EntryHead::Entry(answer.id), &summary, fingerprint)
         .await
@@ -472,7 +474,12 @@ async fn a_compaction_snapshot_of_the_current_state_suppresses_redelivery() {
     );
     let seen = lock(&requests).clone();
     let delivered = frames(&seen[1]);
-    assert_eq!(delivered.len(), 1, "request frames {delivered:?}: {:?}", seen[1].len());
+    assert_eq!(
+        delivered.len(),
+        1,
+        "request frames {delivered:?}: {:?}",
+        seen[1].len()
+    );
     assert!(
         delivered[0].contains("Quote file paths verbatim."),
         "{}",
@@ -500,10 +507,7 @@ async fn a_stale_compaction_snapshot_yields_its_digest_block() {
     };
     let all = entries(&session).await;
     let answer = all.last().expect("the answer entry");
-    let summary = format!(
-        "{}[compaction] early work",
-        digest_block(&delivered_digest)
-    );
+    let summary = format!("{}[compaction] early work", digest_block(&delivered_digest));
     let fingerprint = delivered_fingerprint(&entries(&session).await);
     compaction_head(&session, EntryHead::Entry(answer.id), &summary, fingerprint)
         .await

@@ -153,9 +153,23 @@ async fn open_submit_answers_and_commits_entries() {
     assert!(session.deps().harness.get().is_some());
     ask(&session, "hello").await;
     let entries = entries(&session).await;
+    // The delivered harness digest row persists between the prompt and the
+    // answer (the old engine's `[harness-digest]` row).
+    let digest_rows = transcript(&entries)
+        .into_iter()
+        .filter(|(kind, text)| {
+            kind == "eukhe.custom"
+                && text.as_deref().is_some_and(|text| text.starts_with("[harness-digest]"))
+        })
+        .count();
+    assert_eq!(digest_rows, 1);
     let messages: Vec<_> = transcript(&entries)
         .into_iter()
-        .filter(|(kind, _)| kind != "pi.system")
+        .filter(|(kind, text)| {
+            kind != "pi.system"
+                && !(kind == "eukhe.custom"
+                    && text.as_deref().is_some_and(|text| text.starts_with("[harness-digest]")))
+        })
         .collect();
     assert_eq!(
         messages,
@@ -200,10 +214,25 @@ async fn reopening_the_storage_keeps_the_root_and_its_entries() {
     ask(&session, "second").await;
     let texts: Vec<_> = transcript(&entries(&session).await)
         .into_iter()
-        .filter(|(kind, _)| kind != "pi.system")
+        .filter(|(kind, text)| {
+            kind != "pi.system"
+                && !(kind == "eukhe.custom"
+                    && text.as_deref().is_some_and(|text| text.starts_with("[harness-digest]")))
+        })
         .filter_map(|(_, text)| text)
         .collect();
     assert_eq!(texts, ["first", "first answer", "second", "second answer"]);
+    // The reopen delivered no second digest: the state did not change.
+    assert_eq!(
+        transcript(&entries(&session).await)
+            .into_iter()
+            .filter(|(kind, text)| {
+                kind == "eukhe.custom"
+                    && text.as_deref().is_some_and(|text| text.starts_with("[harness-digest]"))
+            })
+            .count(),
+        1
+    );
     session.close(cx()).await.expect("close");
 }
 
