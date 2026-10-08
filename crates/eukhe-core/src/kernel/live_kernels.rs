@@ -102,18 +102,20 @@ mod tests {
 
     #[tokio::test]
     async fn registry_tracks_and_releases_kernels() {
-        assert_eq!(live_kernel_count(), 0);
+        // Other tests in this process may hold live kernels; the registry
+        // is process-wide, so only the deltas are this test's.
+        let before = live_kernel_count();
         let manager = crate::kernel::ReplKernelManager::new(KernelManagerOptions::default());
         add(&manager.inner);
-        assert_eq!(live_kernel_count(), 1);
+        assert_eq!(live_kernel_count(), before + 1);
         // Removing the same pointer deregisters it.
         remove(&manager.inner);
-        assert_eq!(live_kernel_count(), 0);
+        assert_eq!(live_kernel_count(), before);
         add(&manager.inner);
         drop(manager);
         assert_eq!(
             live_kernel_count(),
-            0,
+            before,
             "weak entry must vanish with the manager"
         );
     }

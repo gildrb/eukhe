@@ -1,20 +1,28 @@
 //! The children registry: the `eukhe.rlm.children` conversation document
 //! (one row per `eukhe.rlm.child` task, keyed by task id), selector
-//! resolution, and child-usage attribution into the parent's `pi.usage`.
+//! resolution, and child-usage attribution into the parent's `pi.usage`
+//! plus the `eukhe.child-usage-attributed` rows that name the spawning
+//! assistant row.
 
-use std::sync::Arc;
-
+use super::host::RlmChildIdentity;
+use crate::durable::observe::rlm_usage::{
+    attributed_aggregate, attribution_draft, entry_assistant_usage, ChildUsageAttributionData,
+    CHILD_USAGE_ATTRIBUTED_KIND,
+};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::harness::usage::{record_usage, UsageBucket};
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
-use eukhe_durable::types::{ConversationId, DocumentReader, DocumentReaderExt, LatestFork, TaskId};
+use eukhe_durable::types::{
+    ConversationId, DocumentReader, DocumentReaderExt, EntryId, EntryQuery, EntryRecord,
+    LatestFork, TaskId,
+};
 use eukhe_types::pi_ai::{IndexMap, Usage, UsageCost};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-use super::host::RlmChildIdentity;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// The `pi.usage` tools-bucket key child spend is attributed under: the
 /// parent's billable totals include every child's spend; the per-child split
@@ -283,8 +291,12 @@ pub(crate) async fn tx_update_row(
 
 /// Attribute the child's spend observed since the last attribution: the
 /// delta between `cumulative` and the row's attributed total lands in the
-/// parent's `pi.usage` (tools bucket, [`CHILD_USAGE_KEY`]) in the same commit
-/// that advances the row, so a rerun never bills twice.
+/// parent's `pi.usage` (tools bucket, [`CHILD_USAGE_KEY`]) and one
+/// `eukhe.child-usage-attributed` entry names the spawning assistant row
+/// with the cumulative aggregate, in the same commit that advances the
+/// row, so a rerun never bills twice. Without an assistant row to fold
+/// (a spawn outside a model turn) the delta still bills, with no row —
+/// the old engine's unregistered-child drop.
 pub(crate) async fn tx_attribute_usage(
     tx: &Tx,
     conversation_id: ConversationId,
@@ -307,8 +319,76 @@ pub(crate) async fn tx_attribute_usage(
     let mut total = attributed;
     eukhe_durable::harness::usage::add_usage(&mut total, &delta);
     row.usage = Some(total);
+    if let Some(target) = tx_attribution_target(tx, conversation_id).await? {
+        let aggregate = attributed_aggregate(&target.aggregate, &delta, target.context_tokens);
+        tx.append_entry(
+            conversation_id,
+            attribution_draft(target.entry_id, &delta, &aggregate)?,
+        )
+        .await?;
+    }
     Ok(())
 }
+
+/// The parent assistant row a child-usage attribution targets.
+struct AttributionTarget {
+    entry_id: EntryId,
+    /// The row's own model-facing context size (`totalTokens`).
+    context_tokens: u64,
+    /// The running cumulative aggregate; the row's own usage before the
+    /// first attribution.
+    aggregate: Usage,
+}
+
+/// Resolve the attribution target of `conversation_id` inside a commit:
+/// the newest assistant entry (the old `_findLastAssistantMessage`), with
+/// the newest aggregate already attributed to it. Attribution entries
+/// newer than the row carry it; `None` when the conversation has no
+/// assistant row.
+async fn tx_attribution_target(
+    tx: &Tx,
+    conversation_id: ConversationId,
+) -> SessionResult<Option<AttributionTarget>> {
+    let mut aggregates: HashMap<EntryId, Usage> = HashMap::new();
+    let mut cursor = None;
+    loop {
+        let page = tx
+            .scan_entries(
+                EntryQuery::new(conversation_id),
+                ATTRIBUTION_SCAN_PAGE,
+                cursor,
+            )
+            .await?;
+        for entry in &page.items {
+            if entry.kind == CHILD_USAGE_ATTRIBUTED_KIND {
+                if let Some(attribution) = attribution_data(entry) {
+                    aggregates
+                        .entry(attribution.target_id)
+                        .or_insert(attribution.aggregate_usage);
+                }
+            } else if let Some(usage) = entry_assistant_usage(entry) {
+                return Ok(Some(AttributionTarget {
+                    entry_id: entry.id,
+                    context_tokens: usage.total_tokens,
+                    aggregate: aggregates.remove(&entry.id).unwrap_or(usage),
+                }));
+            }
+        }
+        if page.next.is_none() {
+            return Ok(None);
+        }
+        cursor = page.next;
+    }
+}
+
+/// The decoded data of one attribution entry; `None` when it does not
+/// decode (a torn row never fails the attribution).
+fn attribution_data(entry: &EntryRecord) -> Option<ChildUsageAttributionData> {
+    from_json(entry.data.as_ref()?).ok()
+}
+
+/// Entries per attribution-target scan page.
+const ATTRIBUTION_SCAN_PAGE: usize = 64;
 
 /// What `current` adds over `previous`; a counter the host reports lower
 /// (a restarted host recounting) adds nothing.

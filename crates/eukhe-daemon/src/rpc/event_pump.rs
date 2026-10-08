@@ -117,4 +117,3 @@ impl EventPump {
         self.goals.abort();
     }
 }
-

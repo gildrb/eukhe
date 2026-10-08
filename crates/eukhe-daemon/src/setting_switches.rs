@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 
 use crate::model_switch::{apply_model, THINKING_LEVELS};
 use crate::protocol::{response_failure, response_success, DaemonResponse};
+use crate::worker::durable_host::suspended::WithdrawnInput;
 use crate::worker::{model_metadata, Worker};
 
 /// The queue-mode wire vocabulary (TS `AgentConnectionQueueMode`).
@@ -539,11 +540,17 @@ impl Worker {
         if let Err(error) = aborted {
             return response_failure(None, COMMAND, &error, None);
         }
-        self.core
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .suspended
-            .extend(withdrawn);
+        if let Err(error) =
+            crate::worker::mutate_withdrawn(&hosted, &self.core, &self.events, move |mut state| {
+                state
+                    .suspended
+                    .extend(withdrawn.iter().map(WithdrawnInput::from));
+                (state, ())
+            })
+            .await
+        {
+            return response_failure(None, COMMAND, &error, None);
+        }
         self.emit_action_update();
         hosted.events_delivered().await;
         response_success(None, COMMAND, None)

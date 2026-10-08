@@ -67,7 +67,12 @@
 //! environment key resolves.
 
 mod compose;
+pub(crate) mod failover;
+pub(crate) mod image_route;
+pub(crate) mod park;
+pub(crate) mod provider;
 mod stores;
+pub(crate) mod timing;
 
 use std::path::Path;
 use std::sync::Arc;

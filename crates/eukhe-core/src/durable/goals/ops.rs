@@ -94,6 +94,7 @@ pub(crate) fn goal_context(
             content: Some(UserContent::Text(text.clone())),
             display: message.display,
             details: message.details,
+            input: false,
         },
         head: None,
         edits: None,

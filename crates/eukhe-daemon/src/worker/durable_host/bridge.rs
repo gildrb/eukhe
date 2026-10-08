@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use eukhe_chord::context::{with_cancel, CancelContext, Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, JsonValue};
+use eukhe_core::durable::ProviderWireEvent;
 use eukhe_durable::harness::{
     watch_events, AgentEvent, AgentEventBatch, AgentEventStream, Harness, InboxItem, InboxState,
     INBOX_DOC,
@@ -60,6 +61,13 @@ pub(crate) struct ShownView {
     pub(crate) translator: EventTranslator,
     /// Queued inputs (steer/follow-up) in inbox order; writes are not shown.
     pub(crate) inbox: Vec<QueuedInput>,
+    /// The queue projection's active action (TS `getSessionActionSnapshot`
+    /// reads the store's first active action): the labeled row of a
+    /// queue-visible delivery the run is working through, at its phase
+    /// (`preparing` at pickup, `committing` once the turn's first row
+    /// landed, `running` at its first assistant frame), cleared when the
+    /// run ends.
+    pub(crate) active: Option<crate::types::SessionActionActive>,
     /// The served goal (`goal_update` payload); `Null` without a goal.
     pub(crate) goal: Value,
 }
@@ -83,7 +91,9 @@ pub(crate) enum RunChange {
     RetryStarted,
     /// The run ended; `error_hold` is the provider error of a run whose
     /// last assistant message failed (the pane's error hold).
-    Ended { error_hold: Option<String> },
+    Ended {
+        error_hold: Option<String>,
+    },
 }
 
 /// Where the bridge emits.
@@ -118,7 +128,8 @@ impl EventBridge {
     }
 
     /// Attach to `conversation_id`'s events, install its view on the core,
-    /// and start the listener, the flush timer, and the goal watch.
+    /// and start the listener, the flush timer, the goal watch, and the
+    /// provider failover relay.
     ///
     /// # Errors
     ///
@@ -126,6 +137,7 @@ impl EventBridge {
     pub(crate) async fn start(
         harness: &Harness,
         conversation_id: ConversationId,
+        provider_events: Option<tokio::sync::broadcast::Receiver<ProviderWireEvent>>,
         sink: BridgeSink,
     ) -> SessionResult<Self> {
         let (cx, cancel) = with_cancel(&BACKGROUND_CONTEXT);
@@ -138,6 +150,7 @@ impl EventBridge {
                 epoch,
                 translator: EventTranslator::new(stream.snapshot(), CoalesceMode::Coalesced),
                 inbox,
+                active: None,
                 goal: Value::Null,
             };
             let busy = view.is_busy();
@@ -154,10 +167,19 @@ impl EventBridge {
             conversation_id,
             sink.clone(),
         ))?;
-        let tasks = vec![
+        let mut tasks = vec![
             tokio::spawn(flush_loop(epoch, sink.clone())),
-            tokio::spawn(goal_loop(harness.clone(), epoch, conversation_id, sink, cx)),
+            tokio::spawn(goal_loop(
+                harness.clone(),
+                epoch,
+                conversation_id,
+                sink.clone(),
+                cx,
+            )),
         ];
+        if let Some(events) = provider_events {
+            tasks.push(tokio::spawn(provider_loop(epoch, events, sink)));
+        }
         Ok(Self {
             stream,
             cancel,
@@ -215,13 +237,34 @@ fn apply_batch(
 ) {
     let changes = {
         let mut core = lock(&sink.core);
-        let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
-            return;
+        let (frames, live_ids) = {
+            let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
+                return;
+            };
+            let frames = view.translator.translate_batch(batch);
+            // An inbox read answers what this batch picked up: the rows
+            // that disappeared. A pickup while a run is live arms the
+            // projection's active action (the strip's Starting row); the
+            // ids no longer queued leave the rider provenance.
+            let live_ids = inbox.map(|inbox| {
+                let picked_up: Vec<QueuedInput> = view
+                    .inbox
+                    .iter()
+                    .filter(|before| !inbox.iter().any(|after| after.id == before.id))
+                    .cloned()
+                    .collect();
+                let ids = inbox.iter().map(|item| item.id).collect::<Vec<_>>();
+                view.active = next_active(view.active.take(), &picked_up, &frames, view.is_busy());
+                view.inbox = inbox;
+                ids
+            });
+            if live_ids.is_none() {
+                view.active = next_active(view.active.take(), &[], &frames, view.is_busy());
+            }
+            (frames, live_ids)
         };
-        view.active = super::queue_view::next_active(view.active.take(), &view.inbox, batch);
-        let frames = view.translator.translate_batch(batch);
-        if let Some(inbox) = inbox {
-            view.inbox = inbox;
+        if let Some(ids) = live_ids {
+            core.injected.retain(|id, _| ids.contains(id));
         }
         let changes = run_changes(&frames);
         for frame in frames {
@@ -233,6 +276,56 @@ fn apply_batch(
     for change in changes {
         (sink.on_run)(change);
     }
+}
+
+/// The active action after one batch (TS #2063's projection, the old turn
+/// runner's phase ladder): a pickup of queue-visible rows while a run is
+/// live arms the action at `preparing` with the delivery's compact label,
+/// the turn's first user row moves it to `committing`, its first
+/// assistant frame to `running`, and a run end clears it (a follow-up may
+/// end one run and start the next in one batch — the live run after the
+/// batch decides). Phases only advance.
+fn next_active(
+    active: Option<crate::types::SessionActionActive>,
+    picked_up: &[QueuedInput],
+    frames: &[Value],
+    run_live: bool,
+) -> Option<crate::types::SessionActionActive> {
+    let run_ended = frames
+        .iter()
+        .any(|frame| frame.get("type").and_then(Value::as_str) == Some("agent_end"));
+    let mut active = if run_ended { None } else { active };
+    if !picked_up.is_empty() && run_live {
+        active = Some(crate::types::SessionActionActive {
+            kind: "turn".to_string(),
+            phase: "preparing".to_string(),
+            label: picked_up
+                .first()
+                .map(|input| super::super::compact_action_label(&input.text)),
+        });
+    }
+    let phase_rank = |phase: &str| match phase {
+        "running" => 2,
+        "committing" => 1,
+        _ => 0,
+    };
+    if let Some(active) = active.as_mut() {
+        for frame in frames {
+            let role = frame
+                .get("message")
+                .and_then(|message| message.get("role"))
+                .and_then(Value::as_str);
+            let phase = match role {
+                Some("user") => "committing",
+                Some("assistant") => "running",
+                _ => continue,
+            };
+            if phase_rank(phase) > phase_rank(&active.phase) {
+                active.phase = phase.to_string();
+            }
+        }
+    }
+    active
 }
 
 /// The run boundaries one batch's wire frames carry, in order: a run's
@@ -303,6 +396,40 @@ async fn goal_loop(
     }
 }
 
+/// The session's provider failover events onto the wire (the old engine's
+/// backup-switch frames): translated under the core lock so the parked
+/// update flush keeps stream order; a start also reports the retry to the
+/// run hook. A stopped bridge's late events drop on the epoch check.
+async fn provider_loop(
+    epoch: u64,
+    mut events: tokio::sync::broadcast::Receiver<ProviderWireEvent>,
+    sink: BridgeSink,
+) {
+    loop {
+        let event = match events.recv().await {
+            Ok(event) => event,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+        };
+        let changes = {
+            let mut core = lock(&sink.core);
+            let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
+                return;
+            };
+            let mut frames = Vec::new();
+            view.translator.provider_event(&event, &mut frames);
+            let changes = run_changes(&frames);
+            for frame in frames {
+                crate::worker::emit_event_locked(&mut core, &sink.events, frame);
+            }
+            changes
+        };
+        for change in changes {
+            (sink.on_run)(change);
+        }
+    }
+}
+
 /// The queued inputs of `conversation_id` with their preview texts, in
 /// inbox order (writes excluded).
 ///
@@ -358,5 +485,120 @@ pub(crate) fn content_preview(content: &UserContent) -> String {
                 texts.join("\n")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn queued(id: u64, mode: QueuedMode, text: &str) -> QueuedInput {
+        QueuedInput {
+            id: SubmissionId::from_number(id),
+            mode,
+            text: text.to_owned(),
+            content: UserContent::Text(text.to_owned()),
+        }
+    }
+
+    fn message_frame(kind: &str, role: &str) -> Value {
+        json!({ "type": kind, "message": { "role": role } })
+    }
+
+    /// TS #2063's ladder: a queue-visible pickup arms the action at
+    /// `preparing` with the delivery's compact label, the turn's user row
+    /// moves it to `committing`, its first assistant frame to `running`,
+    /// and the run end clears it. Phases only advance.
+    #[test]
+    fn the_active_action_walks_the_phase_ladder() {
+        let picked_up = vec![queued(7, QueuedMode::Steer, "please  do the thing")];
+        // The pickup batch carries the run start and the user row: the
+        // phase lands on `committing`, the label is the compact preview.
+        let armed = next_active(
+            None,
+            &picked_up,
+            &[
+                json!({ "type": "agent_start" }),
+                message_frame("message_start", "user"),
+            ],
+            true,
+        )
+        .expect("armed");
+        assert_eq!(armed.kind, "turn");
+        assert_eq!(armed.phase, "committing");
+        assert_eq!(armed.label.as_deref(), Some("please do the thing"));
+
+        // The first assistant frame runs it; a later user row never moves
+        // it back.
+        let running = next_active(
+            Some(armed),
+            &[],
+            &[
+                message_frame("message_start", "assistant"),
+                message_frame("message_end", "user"),
+            ],
+            true,
+        )
+        .expect("still armed");
+        assert_eq!(running.phase, "running");
+
+        // The run end clears it.
+        assert_eq!(
+            next_active(Some(running), &[], &[json!({ "type": "agent_end" })], false),
+            None
+        );
+    }
+
+    /// A withdrawal is not a pickup: rows that disappear while no run is
+    /// live (an abort withdrew them) never arm the action.
+    #[test]
+    fn a_withdrawal_without_a_live_run_never_arms() {
+        assert_eq!(
+            next_active(
+                None,
+                &[queued(1, QueuedMode::FollowUp, "x")],
+                &[json!({ "type": "agent_end" })],
+                false
+            ),
+            None
+        );
+    }
+
+    /// The label caps like TS `compactRlmText(text, 160)`.
+    #[test]
+    fn the_active_label_caps_at_160_chars() {
+        let long = "word ".repeat(60);
+        let armed = next_active(
+            None,
+            &[queued(1, QueuedMode::Steer, &long)],
+            &[json!({ "type": "agent_start" })],
+            true,
+        )
+        .expect("armed");
+        let label = armed.label.expect("label");
+        assert_eq!(label.chars().count(), 160);
+        assert!(label.ends_with("..."));
+    }
+
+    /// The run boundaries: an automatic retry frame is a `RetryStarted`
+    /// (the pane reporter's retry hold clear), beside the run's start and
+    /// end.
+    #[test]
+    fn run_changes_carry_the_retry_boundary() {
+        let changes = run_changes(&[
+            json!({ "type": "agent_start" }),
+            json!({ "type": "auto_retry_start", "attempt": 1 }),
+            json!({ "type": "agent_end", "messages": [] }),
+        ]);
+        assert_eq!(
+            changes,
+            vec![
+                RunChange::Started,
+                RunChange::RetryStarted,
+                RunChange::Ended { error_hold: None },
+            ]
+        );
     }
 }

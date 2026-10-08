@@ -44,6 +44,7 @@ pub use wire::{
 };
 
 use super::deps::{HarnessCell, HostDeps, HostRequestRegistry};
+use crate::durable::observe::semantic_edges::SemanticEdgeRecorder;
 use task::{child_task, ChildTask, ChildrenServices};
 
 /// The extension name.
@@ -67,6 +68,10 @@ pub(crate) struct ChildrenConfig {
     pub(crate) rlm_max_depth: u32,
     pub(crate) harness: HarnessCell,
     pub(crate) models: Models,
+    /// The session's semantic-edge recorder: a spawn anchors to the
+    /// parent's in-flight request id, and a child's return is claimed on
+    /// the ledger before its notice.
+    pub(crate) semantic_edges: Option<Arc<SemanticEdgeRecorder>>,
 }
 
 impl Children {
@@ -77,6 +82,7 @@ impl Children {
             parent_session_id: config.parent_session_id,
             rlm_depth: config.rlm_depth,
             rlm_max_depth: config.rlm_max_depth,
+            semantic_edges: config.semantic_edges,
         });
         let task = child_task(&services);
         Arc::new(Self {
@@ -110,6 +116,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         rlm_max_depth: deps.role.rlm_max_depth,
         harness: deps.harness.clone(),
         models: deps.models.clone(),
+        semantic_edges: Some(Arc::clone(&deps.semantic_edges)),
     })
     .install(&deps.host_requests)
 }

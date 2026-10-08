@@ -111,7 +111,10 @@ pub async fn find_child(
 
 /// The live row `target` selects (TS selector errors on ambiguity).
 fn live_row<'a>(state: &'a ChildrenState, target: &str) -> anyhow::Result<Option<&'a ChildRow>> {
-    match resolve(state.children.values().filter(|row| !row.is_deleted()), target) {
+    match resolve(
+        state.children.values().filter(|row| !row.is_deleted()),
+        target,
+    ) {
         Resolved::None => Ok(None),
         Resolved::One(row) => Ok(Some(row)),
         Resolved::Ambiguous => {

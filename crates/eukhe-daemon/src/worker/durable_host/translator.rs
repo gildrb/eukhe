@@ -18,8 +18,10 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eukhe_chord::json::JsonValue;
-use eukhe_core::durable::{BASH_ENTRY, BRANCH_SUMMARY_ENTRY, CUSTOM_ENTRY};
-use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY};
+use eukhe_core::durable::{
+    CustomEntryData, ProviderWireEvent, BASH_ENTRY, BRANCH_SUMMARY_ENTRY, CUSTOM_ENTRY,
+};
+use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::types::{AgentState, CompactionReason};
 use eukhe_durable::harness::usage::UsageState;
 use eukhe_durable::harness::{
@@ -31,7 +33,8 @@ use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, Usage
 use serde_json::{json, Map, Value};
 
 use super::wire_messages::{
-    assistant_context_tokens, assistant_wire_message, compaction_summary_text, entry_wire_message,
+    assistant_context_tokens, assistant_wire_message, compaction_summary_text, entry_data,
+    entry_wire_message,
 };
 
 /// Task kind of a generation (its failures fail the turn).
@@ -442,6 +445,15 @@ impl EventTranslator {
         }));
     }
 
+    /// A provider failover event of the session's provider runtime (the
+    /// old engine's backup-switch `auto_retry_*` vocabulary the durable
+    /// Harness itself does not emit): flushed after any parked update,
+    /// like the harness's own retry frames.
+    pub fn provider_event(&mut self, event: &ProviderWireEvent, out: &mut Vec<Value>) {
+        self.flush_into(out);
+        out.push(provider_wire_frame(event));
+    }
+
     /// The parked `message_update` (built from the CURRENT partial), if any;
     /// called by the worker's 50 ms timer and at stream end.
     pub fn flush(&mut self) -> Option<Value> {
@@ -567,6 +579,9 @@ impl EventTranslator {
                     .find_map(assistant_context_tokens)
                     .unwrap_or(0),
             });
+        } else if kind == USER_ENTRY.kind() && self.suppressed_input_row(entry) {
+            // The input row entered just before its input: the row already
+            // shows the user message (the old engine's injected custom turn).
         } else if kind != BASH_ENTRY.kind() && kind != BRANCH_SUMMARY_ENTRY.kind() {
             // Bash runs and branch summaries are shown by their features' own events.
             if let Some(message) = entry_wire_message(entry) {
@@ -574,6 +589,17 @@ impl EventTranslator {
             }
         }
         self.mirror.entries.push(entry.clone());
+    }
+
+    /// Whether the entry just before `user` in the mirror is the input row
+    /// that stands for it (an `eukhe.custom` row with `input: true`): the
+    /// user frames are then the row's, already shown.
+    fn suppressed_input_row(&self, user: &EntryRecord) -> bool {
+        user.kind.as_str() == USER_ENTRY.kind()
+            && self.mirror.entries.last().is_some_and(|row| {
+                row.kind.as_str() == CUSTOM_ENTRY.kind()
+                    && entry_data::<CustomEntryData>(row).is_some_and(|data| data.input)
+            })
     }
 
     fn tool_update(
@@ -941,6 +967,49 @@ fn retry_delay_ms(at: f64, now: f64) -> u64 {
     Duration::try_from_secs_f64((at - now).max(0.0) / 1000.0).map_or(0, |delay| {
         u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)
     })
+}
+
+/// The wire frame of one provider failover event (the old engine's
+/// shapes: `maxAttempts`/`delayMs`/`errorMessage`/`backupModel` on the
+/// start, `restoredModel` on the end).
+fn provider_wire_frame(event: &ProviderWireEvent) -> Value {
+    match event {
+        ProviderWireEvent::AutoRetryStart {
+            attempt,
+            max_attempts,
+            delay_ms,
+            error_message,
+            reason,
+            backup_model,
+        } => json!({
+            "type": "auto_retry_start",
+            "attempt": attempt,
+            "maxAttempts": max_attempts,
+            "delayMs": delay_ms,
+            "errorMessage": error_message,
+            "reason": reason,
+            "backupModel": backup_model,
+        }),
+        ProviderWireEvent::AutoRetryEnd {
+            success,
+            attempt,
+            final_error,
+            restored_model,
+        } => {
+            let mut frame = json!({
+                "type": "auto_retry_end",
+                "success": success,
+                "attempt": attempt,
+            });
+            if let Some(error) = final_error {
+                frame["finalError"] = Value::from(error.clone());
+            }
+            if let Some(model) = restored_model {
+                frame["restoredModel"] = Value::from(model.clone());
+            }
+            frame
+        }
+    }
 }
 
 /// Now, in Unix milliseconds.

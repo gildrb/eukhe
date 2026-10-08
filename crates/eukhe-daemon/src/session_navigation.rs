@@ -304,6 +304,8 @@ fn replacement_params(
         parent_session_id: live.parent_session_id,
         child_script: live.child_script,
         model_patterns: None,
+        execution_mode: None,
+        spawned_by_request_id: None,
     }
 }
 
@@ -384,11 +386,8 @@ impl Worker {
                 self.retire_session(live, &cx).await;
             }
         }
-        self.core
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .suspended
-            .clear();
+        // The successor's withdrawn inputs come from its own durable
+        // store: `install_hosted` seeds the caches from it.
         if let Err(response) = self.install_hosted(hosted, &prepared.params, &cx).await {
             return retag(*response, command);
         }

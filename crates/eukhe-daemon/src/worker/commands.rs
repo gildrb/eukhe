@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 
 use super::durable_host::bridge::{QueuedInput, QueuedMode};
 use super::durable_host::meta;
+use super::durable_host::suspended::{write_suspended, SuspendedState, WithdrawnInput};
 use super::durable_host::wire_messages::{entry_wire_message, transcript_messages};
 use super::{response_failure, response_success, HostedSession, KillCloseReason, Worker};
 use crate::protocol::DaemonResponse;
@@ -229,7 +230,9 @@ impl Worker {
     /// Abort the main conversation's run. Durable `abort` withdraws the
     /// queued inputs; the worker keeps them per `queue`: suspended (shown,
     /// resubmitted by `resume_queue` or the next steered prompt), sent
-    /// again at once, or dropped.
+    /// again at once, or dropped. The withdrawn inputs live in the durable
+    /// `eukhe.daemon.suspended` document on the main conversation, so a
+    /// worker restart keeps them.
     pub(crate) async fn handle_abort(&self, queue: AbortQueue) -> DaemonResponse {
         let command = queue.command();
         let hosted = match self.hosted(command) {
@@ -258,20 +261,43 @@ impl Worker {
         {
             return response_failure(None, command, &error.to_string(), None);
         }
-        let cleared = {
-            let mut core = self
-                .core
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let mut queued = std::mem::take(&mut core.suspended);
-            queued.extend(withdrawn);
+        // The durable rewrite: the withdrawn inbox inputs join the
+        // suspended and held ones, then `queue` decides their fate. A
+        // live input-pause lease keeps a `send` queued as held (the
+        // release delivers it), exactly like a fresh admission.
+        let paused = self.input_pauses.paused();
+        let cleared = match mutate_withdrawn(&hosted, &self.core, &self.events, move |mut state| {
+            state
+                .suspended
+                .extend(withdrawn.iter().map(WithdrawnInput::from));
             match queue {
                 AbortQueue::Suspend => {
-                    core.suspended = queued;
-                    Vec::new()
+                    state.suspended.append(&mut state.held);
+                    (state, Vec::new())
                 }
-                AbortQueue::Send | AbortQueue::Clear => queued,
+                AbortQueue::Send => {
+                    let mut taken = std::mem::take(&mut state.suspended);
+                    taken.append(&mut state.held);
+                    if paused {
+                        state.held = taken;
+                        (state, Vec::new())
+                    } else {
+                        let taken = taken.iter().map(WithdrawnInput::queued).collect();
+                        (state, taken)
+                    }
+                }
+                AbortQueue::Clear => {
+                    let mut taken = std::mem::take(&mut state.suspended);
+                    taken.append(&mut state.held);
+                    let taken = taken.iter().map(WithdrawnInput::queued).collect();
+                    (state, taken)
+                }
             }
+        })
+        .await
+        {
+            Ok(cleared) => cleared,
+            Err(error) => return response_failure(None, command, &error, None),
         };
         self.emit_action_update();
         let data = match queue {
@@ -288,7 +314,9 @@ impl Worker {
         response_success(None, command, data)
     }
 
-    /// Resubmit the suspended inputs (an abort or an input pause held them).
+    /// Resubmit the suspended inputs (an abort suspended them; a cron or
+    /// heartbeat fire resumes them — the pause-held ones resume through
+    /// the pause release instead).
     pub(crate) async fn resume_suspended_inputs(
         &self,
         hosted: &HostedSession,
@@ -445,25 +473,23 @@ impl Worker {
         )
     }
 
-    /// `clear_queue`: withdraw every queued input (inbox and suspended)
-    /// and answer their texts.
+    /// `clear_queue`: withdraw every queued input (inbox, suspended, and
+    /// held) and answer their texts. The durable store clears with them.
     async fn handle_clear_queue(&self) -> DaemonResponse {
         const COMMAND: &str = "clear_queue";
         let hosted = match self.hosted(COMMAND) {
             Ok(hosted) => hosted,
             Err(response) => return response,
         };
-        let (inbox, suspended) = {
-            let mut core = self
+        let inbox = {
+            let core = self
                 .core
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let inbox = core
-                .view
+            core.view
                 .as_ref()
                 .map(|view| view.inbox.clone())
-                .unwrap_or_default();
-            (inbox, std::mem::take(&mut core.suspended))
+                .unwrap_or_default()
         };
         let main_id = hosted.main().ok().map(|main| main.id());
         let mut cleared = Vec::new();
@@ -478,7 +504,16 @@ impl Worker {
                 Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
             }
         }
-        cleared.extend(suspended);
+        let withdrawn = match mutate_withdrawn(&hosted, &self.core, &self.events, |state| {
+            let cleared = state.queued();
+            (SuspendedState::default(), cleared)
+        })
+        .await
+        {
+            Ok(withdrawn) => withdrawn,
+            Err(error) => return response_failure(None, COMMAND, &error, None),
+        };
+        cleared.extend(withdrawn);
         self.emit_action_update();
         response_success(None, COMMAND, Some(lane_texts(&cleared)))
     }
@@ -537,6 +572,11 @@ impl Worker {
                 if let Err(error) = meta::mark_archived(hosted.harness(), &BACKGROUND_CONTEXT).await
                 {
                     return response_failure(None, "kill", &error.to_string(), None);
+                }
+                // The archive reaches telemetry before the close ends the
+                // session (the old engine's `session archived` order).
+                if let Some(telemetry) = hosted.telemetry() {
+                    telemetry.note_archived();
                 }
             }
         }
@@ -703,26 +743,152 @@ fn lane_texts(inputs: &[QueuedInput]) -> Value {
     json!({ "steering": lane(QueuedMode::Steer), "followUp": lane(QueuedMode::FollowUp) })
 }
 
-/// Resubmit `core.suspended` on the main conversation; `false` when there
-/// was nothing to resume.
+/// The cached withdrawn-input state as the durable document's value.
+fn withdrawn_of(core: &super::SessionCore) -> SuspendedState {
+    SuspendedState {
+        suspended: core.suspended.iter().map(WithdrawnInput::from).collect(),
+        held: core.held.iter().map(WithdrawnInput::from).collect(),
+    }
+}
+
+/// Install `state` into the caches (the durable write already succeeded).
+fn install_withdrawn(core: &mut super::SessionCore, state: &SuspendedState) {
+    core.suspended = state.suspended.iter().map(WithdrawnInput::queued).collect();
+    core.held = state.held.iter().map(WithdrawnInput::queued).collect();
+}
+
+/// One serialized read-modify-write of the durable withdrawn-input store
+/// (the `eukhe.daemon.suspended` document on the main conversation):
+/// `decide` maps the cached state to `(next, outcome)`, the next state is
+/// committed, and the caches follow. The whole exchange holds the core's
+/// mutation gate, so concurrent mutations cannot lose one another's
+/// writes.
+pub(crate) async fn mutate_withdrawn<T, F>(
+    hosted: &HostedSession,
+    core: &Arc<std::sync::Mutex<super::SessionCore>>,
+    events: &Arc<super::EventPump>,
+    decide: F,
+) -> Result<T, String>
+where
+    F: FnOnce(SuspendedState) -> (SuspendedState, T),
+{
+    let gate = {
+        let core = core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::sync::Arc::clone(&core.withdrawn_gate)
+    };
+    let _serialized = gate.lock().await;
+    let current = {
+        let core = core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        withdrawn_of(&core)
+    };
+    let (next, outcome) = decide(current);
+    let main = hosted.main().map_err(|error| error.to_string())?;
+    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT)
+        .await
+        .map_err(|error| error.to_string())?;
+    {
+        let mut core = core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        install_withdrawn(&mut core, &next);
+        super::emit_action_update_locked(&mut core, events);
+    }
+    Ok(outcome)
+}
+
+/// Replace the whole durable withdrawn-input store (the caller computed
+/// the complete next state) under the same mutation gate.
+pub(crate) async fn set_withdrawn(
+    hosted: &HostedSession,
+    core: &Arc<std::sync::Mutex<super::SessionCore>>,
+    events: &Arc<super::EventPump>,
+    state: SuspendedState,
+) -> Result<(), String> {
+    mutate_withdrawn(hosted, core, events, move |_| (state, ())).await
+}
+
+/// Which withdrawn list a resume drains: the abort-suspended inputs
+/// (`resume_queue`, a fire's resume site) or the ones an input-pause
+/// lease holds (the pause release).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WithdrawnList {
+    Suspended,
+    Held,
+}
+
+/// Drain one withdrawn list back into the conversation: the inputs leave
+/// the durable store and resubmit, in order. `false` when the list was
+/// empty. The resubmission happens inside the mutation gate and before
+/// the store clears, so a crash mid-resume leaves the inputs in the
+/// store (re-drained on the next resume), never lost silently.
+pub(crate) async fn drain_withdrawn(
+    hosted: &HostedSession,
+    core: &Arc<std::sync::Mutex<super::SessionCore>>,
+    events: &Arc<super::EventPump>,
+    list: WithdrawnList,
+) -> Result<bool, String> {
+    let gate = {
+        let core = core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::sync::Arc::clone(&core.withdrawn_gate)
+    };
+    let _serialized = gate.lock().await;
+    let current = {
+        let core = core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        withdrawn_of(&core)
+    };
+    if match list {
+        WithdrawnList::Suspended => current.suspended.is_empty(),
+        WithdrawnList::Held => current.held.is_empty(),
+    } {
+        return Ok(false);
+    }
+    let drained: Vec<QueuedInput> = match list {
+        WithdrawnList::Suspended => current
+            .suspended
+            .iter()
+            .map(WithdrawnInput::queued)
+            .collect(),
+        WithdrawnList::Held => current.held.iter().map(WithdrawnInput::queued).collect(),
+    };
+    resubmit(hosted, drained).await?;
+    let next = match list {
+        WithdrawnList::Suspended => SuspendedState {
+            suspended: Vec::new(),
+            held: current.held,
+        },
+        WithdrawnList::Held => SuspendedState {
+            suspended: current.suspended,
+            held: Vec::new(),
+        },
+    };
+    let main = hosted.main().map_err(|error| error.to_string())?;
+    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT)
+        .await
+        .map_err(|error| error.to_string())?;
+    {
+        let mut core = core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        install_withdrawn(&mut core, &next);
+        super::emit_action_update_locked(&mut core, events);
+    }
+    Ok(true)
+}
+
+/// Resubmit the abort-suspended inputs on the main conversation; `false`
+/// when there was nothing to resume.
 pub(crate) async fn resubmit_suspended(
     hosted: &HostedSession,
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
     events: &Arc<super::EventPump>,
 ) -> Result<bool, String> {
-    let suspended = std::mem::take(
-        &mut core
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .suspended,
-    );
-    if suspended.is_empty() {
-        return Ok(false);
-    }
-    resubmit(hosted, suspended).await?;
-    let mut core = core
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    super::emit_action_update_locked(&mut core, events);
-    Ok(true)
+    drain_withdrawn(hosted, core, events, WithdrawnList::Suspended).await
 }

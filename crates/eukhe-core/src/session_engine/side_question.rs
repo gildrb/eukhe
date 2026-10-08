@@ -35,11 +35,13 @@ pub type SideQuestionSink = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 const SIDE_QUESTION_INSTRUCTION: &str = "The user asked this via `/btw` — a temporary side thread cloned from the main conversation to answer a question without interrupting the main work. Tools (including `ipython`) are deactivated in this side thread and return an error if called; answer using only the conversation context above. The user may send follow-up side questions. Nothing here is added to the main session, so don't start or plan main-session work from this thread.";
 
-const SIDE_QUESTION_TOOL_BLOCKED: &str =
+/// The deactivated-tool answer a side-thread call reads (the daemon's
+/// durable side-question run shares it).
+pub const SIDE_QUESTION_TOOL_BLOCKED: &str =
     "Tools are deactivated in this side thread. Answer from the conversation context.";
 
 /// Backstop for a model that keeps calling deactivated tools instead of answering.
-const SIDE_QUESTION_MAX_TURNS: u32 = 3;
+pub const SIDE_QUESTION_MAX_TURNS: u32 = 3;
 
 /// Prompt sent to the side loop: the question wrapped in a side-question tag,
 /// with the side-thread instruction prepended on the first turn.

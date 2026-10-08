@@ -14,12 +14,16 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use eukhe_chord::context::{AbortController, AbortSignal, Context, BACKGROUND_CONTEXT};
-use eukhe_core::session_engine::side_question::{side_question_prompt, SideQuestionTurn};
+use eukhe_core::session_engine::side_question::{
+    side_question_prompt, SideQuestionTurn, SIDE_QUESTION_MAX_TURNS, SIDE_QUESTION_TOOL_BLOCKED,
+};
 use eukhe_pi_ai::models::ModelsSimpleStreamOptions;
 use eukhe_pi_ai::types::SimpleStreamOptions;
+use eukhe_pi_ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms, RetryDelay};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Message, ModelThinkingLevel,
-    StopReason, ThinkingLevel, UserContent, UserMessage,
+    StopReason, TextContent, ThinkingLevel, Tool, ToolCall, ToolResultMessage, UserContent,
+    UserContentBlock, UserMessage,
 };
 use futures::StreamExt;
 use serde_json::{json, Map, Value};
@@ -321,8 +325,13 @@ fn user_message(text: String) -> Message {
 }
 
 /// Answer one side question: the main conversation's model context, the
-/// earlier side turns, then the question, as one ephemeral request. Each
-/// streamed text update reaches `on_update`; `signal` aborts the request.
+/// earlier side turns, then the question, as ephemeral requests. The
+/// tool declarations ride along (the provider-side cache prefix holds),
+/// but every call answers the block error and the follow-up turn answers
+/// from context — the old engine's `before_tool_call` — with a turn cap
+/// backstopping a model that keeps calling, and provider failures retry
+/// with the session's retry policy. Each streamed text update reaches
+/// `on_update`; `signal` aborts the run.
 async fn run_side_question(
     hosted: &HostedSession,
     request: &SideQuestionRequest,
@@ -349,6 +358,13 @@ async fn run_side_question(
     }) else {
         return failed("Select a model before asking a side question".to_string());
     };
+    // The tools the main context offers, declared the same so the cache
+    // prefix holds; the side loop never executes one.
+    let tools: Vec<Tool> = agent.tools.iter().map(|tool| tool.tool()).collect();
+    let retry = eukhe_durable::harness::agent::resolve_settings(Some(
+        &eukhe_core::durable::harness_settings(&hosted.deps().settings.manager()),
+    ))
+    .retry;
     // The main context first (system prompt and tool declarations ride its
     // system messages), then the replayed side turns, then the question.
     let mut messages = view.messages;
@@ -380,52 +396,146 @@ async fn run_side_question(
         &request.question,
         request.previous_turns.is_empty(),
     )));
-    let mut options = SimpleStreamOptions {
-        reasoning: reasoning(agent.thinking_level),
-        ..SimpleStreamOptions::default()
-    };
-    options.stream.request.signal = Some(signal.clone());
-    let context = eukhe_types::pi_ai::Context {
-        system_prompt: None,
-        messages,
-        tools: None,
-    };
-    let stream = hosted.deps().models.stream_simple(
-        &model,
-        context,
-        ModelsSimpleStreamOptions::from(options),
-    );
-    let mut events = stream.events();
+
     let mut answer = String::new();
-    while let Some(event) = events.next().await {
-        let (AssistantMessageEvent::TextDelta { partial, .. }
-        | AssistantMessageEvent::TextEnd { partial, .. }) = &event
-        else {
-            continue;
+    // The text of every assistant turn this run appended (a turn-capped
+    // run ends on tool results; its answer is the last non-empty text).
+    let mut turn_texts: Vec<String> = Vec::new();
+    let mut tool_turns = 0u32;
+    let mut retries = 0u64;
+    loop {
+        let mut options = SimpleStreamOptions {
+            reasoning: reasoning(agent.thinking_level),
+            ..SimpleStreamOptions::default()
         };
-        let text = assistant_text(partial);
-        if text != answer {
-            answer = text;
-            on_update(&answer);
+        options.stream.request.signal = Some(signal.clone());
+        let context = eukhe_types::pi_ai::Context {
+            system_prompt: None,
+            messages: messages.clone(),
+            tools: (!tools.is_empty()).then(|| tools.clone()),
+        };
+        let stream = hosted.deps().models.stream_simple(
+            &model,
+            context,
+            ModelsSimpleStreamOptions::from(options),
+        );
+        let mut events = stream.events();
+        while let Some(event) = events.next().await {
+            let (AssistantMessageEvent::TextDelta { partial, .. }
+            | AssistantMessageEvent::TextEnd { partial, .. }) = &event
+            else {
+                continue;
+            };
+            let text = assistant_text(partial);
+            if text != answer {
+                answer = text;
+                on_update(&answer);
+            }
+        }
+        let message = stream.result().await;
+        if signal.aborted() || message.stop_reason == StopReason::Aborted {
+            return SideQuestionOutcome::Aborted { answer };
+        }
+        let text = assistant_text(&message);
+        let calls: Vec<ToolCall> = message
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                AssistantContentBlock::ToolCall(call) => Some(call.clone()),
+                AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => None,
+            })
+            .collect();
+        messages.push(Message::Assistant(message.clone()));
+        turn_texts.push(text);
+        if !calls.is_empty() && message.stop_reason != StopReason::Error {
+            // Tools are deactivated in this side thread: each call
+            // answers the block error, and the next turn answers from
+            // context; the cap backstops a model that keeps calling.
+            tool_turns += 1;
+            if tool_turns >= SIDE_QUESTION_MAX_TURNS {
+                return capped_answer(turn_texts, answer);
+            }
+            for call in calls {
+                messages.push(Message::ToolResult(blocked_result(&call)));
+            }
+            continue;
+        }
+        match message.stop_reason {
+            StopReason::Error
+                if retry.enabled
+                    && retries < u64::from(retry.max_retries)
+                    && is_retryable_assistant_error(&message) =>
+            {
+                // Drop the failed assistant turn and re-run (the old
+                // engine's recovery), after the policy's backoff; a
+                // cancel that raced the failure aborts the run.
+                messages.pop();
+                turn_texts.pop();
+                let delay = retry_delay_ms(
+                    RetryDelay {
+                        base_delay_ms: retry.base_delay_ms,
+                        max_agent_delay_ms: retry.max_agent_delay_ms,
+                    },
+                    u32::try_from(retries + 1).unwrap_or(u32::MAX),
+                );
+                let cancelled = signal.cancellation_token();
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(delay as u64)) => {}
+                    () = cancelled.cancelled() => return SideQuestionOutcome::Aborted { answer },
+                }
+                retries += 1;
+            }
+            StopReason::Error => {
+                return SideQuestionOutcome::Failed {
+                    answer,
+                    error: message
+                        .error_message
+                        .unwrap_or_else(|| "Side question failed".to_string()),
+                };
+            }
+            _ if answer.is_empty() => {
+                return SideQuestionOutcome::Failed {
+                    answer,
+                    error: "The side question ended without an answer".to_string(),
+                };
+            }
+            _ => return SideQuestionOutcome::Complete { answer },
         }
     }
-    let message = stream.result().await;
-    let text = assistant_text(&message);
-    let answer = if text.is_empty() { answer } else { text };
-    match message.stop_reason {
-        _ if signal.aborted() => SideQuestionOutcome::Aborted { answer },
-        StopReason::Aborted => SideQuestionOutcome::Aborted { answer },
-        StopReason::Error => SideQuestionOutcome::Failed {
-            answer,
-            error: message
-                .error_message
-                .unwrap_or_else(|| "Side question failed".to_string()),
-        },
-        _ if answer.is_empty() => SideQuestionOutcome::Failed {
-            answer,
+}
+
+/// The answer of a turn-capped run (it ended on tool results): the last
+/// non-empty text its turns produced, else the streamed partial.
+fn capped_answer(turn_texts: Vec<String>, streamed: String) -> SideQuestionOutcome {
+    let answer = turn_texts
+        .into_iter()
+        .rev()
+        .find(|text| !text.is_empty())
+        .unwrap_or(streamed);
+    if answer.is_empty() {
+        SideQuestionOutcome::Failed {
+            answer: String::new(),
             error: "The side question ended without an answer".to_string(),
-        },
-        _ => SideQuestionOutcome::Complete { answer },
+        }
+    } else {
+        SideQuestionOutcome::Complete { answer }
+    }
+}
+
+/// The deactivated-tool answer one side-thread call reads: the block
+/// error, as the old engine's `before_tool_call` reason.
+fn blocked_result(call: &ToolCall) -> ToolResultMessage {
+    ToolResultMessage {
+        tool_call_id: call.id.clone(),
+        tool_name: call.name.clone(),
+        content: vec![UserContentBlock::Text(TextContent::new(
+            SIDE_QUESTION_TOOL_BLOCKED.to_string(),
+        ))],
+        details: None,
+        usage: None,
+        nested_calls: None,
+        is_error: true,
+        timestamp: 0,
     }
 }
 
@@ -445,7 +555,8 @@ mod tests {
     use super::*;
     use crate::durable_test_support::{answer, ask, hosted, kinds, Fixture};
     use eukhe_pi_ai::providers::faux::{
-        faux_assistant_message, FauxAssistantMessageOptions, FauxResponseStep,
+        faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
+        FauxResponseStep,
     };
     use tokio::sync::broadcast::Receiver;
 
@@ -725,6 +836,151 @@ mod tests {
         let restart = harness.manager.start(&start_payload("sq-1", "client-1"));
         assert!(restart.success, "same-id restart after cancel: {restart:?}");
         settled(&harness.manager).await;
+        harness.close().await;
+    }
+
+    /// The tool declarations ride along, but a call is deactivated: the
+    /// block error answers it and the follow-up turn answers from
+    /// context (the old engine's `before_tool_call`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tool_calls_answer_the_block_error_and_the_next_turn_answers() {
+        let harness = Harness::new().await;
+        let mut receiver = harness.pump.subscribe();
+        let call = faux_assistant_message(
+            vec![faux_tool_call("ipython", json!({}), Some("call-1".to_string()))],
+            FauxAssistantMessageOptions {
+                stop_reason: Some(StopReason::ToolUse),
+                ..FauxAssistantMessageOptions::default()
+            },
+        );
+        let follow_up = FauxResponseStep::factory(|context, _, _, _| {
+            // The blocked call reached the model as the deactivated-tool
+            // answer.
+            let blocked = context
+                .messages()
+                .iter()
+                .any(|message| matches!(message, Message::ToolResult(result) if result.is_error
+                    && result.tool_call_id == "call-1"
+                    && result.content.first().is_some_and(|block|
+                        matches!(block, UserContentBlock::Text(text)
+                            if text.text == SIDE_QUESTION_TOOL_BLOCKED))));
+            assert!(blocked, "the block error must answer the call");
+            Ok(faux_assistant_message(
+                "answered from context",
+                FauxAssistantMessageOptions::default(),
+            ))
+        });
+        harness
+            .fixture
+            .faux
+            .append_responses(vec![call.into(), follow_up]);
+
+        let response = harness.manager.start(&start_payload("sq-1", "client-1"));
+        assert!(response.success, "{response:?}");
+        settled(&harness.manager).await;
+
+        let events = drain(&mut receiver);
+        assert_eq!(
+            events.last().unwrap(),
+            &json!({
+                "id": "sq-1", "question": "what?",
+                "answer": "answered from context", "status": "complete",
+            })
+        );
+        harness.close().await;
+    }
+
+    /// A model that keeps calling deactivated tools hits the turn cap
+    /// (three tool turns); the answer is the last text its turns
+    /// produced.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_tool_calling_model_hits_the_turn_cap() {
+        let harness = Harness::new().await;
+        let mut receiver = harness.pump.subscribe();
+        let turn = |text: &str| {
+            faux_assistant_message(
+                vec![
+                    faux_text(text),
+                    faux_tool_call("ipython", json!({}), Some(text.to_string())),
+                ],
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(StopReason::ToolUse),
+                    ..FauxAssistantMessageOptions::default()
+                },
+            )
+        };
+        harness.fixture.faux.append_responses(vec![
+            turn("first").into(),
+            turn("second").into(),
+            turn("third").into(),
+        ]);
+
+        let response = harness.manager.start(&start_payload("sq-1", "client-1"));
+        assert!(response.success, "{response:?}");
+        settled(&harness.manager).await;
+
+        let events = drain(&mut receiver);
+        assert_eq!(
+            events.last().unwrap(),
+            &json!({
+                "id": "sq-1", "question": "what?",
+                "answer": "third", "status": "complete",
+            }),
+            "the capped run answers the last non-empty turn text"
+        );
+        // Exactly the three capped turns ran.
+        assert_eq!(harness.fixture.faux.state().call_count, 3);
+        harness.close().await;
+    }
+
+    /// A retryable provider failure retries with the session's policy:
+    /// the failed assistant turn drops and the re-run answers.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_retryable_failure_drops_the_failed_turn_and_retries() {
+        let harness = Harness::new().await;
+        // A 1ms backoff keeps the retry deterministic-fast.
+        harness
+            .fixture
+            .settings(&json!({ "retry": { "enabled": true, "baseDelayMs": 1, "maxRetries": 3 } }));
+        let mut receiver = harness.pump.subscribe();
+        let failure = faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(StopReason::Error),
+                error_message: Some("overloaded".to_string()),
+                ..FauxAssistantMessageOptions::default()
+            },
+        );
+        let retry = FauxResponseStep::factory(|context, _, _, _| {
+            // The failed assistant turn did not survive into the retry.
+            assert!(
+                !context.messages().iter().any(|message| matches!(message,
+                    Message::Assistant(assistant) if assistant.stop_reason == StopReason::Error)),
+                "the failed turn must drop before the retry"
+            );
+            Ok(faux_assistant_message(
+                "recovered",
+                FauxAssistantMessageOptions::default(),
+            ))
+        });
+        harness
+            .fixture
+            .faux
+            .append_responses(vec![failure.into(), retry]);
+
+        let response = harness.manager.start(&start_payload("sq-1", "client-1"));
+        assert!(response.success, "{response:?}");
+        settled(&harness.manager).await;
+
+        let events = drain(&mut receiver);
+        assert_eq!(
+            events.last().unwrap(),
+            &json!({
+                "id": "sq-1", "question": "what?",
+                "answer": "recovered", "status": "complete",
+            })
+        );
+        assert_eq!(harness.fixture.faux.state().call_count, 2);
         harness.close().await;
     }
 }

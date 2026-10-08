@@ -46,6 +46,10 @@ use super::{
     RlmHostFuture, RlmSubagentHost,
 };
 use crate::durable::deps::{HarnessCell, HostCall, HostRequestRegistry};
+use crate::durable::observe::rlm_usage::{
+    apply_child_usage_attributions, entry_assistant_usage, ChildUsageAttributionData,
+    CHILD_USAGE_ATTRIBUTED_KIND,
+};
 
 const PARENT_SESSION_ID: &str = "parent-session";
 const PROMPT: &str = "Investigate the flaky test";
@@ -446,6 +450,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         rlm_max_depth: 2,
         harness: cell.clone(),
         models: setup.models.clone(),
+        semantic_edges: None,
     });
     let registry = create_registry();
     registry.install(children.install(&requests)).unwrap();
@@ -855,6 +860,100 @@ async fn collect_waits_for_the_child_to_settle_and_attributes_its_usage() {
     opened.harness.close(cx()).await.unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn child_usage_attribution_rows_target_the_spawning_assistant_row() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let row = spawn_child(&opened, &setup).await;
+    eventually(|| async { !host.prompt_keys().is_empty() }).await;
+
+    let usage = |input: u64, output: u64| Usage {
+        input,
+        output,
+        total_tokens: input + output,
+        ..Usage::default()
+    };
+    // Two watch observations while the child runs: the second carries the
+    // child's grown cumulative total, so each attributes its delta.
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Running,
+        Some(usage(100, 20)),
+    );
+    eventually(|| async {
+        row_of(&opened.harness, row.task_id)
+            .await
+            .is_some_and(|row| row.usage == Some(usage(100, 20)))
+    })
+    .await;
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Running,
+        Some(usage(150, 30)),
+    );
+    eventually(|| async {
+        row_of(&opened.harness, row.task_id)
+            .await
+            .is_some_and(|row| row.usage == Some(usage(150, 30)))
+    })
+    .await;
+    setup.faux.append_responses(vec![answer("thanks")]);
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Settled {
+            answer_preview: Some("done".to_owned()),
+            replied_since_task: false,
+        },
+        Some(usage(150, 30)),
+    );
+    opened.harness.wait_for_idle(cx()).await.unwrap();
+
+    let mut entries = opened
+        .root
+        .entries(ConversationEntryQuery::default(), 1000, None, cx())
+        .await
+        .unwrap()
+        .items;
+    let attributions: Vec<ChildUsageAttributionData> = entries
+        .iter()
+        .filter(|entry| entry.kind == CHILD_USAGE_ATTRIBUTED_KIND)
+        .map(|entry| {
+            eukhe_chord::json::from_json(entry.data.as_ref().expect("attribution data")).unwrap()
+        })
+        .collect();
+    assert_eq!(attributions.len(), 2, "one row per observed delta");
+    let target_id = attributions[0].target_id;
+    assert_eq!(attributions[1].target_id, target_id);
+    let own = entries
+        .iter()
+        .find(|entry| entry.id == target_id)
+        .and_then(entry_assistant_usage)
+        .expect("the target is an assistant row");
+    // Each row carries its delta and the cumulative aggregate; the
+    // aggregate keeps the row's own context size.
+    assert_eq!(attributions[0].child_usage, usage(100, 20));
+    assert_eq!(attributions[1].child_usage, usage(50, 10));
+    let mut aggregate = own;
+    eukhe_durable::harness::usage::add_usage(&mut aggregate, &usage(150, 30));
+    aggregate.total_tokens = own.total_tokens;
+    assert_eq!(attributions[1].aggregate_usage, aggregate);
+    // The read-side fold restores the old engine's view: the newest
+    // aggregate replaces the target row's usage.
+    apply_child_usage_attributions(&mut entries);
+    assert_eq!(
+        entries
+            .iter()
+            .find(|entry| entry.id == target_id)
+            .and_then(entry_assistant_usage),
+        Some(aggregate)
+    );
+    let totals = opened.harness.usage(cx()).await.unwrap();
+    assert_eq!(totals.tools.get(CHILD_USAGE_KEY), Some(&usage(150, 30)));
+    assert!(lock(&setup.reports).is_empty());
+    opened.harness.close(cx()).await.unwrap();
+}
+
 #[tokio::test]
 async fn spawn_at_the_depth_limit_errors_as_today() {
     let setup = setup();
@@ -866,6 +965,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         rlm_max_depth: 2,
         harness: HarnessCell::default(),
         models: setup.models.clone(),
+        semantic_edges: None,
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -889,6 +989,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         rlm_max_depth: 2,
         harness: HarnessCell::default(),
         models: setup.models,
+        semantic_edges: None,
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -926,11 +1027,15 @@ async fn cancel_child_aborts_the_run_and_lists_it_cancelled() {
         .await
         .unwrap();
     assert_eq!(unknown, None);
-    let cancelled =
-        super::cancel_child(&opened.harness, ROOT_CONVERSATION_ID, &row.rlm_child_id, cx())
-            .await
-            .unwrap()
-            .unwrap();
+    let cancelled = super::cancel_child(
+        &opened.harness,
+        ROOT_CONVERSATION_ID,
+        &row.rlm_child_id,
+        cx(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(cancelled.rlm_child_id, row.rlm_child_id);
     assert_eq!(cancelled.status, "cancelled");
     assert_eq!(
@@ -941,10 +1046,14 @@ async fn cancel_child_aborts_the_run_and_lists_it_cancelled() {
             .collect::<Vec<_>>(),
         [format!("rlm:{task_id}:cancel")]
     );
-    let again =
-        super::cancel_child(&opened.harness, ROOT_CONVERSATION_ID, &row.rlm_child_id, cx())
-            .await
-            .unwrap();
+    let again = super::cancel_child(
+        &opened.harness,
+        ROOT_CONVERSATION_ID,
+        &row.rlm_child_id,
+        cx(),
+    )
+    .await
+    .unwrap();
     assert_eq!(again, None, "a settled child has no run to cancel");
 
     let listed = super::list_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
@@ -953,10 +1062,15 @@ async fn cancel_child_aborts_the_run_and_lists_it_cancelled() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].entry.status, "cancelled");
     assert!(listed[0].settled);
-    let found = super::find_child(&opened.harness, ROOT_CONVERSATION_ID, &row.session_name, cx())
-        .await
-        .unwrap()
-        .unwrap();
+    let found = super::find_child(
+        &opened.harness,
+        ROOT_CONVERSATION_ID,
+        &row.session_name,
+        cx(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(found, listed[0]);
     opened.harness.close(cx()).await.unwrap();
 }

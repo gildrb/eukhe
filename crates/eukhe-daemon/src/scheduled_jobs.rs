@@ -238,6 +238,15 @@ impl AgentCronSchedulerHooks for QueueHooks {
         self.remove_queued_heartbeat_follow_up(job).await;
         let request = Self::fire_request(job);
         let handle = submit_input(&hosted.main()?, &request, &BACKGROUND_CONTEXT).await?;
+        // A queued heartbeat fire is an injected prompt: the queue
+        // strip's `injectedPrompts` rider marks it while it parks.
+        if let Some(kind) = crate::worker::injection_kind(request.custom_row.as_ref()) {
+            self.core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .injected
+                .insert(handle.id(), kind);
+        }
         match tokio::time::timeout(
             std::time::Duration::from_millis(FIRE_SETTLE_TIMEOUT_MS),
             handle.wait(&BACKGROUND_CONTEXT),

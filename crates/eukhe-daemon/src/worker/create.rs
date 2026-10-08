@@ -38,6 +38,14 @@ pub(crate) struct CreateParams {
     pub(crate) parent_session_id: Option<String>,
     pub(crate) child_script: Option<String>,
     pub(crate) model_patterns: Option<Vec<String>>,
+    /// The create payload's `executionMode` (the telemetry execution mode
+    /// the client stamps, TS main.ts `executionMode: appMode`); absent
+    /// (an agent-spawned session) stays `None` (reported as `unknown`).
+    pub(crate) execution_mode: Option<String>,
+    /// The parent's in-flight model request the spawn anchored to (TS
+    /// `spawnedByRequestId`, in the create config): reaches the child's
+    /// semantic-edge ledger registration.
+    pub(crate) spawned_by_request_id: Option<String>,
 }
 
 impl CreateParams {
@@ -116,6 +124,9 @@ impl CreateParams {
                         .map(str::to_string)
                         .collect()
                 }),
+            execution_mode: text(Some(payload), "executionMode")
+                .filter(|mode| !mode.trim().is_empty()),
+            spawned_by_request_id: text(Some(payload), "spawnedByRequestId"),
         })
     }
 
@@ -198,6 +209,19 @@ impl Worker {
             registration.notify_session_created(summary.session_id.clone());
         }
         self.poke_context_tree_refresh();
+        // TS session boot resolves the initial model through
+        // `refreshAvailableModels`, which also fetches the live Prime
+        // Inference catalog in the background and caches it on disk. Fire
+        // the same refresh here: the effect is the cache file (fresh
+        // registries read it), and failures fall back to the cached or
+        // bundled catalog without touching the session.
+        let agent_dir = self.config.agent_dir.clone();
+        tokio::spawn(async move {
+            let auth = eukhe_core::auth::AuthStorage::create(&agent_dir);
+            let mut registry =
+                eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
+            let _ = registry.refresh_available_models().await;
+        });
         let mut data = serde_json::to_value(&summary).unwrap_or(Value::Null);
         // The durable compaction resumes with the session itself, so a
         // supervisor-declared interrupted compaction needs no disclosure
@@ -234,6 +258,7 @@ impl Worker {
                     session_id,
                     task_id: None,
                     agent_name: None,
+                    spawned_by_request_id: params.spawned_by_request_id.clone(),
                 }),
         };
         config.model.clone_from(&params.model);
@@ -254,6 +279,8 @@ impl Worker {
         }
         let core = Arc::clone(&self.core);
         let events = Arc::clone(&self.events);
+        let summary_core = Arc::clone(&self.core);
+        let summary_events = Arc::clone(&self.events);
         config.turn_wait = Some(Arc::new(move |wait| {
             emit_worker_event_with(
                 &core,
@@ -261,6 +288,17 @@ impl Worker {
                 json!(eukhe_types::daemon::ChatTurnWaitEvent {
                     waiting: matches!(wait, TurnWait::Waiting),
                 }),
+            );
+        }));
+        // The live compaction summary block (the old engine's
+        // `set_compaction_summary_sink`): every summarizer text delta,
+        // then the file-operations flush, straight onto the wire between
+        // the run's `compaction_start` and `compaction_end`.
+        config.summary_delta = Some(Arc::new(move |delta: &str| {
+            emit_worker_event_with(
+                &summary_core,
+                &summary_events,
+                json!({ "type": "compaction_summary_delta", "delta": delta }),
             );
         }));
         // The kernel host seams: scheduled-jobs cron wiring, bash notices.
@@ -306,6 +344,8 @@ impl Worker {
         let request = HostRequest {
             config,
             script: self.config.script.clone(),
+            telemetry_disabled: self.config.telemetry_disabled,
+            execution_mode: params.execution_mode.clone(),
         };
         let hosted = match HostedSession::open(request, &self.config.agent_dir, cx).await {
             Ok(hosted) => Arc::new(hosted),
@@ -345,6 +385,11 @@ impl Worker {
             }
             let session_meta = meta::read_session_meta(hosted.harness(), cx).await?;
             let main = hosted.main()?;
+            // The withdrawn inputs survive the restart: the durable
+            // store seeds the caches (resume, clear, and mutations read
+            // them from here).
+            let withdrawn =
+                durable_host::suspended::read_suspended(hosted.harness(), main.id(), cx).await?;
             {
                 let mut core = self
                     .core
@@ -375,6 +420,17 @@ impl Worker {
                 let tier = Some(settings.get_default_service_tier());
                 core.service_tier = tier;
                 core.active_service_tier = tier;
+                core.suspended = withdrawn
+                    .suspended
+                    .iter()
+                    .map(durable_host::suspended::WithdrawnInput::queued)
+                    .collect();
+                core.held = withdrawn
+                    .held
+                    .iter()
+                    .map(durable_host::suspended::WithdrawnInput::queued)
+                    .collect();
+                core.last_activity_ms = crate::util::now_ms();
             }
             self.show_conversation(&hosted, &main).await
         }
@@ -394,6 +450,9 @@ impl Worker {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         core.created = true;
         core.shutdown_requested = false;
+        // A fresh session parks immediately: the idle-passivation loop
+        // arms from here.
+        self.park_notify.notify_one();
         Ok(())
     }
 

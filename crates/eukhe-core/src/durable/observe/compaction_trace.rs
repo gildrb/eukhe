@@ -1,0 +1,65 @@
+//! Compaction phase tracing (debug seam, off by default): one line per
+//! phase boundary of the compaction pipeline, so a post-summary stall
+//! (the compacted text rendered but the compaction indicator keeps
+//! spinning) can be attributed to the phase that owns the extra time.
+//!
+//! `EUKHE_COMPACTION_TRACE=1` (or `stderr`) writes stderr;
+//! `EUKHE_COMPACTION_TRACE=<path>` appends one JSON line per boundary. The
+//! path must be a regular file (or creatable as one): the sink opens it
+//! once, synchronously, at the first trace line — a FIFO would block that
+//! first line until a reader appears. The first trace line of the
+//! process also starts the elapsed clock, so `elapsedMicros` on every
+//! line reads as time since the run began.
+
+use std::io::Write;
+use std::sync::{LazyLock, Mutex};
+use std::time::Instant;
+
+/// Where the trace lines go (resolved once from `EUKHE_COMPACTION_TRACE`,
+/// at the first trace line).
+enum Sink {
+    Off,
+    Stderr,
+    File(Mutex<std::fs::File>),
+}
+
+static SINK: LazyLock<Sink> = LazyLock::new(|| match std::env::var("EUKHE_COMPACTION_TRACE") {
+    Err(_) => Sink::Off,
+    Ok(value) if value == "1" || value == "stderr" => Sink::Stderr,
+    Ok(path) => std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_or(Sink::Off, |file| Sink::File(Mutex::new(file))),
+});
+
+/// The elapsed clock, started by the first trace line of the process.
+static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+/// One phase boundary. `phase` names the boundary (dotted
+/// `surface.stage[.what]`); `detail` carries phase-specific numbers
+/// (counts, byte sizes, entry ids).
+pub fn trace(phase: &str, detail: &serde_json::Value) {
+    let sink = &*SINK;
+    if matches!(sink, Sink::Off) {
+        return;
+    }
+    let elapsed = START.elapsed().as_micros();
+    let line = serde_json::json!({
+        "phase": phase,
+        "elapsedMicros": elapsed,
+        "detail": detail.clone(),
+    });
+    match sink {
+        Sink::Off => {}
+        Sink::Stderr => {
+            let _ = writeln!(std::io::stderr(), "compaction-trace: {line}");
+        }
+        Sink::File(file) => {
+            let mut file = file
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _ = writeln!(file, "compaction-trace: {line}");
+        }
+    }
+}

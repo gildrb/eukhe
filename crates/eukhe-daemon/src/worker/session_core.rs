@@ -4,11 +4,27 @@
 //! is through the core mutex; the event bridge emits under it, so the
 //! sequence and the view always advance together.
 
+use std::collections::HashMap;
+
+use eukhe_durable::types::SubmissionId;
 use serde_json::Value;
 
 use super::durable_host::bridge::QueuedInput;
 use super::durable_host::ShownView;
 use crate::types::SessionActionSnapshot;
+
+/// Typed provenance of one queued input's admission — the queue strip's
+/// riders (the old engine's parked-row classification): the kinds mark
+/// which parked rows the TUI renders as daemon work, never plain user
+/// rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InjectionKind {
+    /// An RLM child status notice (the reserved custom kinds only the
+    /// daemon's minted capability admits).
+    ChildStatusNotice,
+    /// An engine-minted internal prompt (a heartbeat fire).
+    InjectedPrompt,
+}
 
 pub(crate) struct SessionCore {
     pub(crate) active_session_id: String,
@@ -31,8 +47,25 @@ pub(crate) struct SessionCore {
     pub(crate) view: Option<ShownView>,
     /// Inputs an `abort` withdrew from the inbox: they stay visible in the
     /// queue and resubmit on `resume_queue` (or the next steered prompt),
-    /// like the TS suspended session-input pump.
+    /// like the TS suspended session-input pump. Durable: the
+    /// `eukhe.daemon.suspended` document on the main conversation; this
+    /// field is its cache.
     pub(crate) suspended: Vec<QueuedInput>,
+    /// Admissions an input-pause lease holds (never submitted: the pause
+    /// keeps them out of the run; the release resubmits them). Durable
+    /// with `suspended`.
+    pub(crate) held: Vec<QueuedInput>,
+    /// Admission provenance of queued inputs, by submission id: the rows
+    /// the queue strip's riders mark. Recorded at admission; the bridge
+    /// prunes it when the input leaves the inbox.
+    pub(crate) injected: HashMap<SubmissionId, InjectionKind>,
+    /// The withdrawn-input store's mutation gate: every durable
+    /// `eukhe.daemon.suspended` exchange (read, document write, cache
+    /// install) holds it, so concurrent mutations cannot lose one
+    /// another's writes. Lives on the core (not the worker) because the
+    /// scheduler's fire hooks mutate the store with only the core.
+    pub(crate) withdrawn_gate: std::sync::Arc<tokio::sync::Mutex<()>>,
+
     pub(crate) cwd: String,
     pub(crate) attached_client_ids: Vec<String>,
     pub(crate) shutdown_requested: bool,
@@ -75,6 +108,9 @@ impl SessionCore {
             cwd: String::new(),
             view: None,
             suspended: Vec::new(),
+            held: Vec::new(),
+            injected: HashMap::new(),
+            withdrawn_gate: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             attached_client_ids: Vec::new(),
             shutdown_requested: false,
             last_activity_ms: 0,

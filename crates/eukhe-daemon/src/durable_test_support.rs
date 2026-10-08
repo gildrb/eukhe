@@ -107,6 +107,9 @@ pub(crate) async fn hosted(fixture: &Fixture) -> std::sync::Arc<crate::worker::H
     let request = crate::worker::durable_host::HostRequest {
         config: fixture.config(SESSION_ID),
         script: None,
+        // Test fixtures install no telemetry (an opted-out create).
+        telemetry_disabled: Some(true),
+        execution_mode: None,
     };
     std::sync::Arc::new(
         crate::worker::HostedSession::open(request, &fixture.agent_dir, cx())

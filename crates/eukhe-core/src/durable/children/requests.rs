@@ -274,7 +274,15 @@ async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
         prompt,
         model: kwargs.model,
         thinking: kwargs.thinking,
-        spawned_by_request_id: Some(api.call_id().to_owned()),
+        // The spawn anchors to the parent's in-flight model request (TS
+        // `spawnedByRequestId` from the semantic-edge recorder); the
+        // tool call id stands in when no recorder carries one.
+        spawned_by_request_id: children
+            .services
+            .semantic_edges
+            .as_ref()
+            .and_then(|recorder| recorder.last_turn_request_id())
+            .or_else(|| Some(api.call_id().to_owned())),
         spawning_tool_task: Some(api.task_id().get()),
         max_depth: Some(max_depth),
     };
@@ -466,7 +474,11 @@ async fn create_session(children: Arc<Children>, call: HostCall) -> anyhow::Resu
 // ---------------------------------------------------------------------------
 
 /// The roster row of `row`, overlaid with the host's live facts.
-pub(super) fn entry(row: &ChildRow, listing: Option<&RlmChildListing>, now: f64) -> RlmSubagentEntry {
+pub(super) fn entry(
+    row: &ChildRow,
+    listing: Option<&RlmChildListing>,
+    now: f64,
+) -> RlmSubagentEntry {
     let running = !row.status.is_terminal();
     let activity = running.then(|| RlmSubagentActivity {
         kind: listing

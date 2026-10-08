@@ -210,8 +210,8 @@ impl Worker {
         }
     }
 
-    /// Admit the inputs the pause held (`core.suspended`) once no pause
-    /// remains.
+    /// Admit the inputs the pause held (the durable store's `held` list)
+    /// once no pause remains.
     fn resume_inputs_after_pause(&self) {
         if self.input_pauses.paused() {
             return;
@@ -222,7 +222,14 @@ impl Worker {
         let core = std::sync::Arc::clone(&self.core);
         let events = std::sync::Arc::clone(&self.events);
         tokio::spawn(async move {
-            if let Err(error) = crate::worker::resubmit_suspended(&hosted, &core, &events).await {
+            if let Err(error) = crate::worker::drain_withdrawn(
+                &hosted,
+                &core,
+                &events,
+                crate::worker::WithdrawnList::Held,
+            )
+            .await
+            {
                 eprintln!("eukhe-daemon worker: resuming paused inputs failed: {error}");
             }
         });

@@ -108,10 +108,7 @@ async fn a_heartbeat_fire_runs_its_row_and_settles_as_a_run() {
     let rows = worker_rows(&worker, "eukhe.custom").await;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["customType"], json!("heartbeat_prompt"));
-    assert_eq!(
-        rows[0]["content"],
-        json!([{ "type": "text", "text": HEARTBEAT_TEXT }])
-    );
+    assert_eq!(rows[0]["content"], json!(HEARTBEAT_TEXT));
     assert_eq!(rows[0]["details"]["jobId"], json!("hb-1"));
     assert_eq!(rows[0]["details"]["runCount"], json!(0));
     let kinds: Vec<String> = worker_entries(&worker)

@@ -286,6 +286,7 @@ impl<'a> Planner<'a> {
                             content: Some(content),
                             display: payload.display,
                             details: payload.details.clone(),
+                            input: false,
                         },
                     ))?
                 } else {

@@ -22,7 +22,10 @@ use super::deps::{
 use super::env::env_factory;
 use super::import::{import_legacy_session, ImportError};
 use super::main_conversation::{main_conversation, set_main_conversation};
+use super::models::provider::ProviderRuntime;
 use super::models::{create_models, resolve_session_model, ModelsError};
+use super::observe;
+use super::observe::semantic_edges::{wrap_stream_fn, wrap_stream_simple_fn, SemanticEdgeRecorder};
 use super::registry::create_eukhe_registry;
 use super::settings::EukheSettings;
 use crate::resources::{load_resources, LoadedResources, ResourceLoaderOptions};
@@ -168,6 +171,25 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         Some(models) => models.clone(),
         None => create_models(&config.agent_dir, cx).await?,
     };
+    // The session's semantic-edge recorder (the ACP request-id ledger):
+    // a durable storage keeps its ledger beside the session (a spawned
+    // child's dir is its RLM session dir), a memory storage keeps the
+    // recorder in memory-only mode (ids still mint and ride the wire).
+    let parent = config.role.parent.clone();
+    let ledger_home = storage_dir.clone();
+    let semantic_edges = Arc::new(observe::semantic_edges::SemanticEdgeRecorder::open(
+        observe::semantic_edges::SemanticEdgeIdentity {
+            session_id: config.session_id.clone(),
+            ledger_path: observe::semantic_edges::semantic_edge_ledger_path(
+                parent.as_ref().map(|_| ledger_home.as_deref()).flatten(),
+                ledger_home.as_deref(),
+            ),
+            parent_session_id: parent.as_ref().map(|parent| parent.session_id.clone()),
+            spawned_by_request_id: parent
+                .as_ref()
+                .and_then(|parent| parent.spawned_by_request_id.clone()),
+        },
+    ));
     let loaded = load_session_resources(&config, &manager).await?;
     let deps = Arc::new(HostDeps::new(
         &config,
@@ -179,8 +201,22 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             generic_mcp_servers: loaded.generic_mcp_servers,
             mcp: loaded.mcp,
             python_skills: loaded.python_skills,
+            semantic_edges: Arc::clone(&semantic_edges),
         },
     ));
+    // The session's own model collection gets the eukhe provider behaviors
+    // (failover, quota park, image routing, request timing); a shared
+    // collection (the daemon's faux scripts) stays unwrapped.
+    if config.models.is_none() {
+        // The runtime registers itself on the deps; the handle it returns
+        // is for callers that need it before the deps are reachable.
+        let _ = ProviderRuntime::install(&models, &deps);
+        // The semantic-edge wrapper rides OUTERMOST (over the provider
+        // runtime's timing fn, the old engine's wrap order): every model
+        // request mints its id, sends it on the wire headers, and settles
+        // on the ledger.
+        wrap_models_with_semantic_edges(&models, &semantic_edges);
+    }
     let registry = create_eukhe_registry(&deps)?;
 
     let session_id = config.session_id.clone();
@@ -244,6 +280,23 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         return Err(error.into());
     }
     Ok(session)
+}
+
+/// Wrap every provider's stream functions with the session's
+/// semantic-edge recorder (TS `wrapStreamFnWithSemanticEdges`, outermost
+/// over the provider runtime's wrappers): each provider row is re-wrapped
+/// in place.
+fn wrap_models_with_semantic_edges(
+    models: &eukhe_pi_ai::models::Models,
+    recorder: &Arc<SemanticEdgeRecorder>,
+) {
+    for provider in models.get_providers() {
+        let mut provider = (*provider).clone();
+        provider.stream = wrap_stream_fn(Arc::clone(recorder), provider.stream);
+        provider.stream_simple =
+            wrap_stream_simple_fn(Arc::clone(recorder), provider.stream_simple);
+        models.set_provider(provider);
+    }
 }
 
 async fn open_storage(

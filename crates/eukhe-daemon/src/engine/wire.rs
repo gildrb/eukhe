@@ -189,6 +189,19 @@ pub enum AssistantSnapshot {
     Loop(Arc<eukhe_agent::types::AgentMessage>),
 }
 
+/// The wire value of a snapshot: `Wire` as is, `Loop` through the session
+/// wire shape. The engine's own frame builds inline the same conversion;
+/// only its tests need it as a method.
+#[cfg(test)]
+impl AssistantSnapshot {
+    pub(crate) fn into_wire(self) -> Option<Value> {
+        match self {
+            Self::Wire(value) => Some(value),
+            Self::Loop(message) => session_wire_value(&message),
+        }
+    }
+}
+
 /// Serialize a eukhe-agent message through the session wire shape (adds `role`).
 pub(crate) fn session_wire_value(
     agent_message: &eukhe_agent::types::AgentMessage,

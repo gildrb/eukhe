@@ -30,6 +30,9 @@ use super::registry::{
     child_identity, read_children, tx_attribute_usage, tx_remove_row, tx_row, tx_update_row,
     ChildRow, ChildStatus,
 };
+use crate::durable::observe::semantic_edges::{
+    last_committed_request_id, SemanticEdgeRecorder, SEMANTIC_EDGES_LEDGER_FILENAME,
+};
 
 /// The task kind.
 pub(crate) const CHILD_TASK_KIND: &str = "eukhe.rlm.child";
@@ -53,6 +56,9 @@ pub(crate) struct ChildrenServices {
     /// This (the parent) session's depth; children run one deeper.
     pub(crate) rlm_depth: u32,
     pub(crate) rlm_max_depth: u32,
+    /// The parent's semantic-edge recorder: a settled child's return is
+    /// claimed on it before its notice (TS `recordChildReturned`).
+    pub(crate) semantic_edges: Option<Arc<SemanticEdgeRecorder>>,
 }
 
 /// Input of one child task (the validated `rlm.spawn` request).
@@ -338,12 +344,45 @@ async fn watch(
     let signal = runtime.signal();
     let observed = tokio::select! {
         observed = services.host.wait_settled(RlmChildWaitRequest {
-            session_id: identity.session_id,
+            session_id: identity.session_id.clone(),
             timeout_ms: WATCH_WAIT_SLICE_MS,
         }) => observed,
         reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
     };
     let next_poll_at = runtime.now()? + WATCH_POLL_INTERVAL_MS;
+    // A settled child's return is claimed on the parent's ledger BEFORE
+    // the commit that delivers its notice (TS records the return before
+    // the notice triggers the parent's next turn): the child's last
+    // committed request, read from its ledger beside its storage; a child
+    // with no ledger returns nothing (an absent edge beats a wrong one).
+    let claim_child_return = {
+        let settled = matches!(
+            &observed,
+            Ok(observation) if matches!(observation.state, RlmChildRunState::Settled { .. })
+        );
+        let services = Arc::clone(&services);
+        let session_id = identity.session_id.clone();
+        move |row: &ChildRow| {
+            if !settled {
+                return;
+            }
+            let Some(recorder) = services.semantic_edges.as_ref() else {
+                return;
+            };
+            let ledger = row
+                .session_dir
+                .as_deref()
+                .map(std::path::Path::new)
+                .map(|dir| {
+                    dir.join(row.session_id.as_str())
+                        .join(SEMANTIC_EDGES_LEDGER_FILENAME)
+                });
+            recorder.record_child_returned(
+                &session_id,
+                ledger.as_deref().and_then(last_committed_request_id),
+            );
+        }
+    };
     let conversation_id = task.conversation_id;
     runtime
         .commit(
@@ -353,6 +392,7 @@ async fn watch(
                         "RLM child task {task_id} has no registry row"
                     )));
                 };
+                claim_child_return(&row);
                 let next = match observed {
                     Ok(observation) => {
                         if let Some(usage) = &observation.usage {

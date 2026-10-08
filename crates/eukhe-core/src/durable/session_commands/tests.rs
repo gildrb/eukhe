@@ -143,6 +143,7 @@ fn echo(text: &str) -> CustomEntryData {
         content: Some(UserContent::Text(text.to_owned())),
         display: true,
         details: Some(command_details(&command)),
+        input: false,
     }
 }
 
@@ -156,6 +157,7 @@ fn result(text: &str, content: &str, display: bool) -> CustomEntryData {
         content: Some(UserContent::Text(content.to_owned())),
         display,
         details: Some(details),
+        input: false,
     }
 }
 
@@ -170,6 +172,7 @@ fn failure(text: &str, error: &str) -> CustomEntryData {
         content: Some(UserContent::Text(format!("Command failed: {error}"))),
         display: true,
         details: Some(details),
+        input: false,
     }
 }
 
@@ -361,6 +364,7 @@ async fn autonomous_status_on_and_off_append_status_rows() {
         content: None,
         display: true,
         details: Some(serde_json::to_value(status).expect("status json")),
+        input: false,
     };
     // Status rows reach the model: their text rides in `model`.
     assert_eq!(

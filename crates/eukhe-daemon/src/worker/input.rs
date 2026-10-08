@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_core::durable::custom_entry_draft;
+use eukhe_core::durable::input_row_draft;
 use eukhe_core::session_engine::agent_messaging::{
     AgentFamilyRelationship, AgentMessagePromptPayload, AGENT_MESSAGE_SOURCE,
     DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
@@ -18,6 +18,7 @@ use eukhe_durable::types::SubmissionStatus;
 use eukhe_types::pi_ai::{ImageContent, TextContent, UserContent, UserContentBlock};
 use serde_json::{json, Value};
 
+use super::durable_host::suspended::WithdrawnInput;
 use super::{sender_is_child_of, HostedSession, Worker};
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 
@@ -94,7 +95,8 @@ pub(crate) fn parse_custom_message(value: Option<&Value>) -> Result<Option<Value
 }
 
 /// Admit `request` on `conversation`: the display row (if any) as an
-/// `eukhe.custom` write, then the input submission.
+/// `eukhe.custom` input row that stands for the input (no model text of its
+/// own), then the input submission, which carries the model context.
 ///
 /// # Errors
 ///
@@ -104,6 +106,32 @@ pub(crate) async fn submit_input(
     request: &InputRequest,
     cx: &Context,
 ) -> anyhow::Result<SubmissionHandle> {
+    write_input_row(conversation, request, cx).await?;
+    let handle = conversation
+        .submit(
+            InputSubmissionDraft {
+                request_id: request.request_id.clone(),
+                content: request.content(),
+                when_busy: Some(request.when_busy),
+            },
+            cx,
+        )
+        .await?;
+    Ok(handle)
+}
+
+/// The display row (if any) of `request` as an `eukhe.custom` input row
+/// that stands for the input submitted right after it (no model text of
+/// its own).
+///
+/// # Errors
+///
+/// The row write fails (closed Harness, bad row).
+pub(crate) async fn write_input_row(
+    conversation: &Conversation,
+    request: &InputRequest,
+    cx: &Context,
+) -> anyhow::Result<()> {
     if let Some(row) = &request.custom_row {
         let custom_type = row
             .get("customType")
@@ -118,13 +146,7 @@ pub(crate) async fn submit_input(
             .unwrap_or_else(|| UserContent::Text(request.text.clone()));
         let display = row.get("display").and_then(Value::as_bool).unwrap_or(true);
         let details = row.get("details").cloned().filter(|value| !value.is_null());
-        let entry = custom_entry_draft(
-            custom_type,
-            content,
-            display,
-            details,
-            crate::util::now_ms(),
-        )?;
+        let entry = input_row_draft(custom_type, content, display, details)?;
         conversation
             .submit(
                 WriteSubmissionDraft {
@@ -135,17 +157,21 @@ pub(crate) async fn submit_input(
             )
             .await?;
     }
-    let handle = conversation
-        .submit(
-            InputSubmissionDraft {
-                request_id: request.request_id.clone(),
-                content: request.content(),
-                when_busy: Some(request.when_busy),
-            },
-            cx,
-        )
-        .await?;
-    Ok(handle)
+    Ok(())
+}
+
+/// The rider provenance of one admission's custom row (the queue strip's
+/// typed marks): the reserved child-status kinds are daemon-authentic
+/// (only the minted capability admits them), a heartbeat fire is the
+/// engine-minted internal prompt. Agent messages and plain prompts stay
+/// user rows — a same-text human row never flags.
+pub(crate) fn injection_kind(custom_row: Option<&Value>) -> Option<super::session_core::InjectionKind> {
+    let row = custom_row?;
+    if crate::child_status_notices::is_reserved_child_status_custom_type(row) {
+        return Some(super::session_core::InjectionKind::ChildStatusNotice);
+    }
+    (row.get("customType").and_then(Value::as_str) == Some("heartbeat_prompt"))
+        .then_some(super::session_core::InjectionKind::InjectedPrompt)
 }
 
 impl Worker {
@@ -160,9 +186,62 @@ impl Worker {
         request: &InputRequest,
     ) -> Result<SubmissionHandle, String> {
         let main = hosted.main().map_err(|error| error.to_string())?;
-        submit_input(&main, request, &BACKGROUND_CONTEXT)
+        let handle = submit_input(&main, request, &BACKGROUND_CONTEXT)
             .await
-            .map_err(|error| format!("{error:#}"))
+            .map_err(|error| format!("{error:#}"))?;
+        // The rider provenance of a daemon-classified admission: the
+        /// queue strip's marks ride by submission id.
+        if let Some(kind) = injection_kind(request.custom_row.as_ref()) {
+            self.core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .injected
+                .insert(handle.id(), kind);
+        }
+        Ok(handle)
+    }
+
+    /// Hold one admission under a live input-pause lease (TS
+    /// `_sessionInputAdmissionPauses`): the display row (if any) commits,
+    /// the input parks in the durable held list — visible in the queue
+    /// strip — and the release delivers it. A waiting prompt cannot wait
+    /// the lease out: it answers the pause error while the input stays
+    /// held.
+    async fn hold_input(
+        &self,
+        hosted: &HostedSession,
+        request: &InputRequest,
+        command: &str,
+        wait: bool,
+        queued_payload: bool,
+    ) -> DaemonResponse {
+        let held = WithdrawnInput {
+            id: None,
+            mode: request.when_busy.into(),
+            content: request.content(),
+        };
+        let held = (|| async {
+            let main = hosted.main().map_err(|error| error.to_string())?;
+            write_input_row(&main, request, &BACKGROUND_CONTEXT)
+                .await
+                .map_err(|error| format!("{error:#}"))?;
+            super::mutate_withdrawn(&hosted, &self.core, &self.events, move |mut state| {
+                state.held.push(held);
+                (state, ())
+            })
+            .await
+        })()
+        .await;
+        if let Err(error) = held {
+            return response_failure(None, command, &error, None);
+        }
+        if wait {
+            return response_failure(None, command, "Session input is paused", None);
+        }
+        if queued_payload {
+            return response_success(None, command, Some(json!({ "queued": true })));
+        }
+        response_success(None, command, None)
     }
 
     pub(crate) async fn handle_prompt(&self, payload: &Value, wait: bool) -> DaemonResponse {
@@ -227,6 +306,13 @@ impl Worker {
             when_busy,
             request_id: admission_id.clone(),
         };
+        // A live input-pause lease holds the admission (TS
+        // `_sessionInputAdmissionPauses`): the input parks durable-held
+        // until the release delivers it; a waiting prompt answers the
+        // pause error instead of waiting the lease out.
+        if self.input_pauses.paused() {
+            return self.hold_input(&hosted, &request, command, wait, false).await;
+        }
         let handle = match self.admit_input(&hosted, &request).await {
             Ok(handle) => handle,
             Err(error) => return response_failure(None, command, &error, None),
@@ -340,6 +426,11 @@ impl Worker {
                 .and_then(Value::as_str)
                 .map(str::to_string),
         };
+        // A live input-pause lease holds the delivery like any admission;
+        // the release delivers it.
+        if self.input_pauses.paused() {
+            return self.hold_input(&hosted, &request, command, false, true).await;
+        }
         match self.admit_input(&hosted, &request).await {
             Ok(_) => response_success(None, command, Some(json!({ "queued": true }))),
             Err(error) => response_failure(None, command, &error, None),
@@ -440,6 +531,12 @@ impl Worker {
             },
             request_id: Some(format!("agent-message:{id}")),
         };
+        // A live input-pause lease holds the delivery's input like any
+        // admission; the card row above already committed, and the
+        /// release delivers the prompt.
+        if self.input_pauses.paused() {
+            return self.hold_input(&hosted, &request, COMMAND, false, false).await;
+        }
         if let Err(error) = self.admit_input(&hosted, &request).await {
             return response_failure(None, COMMAND, &error, None);
         }

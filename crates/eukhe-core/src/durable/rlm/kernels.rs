@@ -256,6 +256,27 @@ impl KernelPool {
                 .await;
         }
     }
+
+    /// Dispose `conversation_id`'s kernel, flushing a namespace snapshot
+    /// first (TS #2483's settled-child release: a parent-owned child that
+    /// parks releases its kernel; the conversation's next kernel use
+    /// revives it from the snapshot). `false` when the conversation had no
+    /// kernel. Best-effort like the pool's close: a failed dispose leaves
+    /// nothing behind (the entry is gone either way, so a later use boots
+    /// fresh).
+    pub(crate) async fn release(&self, conversation_id: ConversationId) -> bool {
+        let Some(kernel) = lock(&self.kernels).remove(&conversation_id) else {
+            return false;
+        };
+        kernel
+            .provisioner
+            .dispose(Some(KernelShutdownOptions {
+                snapshot: true,
+                drain_host_requests: true,
+            }))
+            .await;
+        true
+    }
 }
 
 async fn submit_notice(

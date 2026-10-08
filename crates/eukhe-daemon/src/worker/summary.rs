@@ -6,6 +6,7 @@
 use super::durable_host::bridge::{QueuedMode, ShownView};
 use super::durable_host::wire_messages::entry_wire_message;
 use super::lifecycle::active_lifecycle;
+use super::session_core::InjectionKind;
 use super::{
     create_daemon_event_meta, AgentConnectionState, Arc, DaemonOutbound, DaemonSessionClosedReason,
     EventPump, Map, Mutex, OutboundFrame, Result, SessionActionSnapshot, SessionCore, SessionSlot,
@@ -73,6 +74,7 @@ impl Worker {
             &thinking_level(core),
             model_metadata(core, &self.session),
             self.user_bash.is_running(),
+            quota_parked(&self.session),
         );
         // The worker's roster-delta counter at snapshot time and the
         // process instance that read it: the supervisor's pull gate orders
@@ -270,6 +272,18 @@ pub(crate) struct RosterPushContext {
     pub(crate) roster_push_order: std::sync::Arc<std::sync::Mutex<()>>,
 }
 
+/// Whether the session's provider runtime is quota-parked (the durable
+/// `eukhe.quota_park` state; `false` without a hosted session).
+fn quota_parked(session: &SessionSlot) -> bool {
+    session.get().is_some_and(|hosted| {
+        hosted
+            .deps()
+            .provider_runtime
+            .get()
+            .is_some_and(|runtime| runtime.is_quota_parked())
+    })
+}
+
 /// The worker's roster-delta push: the fresh session summary rides the
 /// supervisor link with the worker's monotonic counter (the supervisor's
 /// stale-delta gate drops delayed older snapshots).
@@ -280,6 +294,7 @@ pub(crate) fn push_roster_delta(context: &RosterPushContext) {
     if context.worker_token.is_empty() || context.roster_link.socket_path().as_os_str().is_empty() {
         return;
     }
+
     let _order = context
         .roster_push_order
         .lock()
@@ -294,6 +309,7 @@ pub(crate) fn push_roster_delta(context: &RosterPushContext) {
             &thinking_level(&core),
             model_metadata(&core, &context.session),
             context.user_bash.is_running(),
+            quota_parked(&context.session),
         )
     };
     summary.roster_delta_sequence = Some(
@@ -363,10 +379,13 @@ pub(crate) fn session_summary(
     thinking_level: &str,
     model: Option<Value>,
     bash_running: bool,
+    quota_parked: bool,
 ) -> SessionSummary {
     let streaming = core.is_busy();
     let compacting = core.is_compacting();
-    let queued = core.view.as_ref().map_or(0, |view| view.inbox.len());
+    let queued = core.view.as_ref().map_or(0, |view| view.inbox.len())
+        + core.suspended.len()
+        + core.held.len();
     let messages = message_count(core);
     let view = core.view.as_ref();
     let running_tools = view.is_some_and(|view| !view.translator.mirror().tools.is_empty());
@@ -395,7 +414,7 @@ pub(crate) fn session_summary(
         thinking_level: Some(thinking_level.to_string()),
         is_streaming: streaming,
         is_compacting: compacting,
-        is_quota_parked: Some(false),
+        is_quota_parked: Some(quota_parked),
         is_bash_running: Some(bash_running),
         is_running_tools: streaming && running_tools,
         has_running_subagents: false,
@@ -425,27 +444,56 @@ pub(crate) fn session_summary(
 
 /// The queue snapshot for one core (TS `sessionActions`): the queued
 /// steer and follow-up inputs of the shown conversation's inbox, then the
-/// inputs an abort suspended.
+/// inputs an abort suspended and the admissions an input pause holds.
+/// The riders mark the daemon-classified parked rows (child status
+/// notices, injected prompts) by lane index; `active` is the run the
+/// bridge's active action tracks (the strip's Starting row).
 pub(crate) fn session_snapshot(core: &SessionCore) -> SessionActionSnapshot {
     let inbox = core
         .view
         .as_ref()
         .map_or(&[][..], |view| view.inbox.as_slice());
-    let queued = || inbox.iter().chain(&core.suspended);
+    let queued = || inbox.iter().chain(&core.suspended).chain(&core.held);
     let lane = |mode: QueuedMode| {
         queued()
             .filter(|input| input.mode == mode)
             .map(|input| input.text.clone())
             .collect::<Vec<String>>()
     };
+    let indices = |mode: QueuedMode, kind: InjectionKind| {
+        queued()
+            .filter(|input| input.mode == mode)
+            .enumerate()
+            .filter(|(_, input)| core.injected.get(&input.id) == Some(&kind))
+            .map(|(index, _)| index)
+            .collect::<Vec<usize>>()
+    };
     SessionActionSnapshot {
         queued_count: u32::try_from(queued().count()).unwrap_or(u32::MAX),
         steering: lane(QueuedMode::Steer),
         follow_ups: lane(QueuedMode::FollowUp),
-        rlm_child_status: crate::types::QueueLaneIndices::default(),
-        injected_prompts: crate::types::QueueLaneIndices::default(),
-        active: None,
+        rlm_child_status: crate::types::QueueLaneIndices {
+            steering: indices(QueuedMode::Steer, InjectionKind::ChildStatusNotice),
+            follow_up: indices(QueuedMode::FollowUp, InjectionKind::ChildStatusNotice),
+        },
+        injected_prompts: crate::types::QueueLaneIndices {
+            steering: indices(QueuedMode::Steer, InjectionKind::InjectedPrompt),
+            follow_up: indices(QueuedMode::FollowUp, InjectionKind::InjectedPrompt),
+        },
+        active: core.view.as_ref().and_then(|view| view.active.clone()),
     }
+}
+
+/// The active action's queue label (TS `compactRlmText(text, 160)`):
+/// collapse whitespace and cap at 160 chars with an ellipsis.
+pub(crate) fn compact_action_label(text: &str) -> String {
+    const MAX_CHARS: usize = 160;
+    let compact: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= MAX_CHARS {
+        return compact;
+    }
+    let kept: String = compact.chars().take(MAX_CHARS - 3).collect();
+    format!("{}...", kept.trim_end())
 }
 
 #[derive(Clone, Copy)]
@@ -464,5 +512,146 @@ fn queue_mode_setting(settings: &eukhe_core::settings::SettingsManager, kind: Qu
     match mode {
         eukhe_core::settings::QueueModeSetting::All => "all".to_string(),
         eukhe_core::settings::QueueModeSetting::OneAtATime => "one-at-a-time".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use eukhe_durable::harness::SnapshotEvent;
+    use eukhe_durable::types::SubmissionId;
+    use serde_json::json;
+
+    use super::super::durable_host::bridge::{QueuedInput, QueuedMode};
+    use super::super::durable_host::ShownView;
+    use super::super::session_core::InjectionKind;
+    use super::*;
+
+    fn queued(id: u64, mode: QueuedMode, text: &str) -> QueuedInput {
+        QueuedInput {
+            id: SubmissionId::from_number(id),
+            mode,
+            text: text.to_owned(),
+            content: eukhe_types::pi_ai::UserContent::Text(text.to_owned()),
+        }
+    }
+
+    /// A core with the given inbox and rider provenance.
+    fn core_with(
+        inbox: Vec<QueuedInput>,
+        suspended: Vec<QueuedInput>,
+        held: Vec<QueuedInput>,
+        injected: Vec<(u64, InjectionKind)>,
+    ) -> SessionCore {
+        let mut core = SessionCore::test_core("/tmp".to_string());
+        let snapshot: SnapshotEvent = serde_json::from_value(json!({
+            "entries": [], "tools": [], "compactions": [], "inbox": [],
+            "agent": {}, "usage": { "models": {}, "tools": {} },
+        }))
+        .expect("snapshot");
+        core.view = Some(ShownView {
+            epoch: 1,
+            translator: super::super::durable_host::translator::EventTranslator::new(
+                &snapshot,
+                super::super::durable_host::translator::CoalesceMode::Immediate,
+            ),
+            inbox,
+            active: None,
+            goal: Value::Null,
+        });
+        core.suspended = suspended;
+        core.held = held;
+        core.injected = injected
+            .into_iter()
+            .map(|(id, kind)| (SubmissionId::from_number(id), kind))
+            .collect();
+        core
+    }
+
+    /// The riders mark exactly the daemon-classified parked rows, by lane
+    /// index (lane-relative, like the old projection); a same-text user
+    /// row never flags, and withdrawn inputs ride the strip with the
+    /// inbox ones.
+    #[test]
+    fn the_riders_mark_the_injected_rows_by_lane_index() {
+        let core = core_with(
+            vec![
+                queued(1, QueuedMode::Steer, "user text"),
+                queued(2, QueuedMode::Steer, "[child-exited: no-reply child:a]"),
+            ],
+            vec![queued(3, QueuedMode::FollowUp, "aborted earlier")],
+            vec![queued(4, QueuedMode::Steer, "paused admission")],
+            vec![
+                (2, InjectionKind::ChildStatusNotice),
+                (4, InjectionKind::InjectedPrompt),
+            ],
+        );
+        let snapshot = session_snapshot(&core);
+        assert_eq!(snapshot.queued_count, 4);
+        assert_eq!(
+            snapshot.steering,
+            [
+                "user text",
+                "[child-exited: no-reply child:a]",
+                "paused admission"
+            ]
+        );
+        assert_eq!(snapshot.follow_ups, ["aborted earlier"]);
+        assert_eq!(snapshot.rlm_child_status.steering, vec![1]);
+        assert!(snapshot.rlm_child_status.follow_up.is_empty());
+        assert_eq!(snapshot.injected_prompts.steering, vec![2]);
+        assert!(snapshot.injected_prompts.follow_up.is_empty());
+
+        // The wire omits an empty rider entirely (the TS shape).
+        let wire = serde_json::to_value(&snapshot).expect("wire");
+        assert_eq!(
+            wire["rlmChildStatus"],
+            json!({ "steering": [1] }),
+            "the rider carries its lane indices, the empty lane omitted"
+        );
+        assert_eq!(wire["injectedPrompts"], json!({ "steering": [2] }));
+    }
+
+    /// A notice-free projection stays the TS wire shape: neither rider
+    /// serializes.
+    #[test]
+    fn a_notice_free_projection_has_no_riders() {
+        let core = core_with(
+            vec![queued(1, QueuedMode::FollowUp, "plain")],
+            vec![],
+            vec![],
+            vec![],
+        );
+        let wire = serde_json::to_value(session_snapshot(&core)).expect("wire");
+        assert!(wire.get("rlmChildStatus").is_none());
+        assert!(wire.get("injectedPrompts").is_none());
+    }
+
+    /// The active action rides the projection as the bridge tracked it.
+    #[test]
+    fn the_active_action_rides_the_snapshot() {
+        let mut core = core_with(vec![], vec![], vec![], vec![]);
+        core.view.as_mut().expect("view").active = Some(crate::types::SessionActionActive {
+            kind: "turn".to_string(),
+            phase: "preparing".to_string(),
+            label: Some("go".to_string()),
+        });
+        let snapshot = session_snapshot(&core);
+        assert_eq!(
+            snapshot.active,
+            Some(crate::types::SessionActionActive {
+                kind: "turn".to_string(),
+                phase: "preparing".to_string(),
+                label: Some("go".to_string()),
+            })
+        );
+    }
+
+    /// The strip label collapses whitespace and caps at 160 chars.
+    #[test]
+    fn the_compact_label_matches_the_ts_shape() {
+        assert_eq!(compact_action_label("  a   b  "), "a b");
+        let long = compact_action_label(&"x".repeat(400));
+        assert_eq!(long.chars().count(), 160);
+        assert!(long.ends_with("..."));
     }
 }

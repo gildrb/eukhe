@@ -36,9 +36,16 @@ impl Fixture {
         for sub in ["agent", "work"] {
             std::fs::create_dir_all(dir.path().join(sub)).expect("fixture dir");
         }
+        // A tiny keep window so a manual compaction of the short test
+        // conversation still finds a cut.
+        std::fs::write(
+            dir.path().join("agent").join("settings.json"),
+            r#"{"compaction":{"keepRecentTokens":1}}"#,
+        )
+        .expect("settings file");
         let faux = faux_provider(RegisterFauxProviderOptions::default());
         let models = create_models(CreateModelsOptions::default());
-        models.set_provider(faux.provider().to_owned());
+        models.set_provider(faux.provider.clone());
         Self {
             dir,
             faux,
@@ -47,7 +54,7 @@ impl Fixture {
         }
     }
 
-    fn open(&self) -> EukheSession {
+    async fn open(&self) -> EukheSession {
         let mut config = SessionConfig::new(
             self.dir.path().join("agent"),
             self.dir.path().join("work"),
@@ -72,7 +79,7 @@ impl Fixture {
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(delta.to_owned());
         }));
-        open_session(config, cx()).expect("session opens")
+        open_session(config, cx()).await.expect("session opens")
     }
 
     /// Queue one assistant reply.
@@ -122,15 +129,17 @@ async fn newest_summary_text(session: &EukheSession) -> Option<String> {
                     messages.first().and_then(|message| match message {
                         eukhe_types::pi_ai::Message::User(user) => match &user.content {
                             UserContent::Text(text) => Some(text.clone()),
-                            UserContent::Blocks(blocks) => blocks
-                                .iter()
-                                .filter_map(|block| match block {
-                                    eukhe_types::pi_ai::UserContentBlock::Text(text) => {
-                                        Some(text.text.as_str())
-                                    }
-                                    eukhe_types::pi_ai::UserContentBlock::Image(_) => None,
-                                })
-                                .collect(),
+                            UserContent::Blocks(blocks) => Some(
+                                blocks
+                                    .iter()
+                                    .filter_map(|block| match block {
+                                        eukhe_types::pi_ai::UserContentBlock::Text(text) => {
+                                            Some(text.text.as_str())
+                                        }
+                                        eukhe_types::pi_ai::UserContentBlock::Image(_) => None,
+                                    })
+                                    .collect::<String>(),
+                            ),
                         },
                         _ => None,
                     })
@@ -147,7 +156,7 @@ async fn newest_summary_text(session: &EukheSession) -> Option<String> {
 #[tokio::test]
 async fn the_summary_lands_wrapped_and_streams_its_deltas() {
     let fixture = Fixture::new();
-    let session = fixture.open();
+    let session = fixture.open().await;
     fixture
         .turn(&session, "tell me a story", "once upon a time")
         .await;
@@ -155,6 +164,20 @@ async fn the_summary_lands_wrapped_and_streams_its_deltas() {
     fixture.reply("the story of the turn");
     session.root().compact(None, cx()).await.unwrap();
     session.root().wait_for_idle(cx()).await.unwrap();
+    let view = session.root().context(cx()).await.unwrap();
+    eprintln!(
+        "DEBUG kinds={:?} tasks={:?}",
+        view.entries.iter().map(|e| e.kind.clone()).collect::<Vec<_>>(),
+        session
+            .harness()
+            .inspect(cx())
+            .await
+            .unwrap()
+            .tasks
+            .iter()
+            .map(|t| (t.record.kind.clone(), format!("{:?}", t.record.state)))
+            .collect::<Vec<_>>()
+    );
     let text = newest_summary_text(&session)
         .await
         .expect("compaction entry");
@@ -180,7 +203,7 @@ async fn the_summary_lands_wrapped_and_streams_its_deltas() {
 #[tokio::test]
 async fn a_second_compaction_summarizes_in_update_mode_over_the_previous_summary() {
     let fixture = Fixture::new();
-    let session = fixture.open();
+    let session = fixture.open().await;
     fixture.turn(&session, "one", "answer one").await;
     fixture.turn(&session, "two", "answer two").await;
     fixture.reply("first summary");

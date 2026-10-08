@@ -17,8 +17,9 @@ mod session_core;
 pub(crate) use config::WorkerConfig;
 use env::KillCloseReason;
 mod input;
-pub(crate) use input::{parse_prompt_images, submit_input, InputRequest};
+pub(crate) use input::{injection_kind, parse_prompt_images, submit_input, write_input_row, InputRequest};
 mod lifecycle;
+mod passivation;
 mod summary;
 
 mod connection;
@@ -30,12 +31,13 @@ mod create;
 pub(crate) use create::CreateParams;
 use create::{active_session_id_of, worker_server_capabilities};
 pub(crate) use summary::{
-    emit_action_update_locked, emit_event_locked, emit_worker_event_with, model_metadata,
-    push_roster_delta, session_snapshot, RosterPushContext,
+    compact_action_label, emit_action_update_locked, emit_event_locked, emit_worker_event_with,
+    model_metadata, push_roster_delta, session_snapshot, RosterPushContext,
 };
 
 mod commands;
 pub(crate) use commands::resubmit_suspended;
+pub(crate) use commands::{drain_withdrawn, mutate_withdrawn, set_withdrawn, WithdrawnList};
 
 #[cfg(test)]
 mod tests;
@@ -144,6 +146,10 @@ pub struct Worker {
     /// Session creation is one serialized critical section: a concurrent
     /// create joins the in-flight one.
     create_gate: tokio::sync::Mutex<()>,
+    /// Fires whenever the session parks (a run ends, a session opens
+    /// idle): the idle-passivation loop re-arms its window (and the
+    /// settled-child kernel release re-checks) on every park.
+    pub(crate) park_notify: std::sync::Arc<tokio::sync::Notify>,
     /// Whole-session replacements are one serialized critical section.
     pub(crate) replacement_gate: tokio::sync::Mutex<()>,
     /// The chat memory root sessions share (`<agent-dir>/chat`), opened at
@@ -233,12 +239,26 @@ impl Worker {
             session: session.clone(),
             user_bash: std::sync::Arc::clone(&user_bash),
             roster_link: Arc::clone(&roster_link),
-            worker_token,
+            worker_token: worker_token.clone(),
             worker_instance_id: config.worker_instance_id.clone(),
             roster_delta_sequence: std::sync::Arc::clone(&roster_delta_sequence),
             roster_push_order,
         });
         crate::roster_activity::spawn_roster_activity_watch(&events, roster_pushes.clone());
+        // The park loop: the settled-child kernel release and the idle
+        // passivation re-check on every run end (and the opening park).
+        let park_notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        tokio::spawn(passivation::passivation_loop(passivation::ParkContext {
+            core: Arc::clone(&core),
+            session: session.clone(),
+            user_bash: std::sync::Arc::clone(&user_bash),
+            input_pauses: input_pauses.clone(),
+            scheduled: std::sync::Arc::clone(&scheduled),
+            link: Arc::clone(&roster_link),
+            worker_token,
+            agent_dir: config.agent_dir.clone(),
+            park_notify: std::sync::Arc::clone(&park_notify),
+        }));
         let side_questions = crate::side_question::SideQuestionManager::new(
             session.clone(),
             events.clone(),
@@ -295,6 +315,7 @@ impl Worker {
             herdr: herdr_slot,
             herdr_generation,
             create_gate: tokio::sync::Mutex::new(()),
+            park_notify,
             replacement_gate: tokio::sync::Mutex::new(()),
             chat_memory: tokio::sync::OnceCell::new(),
             rlm_children: std::sync::OnceLock::new(),
@@ -321,6 +342,7 @@ impl Worker {
         let recovery = Arc::clone(&self.recovery);
         let roster_pushes = self.roster_pushes.clone();
         let herdr = std::sync::Arc::clone(&self.herdr);
+        let park_notify = std::sync::Arc::clone(&self.park_notify);
         durable_host::bridge::BridgeSink {
             core: Arc::clone(&self.core),
             events: Arc::clone(&self.events),
@@ -341,7 +363,9 @@ impl Worker {
                 };
                 let busy = error_hold.is_none();
                 let more_queued = {
-                    let mut core = core.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let mut core = core
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     if !busy {
                         core.last_activity_ms = crate::util::now_ms();
                     }
@@ -355,12 +379,19 @@ impl Worker {
                     busy,
                     if busy { "run_started" } else { "run_ended" },
                 );
-                let reporter = herdr.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let reporter = herdr
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 match error_hold {
                     None => reporter.run_started(),
                     Some(error_hold) => reporter.run_ended(error_hold, more_queued),
                 }
                 drop(reporter);
+                // The park: the idle-passivation window (and the
+                // settled-child kernel release) re-arms from here.
+                if !busy {
+                    park_notify.notify_one();
+                }
                 roster_pushes.push();
             }),
         }

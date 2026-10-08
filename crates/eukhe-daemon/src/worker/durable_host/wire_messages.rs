@@ -60,12 +60,23 @@ pub fn assistant_wire_message(message: &AssistantMessage) -> Value {
     value
 }
 
-/// Attach `messages`: every shown entry mapped, in order.
+/// Attach `messages`: every shown entry mapped, in order. A user entry
+/// covered by the input row before it (an `eukhe.custom` row with
+/// `input: true`, the old engine's injected custom turn) shows as that row
+/// only.
 #[must_use]
 pub fn transcript_messages(entries: &[EntryRecord]) -> Vec<Value> {
     let mut context_tokens = 0;
     let mut messages = Vec::with_capacity(entries.len());
-    for entry in entries {
+    for (index, entry) in entries.iter().enumerate() {
+        if entry.kind.as_str() == USER_ENTRY.kind()
+            && entries[..index].last().is_some_and(|row| {
+                row.kind.as_str() == CUSTOM_ENTRY.kind()
+                    && entry_data::<CustomEntryData>(row).is_some_and(|data| data.input)
+            })
+        {
+            continue;
+        }
         if let Some(message) = entry_wire_message_with(entry, context_tokens) {
             messages.push(message);
         }
@@ -197,7 +208,7 @@ fn bash_message(entry: &EntryRecord) -> Option<Value> {
 }
 
 /// The entry's typed data, or None when absent or of another shape.
-fn entry_data<T: DeserializeOwned>(entry: &EntryRecord) -> Option<T> {
+pub(crate) fn entry_data<T: DeserializeOwned>(entry: &EntryRecord) -> Option<T> {
     serde_json::from_value(Value::from(entry.data.as_ref()?)).ok()
 }
 

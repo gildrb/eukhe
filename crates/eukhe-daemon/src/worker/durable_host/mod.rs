@@ -10,27 +10,32 @@
 
 pub(crate) mod bridge;
 pub(crate) mod meta;
+pub(crate) mod suspended;
 pub mod translator;
 pub mod wire_messages;
 
 pub use translator::{CoalesceMode, ConversationMirror, EventTranslator};
+pub(crate) use bridge::{EventBridge, ShownView};
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use eukhe_chord::context::Context;
+use eukhe_core::durable::observe::telemetry::{
+    build_client, install as install_telemetry, telemetry_enabled_switch, SessionCounters,
+    SessionTelemetry, SkillCounts, TelemetryWiring,
+};
 use eukhe_core::durable::{
     open_session, EukheSession, HostDeps, ModelRequest, OpenError, SessionConfig, SessionStorage,
 };
-use eukhe_durable::harness::{Conversation, Harness};
+use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_pi_ai::providers::faux_script::{
     create_faux_script_models, parse_faux_script_value, FauxScriptError,
 };
+use futures::future::FutureExt as _;
 
 use crate::lease::SessionLease;
-
-pub(crate) use bridge::{EventBridge, ShownView};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -56,6 +61,12 @@ pub(crate) struct HostRequest {
     /// A create-config faux script (`script`): the session's models become
     /// the scripted faux provider and its model the scripted one.
     pub(crate) script: Option<serde_json::Value>,
+    /// The create command's telemetry opt-out ("1" = disabled; the
+    /// session installs no telemetry subscriber).
+    pub(crate) telemetry_disabled: Option<bool>,
+    /// The create payload's `executionMode` (the client's mode, e.g.
+    /// `interactive`); absent reports `unknown`.
+    pub(crate) execution_mode: Option<String>,
 }
 
 /// One open session on the worker.
@@ -69,6 +80,10 @@ pub(crate) struct HostedSession {
     session: Mutex<Option<Arc<EukheSession>>>,
     lease: Mutex<Option<Arc<SessionLease>>>,
     bridge: Mutex<Option<EventBridge>>,
+    /// The session telemetry (`None` when opted out or not a root
+    /// session), fed by `telemetry_stream`'s observer.
+    telemetry: Option<Arc<SessionTelemetry>>,
+    telemetry_stream: Mutex<Option<AgentEventStream>>,
 }
 
 impl std::fmt::Debug for HostedSession {
@@ -95,7 +110,12 @@ impl HostedSession {
         agent_dir: &Path,
         cx: &Context,
     ) -> Result<Self, HostError> {
-        let HostRequest { mut config, script } = request;
+        let HostRequest {
+            mut config,
+            script,
+            telemetry_disabled,
+            execution_mode,
+        } = request;
         let storage_dir = match &config.storage {
             SessionStorage::Jsonl { dir, .. } => Some(dir.clone()),
             SessionStorage::Memory => None,
@@ -125,8 +145,25 @@ impl HostedSession {
                 });
             }
         }
+        let is_root = config.role.is_root();
         let session_id = config.session_id.clone();
         let session = open_session(config, cx).await?;
+        // Session telemetry (the old worker lifecycle's install, on the
+        // durable session): the create's opt-out and non-root sessions
+        // install nothing; the client resolves from settings + env, the
+        // live switch gates recording, and the observer rides the main
+        // conversation's event stream. Fire-and-forget: telemetry never
+        // fails the session, and a failed attach keeps the started event
+        // with no run facts.
+        let (telemetry, telemetry_stream) = install_session_telemetry(
+            &session,
+            is_root,
+            telemetry_disabled,
+            execution_mode,
+            agent_dir,
+            cx,
+        )
+        .await;
         Ok(Self {
             session_id,
             storage_dir,
@@ -135,6 +172,8 @@ impl HostedSession {
             session: Mutex::new(Some(Arc::new(session))),
             lease: Mutex::new(lease),
             bridge: Mutex::new(None),
+            telemetry,
+            telemetry_stream: Mutex::new(telemetry_stream),
         })
     }
 
@@ -200,13 +239,31 @@ impl HostedSession {
         if let Some(previous) = previous {
             previous.stop().await;
         }
-        let started = EventBridge::start(&self.harness, conversation.id(), sink).await?;
+        // The session's provider failover events ride along when this
+        // session owns its model collection (faux-script shared ones have
+        // no runtime).
+        let provider_events = self
+            .deps()
+            .provider_runtime
+            .get()
+            .map(|runtime| runtime.subscribe());
+        let started =
+            EventBridge::start(&self.harness, conversation.id(), provider_events, sink).await?;
         *lock(&self.bridge) = Some(started);
         Ok(())
     }
 
+    /// The session telemetry, when installed (the kill path reports the
+    /// archive; skill and child-usage counters ride the same handle).
+    pub(crate) fn telemetry(&self) -> Option<&Arc<SessionTelemetry>> {
+        self.telemetry.as_ref()
+    }
+
     /// Stop the bridge, close the Harness (pending commits flush), and
-    /// release the storage lease. Idempotent.
+    /// release the storage lease. The telemetry observer stops first (no
+    /// run facts after the close), and `end()` finalizes the session's
+    /// events after it — its failure is swallowed, like every telemetry
+    /// seam. Idempotent.
     ///
     /// # Errors
     ///
@@ -215,6 +272,10 @@ impl HostedSession {
         let bridge = lock(&self.bridge).take();
         if let Some(bridge) = bridge {
             bridge.stop().await;
+        }
+        let telemetry_stream = lock(&self.telemetry_stream).take();
+        if let Some(stream) = telemetry_stream {
+            let _ = stream.stop().await;
         }
         let session = lock(&self.session).take();
         let closed = match session.map(Arc::try_unwrap) {
@@ -226,8 +287,64 @@ impl HostedSession {
             None => Ok(()),
         };
         lock(&self.lease).take();
+        if let Some(telemetry) = &self.telemetry {
+            let _ = telemetry.end().await;
+        }
         closed
     }
+}
+
+/// Install the session telemetry of a freshly opened root session (the
+/// old daemon lifecycle's composition root): the client from settings +
+/// env, the execution mode the create payload carried, the live opt-out
+/// switch, and the skill adoption counts; the observer consumes the main
+/// conversation's event batches. `None`s when opted out, non-root, or the
+/// stream cannot attach (telemetry never fails the session).
+async fn install_session_telemetry(
+    session: &EukheSession,
+    is_root: bool,
+    telemetry_disabled: Option<bool>,
+    execution_mode: Option<String>,
+    agent_dir: &Path,
+    cx: &Context,
+) -> (Option<Arc<SessionTelemetry>>, Option<AgentEventStream>) {
+    if telemetry_disabled == Some(true) || !is_root {
+        return (None, None);
+    }
+    let deps = session.deps();
+    let wiring = TelemetryWiring {
+        client: build_client(&deps.settings.manager(), agent_dir),
+        execution_mode,
+        now: None,
+        telemetry_enabled: Some(telemetry_enabled_switch(&deps.cwd, agent_dir)),
+    };
+    let telemetry = Arc::new(install_telemetry(
+        &wiring,
+        Some(SkillCounts {
+            skill_count: deps.resources.skills.len(),
+            python_skill_count: deps.python_skills.len(),
+        }),
+        Arc::new(SessionCounters::default()),
+    ));
+    let stream = match watch_events(session.harness(), session.main().id(), cx).await {
+        Ok(stream) => {
+            let observer = Arc::clone(&telemetry);
+            let started = stream.start(Arc::new(move |batch, _cx| {
+                observer.observe_batch(&batch);
+                std::future::ready(Ok(())).boxed()
+            }));
+            if let Err(error) = started {
+                eprintln!("eukhe-daemon worker: telemetry observer failed to start: {error}");
+                return (Some(telemetry), None);
+            }
+            Some(stream)
+        }
+        Err(error) => {
+            eprintln!("eukhe-daemon worker: telemetry observer failed to attach: {error}");
+            None
+        }
+    };
+    (Some(telemetry), stream)
 }
 
 /// The worker's session slot: the hosted session once `create` opened it.
@@ -294,7 +411,10 @@ mod tests {
         let dir = Path::new("/s/0192a000-0000-7000-8000-0000000000f1");
         assert_eq!(
             storage_for_path(dir),
-            ("0192a000-0000-7000-8000-0000000000f1".to_owned(), dir.to_path_buf())
+            (
+                "0192a000-0000-7000-8000-0000000000f1".to_owned(),
+                dir.to_path_buf()
+            )
         );
         // A legacy JSONL file maps to the sibling directory it imports into.
         assert_eq!(
@@ -315,5 +435,40 @@ mod tests {
         std::fs::create_dir(&stored).expect("storage dir");
         assert!(session_exists(&stored));
         assert!(session_exists(&root.path().join("def.jsonl")));
+    }
+}
+
+/// The worker's telemetry install gate (the old lifecycle's): the
+/// create's opt-out installs nothing; a root create installs the
+/// observer over the main conversation's events.
+#[cfg(test)]
+mod telemetry_tests {
+    use super::{HostRequest, HostedSession};
+    use crate::durable_test_support::{cx, Fixture};
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn telemetry_installs_for_root_sessions_and_respects_the_opt_out() {
+        let fixture = Fixture::new();
+        let open = |session_id: &str, telemetry_disabled| {
+            let request = HostRequest {
+                config: fixture.config(session_id),
+                script: None,
+                telemetry_disabled,
+                execution_mode: Some("interactive".to_owned()),
+            };
+            let agent_dir = fixture.agent_dir.clone();
+            async move {
+                HostedSession::open(request, &agent_dir, cx())
+                    .await
+                    .expect("open session")
+            }
+        };
+        let opted_out = open("telemetry-opt-out", Some(true)).await;
+        assert!(opted_out.telemetry().is_none());
+        opted_out.close(cx()).await.unwrap();
+
+        let root = open("telemetry-root", None).await;
+        assert!(root.telemetry().is_some());
+        root.close(cx()).await.unwrap();
     }
 }

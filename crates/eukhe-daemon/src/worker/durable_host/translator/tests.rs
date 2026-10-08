@@ -273,6 +273,46 @@ fn a_run_opens_before_its_inputs_and_ends_with_its_messages() {
     assert_eq!(end["messages"], json!([user, answer]));
 }
 
+/// An input row (an `eukhe.custom` row with `input: true`) shows itself in
+/// the input's place: the user entry right after it emits no frames, and
+/// `agent_end` carries the row as the run's prompt row.
+#[test]
+fn an_input_row_shows_in_place_of_its_user_entry() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    let row = json!({
+        "role": "custom", "customType": "sideQuestion", "content": "hello",
+        "display": true, "timestamp": 0,
+    });
+    let user = json!({ "role": "user", "content": "hello", "timestamp": 2 });
+    let frames = translator.translate_batch(&[
+        event(json!({ "type": "entry_appended", "entry": entry(
+            3, "eukhe.custom", None,
+            Some(json!({ "customType": "sideQuestion", "content": "hello", "display": true, "input": true })),
+        ) })),
+        event(json!({ "type": "message_start", "message": user.clone() })),
+        event(json!({ "type": "message_end", "entry": entry(4, "pi.user", Some(user.clone()), None) })),
+    ]);
+    assert_eq!(
+        frames,
+        [
+            json!({ "type": "message_start", "message": row }),
+            json!({ "type": "message_end", "message": row }),
+        ]
+    );
+    // A later user entry (nothing before it stands for it) shows again.
+    let user_two = json!({ "role": "user", "content": "again", "timestamp": 6 });
+    let frames = translator.translate_batch(&[event(json!({
+        "type": "message_end", "entry": entry(5, "pi.user", Some(user_two.clone()), None)
+    }))]);
+    assert_eq!(
+        frames,
+        [
+            json!({ "type": "message_start", "message": user_two }),
+            json!({ "type": "message_end", "message": user_two }),
+        ]
+    );
+}
+
 fn tool_update(translator: &mut EventTranslator, fields: &Value) -> Value {
     let mut value =
         json!({ "type": "tool_execution_update", "toolCallId": "c1", "toolName": "bash" });

@@ -184,3 +184,28 @@ fn transcript_messages_map_shown_entries_in_order() {
         json!({ "role": "compactionSummary", "summary": "S", "tokensBefore": 700, "timestamp": 9 })
     );
 }
+
+#[test]
+fn an_input_row_shows_in_place_of_its_user_entry() {
+    let entries = [
+        record(
+            "eukhe.custom",
+            None,
+            Some(json!({
+                "customType": "sideQuestion", "content": "hello", "display": true,
+                "input": true,
+            })),
+        ),
+        record(
+            "pi.user",
+            Some(json!({ "role": "user", "content": "hello", "timestamp": 2 })),
+            None,
+        ),
+        record("pi.assistant", Some(assistant(1, "stop")), None),
+    ];
+    let messages = transcript_messages(&entries);
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["role"], "custom");
+    assert_eq!(messages[0]["content"], "hello");
+    assert_eq!(messages[1]["role"], "assistant");
+}

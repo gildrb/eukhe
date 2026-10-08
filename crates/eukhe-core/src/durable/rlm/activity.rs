@@ -74,6 +74,19 @@ fn running_manager(
         .ok_or(KernelActivityError::NotRunning)
 }
 
+/// Release `conversation`'s settled kernel (TS #2483's
+/// `canPassivateSettledSession`, worker-side): the kernel is disposed with
+/// a namespace snapshot, and the conversation's next kernel use revives it
+/// from that snapshot. `false` when the conversation has no kernel or the
+/// session closed. Best-effort by design: the roster, collect, and delete
+/// surfaces stay untouched.
+pub async fn release_settled_kernel(deps: &HostDeps, conversation: ConversationId) -> bool {
+    match deps.rlm_kernels.get().and_then(std::sync::Weak::upgrade) {
+        Some(pool) => pool.release(conversation).await,
+        None => false,
+    }
+}
+
 /// The manager's "Kernel is not running" (a kernel that died since the
 /// lookup) stays the definitive refusal; anything else is a failure.
 fn classify(error: anyhow::Error) -> KernelActivityError {

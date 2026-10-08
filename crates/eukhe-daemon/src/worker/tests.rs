@@ -133,7 +133,10 @@ async fn wait_messages(worker: &Worker, done: impl Fn(&[Value]) -> bool) -> Vec<
         if done(&messages) {
             return messages;
         }
-        assert!(Instant::now() < deadline, "transcript never settled: {messages:?}");
+        assert!(
+            Instant::now() < deadline,
+            "transcript never settled: {messages:?}"
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
@@ -186,7 +189,10 @@ async fn a_prompt_streams_session_events_and_answers() {
     );
     let run_messages = events[agent_end]["messages"].as_array().expect("messages");
     assert_eq!(
-        run_messages.iter().map(|m| m["role"].clone()).collect::<Vec<_>>(),
+        run_messages
+            .iter()
+            .map(|m| m["role"].clone())
+            .collect::<Vec<_>>(),
         [json!("user"), json!("assistant")]
     );
     assert_eq!(text(&events[assistant_end]["message"]), "the answer");
@@ -206,7 +212,9 @@ async fn attach_mid_stream_shows_the_partial() {
     )
     .await;
     let mut events = worker.events.subscribe();
-    let response = worker.dispatch("prompt", &json!({ "message": "stream" })).await;
+    let response = worker
+        .dispatch("prompt", &json!({ "message": "stream" }))
+        .await;
     assert!(response.success, "prompt: {response:?}");
     until(&mut events, |event| kind(event) == "message_update").await;
     let attached = worker
@@ -248,7 +256,9 @@ async fn steer_lands_before_an_earlier_follow_up() {
     let response = worker.dispatch("prompt", &json!({ "message": "go" })).await;
     assert!(response.success, "prompt: {response:?}");
     wait_busy(&worker, true).await;
-    let queued = worker.dispatch("follow_up", &json!({ "message": "F" })).await;
+    let queued = worker
+        .dispatch("follow_up", &json!({ "message": "F" }))
+        .await;
     assert!(queued.success, "follow_up: {queued:?}");
     let queued = worker.dispatch("steer", &json!({ "message": "S" })).await;
     assert!(queued.success, "steer: {queued:?}");
@@ -259,11 +269,24 @@ async fn steer_lands_before_an_earlier_follow_up() {
     let order: Vec<String> = transcript
         .iter()
         .filter(|message| message["role"] != "toolResult")
-        .map(|message| format!("{}:{}", message["role"].as_str().unwrap_or_default(), text(message)))
+        .map(|message| {
+            format!(
+                "{}:{}",
+                message["role"].as_str().unwrap_or_default(),
+                text(message)
+            )
+        })
         .collect();
     assert_eq!(
         order,
-        ["user:go", "assistant:", "user:S", "assistant:second", "user:F", "assistant:third"]
+        [
+            "user:go",
+            "assistant:",
+            "user:S",
+            "assistant:second",
+            "user:F",
+            "assistant:third"
+        ]
     );
 }
 
@@ -280,7 +303,9 @@ async fn abort_suspends_the_queue_and_resume_sends_it() {
     let response = worker.dispatch("prompt", &json!({ "message": "go" })).await;
     assert!(response.success, "prompt: {response:?}");
     wait_busy(&worker, true).await;
-    let queued = worker.dispatch("follow_up", &json!({ "message": "later" })).await;
+    let queued = worker
+        .dispatch("follow_up", &json!({ "message": "later" }))
+        .await;
     assert!(queued.success, "follow_up: {queued:?}");
     let aborted = worker.dispatch("abort", &json!({})).await;
     assert!(aborted.success, "abort: {aborted:?}");
@@ -304,6 +329,130 @@ async fn abort_suspends_the_queue_and_resume_sends_it() {
     .await;
     assert_eq!(texts_of(&transcript, "user"), ["go", "later"]);
     assert!(worker.core.lock().unwrap().suspended.is_empty());
+}
+
+/// `abort`'s suspended inputs are durable (`eukhe.daemon.suspended`): a
+/// fresh worker over the same storage still shows them in its queue
+/// strip, and `resume_queue` there sends them (the old engine restored
+/// the queue from its journal; the document takes its place).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn suspended_inputs_survive_a_worker_restart() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sessions = dir.path().join("sessions");
+    let cwd = dir.path().join("work");
+    let first = worker(
+        dir.path(),
+        "first.recovery.jsonl",
+        json!({ "responses": [{ "text": "never", "delayMs": 30_000 }, "resumed"] }),
+    );
+    create(&first, json!({ "cwd": cwd, "sessionDir": sessions })).await;
+    let storage = first
+        .session
+        .get()
+        .and_then(|hosted| hosted.storage_dir().map(Path::to_path_buf))
+        .expect("a stored session");
+    let response = first.dispatch("prompt", &json!({ "message": "go" })).await;
+    assert!(response.success, "prompt: {response:?}");
+    wait_busy(&first, true).await;
+    let queued = first.dispatch("follow_up", &json!({ "message": "later" })).await;
+    assert!(queued.success, "follow_up: {queued:?}");
+    let aborted = first.dispatch("abort", &json!({})).await;
+    assert!(aborted.success, "abort: {aborted:?}");
+    wait_busy(&first, false).await;
+    crash(&first).await;
+    drop(first);
+
+    let second = worker(
+        dir.path(),
+        "second.recovery.jsonl",
+        json!({ "responses": ["resumed"] }),
+    );
+    create(&second, json!({ "cwd": dir.path().join("work"), "sessionPath": storage })).await;
+    // The restarted worker's queue strip shows the suspended input: the
+    // durable document seeded the cache.
+    let snapshot = {
+        let core = second
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        super::session_snapshot(&core)
+    };
+    assert_eq!(snapshot.follow_ups, ["later"], "the strip: {snapshot:?}");
+    assert_eq!(snapshot.queued_count, 1);
+
+    let resumed = second.dispatch("resume_queue", &json!({})).await;
+    assert!(resumed.success, "resume_queue: {resumed:?}");
+    let transcript = wait_messages(&second, |messages| {
+        texts_of(messages, "assistant").contains(&"resumed".to_owned())
+    })
+    .await;
+    assert_eq!(texts_of(&transcript, "user"), ["go", "later"]);
+}
+
+/// An input-pause lease holds admissions: a prompt while paused never
+/// reaches the model, `prompt_and_wait` answers the pause error, and the
+/// release delivers the held input (the old engine's admission gate).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_input_pause_lease_holds_admissions_until_released() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(dir.path(), json!({ "responses": ["after the release"] })).await;
+    let acquired = worker
+        .dispatch(
+            "acquire_session_input_pause",
+            &json!({
+                "activeSessionId": "worker-test",
+                "leaseKey": "[\"conn\",\"owner\",\"lease\"]",
+                "clientId": "conn",
+            }),
+        )
+        .await;
+    assert!(acquired.success, "{acquired:?}");
+
+    // A waiting prompt answers the pause error; the input stays held.
+    let waiting = worker
+        .dispatch("prompt_and_wait", &json!({ "message": "held" }))
+        .await;
+    assert!(!waiting.success, "{waiting:?}");
+    assert_eq!(waiting.error.as_deref(), Some("Session input is paused"));
+    let snapshot = {
+        let core = worker
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        super::session_snapshot(&core)
+    };
+    assert_eq!(snapshot.follow_ups, ["held"], "the held strip: {snapshot:?}");
+    assert!(messages(&worker).await.is_empty(), "nothing reached the model");
+
+    // The release delivers the held input.
+    let pause_id = acquired.data.expect("pauseId data")["pauseId"]
+        .as_str()
+        .expect("a pause id")
+        .to_string();
+    let released = worker
+        .dispatch(
+            "release_session_input_pause",
+            &json!({
+                "activeSessionId": "worker-test",
+                "pauseId": pause_id,
+                "clientId": "conn",
+            }),
+        )
+        .await;
+    assert!(released.success, "{released:?}");
+    let transcript = wait_messages(&worker, |messages| {
+        texts_of(messages, "assistant").contains(&"after the release".to_owned())
+    })
+    .await;
+    assert_eq!(texts_of(&transcript, "user"), ["held"]);
+    let snapshot = {
+        let core = worker
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        super::session_snapshot(&core)
+    };
+    assert!(snapshot.follow_ups.is_empty(), "the drained strip: {snapshot:?}");
 }
 
 /// A worker that dies mid-run (after a tool round, while the follow-up
@@ -332,7 +481,9 @@ async fn a_crashed_run_resumes_on_the_next_create() {
     let response = first.dispatch("prompt", &json!({ "message": "go" })).await;
     assert!(response.success, "prompt: {response:?}");
     wait_messages(&first, |messages| {
-        messages.iter().any(|message| message["role"] == "toolResult")
+        messages
+            .iter()
+            .any(|message| message["role"] == "toolResult")
     })
     .await;
     assert!(first.core.lock().unwrap().is_busy());

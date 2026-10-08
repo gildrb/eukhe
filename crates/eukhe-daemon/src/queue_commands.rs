@@ -17,6 +17,8 @@ use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::durable_host::bridge::{content_preview, QueuedInput, QueuedMode};
+use crate::worker::durable_host::suspended::{SuspendedState, WithdrawnInput};
+use crate::worker::set_withdrawn;
 use crate::worker::{HostedSession, Worker};
 
 const COMMAND: &str = "mutate_queued_message";
@@ -34,7 +36,8 @@ fn wire_lane(value: Option<&Value>) -> Option<QueuedMode> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Origin {
     Inbox,
-    Suspended,
+    /// An abort suspended it or an input-pause lease holds it.
+    Withdrawn,
 }
 
 /// One parsed mutation.
@@ -152,8 +155,9 @@ impl Worker {
         expected: &str,
         mutation: Mutation,
     ) -> Result<&'static str, String> {
-        // The queue as the client saw it: inbox inputs, then suspended ones.
-        let (inbox, suspended) = {
+        // The queue as the client saw it: inbox inputs, then the
+        // withdrawn ones (suspended and held keep their membership).
+        let (inbox, withdrawn) = {
             let core = self
                 .core
                 .lock()
@@ -163,16 +167,20 @@ impl Worker {
                     .as_ref()
                     .map(|view| view.inbox.clone())
                     .unwrap_or_default(),
-                core.suspended.clone(),
+                core.suspended
+                    .iter()
+                    .cloned()
+                    .chain(core.held.iter().cloned())
+                    .collect::<Vec<QueuedInput>>(),
             )
         };
         let mut queue: Vec<(Origin, QueuedInput)> = inbox
             .into_iter()
             .map(|input| (Origin::Inbox, input))
             .chain(
-                suspended
+                withdrawn
                     .into_iter()
-                    .map(|input| (Origin::Suspended, input)),
+                    .map(|input| (Origin::Withdrawn, input)),
             )
             .collect();
         let positions: Vec<usize> = queue
@@ -268,10 +276,19 @@ impl Worker {
                 }
             }
         }
-        let mut suspended = Vec::new();
+        // The reordered withdrawn inputs keep each one's membership
+        // (abort-suspended vs pause-held), and the durable store follows.
+        let held_ids: std::collections::HashSet<_> = {
+            let core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            core.held.iter().map(|input| input.id).collect()
+        };
+        let mut withdrawn = Vec::new();
         for (index, (origin, input)) in next.into_iter().enumerate() {
             match origin {
-                Origin::Suspended => suspended.push(input),
+                Origin::Withdrawn => withdrawn.push(input),
                 Origin::Inbox if index >= unchanged => {
                     main.submit(
                         InputSubmissionDraft {
@@ -290,10 +307,14 @@ impl Worker {
                 Origin::Inbox => {}
             }
         }
-        self.core
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .suspended = suspended;
+        let (suspended, held): (Vec<QueuedInput>, Vec<QueuedInput>) = withdrawn
+            .into_iter()
+            .partition(|input| !held_ids.contains(&input.id));
+        let state = SuspendedState {
+            suspended: suspended.iter().map(WithdrawnInput::from).collect(),
+            held: held.iter().map(WithdrawnInput::from).collect(),
+        };
+        set_withdrawn(hosted, &self.core, &self.events, state).await?;
         Ok("applied")
     }
 
