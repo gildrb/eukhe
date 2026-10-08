@@ -3,7 +3,7 @@
 eukhe is a coding agent with one endless chat as its memory.
 
 eukhe is a fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
-by Prime Intellect. It is not affiliated with Prime Intellect or Victor Taelin.
+by Prime Intellect. It is not affiliated with Prime Intellect, Victor Taelin or Earendil.
 Upstream remote: `upstream`. See [Attribution](#attribution).
 
 ## Changes from Prime Agent
