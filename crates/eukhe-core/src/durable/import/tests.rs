@@ -393,7 +393,9 @@ async fn imports_a_compaction_as_a_head_at_the_first_kept_entry() {
     assert_eq!(
         *compaction.data(),
         CompactionData {
-            reason: CompactionReason::Threshold
+            reason: CompactionReason::Threshold,
+            harness_digest: None,
+            harness_state_fingerprint: None,
         }
     );
     let view = root.context(&cx()).await.unwrap();
@@ -449,7 +451,9 @@ fn compaction_head_starts_at_the_first_imported_entry_from_first_kept() {
         plan.entries[2].draft.data,
         Some(
             to_json(&CompactionData {
-                reason: CompactionReason::Manual
+                reason: CompactionReason::Manual,
+                harness_digest: None,
+                harness_state_fingerprint: None,
             })
             .unwrap()
         )

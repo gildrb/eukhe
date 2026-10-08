@@ -44,6 +44,7 @@ use crate::harness::types::{
 use crate::harness::usage::{record_usage, UsageBucket};
 use crate::session::{SessionError, SessionResult, Tx};
 use crate::tasks::{define_task, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime};
+use crate::harness::types::CompactionSnapshot;
 use crate::types::{EntryDraft, EntryHead, EntryId, TaskOutcome, TaskOutcomeError};
 
 /// The pinned summarization request.
@@ -171,7 +172,10 @@ async fn select(task: Current, runtime: Runtime, cx: Context) -> SessionResult<(
     match decision {
         Some(CompactionDecision::Decline) => return complete(&runtime, &cx).await,
         Some(CompactionDecision::Summary(summary)) => {
-            return place(&runtime, first_kept, summary, &cx).await;
+            return place(&runtime, first_kept, summary, None, &cx).await;
+        }
+        Some(CompactionDecision::SummaryWithData(summary, data)) => {
+            return place(&runtime, first_kept, summary, Some(data), &cx).await;
         }
         None => {}
     }
@@ -376,6 +380,7 @@ async fn classify(
                         &live,
                         request.first_kept,
                         &summary,
+                        None,
                     )
                     .await
                     .map(Some);
@@ -447,11 +452,14 @@ async fn abort(_task: Current, runtime: Runtime, cx: Context) -> SessionResult<(
         .await
 }
 
-/// Place a summary supplied by a hook in its own commit.
+/// Place a summary supplied by a hook in its own commit. `extra` carries
+/// additional `pi.compaction` data fields (eukhe addition: the harness
+/// digest snapshot).
 async fn place(
     runtime: &Runtime,
     first_kept: EntryId,
     summary: String,
+    extra: Option<CompactionSnapshot>,
     cx: &Context,
 ) -> SessionResult<()> {
     let commit_runtime = runtime.clone();
@@ -460,7 +468,7 @@ async fn place(
             move |tx, current| async move {
                 let runtime = commit_runtime;
                 let live = tx.doc(&LIVE_DOC, runtime.conversation_id()).await?;
-                place_summary(&tx, &runtime, &current, &live, first_kept, &summary)
+                place_summary(&tx, &runtime, &current, &live, first_kept, &summary, extra)
                     .await
                     .map(Some)
             },
@@ -483,11 +491,16 @@ async fn place_summary(
     live: &Draft,
     first_kept: EntryId,
     summary: &str,
+    extra: Option<CompactionSnapshot>,
 ) -> SessionResult<Next> {
     let task_id = runtime.task_id().erase();
     let conversation_id = runtime.conversation_id();
     remove_compaction_status(live, task_id)?;
     let text = format!("{SUMMARY_PREFIX}{summary}{SUMMARY_SUFFIX}");
+    let snapshot = extra
+        .as_ref()
+        .map(|snapshot| (Some(snapshot.harness_digest.clone()), Some(snapshot.harness_state_fingerprint.clone())))
+        .unwrap_or((None, None));
     let entry = EntryDraft {
         kind: COMPACTION_ENTRY.kind().to_owned(),
         model: Some(vec![Message::User(UserMessage {
@@ -496,6 +509,8 @@ async fn place_summary(
         })]),
         data: Some(to_json(&CompactionData {
             reason: current.input.reason,
+            harness_digest: snapshot.0,
+            harness_state_fingerprint: snapshot.1,
         })?),
         head: Some(EntryHead::Entry(first_kept)),
         edits: None,

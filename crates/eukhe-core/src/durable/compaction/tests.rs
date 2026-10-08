@@ -114,10 +114,10 @@ impl Fixture {
 }
 
 /// The model text of the newest `pi.compaction` entry, when one exists.
+/// The scan is newest-first, so the first match wins.
 async fn newest_summary_text(session: &EukheSession) -> Option<String> {
     let root = session.root();
     let mut cursor = None;
-    let mut latest = None;
     loop {
         let page = root
             .entries(ConversationEntryQuery::default(), 64, cursor, cx())
@@ -125,7 +125,7 @@ async fn newest_summary_text(session: &EukheSession) -> Option<String> {
             .unwrap();
         for entry in &page.items {
             if entry.kind == "pi.compaction" {
-                latest = entry.model.as_deref().and_then(|messages| {
+                return entry.model.as_deref().and_then(|messages| {
                     messages.first().and_then(|message| match message {
                         eukhe_types::pi_ai::Message::User(user) => match &user.content {
                             UserContent::Text(text) => Some(text.clone()),
@@ -148,7 +148,7 @@ async fn newest_summary_text(session: &EukheSession) -> Option<String> {
         }
         match page.next {
             Some(next) => cursor = Some(next),
-            None => return latest,
+            None => return None,
         }
     }
 }
@@ -164,20 +164,6 @@ async fn the_summary_lands_wrapped_and_streams_its_deltas() {
     fixture.reply("the story of the turn");
     session.root().compact(None, cx()).await.unwrap();
     session.root().wait_for_idle(cx()).await.unwrap();
-    let view = session.root().context(cx()).await.unwrap();
-    eprintln!(
-        "DEBUG kinds={:?} tasks={:?}",
-        view.entries.iter().map(|e| e.kind.clone()).collect::<Vec<_>>(),
-        session
-            .harness()
-            .inspect(cx())
-            .await
-            .unwrap()
-            .tasks
-            .iter()
-            .map(|t| (t.record.kind.clone(), format!("{:?}", t.record.state)))
-            .collect::<Vec<_>>()
-    );
     let text = newest_summary_text(&session)
         .await
         .expect("compaction entry");
@@ -191,12 +177,13 @@ async fn the_summary_lands_wrapped_and_streams_its_deltas() {
     assert!(text.contains("<summary>"));
     // The live sink carried the summarizer text (the delta stream), in
     // order, and nothing else (no files were touched, so no file block).
+    // The sink sees the summarizer's chunks; a client accumulates them.
     let deltas = fixture
         .deltas
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
-    assert_eq!(deltas, vec!["the story of the turn".to_owned()]);
+    assert_eq!(deltas.concat(), "the story of the turn".to_owned());
     session.close(cx()).await.unwrap();
 }
 
@@ -217,6 +204,6 @@ async fn a_second_compaction_summarizes_in_update_mode_over_the_previous_summary
     // first (the parsed previous summary drives the update prompt; the
     // head battery in `head` covers the parse itself).
     let text = newest_summary_text(&session).await.expect("second summary");
-    assert!(text.contains("updated summary"));
+    assert!(text.contains("updated summary"), "newest summary: {text}");
     session.close(cx()).await.unwrap();
 }

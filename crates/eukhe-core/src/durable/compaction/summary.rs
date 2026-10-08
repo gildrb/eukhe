@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::{
-    BeforeCompactHook, CompactionDecision, CompactionRequest, HookApi,
+    BeforeCompactHook, CompactionDecision, CompactionRequest, CompactionSnapshot, HookApi,
 };
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::{SessionError, SessionResult};
@@ -233,17 +233,28 @@ async fn decide(
         }
     }
     // The harness digest: a fresh render leads the summary (the old
-    // engine's `harness_digest` block, TS #2394).
-    let digest = super::digest_block_of(deps, &conversation, cx).await?;
-    let text = match digest {
-        Some(digest) => format!(
+    // engine's `harness_digest` block, TS #2394) and rides the entry data
+    // with its state fingerprint, so a later staleness check compares
+    // state instead of query-dependent renderings.
+    let digest = super::digest_render_of(deps, &conversation, cx).await?;
+    let text = match &digest {
+        Some(render) => format!(
             "{}{}",
-            head::digest_block(&digest),
+            head::digest_block(&render.digest),
             head::wrapped_summary(&body)
         ),
         None => head::wrapped_summary(&body),
     };
-    Ok(Some(CompactionDecision::Summary(text)))
+    Ok(Some(match digest {
+        Some(render) => CompactionDecision::SummaryWithData(
+            text,
+            CompactionSnapshot {
+                harness_digest: render.digest,
+                harness_state_fingerprint: render.state_fingerprint,
+            },
+        ),
+        None => CompactionDecision::Summary(text),
+    }))
 }
 
 /// The previous summary of a compaction head's wrapped text, when the head

@@ -297,14 +297,6 @@ async fn run_request(
             out.end(None);
             return;
         };
-        eprintln!(
-            "DBG attempt serving={}/{} stop={:?} err={:?} switches={}",
-            serving.provider,
-            serving.id,
-            message.stop_reason,
-            message.error_message,
-            switches
-        );
         let retryable =
             message.stop_reason == StopReason::Error && is_retryable_assistant_error(&message);
         let next = if retryable && failover.enabled {

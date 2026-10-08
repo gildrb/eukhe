@@ -231,6 +231,19 @@ pub enum CompactionDecision {
     Decline,
     /// `{ summary }`.
     Summary(String),
+    /// `{ summary }` plus the `pi.compaction` data fields of the harness
+    /// digest snapshot the summary leads with (eukhe addition; the old
+    /// engine's compaction record carried the same fields).
+    SummaryWithData(String, CompactionSnapshot),
+}
+
+/// The harness digest snapshot of a [`CompactionDecision::SummaryWithData`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactionSnapshot {
+    /// The digest the summary leads with.
+    pub harness_digest: String,
+    /// The state fingerprint that produced it.
+    pub harness_state_fingerprint: String,
 }
 
 /// After range selection, before summarizing; the first decision wins.

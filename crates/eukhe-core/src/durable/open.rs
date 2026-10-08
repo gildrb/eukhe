@@ -164,13 +164,16 @@ impl Drop for EukheSession {
 /// The legacy import, storage, resource loading, model resolution, or
 /// Harness open fails.
 pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSession, OpenError> {
+    eprintln!("OPEN-STAGE storage");
     let (storage, storage_dir) = open_storage(&config, cx).await?;
     let settings = Arc::new(EukheSettings::new(&config.cwd, &config.agent_dir));
     let manager = settings.manager();
+    eprintln!("OPEN-STAGE settings");
     let models = match &config.models {
         Some(models) => models.clone(),
         None => create_models(&config.agent_dir, cx).await?,
     };
+    eprintln!("OPEN-STAGE models");
     // The session's semantic-edge recorder (the ACP request-id ledger):
     // a durable storage keeps its ledger beside the session (a spawned
     // child's dir is its RLM session dir), a memory storage keeps the
@@ -190,6 +193,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
                 .and_then(|parent| parent.spawned_by_request_id.clone()),
         },
     ));
+    eprintln!("OPEN-STAGE resources");
     let loaded = load_session_resources(&config, &manager).await?;
     let deps = Arc::new(HostDeps::new(
         &config,
@@ -217,6 +221,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         // on the ledger.
         wrap_models_with_semantic_edges(&models, &semantic_edges);
     }
+    eprintln!("OPEN-STAGE registry");
     let registry = create_eukhe_registry(&deps)?;
 
     let session_id = config.session_id.clone();
@@ -228,10 +233,14 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     options.env = Some(env_factory(&config.cwd));
     options.now.clone_from(&config.now);
     options.on_report = Some(on_report);
+    eprintln!("OPEN-STAGE harness");
     let harness = Harness::open(storage, options, cx).await?;
+    eprintln!("OPEN-STAGE harness-open-done");
 
     let opened = async {
+        eprintln!("OPEN-STAGE root begin");
         let root = open_root(&harness, &config, &models, &manager, cx).await?;
+        eprintln!("OPEN-STAGE root done");
         let main = main_conversation(&harness, cx).await?;
         Ok::<_, OpenError>((root, main))
     };
@@ -273,12 +282,15 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             }
         }
     }
+    eprintln!("OPEN-STAGE services done, resuming");
     if let Err(error) = harness.resume() {
+        eprintln!("OPEN-STAGE resume errored");
         if let Err(close_error) = session.close(cx).await {
             tracing::warn!(error = %close_error, "closing a session that failed to resume");
         }
         return Err(error.into());
     }
+    eprintln!("OPEN-STAGE open returns");
     Ok(session)
 }
 

@@ -32,8 +32,8 @@ pub use extension::{
 pub use hooks::{
     AfterResponseHook, AfterToolHook, AfterToolsHook, BeforeCompactHook, BeforeRequestHook,
     BeforeToolDecision, BeforeToolHook, CompactionDecision, CompactionHooks, CompactionRequest,
-    GenerationHooks, HookApi, HookDone, HookFuture, HookResult, OnYieldHook, RequestMessages,
-    ToolHooks, YieldContinuation,
+    CompactionSnapshot, GenerationHooks, HookApi, HookDone, HookFuture, HookResult, OnYieldHook,
+    RequestMessages, ToolHooks, YieldContinuation,
 };
 pub(crate) use registry::BuiltinTasks;
 pub use registry::{InstalledSection, InstalledTool, RegistryReader, RegistrySnapshot};

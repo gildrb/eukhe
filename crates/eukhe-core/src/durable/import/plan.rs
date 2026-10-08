@@ -372,6 +372,8 @@ impl<'a> Planner<'a> {
         } else {
             None
         };
+        let summary_harness_digest = harness_digest.clone();
+        let summary_harness_state_fingerprint = harness_state_fingerprint.clone();
         let summary = AgentMessage::CompactionSummary(CompactionSummaryMessage {
             summary: payload.summary.clone(),
             tokens_before: payload.tokens_before,
@@ -386,8 +388,14 @@ impl<'a> Planner<'a> {
         } else {
             CompactionReason::Threshold
         };
-        let draft =
-            COMPACTION_ENTRY.draft(&typed(llm_view(&summary, id)?, CompactionData { reason }))?;
+        let draft = COMPACTION_ENTRY.draft(&typed(
+            llm_view(&summary, id)?,
+            CompactionData {
+                reason,
+                harness_digest: summary_harness_digest,
+                harness_state_fingerprint: summary_harness_state_fingerprint,
+            },
+        ))?;
         Ok((draft, head))
     }
 }

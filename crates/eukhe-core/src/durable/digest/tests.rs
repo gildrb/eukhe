@@ -23,6 +23,7 @@ use super::{
     digest_from_frame, harness_digest_message_text, HARNESS_DIGEST_CUSTOM_TYPE,
     HARNESS_DIGEST_PREFIX,
 };
+use crate::durable::compaction::head::digest_block;
 use crate::durable::open_session;
 use crate::durable::EukheSession;
 use crate::refinement::{
@@ -248,10 +249,14 @@ fn delivered_digest_text(rows: &[EntryRecord]) -> Option<String> {
 }
 
 /// Append a compaction head marker whose context starts at `first_kept`.
+/// The entry carries the digest snapshot in its data (the harness digest
+/// frame leads `summary`; `state_fingerprint` comes from the delivered
+/// row), like the durable compaction places it.
 async fn compaction_head(
     session: &EukheSession,
     first_kept: EntryHead,
     summary: &str,
+    state_fingerprint: Option<String>,
 ) -> SessionResult<()> {
     let mut draft = EntryDraft::new("pi.compaction");
     draft.head = Some(first_kept);
@@ -259,6 +264,14 @@ async fn compaction_head(
         content: UserContent::Text(summary.to_string()),
         timestamp: 1,
     })]);
+    draft.data = Some(
+        serde_json::json!({
+            "reason": "manual",
+            "harnessDigest": super::digest_from_frame(summary),
+            "harnessStateFingerprint": state_fingerprint,
+        })
+        .into(),
+    );
     let conversation = session.root().clone();
     let conversation_id = conversation.id();
     conversation
@@ -270,6 +283,19 @@ async fn compaction_head(
             cx(),
         )
         .await
+}
+
+/// The state fingerprint of the newest delivered digest row.
+fn delivered_fingerprint(rows: &[EntryRecord]) -> Option<String> {
+    let owned = digest_entries(rows).into_iter().last()?;
+    let newest = rows.iter().find(|row| row.id == owned.id)?;
+    let data = serde_json::Value::from(newest.data.clone().expect("digest data"));
+    Some(
+        data["details"]["stateFingerprint"]
+            .as_str()
+            .expect("the fingerprint")
+            .to_string(),
+    )
 }
 
 #[tokio::test]
@@ -386,6 +412,7 @@ async fn a_compaction_head_without_a_snapshot_redelivers() {
         &session,
         EntryHead::Entry(answer.id),
         "[compaction] early work",
+        None,
     )
     .await
     .expect("compaction head");
@@ -426,9 +453,10 @@ async fn a_compaction_snapshot_of_the_current_state_suppresses_redelivery() {
     let answer = all.last().expect("the answer entry");
     let summary = format!(
         "{}[compaction] early work",
-        harness_digest_message_text(&delivered_digest)
+        digest_block(&delivered_digest)
     );
-    compaction_head(&session, EntryHead::Entry(answer.id), &summary)
+    let fingerprint = delivered_fingerprint(&entries(&session).await);
+    compaction_head(&session, EntryHead::Entry(answer.id), &summary, fingerprint)
         .await
         .expect("compaction head");
     submit(&session, "continue").await;
@@ -436,11 +464,15 @@ async fn a_compaction_snapshot_of_the_current_state_suppresses_redelivery() {
     assert_eq!(
         digest_entries(&entries(&session).await).len(),
         1,
-        "the snapshot is fresh, so nothing is re-delivered"
+        "the snapshot is fresh, so nothing is re-delivered: rows {:?}",
+        digest_entries(&entries(&session).await)
+            .iter()
+            .map(|row| row.id.get())
+            .collect::<Vec<_>>()
     );
     let seen = lock(&requests).clone();
     let delivered = frames(&seen[1]);
-    assert_eq!(delivered.len(), 1, "{:?}", seen[1]);
+    assert_eq!(delivered.len(), 1, "request frames {delivered:?}: {:?}", seen[1].len());
     assert!(
         delivered[0].contains("Quote file paths verbatim."),
         "{}",
@@ -470,9 +502,10 @@ async fn a_stale_compaction_snapshot_yields_its_digest_block() {
     let answer = all.last().expect("the answer entry");
     let summary = format!(
         "{}[compaction] early work",
-        harness_digest_message_text(&delivered_digest)
+        digest_block(&delivered_digest)
     );
-    compaction_head(&session, EntryHead::Entry(answer.id), &summary)
+    let fingerprint = delivered_fingerprint(&entries(&session).await);
+    compaction_head(&session, EntryHead::Entry(answer.id), &summary, fingerprint)
         .await
         .expect("compaction head");
 

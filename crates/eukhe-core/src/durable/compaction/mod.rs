@@ -13,7 +13,7 @@
 //!   serviced once the conversation goes idle.
 
 mod autorefine;
-mod head;
+pub(crate) mod head;
 mod observer;
 mod summary;
 #[cfg(test)]
@@ -73,10 +73,22 @@ pub(crate) async fn digest_block_of(
     conversation: &eukhe_durable::harness::Conversation,
     cx: &Context,
 ) -> eukhe_durable::session::SessionResult<Option<String>> {
+    Ok(digest_render_of(deps, conversation, cx)
+        .await?
+        .map(|render| render.digest))
+}
+
+/// The fresh harness digest render (body plus state fingerprint) of a
+/// conversation, when its state renders a non-empty digest.
+pub(crate) async fn digest_render_of(
+    deps: &HostDeps,
+    conversation: &eukhe_durable::harness::Conversation,
+    cx: &Context,
+) -> eukhe_durable::session::SessionResult<Option<crate::durable::digest::HarnessDigestRender>> {
     let render = super::digest::conversation_digest(deps, conversation, cx)
         .await
         .map_err(eukhe_durable::session::SessionError::other)?;
-    Ok((!render.digest.is_empty()).then_some(render.digest))
+    Ok((!render.digest.is_empty()).then_some(render))
 }
 
 /// Whether `conversation` is a chat-memory root (the compaction surfaces
