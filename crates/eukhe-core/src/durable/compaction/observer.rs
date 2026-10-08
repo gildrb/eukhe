@@ -112,8 +112,11 @@ pub(crate) fn start(
         ))?;
         let close = Arc::new(tokio::sync::Notify::new());
         let close_signal = Arc::clone(&close);
+        // `notify_one` stores a permit for the next waiter, so a close fired
+        // before the service task first polls (nothing else parks between the
+        // service start and the stop) still ends it, like a TS promise.
         let subscription = opened.harness.subscribe_close(Arc::new(move || {
-            close_signal.notify_waiters();
+            close_signal.notify_one();
         }))?;
         let service_runtime = Arc::clone(&runtime);
         let task_close = Arc::clone(&close);
@@ -134,7 +137,7 @@ pub(crate) fn start(
             async move {
                 drop(commits);
                 drop(subscription);
-                close.notify_waiters();
+                close.notify_one();
                 let _ = task.await;
             }
             .boxed()

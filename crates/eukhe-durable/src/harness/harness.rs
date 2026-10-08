@@ -359,7 +359,6 @@ impl Harness {
             return Err(SessionError::Aborted(reason));
         }
         let harness = Self::new(storage, options, cx)?;
-        eprintln!("HARNESS-STAGE new done");
         if let Err(error) = harness.core.tasks.open(cx).await {
             // The caller's context may be what failed open: close without it, and rethrow the open error.
             if let Err(close_error) = harness.close(&without_abort_signal(cx)).await {
@@ -367,7 +366,6 @@ impl Harness {
             }
             return Err(error);
         }
-        eprintln!("HARNESS-STAGE tasks open done");
         Ok(harness)
     }
 
@@ -376,7 +374,6 @@ impl Harness {
         options: HarnessOptions,
         cx: &Context,
     ) -> SessionResult<Self> {
-        eprintln!("HARNESS-STAGE new begin");
         let report: Arc<dyn Fn(SessionError) + Send + Sync> = match &options.on_report {
             Some(report) => Arc::clone(report),
             None => Arc::new(|_| {}),

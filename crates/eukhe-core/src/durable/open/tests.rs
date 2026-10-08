@@ -228,6 +228,23 @@ async fn a_new_root_takes_the_settings_default_model() {
     session.close(cx()).await.expect("close");
 }
 
+/// Regression: closing right after open, with no `await` in between that
+/// parks (the cached agent snapshot answers without the line), must still
+/// stop the session services — their stop signals are delivered to a task
+/// that has never been polled.
+#[tokio::test]
+async fn closing_a_session_that_never_yielded_stops_its_services() {
+    let fixture = fixture();
+    let session = open_session(fixture.config(SessionStorage::Memory), cx())
+        .await
+        .expect("open");
+    assert_eq!(
+        session.root().agent(cx()).await.expect("agent").model,
+        Some(fixture.model())
+    );
+    session.close(cx()).await.expect("close");
+}
+
 #[tokio::test]
 async fn settings_changes_reach_the_open_session() {
     let fixture = fixture();
