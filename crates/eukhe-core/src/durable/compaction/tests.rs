@@ -11,7 +11,7 @@ use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
 use eukhe_pi_ai::providers::faux::{
     faux_assistant_message, faux_provider, faux_text, FauxAssistantMessageOptions,
-    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
+    FauxProviderHandle, RegisterFauxProviderOptions,
 };
 use eukhe_types::pi_ai::{StopReason, UserContent};
 use tempfile::TempDir;

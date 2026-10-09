@@ -66,18 +66,6 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     })
 }
 
-/// The fresh harness digest of a conversation, when its state renders a
-/// non-empty digest (the block that leads a compaction summary).
-pub(crate) async fn digest_block_of(
-    deps: &HostDeps,
-    conversation: &eukhe_durable::harness::Conversation,
-    cx: &Context,
-) -> eukhe_durable::session::SessionResult<Option<String>> {
-    Ok(digest_render_of(deps, conversation, cx)
-        .await?
-        .map(|render| render.digest))
-}
-
 /// The fresh harness digest render (body plus state fingerprint) of a
 /// conversation, when its state renders a non-empty digest.
 pub(crate) async fn digest_render_of(

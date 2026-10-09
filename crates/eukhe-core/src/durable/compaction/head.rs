@@ -208,8 +208,7 @@ mod tests {
     #[test]
     fn previous_summary_is_none_for_a_digest_only_head() {
         let digest_only = format!(
-            "{DURABLE_SUMMARY_PREFIX}{}{DURABLE_SUMMARY_SUFFIX}",
-            format!("{HARNESS_DIGEST_PREFIX}d{HARNESS_DIGEST_SUFFIX}\n\n")
+            "{DURABLE_SUMMARY_PREFIX}{HARNESS_DIGEST_PREFIX}d{HARNESS_DIGEST_SUFFIX}\n\n{DURABLE_SUMMARY_SUFFIX}"
         );
         assert_eq!(previous_summary(&digest_only), None);
     }
