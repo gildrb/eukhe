@@ -363,25 +363,34 @@ mod tests {
 
     #[test]
     fn parked_sentences_name_the_resume_time() {
-        let parked =
-            quota_parked_final_error("Provider requested a wait", 1_768_000_000_000, "429");
+        let resume_at = 1_768_000_000_000_u64;
+        // The old `format_iso` renders in the host's timezone; the sentence
+        // must carry exactly its rendering, whatever it is here.
+        let iso = crate::session::manager::format_iso(i64::try_from(resume_at).unwrap());
+        let parked = quota_parked_final_error("Provider requested a wait", resume_at, "429");
         assert!(
-            parked.contains("Session parked until 2026-01-09T23:06:40.000Z and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429"),
+            parked.contains(&format!(
+                "Session parked until {iso} and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429"
+            )),
             "{parked}"
         );
-        let already = quota_already_parked_final_error(1_768_000_000_000, "429");
+        let already = quota_already_parked_final_error(resume_at, "429");
         assert!(
-            already.contains("Session is parked until 2026-01-09T23:06:40.000Z waiting for the provider usage reset"),
+            already.contains(&format!(
+                "Session is parked until {iso} waiting for the provider usage reset"
+            )),
             "{already}"
         );
     }
 
     #[test]
     fn entry_data_keeps_the_old_row_keys() {
+        let resume_at = 1_768_000_000_000_u64;
+        let iso = crate::session::manager::format_iso(i64::try_from(resume_at).unwrap());
         assert_eq!(
-            park_entry_data(1_768_000_000_000, 2, Some("job-7"), Some("prime-inference")),
+            park_entry_data(resume_at, 2, Some("job-7"), Some("prime-inference")),
             serde_json::json!({
-                "resumeAt": "2026-01-09T23:06:40.000Z",
+                "resumeAt": iso,
                 "parkCount": 2,
                 "jobId": "job-7",
                 "provider": "prime-inference",

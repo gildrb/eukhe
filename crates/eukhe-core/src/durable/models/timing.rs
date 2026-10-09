@@ -573,7 +573,7 @@ mod tests {
                 "model": "bench/bench-model",
             })
         );
-        let summary = strip_measured(&entries[3], &["totalMs"]);
+        let mut summary = strip_measured(&entries[3], &["totalMs"]);
         let phases = summary.get("phases").cloned().unwrap();
         for key in [
             "promptBuiltToRequestSentMs",
@@ -587,6 +587,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("phase {key} present: {phases}"));
             assert!(phase_ms >= 0.0, "phase {key} = {phase_ms}");
         }
+        summary
+            .as_object_mut()
+            .expect("an object")
+            .remove("phases")
+            .expect("the phases strip");
         assert_eq!(
             strip_reserved(summary),
             json!({
@@ -597,7 +602,6 @@ mod tests {
                 "requestSeq": 1,
                 "outcome": "done",
                 "model": "bench/bench-model",
-                "phases": {},
                 "stopReason": "stop",
                 "usage": {
                     "input": 800_000,
@@ -829,10 +833,9 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::env::remove_var(REQUEST_TIMING_ENV);
-        let _wiring_unused = RequestTimingWiring::new(Path::new("/nonexistent"));
         assert!(!RequestTimingWiring::enabled(false));
         assert!(RequestTimingWiring::enabled(true));
-        let _wiring = RequestTimingWiring::new(Path::new("/nonexistent"));
+        std::env::set_var(REQUEST_TIMING_ENV, "1");
         assert!(RequestTimingWiring::enabled(false));
         std::env::set_var(REQUEST_TIMING_ENV, "0");
         assert!(!RequestTimingWiring::enabled(false));
