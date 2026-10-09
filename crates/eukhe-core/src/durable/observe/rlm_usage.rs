@@ -57,8 +57,8 @@ pub fn attribution_draft(
         model: None,
         data: Some(to_json(&ChildUsageAttributionData {
             target_id,
-            child_usage: child_usage.clone(),
-            aggregate_usage: aggregate_usage.clone(),
+            child_usage: *child_usage,
+            aggregate_usage: *aggregate_usage,
             origin: None,
         })?),
         head: None,
@@ -73,7 +73,7 @@ pub fn attribution_draft(
 /// model-facing context.
 #[must_use]
 pub fn attributed_aggregate(base: &Usage, delta: &Usage, parent_context_tokens: u64) -> Usage {
-    let mut aggregate = base.clone();
+    let mut aggregate = *base;
     add_usage(&mut aggregate, delta);
     aggregate.total_tokens = parent_context_tokens;
     aggregate
@@ -98,9 +98,10 @@ pub(crate) fn entry_assistant_usage(entry: &EntryRecord) -> Option<Usage> {
 
 /// The read-side fold (the old `applyChildUsageAttributions`): the newest
 /// `aggregateUsage` per target replaces the target assistant entry's
-/// usage; aggregates are cumulative, so they are never summed. Rows with
-/// undecodable data or a missing target are skipped — an attribution never
-/// fails the read it rides.
+/// usage; aggregates are cumulative, so they are never summed. `entries`
+/// arrive in storage scan order (newest first), so the FIRST row per
+/// target is its newest. Rows with undecodable data or a missing target
+/// are skipped — an attribution never fails the read it rides.
 pub fn apply_child_usage_attributions(entries: &mut [EntryRecord]) {
     let mut newest: std::collections::HashMap<EntryId, Usage> = std::collections::HashMap::new();
     for entry in entries.iter() {
@@ -111,7 +112,9 @@ pub fn apply_child_usage_attributions(entries: &mut [EntryRecord]) {
             continue;
         };
         if let Ok(attribution) = from_json::<ChildUsageAttributionData>(data) {
-            newest.insert(attribution.target_id, attribution.aggregate_usage);
+            newest
+                .entry(attribution.target_id)
+                .or_insert(attribution.aggregate_usage);
         }
     }
     if newest.is_empty() {
@@ -126,7 +129,7 @@ pub fn apply_child_usage_attributions(entries: &mut [EntryRecord]) {
         };
         for message in messages.iter_mut() {
             if let Message::Assistant(assistant) = message {
-                assistant.usage = aggregate.clone();
+                assistant.usage = *aggregate;
                 break;
             }
         }
@@ -216,7 +219,6 @@ mod tests {
             .and_then(assistant_of)
             .unwrap()
             .usage
-            .clone()
     }
 
     #[test]
@@ -231,10 +233,11 @@ mod tests {
 
     #[test]
     fn fold_replaces_with_the_newest_aggregate_per_target() {
+        // Storage scan order: newest first.
         let mut entries = vec![
-            assistant_entry(10, usage(1_000, 0, 1_000)),
-            attribution_entry(11, 10, usage(1_100, 10, 1_000)),
             attribution_entry(12, 10, usage(1_500, 30, 1_000)),
+            attribution_entry(11, 10, usage(1_100, 10, 1_000)),
+            assistant_entry(10, usage(1_000, 0, 1_000)),
         ];
         apply_child_usage_attributions(&mut entries);
         assert_eq!(assistant_usage_of(&entries, 10), usage(1_500, 30, 1_000));

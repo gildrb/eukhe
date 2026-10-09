@@ -930,14 +930,24 @@ async fn child_usage_attribution_rows_target_the_spawning_assistant_row() {
         .find(|entry| entry.id == target_id)
         .and_then(entry_assistant_usage)
         .expect("the target is an assistant row");
-    // Each row carries its delta and the cumulative aggregate; the
-    // aggregate keeps the row's own context size.
-    assert_eq!(attributions[0].child_usage, usage(100, 20));
-    assert_eq!(attributions[1].child_usage, usage(50, 10));
+    // Each row carries its delta (the scan is newest-first, so the
+    // second observation's row reads first); the aggregate keeps the
+    // row's own context size.
+    let mut deltas: Vec<_> = attributions
+        .iter()
+        .map(|attribution| attribution.child_usage)
+        .collect();
+    deltas.sort_by_key(|delta| delta.input);
+    assert_eq!(deltas, [usage(50, 10), usage(100, 20)]);
     let mut aggregate = own;
     eukhe_durable::harness::usage::add_usage(&mut aggregate, &usage(150, 30));
     aggregate.total_tokens = own.total_tokens;
-    assert_eq!(attributions[1].aggregate_usage, aggregate);
+    let newest_aggregate = attributions
+        .iter()
+        .map(|attribution| attribution.aggregate_usage)
+        .max_by_key(|aggregate| aggregate.input)
+        .unwrap();
+    assert_eq!(newest_aggregate, aggregate);
     // The read-side fold restores the old engine's view: the newest
     // aggregate replaces the target row's usage.
     apply_child_usage_attributions(&mut entries);

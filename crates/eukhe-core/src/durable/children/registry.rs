@@ -6,8 +6,7 @@
 
 use super::host::RlmChildIdentity;
 use crate::durable::observe::rlm_usage::{
-    attributed_aggregate, attribution_draft, entry_assistant_usage, ChildUsageAttributionData,
-    CHILD_USAGE_ATTRIBUTED_KIND,
+    attributed_aggregate, attribution_draft, entry_assistant_usage, CHILD_USAGE_ATTRIBUTED_KIND,
 };
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue};
@@ -15,13 +14,11 @@ use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::harness::usage::{record_usage, UsageBucket};
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{
-    ConversationId, DocumentReader, DocumentReaderExt, EntryId, EntryQuery, EntryRecord,
-    LatestFork, TaskId,
+    ConversationId, DocumentReader, DocumentReaderExt, EntryId, EntryQuery, LatestFork, TaskId,
 };
 use eukhe_types::pi_ai::{IndexMap, Usage, UsageCost};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// The `pi.usage` tools-bucket key child spend is attributed under: the
@@ -319,8 +316,13 @@ pub(crate) async fn tx_attribute_usage(
     let mut total = attributed;
     eukhe_durable::harness::usage::add_usage(&mut total, &delta);
     row.usage = Some(total);
+    let cumulative_total = total;
     if let Some(target) = tx_attribution_target(tx, conversation_id).await? {
-        let aggregate = attributed_aggregate(&target.aggregate, &delta, target.context_tokens);
+        // The row's aggregate is the row's own usage plus the CUMULATIVE
+        // child usage (the old engine rewrote the row to own +
+        // cumulative); the entry is immutable, so `own` is always the
+        // assistant row's own usage and never a prior aggregate.
+        let aggregate = attributed_aggregate(&target.own, &cumulative_total, target.context_tokens);
         tx.append_entry(
             conversation_id,
             attribution_draft(target.entry_id, &delta, &aggregate)?,
@@ -335,21 +337,18 @@ struct AttributionTarget {
     entry_id: EntryId,
     /// The row's own model-facing context size (`totalTokens`).
     context_tokens: u64,
-    /// The running cumulative aggregate; the row's own usage before the
-    /// first attribution.
-    aggregate: Usage,
+    /// The row's own usage — the immutable base every cumulative
+    /// aggregate sums onto.
+    own: Usage,
 }
 
 /// Resolve the attribution target of `conversation_id` inside a commit:
-/// the newest assistant entry (the old `_findLastAssistantMessage`), with
-/// the newest aggregate already attributed to it. Attribution entries
-/// newer than the row carry it; `None` when the conversation has no
-/// assistant row.
+/// the newest assistant entry (the old `_findLastAssistantMessage`) and
+/// its own usage; `None` when the conversation has no assistant row.
 async fn tx_attribution_target(
     tx: &Tx,
     conversation_id: ConversationId,
 ) -> SessionResult<Option<AttributionTarget>> {
-    let mut aggregates: HashMap<EntryId, Usage> = HashMap::new();
     let mut cursor = None;
     loop {
         let page = tx
@@ -360,18 +359,14 @@ async fn tx_attribution_target(
             )
             .await?;
         for entry in &page.items {
-            if entry.kind == CHILD_USAGE_ATTRIBUTED_KIND {
-                if let Some(attribution) = attribution_data(entry) {
-                    aggregates
-                        .entry(attribution.target_id)
-                        .or_insert(attribution.aggregate_usage);
+            if entry.kind != CHILD_USAGE_ATTRIBUTED_KIND {
+                if let Some(usage) = entry_assistant_usage(entry) {
+                    return Ok(Some(AttributionTarget {
+                        entry_id: entry.id,
+                        context_tokens: usage.total_tokens,
+                        own: usage,
+                    }));
                 }
-            } else if let Some(usage) = entry_assistant_usage(entry) {
-                return Ok(Some(AttributionTarget {
-                    entry_id: entry.id,
-                    context_tokens: usage.total_tokens,
-                    aggregate: aggregates.remove(&entry.id).unwrap_or(usage),
-                }));
             }
         }
         if page.next.is_none() {
@@ -379,12 +374,6 @@ async fn tx_attribution_target(
         }
         cursor = page.next;
     }
-}
-
-/// The decoded data of one attribution entry; `None` when it does not
-/// decode (a torn row never fails the attribution).
-fn attribution_data(entry: &EntryRecord) -> Option<ChildUsageAttributionData> {
-    from_json(entry.data.as_ref()?).ok()
 }
 
 /// Entries per attribution-target scan page.

@@ -29,7 +29,7 @@ use super::{model_request_headers, SemanticEdgeRecorder};
 pub(crate) fn wrap_stream_fn(recorder: Arc<SemanticEdgeRecorder>, inner: StreamFn) -> StreamFn {
     Arc::new(move |model, context, mut options| {
         let tail = serde_json::json!({ "extra": options.extra.clone() });
-        let fingerprint = turn_fingerprint(model, context, &options.stream, tail);
+        let fingerprint = turn_fingerprint(model, context, &options.stream, &tail);
         let Some(request_id) = recorder.start_turn_request(fingerprint) else {
             return inner(model, context, options);
         };
@@ -54,7 +54,7 @@ pub(crate) fn wrap_stream_simple_fn(
             "reasoning": options.reasoning,
             "toolChoice": options.tool_choice,
         });
-        let fingerprint = turn_fingerprint(model, context, &options.stream, tail);
+        let fingerprint = turn_fingerprint(model, context, &options.stream, &tail);
         let Some(request_id) = recorder.start_turn_request(fingerprint) else {
             return inner(model, context, options);
         };
@@ -151,7 +151,7 @@ fn turn_fingerprint(
     model: &Model,
     context: &TranscriptContext,
     stream: &StreamOptions,
-    tail: JsonValue,
+    tail: &JsonValue,
 ) -> [u8; 32] {
     let messages = context.messages();
     let leading_system = messages.iter().find_map(|message| match message {

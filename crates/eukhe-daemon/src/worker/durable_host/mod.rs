@@ -14,8 +14,8 @@ pub(crate) mod suspended;
 pub mod translator;
 pub mod wire_messages;
 
-pub use translator::{CoalesceMode, ConversationMirror, EventTranslator};
 pub(crate) use bridge::{EventBridge, ShownView};
+pub use translator::{CoalesceMode, ConversationMirror, EventTranslator};
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

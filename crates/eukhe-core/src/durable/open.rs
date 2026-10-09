@@ -181,7 +181,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         observe::semantic_edges::SemanticEdgeIdentity {
             session_id: config.session_id.clone(),
             ledger_path: observe::semantic_edges::semantic_edge_ledger_path(
-                parent.as_ref().map(|_| ledger_home.as_deref()).flatten(),
+                parent.as_ref().and(ledger_home.as_deref()),
                 ledger_home.as_deref(),
             ),
             parent_session_id: parent.as_ref().map(|parent| parent.session_id.clone()),

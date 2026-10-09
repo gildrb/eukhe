@@ -78,8 +78,8 @@ fn fixture_with_switch(telemetry_enabled: Option<RecordingSwitch>) -> Fixture {
     }
 }
 
-fn emit(fixture: &Fixture, event: AgentEvent) {
-    fixture.telemetry.handle_event(&event);
+fn emit(fixture: &Fixture, event: &AgentEvent) {
+    fixture.telemetry.handle_event(event);
 }
 
 fn session_id(fixture: &Fixture) -> String {
@@ -88,7 +88,7 @@ fn session_id(fixture: &Fixture) -> String {
 
 /// The base properties every event carries (stripped before the
 /// whole-object run comparisons).
-const BASE_KEYS: [&str; 10] = [
+const BASE_KEYS: [&str; 13] = [
     "version",
     "os_family",
     "architecture",
@@ -99,6 +99,9 @@ const BASE_KEYS: [&str; 10] = [
     "cpu_baseline",
     "os_release",
     "os_product_version",
+    "build_channel",
+    "workload_origin",
+    "schema_revision",
 ];
 
 fn assistant_message() -> AssistantMessage {
@@ -320,21 +323,21 @@ async fn one_full_run_emits_the_whole_completed_object() {
     let assistant = assistant_message();
 
     fixture.clock.set(1_000);
-    emit(&fixture, run_start());
-    emit(&fixture, user_start());
+    emit(&fixture, &run_start());
+    emit(&fixture, &user_start());
     fixture.clock.set(1_010);
-    emit(&fixture, AgentEvent::TurnStart);
+    emit(&fixture, &AgentEvent::TurnStart);
     fixture.clock.set(1_035);
-    emit(&fixture, text_delta_update());
+    emit(&fixture, &text_delta_update());
     let (tool_start, tool_end) = tool_events("bash", Some(false));
     fixture.clock.set(1_050);
-    emit(&fixture, tool_start);
+    emit(&fixture, &tool_start);
     fixture.clock.set(1_055);
-    emit(&fixture, tool_end);
+    emit(&fixture, &tool_end);
     fixture.clock.set(1_100);
-    emit(&fixture, message_end(&assistant));
+    emit(&fixture, &message_end(&assistant));
     fixture.clock.set(1_125);
-    emit(&fixture, run_end());
+    emit(&fixture, &run_end());
     // Deferred finalize: RunEnd alone must not seal the run yet (the
     // post-run compaction window stays open).
     assert!(event_properties(&fixture.mock, "agent run completed")
@@ -343,7 +346,7 @@ async fn one_full_run_emits_the_whole_completed_object() {
 
     // The next run start finalizes the open run.
     fixture.clock.set(1_200);
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
 
     let runs = event_properties(&fixture.mock, "agent run completed").await;
     assert_eq!(runs.len(), 1);
@@ -412,7 +415,7 @@ async fn one_full_run_emits_the_whole_completed_object() {
     fixture.telemetry.end().await.unwrap();
     let ended = event_properties(&fixture.mock, "agent session ended").await;
     assert_eq!(ended.len(), 1);
-    assert_eq!(ended[0]["duration_ms"], json!(300));
+    assert_eq!(ended[0]["duration_ms"], json!(1_300));
     assert_eq!(ended[0]["prompt_count"], json!(1));
     assert_eq!(ended[0]["run_count"], json!(2));
     assert_eq!(ended[0]["successful_run_count"], json!(2));
@@ -422,23 +425,23 @@ async fn one_full_run_emits_the_whole_completed_object() {
 }
 
 /// An error run whose final assistant carries no error message keeps
-/// the #2117 `error_subtype` through the AutoRetryStart error text.
+/// the #2117 `error_subtype` through the `AutoRetryStart` error text.
 #[tokio::test]
 async fn error_subtype_falls_back_to_the_retry_error_text() {
     let fixture = fixture();
-    emit(&fixture, run_start());
-    emit(&fixture, user_start());
+    emit(&fixture, &run_start());
+    emit(&fixture, &user_start());
     fixture.clock.set(1_000);
-    emit(&fixture, AgentEvent::TurnStart);
+    emit(&fixture, &AgentEvent::TurnStart);
     fixture.clock.set(1_100);
-    emit(&fixture, message_end(&assistant_with_error(None)));
+    emit(&fixture, &message_end(&assistant_with_error(None)));
     fixture.clock.set(1_200);
-    emit(&fixture, retry_start(1_700.0, "429 Too Many Requests"));
-    emit(&fixture, AgentEvent::AutoRetryEnd { attempt: 1 });
+    emit(&fixture, &retry_start(1_700.0, "429 Too Many Requests"));
+    emit(&fixture, &AgentEvent::AutoRetryEnd { attempt: 1 });
     fixture.clock.set(1_300);
-    emit(&fixture, run_end());
+    emit(&fixture, &run_end());
     fixture.clock.set(1_400);
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
 
     let runs = event_properties(&fixture.mock, "agent run completed").await;
     assert_eq!(runs.len(), 1);
@@ -455,10 +458,10 @@ async fn aborted_outcome_maps_to_cancelled() {
     let fixture = fixture();
     let mut aborted = assistant_message();
     aborted.stop_reason = StopReason::Aborted;
-    emit(&fixture, run_start());
-    emit(&fixture, message_end(&aborted));
-    emit(&fixture, run_end());
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
+    emit(&fixture, &message_end(&aborted));
+    emit(&fixture, &run_end());
+    emit(&fixture, &run_start());
 
     let runs = event_properties(&fixture.mock, "agent run completed").await;
     assert_eq!(runs.len(), 1);
@@ -475,8 +478,8 @@ async fn aborted_outcome_maps_to_cancelled() {
 #[tokio::test]
 async fn tool_calls_fold_into_run_aggregates() {
     let fixture = fixture();
-    emit(&fixture, run_start());
-    emit(&fixture, user_start());
+    emit(&fixture, &run_start());
+    emit(&fixture, &user_start());
     // (tool, entry-is-error / None = no entry, start, end)
     for (tool, is_error, start, end) in [
         ("bash", Some(false), 1_000, 1_040),
@@ -487,13 +490,13 @@ async fn tool_calls_fold_into_run_aggregates() {
     ] {
         let (tool_start, tool_end) = tool_events(tool, is_error);
         fixture.clock.set(start);
-        emit(&fixture, tool_start);
+        emit(&fixture, &tool_start);
         fixture.clock.set(end);
-        emit(&fixture, tool_end);
+        emit(&fixture, &tool_end);
     }
-    emit(&fixture, message_end(&assistant_message()));
-    emit(&fixture, run_end());
-    emit(&fixture, run_start());
+    emit(&fixture, &message_end(&assistant_message()));
+    emit(&fixture, &run_end());
+    emit(&fixture, &run_start());
     let runs = event_properties(&fixture.mock, "agent run completed").await;
     let run = &runs[0];
     assert_eq!(run["tool_call_count"], json!(5));
@@ -513,7 +516,7 @@ async fn tool_calls_fold_into_run_aggregates() {
     );
     assert_eq!(
         fixture.mock.event_names(),
-        ["agent run completed"],
+        ["agent started", "agent run completed"],
         "no per-call events"
     );
     let all = serde_json::to_string(&fixture.mock.events()).unwrap();
@@ -522,7 +525,7 @@ async fn tool_calls_fold_into_run_aggregates() {
 }
 
 /// TS one-run-per-turn: durable retries stay inside one run; two
-/// AutoRetryStarts count `retry_count` 2 and their scheduled waits sum
+/// `AutoRetryStart`s count `retry_count` 2 and their scheduled waits sum
 /// into `retry_wait_ms`, and the recovered attempt keeps the turn's
 /// cost.
 #[tokio::test]
@@ -531,32 +534,32 @@ async fn retries_stay_inside_one_run() {
     let failed = assistant_with_error(Some(
         "API Error: 429 rate limit exceeded with /home/user/secret",
     ));
-    emit(&fixture, run_start());
-    emit(&fixture, user_start());
+    emit(&fixture, &run_start());
+    emit(&fixture, &user_start());
     fixture.clock.set(1_000);
-    emit(&fixture, AgentEvent::TurnStart);
+    emit(&fixture, &AgentEvent::TurnStart);
     fixture.clock.set(1_100);
-    emit(&fixture, message_end(&failed));
+    emit(&fixture, &message_end(&failed));
     fixture.clock.set(1_200);
-    emit(&fixture, retry_start(1_700.0, "429 Too Many Requests"));
-    emit(&fixture, AgentEvent::AutoRetryEnd { attempt: 1 });
+    emit(&fixture, &retry_start(1_700.0, "429 Too Many Requests"));
+    emit(&fixture, &AgentEvent::AutoRetryEnd { attempt: 1 });
     fixture.clock.set(1_800);
-    emit(&fixture, message_end(&failed));
+    emit(&fixture, &message_end(&failed));
     fixture.clock.set(1_900);
     emit(
         &fixture,
-        AgentEvent::AutoRetryStart {
+        &AgentEvent::AutoRetryStart {
             attempt: 2,
             at: 2_900.0,
             error_message: "429 Too Many Requests".to_string(),
         },
     );
-    emit(&fixture, AgentEvent::AutoRetryEnd { attempt: 2 });
+    emit(&fixture, &AgentEvent::AutoRetryEnd { attempt: 2 });
     let mut recovered = assistant_message();
     recovered.usage.cost.total = 0.012;
     fixture.clock.set(3_000);
-    emit(&fixture, message_end(&recovered));
-    emit(&fixture, run_end());
+    emit(&fixture, &message_end(&recovered));
+    emit(&fixture, &run_end());
     fixture.telemetry.end().await.unwrap();
 
     let runs = event_properties(&fixture.mock, "agent run completed").await;
@@ -586,13 +589,30 @@ async fn retries_stay_inside_one_run() {
 /// A compaction inside the run counts (once, at its end event) with the
 /// duration measured between the two event observations; a compaction
 /// with no active run counts nothing.
+#[tokio::test]
 async fn compactions_count_with_the_observed_duration() {
     let fixture = fixture();
-    emit(&fixture, run_start());
+    // Before any run: never counted.
+    emit(
+        &fixture,
+        &AgentEvent::CompactionStart {
+            task_id: TaskId::from_number(8),
+            reason: CompactionReason::Manual,
+            blocking: false,
+        },
+    );
+    emit(
+        &fixture,
+        &AgentEvent::CompactionEnd {
+            task_id: TaskId::from_number(8),
+            reason: CompactionReason::Manual,
+        },
+    );
+    emit(&fixture, &run_start());
     fixture.clock.set(1_000);
     emit(
         &fixture,
-        AgentEvent::CompactionStart {
+        &AgentEvent::CompactionStart {
             task_id: TaskId::from_number(7),
             reason: CompactionReason::Manual,
             blocking: true,
@@ -601,30 +621,14 @@ async fn compactions_count_with_the_observed_duration() {
     fixture.clock.set(1_045);
     emit(
         &fixture,
-        AgentEvent::CompactionEnd {
+        &AgentEvent::CompactionEnd {
             task_id: TaskId::from_number(7),
             reason: CompactionReason::Manual,
         },
     );
-    emit(&fixture, message_end(&assistant_message()));
-    emit(&fixture, run_end());
-    // Between runs: never counted.
-    emit(
-        &fixture,
-        AgentEvent::CompactionStart {
-            task_id: TaskId::from_number(8),
-            reason: CompactionReason::Manual,
-            blocking: false,
-        },
-    );
-    emit(
-        &fixture,
-        AgentEvent::CompactionEnd {
-            task_id: TaskId::from_number(8),
-            reason: CompactionReason::Manual,
-        },
-    );
-    emit(&fixture, run_start());
+    emit(&fixture, &message_end(&assistant_message()));
+    emit(&fixture, &run_end());
+    emit(&fixture, &run_start());
 
     let runs = event_properties(&fixture.mock, "agent run completed").await;
     assert_eq!(runs.len(), 1);
@@ -641,16 +645,16 @@ async fn compactions_count_with_the_observed_duration() {
 #[tokio::test]
 async fn trigger_prompt_versus_continuation() {
     let fixture = fixture();
-    emit(&fixture, run_start());
-    emit(&fixture, AgentEvent::TurnStart);
-    emit(&fixture, message_end(&assistant_message()));
-    emit(&fixture, run_end());
-    emit(&fixture, run_start());
-    emit(&fixture, user_start());
-    emit(&fixture, AgentEvent::TurnStart);
-    emit(&fixture, message_end(&assistant_message()));
-    emit(&fixture, run_end());
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
+    emit(&fixture, &AgentEvent::TurnStart);
+    emit(&fixture, &message_end(&assistant_message()));
+    emit(&fixture, &run_end());
+    emit(&fixture, &run_start());
+    emit(&fixture, &user_start());
+    emit(&fixture, &AgentEvent::TurnStart);
+    emit(&fixture, &message_end(&assistant_message()));
+    emit(&fixture, &run_end());
+    emit(&fixture, &run_start());
 
     let runs = event_properties(&fixture.mock, "agent run completed").await;
     assert_eq!(runs.len(), 2);
@@ -658,28 +662,28 @@ async fn trigger_prompt_versus_continuation() {
     assert_eq!(runs[1]["trigger"], json!("prompt"));
 }
 
-/// The stream timings from MessageUpdate changes: the visible TTFT and
-/// run-to-first-text from a TextDelta, the first-reasoning from a
-/// ThinkingDelta, and the largest quiet stretch between updates.
+/// The stream timings from `MessageUpdate` changes: the visible TTFT and
+/// run-to-first-text from a `TextDelta`, the first-reasoning from a
+/// `ThinkingDelta`, and the largest quiet stretch between updates.
 #[tokio::test]
 async fn stream_timings_come_from_the_update_changes() {
     let fixture = fixture();
     let assistant = assistant_message();
     fixture.clock.set(1_000);
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
     fixture.clock.set(1_010);
-    emit(&fixture, AgentEvent::TurnStart);
+    emit(&fixture, &AgentEvent::TurnStart);
     fixture.clock.set(1_020);
-    emit(&fixture, thinking_delta_update());
+    emit(&fixture, &thinking_delta_update());
     fixture.clock.set(1_030);
-    emit(&fixture, text_delta_update());
+    emit(&fixture, &text_delta_update());
     fixture.clock.set(1_050);
-    emit(&fixture, text_delta_update());
+    emit(&fixture, &text_delta_update());
     fixture.clock.set(1_200);
-    emit(&fixture, text_delta_update());
-    emit(&fixture, message_end(&assistant));
-    emit(&fixture, run_end());
-    emit(&fixture, run_start());
+    emit(&fixture, &text_delta_update());
+    emit(&fixture, &message_end(&assistant));
+    emit(&fixture, &run_end());
+    emit(&fixture, &run_start());
 
     let runs = event_properties(&fixture.mock, "agent run completed").await;
     assert_eq!(runs[0]["first_reasoning_ms"], json!(10));
@@ -705,25 +709,25 @@ async fn off_period_run_facts_never_send() {
 
     // A whole run while off: start, a turn, a tool call, and its end.
     fixture.clock.set(1_000);
-    emit(&fixture, run_start());
-    emit(&fixture, AgentEvent::TurnStart);
+    emit(&fixture, &run_start());
+    emit(&fixture, &AgentEvent::TurnStart);
     let (tool_start, tool_end) = tool_events("bash", Some(false));
-    emit(&fixture, tool_start);
-    emit(&fixture, tool_end);
+    emit(&fixture, &tool_start);
+    emit(&fixture, &tool_end);
     fixture.clock.set(1_100);
-    emit(&fixture, message_end(&assistant));
-    emit(&fixture, run_end());
+    emit(&fixture, &message_end(&assistant));
+    emit(&fixture, &run_end());
 
     // On again: the next run records normally.
     on.store(true, std::sync::atomic::Ordering::Relaxed);
     fixture.clock.set(2_000);
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
     fixture.clock.set(2_050);
-    emit(&fixture, AgentEvent::TurnStart);
+    emit(&fixture, &AgentEvent::TurnStart);
     fixture.clock.set(2_100);
-    emit(&fixture, message_end(&assistant));
+    emit(&fixture, &message_end(&assistant));
     fixture.clock.set(2_150);
-    emit(&fixture, run_end());
+    emit(&fixture, &run_end());
 
     // Off before the session ends: the second (open, ended) run severs
     // instead of reporting.
@@ -757,34 +761,34 @@ async fn a_run_active_when_telemetry_turns_off_is_severed_not_merged() {
 
     // Run 1 starts while on: one turn, one tool call in flight.
     fixture.clock.set(1_000);
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
     fixture.clock.set(1_050);
-    emit(&fixture, AgentEvent::TurnStart);
+    emit(&fixture, &AgentEvent::TurnStart);
     let (tool_start, _tool_end) = tool_events("bash", Some(false));
-    emit(&fixture, tool_start);
+    emit(&fixture, &tool_start);
     fixture.clock.set(1_100);
-    emit(&fixture, message_end(&assistant));
+    emit(&fixture, &message_end(&assistant));
 
     // Telemetry goes off: run 1's tool end, its end, and the next
     // run's start all happen in the off period.
     on.store(false, std::sync::atomic::Ordering::Relaxed);
     fixture.clock.set(1_200);
     let (_tool_start2, tool_end) = tool_events("bash", Some(false));
-    emit(&fixture, tool_end);
-    emit(&fixture, run_end());
+    emit(&fixture, &tool_end);
+    emit(&fixture, &run_end());
     fixture.clock.set(1_300);
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
 
     // Back on: the next run reports only its own window.
     on.store(true, std::sync::atomic::Ordering::Relaxed);
     fixture.clock.set(2_000);
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
     fixture.clock.set(2_050);
-    emit(&fixture, AgentEvent::TurnStart);
+    emit(&fixture, &AgentEvent::TurnStart);
     fixture.clock.set(2_100);
-    emit(&fixture, message_end(&assistant));
+    emit(&fixture, &message_end(&assistant));
     fixture.clock.set(2_150);
-    emit(&fixture, run_end());
+    emit(&fixture, &run_end());
 
     fixture.clock.set(2_200);
     fixture.telemetry.end().await.unwrap();
@@ -905,10 +909,11 @@ async fn session_archived_emits_before_the_end() {
     fixture.telemetry.end().await.unwrap();
     assert_eq!(
         fixture.mock.event_names(),
-        ["session archived", "agent session ended"]
+        ["agent started", "session archived", "agent session ended"]
     );
     let archived = &event_properties(&fixture.mock, "session archived").await[0];
-    assert_eq!(archived["duration_ms"], json!(400));
+    // The clock starts at 0 at install; the archive lands at 1_000.
+    assert_eq!(archived["duration_ms"], json!(1_000));
     let ended = &event_properties(&fixture.mock, "agent session ended").await;
     assert_eq!(ended.len(), 1);
 }
@@ -919,24 +924,24 @@ async fn session_archived_emits_before_the_end() {
 async fn median_model_latencies_odd_and_even() {
     let fixture = fixture();
     // Run 1: three calls of 10, 90, 100 → p50 90.
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
     for latency in [10, 90, 100] {
         fixture.clock.set(1_000);
-        emit(&fixture, AgentEvent::TurnStart);
+        emit(&fixture, &AgentEvent::TurnStart);
         fixture.clock.set(1_000 + latency);
-        emit(&fixture, message_end(&assistant_message()));
+        emit(&fixture, &message_end(&assistant_message()));
     }
-    emit(&fixture, run_end());
+    emit(&fixture, &run_end());
     // Run 2: two calls of 100, 10 → p50 10 (the lower middle).
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
     for latency in [100, 10] {
         fixture.clock.set(2_000);
-        emit(&fixture, AgentEvent::TurnStart);
+        emit(&fixture, &AgentEvent::TurnStart);
         fixture.clock.set(2_000 + latency);
-        emit(&fixture, message_end(&assistant_message()));
+        emit(&fixture, &message_end(&assistant_message()));
     }
-    emit(&fixture, run_end());
-    emit(&fixture, run_start());
+    emit(&fixture, &run_end());
+    emit(&fixture, &run_start());
 
     let runs = event_properties(&fixture.mock, "agent run completed").await;
     assert_eq!(runs.len(), 2);
@@ -944,17 +949,17 @@ async fn median_model_latencies_odd_and_even() {
     assert_eq!(runs[1]["model_latency_p50_ms"], json!(10));
 }
 
-/// A generation TaskFailed counts a model error into the active run
+/// A generation `TaskFailed` counts a model error into the active run
 /// (with its error-category count); other task kinds report through
 /// their own tool events.
 #[tokio::test]
 async fn generation_task_failures_count_model_errors() {
     let fixture = fixture();
-    emit(&fixture, run_start());
-    emit(&fixture, user_start());
+    emit(&fixture, &run_start());
+    emit(&fixture, &user_start());
     emit(
         &fixture,
-        AgentEvent::TaskFailed {
+        &AgentEvent::TaskFailed {
             task_id: TaskId::from_number(5),
             kind: "pi.generation".to_string(),
             message: "429 Too Many Requests".to_string(),
@@ -962,14 +967,14 @@ async fn generation_task_failures_count_model_errors() {
     );
     emit(
         &fixture,
-        AgentEvent::TaskFailed {
+        &AgentEvent::TaskFailed {
             task_id: TaskId::from_number(6),
             kind: "pi.tool".to_string(),
             message: "tool blew up".to_string(),
         },
     );
-    emit(&fixture, run_end());
-    emit(&fixture, run_start());
+    emit(&fixture, &run_end());
+    emit(&fixture, &run_start());
 
     let runs = event_properties(&fixture.mock, "agent run completed").await;
     assert_eq!(runs.len(), 1);
@@ -989,7 +994,7 @@ async fn snapshot_is_a_no_op() {
     let fixture = fixture();
     emit(
         &fixture,
-        AgentEvent::Snapshot(SnapshotEvent {
+        &AgentEvent::Snapshot(SnapshotEvent {
             entries: Vec::new(),
             run: None,
             generation: None,
@@ -1000,14 +1005,14 @@ async fn snapshot_is_a_no_op() {
             usage: UsageState::default(),
         }),
     );
-    emit(&fixture, AgentEvent::TurnEnd);
-    emit(&fixture, AgentEvent::DeferredPoll { poll_at: 1.0 });
+    emit(&fixture, &AgentEvent::TurnEnd);
+    emit(&fixture, &AgentEvent::DeferredPoll { poll_at: 1.0 });
     assert_eq!(fixture.mock.event_names(), Vec::<String>::new());
     // And the state machine still works afterwards.
-    emit(&fixture, run_start());
-    emit(&fixture, message_end(&assistant_message()));
-    emit(&fixture, run_end());
-    emit(&fixture, run_start());
+    emit(&fixture, &run_start());
+    emit(&fixture, &message_end(&assistant_message()));
+    emit(&fixture, &run_end());
+    emit(&fixture, &run_start());
     assert_eq!(
         event_properties(&fixture.mock, "agent run completed")
             .await
@@ -1045,7 +1050,7 @@ async fn child_usage_attribution_entries_feed_the_counters() {
     };
     emit(
         &fixture,
-        AgentEvent::EntryAppended {
+        &AgentEvent::EntryAppended {
             entry: EntryRecord {
                 model: None,
                 data: Some(eukhe_chord::json::to_json(&attribution).unwrap()),
@@ -1061,7 +1066,7 @@ async fn child_usage_attribution_entries_feed_the_counters() {
     // A torn row counts nothing.
     emit(
         &fixture,
-        AgentEvent::EntryAppended {
+        &AgentEvent::EntryAppended {
             entry: EntryRecord {
                 model: None,
                 data: Some(eukhe_chord::json::to_json("torn").unwrap()),

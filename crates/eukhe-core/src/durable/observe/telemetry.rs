@@ -18,7 +18,7 @@
 //!   durable retries stay inside one run.
 //! - `AgentEnd` → [`AgentEvent::RunEnd`]: marks the run ended and
 //!   freezes its duration.
-//! - `MessageStart` (user) → [`AgentEvent::MessageStart`] with a pi_ai
+//! - `MessageStart` (user) → [`AgentEvent::MessageStart`] with a `pi_ai`
 //!   user message: increments `prompt_count` and resolves the `prompt`
 //!   trigger.
 //! - `MessageUpdate` (stream event) → [`AgentEvent::MessageUpdate`]:
@@ -55,7 +55,7 @@
 //! - `compaction_duration_ms` is measured between the observed
 //!   `CompactionStart` and `CompactionEnd` events — the old seam
 //!   received the centrally-measured duration.
-//! - `error_subtype` (and the TaskFailed error-category counting) may
+//! - `error_subtype` (and the `TaskFailed` error-category counting) may
 //!   fall back to the run's last recorded error text (from
 //!   `AutoRetryStart` / `TaskFailed`) when the final assistant message
 //!   carries no `error_message`.
@@ -888,13 +888,12 @@ impl SessionTelemetry {
         }
         {
             let mut state = lock(&self.state);
-            // Session close is the last recording seam: a run still open
-            // when the cached decision says off severs here instead of
-            // finalizing; the client's flush drops whatever the
-            // mid-turn opt-out already queued.
-            if !state.recording {
-                sever_off_period_run(&mut state);
-            }
+            // Session close is the LAST recording seam: the live switch
+            // is asked here like a turn boundary, so a run still open
+            // when the opt-out landed after its last boundary severs
+            // instead of reporting; the client's flush drops whatever
+            // the mid-turn opt-out already queued.
+            observe_turn_boundary(&mut state);
             finalize_run_locked(&self.client, &self.execution_mode, &mut state);
         }
         let mut properties = self.session_properties();
@@ -1016,7 +1015,16 @@ fn finalize_run_locked(client: &TelemetryClient, execution_mode: &str, state: &m
     };
     let now = (state.now)();
     let run_end = run.ended_at.unwrap_or(now);
-    let outcome = run_outcome(run.last_assistant.as_ref());
+    let outcome = match run.last_assistant.as_ref() {
+        Some(assistant) => run_outcome(Some(assistant)),
+        // A run with no assistant row at all: a recorded model error
+        // (a failed generation task, or retry text) failed it; an empty
+        // run (opened and closed without a model call) simply succeeded
+        // — the old engine never finalized a run without an assistant
+        // message, the durable event stream can.
+        None if run.model_error_count > 0 || run.last_error_text.is_some() => "error",
+        None => "success",
+    };
     state.totals.run_count += 1;
     state.totals.tool_call_count += run.tool_call_count;
     state.totals.compaction_count += run.compaction_count;
@@ -1096,11 +1104,14 @@ fn finalize_run_locked(client: &TelemetryClient, execution_mode: &str, state: &m
         // every call; the conservative direction keeps it null otherwise.
         properties.set("estimated_cost_usd", Value::from(run.cost_usd));
     }
-    if run.last_assistant.as_ref().map(|m| m.stop_reason) == Some(StopReason::Error) {
+    let assistant_errored =
+        run.last_assistant.as_ref().map(|m| m.stop_reason) == Some(StopReason::Error);
+    if assistant_errored || (run.last_assistant.is_none() && run.last_error_text.is_some()) {
         // The final assistant's own error message when it carries one;
         // otherwise the run's last recorded error text (an AutoRetryStart
         // or generation TaskFailed message) — the old engine always had
-        // the assistant's text, the durable events may not.
+        // the assistant's text, the durable events may not (a failed
+        // generation task leaves no assistant row at all).
         let error_text = run
             .last_assistant
             .as_ref()
@@ -1186,7 +1197,7 @@ fn stop_reason(last_assistant: Option<&AssistantMessage>) -> &'static str {
         Some(StopReason::ToolUse) => "toolUse",
         Some(StopReason::Error) => "error",
         Some(StopReason::Aborted) => "aborted",
-        Some(StopReason::Pending) | Some(StopReason::Deferred) | None => "unknown",
+        Some(StopReason::Pending | StopReason::Deferred) | None => "unknown",
     }
 }
 
