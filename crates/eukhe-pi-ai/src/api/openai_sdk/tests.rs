@@ -52,6 +52,45 @@ async fn stream_yields_json_until_done_sentinel() {
     assert_eq!(events[0].as_ref().expect("event"), &json!({ "type": "a" }));
 }
 
+/// Pins the fix upstream made in the old provider (a server holding the SSE
+/// response open past `data: [DONE]` stalled the turn): the stream ends at
+/// the sentinel without waiting for body EOF.
+#[tokio::test]
+async fn stream_ends_at_done_while_the_body_stays_open() {
+    let open_body = body(&["data: {\"type\":\"a\"}\n\ndata: [DONE]\n\n"])
+        .chain(futures::stream::pending())
+        .boxed();
+    let events: Vec<_> = sse_json_stream(open_body, HeaderMap::new(), None)
+        .collect()
+        .await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].as_ref().expect("event"), &json!({ "type": "a" }));
+}
+
+/// Pins the fix upstream made in the old provider (a multi-byte character
+/// split across body chunks became U+FFFD): lines decode from bytes once
+/// complete.
+#[tokio::test]
+async fn a_utf8_sequence_split_across_chunks_survives() {
+    let bytes = "data: {\"t\":\"日本\"}\n\n".as_bytes();
+    let split = bytes
+        .iter()
+        .position(|&byte| byte >= 0x80)
+        .expect("multibyte")
+        + 1;
+    let chunks: Vec<Result<Vec<u8>, String>> =
+        vec![Ok(bytes[..split].to_vec()), Ok(bytes[split..].to_vec())];
+    let events: Vec<_> = sse_json_stream(
+        futures::stream::iter(chunks).boxed(),
+        HeaderMap::new(),
+        None,
+    )
+    .collect()
+    .await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].as_ref().expect("event"), &json!({ "t": "日本" }));
+}
+
 #[tokio::test]
 async fn stream_flushes_a_final_event_without_blank_line() {
     let events: Vec<_> = sse_json_stream(body(&["data: {\"x\":1}"]), HeaderMap::new(), None)

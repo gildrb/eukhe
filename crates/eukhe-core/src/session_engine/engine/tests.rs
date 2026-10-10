@@ -42,6 +42,7 @@ async fn engine_runs_tool_loop_and_persists() {
         cost: eukhe_agent::types::UsageCost::default(),
         context_window: 1_000,
         max_tokens: 100,
+        max_tokens_explicit: false,
     };
     let provider = Arc::new(ScriptedProvider::new(model.clone()));
     // First turn: call the tool. Second turn: final text.
@@ -154,6 +155,7 @@ async fn spawned_child_prompt_stamps_its_depth() {
         cost: eukhe_agent::types::UsageCost::default(),
         context_window: 1_000,
         max_tokens: 100,
+        max_tokens_explicit: false,
     };
     let provider = Arc::new(ScriptedProvider::new(model.clone()));
     let tmp = tempfile::tempdir().unwrap();
@@ -224,6 +226,7 @@ async fn a_chat_memory_session_turns_the_harness_memory_off() {
         cost: eukhe_agent::types::UsageCost::default(),
         context_window: 1_000,
         max_tokens: 100,
+        max_tokens_explicit: false,
     };
     let provider = Arc::new(ScriptedProvider::new(model.clone()));
     let tmp = tempfile::tempdir().unwrap();
@@ -273,6 +276,7 @@ async fn oauth_creds_unlock_generic_mcp_gating_in_new_sessions() {
             cost: eukhe_agent::types::UsageCost::default(),
             context_window: 1_000,
             max_tokens: 100,
+            max_tokens_explicit: false,
         }
     }
 

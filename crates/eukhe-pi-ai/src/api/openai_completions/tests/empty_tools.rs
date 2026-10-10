@@ -176,7 +176,7 @@ async fn clamps_explicit_max_tokens_to_remaining_context() {
 }
 
 /// eukhe addition: a custom model on a loopback OpenAI-compatible server
-/// (llama.cpp, vLLM, SGLang) must not receive `store` — those servers reject
+/// (`llama.cpp`, vLLM, `SGLang`) must not receive `store` — those servers reject
 /// unknown fields with a 400 ("Unsupported chat request field: store").
 #[tokio::test]
 async fn loopback_custom_models_omit_the_store_field() {

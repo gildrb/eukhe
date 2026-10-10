@@ -207,5 +207,8 @@ fn descriptor(model: &eukhe_types::pi_ai::Model) -> eukhe_agent::types::Model {
         },
         context_window: model.context_window,
         max_tokens: model.max_tokens,
+        // pi-ai models carry no explicit flag (pi-ai applies no output
+        // ceiling); this descriptor never sizes a request.
+        max_tokens_explicit: false,
     }
 }

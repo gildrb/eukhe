@@ -596,6 +596,32 @@ mod tests {
         );
     }
 
+    /// Upstream #755 (configured max tokens clamped to a 32000 default
+    /// ceiling): the durable path has no such ceiling. A models.json
+    /// `maxTokens` reaches the provider request unchanged, only clamped to
+    /// the context window's room.
+    #[tokio::test]
+    async fn a_models_json_max_tokens_reaches_the_request_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let models = battery_models(
+            dir.path(),
+            r#"{ "providers": { "glm-h200": {
+                "baseUrl": "http://127.0.0.1:9/v1",
+                "api": "openai-completions",
+                "apiKey": "TEST_KEY",
+                "models": [ { "id": "glm-5.2", "reasoning": true,
+                              "contextWindow": 393216, "maxTokens": 131072 } ]
+            } } }"#,
+        )
+        .await;
+        let model = models.get_model("glm-h200", "glm-5.2").unwrap();
+        assert_eq!(model.max_tokens, 131_072);
+        let context = eukhe_types::pi_ai::TranscriptContext::from_normalized_messages(Vec::new());
+        let base =
+            eukhe_pi_ai::api::simple_options::build_base_options(&model, &context, None, None);
+        assert_eq!(base.max_tokens, Some(131_072));
+    }
+
     #[tokio::test]
     async fn an_invalid_models_json_fails_with_the_file_named() {
         let dir = tempfile::tempdir().unwrap();

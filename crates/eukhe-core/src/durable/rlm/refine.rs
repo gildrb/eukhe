@@ -411,6 +411,9 @@ pub(crate) fn legacy_model(model: &eukhe_types::pi_ai::Model) -> eukhe_types::ai
         cost,
         context_window: model.context_window,
         max_tokens: model.max_tokens,
+        // pi-ai models carry no explicit flag (pi-ai applies no output
+        // ceiling); this description never sizes a request.
+        max_tokens_explicit: false,
         featured: None,
         headers: None,
         compat: None,

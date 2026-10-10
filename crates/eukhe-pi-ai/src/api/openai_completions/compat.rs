@@ -91,9 +91,14 @@ pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
     // SGLang) reject unknown fields such as `store` with a 400. Omitting it
     // is correct for real OpenAI too, where the chat-completions default is
     // already false.
-    let is_loopback = ["//localhost", "//127.0.0.1", "//[::1]", "//[0:0:0:0:0:0:0:1]"]
-        .iter()
-        .any(|host| base_url.contains(host));
+    let is_loopback = [
+        "//localhost",
+        "//127.0.0.1",
+        "//[::1]",
+        "//[0:0:0:0:0:0:0:1]",
+    ]
+    .iter()
+    .any(|host| base_url.contains(host));
 
     let is_non_standard = is_nvidia
         || is_cerebras
