@@ -18,15 +18,17 @@ use std::sync::Arc;
 
 use eukhe_chord::context::{without_abort_signal, Context};
 use eukhe_chord::json::JsonError;
+use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::errors::StorageError;
 use eukhe_durable::harness::registry::create_registry;
 use eukhe_durable::harness::types::{AgentChange, FieldChange, HarnessOptions, ModelRef};
+use eukhe_durable::harness::usage::{record_usage, UsageBucket};
 use eukhe_durable::harness::{Harness, RootOptions};
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::types::{ConversationId, EntryHead, EntryId};
 use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_types::pi_ai::ModelThinkingLevel;
+use eukhe_types::pi_ai::{Message, ModelThinkingLevel};
 use futures::FutureExt;
 
 use self::plan::{plan_import, ImportPlan, PlannedHead};
@@ -270,6 +272,9 @@ fn harness_options() -> HarnessOptions {
 }
 
 /// Append every planned entry, then seed the goal state from the branch.
+/// Each imported assistant answer adds its usage to `pi.usage`, as the
+/// commit that recorded a live response does: the session's spend
+/// survives the import.
 async fn append_plan(
     tx: Tx,
     conversation_id: ConversationId,
@@ -283,7 +288,22 @@ async fn append_plan(
             PlannedHead::SelfEntry => Some(EntryHead::SelfEntry),
             PlannedHead::Planned(index) => Some(EntryHead::Entry(appended[index])),
         };
+        let answer = draft
+            .model
+            .as_deref()
+            .and_then(<[Message]>::first)
+            .and_then(Message::as_assistant)
+            .filter(|_| draft.kind == ASSISTANT_ENTRY.kind())
+            .map(|message| {
+                (
+                    format!("{}/{}", message.provider, message.model),
+                    message.usage,
+                )
+            });
         appended.push(tx.append_entry(conversation_id, draft).await?.id);
+        if let Some((key, usage)) = answer {
+            record_usage(&tx, conversation_id, UsageBucket::Models, &key, &usage).await?;
+        }
     }
     import_legacy_goal(&tx, conversation_id, &plan.branch).await
 }

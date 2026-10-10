@@ -363,11 +363,15 @@ impl Worker {
         command: &'static str,
         prepared: Result<PreparedReplacement, DaemonResponse>,
     ) -> DaemonResponse {
-        let prepared = match prepared {
+        let mut prepared = match prepared {
             Ok(prepared) => prepared,
             // A prepare failure never touched the live session.
             Err(response) => return response,
         };
+        prepared
+            .params
+            .fill_stored_lineage(&eukhe_chord::context::BACKGROUND_CONTEXT)
+            .await;
         // One replacement at a time: open, retire, and install are one
         // serialized critical section.
         let _replacement_gate = self.replacement_gate.lock().await;

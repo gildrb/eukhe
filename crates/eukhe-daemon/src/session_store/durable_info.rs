@@ -46,6 +46,17 @@ pub(crate) fn durable_storage_of(path: &Path) -> Option<PathBuf> {
     is_durable_storage(&dir).then_some(dir)
 }
 
+/// The session path a parent link should name: the durable storage an
+/// imported legacy `<stem>.jsonl` became, else the path as given (a live
+/// storage dir, or a legacy file not imported yet). Children written before
+/// the import keep the parent's `.jsonl` in their headers and ledger edges;
+/// the parent's own row is its storage dir.
+#[must_use]
+pub(crate) fn storage_session_path(path: &str) -> String {
+    durable_storage_of(Path::new(path))
+        .map_or_else(|| path.to_owned(), |dir| dir.to_string_lossy().into_owned())
+}
+
 /// The newest mtime among the files of a storage directory (its recency:
 /// the commit log and the sidecars a commit writes).
 #[must_use]
@@ -223,8 +234,11 @@ pub(crate) async fn read_durable_session_info(dir: &Path, cx: &Context) -> Optio
             .agent
             .thinking_level
             .map(|level| level.as_str().to_string()),
-        parent_session_path: None,
-        rlm_depth: 0,
+        parent_session_path: meta
+            .parent_session_path
+            .as_deref()
+            .map(storage_session_path),
+        rlm_depth: meta.rlm_depth.unwrap_or(0),
         created: fold
             .first_activity_ms
             .or(modified_ms)

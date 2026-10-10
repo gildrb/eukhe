@@ -184,6 +184,36 @@ impl CreateParams {
         (session_id, SessionStorage::Jsonl { dir, fsync: true })
     }
 
+    /// Fill the parent link and RLM depth a create names neither of (the
+    /// TUI resuming a saved child): the storage's recorded lineage, else
+    /// the legacy session header the open imports. A create that names its
+    /// parent (an RLM spawn) keeps its own.
+    pub(crate) async fn fill_stored_lineage(&mut self, cx: &Context) {
+        if self.parent_session_path.is_some() {
+            return;
+        }
+        let (session_id, storage) = self.storage();
+        let SessionStorage::Jsonl { dir, .. } = &storage else {
+            return;
+        };
+        let lineage = if crate::session_store::is_durable_storage(dir) {
+            crate::session_store::read_durable_session_info(dir, cx)
+                .await
+                .and_then(|info| Some((info.parent_session_path?, info.rlm_depth)))
+        } else {
+            match legacy_import_source(&session_id, &storage) {
+                Some(legacy) => legacy_lineage(&legacy).await,
+                None => None,
+            }
+        };
+        if let Some((parent, depth)) = lineage {
+            self.parent_session_path = Some(parent);
+            if self.rlm_depth.is_none() {
+                self.rlm_depth = Some(depth);
+            }
+        }
+    }
+
     /// Whether this create reopens an existing session storage.
     fn reopens(&self) -> bool {
         match (&self.session_path, &self.session_id) {
@@ -210,6 +240,28 @@ fn legacy_import_source(session_id: &str, storage: &SessionStorage) -> Option<Pa
     }
     let legacy = dir.parent()?.join(format!("{session_id}.jsonl"));
     legacy.is_file().then_some(legacy)
+}
+
+/// The parent link and RLM depth a legacy session header records
+/// (`parentSession`, `rlmDepth`), with the parent path resolved to its
+/// imported storage. `None` for a root or an unreadable file.
+async fn legacy_lineage(legacy: &Path) -> Option<(String, u32)> {
+    let content = tokio::fs::read_to_string(legacy).await.ok()?;
+    let header = eukhe_core::session::parse_session_entries(&content)
+        .into_iter()
+        .find_map(|entry| {
+            if let eukhe_types::session::FileEntry::Header { header } = entry {
+                Some(header)
+            } else {
+                None
+            }
+        })?;
+    let parent = header.parent_session?;
+    let depth = header
+        .rlm_depth
+        .and_then(|depth| u32::try_from(depth).ok())
+        .unwrap_or(1);
+    Some((crate::session_store::storage_session_path(&parent), depth))
 }
 
 /// Carry a just-imported legacy session's name into its storage: the
@@ -263,11 +315,12 @@ impl Worker {
                 Some(serde_json::to_value(&summary).unwrap_or(Value::Null)),
             );
         }
-        let params = match CreateParams::parse(payload, &self.config.agent_dir) {
+        let mut params = match CreateParams::parse(payload, &self.config.agent_dir) {
             Ok(params) => params,
             Err(error) => return response_failure(None, "create", &error, None),
         };
         let cx = BACKGROUND_CONTEXT.clone();
+        params.fill_stored_lineage(&cx).await;
         let hosted = match self.open_hosted(&params, &cx).await {
             Ok(hosted) => hosted,
             Err(response) => return *response,
@@ -589,6 +642,15 @@ impl Worker {
                 meta::set_session_name(hosted.harness(), Some(name.trim().to_string()), cx).await?;
             }
             let session_meta = meta::read_session_meta(hosted.harness(), cx).await?;
+            // The RLM lineage survives into later opens that name none.
+            if let Some(parent) = &params.parent_session_path {
+                let depth = params.rlm_depth.unwrap_or(1);
+                if session_meta.parent_session_path.as_ref() != Some(parent)
+                    || session_meta.rlm_depth != Some(depth)
+                {
+                    meta::record_lineage(hosted.harness(), parent.clone(), depth, cx).await?;
+                }
+            }
             // Opening a killed session makes it live again (the old
             // create's `active` state row).
             if session_meta.archived {

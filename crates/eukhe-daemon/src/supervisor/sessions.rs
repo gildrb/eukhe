@@ -393,8 +393,9 @@ impl Supervisor {
         // degrades to bare rows, exactly like the passive merge above.
         match ledger.deleted_descendant_usage_by_parent() {
             Ok(bucket) => {
+                let bucket = crate::rlm_roster::bucket_by_family(bucket);
                 for info in &mut infos {
-                    let path = crate::lease::canonical_session_path(&info.path)
+                    let path = crate::rlm_roster::session_family_key(&info.path)
                         .to_string_lossy()
                         .to_string();
                     info.deleted_descendant_usage = bucket.get(&path).cloned();

@@ -26,6 +26,14 @@ pub(crate) struct SessionMeta {
     /// A `kill` (not a `shutdown`) archived the session.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) archived: bool,
+    /// The spawning session's path (an RLM child's parent link; the old
+    /// session header's `parentSession`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) parent_session_path: Option<String>,
+    /// The session's RLM depth (the old header's `rlmDepth`); absent for
+    /// roots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) rlm_depth: Option<u32>,
 }
 
 /// The session-scope `eukhe.daemon.session` document (version 1).
@@ -102,6 +110,35 @@ pub(crate) async fn mark_anthropic_warning_shown(
             move |tx| async move {
                 let draft = tx.doc(&SESSION_META_DOC, ()).await?;
                 assign_json(&draft, "anthropicWarningShown", &JsonValue::Bool(true))?;
+                Ok(())
+            },
+            cx,
+        )
+        .await
+}
+
+/// Record the session's RLM lineage (parent link and depth), so a later
+/// open that names neither (a resume of a saved child) restores them.
+///
+/// # Errors
+///
+/// The commit fails.
+pub(crate) async fn record_lineage(
+    harness: &Harness,
+    parent_session_path: String,
+    rlm_depth: u32,
+    cx: &Context,
+) -> SessionResult<()> {
+    harness
+        .commit(
+            move |tx| async move {
+                let draft = tx.doc(&SESSION_META_DOC, ()).await?;
+                assign_json(
+                    &draft,
+                    "parentSessionPath",
+                    &JsonValue::String(parent_session_path.into()),
+                )?;
+                assign_json(&draft, "rlmDepth", &JsonValue::from(rlm_depth))?;
                 Ok(())
             },
             cx,

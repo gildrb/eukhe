@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 
 use crate::lease::canonical_session_path;
 use crate::rlm_ledger::RlmLedgerEdge;
+use crate::rlm_roster::session_family_key;
 use crate::session_store::read_session_info;
 use crate::session_usage::SessionUsageSummary;
 use crate::supervisor::Supervisor;
@@ -63,7 +64,7 @@ impl Supervisor {
         let mut changed = Vec::new();
         let mut retry = Vec::new();
         for edge in &edges {
-            let parent = canonical_session_path(Path::new(&edge.parent));
+            let parent = session_family_key(Path::new(&edge.parent));
             if !family_descends_from(&parent_by_child, &parent, &roots) {
                 continue;
             }
@@ -207,8 +208,8 @@ impl Supervisor {
             .iter()
             .map(|edge| {
                 (
-                    canonical_session_path(Path::new(&edge.child)),
-                    canonical_session_path(Path::new(&edge.parent)),
+                    session_family_key(Path::new(&edge.child)),
+                    session_family_key(Path::new(&edge.parent)),
                 )
             })
             .collect();
@@ -237,7 +238,7 @@ impl Supervisor {
             Err(error) => Err(error),
         };
         match bucket {
-            Ok(bucket) => Some((ticket, bucket)),
+            Ok(bucket) => Some((ticket, crate::rlm_roster::bucket_by_family(bucket))),
             Err(error) => {
                 self.log_line(&format!(
                     "Could not refresh deleted-descendant usage: {error:#}"
@@ -301,7 +302,7 @@ impl Supervisor {
         self: &Arc<Self>,
         root: &Path,
     ) -> Vec<AgentRosterEntry> {
-        let roots: HashSet<PathBuf> = HashSet::from([canonical_session_path(root)]);
+        let roots: HashSet<PathBuf> = HashSet::from([session_family_key(root)]);
         // The family seed degrades to nothing on a ledger failure, like
         // the boot seed degrades to its log line.
         let (edges, parent_by_child) = match self.live_edges_and_parents().await {
@@ -330,7 +331,7 @@ impl Supervisor {
         if !self
             .roster_seed_roots()
             .await
-            .contains(&canonical_session_path(root))
+            .contains(&session_family_key(root))
         {
             return Vec::new();
         }
@@ -342,7 +343,7 @@ impl Supervisor {
         let candidates: Vec<&RlmLedgerEdge> = edges
             .iter()
             .filter(|edge| {
-                let parent = canonical_session_path(Path::new(&edge.parent));
+                let parent = session_family_key(Path::new(&edge.parent));
                 family_descends_from(&parent_by_child, &parent, &roots)
                     // The edge snapshot predates this pass by the
                     // ledger-read await: a child deleted in that
@@ -501,6 +502,14 @@ impl SeededRosterEntry {
             .parent()
             .map(|dir| dir.to_string_lossy().to_string())
             .unwrap_or_default();
+        // The parent's persisted session id, by the same file-stem rule: a
+        // legacy `<id>.jsonl` and the `<id>/` storage its import becomes
+        // share it, so the link survives an import that happens after the
+        // row was seeded (the path link names whichever existed then).
+        let parent_session_id = Path::new(&edge.parent)
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_default();
         let summary = json!({
             "id": persisted_session_id,
             "lifecycle": "live",
@@ -516,7 +525,10 @@ impl SeededRosterEntry {
             "isCompacting": false,
             "attachedClients": 0,
             "messageCount": 0,
-            "parentSessionPath": edge.parent,
+            // A legacy parent path names its imported storage, the parent's
+            // own row identity.
+            "parentSessionPath": crate::session_store::storage_session_path(&edge.parent),
+            "parentSessionId": parent_session_id,
             "rlmChildId": edge.child_id,
         });
         Self {

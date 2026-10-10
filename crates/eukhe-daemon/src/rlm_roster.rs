@@ -19,7 +19,7 @@ use crate::rlm_ledger::{
     read_legacy_registry, read_rlm_subagent_display, LegacyRlmSubagentEntry, RlmLedgerEdge,
     RlmSpawnLedger,
 };
-use crate::session_store::{read_session_info, SessionInfo};
+use crate::session_store::{read_session_info, storage_session_path, SessionInfo};
 
 /// Hydration metadata fields beyond the edge (prompt, model, node ids):
 /// display-grade, never topology.
@@ -62,7 +62,7 @@ pub fn walk_passive_rlm_children(
     let mut children_by_parent: HashMap<PathBuf, Vec<&RlmLedgerEdge>> = HashMap::new();
     for edge in &edges {
         children_by_parent
-            .entry(walk_key(Path::new(&edge.parent)))
+            .entry(session_family_key(Path::new(&edge.parent)))
             .or_default()
             .push(edge);
     }
@@ -71,18 +71,18 @@ pub fn walk_passive_rlm_children(
         .filter_map(|root| {
             root.active_session_id
                 .as_ref()
-                .map(|id| (walk_key(&root.session_file), id.clone()))
+                .map(|id| (session_family_key(&root.session_file), id.clone()))
         })
         .collect();
     let mut visited: HashSet<PathBuf> = roots
         .iter()
-        .map(|root| walk_key(&root.session_file))
+        .map(|root| session_family_key(&root.session_file))
         .collect();
     // Roots in order (saved first, then residents); children are visited
     // in ledger order within each parent.
     let mut queue: Vec<PathBuf> = roots
         .iter()
-        .map(|root| walk_key(&root.session_file))
+        .map(|root| session_family_key(&root.session_file))
         .collect();
     let mut registry_cache: HashMap<PathBuf, Vec<LegacyRlmSubagentEntry>> = HashMap::new();
     let mut walked = Vec::new();
@@ -91,7 +91,7 @@ pub fn walk_passive_rlm_children(
             continue;
         };
         for edge in edges.iter().copied() {
-            let child = walk_key(Path::new(&edge.child));
+            let child = session_family_key(Path::new(&edge.child));
             if !visited.insert(child.clone()) {
                 continue;
             }
@@ -106,7 +106,7 @@ pub fn walk_passive_rlm_children(
             };
             let metadata = rlm_child_metadata(edge, &mut registry_cache);
             let parent_active_session_id = resident_paths
-                .get(&walk_key(Path::new(&edge.parent)))
+                .get(&session_family_key(Path::new(&edge.parent)))
                 .cloned();
             walked.push(PassiveRlmChild {
                 edge: edge.clone(),
@@ -126,7 +126,7 @@ pub fn walk_passive_rlm_children(
 /// imported it) is that storage. Ledger edges keep naming the legacy file
 /// they were written with, while the catalog and the registry name the
 /// storage once it exists; both must key one family.
-fn walk_key(path: &Path) -> PathBuf {
+pub(crate) fn session_family_key(path: &Path) -> PathBuf {
     let canonical = canonical_session_path(path);
     if canonical
         .extension()
@@ -138,6 +138,31 @@ fn walk_key(path: &Path) -> PathBuf {
         }
     }
     canonical
+}
+
+/// The deleted-descendant bucket keyed by family key: the ledger keys it
+/// by each edge's parent path as written, a legacy `.jsonl` that names its
+/// imported storage once the storage exists. Keys that meet sum.
+pub(crate) fn bucket_by_family(
+    bucket: HashMap<String, crate::session_usage::SessionUsageSummary>,
+) -> HashMap<String, crate::session_usage::SessionUsageSummary> {
+    let mut keyed: HashMap<String, crate::session_usage::SessionUsageSummary> = HashMap::new();
+    for (parent, usage) in bucket {
+        let key = session_family_key(Path::new(&parent))
+            .to_string_lossy()
+            .into_owned();
+        let total = keyed
+            .entry(key)
+            .or_insert(crate::session_usage::SessionUsageSummary {
+                input_tokens: 0,
+                output_tokens: 0,
+                cost: 0.0,
+            });
+        total.input_tokens = total.input_tokens.saturating_add(usage.input_tokens);
+        total.output_tokens = total.output_tokens.saturating_add(usage.output_tokens);
+        total.cost += usage.cost;
+    }
+    keyed
 }
 
 /// Lifecycle for an off-daemon session (TS `inactiveLifecycleForSession`):
@@ -218,7 +243,7 @@ pub fn passive_child_summary(child: &PassiveRlmChild) -> Value {
         "lastActivityAt": info.modified,
         "firstMessage": info.first_message,
         "runtimeKind": "subagent",
-        "parentSessionPath": edge.parent,
+        "parentSessionPath": storage_session_path(&edge.parent),
         "rlmDepth": edge.depth,
         "rlmChildId": edge.child_id,
         "rlmParentNodeId": metadata
@@ -256,7 +281,7 @@ pub fn passive_child_summary(child: &PassiveRlmChild) -> Value {
 /// `withPassiveRlmDescendantInfos`).
 pub fn passive_child_info(child: &PassiveRlmChild) -> SessionInfo {
     let mut info = child.info.clone();
-    info.parent_session_path = Some(child.edge.parent.clone());
+    info.parent_session_path = Some(storage_session_path(&child.edge.parent));
     info.rlm_depth = child.edge.depth;
     info
 }

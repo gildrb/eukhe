@@ -492,7 +492,9 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
     );
     let saved = client.request("s1");
     assert_eq!(saved["success"], true, "list_saved_sessions: {saved}");
-    let parent_path = parent_file.to_string_lossy().to_string();
+    // The resumed parent was imported into its durable storage: the
+    // children's legacy parent link resolves to it.
+    let parent_path = legacy_storage(&parent_file).to_string_lossy().to_string();
     let children = saved["data"]["sessions"]
         .as_array()
         .map(|rows| {

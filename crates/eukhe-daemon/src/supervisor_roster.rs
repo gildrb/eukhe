@@ -14,7 +14,6 @@ use eukhe_types::daemon::DaemonOutbound;
 use serde_json::{json, Value};
 
 use crate::backpressure::RouteAdmission;
-use crate::lease::canonical_session_path;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::registry::ResidentWorker;
 use crate::supervisor::{ClientRouting, Supervisor, ROUTE_TIMEOUT_MS};
@@ -66,7 +65,8 @@ impl Supervisor {
     }
 
     /// The seed roots (TS: every worker's `sessionFile` with the durable
-    /// create's `sessionPath` as fallback), canonicalized.
+    /// create's `sessionPath` as fallback), as family keys (a legacy path
+    /// names its imported storage).
     pub(crate) async fn roster_seed_roots(self: &Arc<Self>) -> HashSet<PathBuf> {
         let mut roots = HashSet::new();
         for resident in self.registry.list().await {
@@ -76,7 +76,7 @@ impl Supervisor {
                 .clone()
                 .or_else(|| descriptor.create_command.session_path.clone());
             if let Some(root) = root {
-                roots.insert(canonical_session_path(Path::new(&root)));
+                roots.insert(crate::rlm_roster::session_family_key(Path::new(&root)));
             }
         }
         roots
@@ -456,7 +456,7 @@ impl Supervisor {
                         .and_then(Value::as_str)
                         .is_some_and(|file| {
                             parent_by_child
-                                .get(&canonical_session_path(Path::new(file)))
+                                .get(&crate::rlm_roster::session_family_key(Path::new(file)))
                                 .is_some_and(|parent| {
                                     family_descends_from(parent_by_child, parent, &roots)
                                 })
@@ -517,7 +517,7 @@ impl Supervisor {
                         .and_then(Value::as_str)
                         .is_some_and(|file| {
                             parent_by_child
-                                .get(&canonical_session_path(Path::new(file)))
+                                .get(&crate::rlm_roster::session_family_key(Path::new(file)))
                                 .is_some_and(|parent| {
                                     family_descends_from(parent_by_child, parent, &roots)
                                 })

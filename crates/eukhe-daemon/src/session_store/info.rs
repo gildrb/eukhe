@@ -441,6 +441,21 @@ pub fn read_session_info(path: &Path) -> Option<SessionInfo> {
 /// rewinds the same handle and folds from byte 0), every other caller
 /// passes a fresh open.
 pub(crate) fn read_session_info_from(file: &mut fs::File, path: &Path) -> Option<SessionInfo> {
+    read_session_info_cached(file, path).map(resolve_parent_link)
+}
+
+/// A legacy row's parent link names the parent's storage once the parent
+/// was imported. Resolved at every read, not cached: the parent's import
+/// happens after the child's row was folded.
+fn resolve_parent_link(mut info: SessionInfo) -> SessionInfo {
+    info.parent_session_path = info
+        .parent_session_path
+        .as_deref()
+        .map(super::durable_info::storage_session_path);
+    info
+}
+
+fn read_session_info_cached(file: &mut fs::File, path: &Path) -> Option<SessionInfo> {
     let generation = SessionInfoGeneration::from_metadata(&file.metadata().ok()?);
 
     // The unchanged case answers from the cache; the grown case resumes.
