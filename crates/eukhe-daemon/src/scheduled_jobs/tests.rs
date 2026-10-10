@@ -106,8 +106,11 @@ async fn a_heartbeat_fire_runs_its_row_and_settles_as_a_run() {
     assert_eq!(outcome, None, "an answered fire is a run");
 
     let rows = worker_rows(&worker, "eukhe.custom").await;
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0]["customType"], json!("heartbeat_prompt"));
+    let types: Vec<&Value> = rows.iter().map(|row| &row["customType"]).collect();
+    assert_eq!(
+        types,
+        [&json!("heartbeat_prompt"), &json!("harness_digest")]
+    );
     assert_eq!(rows[0]["content"], json!(HEARTBEAT_TEXT));
     assert_eq!(rows[0]["details"]["jobId"], json!("hb-1"));
     assert_eq!(rows[0]["details"]["runCount"], json!(0));
@@ -117,7 +120,10 @@ async fn a_heartbeat_fire_runs_its_row_and_settles_as_a_run() {
         .map(|entry| entry.kind)
         .filter(|kind| kind != "pi.system")
         .collect();
-    assert_eq!(kinds, ["eukhe.custom", "pi.user", "pi.assistant"]);
+    assert_eq!(
+        kinds,
+        ["eukhe.custom", "pi.user", "eukhe.custom", "pi.assistant"]
+    );
 }
 
 /// A fire repeated for the same run (a crash before the store recorded
@@ -141,7 +147,12 @@ async fn a_repeated_fire_of_one_run_never_duplicates() {
         .filter(|entry| entry.kind == "pi.user")
         .count();
     assert_eq!(users, 1);
-    assert_eq!(worker_rows(&worker, "eukhe.custom").await.len(), 1);
+    let heartbeat_rows = worker_rows(&worker, "eukhe.custom")
+        .await
+        .into_iter()
+        .filter(|row| row["customType"] == "heartbeat_prompt")
+        .count();
+    assert_eq!(heartbeat_rows, 1);
 }
 
 /// A busy session queues a steer heartbeat on its lane (card + prompt); a

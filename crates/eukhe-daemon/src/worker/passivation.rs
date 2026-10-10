@@ -87,7 +87,7 @@ impl ParkGates {
     /// The park state both behaviors require: unattached, not compacting,
     /// not shutting down, no run, no queued input, no pause lease, no
     /// live bash.
-    pub(crate) fn parked(&self) -> bool {
+    pub(crate) fn parked(self) -> bool {
         !self.attached
             && !self.compacting
             && !self.shutdown
@@ -101,7 +101,7 @@ impl ParkGates {
 /// state plus the parent-owned identity. The registered scheduled-jobs
 /// gate lives with the fire (a store read cannot run under the core
 /// lock).
-pub(crate) fn child_release_due(gates: &ParkGates) -> bool {
+pub(crate) fn child_release_due(gates: ParkGates) -> bool {
     gates.child && gates.parked() && !gates.paused
 }
 
@@ -111,7 +111,7 @@ pub(crate) fn child_release_due(gates: &ParkGates) -> bool {
 /// held pause, and a child worker stay parked without a timer — the
 /// child's residency is the kernel release's business).
 pub(crate) fn idle_window(
-    gates: &ParkGates,
+    gates: ParkGates,
     last_activity_ms: u64,
     now_ms: u64,
     eviction: IdleEviction,
@@ -164,7 +164,7 @@ pub(crate) async fn passivation_loop(context: ParkContext) {
         // The settled-child kernel release (best-effort: a failed dispose
         // leaves nothing behind — the entry is gone either way, so a
         // later use boots fresh).
-        if child_release_due(&gates) {
+        if child_release_due(gates) {
             let release = context
                 .session
                 .get()
@@ -179,8 +179,7 @@ pub(crate) async fn passivation_loop(context: ParkContext) {
         // fresh-snapshot fence).
         let eviction = SettingsManager::create(std::path::Path::new(&cwd), &context.agent_dir)
             .get_idle_eviction();
-        let Some(remaining) =
-            idle_window(&gates, last_activity_ms, crate::util::now_ms(), eviction)
+        let Some(remaining) = idle_window(gates, last_activity_ms, crate::util::now_ms(), eviction)
         else {
             continue;
         };
@@ -264,21 +263,21 @@ mod tests {
     /// race the pause's own delivery).
     #[test]
     fn the_child_release_needs_the_park_state() {
-        assert!(child_release_due(&gates(0, 1, false, false)));
+        assert!(child_release_due(gates(0, 1, false, false)));
         assert!(
-            !child_release_due(&gates(0, 0, false, false)),
+            !child_release_due(gates(0, 0, false, false)),
             "a root never releases"
         );
         assert!(
-            !child_release_due(&gates(1, 1, false, false)),
+            !child_release_due(gates(1, 1, false, false)),
             "an attached client holds it"
         );
         assert!(
-            !child_release_due(&gates(0, 1, true, false)),
+            !child_release_due(gates(0, 1, true, false)),
             "a pause defers it"
         );
         assert!(
-            !child_release_due(&gates(0, 1, false, true)),
+            !child_release_due(gates(0, 1, false, true)),
             "a live bash holds it"
         );
     }
@@ -300,7 +299,7 @@ mod tests {
             false,
             false,
         );
-        assert!(!child_release_due(&gates));
+        assert!(!child_release_due(gates));
     }
 
     /// The idle window arms only for a parked root under a live
@@ -309,32 +308,32 @@ mod tests {
     fn the_idle_window_arms_for_a_parked_root() {
         let parked = gates(0, 0, false, false);
         assert_eq!(
-            idle_window(&parked, 10_000, 10_000 + 60_000, IdleEviction::Minutes(5)),
-            Some(Duration::from_millis(4 * 60_000)),
+            idle_window(parked, 10_000, 10_000 + 60_000, IdleEviction::Minutes(5)),
+            Some(Duration::from_mins(4)),
             "four minutes remain of the five"
         );
         assert_eq!(
-            idle_window(&parked, 10_000, 10_000 + 60_000, IdleEviction::Off),
+            idle_window(parked, 10_000, 10_000 + 60_000, IdleEviction::Off),
             None,
             "an off threshold never arms"
         );
         assert_eq!(
-            idle_window(&parked, 10_000, 10_000, IdleEviction::Minutes(5)),
-            Some(Duration::from_millis(5 * 60_000)),
+            idle_window(parked, 10_000, 10_000, IdleEviction::Minutes(5)),
+            Some(Duration::from_mins(5)),
             "a fresh park arms the whole window"
         );
         // A child, a pause, or an attached client stays parked without a
         // timer.
         assert_eq!(
-            idle_window(&gates(0, 1, false, false), 0, 0, IdleEviction::Minutes(5)),
+            idle_window(gates(0, 1, false, false), 0, 0, IdleEviction::Minutes(5)),
             None
         );
         assert_eq!(
-            idle_window(&gates(0, 0, true, false), 0, 0, IdleEviction::Minutes(5)),
+            idle_window(gates(0, 0, true, false), 0, 0, IdleEviction::Minutes(5)),
             None
         );
         assert_eq!(
-            idle_window(&gates(1, 0, false, false), 0, 0, IdleEviction::Minutes(5)),
+            idle_window(gates(1, 0, false, false), 0, 0, IdleEviction::Minutes(5)),
             None
         );
     }

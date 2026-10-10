@@ -197,7 +197,10 @@ async fn navigate_tree_moves_the_leaf_and_back() {
     assert_eq!(moved, json!({ "cancelled": false, "editorText": "second" }));
     let tree = command(&worker, "get_session_tree", json!({})).await;
     assert_eq!(tree["leafId"], json!(assistant1));
-    assert_eq!(message_roles(&worker).await, ["user", "assistant"]);
+    assert_eq!(
+        message_roles(&worker).await,
+        ["user", "custom", "assistant"]
+    );
 
     // Already there: a no-op.
     let again = command(&worker, "navigate_tree", json!({ "targetId": assistant1 })).await;
@@ -210,7 +213,7 @@ async fn navigate_tree_moves_the_leaf_and_back() {
     assert_eq!(shape(&tree).len(), 5, "no duplicate branch: {tree}");
     assert_eq!(
         message_roles(&worker).await,
-        ["user", "custom", "assistant"]
+        ["user", "custom", "assistant", "user", "assistant"]
     );
 
     let missing = worker

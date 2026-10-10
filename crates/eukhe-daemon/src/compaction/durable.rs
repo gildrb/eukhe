@@ -17,8 +17,9 @@ use eukhe_durable::types::SubmissionState;
 use eukhe_durable::types::{
     DocumentReaderExt, EntryId, EntryRecord, TaskId, TaskOutcome, WriteSubmission,
 };
-use eukhe_types::pi_ai::{Message, UserContent, UserContentBlock};
 use serde_json::{json, Value};
+
+use crate::worker::durable_host::wire_messages::compaction_summary_text;
 
 /// The skip of a session with no history before the keep window (TS
 /// `CompactionSkippedError`).
@@ -31,12 +32,6 @@ pub(crate) const CHAT_MEMORY_SKIP: &str =
     "Nothing to compact: the chat memory keeps this chat, and every turn starts fresh from its view";
 /// The error of an aborted manual compaction (TS `compact()` abort arm).
 pub(crate) const COMPACTION_CANCELLED: &str = "Compaction cancelled";
-
-/// The wrapper durable compaction puts around a summary (pi-durable
-/// `compaction/prompt.ts` `SUMMARY_PREFIX`/`SUMMARY_SUFFIX`; private there).
-const SUMMARY_PREFIX: &str =
-    "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
-const SUMMARY_SUFFIX: &str = "\n</summary>";
 
 /// Why a manual compaction produced no summary.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -56,32 +51,6 @@ impl ManualCompactionError {
     fn session(error: &SessionError) -> Self {
         Self::Failed(error.to_string())
     }
-}
-
-/// The plain summary of a `pi.compaction` entry (its wrapped user message
-/// without the wrapper).
-pub(crate) fn compaction_summary_text(entry: &EntryRecord) -> String {
-    let text = entry
-        .model
-        .as_deref()
-        .and_then(<[Message]>::first)
-        .map(|message| match message {
-            Message::User(user) => match &user.content {
-                UserContent::Text(text) => text.clone(),
-                UserContent::Blocks(blocks) => blocks
-                    .iter()
-                    .filter_map(|block| match block {
-                        UserContentBlock::Text(text) => Some(text.text.as_str()),
-                        UserContentBlock::Image(_) => None,
-                    })
-                    .collect::<String>(),
-            },
-            Message::Assistant(_) | Message::ToolResult(_) | Message::System(_) => String::new(),
-        })
-        .unwrap_or_default();
-    text.strip_prefix(SUMMARY_PREFIX)
-        .and_then(|inner| inner.strip_suffix(SUMMARY_SUFFIX))
-        .map_or(text.clone(), str::to_owned)
 }
 
 /// The client-facing `CompactionResult` (TS `_performCompaction`'s return)

@@ -20,7 +20,7 @@ use eukhe_pi_ai::utils::transcript::{get_current_system_message, get_current_too
 use eukhe_types::pi_ai::Message;
 use serde_json::{json, Map, Value};
 
-use crate::compaction::durable::compaction_summary_text;
+use crate::worker::durable_host::wire_messages::compaction_summary_text;
 
 /// Entries read per history page.
 const PAGE: usize = 1_000;

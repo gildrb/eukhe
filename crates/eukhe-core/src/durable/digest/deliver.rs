@@ -191,9 +191,7 @@ fn delivered_digest(
     entry: &EntryRecord,
     contribution: Option<&Vec<Message>>,
 ) -> Option<LatestDigest> {
-    if entry.kind != CUSTOM_ENTRY.kind()
-        || !contribution.is_some_and(|messages| !messages.is_empty())
-    {
+    if entry.kind != CUSTOM_ENTRY.kind() || contribution.is_none_or(Vec::is_empty) {
         return None;
     }
     let decoded = CUSTOM_ENTRY.narrow(entry.clone()).ok()??;
@@ -234,7 +232,7 @@ fn snapshot_digest(entry: &EntryRecord) -> Option<LatestDigest> {
         .as_deref()
         .and_then(<[Message]>::first)
         .and_then(|message| match message {
-            Message::User(user) => user_text(&user.content),
+            Message::User(user) => Some(user_text(&user.content)),
             Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
         })?;
     let digest = digest_from_frame(&text)?;
@@ -271,13 +269,11 @@ fn strip_summary_digest_block(entry: &EntryRecord) -> Option<ContextEdit> {
     if entry.kind == CUSTOM_ENTRY.kind() {
         return None;
     }
-    let Some(first) = entry.model.as_deref().and_then(<[Message]>::first) else {
-        return None;
-    };
+    let first = entry.model.as_deref().and_then(<[Message]>::first)?;
     let Message::User(user) = first else {
         return None;
     };
-    let text = user_text(&user.content)?;
+    let text = user_text(&user.content);
     let digest = digest_from_frame(&text)?;
     let frame = format!("{HARNESS_DIGEST_PREFIX}{digest}{HARNESS_DIGEST_SUFFIX}\n\n");
     let summary = text.strip_prefix(&frame)?;
@@ -293,8 +289,8 @@ fn strip_summary_digest_block(entry: &EntryRecord) -> Option<ContextEdit> {
 }
 
 /// The text of a user message: text blocks joined by newlines.
-fn user_text(content: &UserContent) -> Option<String> {
-    Some(match content {
+fn user_text(content: &UserContent) -> String {
+    match content {
         UserContent::Text(text) => text.clone(),
         UserContent::Blocks(blocks) => blocks
             .iter()
@@ -304,7 +300,7 @@ fn user_text(content: &UserContent) -> Option<String> {
             })
             .collect::<Vec<_>>()
             .join("\n"),
-    })
+    }
 }
 
 /// Ride the digest message ahead of the current turn's prompt (the last

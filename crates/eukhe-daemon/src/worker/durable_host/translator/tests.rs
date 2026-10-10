@@ -289,8 +289,8 @@ fn an_input_row_shows_in_place_of_its_user_entry() {
             3, "eukhe.custom", None,
             Some(json!({ "customType": "sideQuestion", "content": "hello", "display": true, "input": true })),
         ) })),
-        event(json!({ "type": "message_start", "message": user.clone() })),
-        event(json!({ "type": "message_end", "entry": entry(4, "pi.user", Some(user.clone()), None) })),
+        event(json!({ "type": "message_start", "message": user })),
+        event(json!({ "type": "message_end", "entry": entry(4, "pi.user", Some(user), None) })),
     ]);
     assert_eq!(
         frames,

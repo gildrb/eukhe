@@ -83,23 +83,3 @@ async fn abort_with_no_live_compaction_is_a_no_op() {
     assert_eq!(aborted, 0);
     session.close(cx()).await.unwrap();
 }
-
-#[test]
-fn the_summary_text_drops_the_durable_wrapper() {
-    let entry: EntryRecord = serde_json::from_value(json!({
-        "model": [{
-            "role": "user",
-            "content": [{ "type": "text", "text": format!("{SUMMARY_PREFIX}Done.{SUMMARY_SUFFIX}") }],
-            "timestamp": 1,
-        }],
-        "kind": "pi.compaction",
-        "id": 7,
-        "conversationId": 1,
-        "head": 4,
-    }))
-    .unwrap();
-    assert_eq!(
-        compaction_result_value(&entry, 120),
-        json!({ "summary": "Done.", "firstKeptEntryId": "4", "tokensBefore": 120 })
-    );
-}

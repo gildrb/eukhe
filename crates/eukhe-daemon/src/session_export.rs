@@ -185,7 +185,11 @@ mod tests {
         assert_eq!(messages.len(), 2, "{lines:?}");
         assert_eq!(messages[0]["message"]["role"], "user");
         assert_eq!(messages[1]["message"]["role"], "assistant");
-        assert_eq!(messages[1]["parentId"], messages[0]["id"]);
+        // One linear chain: each line's parent is the line before it (the
+        // digest row sits between the user message and the answer).
+        for pair in lines[1..].windows(2) {
+            assert_eq!(pair[1]["parentId"], pair[0]["id"], "{lines:?}");
+        }
         close(&slot).await;
     }
 

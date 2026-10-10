@@ -19,10 +19,7 @@ use eukhe_types::pi_ai::{Message, UserContent, UserMessage};
 use tempfile::TempDir;
 
 use super::super::{HostDeps, SessionConfig, SessionStorage};
-use super::{
-    digest_from_frame, harness_digest_message_text, HARNESS_DIGEST_CUSTOM_TYPE,
-    HARNESS_DIGEST_PREFIX,
-};
+use super::{digest_from_frame, HARNESS_DIGEST_CUSTOM_TYPE, HARNESS_DIGEST_PREFIX};
 use crate::durable::compaction::head::digest_block;
 use crate::durable::open_session;
 use crate::durable::EukheSession;

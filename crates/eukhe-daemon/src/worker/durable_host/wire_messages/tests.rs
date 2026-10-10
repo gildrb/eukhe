@@ -2,6 +2,12 @@ use serde_json::{json, Value};
 
 use super::*;
 
+/// The wrapper the durable compaction puts around a summary in the entry's
+/// model message (`harness/compaction/prompt.rs`, crate-private there).
+const SUMMARY_PREFIX: &str =
+    "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
+const SUMMARY_SUFFIX: &str = "\n</summary>";
+
 fn record(kind: &str, model: Option<Value>, data: Option<Value>) -> EntryRecord {
     let mut entry = json!({ "kind": kind, "id": 1, "conversationId": 1 });
     if let Some(model) = model {

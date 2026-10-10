@@ -14,6 +14,7 @@
 
 mod autorefine;
 pub(crate) mod head;
+pub use head::summary_body;
 mod observer;
 mod summary;
 #[cfg(test)]

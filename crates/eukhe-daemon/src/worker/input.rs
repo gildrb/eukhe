@@ -192,7 +192,7 @@ impl Worker {
             .await
             .map_err(|error| format!("{error:#}"))?;
         // The rider provenance of a daemon-classified admission: the
-        /// queue strip's marks ride by submission id.
+        // queue strip's marks ride by submission id.
         if let Some(kind) = injection_kind(request.custom_row.as_ref()) {
             self.core
                 .lock()
@@ -227,7 +227,7 @@ impl Worker {
             write_input_row(&main, request, &BACKGROUND_CONTEXT)
                 .await
                 .map_err(|error| format!("{error:#}"))?;
-            super::mutate_withdrawn(&hosted, &self.core, &self.events, move |mut state| {
+            super::mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {
                 state.held.push(held);
                 (state, ())
             })
@@ -539,7 +539,7 @@ impl Worker {
         };
         // A live input-pause lease holds the delivery's input like any
         // admission; the card row above already committed, and the
-        /// release delivers the prompt.
+        // release delivers the prompt.
         if self.input_pauses.paused() {
             return self
                 .hold_input(&hosted, &request, COMMAND, false, false)

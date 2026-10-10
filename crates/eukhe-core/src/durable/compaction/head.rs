@@ -22,25 +22,31 @@ const DURABLE_SUMMARY_PREFIX: &str =
     "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
 const DURABLE_SUMMARY_SUFFIX: &str = "\n</summary>";
 
-/// The raw summary of a wrapped compaction-summary text: the durable
-/// wrapper off, the harness-digest block off (the digest is re-rendered
-/// fresh per compaction), the `[compaction-summary]` wrapper off, and the
-/// file-list blocks stripped (they are re-appended mechanically after the
-/// summarizer answers, exactly like the old engine's TS #2385 rule). The
-/// result is the update-mode `previousSummary`; `None` when nothing
-/// summarizable remains (a digest-only or file-lists-only head).
+/// The summary as the user reads it: the durable wrapper, the leading
+/// harness-digest block, and the `[compaction-summary]` wrapper off; the
+/// file-list blocks stay (the old engine's entry `summary`).
 #[must_use]
-pub fn previous_summary(wrapped: &str) -> Option<String> {
+pub fn summary_body(wrapped: &str) -> &str {
     let unwrapped = wrapped
         .strip_prefix(DURABLE_SUMMARY_PREFIX)
         .and_then(|text| text.strip_suffix(DURABLE_SUMMARY_SUFFIX))
         .unwrap_or(wrapped);
     let without_digest = strip_digest_block(unwrapped);
-    let raw = without_digest
+    without_digest
         .strip_prefix(COMPACTION_SUMMARY_PREFIX)
         .and_then(|text| text.strip_suffix(COMPACTION_SUMMARY_SUFFIX))
-        .unwrap_or(without_digest);
-    let stripped = strip_file_list_blocks(raw);
+        .unwrap_or(without_digest)
+}
+
+/// The raw summary of a wrapped compaction-summary text: [`summary_body`]
+/// with the file-list blocks stripped (they are re-appended mechanically
+/// after the summarizer answers, exactly like the old engine's TS #2385
+/// rule; the digest is re-rendered fresh per compaction). The result is
+/// the update-mode `previousSummary`; `None` when nothing summarizable
+/// remains (a digest-only or file-lists-only head).
+#[must_use]
+pub fn previous_summary(wrapped: &str) -> Option<String> {
+    let stripped = strip_file_list_blocks(summary_body(wrapped));
     (!stripped.is_empty()).then_some(stripped)
 }
 

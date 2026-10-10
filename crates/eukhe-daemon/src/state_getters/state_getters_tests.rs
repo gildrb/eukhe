@@ -177,7 +177,7 @@ async fn get_session_context_matches_the_ts_context_shape() {
         .iter()
         .filter_map(|message| message["role"].as_str())
         .collect();
-    assert_eq!(roles, vec!["user", "assistant"], "{context}");
+    assert_eq!(roles, vec!["user", "custom", "assistant"], "{context}");
     assert_eq!(context["messages"][0]["content"], json!("hello"));
 }
 

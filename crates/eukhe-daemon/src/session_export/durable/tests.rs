@@ -21,14 +21,31 @@ async fn export_jsonl_chains_the_history_linearly() {
         .collect();
     assert_eq!(lines[0]["type"], "session");
     assert_eq!(lines[0]["id"], SESSION_ID);
-    let messages: Vec<(&str, &Value)> = lines[1..]
+    // One linear chain: each line's parent is the line before it.
+    let parents: Vec<&Value> = lines[1..].iter().map(|line| &line["parentId"]).collect();
+    let mut expected = vec![&Value::Null];
+    expected.extend(lines[1..lines.len() - 1].iter().map(|line| &line["id"]));
+    assert_eq!(parents, expected);
+    let shape: Vec<(&str, &str)> = lines[1..]
         .iter()
-        .map(|line| (line["message"]["role"].as_str().unwrap(), &line["parentId"]))
+        .map(|line| {
+            (
+                line["type"].as_str().unwrap_or_default(),
+                line["message"]["role"]
+                    .as_str()
+                    .or_else(|| line["customType"].as_str())
+                    .unwrap_or_default(),
+            )
+        })
         .collect();
-    assert_eq!(messages.len(), 2);
-    assert_eq!(messages[0], ("user", &Value::Null));
-    assert_eq!(messages[1].0, "assistant");
-    assert_eq!(messages[1].1, &lines[1]["id"]);
+    assert_eq!(
+        shape,
+        [
+            ("message", "user"),
+            ("custom_message", "harness_digest"),
+            ("message", "assistant")
+        ]
+    );
     assert_eq!(
         lines[1]
             .as_object()

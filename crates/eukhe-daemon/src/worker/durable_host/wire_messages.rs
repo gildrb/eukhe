@@ -20,14 +20,6 @@ use eukhe_types::pi_ai::{
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 
-/// The wrapper the durable compaction puts around a summary in the entry's
-/// model message (`harness/compaction/prompt.rs` `SUMMARY_PREFIX` /
-/// `SUMMARY_SUFFIX`, crate-private there). The wire `summary` is the bare
-/// text, as the old `compaction` row stored it.
-const SUMMARY_PREFIX: &str =
-    "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
-const SUMMARY_SUFFIX: &str = "\n</summary>";
-
 /// The wire `AgentMessage` for one entry (attach snapshot, `get_messages`,
 /// `message_start`/`message_end`), or None for entries the transcript does not show.
 ///
@@ -135,19 +127,14 @@ pub(crate) fn entry_wire_message_with(entry: &EntryRecord, tokens_before: u64) -
 }
 
 /// The bare summary text of a `pi.compaction` entry: its model message's
-/// text without the durable wrapper.
+/// text without the durable wrapper, the harness digest, and the eukhe
+/// `[compaction-summary]` wrapper.
 pub(crate) fn compaction_summary_text(entry: &EntryRecord) -> String {
     let text = match entry.model.as_deref().and_then(<[Message]>::first) {
         Some(Message::User(message)) => user_content_text(&message.content),
         _ => String::new(),
     };
-    match text
-        .strip_prefix(SUMMARY_PREFIX)
-        .and_then(|rest| rest.strip_suffix(SUMMARY_SUFFIX))
-    {
-        Some(summary) => summary.to_owned(),
-        None => text,
-    }
+    eukhe_core::durable::compaction::summary_body(&text).to_owned()
 }
 
 /// The context size an assistant entry's answer measured (its usage total,
