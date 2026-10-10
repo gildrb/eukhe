@@ -115,7 +115,12 @@ pub(super) fn render(
         }
     }
 
-    lines.push(hint_line(theme, width, kb));
+    lines.push(hint_line(
+        theme,
+        width,
+        kb,
+        picker.effort_adjustment_enabled(),
+    ));
     // One blank line of spacing below the shortcuts (the operator's
     // 2026-09-24 directive on the `/model` view: the hint is the
     // frame's last content row, a single blank rides under it -- never
@@ -302,7 +307,12 @@ fn detail_lines(theme: &Theme, width: usize, model: &Model) -> Vec<Line> {
 /// The trailing key hint (TS `ConfigurationMenuComponent.render`): the
 /// model/effort navigation hint on wide panes, the select/close core below
 /// 70 columns.
-fn hint_line(theme: &Theme, width: usize, kb: &KeybindingsManager) -> Line {
+fn hint_line(
+    theme: &Theme,
+    width: usize,
+    kb: &KeybindingsManager,
+    allow_effort_adjustment: bool,
+) -> Line {
     let select_key = kb
         .first_key("tui.select.confirm")
         .map_or_else(|| "Enter".to_string(), |key| format_key_text(&key));
@@ -321,18 +331,22 @@ fn hint_line(theme: &Theme, width: usize, kb: &KeybindingsManager) -> Line {
                 |key| format_key_text(&key)
             )
         );
-        let effort = format!(
-            "{}/{}",
-            kb.first_key("tui.editor.cursorLeft").map_or_else(
-                || crate::glyphs::KEY_LEFT.to_string(),
-                |key| format_key_text(&key)
-            ),
-            kb.first_key("tui.editor.cursorRight").map_or_else(
-                || crate::glyphs::KEY_RIGHT.to_string(),
-                |key| format_key_text(&key)
-            )
-        );
-        format!("{navigate} model - {effort} effort - {select_key} select - {close_key} close")
+        if allow_effort_adjustment {
+            let effort = format!(
+                "{}/{}",
+                kb.first_key("tui.editor.cursorLeft").map_or_else(
+                    || crate::glyphs::KEY_LEFT.to_string(),
+                    |key| format_key_text(&key)
+                ),
+                kb.first_key("tui.editor.cursorRight").map_or_else(
+                    || crate::glyphs::KEY_RIGHT.to_string(),
+                    |key| format_key_text(&key)
+                )
+            );
+            format!("{navigate} model - {effort} effort - {select_key} select - {close_key} close")
+        } else {
+            format!("{navigate} model - {select_key} select - {close_key} close")
+        }
     } else {
         format!("{select_key} select - {close_key} close")
     };

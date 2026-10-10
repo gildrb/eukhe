@@ -21,6 +21,12 @@ pub(crate) struct ModelCatalogUpdate {
     pub configured_providers: std::collections::HashSet<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ModelPickerTarget {
+    ChatModel,
+    MemoryModel,
+}
+
 impl SessionUi {
     /// The catalog entry for the current model (the `/fast` eligibility
     /// check needs the provider and api, not just the id): the
@@ -44,31 +50,70 @@ impl SessionUi {
         view: &mut AgentView,
         search: &str,
     ) -> Result<()> {
-        let current = self.current_model(view);
-        // TS `showConfigurationMenu("models")` reads the connection state
-        // once: the thinking seed and the scoped-model list both come from
-        // it.
-        let state = self.connection_state(view).await;
-        let thinking_level = self.picker_initial_thinking_level(current.as_ref(), state.as_ref());
+        self.open_model_picker_for(ModelPickerTarget::ChatModel, view, search)
+            .await
+    }
+
+    pub(super) async fn open_memory_model_picker(
+        &mut self,
+        view: &mut AgentView,
+        search: &str,
+    ) -> Result<()> {
+        self.open_model_picker_for(ModelPickerTarget::MemoryModel, view, search)
+            .await
+    }
+
+    async fn open_model_picker_for(
+        &mut self,
+        target: ModelPickerTarget,
+        view: &mut AgentView,
+        search: &str,
+    ) -> Result<()> {
+        let current = match target {
+            ModelPickerTarget::ChatModel => self.current_model(view),
+            ModelPickerTarget::MemoryModel => self
+                .client_settings
+                .as_ref()
+                .and_then(|settings| settings.memory_model())
+                .and_then(|selector| current_model_from_selector(&selector)),
+        };
+        self.model_picker_target = Some(target);
+        // The memory picker always shows the full catalog and has a
+        // separate `memory.thinking` setting, so it needs neither the
+        // session's scope nor its thinking state.
+        let state = if target == ModelPickerTarget::ChatModel {
+            self.connection_state(view).await
+        } else {
+            None
+        };
+        let thinking_level = if target == ModelPickerTarget::ChatModel {
+            self.picker_initial_thinking_level(current.as_ref(), state.as_ref())
+        } else {
+            None
+        };
         // TS `getScopedModelState`: the session's scoped list as `provider/id` keys;
         // the picker resolves them against its loaded catalog.
-        let scoped_models: Vec<String> = state
-            .as_ref()
-            .and_then(|state| state.get("scopedModels"))
-            .and_then(Value::as_array)
-            .map(|entries| {
-                entries
-                    .iter()
-                    .filter_map(|entry| {
-                        let model = entry.get("model")?;
-                        Some(ModelPicker::model_key_provider(
-                            model.get("provider")?.as_str()?,
-                            model.get("id")?.as_str()?,
-                        ))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let scoped_models: Vec<String> = if target == ModelPickerTarget::ChatModel {
+            state
+                .as_ref()
+                .and_then(|state| state.get("scopedModels"))
+                .and_then(Value::as_array)
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(|entry| {
+                            let model = entry.get("model")?;
+                            Some(ModelPicker::model_key_provider(
+                                model.get("provider")?.as_str()?,
+                                model.get("id")?.as_str()?,
+                            ))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let options = ModelPickerOptions {
             models: self.model_catalog.clone(),
             current,
@@ -80,8 +125,11 @@ impl SessionUi {
         };
         // TS `handleModelCommand` always opens the menu (an empty catalog
         // renders the empty panel).
-        let crate::model_picker::ModelCommandOutcome::Open(picker) =
-            ModelPicker::open(options, search);
+        let outcome = match target {
+            ModelPickerTarget::ChatModel => ModelPicker::open(options, search),
+            ModelPickerTarget::MemoryModel => ModelPicker::open_for_memory_model(options, search),
+        };
+        let crate::model_picker::ModelCommandOutcome::Open(picker) = outcome;
         view.model_picker = Some(*picker);
         // TS `refreshModels(initialModelSearch !== undefined)`.
         let force = !search.trim().is_empty();
@@ -146,50 +194,64 @@ impl SessionUi {
             }
             Some(ModelPickerAction::Cancel) => {
                 view.model_picker = None;
+                self.model_picker_target = None;
                 self.picker_restored_draft = false;
                 self.dirty = true;
             }
             Some(ModelPickerAction::Apply(applied)) => {
                 view.model_picker = None;
-                // The Tab path leaves the typed `/model <partial>` behind in
-                // the editor; the command path's submission already drained
-                // it. Applying fulfills the command either way, so the
-                // editor clears (a Cancel keeps the partial for editing) --
-                // except the browse-restore path, where the editor holds the
-                // user's restored draft, not the partial: the pick fulfills
-                // the command and the draft stays.
+                let target = self
+                    .model_picker_target
+                    .take()
+                    .unwrap_or(ModelPickerTarget::ChatModel);
+                // The Tab path leaves the typed command behind in the editor;
+                // applying fulfills it. A restored queue draft belongs to
+                // the user and remains untouched.
                 if self.picker_restored_draft {
                     self.picker_restored_draft = false;
                 } else {
                     view.editor.set_text("");
                 }
-                // The daemon is the source of truth (TS
-                // `ensureModelProviderConfigured`'s client gate rides the
-                // connection's own configured set; the local snapshot can
-                // lag an external credential change, so the switch is
-                // sent first and the typed refusal routes the sign-in
-                // flow).
-                match self
-                    .try_set_model(&applied.provider, &applied.model_id, view)
-                    .await
-                {
-                    SetModelOutcome::Switched => {
-                        // A user-edited effort applies after the model
-                        // switch (TS `completeModelSelection`: `setModel`,
-                        // then `applyThinkingLevel` -- the level row only
-                        // on success).
-                        if let Some(level) = &applied.effort {
-                            self.apply_thinking_level(level, view).await;
+                match target {
+                    ModelPickerTarget::MemoryModel => {
+                        let result = self
+                            .client_settings
+                            .as_ref()
+                            .ok_or_else(|| anyhow::anyhow!("Settings are unavailable"))
+                            .and_then(|settings| {
+                                settings.set_memory_model(&applied.provider, &applied.model_id)
+                            });
+                        match result {
+                            Ok(()) => self.note(
+                                &format!(
+                                    "Memory model set to {}/{}",
+                                    applied.provider, applied.model_id
+                                ),
+                                view,
+                            ),
+                            Err(error) => self
+                                .error_row(&format!("Could not save memory model: {error}"), view),
                         }
                     }
-                    // The typed refusal: the model resolved but its
-                    // provider is not signed in -- the selection routes to
-                    // the provider's sign-in flow and applies after the
-                    // login lands.
-                    SetModelOutcome::NeedsSignIn => {
-                        self.begin_model_sign_in(&applied, view).await;
+                    ModelPickerTarget::ChatModel => {
+                        // The daemon is the source of truth: the switch
+                        // routes an unauthenticated provider to the existing
+                        // sign-in flow.
+                        match self
+                            .try_set_model(&applied.provider, &applied.model_id, view)
+                            .await
+                        {
+                            SetModelOutcome::Switched => {
+                                if let Some(level) = &applied.effort {
+                                    self.apply_thinking_level(level, view).await;
+                                }
+                            }
+                            SetModelOutcome::NeedsSignIn => {
+                                self.begin_model_sign_in(&applied, view).await;
+                            }
+                            SetModelOutcome::Failed => {}
+                        }
                     }
-                    SetModelOutcome::Failed => {}
                 }
             }
         }
@@ -272,7 +334,14 @@ impl SessionUi {
         self.model_catalog = update.models;
         self.model_configured_providers = update.configured_providers;
         self.models_fetched_at = Some(std::time::Instant::now());
-        let current = self.current_model(view);
+        let current = match self.model_picker_target {
+            Some(ModelPickerTarget::MemoryModel) => self
+                .client_settings
+                .as_ref()
+                .and_then(|settings| settings.memory_model())
+                .and_then(|selector| current_model_from_selector(&selector)),
+            _ => self.current_model(view),
+        };
         if let Some(picker) = view.model_picker.as_mut() {
             picker.update_state(
                 current,
@@ -585,6 +654,19 @@ pub(crate) fn picker_viewport_rows(terminal_rows: u16) -> usize {
     let terminal_rows = terminal_rows as usize;
     let menu_rows = 20.min(terminal_rows.saturating_sub(3).max(1));
     menu_rows.saturating_sub(1).max(1)
+}
+
+/// Parse the compactor's exact `provider/model-id` setting for picker
+/// current-model matching. Model IDs may contain additional slashes.
+fn current_model_from_selector(selector: &str) -> Option<CurrentModel> {
+    let (provider, model_id) = selector.split_once('/')?;
+    if provider.is_empty() || model_id.is_empty() {
+        return None;
+    }
+    Some(CurrentModel {
+        provider: provider.to_string(),
+        model_id: model_id.to_string(),
+    })
 }
 
 /// The catalog entry the session's current model resolves to (TS's

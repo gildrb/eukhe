@@ -755,7 +755,7 @@ impl SessionUi {
                 // other leave-browse path (Esc, an applied queue edit), so
                 // the editor never strands the browsed message's text and
                 // a failed menu open loses nothing: the draft returns.
-                if matches!(command.as_str(), "model" | "mcp") {
+                if matches!(command.as_str(), "model" | "memory-model" | "mcp") {
                     if self.queue_selection.has_draft() {
                         let draft = self.queue_selection.reset();
                         view.editor.set_text(&draft);
@@ -776,6 +776,15 @@ impl SessionUi {
                             self.picker_restored_draft = false;
                         }
                         self.track_menu_opened("model", "tab");
+                        self.dirty = true;
+                        return Ok(());
+                    }
+                    "memory-model" => {
+                        self.open_memory_model_picker(view, partial.trim()).await?;
+                        if view.model_picker.is_none() {
+                            self.picker_restored_draft = false;
+                        }
+                        self.track_menu_opened("memory-model", "tab");
                         self.dirty = true;
                         return Ok(());
                     }
