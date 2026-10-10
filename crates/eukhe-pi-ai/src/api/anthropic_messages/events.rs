@@ -89,6 +89,7 @@ pub(crate) async fn send_with_retries(
             max_retries: request.max_retries,
             max_retry_delay_ms: request.max_retry_delay_ms,
             signal: request.signal.clone(),
+            no_retry_statuses: Vec::new(),
         },
     )
     .await;

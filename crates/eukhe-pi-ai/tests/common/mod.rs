@@ -82,6 +82,7 @@ pub fn done_message(model: &Model, text: &str) -> AssistantMessage {
         raw_stop_reason: None,
         end_turn: None,
         timestamp: now(),
+        duration_ms: None,
     }
 }
 

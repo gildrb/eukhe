@@ -517,6 +517,7 @@ where
         max_retries: options.and_then(|options| options.max_retries),
         max_retry_delay_ms: options.and_then(|options| options.max_retry_delay_ms),
         signal: options.and_then(|options| options.signal.clone()),
+        no_retry_statuses: Vec::new(),
     };
     retry_provider_request(
         || {

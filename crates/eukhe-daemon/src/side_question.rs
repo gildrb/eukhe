@@ -346,7 +346,13 @@ async fn run_side_question(
         Ok(main) => main,
         Err(error) => return failed(error.to_string()),
     };
-    let (agent, view) = match futures::try_join!(main.agent(cx()), main.context(cx())) {
+    let (agent, view) = match futures::try_join!(
+        main.agent(cx()),
+        main.context(
+            cx(),
+            eukhe_durable::harness::types::ContextOptions::default()
+        )
+    ) {
         Ok(read) => read,
         Err(error) => return failed(error.to_string()),
     };
@@ -536,6 +542,7 @@ fn blocked_result(call: &ToolCall) -> ToolResultMessage {
         nested_calls: None,
         is_error: true,
         timestamp: 0,
+        duration_ms: None,
     }
 }
 

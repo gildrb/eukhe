@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use super::string_enum::string_enum;
 use super::usage::Usage;
-use super::{ClassifierApi, JsonObject, ProviderId};
+use super::{ClassifierApi, ImageContent, JsonObject, ProviderId};
 
 /// Criteria of a boolean question.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +45,10 @@ pub enum ClassifierQuestion {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClassifierContext {
     pub state: JsonObject,
+    /// Images judged together with `state`. Only models whose `input`
+    /// includes `"image"` accept them; other models return an error result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<ImageContent>>,
     pub questions: IndexMap<String, ClassifierQuestion>,
 }
 

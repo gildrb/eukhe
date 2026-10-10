@@ -313,7 +313,7 @@ async fn resends_a_request_interrupted_before_any_partial_without_repeating_prep
     );
     assert_eq!(
         *sent.lock().unwrap_or_else(PoisonError::into_inner),
-        [["user", "system"]]
+        [["system", "user"]]
     );
     assert_eq!(
         *timeouts.lock().unwrap_or_else(PoisonError::into_inner),

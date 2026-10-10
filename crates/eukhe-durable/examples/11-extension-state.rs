@@ -85,7 +85,7 @@ fn todo_extension() -> Arc<Extension> {
                 )
                 .await?;
                 Ok(ToolExecutionResult {
-                    content: Some(vec![UserContentBlock::Text(TextContent::new(format!(
+                    output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
                         "added {item}"
                     )))]),
                     ..ToolExecutionResult::default()
@@ -188,7 +188,13 @@ pub async fn run(
         .await?
         .wait(context)
         .await?;
-    let messages = root.context(context).await?.messages;
+    let messages = root
+        .context(
+            context,
+            eukhe_durable::harness::types::ContextOptions::default(),
+        )
+        .await?
+        .messages;
     let mut system = Vec::new();
     for message in &messages {
         let Message::System(message) = message else {

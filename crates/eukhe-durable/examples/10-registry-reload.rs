@@ -40,7 +40,7 @@ fn example_tool(name: &str, description: &str) -> Arc<ToolRegistration> {
             let text = format!("{tool_name} {path}");
             async move {
                 Ok(ToolExecutionResult {
-                    content: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+                    output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
                     ..ToolExecutionResult::default()
                 })
             }

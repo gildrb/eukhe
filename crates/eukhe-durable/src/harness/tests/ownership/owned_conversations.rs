@@ -26,7 +26,7 @@ fn status_text(status: SubmissionStatus) -> &'static str {
 /// TS `{ content: [{ type: "text", text }] }`.
 fn text_result(text: impl Into<String>) -> ToolExecutionResult {
     ToolExecutionResult {
-        content: Some(vec![UserContentBlock::Text(TextContent::new(text.into()))]),
+        output: Some(vec![UserContentBlock::Text(TextContent::new(text.into()))]),
         ..ToolExecutionResult::default()
     }
 }
@@ -850,7 +850,7 @@ async fn reruns_a_replay_safe_subagent_tool_after_a_restart_with_the_same_child_
     assert_eq!(user_entries(&child, 100).await, 1);
     let results: Vec<bool> = opened
         .root
-        .context(context())
+        .context(context(), crate::harness::types::ContextOptions::default())
         .await
         .unwrap()
         .messages

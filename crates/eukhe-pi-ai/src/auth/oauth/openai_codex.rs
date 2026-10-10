@@ -393,8 +393,14 @@ async fn login_openai_codex_device_code(
 
 async fn login_openai_codex(
     interaction: &ProviderAuthInteraction,
+    options: Option<LoginOptions>,
 ) -> Result<OAuthCredential, Thrown> {
-    let flow = create_authorization_flow("pi")?;
+    let flow = create_authorization_flow(
+        options
+            .and_then(|options| options.agent_name)
+            .as_deref()
+            .unwrap_or("pi"),
+    )?;
     // Port 1455 is shared with the Codex CLI; when it is taken, fall back to the pasted redirect URL.
     let callback = start_oauth_callback_server(OAuthCallbackServerOptions {
         provider_name: "OpenAI".to_owned(),
@@ -478,7 +484,7 @@ impl OAuthAuth for OpenAICodexOAuth {
     fn login(
         &self,
         interaction: ProviderAuthInteraction,
-        _options: Option<LoginOptions>,
+        options: Option<LoginOptions>,
     ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
         Box::pin(async move {
             let method = interaction
@@ -505,7 +511,7 @@ impl OAuthAuth for OpenAICodexOAuth {
                     "Unknown OpenAI Codex login method: {method}"
                 )));
             }
-            login_openai_codex(&interaction).await
+            login_openai_codex(&interaction, options).await
         })
     }
 

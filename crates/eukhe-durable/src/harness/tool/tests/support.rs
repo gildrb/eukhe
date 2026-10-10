@@ -61,7 +61,7 @@ where
 /// A result with empty content (TS `{ content: [] }`).
 pub(crate) fn empty_content() -> ToolExecutionResult {
     ToolExecutionResult {
-        content: Some(Vec::new()),
+        output: Some(Vec::new()),
         ..ToolExecutionResult::default()
     }
 }

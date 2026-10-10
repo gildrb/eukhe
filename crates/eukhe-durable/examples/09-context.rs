@@ -78,6 +78,7 @@ fn assistant_message(text: &str, calls: &[&str], stop_reason: Option<StopReason>
         raw_stop_reason: None,
         end_turn: None,
         timestamp: 2,
+        duration_ms: None,
     })
 }
 
@@ -93,6 +94,7 @@ fn tool_result_message(id: &str) -> Message {
         nested_calls: None,
         is_error: false,
         timestamp: 3,
+        duration_ms: None,
     })
 }
 
@@ -289,7 +291,12 @@ pub async fn run(
         )
         .await?;
 
-    let view = transcript.context(context).await?;
+    let view = transcript
+        .context(
+            context,
+            eukhe_durable::harness::types::ContextOptions::default(),
+        )
+        .await?;
     writeln!(out, "raw active entries: {}", kinds(&view.entries)?)?;
     writeln!(out, "request messages: {}", show_all(&view.messages)?)?;
 
@@ -304,7 +311,14 @@ pub async fn run(
     writeln!(
         out,
         "fork messages: {}",
-        show_all(&cut.context(context).await?.messages)?
+        show_all(
+            &cut.context(
+                context,
+                eukhe_durable::harness::types::ContextOptions::default()
+            )
+            .await?
+            .messages
+        )?
     )?;
 
     // A headed summary replaces everything before the entry it points at.
@@ -326,7 +340,12 @@ pub async fn run(
             context,
         )
         .await?;
-    let view = transcript.context(context).await?;
+    let view = transcript
+        .context(
+            context,
+            eukhe_durable::harness::types::ContextOptions::default(),
+        )
+        .await?;
     writeln!(
         out,
         "after summary: {} {}",

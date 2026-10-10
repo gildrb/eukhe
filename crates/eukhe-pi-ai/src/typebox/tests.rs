@@ -75,3 +75,28 @@ fn builders_match_typebox() {
         );
     }
 }
+
+#[test]
+fn partial_makes_every_object_property_optional() {
+    let record = Type::record(
+        Type::enum_(["short", "long"]),
+        Type::number_with(Options::new().set("exclusiveMinimum", 0)),
+    );
+    assert_eq!(record.json()["required"], json!(["short", "long"]));
+    let partial = Type::partial_with(record, Options::new().set("description", "tiers"));
+    assert_eq!(
+        partial.json(),
+        &json!({
+            "type": "object",
+            "properties": {
+                "short": { "type": "number", "exclusiveMinimum": 0 },
+                "long": { "type": "number", "exclusiveMinimum": 0 }
+            },
+            "description": "tiers"
+        })
+    );
+    assert_eq!(
+        partial.typebox()["properties"]["short"]["~optional"],
+        json!(true)
+    );
+}

@@ -24,8 +24,8 @@ use crate::types::{
 use crate::utils::diagnostics::Thrown;
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::model_operations::{
-    assert_chat_model, assert_classifier_model, assert_image_model, classifier_error_result,
-    image_error_result,
+    assert_chat_model, assert_classifier_input_supported, assert_classifier_model,
+    assert_image_model, classifier_error_result, image_error_result,
 };
 use crate::utils::models_error::ModelsErrorCode;
 use crate::utils::transcript::normalize_context;
@@ -391,6 +391,8 @@ impl Models {
         options: ModelsClassifierOptions,
     ) -> Result<ClassifierResult, Thrown> {
         assert_classifier_model(&AnyModel::Classifier(model.clone()))
+            .map_err(|error| Arc::new(error) as Thrown)?;
+        assert_classifier_input_supported(model, context)
             .map_err(|error| Arc::new(error) as Thrown)?;
         let provider = self.require_provider(model)?;
         let classify = provider.classify.clone().ok_or_else(|| {

@@ -252,6 +252,7 @@ async fn typed_waits(
                         ownership: TaskOwnership::Conversation,
                         conversation_id: None,
                         background: None,
+                        abandon_on_restart: None,
                     },
                 )
                 .await
@@ -701,7 +702,8 @@ fn serializes_queries_and_points_like_ts() {
         to_json(&TaskOptions {
             ownership: TaskOwnership::Conversation,
             conversation_id: None,
-            background: Some(true)
+            background: Some(true),
+            abandon_on_restart: None,
         })
         .unwrap()
         .to_string(),

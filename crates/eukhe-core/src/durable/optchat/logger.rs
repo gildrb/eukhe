@@ -407,6 +407,7 @@ impl Logger {
                     .through
                     .map(|through| EntryId::from_number(through.get() + 1)),
                 max_entry_id: None,
+                order: None,
             };
             if !scan_page(&self.harness, query, 1, None, &self.cx)
                 .await?
@@ -443,6 +444,7 @@ impl Logger {
             conversation_id: conversation,
             min_entry_id: min,
             max_entry_id: None,
+            order: None,
         };
         let mut entries = Vec::new();
         let mut cursor = None;

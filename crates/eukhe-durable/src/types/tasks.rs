@@ -51,6 +51,23 @@ pub struct TaskOptions {
     /// conversation aborts, and cascades.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<bool>,
+    /// Its creator awaits it only in memory and does not resume after a
+    /// restart, so it is pointless once the Harness that created it is gone.
+    /// When scheduling starts in a later Harness, the task, if still live, is
+    /// abort-marked with reason `restart`, and the mark cascades to its
+    /// ordinary owned work, before any of it runs again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abandon_on_restart: Option<bool>,
+}
+
+/// Why an abort mark was set when not by an abort request (TS
+/// `abortReason`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskAbortReason {
+    /// `"restart"`: the task was abandoned after a restart
+    /// (`TaskOptions.abandon_on_restart`), or is below one.
+    Restart,
 }
 
 /// JSON-safe error snapshot persisted instead of a runtime error object.
@@ -260,6 +277,16 @@ pub struct TaskRecord<I = JsonValue, S = JsonValue, R = JsonValue> {
     pub background: bool,
     /// Durable abort mark checked before run-mode progress is committed.
     pub abort_requested: bool,
+    /// Why the mark was set when not by an abort request: `Restart` for a
+    /// task abandoned after a restart (`TaskOptions.abandon_on_restart`) or
+    /// below one. Such a task waits for its definition instead of becoming
+    /// `orphaned`. A later abort request clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abort_reason: Option<TaskAbortReason>,
+    /// Set from `TaskOptions.abandon_on_restart` (TS `abandonOnRestart?:
+    /// true`: `false` is absent). Immutable.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub abandon_on_restart: bool,
     /// The execution state.
     pub state: TaskState<S, R>,
     /// Small first-writer-wins values retained while the task can run.
@@ -269,6 +296,24 @@ pub struct TaskRecord<I = JsonValue, S = JsonValue, R = JsonValue> {
         with = "option_object"
     )]
     pub memos: Option<Arc<JsonObject>>,
+    /// Wall-clock milliseconds of the first change to `running`, stamped by
+    /// the Session. Kept through waits and recovery, so the span to
+    /// `ended_at` includes them. Absent before the task first runs, and on
+    /// records written by earlier versions.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "eukhe_types::pi_ai::js_number::option::serialize"
+    )]
+    pub started_at: Option<f64>,
+    /// Wall-clock milliseconds of the change to `terminal`, stamped by the
+    /// Session; absent while live.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "eukhe_types::pi_ai::js_number::option::serialize"
+    )]
+    pub ended_at: Option<f64>,
 }
 
 /// A task record with JSON input, checkpoint, and result, as storage holds it

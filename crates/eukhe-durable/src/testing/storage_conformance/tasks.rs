@@ -1,12 +1,16 @@
-//! Task and submission record cases.
+//! Table scan order, and task and submission record cases.
 
 use eukhe_chord::json::JsonValue;
 use serde_json::json;
 
-use super::{commit, create_root, cx, id, ids, j, mint, ok, pending_task, q, v, with, Cases};
+use super::{
+    commit, create_root, cx, id, ids, j, mint, n, ok, pending_task, q, rejects, v, with, Cases,
+};
+use crate::errors::StorageError;
 use crate::types::{Cursor, Storage};
 
 pub(super) fn add_cases(cases: &mut Cases) {
+    add_scan_order_case(cases);
     add_task_cases(cases);
     add_submission_cases(cases);
 }
@@ -14,6 +18,110 @@ pub(super) fn add_cases(cases: &mut Cases) {
 /// `(await storage.scanTasks(query, limit, undefined, context)).items` as JSON.
 async fn scan_tasks(s: &dyn Storage, query: serde_json::Value, limit: usize) -> JsonValue {
     j(&ok(s.scan_tasks(&q(query), limit, None, cx()).await).items)
+}
+
+/// A table the scan order case pages through.
+#[derive(Clone, Copy)]
+enum Table {
+    Conversations,
+    Tasks,
+    Submissions,
+}
+
+/// `items.map(({ id }) => id)` as numbers.
+fn numbers<T: serde::Serialize>(items: &[T]) -> Vec<u64> {
+    items.iter().map(|item| n(&j(item)["id"])).collect()
+}
+
+/// One page of two from `table` in `order` (omitted for `None`) after
+/// `cursor`: its IDs and the next cursor.
+async fn scan_page(
+    s: &dyn Storage,
+    table: Table,
+    order: Option<&str>,
+    cursor: Option<&Cursor>,
+) -> Result<(Vec<u64>, Option<Cursor>), StorageError> {
+    let query = order.map_or_else(|| json!({}), |order| json!({ "order": order }));
+    match table {
+        Table::Conversations => s
+            .scan_conversations(&q(query), 2, cursor, cx())
+            .await
+            .map(|page| (numbers(&page.items), page.next)),
+        Table::Tasks => s
+            .scan_tasks(&q(query), 2, cursor, cx())
+            .await
+            .map(|page| (numbers(&page.items), page.next)),
+        Table::Submissions => s
+            .scan_submissions(&q(query), 2, cursor, cx())
+            .await
+            .map(|page| (numbers(&page.items), page.next)),
+    }
+}
+
+/// Every ID of `table` in `order`. Later pages pass only the cursor, through
+/// JSON: a cursor carries its order; the query may omit it.
+async fn all_ids(s: &dyn Storage, table: Table, order: Option<&str>) -> Vec<u64> {
+    let (mut found, mut next) = ok(scan_page(s, table, order, None).await);
+    while let Some(cursor) = next {
+        let cursor: Cursor = q(j(&cursor));
+        let (page, after) = ok(scan_page(s, table, None, Some(&cursor)).await);
+        found.extend(page);
+        next = after;
+    }
+    found
+}
+
+fn add_scan_order_case(cases: &mut Cases) {
+    cases.case(
+        "scans tables in either ID order and continues a cursor in its order",
+        |storage| async move {
+            let s = &*storage;
+            let root_id = create_root(s).await;
+            let mut conversation_ids = vec![root_id];
+            let mut task_ids = Vec::new();
+            let mut submission_ids = Vec::new();
+            for _ in 0..3 {
+                let conversation_id = mint(s).await;
+                let task_id = mint(s).await;
+                let submission_id = mint(s).await;
+                ok(commit(
+                    s,
+                    json!([
+                        { "type": "conversation", "value": { "id": conversation_id } },
+                        { "type": "task", "value": pending_task(task_id, root_id) },
+                        {
+                            "type": "submission",
+                            "value": { "id": submission_id, "conversationId": root_id, "type": "input", "status": "queued" },
+                        },
+                    ]),
+                )
+                .await);
+                conversation_ids.push(conversation_id);
+                task_ids.push(task_id);
+                submission_ids.push(submission_id);
+            }
+            for (table, ids) in [
+                (Table::Conversations, conversation_ids),
+                (Table::Tasks, task_ids),
+                (Table::Submissions, submission_ids),
+            ] {
+                let reversed: Vec<u64> = ids.iter().rev().copied().collect();
+                assert_eq!(all_ids(s, table, None).await, ids);
+                assert_eq!(all_ids(s, table, Some("ascending")).await, ids);
+                assert_eq!(all_ids(s, table, Some("descending")).await, reversed);
+                let (_, descending) = ok(scan_page(s, table, Some("descending"), None).await);
+                let (second, _) =
+                    ok(scan_page(s, table, Some("descending"), descending.as_ref()).await);
+                // `reversed.slice(2, 4)`, which clamps to the length.
+                assert_eq!(second, reversed[2..reversed.len().min(4)]);
+                rejects(
+                    scan_page(s, table, Some("ascending"), descending.as_ref()),
+                    "cursor",
+                )
+                .await;
+            }
+        },
+    );
 }
 
 #[expect(

@@ -160,7 +160,7 @@ async fn clamps_default_max_tokens_to_remaining_context() {
     let params = simple_payload(&model, &ctx, None).await;
 
     assert_eq!(params.get("max_tokens"), None);
-    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3904)));
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3618)));
 }
 
 #[tokio::test]
@@ -172,7 +172,7 @@ async fn clamps_explicit_max_tokens_to_remaining_context() {
     let params = simple_payload(&model, &ctx, Some(7000)).await;
 
     assert_eq!(params.get("max_tokens"), None);
-    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3904)));
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3618)));
 }
 
 /// eukhe addition: a custom model on a loopback OpenAI-compatible server

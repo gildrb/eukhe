@@ -28,24 +28,24 @@ pub struct RadiusProviderOptions {
 
 struct RadiusCatalog {
     baseline: Vec<Model>,
-    dynamic: Mutex<Vec<Model>>,
+    /// Gateway catalog for this account. Radius org owners can disable
+    /// models, so once known it replaces the shipped baseline instead of
+    /// overlaying it. The baseline only covers the time before any catalog
+    /// exists.
+    dynamic: Mutex<Option<Vec<Model>>>,
 }
 
 impl RadiusCatalog {
     fn models(&self) -> Vec<Model> {
-        let mut merged = self.baseline.clone();
-        let dynamic = self.dynamic.lock().unwrap_or_else(PoisonError::into_inner);
-        for model in dynamic.iter() {
-            match merged.iter().position(|entry| entry.id == model.id) {
-                Some(index) => merged[index] = model.clone(),
-                None => merged.push(model.clone()),
-            }
-        }
-        merged
+        self.dynamic
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .unwrap_or_else(|| self.baseline.clone())
     }
 
     fn set_dynamic(&self, models: Vec<Model>) {
-        *self.dynamic.lock().unwrap_or_else(PoisonError::into_inner) = models;
+        *self.dynamic.lock().unwrap_or_else(PoisonError::into_inner) = Some(models);
     }
 }
 
@@ -154,7 +154,7 @@ pub fn radius_provider(options: RadiusProviderOptions) -> Provider {
     };
     let catalog = Arc::new(RadiusCatalog {
         baseline,
-        dynamic: Mutex::new(get_radius_models(&id, None)),
+        dynamic: Mutex::new(None),
     });
     let streams = pi_messages_api();
     let models_catalog = Arc::clone(&catalog);

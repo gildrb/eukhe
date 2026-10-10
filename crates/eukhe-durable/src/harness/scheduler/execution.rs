@@ -213,6 +213,13 @@ impl Inner {
         if current.abort_requested {
             return Ok(Decision::End);
         }
+        // An owner's cancellation intent ends it too, before its cascade marks
+        // it; reservation then holds it back.
+        if !current.background && self.lock().below_cancelled(parent_of(current)) {
+            self.lock().cascade_pending = true;
+            self.schedule_reconcile();
+            return Ok(Decision::End);
+        }
         let Some(previous) = previous else {
             return Ok(Decision::Continue);
         };
@@ -384,9 +391,10 @@ impl Inner {
             Ok(current) => current,
             Err(error) => {
                 self.end(invocation);
-                if !self.closing() {
-                    self.report(error);
-                }
+                // The step writes the scheduler's own decision, a fault or a
+                // terminal record; a failure there would otherwise leave the
+                // task running, to be reserved and run again.
+                self.fail_session(error);
                 None
             }
         }

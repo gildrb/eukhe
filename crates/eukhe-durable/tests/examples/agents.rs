@@ -152,6 +152,7 @@ async fn ex19_json_streams_events() {
             "type": "snapshot",
             "entries": [],
             "tools": [],
+            "nestedTools": [],
             "compactions": [],
             "inbox": [],
             "agent": { "model": { "provider": "faux", "modelId": "faux-1" } },
@@ -162,12 +163,14 @@ async fn ex19_json_streams_events() {
         events[1]["message"]["content"],
         "What is in this directory?"
     );
+    assert!(events[11]["taskId"].is_number(), "{}", events[11]);
     assert_eq!(
         events[11],
         serde_json::json!({
             "type": "tool_execution_start",
             "toolCallId": "call-1",
             "toolName": "bash",
+            "taskId": events[11]["taskId"],
             "args": { "command": "ls" }
         })
     );

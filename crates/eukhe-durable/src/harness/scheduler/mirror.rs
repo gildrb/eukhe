@@ -11,7 +11,7 @@ use crate::session::{SessionResult, TransactionScope};
 use crate::tasks::SettledTask;
 use crate::types::{
     AnyTaskRecord, CommitChange, CommitPublication, ConversationId, JoinPolicy, SubmissionQuery,
-    SubmissionStatus, SubmissionType, TaskId, TaskQuery, TaskState, TaskStatus,
+    SubmissionStatus, SubmissionType, TaskAbortReason, TaskId, TaskQuery, TaskState, TaskStatus,
 };
 
 use super::invocation::InvocationMode;
@@ -53,17 +53,32 @@ pub(super) fn with_state(record: &AnyTaskRecord, state: TaskState) -> AnyTaskRec
         owner: record.owner,
         background: record.background,
         abort_requested: record.abort_requested,
+        abort_reason: record.abort_reason,
+        abandon_on_restart: record.abandon_on_restart,
         state,
         memos,
+        started_at: record.started_at,
+        ended_at: record.ended_at,
     }
 }
 
-/// The record with its abort mark set.
-pub(super) fn marked(record: &AnyTaskRecord) -> AnyTaskRecord {
+/// The record with an abort mark: `Restart` for an abandonment; without a
+/// reason, a request, which replaces `Restart`.
+pub(super) fn with_abort_mark(
+    record: &AnyTaskRecord,
+    reason: Option<TaskAbortReason>,
+) -> AnyTaskRecord {
     AnyTaskRecord {
         abort_requested: true,
+        abort_reason: reason,
         ..record.clone()
     }
+}
+
+/// Whether an abort request must write the record: it carries no mark, or
+/// a `restart` mark the request replaces.
+pub(super) fn needs_request_mark(record: &AnyTaskRecord) -> bool {
+    !record.abort_requested || record.abort_reason.is_some()
 }
 
 /// The record's checkpoint; `null` for a record that holds an outcome.
@@ -74,12 +89,13 @@ pub(super) fn checkpoint_of(record: &AnyTaskRecord) -> eukhe_chord::json::JsonVa
 impl Inner {
     pub(super) async fn open(&self, cx: &Context) -> SessionResult<()> {
         let this = Arc::downgrade(&self.arc());
-        let commits = self.session.subscribe_commits(Arc::new({
+        let commits = self.session.observe_commits(Arc::new({
             let this = this.clone();
             move |publication, _| {
                 if let Some(inner) = this.upgrade() {
                     inner.observe(publication);
                 }
+                Ok(())
             }
         }))?;
         let close = self.session.subscribe_close(Arc::new({
@@ -120,6 +136,9 @@ impl Inner {
                         for record in records {
                             let mut state = inner.lock();
                             state.live.insert(record.id, record.clone());
+                            if record.abandon_on_restart {
+                                state.abandoned.insert(record.id);
+                            }
                             match &record.state {
                                 TaskState::Running { checkpoint } => {
                                     let checkpoint = checkpoint.clone();
@@ -173,7 +192,7 @@ impl Inner {
         if !observed.changed {
             return;
         }
-        self.resolve_idle_waiters();
+        self.settle_idle();
         self.kick();
     }
 
@@ -187,22 +206,23 @@ impl Inner {
     }
 
     /// Close listener: runs synchronously once admission is sealed, before
-    /// `join()`.
+    /// `join()`, or when the Session fails.
     pub(super) fn seal(&self) {
-        let (unsubscribe, invocations) = {
+        let error = closed_error(&self.session);
+        let unsubscribe = {
             let mut state = self.lock();
             state.closing = true;
             let unsubscribe = state.unsubscribe_registry.take();
-            state.task_waiters.reject_all(&closed_error());
-            state.idle_waiters.reject_all(&closed_error());
-            let invocations: Vec<_> = state.invocations.values().cloned().collect();
-            (unsubscribe, invocations)
+            state.task_waiters.reject_all(&error);
+            state.idle_waiters.reject_all(&error);
+            state.contexts.clear();
+            if let Some(expiry) = state.expiry.take() {
+                expiry.timer.abort();
+            }
+            unsubscribe
         };
         if let Some(unsubscribe) = unsubscribe {
             unsubscribe.unsubscribe();
-        }
-        for invocation in invocations {
-            invocation.controller.abort(None);
         }
     }
 
@@ -332,6 +352,12 @@ impl State {
                     invocation.controller.abort(None);
                 }
             }
+        }
+        // A request replacing a `restart` mark upgrades the marks of the work below.
+        if previous.is_some_and(|previous| previous.abort_reason.is_some())
+            && record.abort_reason.is_none()
+        {
+            self.cascade_pending = true;
         }
         match &record.state {
             TaskState::Completing { .. } => {

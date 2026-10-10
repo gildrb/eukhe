@@ -21,6 +21,7 @@
 //! is rejected.
 
 mod cascade;
+mod contexts;
 mod execution;
 mod invocation;
 mod mirror;
@@ -214,6 +215,14 @@ impl Inner {
     fn closing(&self) -> bool {
         self.lock().closing
     }
+
+    /// Fail the Session, which reports it, for a failure in one of the
+    /// scheduler's own commits; ignored once closing.
+    fn fail_session(&self, error: SessionError) {
+        if !self.closing() {
+            self.session.fail(error);
+        }
+    }
 }
 
 impl TaskScheduler {
@@ -256,14 +265,17 @@ impl TaskScheduler {
         self.inner.kick();
     }
 
-    /// Wait for every invocation signalled by the close listener. Writes
-    /// nothing.
+    /// Signal every invocation and wait for them; writes nothing. Close calls
+    /// this after every close listener has run, so waits, watches, and streams
+    /// a task holds end with the Session's reason, not as cancelled by its
+    /// signal.
     pub(crate) fn join(&self) -> impl Future<Output = ()> + Send + 'static {
-        let done: Vec<_> = self
-            .inner
-            .lock()
-            .invocations
-            .values()
+        let invocations: Vec<_> = self.inner.lock().invocations.values().cloned().collect();
+        for invocation in &invocations {
+            invocation.controller.abort(None);
+        }
+        let done: Vec<_> = invocations
+            .iter()
             .map(|invocation| invocation.done())
             .collect();
         async move {

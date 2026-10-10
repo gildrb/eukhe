@@ -83,6 +83,10 @@ fn terminal(task: &AnyTaskRecord) -> AnyTaskRecord {
             },
         },
         memos: None,
+        started_at: None,
+        ended_at: None,
+        abandon_on_restart: false,
+        abort_reason: None,
     }
 }
 
@@ -91,6 +95,7 @@ fn conversation_options(conversation_id: ConversationId) -> TaskOptions {
         ownership: TaskOwnership::Conversation,
         conversation_id: Some(conversation_id),
         background: None,
+        abandon_on_restart: None,
     }
 }
 
@@ -378,6 +383,10 @@ async fn creates_conversations_entries_and_tasks_with_minted_ids() {
                 checkpoint: json(r#"{"phase":"start"}"#),
             },
             memos: None,
+            started_at: None,
+            ended_at: None,
+            abandon_on_restart: false,
+            abort_reason: None,
         })
     );
     flush().await;
@@ -434,6 +443,7 @@ async fn creates_conversations_entries_and_tasks_with_minted_ids() {
                             ownership: TaskOwnership::Conversation,
                             conversation_id: None,
                             background: None,
+                            abandon_on_restart: None,
                         },
                     )
                 },
@@ -538,6 +548,10 @@ fn work_record(
         abort_requested,
         state,
         memos: None,
+        started_at: None,
+        ended_at: None,
+        abandon_on_restart: false,
+        abort_reason: None,
     }
 }
 
@@ -793,6 +807,10 @@ async fn replaces_task_records_completely() {
                 checkpoint: json(r#"{"phase":"next","step":2}"#),
             },
             memos: Some(super::support::object(r#"{"choice":"b"}"#)),
+            started_at: None,
+            ended_at: None,
+            abandon_on_restart: false,
+            abort_reason: None,
         })
     })
     .await

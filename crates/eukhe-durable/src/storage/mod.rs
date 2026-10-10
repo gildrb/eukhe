@@ -4,6 +4,7 @@
 mod common;
 pub mod jsonl;
 mod memory;
+mod scan;
 pub mod sqlite;
 
 pub use memory::{MemoryStorage, PreparedMemoryCommit};

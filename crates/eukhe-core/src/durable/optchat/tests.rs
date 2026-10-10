@@ -778,7 +778,7 @@ fn tool_results_over_the_cap_keep_head_and_tail_and_images() {
     });
     let long = "x".repeat(CAP + 10);
     let result = ToolExecutionResult {
-        content: Some(vec![
+        output: Some(vec![
             UserContentBlock::Text(TextContent::new(long.as_str())),
             image.clone(),
         ]),
@@ -786,14 +786,14 @@ fn tool_results_over_the_cap_keep_head_and_tail_and_images() {
         ..ToolExecutionResult::default()
     };
     let short = ToolExecutionResult {
-        content: Some(vec![UserContentBlock::Text(TextContent::new("short"))]),
+        output: Some(vec![UserContentBlock::Text(TextContent::new("short"))]),
         ..ToolExecutionResult::default()
     };
     assert_eq!(
         (super::tools::capped(&result), super::tools::capped(&short)),
         (
             Some(ToolExecutionResult {
-                content: Some(vec![
+                output: Some(vec![
                     UserContentBlock::Text(TextContent::new(crate::memory::cap_text(&long))),
                     image,
                 ]),

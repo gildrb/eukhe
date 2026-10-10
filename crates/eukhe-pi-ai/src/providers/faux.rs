@@ -180,6 +180,7 @@ pub fn faux_assistant_message(
         raw_stop_reason: None,
         end_turn: None,
         timestamp: options.timestamp.unwrap_or_else(now_ms),
+        duration_ms: None,
     }
 }
 
@@ -378,13 +379,16 @@ fn message_to_text(message: &Message) -> String {
     }
 }
 
-fn serialize_context(context: &TranscriptContext) -> String {
-    context
-        .messages()
-        .iter()
-        .map(|message| format!("{}:{}", message.role(), message_to_text(message)))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+/// One UTF-16 prompt text per message; the whole prompt joins them with blank lines.
+type PromptMessages = Vec<Vec<u16>>;
+
+/// `"\n\n"` in UTF-16.
+const BLANK_LINE: [u16; 2] = [0x0A, 0x0A];
+
+/// Length of the prompt text that joins the first `count` of `messages` with blank lines.
+fn joined_length(messages: &[Vec<u16>], count: usize) -> usize {
+    let separators = count.saturating_sub(1) * BLANK_LINE.len();
+    separators + messages[..count].iter().map(Vec::len).sum::<usize>()
 }
 
 /// Common prefix length in UTF-16 code units.
@@ -395,15 +399,51 @@ fn common_prefix_length(a: &[u16], b: &[u16]) -> usize {
         .count()
 }
 
+/// Length of the common prefix of the two joined prompts. Equal messages are compared whole; characters are compared
+/// only from the first message that differs.
+fn common_prompt_prefix_length(previous: &[Vec<u16>], current: &[Vec<u16>]) -> usize {
+    let index = previous
+        .iter()
+        .zip(current)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let rest = |messages: &[Vec<u16>]| -> Vec<u16> {
+        if index == messages.len() {
+            return Vec::new();
+        }
+        let mut text = Vec::new();
+        if index > 0 {
+            text.extend_from_slice(&BLANK_LINE);
+        }
+        for (offset, message) in messages[index..].iter().enumerate() {
+            if offset > 0 {
+                text.extend_from_slice(&BLANK_LINE);
+            }
+            text.extend_from_slice(message);
+        }
+        text
+    };
+    joined_length(previous, index) + common_prefix_length(&rest(previous), &rest(current))
+}
+
 fn with_usage_estimate(
     mut message: AssistantMessage,
     context: &TranscriptContext,
     options: Option<&StreamOptions>,
-    prompt_cache: &Mutex<HashMap<String, String>>,
+    prompt_cache: &Mutex<HashMap<String, PromptMessages>>,
 ) -> AssistantMessage {
-    let prompt_text = serialize_context(context);
-    let prompt_units: Vec<u16> = prompt_text.encode_utf16().collect();
-    let prompt_tokens = estimate_tokens_from_units(prompt_units.len());
+    // One text per message; the whole prompt joins them with blank lines.
+    let prompt: PromptMessages = context
+        .messages()
+        .iter()
+        .map(|message| {
+            format!("{}:{}", message.role(), message_to_text(message))
+                .encode_utf16()
+                .collect()
+        })
+        .collect();
+    let prompt_length = joined_length(&prompt, prompt.len());
+    let prompt_tokens = estimate_tokens_from_units(prompt_length);
     let output_tokens = estimate_tokens(&assistant_content_to_text(&message.content));
     let mut input = prompt_tokens;
     let mut cache_read = 0;
@@ -415,20 +455,16 @@ fn with_usage_estimate(
     if let Some(session_id) = session_id {
         if options.and_then(|options| options.cache_retention) != Some(CacheRetention::None) {
             let mut cache = prompt_cache.lock().unwrap_or_else(PoisonError::into_inner);
-            match cache
-                .get(&session_id)
-                .filter(|previous| !previous.is_empty())
-            {
+            match cache.get(&session_id) {
                 Some(previous_prompt) => {
-                    let previous_units: Vec<u16> = previous_prompt.encode_utf16().collect();
-                    let cached_units = common_prefix_length(&previous_units, &prompt_units);
+                    let cached_units = common_prompt_prefix_length(previous_prompt, &prompt);
                     cache_read = estimate_tokens_from_units(cached_units);
-                    cache_write = estimate_tokens_from_units(prompt_units.len() - cached_units);
+                    cache_write = estimate_tokens_from_units(prompt_length - cached_units);
                     input = prompt_tokens.saturating_sub(cache_read);
                 }
                 None => cache_write = prompt_tokens,
             }
-            cache.insert(session_id, prompt_text);
+            cache.insert(session_id, prompt);
         }
     }
 
@@ -512,6 +548,7 @@ fn base_message(
         raw_stop_reason: None,
         end_turn: None,
         timestamp: now_ms(),
+        duration_ms: None,
     }
 }
 
@@ -772,7 +809,7 @@ struct FauxCoreInner {
     models: Vec<Model>,
     pending_responses: Mutex<Vec<FauxResponseStep>>,
     state: Mutex<FauxProviderState>,
-    prompt_cache: Mutex<HashMap<String, String>>,
+    prompt_cache: Mutex<HashMap<String, PromptMessages>>,
     deferred_responses: Mutex<HashMap<String, DeferredEntry>>,
 }
 

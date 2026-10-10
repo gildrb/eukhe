@@ -2,7 +2,7 @@
 //! conversation's commits translated into events shaped like the coding
 //! agent's session events, one batch per commit.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -14,8 +14,11 @@ use futures::future::{BoxFuture, FutureExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::harness::live::{CompactionStatus, LiveGeneration, ToolSlot};
-use crate::harness::types::{AgentState, CompactionReason, ToolDiagnostic};
+use crate::harness::live::{CompactionStatus, LiveGeneration, NestedToolSlot, ToolSlot};
+use crate::harness::tool::NESTED_RESULT_DOC;
+use crate::harness::types::{
+    AgentState, CompactionReason, NestedToolExecutionResult, ToolDiagnostic,
+};
 use crate::harness::usage::UsageState;
 use crate::harness::util::scan_all;
 use crate::harness::view::{ConversationView, ViewObserver};
@@ -24,8 +27,9 @@ use crate::session::{
     CommittedWatch, ObservedValue, Ops, SessionError, SessionResult, WatchEnd, WatchListenerError,
 };
 use crate::types::{
-    AnyTaskRecord, CommitChange, CommitPublication, ConversationId, EntryId, EntryRecord, Storage,
-    SubmissionId, SubmissionRecord, TaskId, TaskOutcome, TaskQuery, TaskStatus,
+    AnyTaskRecord, CommitChange, CommitPublication, ConversationId, DocumentCommitChange, EntryId,
+    EntryRecord, Storage, SubmissionId, SubmissionRecord, TaskId, TaskOutcome, TaskQuery,
+    TaskStatus,
 };
 
 const GENERATION_KIND: &str = "pi.generation";
@@ -120,6 +124,9 @@ pub struct SnapshotEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<LiveGeneration>,
     pub tools: Vec<ToolSlot>,
+    /// `pi.live.nestedTools`: nested calls of running tool calls.
+    #[serde(rename = "nestedTools")]
+    pub nested_tools: Vec<NestedToolSlot>,
     /// `pi.live.compactions`: live compactions with their attempt and retry backoff.
     pub compactions: Vec<CompactionStatus>,
     pub inbox: Vec<QueuedItem>,
@@ -143,6 +150,25 @@ pub enum ToolOutputUpdate {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         append: Option<String>,
     },
+}
+
+/// Which call a tool event is about. `tool_call_id` is the call's ID in the
+/// transcript and in tool events: the provider's ID for a model-issued call,
+/// `<parent call ID>/<key>` for a nested one. Match events by it; do not
+/// parse it. `task_id` is the call's tool task, absent for a call that never
+/// got one (not offered, or not started in a sequential round). A nested call
+/// also names the call that made it, by call ID and by tool task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolEventCall {
+    pub tool_call_id: String,
+    pub tool_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_task_id: Option<TaskId>,
 }
 
 /// Experimental agent event, shaped like the coding agent's session events
@@ -179,13 +205,13 @@ pub enum AgentEvent {
         entry: EntryRecord,
     },
     ToolExecutionStart {
-        tool_call_id: String,
-        tool_name: String,
+        #[serde(flatten)]
+        call: ToolEventCall,
         args: JsonValue,
     },
     ToolExecutionUpdate {
-        tool_call_id: String,
-        tool_name: String,
+        #[serde(flatten)]
+        call: ToolEventCall,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output: Option<ToolOutputUpdate>,
         /// `Some(null)` when a safe replay removed the details.
@@ -194,12 +220,17 @@ pub enum AgentEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         diagnostics: Option<Vec<ToolDiagnostic>>,
     },
-    /// `entry` is absent when the tool task faulted or was orphaned.
+    /// A model-issued call ends with its result `entry`, a nested call with
+    /// its `result`. Both are absent when the tool task faulted or was
+    /// orphaned, or when the call's slot left `pi.live` unfinished: its run
+    /// ended, or its parent settled first.
     ToolExecutionEnd {
-        tool_call_id: String,
-        tool_name: String,
+        #[serde(flatten)]
+        call: ToolEventCall,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         entry: Option<EntryRecord>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<NestedToolExecutionResult>,
     },
     InboxUpdate {
         items: Vec<QueuedItem>,
@@ -388,15 +419,21 @@ impl<'a> Parts<'a> {
     }
 
     fn slots(&self) -> &'a [JsonValue] {
-        self.live("tools")
+        self.list("tools")
+    }
+
+    fn nested(&self) -> &'a [JsonValue] {
+        self.list("nestedTools")
+    }
+
+    fn list(&self, key: &str) -> &'a [JsonValue] {
+        self.live(key)
             .and_then(JsonValue::as_array)
             .unwrap_or_default()
     }
 
     fn compactions(&self) -> &'a [JsonValue] {
-        self.live("compactions")
-            .and_then(JsonValue::as_array)
-            .unwrap_or_default()
+        self.list("compactions")
     }
 }
 
@@ -409,6 +446,7 @@ fn snapshot_of(view: &ConversationView) -> SnapshotEvent {
         }),
         generation: parts.live("generation").map(decode),
         tools: parts.live("tools").map(decode).unwrap_or_default(),
+        nested_tools: parts.live("nestedTools").map(decode).unwrap_or_default(),
         compactions: parts.live("compactions").map(decode).unwrap_or_default(),
         inbox: queued(parts.inbox),
         agent: parts.agent.map(decode).unwrap_or_default(),
@@ -466,8 +504,8 @@ impl ViewObserver for EventsObserver {
         }
     }
 
-    fn close_session(&self) {
-        self.watch.close_session();
+    fn close_session(&self, failure: Option<Arc<SessionError>>) {
+        self.watch.close_session(failure);
     }
 }
 
@@ -482,7 +520,12 @@ pub fn watch_events(
     cx: &Context,
 ) -> BoxFuture<'static, SessionResult<AgentEventStream>> {
     let scan_cx = cx.clone();
-    let attached = harness.core().views().attach(
+    let views = harness.core().views();
+    let report: Arc<dyn Fn(SessionError) + Send + Sync> = {
+        let views = views.clone();
+        Arc::new(move |error| views.report(error))
+    };
+    let attached = views.attach(
         conversation_id,
         Box::new(move |initial, release, storage: Arc<dyn Storage>| {
             async move {
@@ -507,6 +550,7 @@ pub fn watch_events(
                 let watch = CommittedWatch::new(
                     Arc::from(Vec::new()),
                     release,
+                    report,
                     Some(Box::new(move || -> AgentEventBatch {
                         Arc::from(vec![AgentEvent::Snapshot(snapshot_of(&lock(
                             &replace_current,
@@ -573,19 +617,35 @@ fn entry_id_of(value: &JsonValue) -> Option<EntryId> {
     }
 }
 
-/// One `tool_execution_end` before its entry is placed.
+/// The identifying fields of a slot's tool events, model-issued or nested.
+fn call_of(slot: &JsonValue) -> ToolEventCall {
+    ToolEventCall {
+        tool_call_id: str_at(slot, "callId").to_owned(),
+        tool_name: str_at(slot, "name").to_owned(),
+        task_id: slot.get("taskId").map(decode),
+        parent_tool_call_id: slot
+            .get("parentCallId")
+            .map(|id| id.as_str().unwrap_or_default().to_owned()),
+        parent_task_id: slot.get("parentTaskId").map(decode),
+    }
+}
+
+fn is_nested(slot: &JsonValue) -> bool {
+    slot.get("parentCallId").is_some()
+}
+
+/// One `tool_execution_end` of a model-issued call before its entry is placed.
 struct ToolEnd<'a> {
-    call_id: String,
-    name: String,
+    slot: &'a JsonValue,
     entry: Option<&'a EntryRecord>,
 }
 
 impl ToolEnd<'_> {
     fn event(&self) -> AgentEvent {
         AgentEvent::ToolExecutionEnd {
-            tool_call_id: self.call_id.clone(),
-            tool_name: self.name.clone(),
+            call: call_of(self.slot),
             entry: self.entry.cloned(),
+            result: None,
         }
     }
 }
@@ -607,6 +667,8 @@ fn translate(
     // Insertion-ordered, as a JS Map: a later record replaces an earlier one in place.
     let mut tasks: Vec<&AnyTaskRecord> = Vec::new();
     let mut submissions: Vec<&SubmissionRecord> = Vec::new();
+    // Nested results this commit stored, by nested task ID; read now, since the caller's documents may retire next.
+    let mut nested_results: HashMap<&str, NestedToolExecutionResult> = HashMap::new();
     for change in &publication.changes {
         match change {
             CommitChange::Entry(entry) if entry.conversation_id == conversation_id => {
@@ -620,6 +682,18 @@ fn translate(
             }
             CommitChange::Submission(record) if record.conversation_id == conversation_id => {
                 submissions.push(record);
+            }
+            CommitChange::Document(DocumentCommitChange::Document {
+                record,
+                conversation_id: Some(owner),
+                value: Some(value),
+                ..
+            }) if *owner == conversation_id
+                && record.kind == NESTED_RESULT_DOC.definition().kind =>
+            {
+                if let (Some(key), Some(result)) = (&record.key, value.get("result")) {
+                    nested_results.insert(key, decode(result));
+                }
             }
             CommitChange::Entry(_)
             | CommitChange::Task(_)
@@ -654,23 +728,37 @@ fn translate(
             .map(|(_, slot)| *slot)
     };
     let slots = now.slots();
-    for slot in slots {
-        let call_id = str_at(slot, "callId");
-        if !is_status(Some(slot), "running") || is_status(previous_slot(call_id), "running") {
+    let nested_before = nested_by_task(was.nested());
+    let previous_nested = |task_id: TaskId| {
+        nested_before
+            .iter()
+            .find(|(other, _)| *other == task_id)
+            .map(|(_, slot)| *slot)
+    };
+    let nested = now.nested();
+    for slot in slots.iter().chain(nested) {
+        let previous = if is_nested(slot) {
+            previous_nested(decode(&slot["taskId"]))
+        } else {
+            previous_slot(str_at(slot, "callId"))
+        };
+        if !is_status(Some(slot), "running") || is_status(previous, "running") {
             continue;
         }
-        let checkpoint = slot
-            .get("taskId")
-            .map(decode::<TaskId>)
-            .and_then(task)
-            .and_then(|record| record.state.checkpoint());
-        let args = checkpoint
-            .and_then(|checkpoint| checkpoint.get("arguments"))
-            .cloned()
-            .unwrap_or_else(|| JsonValue::Object(Arc::new(JsonObject::new())));
+        // A nested slot carries the arguments the call runs with; a model-issued call's are in its intent checkpoint.
+        let args = if is_nested(slot) {
+            slot["arguments"].clone()
+        } else {
+            slot.get("taskId")
+                .map(decode::<TaskId>)
+                .and_then(task)
+                .and_then(|record| record.state.checkpoint())
+                .and_then(|checkpoint| checkpoint.get("arguments"))
+                .cloned()
+                .unwrap_or_else(|| JsonValue::Object(Arc::new(JsonObject::new())))
+        };
         events.push(AgentEvent::ToolExecutionStart {
-            tool_call_id: call_id.to_owned(),
-            tool_name: str_at(slot, "name").to_owned(),
+            call: call_of(slot),
             args,
         });
     }
@@ -692,24 +780,22 @@ fn translate(
         }
     }
     for (index, slot) in slots.iter().enumerate() {
-        let previous = previous_slot(str_at(slot, "callId"));
-        let Some(previous) = previous else {
+        let Some(previous) = previous_slot(str_at(slot, "callId")) else {
             continue;
         };
-        if !is_status(Some(slot), "running") || !is_status(Some(previous), "running") {
-            continue;
-        }
-        let Some((output, details, diagnostics)) = tool_update(view_ops, index, slot, previous)
-        else {
+        push_update(&mut events, view_ops, ("tools", index), slot, previous);
+    }
+    for (index, slot) in nested.iter().enumerate() {
+        let Some(previous) = previous_nested(decode(&slot["taskId"])) else {
             continue;
         };
-        events.push(AgentEvent::ToolExecutionUpdate {
-            tool_call_id: str_at(slot, "callId").to_owned(),
-            tool_name: str_at(slot, "name").to_owned(),
-            output,
-            details,
-            diagnostics,
-        });
+        push_update(
+            &mut events,
+            view_ops,
+            ("nestedTools", index),
+            slot,
+            previous,
+        );
     }
     let retry = get(generation, "retry");
     let retry_before = get(generation_before, "retry");
@@ -739,16 +825,12 @@ fn translate(
     // (a call not offered), or an unfinished one that vanishes because its run
     // ended. A done slot that vanishes ended earlier.
     let mut tool_ends: Vec<ToolEnd<'_>> = Vec::new();
-    let mut end_tool = |call_id: &str, name: &str, entry_id: Option<EntryId>| {
+    let mut end_tool = |slot, entry_id: Option<EntryId>| {
         let entry = entries
             .iter()
             .copied()
             .find(|candidate| Some(candidate.id) == entry_id);
-        tool_ends.push(ToolEnd {
-            call_id: call_id.to_owned(),
-            name: name.to_owned(),
-            entry,
-        });
+        tool_ends.push(ToolEnd { slot, entry });
     };
     for (call_id, previous) in &slots_before {
         if is_status(Some(previous), "done") {
@@ -757,28 +839,49 @@ fn translate(
         let slot = slots
             .iter()
             .find(|candidate| str_at(candidate, "callId") == *call_id);
-        let name = str_at(previous, "name");
         match slot {
             Some(slot) if is_status(Some(slot), "done") => {
-                end_tool(call_id, name, slot.get("entry").and_then(entry_id_of));
+                end_tool(slot, slot.get("entry").and_then(entry_id_of));
             }
             Some(_) => {}
             // A slot whose run ended in this commit may have had its result appended with it, as for unstarted calls.
-            None => end_tool(
-                call_id,
-                name,
-                result_of(&entries, call_id).map(|entry| entry.id),
-            ),
+            None => end_tool(previous, result_of(&entries, call_id).map(|entry| entry.id)),
         }
     }
     for slot in slots {
-        let call_id = str_at(slot, "callId");
-        if is_status(Some(slot), "done") && previous_slot(call_id).is_none() {
-            end_tool(
-                call_id,
-                str_at(slot, "name"),
-                slot.get("entry").and_then(entry_id_of),
-            );
+        if is_status(Some(slot), "done") && previous_slot(str_at(slot, "callId")).is_none() {
+            end_tool(slot, slot.get("entry").and_then(entry_id_of));
+        }
+    }
+    // Nested calls that end in this commit, the same way, children before
+    // the calls that made them: the lists hold parents first, so walk them
+    // backwards.
+    let mut end_nested = |slot: &JsonValue| {
+        let task_id: TaskId = decode(&slot["taskId"]);
+        events.push(AgentEvent::ToolExecutionEnd {
+            call: call_of(slot),
+            entry: None,
+            result: nested_results.get(task_id.to_string().as_str()).cloned(),
+        });
+    };
+    let nested_now = nested_by_task(nested);
+    for (task_id, previous) in nested_before.iter().rev() {
+        if is_status(Some(previous), "done") {
+            continue;
+        }
+        let slot = nested_now
+            .iter()
+            .find(|(other, _)| other == task_id)
+            .map(|(_, slot)| *slot);
+        match slot {
+            Some(slot) if is_status(Some(slot), "done") => end_nested(slot),
+            Some(_) => {}
+            None => end_nested(previous),
+        }
+    }
+    for slot in nested.iter().rev() {
+        if is_status(Some(slot), "done") && previous_nested(decode(&slot["taskId"])).is_none() {
+            end_nested(slot);
         }
     }
 
@@ -1049,24 +1152,60 @@ fn message_changes(view_ops: &[Op], message: &AssistantMessage) -> Vec<MessageCh
     changes
 }
 
+/// Nested slots by task ID, in list order.
+fn nested_by_task(list: &[JsonValue]) -> Vec<(TaskId, &JsonValue)> {
+    let mut slots: Vec<(TaskId, &JsonValue)> = Vec::new();
+    for slot in list {
+        let task_id: TaskId = decode(&slot["taskId"]);
+        match slots.iter_mut().find(|(other, _)| *other == task_id) {
+            Some(entry) => entry.1 = slot,
+            None => slots.push((task_id, slot)),
+        }
+    }
+    slots
+}
+
+/// Push the update event of a slot running before and after, if it changed.
+fn push_update(
+    events: &mut Vec<AgentEvent>,
+    view_ops: &[Op],
+    at: (&'static str, usize),
+    slot: &JsonValue,
+    previous: &JsonValue,
+) {
+    if !is_status(Some(slot), "running") || !is_status(Some(previous), "running") {
+        return;
+    }
+    let Some((output, details, diagnostics)) = tool_update(view_ops, at, slot, previous) else {
+        return;
+    };
+    events.push(AgentEvent::ToolExecutionUpdate {
+        call: call_of(slot),
+        output,
+        details,
+        diagnostics,
+    });
+}
+
 type ToolUpdate = (
     Option<ToolOutputUpdate>,
     Option<JsonValue>,
     Option<Vec<ToolDiagnostic>>,
 );
 
-/// Output, details, and diagnostics changes of a running slot, from the view
+/// Output, details, and diagnostics changes of a running slot at `at` in
+/// `pi.live` (`tools` or `nestedTools`, and its index), from the view
 /// operations on it.
 fn tool_update(
     view_ops: &[Op],
-    index: usize,
+    (list, index): (&'static str, usize),
     slot: &JsonValue,
     previous: &JsonValue,
 ) -> Option<ToolUpdate> {
     let output_path = [
         Seg::from("docs"),
         Seg::from("pi.live"),
-        Seg::from("tools"),
+        Seg::from(list),
         Seg::from(index),
         Seg::from("output"),
     ];

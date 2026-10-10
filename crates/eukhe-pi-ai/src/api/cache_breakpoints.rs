@@ -89,6 +89,7 @@ pub fn excess_breakpoints_error(
         raw_stop_reason: None,
         end_turn: None,
         timestamp: now_ms(),
+        duration_ms: None,
     };
     let stream = AssistantMessageEventStream::new();
     stream.push(AssistantMessageEvent::Error {

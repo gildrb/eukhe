@@ -188,7 +188,13 @@ fn compact_status(
             .filter(|window| *window > 0);
         let (tokens, window_value, percent) = match window {
             Some(window) => {
-                let view = conversation(&runtime, id, &cx).await?.context(&cx).await?;
+                let view = conversation(&runtime, id, &cx)
+                    .await?
+                    .context(
+                        &cx,
+                        eukhe_durable::harness::types::ContextOptions::default(),
+                    )
+                    .await?;
                 let tokens = context_tokens(&view);
                 #[expect(
                     clippy::cast_precision_loss,
@@ -237,7 +243,7 @@ fn compact_run(
             return Ok(no_active_turn(NO_TURN_COMPACT));
         }
         let conversation = conversation(&runtime, id, &cx).await?;
-        let view = conversation.context(&cx).await?;
+        let view = conversation.context(&cx, eukhe_durable::harness::types::ContextOptions::default()).await?;
         // TS `prepareCompaction`: only schedule a compaction that has
         // history to summarize.
         let keep_recent = resolve_settings(Some(&runtime.deps.settings.harness()))

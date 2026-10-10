@@ -15,7 +15,10 @@ async fn shows_an_abort_marked_owner_waiting_for_work_in_its_owned_conversation_
 ) {
     let script = Script::new();
     let (_directory, path) = sqlite_path();
-    let session = create_session(sqlite(&path).await);
+    let session = create_session(
+        sqlite(&path).await,
+        crate::session::SessionOptions::default(),
+    );
     let node = script.node().clone();
     let (owner, inner) = session
         .commit(

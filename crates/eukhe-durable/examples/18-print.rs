@@ -15,7 +15,7 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::harness::{Harness, RootOptions};
 use eukhe_durable::storage::MemoryStorage;
-use eukhe_durable::tools::{create_bash_tool, create_read_tool, BashToolOptions};
+use eukhe_durable::tools::{create_bash_tool, create_read_tool, BashToolOptions, ReadToolOptions};
 use eukhe_durable::types::SubmissionStatus;
 use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use eukhe_pi_ai::providers::faux::{
@@ -97,7 +97,7 @@ pub async fn run(
     let registry = create_registry();
     registry.install(define_extension(Extension {
         tools: vec![
-            create_read_tool(),
+            create_read_tool(ReadToolOptions::default()),
             create_bash_tool(BashToolOptions::default()),
         ],
         sections: vec![section(

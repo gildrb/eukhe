@@ -252,6 +252,7 @@ async fn settles_an_aborted_blocked_task_as_orphaned_and_retires_its_documents()
                             ownership: TaskOwnership::Conversation,
                             conversation_id: None,
                             background: None,
+                            abandon_on_restart: None,
                         },
                     )
                     .await?;

@@ -92,7 +92,7 @@ pub(crate) async fn run_manual_compaction(
     cx: &Context,
 ) -> Result<Value, ManualCompactionError> {
     let view = conversation
-        .context(cx)
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
         .await
         .map_err(|error| ManualCompactionError::session(&error))?;
     // A chat-memory root between calls: its next turn starts fresh from
@@ -198,6 +198,7 @@ pub(crate) async fn read_entry(
             ConversationEntryQuery {
                 min_entry_id: Some(id),
                 max_entry_id: Some(id),
+                order: None,
             },
             1,
             None,

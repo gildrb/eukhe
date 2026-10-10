@@ -215,6 +215,10 @@ pub struct HarnessSettings {
     pub tool_execution: Option<ToolExecutionMode>,
     pub steering_mode: Option<QueueMode>,
     pub follow_up_mode: Option<QueueMode>,
+    /// How long an idle conversation keeps its last context read in memory,
+    /// so its next run reads only newer entries. Busy conversations always
+    /// keep it; `0` drops it once the conversation is idle.
+    pub context_retention_ms: Option<f64>,
 }
 
 /// Resolved settings: every field over its built-in default, object fields
@@ -230,6 +234,7 @@ pub struct Settings {
     pub tool_execution: ToolExecutionMode,
     pub steering_mode: QueueMode,
     pub follow_up_mode: QueueMode,
+    pub context_retention_ms: f64,
 }
 
 /// Live source of [`HarnessSettings`] (TS `HarnessOptions.settings`, an

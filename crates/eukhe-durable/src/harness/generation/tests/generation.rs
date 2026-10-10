@@ -1631,6 +1631,7 @@ async fn orphans_a_blocked_run_task_with_full_run_cleanup() {
                             ownership: TaskOwnership::Conversation,
                             conversation_id: Some(id),
                             background: None,
+                            abandon_on_restart: None,
                         },
                     )
                     .await?;

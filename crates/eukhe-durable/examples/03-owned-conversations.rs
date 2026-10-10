@@ -93,7 +93,10 @@ pub async fn run(
     _openai_api_key: Option<&str>,
 ) -> Result<(), BoxError> {
     let context = &*BACKGROUND_CONTEXT;
-    let session = create_session(Arc::new(MemoryStorage::new()));
+    let session = create_session(
+        Arc::new(MemoryStorage::new()),
+        eukhe_durable::session::SessionOptions::default(),
+    );
 
     let main = session
         .commit(
@@ -118,6 +121,7 @@ pub async fn run(
                             ownership: TaskOwnership::Conversation,
                             conversation_id: Some(main.id),
                             background: Some(true),
+                            abandon_on_restart: None,
                         },
                     )
                     .await?;

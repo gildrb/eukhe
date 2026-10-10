@@ -9,7 +9,7 @@ use eukhe_chord::context::Context;
 use futures::FutureExt;
 use tokio::sync::oneshot;
 
-use crate::session::{SessionError, SessionResult};
+use crate::session::{Session, SessionError, SessionResult};
 use crate::types::{Cursor, Page};
 
 type Sender<T> = oneshot::Sender<SessionResult<T>>;
@@ -83,7 +83,10 @@ where
             let settled = match &signal {
                 None => receiver.await,
                 Some(signal) => {
+                    // A settlement that already happened wins over a later
+                    // abort, as the first settlement of a JS promise does.
                     tokio::select! {
+                        biased;
                         settled = receiver => settled,
                         reason = signal.cancelled() => {
                             let mut sets = lock(&inner);
@@ -165,8 +168,17 @@ where
     }
 }
 
-/// The error of every operation after the Harness closed.
-pub(crate) fn closed_error() -> SessionError {
+/// The error of every operation after the Harness closed: `SessionFailed`
+/// with the cause when it closed because the Session failed.
+pub(crate) fn closed_error(session: &Session) -> SessionError {
+    match session.failure() {
+        Some(cause) => SessionError::session_failed(cause),
+        None => harness_closed(),
+    }
+}
+
+/// `Harness is closed`, for a Harness whose Session is already gone.
+pub(crate) fn harness_closed() -> SessionError {
     SessionError::error("Harness is closed")
 }
 
@@ -189,7 +201,7 @@ mod tests {
         waiters.resolve(&1, &"done");
         assert_eq!(first.await.ok(), Some("done"));
         assert_eq!(waiters.keys(), vec![2]);
-        waiters.reject_all(&closed_error());
+        waiters.reject_all(&harness_closed());
         assert_eq!(
             other.await.err().map(|error| error.to_string()),
             Some("Harness is closed".to_owned())

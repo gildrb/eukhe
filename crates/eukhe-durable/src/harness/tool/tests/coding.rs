@@ -13,7 +13,9 @@ use crate::harness::tests::chat_support::{all_entries, chat_setup, open_chat, Ch
 use crate::harness::tests::support::{add_tool, context};
 use crate::harness::types::{Extension, InputSubmissionDraft};
 use crate::storage::MemoryStorage;
-use crate::tools::{create_bash_tool, create_edit_tool, create_read_tool, BashToolOptions};
+use crate::tools::{
+    create_bash_tool, create_edit_tool, create_read_tool, BashToolOptions, ReadToolOptions,
+};
 use crate::types::SubmissionStatus;
 
 fn temp_dir() -> tempfile::TempDir {
@@ -76,7 +78,7 @@ async fn answers_a_failing_command_with_its_retained_tail_and_diagnostics_in_ord
         .iter()
         .map(|diagnostic| diagnostic["code"].as_str().expect("code"))
         .collect();
-    assert_eq!(codes, ["full_output", "tool_error", "truncated"]);
+    assert_eq!(codes, ["full_output", "exit_code", "truncated"]);
     assert!(
         text.contains("line-3000\n|<harness>\n[info] Full output: "),
         "{text}"
@@ -98,7 +100,7 @@ async fn reads_edits_and_runs_a_command_in_one_run_then_answers() {
         .registry
         .install(define_extension(Extension {
             tools: vec![
-                create_read_tool(),
+                create_read_tool(ReadToolOptions::default()),
                 create_edit_tool(),
                 create_bash_tool(BashToolOptions::default()),
             ],

@@ -25,15 +25,18 @@ use super::database::{
     SqliteValue,
 };
 use super::migrations::{apply_sqlite_migrations, SQLITE_MIGRATIONS};
-use crate::errors::{StorageError, StorageRejected};
-use crate::storage::common::{cursor_id, failure, is_alive_at, is_current_only, page, rejected};
+use crate::errors::StorageError;
+use crate::storage::common::{
+    cursor_id, failure, failure_with_cause, is_alive_at, is_current_only, page,
+};
+use crate::storage::scan::{scan_start, ScanStart};
 use crate::types::{
     AnyTaskRecord, ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress,
     DocumentBase, DocumentContent, DocumentCopySource, DocumentCreate, DocumentId,
     DocumentIdentity, DocumentPoint, DocumentQuery, DocumentRecord, DocumentScope, EntryId,
-    EntryQuery, EntryRecord, Page, Seq, Storage, StorageWrite, StoredDocument, StoredEntry,
-    SubmissionId, SubmissionQuery, SubmissionRecord, SubmissionStatus, TaskId, TaskQuery,
-    TaskStatus,
+    EntryQuery, EntryRecord, Page, ScanOrder, Seq, Storage, StorageWrite, StoredDocument,
+    StoredEntry, SubmissionId, SubmissionQuery, SubmissionRecord, SubmissionStatus, TaskId,
+    TaskQuery, TaskStatus,
 };
 
 /// `Number.MAX_SAFE_INTEGER` as a JS number.
@@ -520,10 +523,9 @@ async fn check_document_actions(
     let mut live_counts: HashMap<AddressKey, i64> = HashMap::new();
     for (id, action) in actions.iter() {
         if action.copy().is_some_and(|copy| actions.has(copy.id)) {
-            return Err(StorageRejected::new(format!(
+            return Err(failure(format!(
                 "Document copy {id} source is changed in the copy batch"
-            ))
-            .into());
+            )));
         }
         let existing = read_document(executor, id).await?;
         let create = action.create.map(Creation::record);
@@ -663,7 +665,7 @@ async fn materialize_document(
         return Ok(None);
     };
     if at != DocumentPoint::Current && is_current_only(record.scope) {
-        return Err(failure(format!(
+        return Err(StorageError::request(format!(
             "Document {id} does not retain historical content"
         )));
     }
@@ -773,7 +775,9 @@ async fn apply_document_actions(
             content = Some(
                 copied_content(executor, create, source)
                     .await
-                    .map_err(|error| rejected(format!("Document copy {id} was rejected"), error))?,
+                    .map_err(|error| {
+                        failure_with_cause(format!("Document copy {id} was rejected"), error)
+                    })?,
             );
         }
         let mut record = if let Some(creation) = action.create {
@@ -1071,10 +1075,15 @@ impl SqliteStorage {
         limit: usize,
         cursor: Option<&Cursor>,
     ) -> Result<Page<EntryRecord>, StorageError> {
+        let ScanStart { order, after } = scan_start(query.order, cursor, ScanOrder::Descending)?;
+        if order == ScanOrder::Ascending {
+            return self
+                .read_entries_ascending(conversation, query, limit, after)
+                .await;
+        }
         let mut conversation = conversation
             .await?
             .ok_or_else(|| unknown_conversation(query.conversation_id))?;
-        let after = cursor_id(cursor)?;
         let mut upper = query.max_entry_id.map(|id| js_number(id.get()));
         if let Some(after) = after {
             upper = Some(
@@ -1120,21 +1129,87 @@ impl SqliteStorage {
             }
             conversation = self.read_ancestor(parent.conversation_id).await?;
         }
-        Ok(page(values, limit))
+        Ok(page(values, limit, ScanOrder::Descending))
     }
 
-    /// Queue a scan of `table` over `clauses` (TS `SELECT record FROM … ORDER BY id LIMIT ?`).
+    /// Oldest first: the fork chain's segments from the root conversation
+    /// forward, each up to its fork point.
+    async fn read_entries_ascending(
+        &self,
+        conversation: BoxFuture<'static, Result<Option<ConversationRecord>, StorageError>>,
+        query: &EntryQuery,
+        limit: usize,
+        after: Option<i64>,
+    ) -> Result<Page<EntryRecord>, StorageError> {
+        let mut conversation = conversation
+            .await?
+            .ok_or_else(|| unknown_conversation(query.conversation_id))?;
+        let min_entry_id = query.min_entry_id.map(|id| js_number(id.get()));
+        let mut upper = query.max_entry_id.map(|id| js_number(id.get()));
+        let mut segments: Vec<(ConversationId, Option<f64>)> = Vec::new();
+        loop {
+            segments.push((conversation.id, upper));
+            let Some(parent) = conversation.parent else {
+                break;
+            };
+            let at = js_number(parent.at.get());
+            let next_upper = upper.map_or(at, |upper| upper.min(at));
+            upper = Some(next_upper);
+            if min_entry_id.is_some_and(|min_entry_id| next_upper < min_entry_id) {
+                break;
+            }
+            conversation = self.read_ancestor(parent.conversation_id).await?;
+        }
+        let mut lower = min_entry_id;
+        if let Some(after) = after {
+            let next = js_signed_number(after) + 1.0;
+            lower = Some(lower.map_or(next, |lower| lower.max(next)));
+        }
+        let mut values: Vec<EntryRecord> = Vec::new();
+        for (conversation_id, upper) in segments.into_iter().rev() {
+            let mut clauses = vec!["conversation_id = ?"];
+            let mut params: Vec<SqliteValue> = vec![conversation_id.get().into()];
+            if let Some(lower) = lower {
+                clauses.push("id >= ?");
+                params.push(lower.into());
+            }
+            if let Some(upper) = upper {
+                clauses.push("id <= ?");
+                params.push(upper.into());
+            }
+            params.push((js_limit(limit) + 1.0 - js_limit(values.len())).into());
+            let rows = self
+                .db
+                .all(
+                    format!(
+                        "SELECT record FROM entries WHERE {} ORDER BY id ASC LIMIT ?",
+                        clauses.join(" AND ")
+                    )
+                    .into(),
+                    params,
+                )
+                .await?;
+            values.extend(records::<EntryRecord>(&rows)?);
+            if values.len() > limit {
+                break;
+            }
+        }
+        Ok(page(values, limit, ScanOrder::Ascending))
+    }
+
+    /// Queue a scan of `table` over `clauses` (TS `SELECT record FROM … ORDER BY id … LIMIT ?`).
     fn scan<'a, T: DeserializeOwned + Send + 'a>(
         &self,
         table: &str,
         clauses: &[&str],
         mut params: Vec<SqliteValue>,
         limit: usize,
+        direction: &str,
     ) -> BoxFuture<'a, Result<Vec<T>, StorageError>> {
         params.push((js_limit(limit) + 1.0).into());
         let rows = self.db.all(
             Cow::Owned(format!(
-                "SELECT record FROM {table} WHERE {} ORDER BY id LIMIT ?",
+                "SELECT record FROM {table} WHERE {} ORDER BY id {direction} LIMIT ?",
                 clauses.join(" AND ")
             )),
             params,
@@ -1144,7 +1219,24 @@ impl SqliteStorage {
 }
 
 fn unknown_conversation(id: ConversationId) -> StorageError {
-    failure(format!("Unknown conversation: {id}"))
+    StorageError::request(format!("Unknown conversation: {id}"))
+}
+
+/// The ID condition, its parameter, and the `ORDER BY` direction of a table
+/// scan (TS `scanSql`).
+fn scan_sql(start: ScanStart) -> (&'static str, SqliteValue, &'static str) {
+    match start.order {
+        ScanOrder::Ascending => (
+            "id > ?",
+            SqliteValue::Integer(start.after.unwrap_or(-1)),
+            "ASC",
+        ),
+        ScanOrder::Descending => (
+            "id < ?",
+            SqliteValue::Integer(start.after.unwrap_or(9_007_199_254_740_991)),
+            "DESC",
+        ),
+    }
 }
 
 impl Storage for SqliteStorage {
@@ -1238,11 +1330,13 @@ impl Storage for SqliteStorage {
         if let Err(error) = self.assert_open() {
             return failed_now(error);
         }
-        let mut clauses = vec!["id > ?"];
-        let mut params = match cursor_param(cursor) {
-            Ok(after) => vec![after],
+        let start = match scan_start(query.order, cursor, ScanOrder::Ascending) {
+            Ok(start) => start,
             Err(error) => return failed_now(error),
         };
+        let (clause, param, direction) = scan_sql(start);
+        let mut clauses = vec![clause];
+        let mut params = vec![param];
         if let Some(owner) = query.owner_conversation_id {
             clauses.push("owner_conversation_id = ?");
             params.push(owner.get().into());
@@ -1251,8 +1345,8 @@ impl Storage for SqliteStorage {
             clauses.push("owner_task_id = ?");
             params.push(owner.get().into());
         }
-        let scanned = self.scan("conversations", &clauses, params, limit);
-        Box::pin(async move { Ok(page(scanned.await?, limit)) })
+        let scanned = self.scan("conversations", &clauses, params, limit, direction);
+        Box::pin(async move { Ok(page(scanned.await?, limit, start.order)) })
     }
 
     fn entry<'a>(
@@ -1346,11 +1440,13 @@ impl Storage for SqliteStorage {
         if let Err(error) = self.assert_open() {
             return failed_now(error);
         }
-        let mut clauses = vec!["id > ?"];
-        let mut params = match cursor_param(cursor) {
-            Ok(after) => vec![after],
+        let start = match scan_start(query.order, cursor, ScanOrder::Ascending) {
+            Ok(start) => start,
             Err(error) => return failed_now(error),
         };
+        let (clause, param, direction) = scan_sql(start);
+        let mut clauses = vec![clause];
+        let mut params = vec![param];
         if let Some(conversation_id) = query.conversation_id {
             clauses.push("conversation_id = ?");
             params.push(conversation_id.get().into());
@@ -1371,8 +1467,8 @@ impl Storage for SqliteStorage {
             clauses.push("background = ?");
             params.push(flag(background));
         }
-        let scanned = self.scan("tasks", &clauses, params, limit);
-        Box::pin(async move { Ok(page(scanned.await?, limit)) })
+        let scanned = self.scan("tasks", &clauses, params, limit, direction);
+        Box::pin(async move { Ok(page(scanned.await?, limit, start.order)) })
     }
 
     fn submission<'a>(
@@ -1397,11 +1493,13 @@ impl Storage for SqliteStorage {
         if let Err(error) = self.assert_open() {
             return failed_now(error);
         }
-        let mut clauses = vec!["id > ?"];
-        let mut params = match cursor_param(cursor) {
-            Ok(after) => vec![after],
+        let start = match scan_start(query.order, cursor, ScanOrder::Ascending) {
+            Ok(start) => start,
             Err(error) => return failed_now(error),
         };
+        let (clause, param, direction) = scan_sql(start);
+        let mut clauses = vec![clause];
+        let mut params = vec![param];
         if let Some(conversation_id) = query.conversation_id {
             clauses.push("conversation_id = ?");
             params.push(conversation_id.get().into());
@@ -1410,8 +1508,8 @@ impl Storage for SqliteStorage {
             clauses.push("status = ?");
             params.push(submission_status_name(status).into());
         }
-        let scanned = self.scan("submissions", &clauses, params, limit);
-        Box::pin(async move { Ok(page(scanned.await?, limit)) })
+        let scanned = self.scan("submissions", &clauses, params, limit, direction);
+        Box::pin(async move { Ok(page(scanned.await?, limit, start.order)) })
     }
 
     fn submission_by_request<'a>(
@@ -1501,8 +1599,8 @@ impl Storage for SqliteStorage {
                 params.push(at.get().into());
             }
         }
-        let scanned = self.scan("documents", &clauses, params, limit);
-        Box::pin(async move { Ok(page(scanned.await?, limit)) })
+        let scanned = self.scan("documents", &clauses, params, limit, "ASC");
+        Box::pin(async move { Ok(page(scanned.await?, limit, ScanOrder::Ascending)) })
     }
 
     fn close<'a>(&'a self, _cx: &'a Context) -> BoxFuture<'a, Result<(), StorageError>> {

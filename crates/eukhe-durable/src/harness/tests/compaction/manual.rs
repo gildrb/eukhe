@@ -9,9 +9,9 @@ use eukhe_types::pi_ai::{
 };
 
 use super::{
-    answer, compact, doc, failure, gated, history, input_tokens, kinds, live, open, result, script,
-    set_policy, status_of, submission, submission_id, submit, summary, text, text_tool, turn,
-    user_text, with_stop, OpenOptions, MANUAL,
+    answer, compact, doc, failure, first_user_text, gated, history, input_tokens, kinds, live,
+    open, result, script, set_policy, status_of, submission, submission_id, submit, summary, text,
+    text_tool, turn, user_text, with_stop, OpenOptions, MANUAL,
 };
 use crate::harness::provider::{ProviderState, PROVIDER_DOC};
 use crate::harness::tests::chat_support::{
@@ -85,7 +85,11 @@ async fn places_the_summary_at_once_when_idle_and_keeps_raw_history() {
     );
 
     // The model context is the summary followed by the kept entries.
-    let view = chat.root.context(context()).await.unwrap();
+    let view = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(
         view.messages
             .iter()
@@ -236,7 +240,7 @@ async fn places_a_queued_summary_at_post_tools_and_the_run_continues_in_the_comp
     );
     // The continuation request starts with the summary.
     let continuation = chat.faux.last_agent_messages();
-    assert!(user_text(continuation.first()).contains("<summary>\nSUMMARY\n</summary>"));
+    assert!(first_user_text(&continuation).contains("<summary>\nSUMMARY\n</summary>"));
     let kinds = kinds(&chat.root).await;
     assert_eq!(
         kinds[kinds.len() - 4..],
@@ -279,7 +283,7 @@ async fn runs_follow_ups_left_by_a_failed_run_after_placing_the_summary() {
         SubmissionStatus::Done
     );
     let request = chat.faux.last_agent_messages();
-    assert!(user_text(request.first()).contains("SUMMARY"));
+    assert!(first_user_text(&request).contains("SUMMARY"));
     assert!(request
         .iter()
         .any(|message| user_text(Some(message)) == "follow-up"));
@@ -338,7 +342,7 @@ async fn does_not_make_the_conversation_busy_a_submission_during_summarization_s
     );
     answer_reached.wait().await;
     assert_eq!(
-        user_text(chat.faux.last_agent_messages().first()),
+        first_user_text(&chat.faux.last_agent_messages()),
         text("u1", 100)
     );
     // The summary is ready while the run is busy, so it queues and lands
@@ -408,8 +412,13 @@ async fn lets_the_compaction_that_cuts_furthest_win_whatever_finishes_first() {
     let outcome = result(&chat, early).await;
     // The early compaction cut at u3, before the later cut at u4.
     assert_stale(&chat, submission_id(&outcome)).await;
-    let messages = chat.root.context(context()).await.unwrap().messages;
-    assert!(user_text(messages.first()).contains("SECOND"));
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains("SECOND"));
     chat.harness.close(context()).await.unwrap();
 }
 
@@ -431,16 +440,26 @@ async fn places_an_older_selected_summary_that_cuts_later_than_the_newer_one() {
     });
     chat.faux.summary(summary("B"));
     result(&chat, compact(&chat, None).await).await;
-    let messages = chat.root.context(context()).await.unwrap().messages;
-    assert!(user_text(messages.first()).contains('B'));
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains('B'));
     gate.resolve(());
     let outcome = result(&chat, a).await;
     assert_eq!(
         status_of(&chat, submission_id(&outcome)).await,
         SubmissionStatus::Done
     );
-    let messages = chat.root.context(context()).await.unwrap().messages;
-    assert!(user_text(messages.first()).contains("<summary>\nA\n</summary>"));
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains("<summary>\nA\n</summary>"));
     assert_eq!(
         messages[1..]
             .iter()

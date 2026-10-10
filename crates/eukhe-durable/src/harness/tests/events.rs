@@ -26,7 +26,7 @@ use crate::harness::types::{
 use crate::harness::usage::USAGE_DOC;
 use crate::harness::{
     watch_events, AgentEvent, AgentEventStream, Conversation, Harness, MessageChange, PathSegment,
-    SnapshotEvent, ToolOutputUpdate,
+    SnapshotEvent, ToolEventCall, ToolOutputUpdate,
 };
 use crate::session::{SessionError, WatchEnd};
 use crate::storage::MemoryStorage;
@@ -443,17 +443,26 @@ async fn reports_tool_start_output_appends_and_the_result_entry() {
         .iter()
         .filter(|event| event.kind().starts_with("tool_execution"))
         .collect();
+    let AgentEvent::ToolExecutionStart { call, args } = tool[0] else {
+        panic!("the tool starts first: {:?}", tool[0]);
+    };
+    assert!(call.task_id.is_some(), "a started call has its tool task");
     assert_eq!(
-        tool[0],
-        &AgentEvent::ToolExecutionStart {
-            tool_call_id: "c1".to_owned(),
-            tool_name: "print".to_owned(),
-            args: json(r#"{"n":1}"#),
-        }
+        (call, args),
+        (
+            &ToolEventCall {
+                task_id: call.task_id,
+                tool_call_id: "c1".to_owned(),
+                tool_name: "print".to_owned(),
+                parent_tool_call_id: None,
+                parent_task_id: None,
+            },
+            &json(r#"{"n":1}"#)
+        )
     );
     let end = *tool.last().unwrap();
     let AgentEvent::ToolExecutionEnd {
-        tool_call_id,
+        call,
         entry: Some(entry),
         ..
     } = end
@@ -461,7 +470,7 @@ async fn reports_tool_start_output_appends_and_the_result_entry() {
         panic!("the tool ends with its entry: {end:?}");
     };
     assert_eq!(
-        (tool_call_id.as_str(), entry.kind.as_str()),
+        (call.tool_call_id.as_str(), entry.kind.as_str()),
         ("c1", "pi.tool-result")
     );
     // As in the coding agent, the tool ends directly before its result message.
@@ -958,17 +967,17 @@ async fn ends_a_call_that_never_runs_and_a_tool_aborted_with_its_generation() {
     let tool: Vec<(&str, String, bool)> = all
         .iter()
         .filter_map(|event| match event {
-            AgentEvent::ToolExecutionStart { tool_call_id, .. } => {
-                Some(("tool_execution_start", tool_call_id.clone(), false))
+            AgentEvent::ToolExecutionStart { call, .. } => {
+                Some(("tool_execution_start", call.tool_call_id.clone(), false))
             }
-            AgentEvent::ToolExecutionUpdate { tool_call_id, .. } => {
-                Some(("tool_execution_update", tool_call_id.clone(), false))
+            AgentEvent::ToolExecutionUpdate { call, .. } => {
+                Some(("tool_execution_update", call.tool_call_id.clone(), false))
             }
-            AgentEvent::ToolExecutionEnd {
-                tool_call_id,
-                entry,
-                ..
-            } => Some(("tool_execution_end", tool_call_id.clone(), entry.is_some())),
+            AgentEvent::ToolExecutionEnd { call, entry, .. } => Some((
+                "tool_execution_end",
+                call.tool_call_id.clone(),
+                entry.is_some(),
+            )),
             _ => None,
         })
         .collect();

@@ -78,6 +78,7 @@ fn tool_result(call_id: &str, content: impl Into<String>) -> Message {
         nested_calls: None,
         is_error: false,
         timestamp: 0,
+        duration_ms: None,
     })
 }
 

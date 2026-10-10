@@ -1,35 +1,45 @@
 //! One execution of a tool: its [`ToolExecutionApi`], the throttled progress
-//! commits into its `pi.live.tools` slot, and the settled result.
+//! commits into its `pi.live.tools` or `pi.live.nestedTools` slot, its
+//! nested calls, and the settled result.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 
 use eukhe_chord::context::{await_with_context, Context};
 use eukhe_chord::delta::{overlap, DraftItem};
-use eukhe_chord::json::{copy_json, to_json, JsonObject, JsonValue};
+use eukhe_chord::json::{copy_json, from_json, to_json, JsonObject, JsonValue};
+use eukhe_pi_ai::models::Models;
+use eukhe_pi_ai::utils::validation::check_value;
 use eukhe_types::pi_ai::{
-    JsonObject as PiJsonObject, JsonValue as PiJsonValue, TextContent, ToolCall, UserContentBlock,
+    JsonObject as PiJsonObject, JsonValue as PiJsonValue, TextContent, UserContentBlock,
 };
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, Shared};
 use futures::FutureExt;
 
+use super::nested::{
+    check_key, fallback_result, output_value, start_nested_call, NestedCallRequest,
+    NestedResultState, NESTED_RESULT_DOC,
+};
 use super::result::{bound_content, tool_diagnostic, truncated, ToolEnding};
-use super::{json_bytes, settle, Runtime};
+use super::{json_bytes, settle, Runtime, ToolTaskInput, ToolTaskResult};
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::env::{ExecutionEnv, ShellOutputSkip, ShellOutputWindow};
 use crate::harness::json::assign_json;
 use crate::harness::live::{tool_slot, LIVE_DOC};
 use crate::harness::output::{OutputBuffer, OutputLimits, Progress, PROGRESS_BYTES_PER_SECOND};
 use crate::harness::types::{
-    Agent, ConversationHandle, InvocationTaskOptions, OutputRetain, RegistrySnapshot,
-    ToolCommitChange, ToolDiagnostic, ToolExecutionApi, ToolExecutionResult, ToolHooks,
-    ToolOutputChunk, ToolRegistration,
+    Agent, ConversationHandle, ExecuteToolOptions, InvocationTaskOptions,
+    NestedToolExecutionResult, OutputRetain, RegistrySnapshot, RetainedOutput, ToolCommitChange,
+    ToolDiagnostic, ToolExecutionApi, ToolExecutionResult, ToolHookCall, ToolHooks,
+    ToolOutputChunk, ToolRegistration, ToolReplay,
 };
 use crate::session::{DocumentWatch, SessionError, SessionResult};
 use crate::tasks::{AnyTask, SettledTask};
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
 use crate::types::{
-    AnyTaskRecord, ConversationId, DocumentObserver, DocumentReader, EntryId, TaskId, TaskOptions,
+    AnyTaskRecord, ConversationId, DocumentObserver, DocumentReader, DocumentReaderExt, EntryId,
+    TaskId, TaskOptions, TaskOwnership,
 };
 
 /// What a running tool reported through its api: output, the last details,
@@ -48,12 +58,22 @@ struct Written {
     diagnostics: usize,
 }
 
+/// A nested call's admission, shared by its `execute_tool()` and the
+/// cleanup that waits for every admission an invocation started.
+type Admission = Shared<BoxFuture<'static, SessionResult<TaskId>>>;
+
 /// State shared by the api, the progress commits, and the settlement.
 struct Reporting {
     reported: Arc<Mutex<Reported>>,
     progress: Progress,
     ended: AtomicBool,
     call_id: String,
+    /// Nested call admissions this invocation started; cleanup waits for
+    /// them, so it sees every nested call.
+    admissions: Mutex<Vec<Admission>>,
+    /// Default keys: the order of this invocation's calls, so a rerun that
+    /// calls in the same order reattaches.
+    sequence: AtomicU64,
 }
 
 impl Reporting {
@@ -84,13 +104,19 @@ fn utf16_to_byte(text: &str, units: usize) -> usize {
     text.len()
 }
 
-/// Throttled commits of what the tool reported into its `pi.live.tools`
-/// slot, each writing only what changed since the last one.
+/// Throttled commits of what the tool reported into its slot, in
+/// `pi.live.tools` or `pi.live.nestedTools`, each writing only what changed
+/// since the last one; none when `enabled` is false.
 #[expect(
     clippy::too_many_lines,
     reason = "one TS function: the capture and the commit share its state"
 )]
-fn publish_progress(runtime: &Runtime, reported: &Arc<Mutex<Reported>>, cx: &Context) -> Progress {
+fn publish_progress(
+    runtime: &Runtime,
+    reported: &Arc<Mutex<Reported>>,
+    enabled: bool,
+    cx: &Context,
+) -> Progress {
     let commit_cx = cx.clone();
     let written = Arc::new(Mutex::new(Written::default()));
     let write_runtime = runtime.clone();
@@ -98,6 +124,9 @@ fn publish_progress(runtime: &Runtime, reported: &Arc<Mutex<Reported>>, cx: &Con
     let report_runtime = runtime.clone();
     Progress::new(
         Box::new(move || {
+            if !enabled {
+                return futures::future::ready(Ok(0)).boxed();
+            }
             // Capture everything synchronously: the tool keeps reporting while the commit is in flight.
             let (snapshot, details, diagnostics) = {
                 let mut state = reported.lock().unwrap_or_else(PoisonError::into_inner);
@@ -211,6 +240,10 @@ struct ToolInvocation {
     reporting: Arc<Reporting>,
     output_window: Option<ShellOutputWindow>,
     env: Option<Arc<dyn ExecutionEnv>>,
+    /// A caller that can rerun reattaches to its nested calls and child
+    /// tasks after a restart; any other caller never resumes, so they are
+    /// abandoned (`TaskOptions.abandon_on_restart`).
+    resumes: bool,
 }
 
 impl DocumentReader for ToolInvocation {
@@ -265,6 +298,19 @@ impl ToolExecutionApi for ToolInvocation {
 
     fn agent(&self, cx: &Context) -> BoxFuture<'static, SessionResult<Arc<Agent>>> {
         self.runtime.agent(cx)
+    }
+
+    fn models(&self) -> Models {
+        self.runtime.models()
+    }
+
+    fn retained_output(&self) -> SessionResult<RetainedOutput> {
+        self.reporting.assert_live()?;
+        let retained = self.reporting.lock().output.snapshot();
+        Ok(RetainedOutput {
+            truncated: retained.dropped_bytes > 0,
+            text: retained.text,
+        })
     }
 
     fn env(&self) -> Option<Arc<dyn ExecutionEnv>> {
@@ -363,12 +409,18 @@ impl ToolExecutionApi for ToolInvocation {
     ) -> BoxFuture<'static, SessionResult<TaskId>> {
         let created = Arc::new(Mutex::new(None));
         let slot = Arc::clone(&created);
+        // A child of a tool that is not replay-safe defaults to `abandon_on_restart`.
+        let abandon_on_restart = options.abandon_on_restart.or_else(|| {
+            (matches!(options.ownership, TaskOwnership::Task { .. }) && !self.resumes)
+                .then_some(true)
+        });
         let committed = self.runtime.commit(
             move |tx, _current| async move {
                 let options = TaskOptions {
                     ownership: options.ownership,
                     conversation_id: None,
                     background: options.background,
+                    abandon_on_restart,
                 };
                 let id = tx
                     .create_task(task.as_definition_ref(), input, options)
@@ -412,6 +464,60 @@ impl ToolExecutionApi for ToolInvocation {
     ) -> BoxFuture<'static, SessionResult<Option<Arc<dyn ConversationHandle>>>> {
         self.runtime.conversation(id, cx)
     }
+
+    fn execute_tool(
+        &self,
+        name: &str,
+        args: PiJsonObject,
+        cx: &Context,
+        options: ExecuteToolOptions,
+    ) -> BoxFuture<'static, SessionResult<NestedToolExecutionResult>> {
+        if let Err(error) = self.reporting.assert_live() {
+            return futures::future::ready(Err(error)).boxed();
+        }
+        let key = match options.key {
+            Some(key) => {
+                if let Err(error) = check_key(&key) {
+                    return futures::future::ready(Err(error)).boxed();
+                }
+                key
+            }
+            None => (self.reporting.sequence.fetch_add(1, Ordering::SeqCst) + 1).to_string(),
+        };
+        let request = NestedCallRequest {
+            parent_call_id: self.reporting.call_id.clone(),
+            name: name.to_owned(),
+            args,
+            key,
+            progress: options.progress,
+            abandon_on_restart: !self.resumes,
+        };
+        let admission = start_nested_call(&self.runtime, request, cx).shared();
+        self.reporting
+            .admissions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(admission.clone());
+        let (runtime, cx, name) = (self.runtime.clone(), cx.clone(), name.to_owned());
+        async move {
+            let id = admission.await?;
+            let settled = runtime
+                .wait_for_task(TaskId::<ToolTaskResult>::from_number(id.get()), &cx)
+                .await?;
+            let caller = runtime.task_id().erase();
+            let stored = runtime
+                .snapshot(&NESTED_RESULT_DOC, (caller, &id.to_string()), &cx)
+                .await?;
+            // A copy the tool may change; a nested call the scheduler faulted or orphaned stored none.
+            match stored {
+                Some(stored) => {
+                    Ok(from_json::<NestedResultState>(&JsonValue::Object(stored))?.result)
+                }
+                None => Ok(fallback_result(id, &name, &settled.outcome)),
+            }
+        }
+        .boxed()
+    }
 }
 
 #[expect(
@@ -422,14 +528,15 @@ fn limit(value: Option<u64>, default: u64) -> usize {
     value.unwrap_or(default) as usize
 }
 
-/// Execute with the resolved implementation, then settle its result.
-pub(super) async fn run(
+/// The output limits of `tool`, the invocation's reporting state, and the
+/// output window a shell may skip outside of.
+fn reporting_for(
     runtime: &Runtime,
-    call: &ToolCall,
+    input: &ToolTaskInput,
+    call: &ToolHookCall,
     tool: &ToolRegistration,
-    args: PiJsonObject,
     cx: &Context,
-) -> SessionResult<()> {
+) -> (OutputLimits, Arc<Reporting>, Option<ShellOutputWindow>) {
     let configured = tool.output_limits.unwrap_or_default();
     let limits = OutputLimits {
         max_bytes: limit(configured.max_bytes, DEFAULT_MAX_BYTES),
@@ -441,11 +548,17 @@ pub(super) async fn run(
         diagnostics: Vec::new(),
         details: None,
     }));
+    let streams = match input {
+        ToolTaskInput::Model { .. } => true,
+        ToolTaskInput::Nested { progress, .. } => *progress != Some(false),
+    };
     let reporting = Arc::new(Reporting {
-        progress: publish_progress(runtime, &reported, cx),
+        progress: publish_progress(runtime, &reported, streams, cx),
         reported,
         ended: AtomicBool::new(false),
         call_id: call.id.clone(),
+        admissions: Mutex::new(Vec::new()),
+        sequence: AtomicU64::new(0),
     });
     let output_window = match limits.retain {
         OutputRetain::Tail => Some(ShellOutputWindow {
@@ -456,8 +569,23 @@ pub(super) async fn run(
         }),
         OutputRetain::Head => None,
     };
+    (limits, reporting, output_window)
+}
+
+/// Execute with the resolved implementation, then settle its result.
+pub(super) async fn run(
+    runtime: &Runtime,
+    input: &ToolTaskInput,
+    call: &ToolHookCall,
+    tool: &ToolRegistration,
+    args: PiJsonObject,
+    cx: &Context,
+) -> SessionResult<()> {
+    let (limits, reporting, output_window) = reporting_for(runtime, input, call, tool, cx);
 
     let mut ending = ToolEnding::Completed;
+    // Execution time of this attempt; a rerun after recovery measures only itself.
+    let mut duration_ms = None;
     // Built for this call, so a rerun after recovery gets the conversation's environment at that time.
     let executed = match runtime.env(cx).await {
         Ok(env) => {
@@ -466,8 +594,12 @@ pub(super) async fn run(
                 reporting: Arc::clone(&reporting),
                 output_window,
                 env,
+                resumes: tool.replay == Some(ToolReplay::Safe),
             });
-            (tool.execute)(PiJsonValue::Object(args), api, cx.clone()).await
+            let started = Instant::now();
+            let executed = (tool.execute)(PiJsonValue::Object(args), api, cx.clone()).await;
+            duration_ms = Some(elapsed_ms(started));
+            executed
         }
         Err(error) => Err(error),
     };
@@ -483,7 +615,7 @@ pub(super) async fn run(
                 return Err(error);
             }
             // A throw, from `execute()` or from building the environment, ends the task `failed`, which cancels what
-            // the call owned; it no longer supervises it. The error text is already in the result entry.
+            // the call owned; it no longer supervises it. The error text is already in the result.
             ending = ToolEnding::Failed {
                 message: format!("Tool {} threw", call.name),
             };
@@ -495,37 +627,65 @@ pub(super) async fn run(
         }
     };
     reporting.ended.store(true, Ordering::SeqCst);
+    // No admission starts after `ended`; let those underway commit, so settlement aborts and lists their calls.
+    let admissions = std::mem::take(
+        &mut *reporting
+            .admissions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner),
+    );
+    futures::future::join_all(admissions).await;
     reporting.lock().output.end();
     // Details still waiting for a progress commit settle with the terminal commit, the final flush.
     let pending = reporting.progress.stop().await;
     let settled = async {
-        let settled = final_result(runtime, call, result, &reporting, limits, cx).await?;
-        settle(runtime, call, ending, move |_| settled, cx).await
+        let settled =
+            final_result(runtime, input, call, tool, result, &reporting, limits, cx).await?;
+        settle(
+            runtime,
+            input,
+            call,
+            ending,
+            move |_| settled,
+            cx,
+            duration_ms,
+        )
+        .await
     }
     .await;
-    match settled {
-        Ok(()) => {
-            for waiter in pending {
-                let _gone = waiter.send(Ok(()));
-            }
-            Ok(())
-        }
-        Err(error) => {
-            for waiter in pending {
-                let _gone = waiter.send(Err(error.clone()));
-            }
-            Err(error)
-        }
+    for waiter in pending {
+        let _gone = waiter.send(settled.clone());
     }
+    settled
+}
+
+/// Whole milliseconds since `started` (TS `Math.round(performance.now() -
+/// startedAt)`).
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "an execution time is a small non-negative number of milliseconds"
+)]
+fn elapsed_ms(started: Instant) -> u64 {
+    (started.elapsed().as_secs_f64() * 1000.0).round() as u64
 }
 
 /// The settled result: the tool's result with the retained output and last
 /// details as fallbacks, its diagnostics after those reported through the
-/// api, `after_tool` applied, and explicit text bounded, with the Harness's
-/// truncation diagnostic last.
+/// api, `after_tool` applied, explicit text bounded, and `structured_output`
+/// checked against the tool's schema, with the Harness's diagnostics last. A
+/// nested call whose `structured_output` breaks the contract gets an error
+/// result without it; a model-issued call only loses it, and the break is
+/// reported to the host.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one TS function over the invocation's state"
+)]
 async fn final_result(
     runtime: &Runtime,
-    call: &ToolCall,
+    input: &ToolTaskInput,
+    call: &ToolHookCall,
+    tool: &ToolRegistration,
     result: ToolExecutionResult,
     reporting: &Reporting,
     limits: OutputLimits,
@@ -534,20 +694,20 @@ async fn final_result(
     let mut harness = Vec::new();
     let (retained, reported_details, reported_diagnostics) = {
         let mut state = reporting.lock();
-        let retained = result.content.is_none().then(|| state.output.snapshot());
+        let retained = result.output.is_none().then(|| state.output.snapshot());
         (retained, state.details.clone(), state.diagnostics.clone())
     };
-    let content = match (&retained, &result.content) {
+    let output = match (&retained, &result.output) {
         (Some(retained), _) if retained.text.is_empty() => Vec::new(),
         (Some(retained), _) => vec![UserContentBlock::Text(TextContent::new(
             retained.text.clone(),
         ))],
-        (None, content) => content.clone().unwrap_or_default(),
+        (None, output) => output.clone().unwrap_or_default(),
     };
     let mut diagnostics = reported_diagnostics;
     diagnostics.extend(result.diagnostics.clone().unwrap_or_default());
     let initial = ToolExecutionResult {
-        content: Some(content.clone()),
+        output: Some(output.clone()),
         details: result.details.clone().or(reported_details),
         diagnostics: Some(diagnostics),
         ..result
@@ -576,13 +736,13 @@ async fn final_result(
             },
         )
         .await?;
-    let last = current
+    let mut last = current
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
-    // The retained output's truncation applies only while afterTool kept that content.
+    // The retained output's truncation applies only while afterTool kept that output.
     if let Some(retained) = &retained {
-        if retained.dropped_bytes > 0 && last.content.as_ref() == Some(&content) {
+        if retained.dropped_bytes > 0 && last.output.as_ref() == Some(&output) {
             harness.push(truncated(
                 retained.dropped_lines as u64,
                 retained.dropped_bytes as u64,
@@ -590,7 +750,7 @@ async fn final_result(
             ));
         }
     }
-    let bounded = bound_content(last.content.clone().unwrap_or_default(), &limits);
+    let bounded = bound_content(last.output.clone().unwrap_or_default(), &limits);
     if bounded.dropped_bytes > 0 {
         harness.push(truncated(
             bounded.dropped_lines as u64,
@@ -598,11 +758,62 @@ async fn final_result(
             Some(limits.retain),
         ));
     }
+    let nested = matches!(input, ToolTaskInput::Nested { .. });
+    if let Some(broken) = structured_output_error(tool, &last)? {
+        last.structured_output = None;
+        if nested {
+            last.is_error = Some(true);
+            harness.push(tool_diagnostic("invalid_structured_output", &broken));
+        } else {
+            // The model never sees structured output, so its call stands; the host learns of the broken tool.
+            runtime.report(SessionError::error(broken))?;
+        }
+    }
+    // Without a schema, programs get the output itself; the model reads only `output`, so model-issued calls skip it.
+    if nested && tool.structured_output_schema.is_none() {
+        last.structured_output = Some(output_value(&bounded.content)?);
+    }
     let mut diagnostics = last.diagnostics.clone().unwrap_or_default();
     diagnostics.extend(harness);
     Ok(ToolExecutionResult {
-        content: Some(bounded.content),
+        output: Some(bounded.content),
         diagnostics: Some(diagnostics),
         ..last
     })
+}
+
+/// Why a result's `structured_output` breaks the tool's contract, or `None`
+/// when it keeps it.
+fn structured_output_error(
+    tool: &ToolRegistration,
+    result: &ToolExecutionResult,
+) -> SessionResult<Option<String>> {
+    let name = &tool.name;
+    let Some(schema) = &tool.structured_output_schema else {
+        return Ok(result.structured_output.as_ref().map(|_| {
+            format!("Tool {name} returned structuredOutput but declares no structuredOutputSchema")
+        }));
+    };
+    let Some(value) = &result.structured_output else {
+        return Ok((result.is_error != Some(true))
+            .then(|| format!("Tool {name} returned no structuredOutput")));
+    };
+    let value = from_json::<PiJsonValue>(value)?;
+    let checked =
+        check_value(schema, &value).map_err(|error| SessionError::error(error.to_string()))?;
+    let Some(first) = checked else {
+        return Ok(None);
+    };
+    let path = first
+        .as_ref()
+        .map(|error| {
+            let path = &error.instance_path;
+            path.strip_prefix('/').unwrap_or(path).replace('/', ".")
+        })
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| "root".to_owned());
+    let message = first.map_or_else(|| "invalid".to_owned(), |error| error.message);
+    Ok(Some(format!(
+        "Tool {name} returned structuredOutput that does not match its schema: {path}: {message}"
+    )))
 }

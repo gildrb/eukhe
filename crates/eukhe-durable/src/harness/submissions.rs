@@ -111,20 +111,21 @@ impl Submissions {
     ///
     /// # Errors
     ///
-    /// The Session is closed or poisoned.
+    /// The Session is closed or failed.
     pub(crate) fn subscribe(&self) -> SessionResult<()> {
         let session = &self.inner.session;
         let weak = Arc::downgrade(&self.inner);
-        let commits = session.subscribe_commits(Arc::new(move |publication, _cx| {
+        let commits = session.observe_commits(Arc::new(move |publication, _cx| {
             if let Some(inner) = weak.upgrade() {
                 observe(&inner, publication);
             }
+            Ok(())
         }))?;
         let weak: Weak<Inner> = Arc::downgrade(&self.inner);
         let close = session.subscribe_close(Arc::new(move || {
             if let Some(inner) = weak.upgrade() {
                 inner.closed.store(true, Ordering::SeqCst);
-                inner.waiters.reject_all(&closed_error());
+                inner.waiters.reject_all(&closed_error(&inner.session));
             }
         }))?;
         self.inner
@@ -225,7 +226,7 @@ impl Submissions {
             }
             // Close rejects registered waiters synchronously and may begin during the read.
             if inner.closed.load(Ordering::SeqCst) {
-                return Err(closed_error());
+                return Err(closed_error(&inner.session));
             }
             Ok(inner.waiters.add(id, &line_cx).boxed())
         });

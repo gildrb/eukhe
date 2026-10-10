@@ -313,6 +313,7 @@ async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
                             ownership: TaskOwnership::Conversation,
                             conversation_id: Some(conversation_id),
                             background: Some(true),
+                            abandon_on_restart: None,
                         },
                     )
                     .await?;

@@ -139,7 +139,7 @@ fn finish_extension(requests: HostRequestRegistry) -> Arc<Extension> {
                 .await
                 .map_err(|error| eukhe_durable::session::SessionError::error(error.to_string()))?;
                 Ok(ToolExecutionResult {
-                    content: Some(vec![UserContentBlock::Text(
+                    output: Some(vec![UserContentBlock::Text(
                         eukhe_types::pi_ai::TextContent::new(response.to_string()),
                     )]),
                     ..ToolExecutionResult::default()

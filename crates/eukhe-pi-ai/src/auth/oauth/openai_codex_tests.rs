@@ -14,7 +14,9 @@ use super::openai_codex_oauth;
 use crate::auth::errors::{date_now, js_error};
 use crate::auth::oauth::http::{mock, FetchRequest, FetchResponse};
 use crate::auth::oauth::test_support::{never_aborted_signal, url_param, Events, TestInteraction};
-use crate::auth::types::{AuthEvent, AuthPromptKind, AuthSelectOption, ModelAuth, OAuthCredential};
+use crate::auth::types::{
+    AuthEvent, AuthPromptKind, AuthSelectOption, LoginOptions, ModelAuth, OAuthCredential,
+};
 use crate::utils::diagnostics::Thrown;
 
 const USER_CODE_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
@@ -449,6 +451,55 @@ async fn does_not_write_token_refresh_failures_to_stderr() {
     assert!(
         message.contains("Could not validate your token"),
         "{message}"
+    );
+}
+
+#[tokio::test]
+async fn uses_the_apps_agent_name_as_the_browser_login_originator() {
+    let _guard = install(|_| {
+        Ok(json_response(
+            &json!({ "access_token": create_access_token("acct"), "refresh_token": "refresh", "expires_in": 3600 }),
+            200,
+        ))
+    })
+    .await;
+
+    let events = Events::default();
+    let prompt_events = events.clone();
+    let notify_events = events.clone();
+    let interaction = TestInteraction::provider(
+        never_aborted_signal(),
+        move |prompt| {
+            let auth_url = prompt_events.auth_url();
+            Box::pin(async move {
+                match prompt.kind {
+                    AuthPromptKind::Select { .. } => Ok("browser".to_owned()),
+                    AuthPromptKind::ManualCode { .. } => {
+                        let state = url_param(&auth_url, "state").unwrap_or_default();
+                        Ok(format!(
+                            "http://localhost:1455/auth/callback?code=pasted-code&state={state}"
+                        ))
+                    }
+                    other => Err(js_error(format!("Unexpected prompt: {other:?}"))),
+                }
+            })
+        },
+        move |event| notify_events.push(event),
+    );
+    openai_codex_oauth()
+        .login(
+            interaction,
+            Some(LoginOptions {
+                get_device_id: None,
+                agent_name: Some("my-app".to_owned()),
+            }),
+        )
+        .await
+        .expect("login");
+
+    assert_eq!(
+        url_param(&events.auth_url(), "originator").as_deref(),
+        Some("my-app")
     );
 }
 

@@ -8,6 +8,7 @@
 //! module of the harness.
 
 pub(crate) mod chat_support;
+pub(crate) mod commit_hook;
 mod events;
 mod registry;
 pub(crate) mod support;
@@ -16,6 +17,7 @@ pub(crate) mod task_support;
 mod view;
 // HarnessCore tests.
 mod context;
+mod context_kept;
 mod conversations;
 mod inbox;
 mod inspect;
@@ -24,3 +26,5 @@ mod ownership;
 mod submissions;
 // HarnessCompaction tests.
 mod compaction;
+// StorageFailureTests.
+mod storage_failure;

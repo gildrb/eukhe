@@ -158,8 +158,14 @@ pub struct AssistantMessage {
     /// Preserved for debugging; does not affect agent control flow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_turn: Option<bool>,
-    /// Unix timestamp in milliseconds.
+    /// Unix timestamp in milliseconds when the request started.
     pub timestamp: u64,
+    /// Milliseconds from `timestamp` until the response ended, measured with
+    /// a monotonic clock. Set by `AssistantMessageEventStream` on the final
+    /// message of a response it saw start; absent for legacy messages and for
+    /// deferred results fetched later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
 }
 
 string_enum! {
@@ -227,8 +233,12 @@ pub struct ToolResultMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nested_calls: Option<NestedToolCalls>,
     pub is_error: bool,
-    /// Unix timestamp in milliseconds.
+    /// Unix timestamp in milliseconds when the result was created.
     pub timestamp: u64,
+    /// Milliseconds the tool's execution took, measured with a monotonic
+    /// clock. Absent for legacy results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
 }
 
 /// TS `Message = SystemMessage | UserMessage | AssistantMessage | ToolResultMessage`.

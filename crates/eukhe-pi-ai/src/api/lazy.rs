@@ -15,7 +15,7 @@ use crate::utils::diagnostics::Thrown;
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::now_ms;
 
-fn create_setup_error_message(model: &Model, error: &Thrown) -> AssistantMessage {
+fn create_setup_error_message(model: &Model, error: &Thrown, timestamp: u64) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
         api: model.api.clone(),
@@ -32,7 +32,8 @@ fn create_setup_error_message(model: &Model, error: &Thrown) -> AssistantMessage
         error_message: Some(error.to_string()),
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: now_ms(),
+        timestamp,
+        duration_ms: None,
     }
 }
 
@@ -53,6 +54,7 @@ pub fn lazy_stream<F>(model: &Model, setup: F) -> AssistantMessageEventStream
 where
     F: Future<Output = Result<AssistantMessageEventStream, Thrown>> + Send + 'static,
 {
+    let started_at = now_ms();
     let outer = AssistantMessageEventStream::new();
     let target = outer.clone();
     let model = model.clone();
@@ -60,7 +62,7 @@ where
         match setup.await {
             Ok(inner) => forward_stream(&target, inner).await,
             Err(error) => {
-                let message = create_setup_error_message(&model, &error);
+                let message = create_setup_error_message(&model, &error, started_at);
                 target.push(AssistantMessageEvent::Error {
                     reason: ErrorReason::Error,
                     error: message.clone(),

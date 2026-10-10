@@ -286,3 +286,68 @@ async fn falls_back_to_fixed_budget_thinking_for_non_adaptive_claude_via_model_n
         json!(["interleaved-thinking-2025-05-14"])
     );
 }
+
+// Regression for #9331: the configured thinking level never reached OpenAI models on Bedrock.
+#[tokio::test]
+async fn sends_reasoning_as_reasoning_effort_for_gpt_6_and_gpt_5_6() {
+    for (reasoning, effort) in [
+        ("minimal", "low"),
+        ("low", "low"),
+        ("medium", "medium"),
+        ("high", "high"),
+        ("xhigh", "xhigh"),
+        ("max", "max"),
+    ] {
+        for id in [
+            "global.openai.gpt-6-sol",
+            "us.openai.gpt-6-luna",
+            "global.openai.gpt-5.6-sol",
+        ] {
+            let payload = capture_payload(
+                &get_model("amazon-bedrock", id),
+                json!({ "reasoning": reasoning }),
+            )
+            .await;
+            assert_eq!(
+                fields(&payload),
+                &json!({ "reasoning": { "effort": effort } }),
+                "{id}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn sends_reasoning_effort_when_only_model_name_identifies_a_gpt_model() {
+    let model = profile_model("GPT-6 Sol", "global.openai.gpt-6-sol");
+    let payload = capture_payload(&model, json!({ "reasoning": "medium" })).await;
+    assert_eq!(
+        fields(&payload),
+        &json!({ "reasoning": { "effort": "medium" } })
+    );
+}
+
+#[tokio::test]
+async fn sends_flat_reasoning_effort_for_gpt_oss_clamped_to_high() {
+    let model = get_model("amazon-bedrock", "openai.gpt-oss-120b-1:0");
+    for (reasoning, effort) in [("minimal", "low"), ("medium", "medium"), ("xhigh", "high")] {
+        let payload = capture_payload(&model, json!({ "reasoning": reasoning })).await;
+        assert_eq!(fields(&payload), &json!({ "reasoning_effort": effort }));
+    }
+}
+
+#[tokio::test]
+async fn sends_no_reasoning_fields_when_reasoning_is_off() {
+    let context = Context {
+        system_prompt: None,
+        messages: vec![user("Hello")],
+        tools: None,
+    };
+    let payload = capture(
+        &get_model("amazon-bedrock", "global.openai.gpt-6-sol"),
+        context,
+        ProviderStreamOptions::default(),
+    )
+    .await;
+    assert_eq!(payload.get("additionalModelRequestFields"), None);
+}

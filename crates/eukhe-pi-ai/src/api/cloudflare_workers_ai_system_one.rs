@@ -11,9 +11,8 @@ use std::sync::Arc;
 
 use eukhe_types::pi_ai::{ClassifierModel, JsonObject, JsonValue};
 
-use super::system_one_shared::{
-    classify_system_one, error, join_url, trim_trailing_slashes, SystemOneTransport,
-};
+use super::classifier_shared::{error, join_url, trim_trailing_slashes};
+use super::system_one_shared::{classify_system_one, SystemOneTransport};
 use super::ProviderClassifier;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::js::js_to_string;

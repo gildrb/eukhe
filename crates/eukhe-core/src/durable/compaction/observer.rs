@@ -474,7 +474,10 @@ async fn skip_message(deps: &HostDeps, conversation: &Conversation, cx: &Context
     {
         return "Nothing to compact: the chat memory keeps this chat, and every turn starts fresh from its view".to_owned();
     }
-    match conversation.context(cx).await {
+    match conversation
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+        .await
+    {
         Ok(view) if matches!(view.entries.last(), Some(entry) if entry.kind == COMPACTION_ENTRY_KIND) => {
             "Already compacted".to_owned()
         }

@@ -32,14 +32,14 @@ pub use context::order_tool_results;
 pub use harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
 pub use inbox::{InboxItem, InboxState, INBOX_DOC};
 pub use live::{
-    CompactionStatus, LiveDeferred, LiveGeneration, LiveRetry, LiveRun, LiveState, ToolSlot,
-    ToolSlotStatus, LIVE_DOC,
+    CompactionStatus, LiveDeferred, LiveGeneration, LiveRetry, LiveRun, LiveState, NestedToolSlot,
+    NestedToolSummary, SlotProgress, ToolSlot, ToolSlotStatus, LIVE_DOC,
 };
 pub use scheduler::{DefinitionKept, TaskAbortResult};
 pub use submissions::{AbortSubmissionResult, SubmissionHandle};
 pub use tool::{
-    append_tool_result, harness_error, ToolTask, ToolTaskCheckpoint, ToolTaskInput, ToolTaskResult,
-    TOOL_TASK,
+    append_tool_result, harness_error, NestedResultState, ToolResultMeta, ToolTask,
+    ToolTaskCheckpoint, ToolTaskInput, ToolTaskResult, NESTED_RESULT_DOC, TOOL_TASK,
 };
 
 // HarnessObservation modules.
@@ -49,7 +49,7 @@ pub mod view;
 
 pub use events::{
     watch_events, AgentEvent, AgentEventBatch, AgentEventListener, AgentEventStream, MessageChange,
-    PathSegment, QueuedItem, SnapshotEvent, SnapshotRun, ToolOutputUpdate,
+    PathSegment, QueuedItem, SnapshotEvent, SnapshotRun, ToolEventCall, ToolOutputUpdate,
 };
 pub use task_graph::{TaskGraph, TaskGraphNode, TaskGraphState, TaskGraphWatch};
 pub use view::{ConversationView, ConversationWatch};

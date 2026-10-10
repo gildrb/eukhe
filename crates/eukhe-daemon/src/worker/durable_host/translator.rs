@@ -304,29 +304,29 @@ impl EventTranslator {
                 }
                 self.mirror.entries.push(entry.clone());
             }
-            AgentEvent::ToolExecutionStart {
-                tool_call_id,
-                tool_name,
-                args,
-            } => self.tool_start(tool_call_id, tool_name, args, &mut out),
+            AgentEvent::ToolExecutionStart { call, args } => {
+                self.tool_start(&call.tool_call_id, &call.tool_name, args, &mut out);
+            }
             AgentEvent::ToolExecutionUpdate {
-                tool_call_id,
-                tool_name,
+                call,
                 output,
                 details,
                 ..
             } => self.tool_update(
-                tool_call_id,
-                tool_name,
+                &call.tool_call_id,
+                &call.tool_name,
                 output.as_ref(),
                 details.as_ref(),
                 &mut out,
             ),
-            AgentEvent::ToolExecutionEnd {
-                tool_call_id,
-                tool_name,
-                entry,
-            } => self.tool_end(tool_call_id, tool_name, entry.as_ref(), &mut out),
+            AgentEvent::ToolExecutionEnd { call, entry, .. } => {
+                self.tool_end(
+                    &call.tool_call_id,
+                    &call.tool_name,
+                    entry.as_ref(),
+                    &mut out,
+                );
+            }
             AgentEvent::InboxUpdate { items } => self.mirror.inbox.clone_from(items),
             AgentEvent::AutoRetryStart {
                 attempt,

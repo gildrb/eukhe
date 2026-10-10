@@ -1,3 +1,4 @@
+use eukhe_durable::harness::ToolEventCall;
 use serde_json::{json, Value};
 
 use super::*;
@@ -31,7 +32,7 @@ fn entry(id: u64, kind: &str, model: Option<Value>, data: Option<Value>) -> Valu
 
 fn snapshot(entries: Vec<Value>, extra: &Value) -> SnapshotEvent {
     let mut value = json!({
-        "tools": [], "compactions": [], "inbox": [], "agent": {},
+        "tools": [], "nestedTools": [], "compactions": [], "inbox": [], "agent": {},
         "usage": { "models": {}, "tools": {} },
     });
     value["entries"] = Value::Array(entries);
@@ -397,8 +398,13 @@ fn a_starting_status_shows_its_message_as_the_loader_note() {
     );
     // Removed details (`Some(null)`, which JSON cannot spell) clear the note.
     let frames = translator.translate(&AgentEvent::ToolExecutionUpdate {
-        tool_call_id: "c1".to_owned(),
-        tool_name: "bash".to_owned(),
+        call: ToolEventCall {
+            tool_call_id: "c1".to_owned(),
+            tool_name: "bash".to_owned(),
+            task_id: None,
+            parent_tool_call_id: None,
+            parent_task_id: None,
+        },
         output: None,
         details: Some(JsonValue::Null),
         diagnostics: None,

@@ -179,7 +179,9 @@ async fn review(
     settled_turns: u32,
     cx: &Context,
 ) -> anyhow::Result<Option<crate::refinement::executor::AutoRefineReview>> {
-    let view = conversation.context(cx).await?;
+    let view = conversation
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+        .await?;
     let messages: Vec<AgentMessage> = super::super::rlm::refine::transcript(&view.messages)?;
     let local_dir = crate::refinement::get_local_harness_state_dir(deps.storage_dir.as_deref());
     let global_dir = crate::refinement::get_global_harness_state_dir(&deps.agent_dir);

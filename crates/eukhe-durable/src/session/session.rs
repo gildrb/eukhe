@@ -9,14 +9,16 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use eukhe_chord::context::{await_with_context, without_abort_signal, AbortSignal, Context};
+use eukhe_chord::context::{
+    await_with_context, without_abort_signal, AbortSignal, Context, BACKGROUND_CONTEXT,
+};
 use eukhe_chord::delta::{track, Op};
 use eukhe_chord::json::{JsonObject, JsonValue};
 use eukhe_chord::{
     replicated_state_from_source, AttachedReplicatedState, ReplicatedStateSourceOptions,
 };
 use futures::future::{BoxFuture, FutureExt, Shared};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 
 use crate::documents::{
     check_record_scope, check_record_version, materialize_document, resolve_token_address,
@@ -28,6 +30,7 @@ use crate::types::{
 };
 
 use super::error::{SessionError, SessionResult};
+use super::guarded::{FailureLatch, GuardedStorage};
 use super::observation::{
     CommittedStateSource, CommittedWatch, DocumentWatch, ObservedDocumentValue, Ops,
     RETIREMENT_OPERATIONS,
@@ -43,6 +46,45 @@ pub type CommitListener = Arc<dyn Fn(&CommitPublication, &Context) + Send + Sync
 /// Listener called synchronously when close begins. It must not block or call
 /// Session operations.
 pub type CloseListener = Arc<dyn Fn() + Send + Sync>;
+
+/// A Session component's own commit listener (see
+/// [`Session::observe_commits`]): its state follows each commit, so a failure
+/// fails the Session.
+pub type InternalCommitListener =
+    Arc<dyn Fn(&CommitPublication, &Context) -> SessionResult<()> + Send + Sync>;
+
+/// The Session's wall clock for task lifecycle times, in milliseconds (TS
+/// `() => number`).
+pub type SessionClock = Arc<dyn Fn() -> f64 + Send + Sync>;
+
+/// Why a Session ended: `close()`, or a failed Storage call, whose error it
+/// carries.
+#[derive(Clone, Debug)]
+pub enum SessionEnd {
+    /// `close()` closed it.
+    Closed,
+    /// The first error that failed it.
+    Failed {
+        /// What failed the Session, usually a storage error.
+        error: Arc<SessionError>,
+    },
+}
+
+/// Options of [`create_session`].
+#[derive(Clone, Default)]
+pub struct SessionOptions {
+    /// The wall clock for task times; default `Date.now`.
+    pub now: Option<SessionClock>,
+}
+
+impl std::fmt::Debug for SessionOptions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SessionOptions")
+            .field("now", &self.now.is_some())
+            .finish()
+    }
+}
 
 /// Disposable, read-only Chord state bound to one committed document
 /// incarnation; its value is the object, or `null` once retired.
@@ -66,6 +108,10 @@ pub trait SessionHooks: Send + Sync {
     /// Runs after close seals admission and before the line closes Storage;
     /// must not fail.
     fn before_close(&self) -> BoxFuture<'static, ()>;
+
+    /// The Session's failure, and errors of listeners, which never fail what
+    /// ran them (TS `report()`). A plain Session drops them.
+    fn report(&self, _error: SessionError) {}
 }
 
 /// Hooks of a plain Session: stage nothing, do nothing before close.
@@ -125,17 +171,27 @@ type Closing = Shared<BoxFuture<'static, SessionResult<()>>>;
 struct SessionState {
     documents: HashMap<String, Arc<LoadedDocument>>,
     commit_listeners: Vec<(u64, CommitListener)>,
+    /// The Session's own listeners, such as its scheduler's: they keep memory
+    /// in step with storage, so a failure fails it.
+    internal_listeners: Vec<(u64, InternalCommitListener)>,
     close_listeners: Vec<(u64, CloseListener)>,
     next_listener: u64,
     tail: Option<oneshot::Receiver<()>>,
     closing: Option<Closing>,
-    poison: Option<Arc<SessionError>>,
+    failure: Option<Arc<SessionError>>,
 }
 
 struct SessionInner {
+    /// The Storage behind the failure guard; every component reads and
+    /// writes through it.
     storage: Arc<dyn Storage>,
     hooks: Arc<dyn SessionHooks>,
+    now: SessionClock,
     state: Mutex<SessionState>,
+    /// Set the moment the Session fails, before work underway has ended.
+    failed: watch::Sender<Option<Arc<SessionError>>>,
+    /// Set once the Session has closed, Storage included.
+    closed: watch::Sender<Option<SessionEnd>>,
     this: Weak<SessionInner>,
 }
 
@@ -152,10 +208,26 @@ impl std::fmt::Debug for Session {
     }
 }
 
-/// Open a Session kernel over one storage backend.
+/// Open a Session kernel over one storage backend. `options.now` is the wall
+/// clock for task times; default `Date.now`. The first error a Storage method
+/// returns fails the Session (`SessionFailed`); see [`Session`].
 #[must_use]
-pub fn create_session(storage: Arc<dyn Storage>) -> Session {
-    Session::new(storage)
+pub fn create_session(storage: Arc<dyn Storage>, options: SessionOptions) -> Session {
+    Session::with_hooks(storage, Arc::new(NoSessionHooks), options.now)
+}
+
+/// `Date.now()`: wall-clock milliseconds since the Unix epoch.
+#[must_use]
+pub fn system_now() -> f64 {
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "epoch milliseconds stay below 2^53"
+    )]
+    let millis = elapsed.as_millis() as f64;
+    millis
 }
 
 fn ready<T: Send + 'static>(result: SessionResult<T>) -> BoxFuture<'static, SessionResult<T>> {
@@ -163,29 +235,111 @@ fn ready<T: Send + 'static>(result: SessionResult<T>) -> BoxFuture<'static, Sess
 }
 
 impl Session {
-    /// A plain Session over `storage`.
+    /// A plain Session over `storage` with the system clock.
     #[must_use]
     pub fn new(storage: Arc<dyn Storage>) -> Self {
-        Self::with_hooks(storage, Arc::new(NoSessionHooks))
+        Self::with_hooks(storage, Arc::new(NoSessionHooks), None)
     }
 
-    /// A Session whose protected hooks are `hooks`.
+    /// A Session whose protected hooks are `hooks`; `now` is the wall clock
+    /// for task lifecycle times, by default `Date.now`.
     #[must_use]
-    pub fn with_hooks(storage: Arc<dyn Storage>, hooks: Arc<dyn SessionHooks>) -> Self {
+    pub fn with_hooks(
+        storage: Arc<dyn Storage>,
+        hooks: Arc<dyn SessionHooks>,
+        now: Option<SessionClock>,
+    ) -> Self {
         Self {
-            inner: Arc::new_cyclic(|this| SessionInner {
-                storage,
-                hooks,
-                state: Mutex::new(SessionState::default()),
-                this: this.clone(),
+            inner: Arc::new_cyclic(|this: &Weak<SessionInner>| {
+                let latch: Weak<dyn FailureLatch> = this.clone();
+                SessionInner {
+                    storage: Arc::new(GuardedStorage::new(storage, latch)),
+                    hooks,
+                    now: now.unwrap_or_else(|| Arc::new(system_now)),
+                    state: Mutex::new(SessionState::default()),
+                    failed: watch::channel(None).0,
+                    closed: watch::channel(None).0,
+                    this: this.clone(),
+                }
             }),
         }
     }
 
-    /// The Session's storage backend.
+    /// The Storage behind the Session's failure guard; every component reads
+    /// and writes through it.
     #[must_use]
     pub fn storage(&self) -> &Arc<dyn Storage> {
         &self.inner.storage
+    }
+
+    /// Settles once the Session has closed, Storage included: after
+    /// `close()`, or after the first failed Storage call, which closes the
+    /// Session itself. A failed Session is reopened from Storage; nothing else
+    /// is left to clean up.
+    pub fn closed(&self) -> impl Future<Output = SessionEnd> + Send + 'static {
+        let mut closed = self.inner.closed.subscribe();
+        async move {
+            match closed.wait_for(Option::is_some).await {
+                Ok(end) => end.clone().unwrap_or(SessionEnd::Closed),
+                // The sender lives as long as the Session.
+                Err(_) => SessionEnd::Closed,
+            }
+        }
+    }
+
+    /// Internal: the error that failed the Session, if one did.
+    #[must_use]
+    pub fn failure(&self) -> Option<Arc<SessionError>> {
+        self.inner.lock().failure.clone()
+    }
+
+    /// Internal: resolves with `SessionFailed` the moment the Session fails,
+    /// before work underway has ended; never resolves otherwise.
+    pub fn failed(&self) -> impl Future<Output = SessionError> + Send + 'static {
+        let mut failed = self.inner.failed.subscribe();
+        async move {
+            let cause = failed
+                .wait_for(Option::is_some)
+                .await
+                .ok()
+                .and_then(|failure| failure.clone());
+            match cause {
+                Some(cause) => SessionError::session_failed(cause),
+                // The sender lives as long as the Session.
+                None => std::future::pending().await,
+            }
+        }
+    }
+
+    /// Internal: fail the Session with `error`, the first wins, and report it
+    /// once. Admission ends, and close listeners run now; they read the error
+    /// from [`Session::failure`]. The Storage guard calls this; the Harness
+    /// also calls it for a failure in its scheduler's own commits.
+    pub fn fail(&self, error: SessionError) {
+        self.inner.fail(error);
+    }
+
+    /// Internal: the Session's failure, and errors of listeners, which never
+    /// fail what ran them.
+    pub fn report(&self, error: SessionError) {
+        self.inner.hooks.report(error);
+    }
+
+    /// Internal: [`Session::report`] as a value, for observers that outlive
+    /// the call.
+    #[must_use]
+    pub fn reporter(&self) -> Arc<dyn Fn(SessionError) + Send + Sync> {
+        self.inner.reporter()
+    }
+
+    /// Internal: `SessionFailed` when failed, else `Session is closed` when
+    /// closing.
+    ///
+    /// # Errors
+    ///
+    /// As described.
+    pub fn assert_usable(&self) -> SessionResult<()> {
+        self.inner.assert_usable()
     }
 
     /// Run one atomic transaction on the Session mutation line. The commit is
@@ -406,8 +560,11 @@ impl Session {
                 let Observer::State(source) = source else {
                     unreachable!("the factory creates a state source")
                 };
-                match replicated_state_from_source(&source, ReplicatedStateSourceOptions::default())
-                {
+                let reporter = inner.reporter();
+                let options = ReplicatedStateSourceOptions {
+                    on_error: Some(Arc::new(move |error| reporter(SessionError::other(error)))),
+                };
+                match replicated_state_from_source(&source, options) {
                     Ok(state) => Ok(Some(state)),
                     Err(error) => {
                         detach();
@@ -443,8 +600,9 @@ impl Session {
             let Some(loaded) = loaded else {
                 return Ok(None);
             };
+            let report = inner.reporter();
             let (watch, _) = inner.attach_document(&definition, &loaded, |value, release| {
-                Observer::Watch(CommittedWatch::new(value, release, None))
+                Observer::Watch(CommittedWatch::new(value, release, report, None))
             })?;
             let Observer::Watch(watch) = watch else {
                 unreachable!("the factory creates a watch")
@@ -522,63 +680,39 @@ impl Session {
     /// The Storage close failure, or `cx`'s abort reason when the caller stops
     /// waiting; closing continues either way.
     pub fn close(&self, cx: &Context) -> impl Future<Output = SessionResult<()>> + Send + 'static {
-        let (closing, listeners) = {
-            let mut state = self.inner.lock();
-            if let Some(closing) = &state.closing {
-                (closing.clone(), Vec::new())
-            } else {
-                let cleanup = without_abort_signal(cx);
-                let inner = Arc::clone(&self.inner);
-                // Seal admission before anything else runs, then stop
-                // observers; admitted work settles before Storage closes.
-                let handle = tokio::spawn(async move {
-                    inner.hooks.before_close().await;
-                    let line = Arc::clone(&inner);
-                    inner
-                        .enqueue(async move {
-                            {
-                                let mut state = line.lock();
-                                state.commit_listeners.clear();
-                                state.documents.clear();
-                            }
-                            Ok(line.storage.close(&cleanup).await?)
-                        })
-                        .await
-                });
-                let closing: Closing = join(handle).boxed().shared();
-                state.closing = Some(closing.clone());
-                let listeners = std::mem::take(&mut state.close_listeners);
-                (closing, listeners)
-            }
-        };
-        for (_, listener) in listeners {
-            listener();
-        }
-        let cx = cx.clone();
-        async move {
-            match await_with_context(closing, &cx).await {
-                Ok(result) => result,
-                Err(reason) => Err(SessionError::Aborted(reason)),
-            }
-        }
+        self.inner.close(cx)
     }
 
     /// Register a synchronous post-adoption listener. It must not block or
-    /// call Session operations.
+    /// call Session operations. A Rust listener cannot throw; TS reports a
+    /// throwing one.
     ///
     /// # Errors
     ///
-    /// The Session is closed or poisoned.
+    /// The Session is closed or failed.
     pub fn subscribe_commits(&self, listener: CommitListener) -> SessionResult<Unsubscribe> {
         self.inner.subscribe_commits(listener)
     }
 
-    /// Register a listener called synchronously when close begins. It must not
-    /// block or call Session operations.
+    /// Internal: [`Session::subscribe_commits`] for the Session's own
+    /// components, whose state follows each commit. A failure leaves that
+    /// state behind storage, so it fails the Session instead of being
+    /// reported. They run before host listeners.
     ///
     /// # Errors
     ///
-    /// The Session is closed or poisoned.
+    /// The Session is closed or failed.
+    pub fn observe_commits(&self, listener: InternalCommitListener) -> SessionResult<Unsubscribe> {
+        self.inner.observe_commits(listener)
+    }
+
+    /// Register a listener called synchronously when close begins, also when
+    /// a failure closes the Session ([`Session::failure`] is then set). It
+    /// must not block or call Session operations.
+    ///
+    /// # Errors
+    ///
+    /// The Session is closed or failed.
     pub fn subscribe_close(&self, listener: CloseListener) -> SessionResult<Unsubscribe> {
         self.inner.subscribe_close(listener)
     }
@@ -626,10 +760,10 @@ impl Observer {
         }
     }
 
-    fn close_session(&self) {
+    fn close_session(&self, failure: Option<Arc<SessionError>>) {
         match self {
             Self::State(source) => source.close_session(),
-            Self::Watch(watch) => watch.close_session(),
+            Self::Watch(watch) => watch.close_session(failure),
         }
     }
 }
@@ -637,6 +771,16 @@ impl Observer {
 impl SessionInner {
     fn lock(&self) -> MutexGuard<'_, SessionState> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `report()` as a value, for observers that outlive the call.
+    fn reporter(&self) -> Arc<dyn Fn(SessionError) + Send + Sync> {
+        let this = self.this.clone();
+        Arc::new(move |error| {
+            if let Some(inner) = this.upgrade() {
+                inner.hooks.report(error);
+            }
+        })
     }
 
     fn arc(&self) -> Arc<SessionInner> {
@@ -651,9 +795,20 @@ impl SessionInner {
         &self,
         job: impl Future<Output = SessionResult<T>> + Send + 'static,
     ) -> impl Future<Output = SessionResult<T>> + Send + 'static {
+        join(tokio::spawn(self.line_turn(job)))
+    }
+
+    /// Take the next turn on the mutation line now; the returned future waits
+    /// for every earlier job, runs `job`, then frees the line. Dropping it
+    /// frees the line, also mid-job, so only a task that runs to completion
+    /// awaits it directly.
+    fn line_turn<T: Send + 'static>(
+        &self,
+        job: impl Future<Output = SessionResult<T>> + Send + 'static,
+    ) -> impl Future<Output = SessionResult<T>> + Send + 'static {
         let (done, next) = oneshot::channel::<()>();
         let previous = self.lock().tail.replace(next);
-        let handle = tokio::spawn(async move {
+        async move {
             if let Some(previous) = previous {
                 // Completion or a dropped sender (a panicked job) both release the line.
                 let _ = previous.await;
@@ -661,16 +816,17 @@ impl SessionInner {
             let result = job.await;
             drop(done);
             result
-        });
-        join(handle)
+        }
     }
 
+    /// `SessionFailed` when failed, else `Session is closed` when closing.
     fn assert_usable(&self) -> SessionResult<()> {
         let state = self.lock();
+        Self::healthy(&state)?;
         if state.closing.is_some() {
             return Err(SessionError::error("Session is closed"));
         }
-        Self::healthy(&state)
+        Ok(())
     }
 
     fn assert_healthy(&self) -> SessionResult<()> {
@@ -678,16 +834,130 @@ impl SessionInner {
     }
 
     fn healthy(state: &SessionState) -> SessionResult<()> {
-        match &state.poison {
-            Some(cause) => Err(SessionError::Poisoned {
-                cause: Arc::clone(cause),
-            }),
+        match &state.failure {
+            Some(cause) => Err(SessionError::session_failed(Arc::clone(cause))),
             None => Ok(()),
         }
     }
 
-    fn poison(&self, error: &SessionError) {
-        self.lock().poison = Some(Arc::new(error.clone()));
+    /// Fail the Session with `error`; the first wins. Admission ends, close
+    /// listeners run now, the Session then closes itself in the background,
+    /// and the error is reported once.
+    fn fail(&self, error: SessionError) {
+        let error = Arc::new(error);
+        {
+            let mut state = self.lock();
+            if state.failure.is_some() {
+                return;
+            }
+            state.failure = Some(Arc::clone(&error));
+        }
+        self.failed.send_replace(Some(Arc::clone(&error)));
+        // Seal first, so a report handler that calls back finds the Session
+        // failed. Closing runs the close listeners synchronously; a failing
+        // backend close is the caller's to see, and here nobody waits.
+        let closing = self.arc().close(&BACKGROUND_CONTEXT);
+        tokio::spawn(async move {
+            let _ = closing.await;
+        });
+        self.hooks.report((*error).clone());
+    }
+
+    /// Seal admission, settle admitted commits, then close storage.
+    fn close(
+        self: &Arc<Self>,
+        cx: &Context,
+    ) -> impl Future<Output = SessionResult<()>> + Send + 'static {
+        let (closing, listeners) = {
+            let mut state = self.lock();
+            if let Some(closing) = &state.closing {
+                (closing.clone(), Vec::new())
+            } else {
+                let cleanup = without_abort_signal(cx);
+                let inner = Arc::clone(self);
+                // Seal admission before anything else runs, then stop
+                // observers; admitted work settles before Storage closes.
+                let handle = tokio::spawn(async move {
+                    inner.hooks.before_close().await;
+                    let line = Arc::clone(&inner);
+                    // On the line from this task, without spawning another:
+                    // as TS chains the job, Storage starts closing, refusing
+                    // new calls, before work woken meanwhile runs on.
+                    let result = inner
+                        .line_turn(async move {
+                            {
+                                let mut state = line.lock();
+                                state.commit_listeners.clear();
+                                state.internal_listeners.clear();
+                                state.documents.clear();
+                            }
+                            match line.storage.close(&cleanup).await {
+                                Ok(()) => Ok(()),
+                                Err(error) => {
+                                    let error = SessionError::from(error);
+                                    // A Storage that cannot close is a failed
+                                    // one; an earlier failure stays the cause.
+                                    let first = {
+                                        let mut state = line.lock();
+                                        if state.failure.is_none() {
+                                            state.failure = Some(Arc::new(error.clone()));
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    };
+                                    if first {
+                                        line.failed.send_replace(Some(Arc::new(error.clone())));
+                                        line.hooks.report(error.clone());
+                                    }
+                                    Err(error)
+                                }
+                            }
+                        })
+                        .await;
+                    let end = match inner.lock().failure.clone() {
+                        Some(error) => SessionEnd::Failed { error },
+                        None => SessionEnd::Closed,
+                    };
+                    inner.closed.send_replace(Some(end));
+                    result
+                });
+                let closing: Closing = join(handle).boxed().shared();
+                state.closing = Some(closing.clone());
+                let listeners = std::mem::take(&mut state.close_listeners);
+                (closing, listeners)
+            }
+        };
+        for (_, listener) in listeners {
+            listener();
+        }
+        let cx = cx.clone();
+        async move {
+            match await_with_context(closing, &cx).await {
+                Ok(result) => result,
+                Err(reason) => Err(SessionError::Aborted(reason)),
+            }
+        }
+    }
+
+    fn observe_commits(&self, listener: InternalCommitListener) -> SessionResult<Unsubscribe> {
+        self.assert_usable()?;
+        let mut state = self.lock();
+        let id = state.next_listener;
+        state.next_listener += 1;
+        state.internal_listeners.push((id, listener));
+        let this = self.this.clone();
+        Ok(Unsubscribe {
+            remove: Box::new(move || {
+                let Some(inner) = this.upgrade() else {
+                    return false;
+                };
+                let mut state = inner.lock();
+                let before = state.internal_listeners.len();
+                state.internal_listeners.retain(|(other, _)| *other != id);
+                state.internal_listeners.len() != before
+            }),
+        })
     }
 
     fn subscribe_commits(&self, listener: CommitListener) -> SessionResult<Unsubscribe> {
@@ -744,7 +1014,12 @@ impl SessionInner {
         check_cancelled(cx.abort_signal().as_ref())?;
         let host: Arc<dyn TransactionHost> = Arc::clone(&self) as Arc<dyn TransactionHost>;
         let tx = Tx::new(host, cx.clone(), scope);
-        let result = match change(tx.clone()).await {
+        // A callback that caught a failed read must not commit, nor succeed
+        // as if it had.
+        let result = match change(tx.clone())
+            .await
+            .and_then(|result| self.assert_healthy().map(|()| result))
+        {
             Ok(result) => result,
             Err(error) => {
                 tx.settle_failure().await;
@@ -764,14 +1039,9 @@ impl SessionInner {
         {
             Ok(seq) => seq,
             Err(error) => {
+                // The guard has failed the Session.
                 tx.discard();
-                let error = SessionError::from(error);
-                // Callback errors never reach this branch; StorageRejected
-                // alone guarantees that no batch effect committed.
-                if !matches!(&error, SessionError::Storage(storage) if storage.is_rejected()) {
-                    self.poison(&error);
-                }
-                return Err(error);
+                return Err(SessionError::from(error));
             }
         };
         let documents = match tx.adopt(seq) {
@@ -779,7 +1049,7 @@ impl SessionInner {
             Err(error) => {
                 // Storage already committed; a failed adoption leaves memory
                 // behind durable state.
-                self.poison(&error);
+                self.fail(error.clone());
                 return Err(error);
             }
         };
@@ -794,16 +1064,23 @@ impl SessionInner {
         documents: Vec<DocumentCommitChange>,
         cx: &Context,
     ) {
-        let listeners: Vec<CommitListener> = {
+        let (internal, listeners): (Vec<InternalCommitListener>, Vec<CommitListener>) = {
             let state = self.lock();
-            if state.commit_listeners.is_empty() {
+            if state.commit_listeners.is_empty() && state.internal_listeners.is_empty() {
                 return;
             }
-            state
-                .commit_listeners
-                .iter()
-                .map(|(_, listener)| Arc::clone(listener))
-                .collect()
+            (
+                state
+                    .internal_listeners
+                    .iter()
+                    .map(|(_, listener)| Arc::clone(listener))
+                    .collect(),
+                state
+                    .commit_listeners
+                    .iter()
+                    .map(|(_, listener)| Arc::clone(listener))
+                    .collect(),
+            )
         };
         let mut changes: Vec<CommitChange> = writes
             .into_iter()
@@ -820,6 +1097,13 @@ impl SessionInner {
             .collect();
         changes.extend(documents.into_iter().map(CommitChange::Document));
         let publication = CommitPublication { seq, changes };
+        // The commit is durable: a failing listener neither fails the commit
+        // nor skips the others.
+        for listener in internal {
+            if let Err(error) = listener(&publication, cx) {
+                self.fail(error);
+            }
+        }
         for listener in listeners {
             listener(&publication, cx);
         }
@@ -854,7 +1138,7 @@ impl SessionInner {
         let record_id = loaded.record.id;
         let commit = {
             let observer = observer.clone();
-            self.subscribe_commits(Arc::new(move |publication, cx| {
+            self.observe_commits(Arc::new(move |publication, cx| {
                 for change in &publication.changes {
                     let CommitChange::Document(DocumentCommitChange::Document {
                         record,
@@ -877,11 +1161,18 @@ impl SessionInner {
                     }
                     observer.advance(value.clone(), ops, cx);
                 }
+                Ok(())
             }))?
         };
         let close = {
             let observer = observer.clone();
-            self.subscribe_close(Arc::new(move || observer.close_session()))
+            let session = self.this.clone();
+            self.subscribe_close(Arc::new(move || {
+                let failure = session
+                    .upgrade()
+                    .and_then(|inner| inner.lock().failure.clone());
+                observer.close_session(failure);
+            }))
         };
         let close = match close {
             Ok(close) => close,
@@ -951,9 +1242,23 @@ impl SessionInner {
     }
 }
 
+impl FailureLatch for SessionInner {
+    fn failure(&self) -> Option<Arc<SessionError>> {
+        self.lock().failure.clone()
+    }
+
+    fn fail(&self, error: SessionError) {
+        SessionInner::fail(self, error);
+    }
+}
+
 impl TransactionHost for SessionInner {
     fn storage(&self) -> &Arc<dyn Storage> {
         &self.storage
+    }
+
+    fn now(&self) -> f64 {
+        (self.now)()
     }
 
     fn cached(&self, address_id: &str) -> Option<Arc<LoadedDocument>> {

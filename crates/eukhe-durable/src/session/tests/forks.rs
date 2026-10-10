@@ -13,8 +13,8 @@ use crate::documents::{
     ConversationDoc, ConversationDocFamily, DocDefinition, DocFamilyDefinition,
     RewindableConversationDoc, RewindableConversationDocFamily, SessionDoc, TaskDoc,
 };
-use crate::errors::StorageRejected;
-use crate::session::{Session, SessionResult};
+use crate::errors::StorageError;
+use crate::session::{Session, SessionEnd, SessionError, SessionResult};
 use crate::types::{
     ConversationId, ConversationOwnership, ConversationRecord, DocumentAddress, DocumentPoint,
     DocumentRecordScope, DocumentScope, EntryDraft, EntryId, EntryQuery, LatestFork,
@@ -1014,7 +1014,7 @@ async fn rolls_every_copied_base_back_when_later_pre_admission_assembly_fails() 
 }
 
 #[tokio::test]
-async fn rolls_back_a_guaranteed_storage_rejection_without_poisoning_the_session() {
+async fn fails_the_session_on_a_rejected_fork_commit_which_leaves_no_effect() {
     const DOC: RewindableConversationDoc<JsonValue> = doc!(
         RewindableConversationDoc,
         "fork.storage-rejected",
@@ -1042,7 +1042,7 @@ async fn rolls_back_a_guaranteed_storage_rejection_without_poisoning_the_session
         .unwrap();
     let rejected_child_id = Arc::new(Mutex::new(None));
     let sink = Arc::clone(&rejected_child_id);
-    storage.fail_next_commit(StorageRejected::new("copy rejected").into());
+    storage.fail_next_commit(StorageError::failed(TestFailure("copy rejected")));
     assert_error(
         session
             .commit(
@@ -1062,13 +1062,40 @@ async fn rolls_back_a_guaranteed_storage_rejection_without_poisoning_the_session
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .unwrap();
+    let created = session
+        .commit(
+            |tx| async move {
+                tx.create_conversation(ConversationOwnership::Ownerless)
+                    .await
+            },
+            cx,
+        )
+        .await;
+    match created {
+        Err(SessionError::Failed(failed)) => {
+            assert_eq!(failed.cause().to_string(), "copy rejected");
+        }
+        other => panic!("expected SessionFailed, got {other:?}"),
+    }
+    // The failed Session closed its Storage; reopened, it holds nothing of the batch.
+    assert!(matches!(
+        session.closed().await,
+        SessionEnd::Failed { error } if error.to_string() == "copy rejected"
+    ));
     assert_eq!(
-        storage.conversation(rejected_child_id, cx).await.unwrap(),
+        storage
+            .reopen()
+            .conversation(rejected_child_id, cx)
+            .await
+            .unwrap(),
         None
     );
-    let next = create_ownerless(&session).await;
-    assert_eq!(storage.conversation(next.id, cx).await.unwrap(), Some(next));
 }
+
+/// A test failure with a fixed message.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct TestFailure(&'static str);
 
 #[tokio::test]
 async fn retires_a_copied_document_and_can_recreate_the_address_in_the_fork_transaction() {
@@ -1177,6 +1204,7 @@ async fn copies_only_conversation_documents_leaving_session_and_task_documents_i
                             ownership: TaskOwnership::Conversation,
                             conversation_id: Some(parent_id),
                             background: None,
+                            abandon_on_restart: None,
                         },
                     )
                     .await?;

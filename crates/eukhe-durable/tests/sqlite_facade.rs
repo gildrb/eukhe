@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::{JsonObject, JsonValue};
-use eukhe_durable::errors::{StorageError, StorageRejected};
+use eukhe_durable::errors::StorageError;
 use eukhe_durable::ids::mint;
 use eukhe_durable::storage::sqlite::{
     open_native_sqlite_database, NativeSqliteDatabase, NativeSqliteStorageOptions, SqliteDatabase,
@@ -615,7 +615,7 @@ async fn rejects_a_transaction_handle_used_after_its_transaction_settles() {
 }
 
 #[tokio::test]
-async fn does_not_preserve_a_guaranteed_rejection_when_rollback_itself_fails() {
+async fn does_not_preserve_the_callback_error_when_rollback_itself_fails() {
     let database = memory_database().await;
     database
         .exec("CREATE TABLE rollback_probe (value INTEGER)".into())
@@ -627,14 +627,13 @@ async fn does_not_preserve_a_guaranteed_rejection_when_rollback_itself_fails() {
                 .exec("INSERT INTO rollback_probe (value) VALUES (1)".into())
                 .await?;
             transaction.exec("COMMIT".into()).await?;
-            Err::<(), _>(StorageError::from(StorageRejected::new(
+            Err::<(), _>(StorageError::failed(std::io::Error::other(
                 "rejected after an escaped commit",
             )))
         })
         .await
         .unwrap_err();
-    // TS `AggregateError`: not the callback's guaranteed rejection.
-    assert!(!error.is_rejected());
+    // TS `AggregateError`: not the callback's error.
     let StorageError::Failed(cause) = &error else {
         panic!("expected a failure, got {error:?}");
     };

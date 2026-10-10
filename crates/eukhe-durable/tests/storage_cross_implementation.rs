@@ -1,6 +1,7 @@
 //! Cross-implementation check against the TS package (no TS test file).
 //!
-//! `fixtures/storage_cross` was written by `@earendil-works/pi-durable` 1.0.4:
+//! `fixtures/storage_cross` was written by `@earendil-works/pi-durable` 1.1
+//! (`main` at `42a3497d0`):
 //! `trace.json` records a representative commit history (mints, commit
 //! batches, sequences) and a read plan with each result as TS `JSON.stringify`
 //! text; `jsonl/` and `durable.sqlite` hold that history as written by the TS

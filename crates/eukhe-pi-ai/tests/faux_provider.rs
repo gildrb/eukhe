@@ -407,6 +407,7 @@ async fn estimates_prompt_and_output_tokens_from_serialized_context() {
                 nested_calls: None,
                 is_error: false,
                 timestamp: 2,
+                duration_ms: None,
             }),
         ],
         tools: Some(vec![tool.clone()]),
@@ -510,6 +511,55 @@ async fn simulates_prompt_caching_per_session_id() {
     .await;
     assert!(second.usage.cache_read > 0);
     assert!(second.usage.input + second.usage.cache_read > second.usage.input);
+}
+
+#[tokio::test]
+async fn counts_cached_characters_up_to_the_first_difference_in_the_joined_prompt() {
+    let registration = register(RegisterFauxProviderOptions::default());
+    registration.set_responses(vec![message("a"), message("b"), message("c")]);
+    let context = |messages: &[&str]| Context {
+        system_prompt: None,
+        messages: messages.iter().map(|text| user(text)).collect(),
+        tools: None,
+    };
+
+    // Prompt texts: "user:hello world" (16 characters), then 16 + 2 + "user:next" (9) = 27.
+    done(
+        &registration,
+        context(&["hello world"]),
+        session("session-1", CacheRetention::Short),
+    )
+    .await;
+    let extended = done(
+        &registration,
+        context(&["hello world", "next"]),
+        session("session-1", CacheRetention::Short),
+    )
+    .await;
+    assert_eq!(
+        (
+            extended.usage.input,
+            extended.usage.cache_read,
+            extended.usage.cache_write
+        ),
+        (3, 4, 3)
+    );
+
+    // The first message now differs after "user:hello w" (12 characters): "user:hello wide" + 2 + 9 = 26.
+    let edited = done(
+        &registration,
+        context(&["hello wide", "next"]),
+        session("session-1", CacheRetention::Short),
+    )
+    .await;
+    assert_eq!(
+        (
+            edited.usage.input,
+            edited.usage.cache_read,
+            edited.usage.cache_write
+        ),
+        (4, 3, 4)
+    );
 }
 
 #[tokio::test]

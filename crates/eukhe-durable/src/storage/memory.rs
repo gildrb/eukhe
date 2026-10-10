@@ -10,12 +10,13 @@ use eukhe_chord::delta::{try_apply_immutable_batches, BatchError, Op};
 use eukhe_chord::json::{JsonValue, MAX_SAFE_INTEGER};
 use futures::future::BoxFuture;
 
-use super::common::{cursor_id, failure, is_alive_at, is_current_only, page, rejected};
+use super::common::{cursor_id, failure, failure_with_cause, is_alive_at, is_current_only, page};
+use super::scan::{scan_start, ScanStart};
 use crate::errors::StorageError;
 use crate::types::{
     AnyTaskRecord, ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress,
     DocumentBase, DocumentContent, DocumentCreate, DocumentId, DocumentPoint, DocumentQuery,
-    DocumentRecord, DocumentScope, EntryId, EntryQuery, EntryRecord, Page, Seq, Storage,
+    DocumentRecord, DocumentScope, EntryId, EntryQuery, EntryRecord, Page, ScanOrder, Seq, Storage,
     StorageWrite, StoredDocument, StoredEntry, SubmissionId, SubmissionQuery, SubmissionRecord,
     SubmissionStatus, TaskId, TaskQuery, TaskStatus,
 };
@@ -183,6 +184,21 @@ fn ids_after(ids: &BTreeSet<u64>, after: Option<i64>) -> impl Iterator<Item = u6
     ids.range((start, Bound::Unbounded)).copied()
 }
 
+/// Sorted `ids` in scan order, after the cursor's ID when there is one (TS
+/// `scanIndexes`).
+fn scan_ids(ids: &BTreeSet<u64>, start: ScanStart) -> Box<dyn Iterator<Item = u64> + '_> {
+    match start.order {
+        ScanOrder::Ascending => Box::new(ids_after(ids, start.after)),
+        ScanOrder::Descending => {
+            let end = match start.after {
+                None => Bound::Unbounded,
+                Some(after) => Bound::Excluded(u64::try_from(after).unwrap_or(0)),
+            };
+            Box::new(ids.range((Bound::Unbounded, end)).rev().copied())
+        }
+    }
+}
+
 /// IDs of `ids` at or below `upper`, newest first. `upper` is a JS number:
 /// an ID, a cursor minus one, or infinity.
 fn ids_at_or_below(ids: &BTreeSet<u64>, upper: f64) -> impl Iterator<Item = u64> + '_ {
@@ -220,7 +236,7 @@ fn materialize(
         return Ok(None);
     };
     if at != DocumentPoint::Current && is_current_only(stored.record.scope) {
-        return Err(failure(format!(
+        return Err(StorageError::request(format!(
             "Document {id} does not retain historical content"
         )));
     }
@@ -282,7 +298,9 @@ fn visible_entries(
     mut visit: impl FnMut(&EntryRecord) -> bool,
 ) -> Result<(), StorageError> {
     if !state.conversations.contains_key(&conversation_id.get()) {
-        return Err(failure(format!("Unknown conversation: {conversation_id}")));
+        return Err(StorageError::request(format!(
+            "Unknown conversation: {conversation_id}"
+        )));
     }
     let empty = BTreeSet::new();
     let mut current_id = conversation_id.get();
@@ -306,6 +324,61 @@ fn visible_entries(
             break;
         }
         current_id = parent.conversation_id.get();
+    }
+    Ok(())
+}
+
+/// Visit the entries visible through `conversation_id`'s ancestry between
+/// the inclusive bounds oldest first, until `visit` returns false: the fork
+/// chain's segments from the root conversation forward.
+fn visible_entries_ascending(
+    state: &State,
+    conversation_id: ConversationId,
+    min_entry_id: f64,
+    max_entry_id: f64,
+    mut visit: impl FnMut(&EntryRecord) -> bool,
+) -> Result<(), StorageError> {
+    if !state.conversations.contains_key(&conversation_id.get()) {
+        return Err(StorageError::request(format!(
+            "Unknown conversation: {conversation_id}"
+        )));
+    }
+    let mut segments: Vec<(u64, f64)> = Vec::new();
+    let mut current_id = conversation_id.get();
+    let mut upper_entry_id = max_entry_id;
+    loop {
+        segments.push((current_id, upper_entry_id));
+        let Some(parent) = state.conversations[&current_id].parent else {
+            break;
+        };
+        upper_entry_id = upper_entry_id.min(id_number(parent.at.get()));
+        if upper_entry_id < min_entry_id {
+            break;
+        }
+        current_id = parent.conversation_id.get();
+    }
+    let empty = BTreeSet::new();
+    let lower = if min_entry_id <= 0.0 {
+        0
+    } else {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a positive bound; above every ID it selects nothing"
+        )]
+        let lower = min_entry_id.ceil() as u64;
+        lower
+    };
+    for (segment, upper) in segments.into_iter().rev() {
+        let ids = state.entry_ids.get(&segment).unwrap_or(&empty);
+        for id in ids.range(lower..) {
+            if id_number(*id) > upper {
+                break;
+            }
+            if !visit(&state.entries[id]) {
+                return Ok(());
+            }
+        }
     }
     Ok(())
 }
@@ -396,7 +469,7 @@ impl State {
                     })
                 };
                 resolve().map_err(|error| {
-                    rejected(format!("Document copy {} was rejected", record.id), error)
+                    failure_with_cause(format!("Document copy {} was rejected", record.id), error)
                 })
             })
             .collect()
@@ -885,9 +958,9 @@ impl MemoryStorage {
             } else {
                 &state.conversation_ids
             };
-            let after = cursor_id(cursor)?;
+            let start = scan_start(query.order, cursor, ScanOrder::Ascending)?;
             let mut values = Vec::new();
-            for id in ids_after(ids, after) {
+            for id in scan_ids(ids, start) {
                 if values.len() > limit {
                     break;
                 }
@@ -900,7 +973,7 @@ impl MemoryStorage {
                 }
                 values.push(value);
             }
-            Ok(page(values, limit))
+            Ok(page(values, limit, start.order))
         })
     }
 
@@ -935,7 +1008,9 @@ impl MemoryStorage {
     ) -> Result<Option<EntryRecord>, StorageError> {
         self.read(|state| {
             if !state.conversations.contains_key(&conversation_id.get()) {
-                return Err(failure(format!("Unknown conversation: {conversation_id}")));
+                return Err(StorageError::request(format!(
+                    "Unknown conversation: {conversation_id}"
+                )));
             }
             let empty = BTreeSet::new();
             let mut current_id = conversation_id.get();
@@ -962,27 +1037,45 @@ impl MemoryStorage {
         cursor: Option<&Cursor>,
     ) -> Result<Page<EntryRecord>, StorageError> {
         self.read(|state| {
-            let after = cursor_id(cursor)?;
-            let query_max = query
+            let ScanStart { order, after } =
+                scan_start(query.order, cursor, ScanOrder::Descending)?;
+            // The cursor narrows the bound on the side the scan moves away from.
+            let mut max_entry_id = query
                 .max_entry_id
                 .map_or(f64::INFINITY, |id| id_number(id.get()));
-            #[expect(clippy::cast_precision_loss, reason = "cursor IDs are safe integers")]
-            let max_entry_id = after.map_or(query_max, |after| query_max.min(after as f64 - 1.0));
-            let min_entry_id = query
+            let mut min_entry_id = query
                 .min_entry_id
                 .map_or(f64::NEG_INFINITY, |id| id_number(id.get()));
+            #[expect(clippy::cast_precision_loss, reason = "cursor IDs are safe integers")]
+            let after = after.map(|after| after as f64);
+            if let Some(after) = after {
+                match order {
+                    ScanOrder::Descending => max_entry_id = max_entry_id.min(after - 1.0),
+                    ScanOrder::Ascending => min_entry_id = min_entry_id.max(after + 1.0),
+                }
+            }
             let mut visible = Vec::new();
-            visible_entries(
-                state,
-                query.conversation_id,
-                min_entry_id,
-                max_entry_id,
-                |entry| {
-                    visible.push(entry.clone());
-                    visible.len() <= limit
-                },
-            )?;
-            Ok(page(visible, limit))
+            let visit = |entry: &EntryRecord| {
+                visible.push(entry.clone());
+                visible.len() <= limit
+            };
+            match order {
+                ScanOrder::Descending => visible_entries(
+                    state,
+                    query.conversation_id,
+                    min_entry_id,
+                    max_entry_id,
+                    visit,
+                )?,
+                ScanOrder::Ascending => visible_entries_ascending(
+                    state,
+                    query.conversation_id,
+                    min_entry_id,
+                    max_entry_id,
+                    visit,
+                )?,
+            }
+            Ok(page(visible, limit, order))
         })
     }
 
@@ -993,13 +1086,13 @@ impl MemoryStorage {
         cursor: Option<&Cursor>,
     ) -> Result<Page<AnyTaskRecord>, StorageError> {
         self.read(|state| {
-            let after = cursor_id(cursor)?;
+            let start = scan_start(query.order, cursor, ScanOrder::Ascending)?;
             let ids = match query.status {
                 None => &state.task_ids,
                 Some(status) => &state.task_ids_by_status[task_status_index(status)],
             };
             let mut values = Vec::new();
-            for id in ids_after(ids, after) {
+            for id in scan_ids(ids, start) {
                 if values.len() > limit {
                     break;
                 }
@@ -1019,7 +1112,7 @@ impl MemoryStorage {
                 }
                 values.push(value.clone());
             }
-            Ok(page(values, limit))
+            Ok(page(values, limit, start.order))
         })
     }
 
@@ -1030,13 +1123,13 @@ impl MemoryStorage {
         cursor: Option<&Cursor>,
     ) -> Result<Page<SubmissionRecord>, StorageError> {
         self.read(|state| {
-            let after = cursor_id(cursor)?;
+            let start = scan_start(query.order, cursor, ScanOrder::Ascending)?;
             let ids = match query.status {
                 None => &state.submission_ids,
                 Some(status) => &state.submission_ids_by_status[submission_status_index(status)],
             };
             let mut values = Vec::new();
-            for id in ids_after(ids, after) {
+            for id in scan_ids(ids, start) {
                 if values.len() > limit {
                     break;
                 }
@@ -1049,7 +1142,7 @@ impl MemoryStorage {
                 }
                 values.push(value.clone());
             }
-            Ok(page(values, limit))
+            Ok(page(values, limit, start.order))
         })
     }
 
@@ -1102,7 +1195,7 @@ impl MemoryStorage {
                     values.push(record.clone());
                 }
             }
-            Ok(page(values, limit))
+            Ok(page(values, limit, ScanOrder::Ascending))
         })
     }
 }
@@ -1283,5 +1376,17 @@ impl Storage for MemoryStorage {
             .unwrap_or_else(PoisonError::into_inner)
             .closed = true;
         ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+impl MemoryStorage {
+    /// Reopen after `close()`, as a fresh process would reopen the same
+    /// database, keeping every committed record (TS test `reopen()`).
+    pub(crate) fn reopen(&self) {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .closed = false;
     }
 }

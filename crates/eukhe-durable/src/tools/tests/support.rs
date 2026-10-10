@@ -6,7 +6,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::JsonValue;
-use eukhe_types::pi_ai::{JsonValue as PiJsonValue, UserContentBlock};
+use eukhe_pi_ai::models::Models;
+use eukhe_types::pi_ai::{
+    JsonObject as PiJsonObject, JsonValue as PiJsonValue, ModelThinkingLevel, UserContentBlock,
+};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
@@ -19,8 +22,9 @@ use crate::env::{
     TextLineReader, WatchTarget,
 };
 use crate::harness::types::{
-    Agent, ConversationHandle, InvocationTaskOptions, RegistrySnapshot, ToolCommitChange,
-    ToolDiagnostic, ToolExecutionApi, ToolExecutionResult, ToolOutputChunk, ToolRegistration,
+    Agent, ConversationHandle, ExecuteToolOptions, InvocationTaskOptions, ModelRef,
+    NestedToolExecutionResult, RegistrySnapshot, RetainedOutput, ToolCommitChange, ToolDiagnostic,
+    ToolExecutionApi, ToolExecutionResult, ToolOutputChunk, ToolRegistration,
 };
 use crate::session::{DocumentWatch, SessionError, SessionResult};
 use crate::tasks::{AnyTask, SettledTask};
@@ -342,15 +346,26 @@ pub(super) struct FakeApi {
     pub(super) window: Option<ShellOutputWindow>,
     pub(super) output: Mutex<Vec<OutputCall>>,
     pub(super) diagnostics: Mutex<Vec<ToolDiagnostic>>,
+    /// The agent's model and the models resolving it; without one, `read`
+    /// treats the model as one that sees images.
+    pub(super) model: Option<(Models, ModelRef)>,
 }
 
 impl FakeApi {
     pub(super) fn new(env: Option<Arc<dyn ExecutionEnv>>) -> Arc<Self> {
+        Self::with_model(env, None)
+    }
+
+    pub(super) fn with_model(
+        env: Option<Arc<dyn ExecutionEnv>>,
+        model: Option<(Models, ModelRef)>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             env,
             window: None,
             output: Mutex::new(Vec::new()),
             diagnostics: Mutex::new(Vec::new()),
+            model,
         })
     }
 
@@ -429,8 +444,26 @@ impl ToolExecutionApi for FakeApi {
         panic!("the fake api has no registry")
     }
 
+    fn models(&self) -> Models {
+        match &self.model {
+            Some((models, _)) => models.clone(),
+            None => panic!("the fake api has no models"),
+        }
+    }
+
     fn agent(&self, _cx: &Context) -> BoxFuture<'static, SessionResult<Arc<Agent>>> {
-        absent("agent")
+        // No model: `read` treats it as one that sees images.
+        let agent = Agent {
+            model: self.model.as_ref().map(|(_, model)| model.clone()),
+            thinking_level: ModelThinkingLevel::Off,
+            extensions: Vec::new(),
+            tools: Vec::new(),
+            callable: Vec::new(),
+            sections: Vec::new(),
+            instructions: None,
+            cwd: None,
+        };
+        futures::future::ready(Ok(Arc::new(agent))).boxed()
     }
 
     fn env(&self) -> Option<Arc<dyn ExecutionEnv>> {
@@ -455,6 +488,20 @@ impl ToolExecutionApi for FakeApi {
 
     fn output_window(&self) -> Option<ShellOutputWindow> {
         self.window
+    }
+
+    fn retained_output(&self) -> SessionResult<RetainedOutput> {
+        let text = self
+            .output
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(text, _)| text.as_str())
+            .collect();
+        Ok(RetainedOutput {
+            text,
+            truncated: false,
+        })
     }
 
     fn diagnostic(&self, diagnostic: ToolDiagnostic) -> SessionResult<()> {
@@ -527,6 +574,16 @@ impl ToolExecutionApi for FakeApi {
     ) -> BoxFuture<'static, SessionResult<Option<Arc<dyn ConversationHandle>>>> {
         absent("conversations")
     }
+
+    fn execute_tool(
+        &self,
+        _name: &str,
+        _args: PiJsonObject,
+        _cx: &Context,
+        _options: ExecuteToolOptions,
+    ) -> BoxFuture<'static, SessionResult<NestedToolExecutionResult>> {
+        absent("nested tools")
+    }
 }
 
 /// Execute `tool` with `args` through `api`.
@@ -553,7 +610,7 @@ pub(super) async fn run(
 
 pub(super) fn text_output(result: &ToolExecutionResult) -> String {
     result
-        .content
+        .output
         .iter()
         .flatten()
         .filter_map(|part| match part {

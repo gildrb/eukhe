@@ -125,6 +125,7 @@ fn completed_stream(request_model: &Model) -> AssistantMessageEventStream {
         raw_stop_reason: None,
         end_turn: None,
         timestamp: 0,
+        duration_ms: None,
     };
     stream.push(AssistantMessageEvent::Done {
         reason: DoneReason::Stop,

@@ -34,7 +34,7 @@ use super::task_support::{
     aborted, deferred, flush, open_tasks, settled, Deferred, OpenTasksOptions, OpenedTasks, Reports,
 };
 use crate::documents::{ConversationDoc, DocDefinition};
-use crate::errors::{StorageError, StorageRejected};
+use crate::errors::StorageError;
 use crate::harness::agent::configure;
 use crate::harness::define::define_tool;
 use crate::harness::live::LIVE_DOC;
@@ -44,7 +44,8 @@ use crate::harness::types::{
     WriteSubmissionDraft,
 };
 use crate::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions, TaskAbortResult};
-use crate::session::{create_session, SessionError, SessionResult, Tx};
+use crate::session::tests::support::ControlledStorage;
+use crate::session::{create_session, SessionEnd, SessionError, SessionResult, Tx};
 use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
 use crate::storage::MemoryStorage;
 use crate::tasks::{define_task, NextTaskState, Task, TaskDefinition};
@@ -346,6 +347,7 @@ fn options(conversation_id: Option<ConversationId>, background: Option<bool>) ->
         ownership: TaskOwnership::Conversation,
         conversation_id,
         background,
+        abandon_on_restart: None,
     }
 }
 
@@ -541,8 +543,8 @@ async fn open_harness(world: &World, storage: Arc<dyn Storage>) -> Opened {
     }
 }
 
-/// Storage that rejects, once, a commit that marks the task in `mark` (TS
-/// `Rejecting` and the patched `storage.commit`).
+/// Storage that fails, once, a commit that marks the task in `mark` with
+/// `disk gone` (TS `Failing` and the patched `storage.commit`).
 struct RejectMark {
     inner: Arc<dyn Storage>,
     mark: Arc<Mutex<Option<TaskId>>>,
@@ -571,8 +573,10 @@ impl Storage for RejectMark {
         cx: &'a Context,
     ) -> BoxFuture<'a, Result<Seq, StorageError>> {
         if self.marks(writes) {
-            return futures::future::ready(Err(StorageRejected::new("rejected once").into()))
-                .boxed();
+            return futures::future::ready(Err(StorageError::failed(std::io::Error::other(
+                "disk gone",
+            ))))
+            .boxed();
         }
         self.inner.commit(writes, cx)
     }
@@ -713,8 +717,4 @@ impl Storage for RejectMark {
     fn close<'a>(&'a self, cx: &'a Context) -> BoxFuture<'a, Result<(), StorageError>> {
         self.inner.close(cx)
     }
-}
-
-fn is_rejection(error: &SessionError) -> bool {
-    matches!(error, SessionError::Storage(storage) if storage.is_rejected())
 }

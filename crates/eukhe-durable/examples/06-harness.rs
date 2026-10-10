@@ -87,7 +87,7 @@ pub async fn run(
                 .and_then(|path| path.as_str())
                 .unwrap_or_default();
             Ok(ToolExecutionResult {
-                content: Some(vec![UserContentBlock::Text(TextContent::new(format!(
+                output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
                     "contents of {path}"
                 )))]),
                 ..ToolExecutionResult::default()

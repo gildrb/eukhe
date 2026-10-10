@@ -14,7 +14,6 @@ use futures::future::{BoxFuture, FutureExt};
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::env::ExecutionEnv;
 use crate::harness::agent::agent_hooks;
-use crate::harness::context::read_context;
 use crate::harness::types::{
     Agent, ContextView, ConversationHandle, HookHandlers, RegistrySnapshot, Settings,
 };
@@ -26,9 +25,10 @@ use crate::types::{
     TaskOutcome, TaskState, TaskStatus,
 };
 
+use super::cascade::KeepRestart;
 use super::execution::{AgentResolution, Phase};
 use super::invocation::{Invocation, InvocationBinding, InvocationMode};
-use super::Inner;
+use super::{Inner, TaskScheduler};
 
 /// Longest delay `setTimeout` supports; longer sleeps wait in several steps.
 const MAX_TIMER_DELAY: f64 = 2_147_483_647.0;
@@ -102,7 +102,7 @@ impl InvocationRuntime {
                     let found = {
                         let state = inner.lock();
                         if state.closing {
-                            return Err(closed_error());
+                            return Err(closed_error(&inner.session));
                         }
                         state.live.get(&invocation.task_id).cloned()
                     };
@@ -284,6 +284,37 @@ impl TaskRuntimeBackend for InvocationRuntime {
         self.read(move || inner.wait_for_task(id, &cx))
     }
 
+    fn abort_owned(&self, id: TaskId, cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
+        let inner = Arc::clone(&self.inner);
+        let owner = self.invocation.task_id;
+        let cx = with_abort_signal(&self.invocation.signal(), cx);
+        self.read(move || {
+            async move {
+                let storage = Arc::clone(&inner.storage);
+                let read_cx = cx.clone();
+                let record = inner
+                    .session
+                    .read_on_line(async move { Ok(storage.task(id, &read_cx).await?) })
+                    .await?;
+                let Some(record) = record.filter(|record| record.owner == Some(owner)) else {
+                    return Err(SessionError::error(format!(
+                        "Task {id} is not owned by task {owner}"
+                    )));
+                };
+                if record.state.status() == TaskStatus::Terminal {
+                    return Ok(());
+                }
+                let scheduler = TaskScheduler {
+                    inner: Arc::clone(&inner),
+                };
+                scheduler.abort_keeping(id, &cx, KeepRestart::Yes).await?;
+                inner.wait_for_task(id, &cx).await?;
+                Ok(())
+            }
+            .boxed()
+        })
+    }
+
     fn outcomes(
         &self,
         ids: Vec<TaskId>,
@@ -349,10 +380,11 @@ impl TaskRuntimeBackend for InvocationRuntime {
         at: Option<EntryId>,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<ContextView>> {
-        let session = self.inner.session.clone();
+        let inner = Arc::clone(&self.inner);
+        let invocation = Arc::clone(&self.invocation);
         let cx = cx.clone();
         self.read(move || {
-            async move { read_context(&session, conversation_id, &cx, at).await }.boxed()
+            inner.read_kept_context(conversation_id, at, &cx, move || invocation.ended())
         })
     }
 

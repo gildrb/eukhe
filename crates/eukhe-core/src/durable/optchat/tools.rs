@@ -7,10 +7,10 @@ use std::sync::Arc;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::define::define_tool;
 use eukhe_durable::harness::types::{
-    HookApi, HookFuture, ToolExecutionResult, ToolHooks, ToolRegistration,
+    HookApi, HookFuture, ToolExecutionResult, ToolHookCall, ToolHooks, ToolRegistration,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_types::pi_ai::{TextContent, ToolCall, UserContentBlock};
+use eukhe_types::pi_ai::{TextContent, UserContentBlock};
 use futures::FutureExt;
 
 use crate::memory::{cap_text, Memory, CAP, DATE_TOOL_DESCRIPTION, ZOOM_TOOL_DESCRIPTION};
@@ -79,7 +79,7 @@ fn integer_argument(params: &serde_json::Value, name: &str) -> SessionResult<u64
 
 fn text_result(text: String) -> ToolExecutionResult {
     ToolExecutionResult {
-        content: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+        output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
         ..ToolExecutionResult::default()
     }
 }
@@ -99,7 +99,7 @@ pub(crate) fn cap_hooks() -> ToolHooks {
 }
 
 fn cap_tool_result(
-    _call: &ToolCall,
+    _call: &ToolHookCall,
     result: &ToolExecutionResult,
     _api: &HookApi,
     _cx: &Context,
@@ -110,7 +110,7 @@ fn cap_tool_result(
 
 /// `result` with its text capped, or `None` when within [`CAP`].
 pub(super) fn capped(result: &ToolExecutionResult) -> Option<ToolExecutionResult> {
-    let blocks = result.content.as_deref().unwrap_or_default();
+    let blocks = result.output.as_deref().unwrap_or_default();
     let text = blocks
         .iter()
         .filter_map(|block| match block {
@@ -130,7 +130,7 @@ pub(super) fn capped(result: &ToolExecutionResult) -> Option<ToolExecutionResult
             .cloned(),
     );
     Some(ToolExecutionResult {
-        content: Some(content),
+        output: Some(content),
         ..result.clone()
     })
 }

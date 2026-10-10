@@ -35,11 +35,10 @@ use crate::harness::live::run::{
 use crate::harness::live::{end_run, LiveDeferred, LiveGeneration, LiveRetry, LIVE_DOC};
 use crate::harness::prompt::{plan_system_entries, render_sections, replay_sections, SystemDraft};
 use crate::harness::provider::ensure_provider_session_id;
-use crate::harness::tool::append_tool_result;
-use crate::harness::tool::harness_error;
+use crate::harness::tool::{append_tool_result, harness_error, ToolResultMeta};
 use crate::harness::types::{
-    CompactionPolicy, CompactionReason, CompactionResult, ContextView, ConversationStreamOptions,
-    GenerationHooks, ModelRef, PromptInput, RequestMessages,
+    CompactionPolicy, CompactionReason, CompactionResult, ContextOptions, ContextView,
+    ConversationStreamOptions, GenerationHooks, ModelRef, PromptInput, RequestMessages,
 };
 use crate::session::{SessionError, SessionResult};
 use crate::tasks::{define_task, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime};
@@ -241,7 +240,9 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
             return fail_model_error(&runtime, overflow.clone(), &cx).await;
         }
     }
-    let view = runtime.context(conversation_id, &cx, None).await?;
+    let view = runtime
+        .context(conversation_id, &cx, ContextOptions::default())
+        .await?;
     let shown = replay_sections(&view.messages);
     let report_runtime = runtime.clone();
     let report = move |error: SessionError| report_runtime.report(error);
@@ -398,7 +399,9 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     else {
         return fail_no_model(&runtime, Some(&reference), &cx).await;
     };
-    let view = runtime.context(conversation_id, &cx, Some(cutoff)).await?;
+    let view = runtime
+        .context(conversation_id, &cx, ContextOptions { at: Some(cutoff) })
+        .await?;
     let messages = Mutex::new(view.messages.clone());
     let api = runtime.hook_api();
     runtime
@@ -569,7 +572,11 @@ async fn abort(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
                 for call in &unstarted {
                     let result =
                         harness_error("aborted", &format!("Tool {} was aborted", call.name));
-                    append_tool_result(&tx, conversation_id, call, &result, runtime.now()?).await?;
+                    let meta = ToolResultMeta {
+                        timestamp: runtime.now()?,
+                        duration_ms: None,
+                    };
+                    append_tool_result(&tx, conversation_id, call, &result, meta).await?;
                 }
                 end_run(
                     &tx,
@@ -797,7 +804,13 @@ async fn classify(
     if overflow && compacted.is_none() && settings.compaction.enabled {
         let policy = settings.compaction;
         let view = runtime
-            .context(conversation_id, cx, Some(request.cutoff))
+            .context(
+                conversation_id,
+                cx,
+                ContextOptions {
+                    at: Some(request.cutoff),
+                },
+            )
             .await?;
         if select_cut(&view, policy.keep_recent_tokens).is_some() {
             let text = message

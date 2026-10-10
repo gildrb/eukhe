@@ -13,7 +13,8 @@ use super::support::{
     diagnostic_text, native, run, temp_dir, text_output, write_file, FakeApi, HookedEnv,
 };
 use crate::env::{BinaryReader, FileError, FileInfo, FileSystem, LineRange, LineScan};
-use crate::tools::create_read_tool;
+use crate::tools::{create_read_tool, ReadToolOptions};
+use eukhe_types::pi_ai::{ImageContent, UserContentBlock};
 
 fn lines(count: usize, prefix: &str) -> String {
     (1..=count)
@@ -26,7 +27,7 @@ fn lines(count: usize, prefix: &str) -> String {
 async fn fail_with_an_ordinary_error_when_no_environment_is_configured() {
     let api = FakeApi::new(None);
     let error = super::support::execute(
-        &create_read_tool(),
+        &create_read_tool(ReadToolOptions::default()),
         json!({ "path": "x" }),
         &api,
         &BACKGROUND_CONTEXT,
@@ -42,7 +43,7 @@ async fn reads_text_with_offsets_and_limits_and_reports_continuation_as_a_diagno
     let env = Arc::new(native(&dir));
     write_file(env.as_ref(), "test.txt", lines(100, "Line ")).await;
     let (result, _) = run(
-        &create_read_tool(),
+        &create_read_tool(ReadToolOptions::default()),
         json!({ "path": "test.txt", "offset": 41, "limit": 20 }),
         env,
     )
@@ -65,7 +66,12 @@ async fn truncates_large_text_by_line_count() {
     let dir = temp_dir();
     let env = Arc::new(native(&dir));
     write_file(env.as_ref(), "large.txt", lines(2500, "Line ")).await;
-    let (result, _) = run(&create_read_tool(), json!({ "path": "large.txt" }), env).await;
+    let (result, _) = run(
+        &create_read_tool(ReadToolOptions::default()),
+        json!({ "path": "large.txt" }),
+        env,
+    )
+    .await;
     let result = result.unwrap();
     assert_eq!(
         diagnostic_text(&result),
@@ -103,7 +109,12 @@ async fn does_not_count_a_trailing_newline_as_an_extra_line_at_the_truncation_li
         format!("{}\n", vec!["x"; 2000].join("\n")),
     )
     .await;
-    let (result, _) = run(&create_read_tool(), json!({ "path": "exact.txt" }), env).await;
+    let (result, _) = run(
+        &create_read_tool(ReadToolOptions::default()),
+        json!({ "path": "exact.txt" }),
+        env,
+    )
+    .await;
     let result = result.unwrap();
     assert_eq!(result.details, None);
     assert_eq!(result.diagnostics, Some(Vec::new()));
@@ -119,7 +130,12 @@ async fn shows_the_start_of_a_line_longer_than_the_byte_limit() {
         format!("{}\nnext\n", "é".repeat(40_000)),
     )
     .await;
-    let (result, _) = run(&create_read_tool(), json!({ "path": "long.txt" }), env).await;
+    let (result, _) = run(
+        &create_read_tool(ReadToolOptions::default()),
+        json!({ "path": "long.txt" }),
+        env,
+    )
+    .await;
     let result = result.unwrap();
     // Two-byte characters: the cut lands on a character boundary at or below the limit.
     assert_eq!(text_output(&result), "é".repeat(25_600));
@@ -142,7 +158,7 @@ async fn rejects_offsets_beyond_the_file() {
     let env = Arc::new(native(&dir));
     write_file(env.as_ref(), "short.txt", "one\ntwo\nthree").await;
     let (result, _) = run(
-        &create_read_tool(),
+        &create_read_tool(ReadToolOptions::default()),
         json!({ "path": "short.txt", "offset": 100 }),
         env,
     )
@@ -207,7 +223,7 @@ async fn reads_a_log_that_grows_while_it_is_read() {
         .boxed()
     }));
     let (result, _) = run(
-        &create_read_tool(),
+        &create_read_tool(ReadToolOptions::default()),
         json!({ "path": "app.log", "limit": 2 }),
         Arc::new(env),
     )
@@ -216,10 +232,11 @@ async fn reads_a_log_that_grows_while_it_is_read() {
 }
 
 #[tokio::test]
-async fn reports_images_by_content_as_unsupported() {
+async fn returns_images_by_content_as_one_image_block() {
     let dir = temp_dir();
     let env = Arc::new(native(&dir));
-    // The base64 PNG of the TS test, decoded.
+    let data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==";
+    // `data`, decoded.
     let png: [u8; 70] = [
         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
         0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
@@ -228,12 +245,20 @@ async fn reports_images_by_content_as_unsupported() {
         0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
     ];
     write_file(env.as_ref(), "image.txt", png).await;
-    let (result, _) = run(&create_read_tool(), json!({ "path": "image.txt" }), env).await;
+    let (result, _) = run(
+        &create_read_tool(ReadToolOptions::default()),
+        json!({ "path": "image.txt" }),
+        env,
+    )
+    .await;
     let result = result.unwrap();
-    assert_eq!(result.content, Some(Vec::new()));
-    assert_eq!(result.is_error, Some(true));
     assert_eq!(
-        diagnostic_text(&result),
-        "image.txt is an image (image/png); reading images is not supported"
+        result.output,
+        Some(vec![UserContentBlock::Image(ImageContent {
+            data: data.to_owned(),
+            mime_type: "image/png".to_owned(),
+        })])
     );
+    assert_eq!(result.is_error, None);
+    assert_eq!(diagnostic_text(&result), "Read image file [image/png].");
 }

@@ -28,6 +28,10 @@ async fn run(events: &Value) -> Value {
     let mut message = serde_json::to_value(message).expect("message");
     let object = message.as_object_mut().expect("object");
     object.remove("timestamp");
+    // Response timing (`durationMs`) is clock-dependent, like `timestamp`.
+    assert!(object
+        .remove("durationMs")
+        .is_some_and(|value| value.is_u64()));
     // eukhe addition: the provider_stream_failure diagnostic (absent in TS).
     if let Some(Value::Array(diagnostics)) = object.get_mut("diagnostics") {
         diagnostics.retain(|diagnostic| diagnostic["type"] != "provider_stream_failure");

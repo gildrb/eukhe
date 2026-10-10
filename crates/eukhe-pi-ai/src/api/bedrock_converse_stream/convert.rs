@@ -74,6 +74,7 @@ pub(crate) fn supports_adaptive_thinking(model_id: &str, model_name: &str) -> bo
             "opus-5",
             "sonnet-4-6",
             "sonnet-5",
+            "haiku-5",
             "fable-5",
         ],
     )
@@ -84,7 +85,9 @@ fn supports_native_xhigh_effort(model: &Model) -> bool {
     any_candidate(
         &model.id,
         &model.name,
-        &["opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "fable-5"],
+        &[
+            "opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "haiku-5", "fable-5",
+        ],
     )
 }
 
@@ -94,7 +97,9 @@ fn supports_thinking_block_binding(model: &Model) -> bool {
     any_candidate(
         &model.id,
         &model.name,
-        &["opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "fable-5"],
+        &[
+            "opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "haiku-5", "fable-5",
+        ],
     )
 }
 
@@ -161,6 +166,7 @@ pub(crate) fn supports_prompt_caching(model: &Model, env: Option<&ProviderEnv>) 
     any("fable-5")
         || any("opus-5")
         || any("sonnet-5")
+        || any("haiku-5")
         || any("-4-")
         || any("claude-3-7-sonnet")
         || any("claude-3-5-haiku")
@@ -589,8 +595,11 @@ pub(crate) fn build_additional_model_request_fields(
     options: &BedrockOptions,
 ) -> Option<JsonValue> {
     let reasoning = options.reasoning?;
-    if !model.reasoning || !is_anthropic_claude_model(model) {
+    if !model.reasoning {
         return None;
+    }
+    if !is_anthropic_claude_model(model) {
+        return build_openai_reasoning_fields(model, reasoning);
     }
     // GovCloud Bedrock rejects the Claude thinking.display field and block
     // binding.
@@ -667,6 +676,52 @@ pub(crate) fn build_additional_model_request_fields(
         }
     }
     Some(JsonValue::Object(result))
+}
+
+/// The non-Claude tail of TS `buildAdditionalModelRequestFields`: `OpenAI`
+/// GPT models (GPT-5.x, GPT-6) take a nested `reasoning.effort` and reject
+/// `minimal`; gpt-oss takes a flat `reasoning_effort` and only accepts low,
+/// medium and high.
+fn build_openai_reasoning_fields(model: &Model, reasoning: ThinkingLevel) -> Option<JsonValue> {
+    let candidates = get_model_match_candidates(&model.id, &model.name);
+    if candidates
+        .iter()
+        .any(|candidate| candidate.contains("gpt-oss"))
+    {
+        // TS `OPENAI_GPT_OSS_EFFORT`.
+        let effort = match reasoning {
+            ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
+            ThinkingLevel::Medium => "medium",
+            ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max => "high",
+        };
+        return Some(json!({ "reasoning_effort": effort }));
+    }
+    if candidates
+        .iter()
+        .any(|candidate| candidate.contains("gpt-"))
+    {
+        let mapped = model
+            .thinking_level_map
+            .as_ref()
+            .and_then(|map| map.get(&ModelThinkingLevel::from(reasoning)))
+            .and_then(Option::as_ref);
+        // TS `OPENAI_GPT_EFFORT`.
+        let effort = mapped.map_or_else(
+            || {
+                match reasoning {
+                    ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
+                    ThinkingLevel::Medium => "medium",
+                    ThinkingLevel::High => "high",
+                    ThinkingLevel::Xhigh => "xhigh",
+                    ThinkingLevel::Max => "max",
+                }
+                .to_owned()
+            },
+            Clone::clone,
+        );
+        return Some(json!({ "reasoning": { "effort": effort } }));
+    }
+    None
 }
 
 #[cfg(test)]

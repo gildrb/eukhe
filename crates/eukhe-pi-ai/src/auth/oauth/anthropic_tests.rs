@@ -273,12 +273,56 @@ async fn anthropic_oauth_login_resolves_through_the_manual_code_prompt_and_abort
 
 #[tokio::test]
 async fn completes_login_through_the_browser_callback_and_shows_the_sign_in_page() {
-    let exchanged_code: Arc<Mutex<Option<String>>> = Arc::default();
-    let exchanged = Arc::clone(&exchanged_code);
+    let login = login_through_browser_callback(false).await;
+
+    assert_eq!(login.credential.access, "access");
+    assert_eq!(login.exchanged_code.as_deref(), Some("browser-code"));
+    assert_eq!(
+        login.exchanged_redirect_uri.as_deref(),
+        Some(login.redirect_uri.as_str())
+    );
+    assert_eq!(login.page.status, 200);
+    assert!(login.page.body.contains("Signed in to Anthropic."));
+}
+
+// #10571
+#[tokio::test]
+async fn falls_back_to_a_free_callback_port_when_the_preferred_port_cannot_be_bound() {
+    let login = login_through_browser_callback(true).await;
+    let redirect_uri = url::Url::parse(&login.redirect_uri).expect("redirect uri");
+
+    assert_eq!(redirect_uri.host_str(), Some("localhost"));
+    assert_eq!(redirect_uri.path(), "/callback");
+    assert_ne!(redirect_uri.port(), Some(53692));
+    assert_eq!(login.credential.access, "access");
+    assert_eq!(
+        login.exchanged_redirect_uri.as_deref(),
+        Some(login.redirect_uri.as_str())
+    );
+    assert_eq!(login.page.status, 200);
+}
+
+struct BrowserCallbackLogin {
+    credential: OAuthCredential,
+    redirect_uri: String,
+    exchanged_code: Option<String>,
+    exchanged_redirect_uri: Option<String>,
+    page: Page,
+}
+
+/// `loginThroughBrowserCallback()`. Rust-only: `block_preferred_port` binds
+/// the blocker (TS `listen(blocker, 53692)`) after the fetch mock's test lock
+/// is held, so it cannot collide with sibling tests using port 53692.
+async fn login_through_browser_callback(block_preferred_port: bool) -> BrowserCallbackLogin {
+    let exchanged: Arc<Mutex<(Option<String>, Option<String>)>> = Arc::default();
+    let recorded = Arc::clone(&exchanged);
     let _guard = mock::install(move |request: FetchRequest| {
         assert_eq!(request.url, TOKEN_URL);
-        *exchanged.lock().unwrap_or_else(PoisonError::into_inner) =
-            request.json_body()["code"].as_str().map(str::to_owned);
+        let body = request.json_body();
+        *recorded.lock().unwrap_or_else(PoisonError::into_inner) = (
+            body["code"].as_str().map(str::to_owned),
+            body["redirect_uri"].as_str().map(str::to_owned),
+        );
         let response = FetchResponse::json_response(
             &json!({ "access_token": "access", "refresh_token": "refresh", "expires_in": 3600 }),
             200,
@@ -286,7 +330,18 @@ async fn completes_login_through_the_browser_callback_and_shows_the_sign_in_page
         async move { Ok(response) }
     })
     .await;
+    let _blocker = if block_preferred_port {
+        Some(
+            tokio::net::TcpListener::bind(("127.0.0.1", 53692))
+                .await
+                .expect("bind blocker"),
+        )
+    } else {
+        None
+    };
 
+    let redirect_uri: Arc<Mutex<String>> = Arc::default();
+    let redirect_slot = Arc::clone(&redirect_uri);
     let callback_page: Arc<Mutex<Option<tokio::task::JoinHandle<Page>>>> = Arc::default();
     let page_slot = Arc::clone(&callback_page);
     let interaction = TestInteraction::provider(
@@ -303,39 +358,47 @@ async fn completes_login_through_the_browser_callback_and_shows_the_sign_in_page
             })
         },
         move |event| {
-            if let AuthEvent::AuthUrl { url, .. } = event {
-                let state = url_param(&url, "state").unwrap_or_default();
-                let handle = tokio::spawn(async move {
-                    native_get(&format!(
-                        "http://127.0.0.1:53692/callback?code=browser-code&state={state}"
-                    ))
-                    .await
-                });
-                *page_slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
-            }
+            let AuthEvent::AuthUrl { url, .. } = event else {
+                return;
+            };
+            let uri = url_param(&url, "redirect_uri").unwrap_or_default();
+            let mut callback_url = url::Url::parse(&uri).expect("redirect uri");
+            callback_url.set_host(Some("127.0.0.1")).expect("set host");
+            callback_url
+                .query_pairs_mut()
+                .clear()
+                .append_pair("code", "browser-code")
+                .append_pair("state", &url_param(&url, "state").unwrap_or_default());
+            *redirect_slot.lock().unwrap_or_else(PoisonError::into_inner) = uri;
+            let handle = tokio::spawn(async move { native_get(callback_url.as_str()).await });
+            *page_slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
         },
     );
     let credential = anthropic_oauth()
         .login(interaction, None)
         .await
         .expect("login");
-
-    assert_eq!(credential.access, "access");
-    assert_eq!(
-        exchanged_code
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_deref(),
-        Some("browser-code")
-    );
     let handle = callback_page
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .take()
         .expect("callback fetched");
-    let response = handle.await.expect("join");
-    assert_eq!(response.status, 200);
-    assert!(response.body.contains("Signed in to Anthropic."));
+    let page = handle.await.expect("join");
+    let (exchanged_code, exchanged_redirect_uri) = exchanged
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let redirect_uri = redirect_uri
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    BrowserCallbackLogin {
+        credential,
+        redirect_uri,
+        exchanged_code,
+        exchanged_redirect_uri,
+        page,
+    }
 }
 
 // From test/oauth-auth.test.ts.

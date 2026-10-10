@@ -288,6 +288,7 @@ pub fn stream(
             raw_stop_reason: None,
             end_turn: None,
             timestamp: crate::utils::now_ms(),
+            duration_ms: None,
         };
 
         match run(

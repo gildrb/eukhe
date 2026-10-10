@@ -212,7 +212,13 @@ fn kinds(entries: &[EntryRecord]) -> Vec<&str> {
 
 async fn assert_context_matches(content: &str, imported: &Imported) -> (Harness, Conversation) {
     let (harness, root) = reopen(&imported.storage).await;
-    let view = root.context(&cx()).await.unwrap();
+    let view = root
+        .context(
+            &cx(),
+            eukhe_durable::harness::types::ContextOptions::default(),
+        )
+        .await
+        .unwrap();
     assert_eq!(view.messages, old_context(content));
     (harness, root)
 }
@@ -398,7 +404,13 @@ async fn imports_a_compaction_as_a_head_at_the_first_kept_entry() {
             harness_state_fingerprint: None,
         }
     );
-    let view = root.context(&cx()).await.unwrap();
+    let view = root
+        .context(
+            &cx(),
+            eukhe_durable::harness::types::ContextOptions::default(),
+        )
+        .await
+        .unwrap();
     assert_eq!(view.head.map(|head| head.id), Some(entries[6].id));
     assert_eq!(view.messages.len(), 7);
     harness.close(&cx()).await.unwrap();
@@ -760,7 +772,13 @@ async fn a_torn_utf_8_tail_is_skipped_not_fatal() {
     assert_eq!(std::fs::read(&legacy).unwrap(), bytes);
     let (harness, root) = reopen(&storage).await;
     assert_eq!(
-        root.context(&cx()).await.unwrap().messages,
+        root.context(
+            &cx(),
+            eukhe_durable::harness::types::ContextOptions::default()
+        )
+        .await
+        .unwrap()
+        .messages,
         old_context(&complete)
     );
     harness.close(&cx()).await.unwrap();

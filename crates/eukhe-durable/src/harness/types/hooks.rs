@@ -13,7 +13,7 @@ use eukhe_types::pi_ai::{AssistantMessage, JsonObject as PiJsonObject, Message, 
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::conversation::UserInput;
 use super::data::CompactionReason;
@@ -182,23 +182,52 @@ pub struct BeforeToolDecision {
     pub block: Option<String>,
 }
 
+/// The call that made a nested call: its tool task and its call ID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCallParent {
+    pub task_id: TaskId,
+    pub call_id: String,
+}
+
+/// A call as tool hooks see it; `parent` is set for a nested call, one a
+/// running tool made through `execute_tool()`. Derefs to the [`ToolCall`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolHookCall {
+    pub call: ToolCall,
+    pub parent: Option<ToolCallParent>,
+}
+
+impl std::ops::Deref for ToolHookCall {
+    type Target = ToolCall;
+
+    fn deref(&self) -> &ToolCall {
+        &self.call
+    }
+}
+
 /// Before intent. An error blocks.
 pub type BeforeToolHook =
-    Arc<dyn Fn(&ToolCall, &HookApi, &Context) -> HookFuture<BeforeToolDecision> + Send + Sync>;
-/// After execution, before the result entry; replaces the result.
+    Arc<dyn Fn(&ToolHookCall, &HookApi, &Context) -> HookFuture<BeforeToolDecision> + Send + Sync>;
+/// After execution, before the result is committed; replaces the result.
 pub type AfterToolHook = Arc<
-    dyn Fn(&ToolCall, &ToolExecutionResult, &HookApi, &Context) -> HookFuture<ToolExecutionResult>
+    dyn Fn(
+            &ToolHookCall,
+            &ToolExecutionResult,
+            &HookApi,
+            &Context,
+        ) -> HookFuture<ToolExecutionResult>
         + Send
         + Sync,
 >;
 
-/// Hooks of the built-in tool task.
+/// Hooks of the built-in tool task, for model-issued and nested calls.
 #[derive(Clone, Default)]
 pub struct ToolHooks {
     /// Before intent; the first `block` wins, otherwise `arguments` replace
     /// the call's arguments. An error blocks.
     pub before_tool: Option<BeforeToolHook>,
-    /// After execution, before the result entry; replaces the result.
+    /// After execution, before the result is committed; replaces the result.
     pub after_tool: Option<AfterToolHook>,
 }
 

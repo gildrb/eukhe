@@ -436,7 +436,7 @@ async fn reruns_before_tool_when_interrupted_before_intent_and_executes_once() {
         counter.fetch_add(1, Ordering::SeqCst);
         async {
             Ok(ToolExecutionResult {
-                content: Some(Vec::new()),
+                output: Some(Vec::new()),
                 ..ToolExecutionResult::default()
             })
         }
@@ -501,7 +501,7 @@ async fn reruns_the_generation_tools_phase_interrupted_before_its_commit() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let work = tool("work", |_, _| async {
         Ok(ToolExecutionResult {
-            content: Some(Vec::new()),
+            output: Some(Vec::new()),
             ..ToolExecutionResult::default()
         })
     });
@@ -610,7 +610,7 @@ async fn lets_context_derivation_answer_a_faulted_tool_and_continues_the_run() {
     // A result that is not strict JSON makes the result commit throw, so the scheduler faults the task.
     let bad = tool("bad", |_, _| async {
         Ok(ToolExecutionResult {
-            content: Some(Vec::new()),
+            output: Some(Vec::new()),
             usage: Some(Usage {
                 input: u64::MAX,
                 ..Usage::default()

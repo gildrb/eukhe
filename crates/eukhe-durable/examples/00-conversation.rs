@@ -28,7 +28,10 @@ pub async fn run(
     _openai_api_key: Option<&str>,
 ) -> Result<(), BoxError> {
     // MemoryStorage keeps everything in memory; other storage backends keep it on disk.
-    let session = create_session(Arc::new(MemoryStorage::new()));
+    let session = create_session(
+        Arc::new(MemoryStorage::new()),
+        eukhe_durable::session::SessionOptions::default(),
+    );
 
     // Every Session call takes a context, which is used for cancellation.
     // BACKGROUND_CONTEXT means "never cancel".

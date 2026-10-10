@@ -227,6 +227,7 @@ async fn login(
             ProviderAuthInteraction::new(interaction, signal),
             Some(LoginOptions {
                 get_device_id: Some(Arc::new(|| uuid::Uuid::new_v4().to_string())),
+                agent_name: None,
             }),
         )
         .await?;

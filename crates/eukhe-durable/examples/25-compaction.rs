@@ -282,7 +282,9 @@ async fn show(
     label: &str,
     cx: &Context,
 ) -> Result<(), BoxError> {
-    let view = conversation.context(cx).await?;
+    let view = conversation
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+        .await?;
     let stored = conversation
         .entries(ConversationEntryQuery::default(), 1000, None, cx)
         .await?

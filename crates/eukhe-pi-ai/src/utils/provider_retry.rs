@@ -24,6 +24,8 @@ pub struct ProviderRetryOptions {
     /// Default 60 000; 0 disables the cap.
     pub max_retry_delay_ms: Option<f64>,
     pub signal: Option<AbortSignal>,
+    /// HTTP statuses that fail at once although the default policy would retry them.
+    pub no_retry_statuses: Vec<u16>,
 }
 
 /// A provider SDK error (`status` and `headers` properties present, `status`
@@ -259,6 +261,14 @@ where
         if retries_remaining == 0 || !is_retryable_provider_error(&provider_error) {
             return Err(error);
         }
+        if provider_error.status.is_some_and(|status| {
+            options
+                .no_retry_statuses
+                .iter()
+                .any(|&listed| f64::from(listed).total_cmp(&status).is_eq())
+        }) {
+            return Err(error);
+        }
         let retry_index = max_retries - retries_remaining;
         retries_remaining -= 1;
         let delay = get_retry_delay_ms(&provider_error, retry_index, options.max_retry_delay_ms)?;
@@ -350,6 +360,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn does_not_retry_statuses_listed_in_no_retry_statuses() {
+        let error = provider_error(Some(504), &[("retry-after-ms", "0")]);
+        let calls = Arc::new(AtomicU32::new(0));
+        let options = ProviderRetryOptions {
+            max_retries: Some(2),
+            no_retry_statuses: vec![504],
+            ..ProviderRetryOptions::default()
+        };
+        let result = retry_provider_request(
+            request(
+                vec![error.clone(), error.clone(), error.clone()],
+                calls.clone(),
+            ),
+            &options,
+        )
+        .await;
+        assert!(Arc::ptr_eq(&result.unwrap_err(), &error));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn rejects_a_provider_requested_retry_delay_above_the_limit() {
         let error = provider_error(Some(429), &[("retry-after", "277403")]);
         let calls = Arc::new(AtomicU32::new(0));
@@ -399,6 +430,7 @@ mod tests {
             max_retries: Some(2),
             max_retry_delay_ms: Some(0.0),
             signal: Some(controller.signal()),
+            no_retry_statuses: Vec::new(),
         };
         let run = retry_provider_request(
             request(vec![error.clone(), error.clone(), error], calls.clone()),

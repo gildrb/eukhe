@@ -108,9 +108,9 @@ fn does_not_apply_the_public_radius_catalog_to_custom_gateways() {
 /// TS mocks `globalThis.fetch` for the default gateway; the Rust config
 /// loader has no injectable fetch, so the refreshed catalog is served by a
 /// local gateway instead. A custom gateway has no static baseline, so the
-/// overlay check is that the refreshed models are exactly the config's.
+/// replacement check is that the refreshed models are exactly the config's.
 #[tokio::test]
-async fn overlays_refreshed_models_on_the_static_public_catalog() {
+async fn replaces_the_static_public_catalog_with_refreshed_models() {
     let gateway = serve_json(radius_config_json("https://radius.example/v1")).await;
     let credentials = InMemoryCredentialStore::new();
     common::store(
@@ -141,14 +141,19 @@ async fn overlays_refreshed_models_on_the_static_public_catalog() {
     assert_eq!(balanced.base_url, "https://radius.example/v1");
     assert_eq!(balanced.context_window, 424_242);
     assert!(models.get_model("radius", "organization-only").is_some());
+    // Models disabled by the organization must not reappear from the shipped catalog.
     assert_eq!(
-        models.get_models(Some("radius")).len(),
-        radius_config().models.len()
+        models
+            .get_models(Some("radius"))
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["balanced", "organization-only"]
     );
 }
 
 #[tokio::test]
-async fn overlays_a_cached_effective_catalog_without_network_access() {
+async fn replaces_the_static_public_catalog_with_a_cached_catalog_without_network_access() {
     let store = InMemoryModelsStore::new();
     store
         .write(
@@ -186,4 +191,42 @@ async fn overlays_a_cached_effective_catalog_without_network_access() {
         Some("Fresh Balanced".to_owned())
     );
     assert!(models.get_model("radius", "organization-only").is_some());
+    assert_eq!(
+        models
+            .get_models(Some("radius"))
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["balanced", "organization-only"]
+    );
+}
+
+#[tokio::test]
+async fn exposes_no_models_when_the_organization_disabled_all_of_them() {
+    let gateway = serve_json(json!({ "baseUrl": "https://radius.example/v1", "models": [] })).await;
+    let credentials = InMemoryCredentialStore::new();
+    common::store(
+        &credentials,
+        "radius",
+        Credential::ApiKey(ApiKeyCredential::with_key("radius-key")),
+    )
+    .await;
+    let models = create_models(CreateModelsOptions {
+        credentials: Some(Arc::new(credentials)),
+        ..CreateModelsOptions::default()
+    });
+    models.set_provider(radius_provider(RadiusProviderOptions {
+        gateway: Some(gateway),
+        ..RadiusProviderOptions::default()
+    }));
+
+    let result = models
+        .refresh(ModelsRefreshOptions {
+            providers: Some(vec!["radius".into()]),
+            ..ModelsRefreshOptions::default()
+        })
+        .await;
+
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(models.get_models(Some("radius")).is_empty());
 }

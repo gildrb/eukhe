@@ -122,7 +122,11 @@ async fn committed(
             docs.insert(kind, JsonValue::Object(value));
         }
     }
-    let entries = conversation.context(cx).await.unwrap().entries;
+    let entries = conversation
+        .context(cx, crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .entries;
     let mut root = JsonObject::new();
     root.insert("conversation", to_json(record.conversation()).unwrap());
     root.insert("entries", to_json(&entries).unwrap());

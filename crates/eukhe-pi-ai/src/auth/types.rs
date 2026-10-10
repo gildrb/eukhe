@@ -500,6 +500,9 @@ pub struct LoginOptions {
     /// its agent host ID. Called only by login flows that need it, so apps can
     /// create the ID on first use and must return the same ID on every later call.
     pub get_device_id: Option<GetDeviceId>,
+    /// Name this app introduces itself with during login, e.g. `OpenAI`'s agent
+    /// name hint and Codex originator. Defaults to pi's own name.
+    pub agent_name: Option<String>,
 }
 
 impl fmt::Debug for LoginOptions {
@@ -507,6 +510,7 @@ impl fmt::Debug for LoginOptions {
         formatter
             .debug_struct("LoginOptions")
             .field("get_device_id", &self.get_device_id.is_some())
+            .field("agent_name", &self.agent_name)
             .finish()
     }
 }

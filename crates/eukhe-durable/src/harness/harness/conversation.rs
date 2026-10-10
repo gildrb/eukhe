@@ -16,14 +16,14 @@ use crate::harness::live::run::{create_compaction, timestamp, CompactionInput};
 use crate::harness::scheduler::{ConversationAbortReach, InvocationBinding, TaskScheduler};
 use crate::harness::submissions::{SubmissionHandle, Submissions};
 use crate::harness::types::{
-    Agent, AgentChange, CompactionReason, CompactionResult, ContextView, ConversationAbortOptions,
-    ConversationCreateOptions, ConversationHandle, InputSubmissionDraft, SettledSubmissionRecord,
-    Submission, SubmissionAbort, SubmissionDraft, WriteSubmissionDraft,
+    Agent, AgentChange, CompactionReason, CompactionResult, ContextOptions, ContextView,
+    ConversationAbortOptions, ConversationCreateOptions, ConversationHandle, InputSubmissionDraft,
+    SettledSubmissionRecord, Submission, SubmissionAbort, SubmissionDraft, WriteSubmissionDraft,
 };
 use crate::session::{SessionResult, TransactionScope, Tx};
 use crate::types::{
     ConversationId, Cursor, EntryDraft, EntryHead, EntryId, EntryQuery, EntryRecord, Page,
-    SubmissionId, SubmissionRecord, TaskId,
+    ScanOrder, SubmissionId, SubmissionRecord, TaskId,
 };
 
 /// The bounds of [`Conversation::entries`] (TS `Omit<EntryQuery,
@@ -32,6 +32,8 @@ use crate::types::{
 pub struct ConversationEntryQuery {
     pub min_entry_id: Option<EntryId>,
     pub max_entry_id: Option<EntryId>,
+    /// Default descending; with a cursor, the cursor's order.
+    pub order: Option<ScanOrder>,
 }
 
 fn reach(options: ConversationAbortOptions) -> ConversationAbortReach {
@@ -183,13 +185,20 @@ impl Conversation {
         self.core.session.commit_with(change, cx, scope).boxed()
     }
 
-    /// Raw active transcript and derived model context.
+    /// Committed raw active transcript and model context. With `at`, the
+    /// context as of that visible entry: the same view `fork(at)` would start
+    /// with, without creating a conversation.
     #[must_use]
-    pub fn context(&self, cx: &Context) -> BoxFuture<'static, SessionResult<ContextView>> {
-        read_context(&self.core.session, self.id, cx, None)
+    pub fn context(
+        &self,
+        cx: &Context,
+        options: ContextOptions,
+    ) -> BoxFuture<'static, SessionResult<ContextView>> {
+        read_context(&self.core.session, self.id, cx, options.at)
     }
 
-    /// Newest-first fork-aware history of this conversation.
+    /// Fork-aware history of this conversation, newest first unless
+    /// `query.order` is ascending.
     #[must_use]
     pub fn entries(
         &self,
@@ -202,6 +211,7 @@ impl Conversation {
             conversation_id: self.id,
             min_entry_id: query.min_entry_id,
             max_entry_id: query.max_entry_id,
+            order: query.order,
         };
         let storage = Arc::clone(&self.core.storage);
         let cx = cx.clone();

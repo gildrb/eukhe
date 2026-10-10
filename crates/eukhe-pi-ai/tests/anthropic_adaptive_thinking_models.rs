@@ -3,8 +3,9 @@
 use eukhe_pi_ai::compat::{get_models, get_providers};
 use eukhe_types::pi_ai::Model;
 
-const EXPECTED_CURRENT_ADAPTIVE_THINKING_MODELS: [&str; 16] = [
+const EXPECTED_CURRENT_ADAPTIVE_THINKING_MODELS: [&str; 17] = [
     "anthropic/claude-fable-5",
+    "anthropic/claude-haiku-5-5",
     "anthropic/claude-opus-4-8",
     "anthropic/claude-opus-5",
     "anthropic/claude-sonnet-5",
@@ -49,7 +50,7 @@ fn marks_built_in_anthropic_messages_models_that_use_adaptive_thinking() {
         );
     }
     let pattern = regex::Regex::new(
-        r"(opus[-.](4[-.][678]|5)|sonnet[-.]4[-.]6|sonnet[-.]5|fable[-.]5|kimi-coding/)",
+        r"(opus[-.](4[-.][678]|5)|sonnet[-.]4[-.]6|sonnet[-.]5|haiku[-.]5[-.]5|fable[-.]5|kimi-coding/)",
     )
     .expect("regex");
     let allowed: Vec<String> = flagged_models

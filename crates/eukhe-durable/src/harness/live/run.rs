@@ -79,6 +79,7 @@ pub async fn create_generation(
             ownership: TaskOwnership::Conversation,
             conversation_id: Some(conversation_id),
             background: None,
+            abandon_on_restart: None,
         },
     )
     .await
@@ -189,6 +190,7 @@ pub async fn create_compaction(
                 ownership,
                 conversation_id: Some(conversation_id),
                 background: Some(background),
+                abandon_on_restart: None,
             },
         )
         .await?;

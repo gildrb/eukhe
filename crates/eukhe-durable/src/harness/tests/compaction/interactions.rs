@@ -1,7 +1,6 @@
 //! "compaction estimates and interactions" and "compaction events and live
 //! status".
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::json::{to_json, JsonValue};
@@ -13,9 +12,9 @@ use futures::FutureExt;
 
 use super::automatic::{event_kinds, record_events};
 use super::{
-    answer, compact, compaction_tasks, failure, gated, history, kinds, live, open, result,
-    submission, submission_id, submit, summary, text, tool_with, turn, user_text, window_setup,
-    with_stop, Chat, OpenOptions, BACKGROUND, MANUAL,
+    answer, compact, compaction_tasks, failure, first_user_text, gated, history, kinds, live, open,
+    result, submission, submission_id, submit, summary, text, tool_with, turn, user_text,
+    window_setup, with_stop, Chat, OpenOptions, BACKGROUND, MANUAL,
 };
 use crate::harness::events::{watch_events, AgentEvent};
 use crate::harness::live::{CompactionStatus, LiveRetry};
@@ -137,7 +136,7 @@ async fn ignores_usage_measured_before_a_summary_placed_mid_run(fixed_clock: boo
     // did not compact again.
     assert_eq!(chat.faux.summary_requests().len(), 1);
     assert!(compaction_tasks(&chat).await.is_empty());
-    assert!(user_text(chat.faux.last_agent_messages().first()).contains("SUMMARY"));
+    assert!(first_user_text(&chat.faux.last_agent_messages()).contains("SUMMARY"));
     chat.harness.close(context()).await.unwrap();
 }
 
@@ -194,7 +193,7 @@ async fn rebaselines_the_system_prompt_over_kept_system_deltas() {
     // one complete baseline.
     assert!(chat
         .root
-        .context(context())
+        .context(context(), crate::harness::types::ContextOptions::default())
         .await
         .unwrap()
         .entries
@@ -266,7 +265,7 @@ async fn summarizes_a_replaced_entrys_replacement_and_shows_it_to_the_hook() {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
-    assert_eq!(user_text(seen.first()), "REDACTED");
+    assert_eq!(first_user_text(&seen), "REDACTED");
     assert!(user_text(chat.faux.summary_requests()[0].messages.get(1)).contains("[User]: REDACTED"));
     chat.harness.close(context()).await.unwrap();
 }
@@ -303,7 +302,10 @@ async fn compacts_a_fork_whose_cut_falls_on_a_parent_entry() {
             user_text(record.model.as_ref().and_then(|model| model.first())).starts_with("u3")
         })
         .unwrap();
-    let view = fork.context(context()).await.unwrap();
+    let view = fork
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     let head = view.head.as_ref().unwrap();
     assert_eq!(head.kind, "pi.compaction");
     assert_eq!(head.head, Some(u3.id));
@@ -358,7 +360,7 @@ async fn settles_stale_in_a_fork_reset_while_it_summarizes() {
     assert_eq!(record.state.status(), SubmissionStatus::Unanswered);
     assert_eq!(record.state.reason(), Some("stale"));
     assert_eq!(
-        fork.context(context())
+        fork.context(context(), crate::harness::types::ContextOptions::default())
             .await
             .unwrap()
             .head
@@ -400,8 +402,13 @@ async fn places_an_older_queued_summary_and_the_current_one_together_when_idle_a
         );
     }
     assert_eq!(statuses, [SubmissionStatus::Done, SubmissionStatus::Done]);
-    let messages = chat.root.context(context()).await.unwrap().messages;
-    assert!(user_text(messages.first()).contains("CURRENT"));
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains("CURRENT"));
     chat.harness.close(context()).await.unwrap();
 }
 
@@ -476,6 +483,7 @@ async fn places_a_hooks_summary_and_holds_while_work_the_hook_created_runs() {
                                         ownership: TaskOwnership::Task { task_id: owner },
                                         conversation_id: Some(root_id),
                                         background: None,
+                                        abandon_on_restart: None,
                                     },
                                 )
                                 .await?;
@@ -519,58 +527,24 @@ async fn places_a_hooks_summary_and_holds_while_work_the_hook_created_runs() {
     chat.harness.close(context()).await.unwrap();
 }
 
-/// A Harness clock that returns a fractional reading once after `arm`: the
-/// compaction's summarize phase rejects it as a message timestamp.
-pub(super) struct FaultClock {
-    armed: Arc<AtomicBool>,
-}
-
-impl FaultClock {
-    pub(super) fn install(chat: &Chat) -> Self {
-        let armed = Arc::new(AtomicBool::new(false));
-        let flag = Arc::clone(&armed);
-        chat.setup.set_now(move || {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |elapsed| elapsed.as_millis());
-            #[expect(clippy::cast_precision_loss, reason = "milliseconds, far below 2^53")]
-            let now = now as f64;
-            if flag.swap(false, Ordering::SeqCst) {
-                now + 0.5
-            } else {
-                now
-            }
-        });
-        Self { armed }
-    }
-
-    /// Hooks that arm the clock once range selection is done.
-    pub(super) fn arming_hooks(&self) -> CompactionHooks {
-        let armed = Arc::clone(&self.armed);
-        CompactionHooks {
-            before_compact: Some(Arc::new(move |_, _, _| {
-                armed.store(true, Ordering::SeqCst);
-                futures::future::ready(Ok(None)).boxed()
-            })),
-        }
+/// A policy whose negative `reserveTokens` pins a negative `maxTokens`, which
+/// the summarize phase rejects (see `request_max_tokens`) before any request.
+pub(super) fn faulting(policy: CompactionPolicy) -> CompactionPolicy {
+    CompactionPolicy {
+        reserve_tokens: -1000.0,
+        ..policy
     }
 }
 
 // TS replaces `models.getModel` with a throwing function. Rust `Models`
 // cannot throw there; the closest observable fault is an uncaught phase
-// error, here the summarize phase rejecting a fractional clock reading.
+// error, here the summarize phase rejecting the negative `maxTokens` the
+// selection pinned.
 #[tokio::test]
 async fn removes_the_status_of_a_faulted_compaction() {
     let chat = open(OpenOptions::default()).await;
     history(&chat).await;
-    let clock = FaultClock::install(&chat);
-    add_hooks(
-        &chat.setup.registry,
-        compaction_task(),
-        clock.arming_hooks(),
-        None,
-    )
-    .unwrap();
+    chat.set_policy(faulting(MANUAL));
     let outcome = result(&chat, compact(&chat, None).await).await;
     let TaskOutcome::Faulted { error } = outcome else {
         panic!("faulted: {outcome:?}");

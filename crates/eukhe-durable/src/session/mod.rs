@@ -4,6 +4,7 @@
 
 mod error;
 mod forks;
+mod guarded;
 mod observation;
 mod plans;
 #[expect(
@@ -22,8 +23,9 @@ pub use observation::{
     WatchListener, WatchListenerError,
 };
 pub use session::{
-    create_session, CloseListener, CommitListener, DocumentState, NoSessionHooks, OnLineDocument,
-    Session, SessionHooks, Unsubscribe,
+    create_session, system_now, CloseListener, CommitListener, DocumentState,
+    InternalCommitListener, NoSessionHooks, OnLineDocument, Session, SessionClock, SessionEnd,
+    SessionHooks, SessionOptions, Unsubscribe,
 };
 #[allow(unused_imports, reason = "used by the harness, ported separately")]
 pub(crate) use transaction::{erase, Definition};

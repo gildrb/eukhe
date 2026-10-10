@@ -142,8 +142,8 @@ pub(crate) trait ViewObserver: Send + Sync {
     ) {
     }
 
-    /// The Session began closing.
-    fn close_session(&self);
+    /// The Session began closing; `failure` is set when it failed.
+    fn close_session(&self, failure: Option<Arc<SessionError>>);
 }
 
 impl ViewObserver for CommittedStateSource {
@@ -151,7 +151,7 @@ impl ViewObserver for CommittedStateSource {
         CommittedStateSource::advance(self, value, Arc::clone(ops), cx.clone());
     }
 
-    fn close_session(&self) {
+    fn close_session(&self, _failure: Option<Arc<SessionError>>) {
         CommittedStateSource::close_session(self);
     }
 }
@@ -161,8 +161,8 @@ impl ViewObserver for CommittedWatch<ConversationView> {
         CommittedWatch::advance(self, value.clone(), Arc::clone(ops), cx.clone());
     }
 
-    fn close_session(&self) {
-        CommittedWatch::close_session(self);
+    fn close_session(&self, failure: Option<Arc<SessionError>>) {
+        CommittedWatch::close_session(self, failure);
     }
 }
 
@@ -242,16 +242,17 @@ impl ConversationViews {
     ///
     /// # Errors
     ///
-    /// The Session is closed or poisoned.
+    /// The Session is closed or failed.
     pub(crate) fn subscribe(&self) -> SessionResult<()> {
         let weak = Arc::downgrade(&self.inner);
         let commits = self
             .inner
             .session
-            .subscribe_commits(Arc::new(move |publication, cx| {
+            .observe_commits(Arc::new(move |publication, cx| {
                 if let Some(inner) = weak.upgrade() {
                     inner.publish(publication, cx);
                 }
+                Ok(())
             }))?;
         // The subscription lives as long as the Session; dropping the handle keeps it.
         drop(commits);
@@ -263,6 +264,11 @@ impl ConversationViews {
         }))?;
         drop(close);
         Ok(())
+    }
+
+    /// Report an observer's listener failure through the Harness.
+    pub(crate) fn report(&self, error: SessionError) {
+        self.inner.session.report(error);
     }
 
     /// A disposable read-only Chord state of the view.
@@ -278,14 +284,16 @@ impl ConversationViews {
             }),
             cx,
         );
+        let reporter = self.inner.session.reporter();
         async move {
             let (source, detach) = attached.await?;
-            replicated_state_from_source(&source, ReplicatedStateSourceOptions::default()).map_err(
-                |error| {
-                    detach();
-                    SessionError::other(error)
-                },
-            )
+            let options = ReplicatedStateSourceOptions {
+                on_error: Some(Arc::new(move |error| reporter(SessionError::other(error)))),
+            };
+            replicated_state_from_source(&source, options).map_err(|error| {
+                detach();
+                SessionError::other(error)
+            })
         }
         .boxed()
     }
@@ -296,10 +304,11 @@ impl ConversationViews {
         id: ConversationId,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<ConversationWatch>> {
+        let report = self.inner.session.reporter();
         let attached = self.attach(
             id,
-            Box::new(|value, release, _storage| {
-                async move { Ok(CommittedWatch::new(value, release, None)) }.boxed()
+            Box::new(move |value, release, _storage| {
+                async move { Ok(CommittedWatch::new(value, release, report, None)) }.boxed()
             }),
             cx,
         );
@@ -380,7 +389,7 @@ impl Inner {
         {
             let mut state = this.lock();
             if state.closed {
-                return Err(closed_error());
+                return Err(closed_error(&this.session));
             }
             if let Some(reason) = cx.abort_signal().and_then(|signal| signal.reason()) {
                 return Err(SessionError::Aborted(reason));
@@ -494,7 +503,7 @@ impl Inner {
                 .map(|(_, observer)| Arc::clone(observer))
                 .collect();
             for observer in observers {
-                observer.close_session();
+                observer.close_session(self.session.failure());
             }
         }
     }

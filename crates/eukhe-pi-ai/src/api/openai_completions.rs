@@ -214,6 +214,7 @@ fn empty_output(model: &Model) -> AssistantMessage {
         raw_stop_reason: None,
         end_turn: None,
         timestamp: now_ms(),
+        duration_ms: None,
     }
 }
 
@@ -489,6 +490,7 @@ async fn run_stream(
             max_retries: request.max_retries,
             max_retry_delay_ms: request.max_retry_delay_ms,
             signal: request.signal.clone(),
+            no_retry_statuses: Vec::new(),
         },
     )
     .await?;

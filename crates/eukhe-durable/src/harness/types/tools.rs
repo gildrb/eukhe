@@ -1,6 +1,6 @@
 //! Executable tools and the operations of one tool invocation (TS
 //! `ToolRegistration`, `ToolExecutionApi`, `ToolExecutionResult`,
-//! `ToolControl`).
+//! `NestedToolExecutionResult`, `ToolControl`).
 
 use std::any::Any;
 use std::fmt;
@@ -9,8 +9,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonValue};
+use eukhe_pi_ai::models::Models;
 use eukhe_types::pi_ai::{
-    JsonValue as PiJsonValue, Tool, ToolConstrainedSampling, ToolSchema, Usage, UserContentBlock,
+    JsonObject as PiJsonObject, JsonValue as PiJsonValue, Tool, ToolConstrainedSampling,
+    ToolSchema, Usage, UserContentBlock,
 };
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -41,13 +43,25 @@ pub struct ToolControl {
     pub handoff: Option<String>,
 }
 
-/// What one tool execution returns.
+/// What a tool returns, on three channels: `output` for the model,
+/// `structured_output` for programs that call the tool (`execute_tool()`
+/// callers, code mode scripts), and `details` for UIs.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolExecutionResult {
-    /// Omitted: the retained `output()` text becomes the content.
+    /// For the model. Omitted: the retained `output()` text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content: Option<Vec<UserContentBlock>>,
+    pub output: Option<Vec<UserContentBlock>>,
+    /// For programs. Required unless `is_error` when the tool declares
+    /// `structured_output_schema`, and validated against it; not allowed
+    /// without one, where programs get the output itself
+    /// ([`NestedToolExecutionResult::structured_output`]).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::types::json_serde::present"
+    )]
+    pub structured_output: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     /// Omitted: the last `details()` value becomes the details.
@@ -62,6 +76,71 @@ pub struct ToolExecutionResult {
     pub usage: Option<Usage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control: Option<ToolControl>,
+}
+
+/// Result of a nested call, as `execute_tool()` returns it. Programs read
+/// `structured_output`; the output for the model is not kept, and `control`
+/// does not apply.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NestedToolExecutionResult {
+    /// The nested call's tool task.
+    pub task_id: TaskId,
+    /// The value for programs. A tool with `structured_output_schema`: its
+    /// validated `structured_output`, absent on an error result that has
+    /// none. A tool without: its bounded output, success or error, as a
+    /// string for one text item, an `ImageContent` for one image, `""` for
+    /// none, and the content list otherwise. Absent on an error result the
+    /// Harness wrote itself (unavailable, invalid, blocked, interrupted,
+    /// aborted); `diagnostics` say what went wrong.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::types::json_serde::present"
+    )]
+    pub structured_output: Option<JsonValue>,
+    pub is_error: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::types::json_serde::present"
+    )]
+    pub details: Option<JsonValue>,
+    pub diagnostics: Vec<ToolDiagnostic>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+    /// Execution time of the attempt that produced the result; absent when
+    /// it never executed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+}
+
+/// Who may call a tool (TS `"model" | "tools"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ToolCaller {
+    /// `"model"`: the model, in a tool round.
+    Model,
+    /// `"tools"`: other tools, through `execute_tool()`.
+    Tools,
+}
+
+/// The output retained so far, as the model will see it when the result
+/// omits `output`, and whether earlier output was dropped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedOutput {
+    pub text: String,
+    pub truncated: bool,
+}
+
+/// Options of [`ToolExecutionApi::execute_tool`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecuteToolOptions {
+    /// The nested call's key within this call; default its position.
+    pub key: Option<String>,
+    /// `Some(false)`: commit no running output, details, or diagnostics to
+    /// the nested call's slot, only its status.
+    pub progress: Option<bool>,
 }
 
 /// Whether an interrupted execution may rerun on recovery.
@@ -109,6 +188,9 @@ pub enum ToolOutputChunk<'a> {
 pub struct InvocationTaskOptions {
     pub ownership: TaskOwnership,
     pub background: Option<bool>,
+    /// Default for a task-owned child of a tool that is not replay-safe:
+    /// `true` (see [`ToolExecutionApi::create_task_erased`]).
+    pub abandon_on_restart: Option<bool>,
 }
 
 /// An erased `api.commit()` change.
@@ -128,11 +210,14 @@ pub trait ToolExecutionApi: DocumentReader + DocumentObserver {
     /// The calling conversation's agent, as the tool task's phase resolved
     /// it.
     fn agent(&self, cx: &Context) -> BoxFuture<'static, SessionResult<Arc<Agent>>>;
+    /// `HarnessOptions.models`: the catalog, credentials, and request
+    /// transforms generation uses.
+    fn models(&self) -> Models;
     /// Built by `HarnessOptions.env` for this call; `None` without an
     /// environment.
     fn env(&self) -> Option<Arc<dyn ExecutionEnv>>;
-    /// Append running output; it becomes the result content when the result
-    /// omits `content`. `skipped` counts output omitted before the chunk, as
+    /// Append running output; it becomes the result's `output` when the
+    /// result omits it. `skipped` counts output omitted before the chunk, as
     /// reported by an environment given `output_window`.
     ///
     /// # Errors
@@ -149,6 +234,14 @@ pub trait ToolExecutionApi: DocumentReader + DocumentObserver {
     /// text must also answer `None`, so skipped text cannot bypass its
     /// transform.
     fn output_window(&self) -> Option<ShellOutputWindow>;
+    /// The output retained so far, as the model will see it when the result
+    /// omits `output`, and whether earlier output was dropped; for a tool
+    /// that also returns that text in its `structured_output`.
+    ///
+    /// # Errors
+    ///
+    /// The invocation ended.
+    fn retained_output(&self) -> SessionResult<RetainedOutput>;
     /// Record a model-visible remark about this call.
     ///
     /// # Errors
@@ -178,7 +271,10 @@ pub trait ToolExecutionApi: DocumentReader + DocumentObserver {
         candidate: JsonValue,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<JsonValue>>;
-    /// Erased `createTask()`; see [`ToolExecutionApiExt::create_task`].
+    /// Erased `createTask()`; see [`ToolExecutionApiExt::create_task`]. A
+    /// task-owned child of a tool that is not replay-safe defaults to
+    /// `abandon_on_restart`: the tool never resumes after a restart, so
+    /// nothing awaits the child then.
     fn create_task_erased(
         &self,
         task: AnyTask,
@@ -203,6 +299,40 @@ pub trait ToolExecutionApi: DocumentReader + DocumentObserver {
         id: ConversationId,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<Option<Arc<dyn ConversationHandle>>>>;
+    /// Run tool `name` as a nested call of this one and wait for its result.
+    /// The nested call is its own `pi.tool` task, owned by this call: it
+    /// resolves the tool among the conversation's callable tools,
+    /// validates, runs the `ToolTask` hooks (which see `call.parent`),
+    /// applies output limits and the tool's replay policy, and reports
+    /// progress in `pi.live.nestedTools`. Its result returns here instead
+    /// of entering the transcript. A call that is blocked, invalid, throws,
+    /// is interrupted, or is aborted returns an `is_error` result.
+    ///
+    /// The nested call's key names it within this call; its call ID is
+    /// `<callId>/<key>`. By default the key is the call's position among
+    /// this invocation's nested calls, `1`, `2`, ... An explicit `key` must
+    /// be non-empty, without `/`, not `__proto__`, and not a positive
+    /// integer. A rerun of a replay-safe tool that makes a call with a used
+    /// key gets that nested call back, finished or still running. Reusing a
+    /// key with another tool or other arguments rejects. A tool that is not
+    /// replay-safe never reruns: after a restart, its unfinished nested
+    /// calls are abandoned (`TaskOptions.abandon_on_restart`).
+    ///
+    /// `progress: Some(false)` commits no running output, details, or
+    /// diagnostics to the nested call's slot, only its status.
+    ///
+    /// Nested calls run as soon as they are made. Cancelling `cx` stops
+    /// only the wait; the nested call runs on. When this call settles,
+    /// nested calls it left running are aborted first. Rejects once
+    /// `execute()` has returned, when this call is aborted, or when the
+    /// Harness closes.
+    fn execute_tool(
+        &self,
+        name: &str,
+        args: PiJsonObject,
+        cx: &Context,
+        options: ExecuteToolOptions,
+    ) -> BoxFuture<'static, SessionResult<NestedToolExecutionResult>>;
 }
 
 /// Typed operations of every [`ToolExecutionApi`].
@@ -299,6 +429,13 @@ pub struct ToolRegistration {
     /// whole round sequential.
     pub execution_mode: Option<ToolExecutionMode>,
     pub prepare_arguments: Option<PrepareArguments>,
+    /// Schema of `structured_output`, which programs that call the tool
+    /// receive. `None`: they receive the result's bounded output, success or
+    /// error, as [`NestedToolExecutionResult::structured_output`] describes.
+    pub structured_output_schema: Option<ToolSchema>,
+    /// Who may call the tool: the model, other tools through
+    /// `execute_tool()`, or both (`None`, the default).
+    pub callers: Option<Vec<ToolCaller>>,
     pub output_limits: Option<ToolOutputLimits>,
     pub execute: ToolExecute,
     /// Application data of an extended tool type.
@@ -325,6 +462,8 @@ impl ToolRegistration {
             replay: None,
             execution_mode: None,
             prepare_arguments: None,
+            structured_output_schema: None,
+            callers: None,
             output_limits: None,
             execute: Arc::new(move |args, api, cx| execute(args, api, cx).boxed()),
             extra: None,
@@ -367,6 +506,8 @@ impl fmt::Debug for ToolRegistration {
             .field("replay", &self.replay)
             .field("execution_mode", &self.execution_mode)
             .field("prepare_arguments", &self.prepare_arguments.is_some())
+            .field("structured_output_schema", &self.structured_output_schema)
+            .field("callers", &self.callers)
             .field("output_limits", &self.output_limits)
             .finish_non_exhaustive()
     }

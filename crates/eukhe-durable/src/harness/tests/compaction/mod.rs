@@ -521,6 +521,16 @@ pub(super) fn user_text(message: Option<&Message>) -> String {
     text_of(message).unwrap_or_default()
 }
 
+/// Text of the first user message; a leading baseline system message comes
+/// before it.
+pub(super) fn first_user_text(messages: &[Message]) -> String {
+    user_text(
+        messages
+            .iter()
+            .find(|message| matches!(message, Message::User(_))),
+    )
+}
+
 /// Compaction tasks that are still live.
 pub(super) async fn compaction_tasks(chat: &Chat) -> Vec<AnyTaskRecord> {
     chat.harness
@@ -549,7 +559,7 @@ where
             let content = execute();
             async move {
                 Ok(ToolExecutionResult {
-                    content: Some(content.await),
+                    output: Some(content.await),
                     ..ToolExecutionResult::default()
                 })
             }

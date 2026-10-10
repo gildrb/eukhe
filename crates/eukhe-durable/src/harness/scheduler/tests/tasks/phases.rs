@@ -1,5 +1,6 @@
 //! `describe("task phases")`.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use eukhe_chord::context::{with_cancel, Context};
@@ -8,22 +9,25 @@ use eukhe_types::pi_ai::{Message, ModelThinkingLevel};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    advance, complete, completed_outcome, create, faulted, json, lock, one_step, open_root, reason,
-    shared, start, OpenedRoot, Shared, StepRuntime,
+    advance, complete, completed_outcome, create, faulted, gated, json, lock, one_step, open_root,
+    open_root_with, reason, shared, start, OpenedRoot, Shared, StepRuntime,
 };
 use crate::documents::{DocDefinition, TaskDoc};
 use crate::entries::Entry;
 use crate::harness::agent::AGENT_DOC;
 use crate::harness::tests::support::{add_hooks, add_tool, context, tool_described, user};
-use crate::harness::tests::task_support::{completed, deferred, eventually, flush};
+use crate::harness::tests::task_support::{
+    completed, deferred, eventually, flush, OpenTasksOptions,
+};
 use crate::harness::types::{
     AgentChange, ConversationCreateOptions, FieldChange, RegistrySnapshot,
 };
 use crate::session::{SessionError, SessionResult};
+use crate::storage::MemoryStorage;
 use crate::tasks::{define_task, NextTaskState, TaskDefinition, TaskRuntime, TaskRuntimeBackend};
 use crate::types::{
     ConversationOwnership, EntryDraft, EntryId, JoinPolicy, TaskId, TaskOutcome, TaskOutcomeStatus,
-    TaskState,
+    TaskState, TaskStatus,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -310,6 +314,7 @@ async fn commits_results_with_entries_atomically_keeps_memos_until_terminal_and_
                                             ownership: crate::types::TaskOwnership::Conversation,
                                             conversation_id: None,
                                             background: None,
+                                            abandon_on_restart: None,
                                         },
                                     )
                                     .await?;
@@ -534,6 +539,114 @@ async fn resumes_a_waiting_task_once_every_task_in_on_is_terminal_whatever_the_o
     assert_eq!(
         *lock(&outcomes),
         [TaskOutcomeStatus::Completed, TaskOutcomeStatus::Faulted]
+    );
+    harness.close(context()).await.unwrap();
+}
+
+// #10549
+#[tokio::test]
+async fn stamps_started_at_at_the_first_run_and_ended_at_when_terminal_keeping_started_at_through_a_wait(
+) {
+    let clock = Arc::new(AtomicU64::new(1_000_f64.to_bits()));
+    let set_clock = |ms: f64| clock.store(ms.to_bits(), Ordering::SeqCst);
+    let gate = deferred::<()>();
+    let on: Shared<Vec<TaskId>> = shared(Vec::new());
+    let waiter =
+        define_task(
+            TaskDefinition::<(), Wait, (), ()>::new(
+                "test.timed-waiter",
+                1,
+                |(): &()| Ok(Wait::Wait),
+                |_task, runtime, cx: Context| async move {
+                    super::abort_with(&runtime, "test", &cx).await
+                },
+            )
+            .phase("wait", {
+                let on = on.clone();
+                move |_task, runtime: TaskRuntime<(), Wait, (), ()>, cx: Context| {
+                    let on = lock(&on).clone();
+                    async move {
+                        runtime
+                            .commit(
+                                move |_tx, _current| async move {
+                                    Ok(Some(NextTaskState::Waiting {
+                                        checkpoint: Wait::Resume,
+                                        on,
+                                        policy: JoinPolicy::AllSettled,
+                                    }))
+                                },
+                                &cx,
+                            )
+                            .await
+                    }
+                }
+            })
+            .phase(
+                "resume",
+                |_task, runtime: TaskRuntime<(), Wait, (), ()>, cx: Context| async move {
+                    complete(&runtime, (), &cx).await
+                },
+            ),
+        );
+    let held = gated("test.timed-held", &gate);
+    let now = Arc::clone(&clock);
+    let OpenedRoot { harness, root, .. } = open_root_with(
+        Arc::new(MemoryStorage::new()),
+        &[waiter.erase(), held.erase()],
+        OpenTasksOptions {
+            now: Some(Arc::new(move || f64::from_bits(now.load(Ordering::SeqCst)))),
+            ..OpenTasksOptions::default()
+        },
+    )
+    .await;
+    let held_id = start(&root, &held).await.erase();
+    *lock(&on) = vec![held_id];
+    let waiter_id = create(&root, &waiter, &()).await.erase();
+    let times = || async {
+        harness
+            .inspect(context())
+            .await
+            .unwrap()
+            .tasks
+            .into_iter()
+            .map(|task| (task.record.id, task.record.started_at, task.record.ended_at))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        times().await,
+        [(held_id, None, None), (waiter_id, None, None)]
+    );
+
+    set_clock(2_000.0);
+    harness.resume().unwrap();
+    eventually(|| async {
+        harness
+            .get_task(waiter_id, context())
+            .await
+            .unwrap()
+            .is_some_and(|record| record.state.status() == TaskStatus::Waiting)
+    })
+    .await;
+    assert_eq!(
+        times().await,
+        [
+            (held_id, Some(2_000.0), None),
+            (waiter_id, Some(2_000.0), None)
+        ]
+    );
+
+    // The waiter runs again at 5_000; its start stays the first run.
+    set_clock(5_000.0);
+    gate.resolve(());
+    let settled_waiter = harness.wait_for_task(waiter_id, context()).await.unwrap();
+    let settled_held = harness.get_task(held_id, context()).await.unwrap().unwrap();
+    assert_eq!(
+        (settled_held.started_at, settled_held.ended_at),
+        (Some(2_000.0), Some(5_000.0))
+    );
+    assert_eq!(
+        (settled_waiter.started_at, settled_waiter.ended_at),
+        (Some(2_000.0), Some(5_000.0))
     );
     harness.close(context()).await.unwrap();
 }

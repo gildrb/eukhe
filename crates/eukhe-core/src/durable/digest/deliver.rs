@@ -84,7 +84,12 @@ async fn deliver(
     let Some(conversation) = harness.conversation(conversation_id, &cx).await? else {
         return Ok(None);
     };
-    let view = conversation.context(&cx).await?;
+    let view = conversation
+        .context(
+            &cx,
+            eukhe_durable::harness::types::ContextOptions::default(),
+        )
+        .await?;
     let latest = latest_in_context_digest(&view.entries, &view.contributions);
     let agent = conversation.agent(&cx).await?;
     let tool_names: Vec<&str> = agent.tools.iter().map(|tool| tool.name.as_str()).collect();
@@ -142,7 +147,13 @@ async fn deliver(
     // (their edits landed with the new entry), and the fresh digest rides
     // ahead of the current turn's prompt rather than at the context tail,
     // where the commit placed it.
-    let committed = conversation.context(&cx).await?.messages;
+    let committed = conversation
+        .context(
+            &cx,
+            eukhe_durable::harness::types::ContextOptions::default(),
+        )
+        .await?
+        .messages;
     let mut messages = committed;
     if let Some(at) = messages.iter().rposition(|sent| *sent == message) {
         messages.remove(at);

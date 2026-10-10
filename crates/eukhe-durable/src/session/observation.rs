@@ -334,6 +334,9 @@ pub enum WatchEnd {
     Retired,
     /// The listener failed; no later frame is delivered.
     ListenerError(Arc<dyn std::error::Error + Send + Sync>),
+    /// The Session failed; the error is what failed it, usually a storage
+    /// error (see [`crate::errors::SessionFailed`]).
+    SessionFailed(Arc<SessionError>),
 }
 
 impl WatchEnd {
@@ -346,6 +349,7 @@ impl WatchEnd {
             Self::SessionClosed => "session_closed",
             Self::Retired => "retired",
             Self::ListenerError(_) => "listener_error",
+            Self::SessionFailed(_) => "session_failed",
         }
     }
 }
@@ -355,6 +359,9 @@ impl PartialEq for WatchEnd {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::ListenerError(left), Self::ListenerError(right)) => {
+                left.to_string() == right.to_string()
+            }
+            (Self::SessionFailed(left), Self::SessionFailed(right)) => {
                 left.to_string() == right.to_string()
             }
             _ => self.reason() == other.reason(),
@@ -412,8 +419,12 @@ struct WatchState<T> {
     cancellation: Option<JoinHandle<()>>,
 }
 
+/// Receives a watch listener's failure, which also ends the watch.
+pub(crate) type WatchReport = Arc<dyn Fn(SessionError) + Send + Sync>;
+
 struct WatchInner<T> {
     state: Mutex<WatchState<T>>,
+    report: WatchReport,
     replace: Option<Box<dyn Fn() -> T + Send + Sync>>,
     closed: watch::Sender<Option<WatchEnd>>,
     delivery: watch::Sender<Delivery>,
@@ -445,16 +456,19 @@ impl<T: ObservedValue> fmt::Debug for CommittedWatch<T> {
 }
 
 impl<T: ObservedValue> CommittedWatch<T> {
-    /// A watch at `value`; `detach` runs once when it terminates. `replace`
-    /// gives the value an overflow delivers; by default the newest value.
+    /// A watch at `value`; `detach` runs once when it terminates. `report`
+    /// gets a listener's failure, which also ends the watch. `replace` gives
+    /// the value an overflow delivers; by default the newest value.
     pub(crate) fn new(
         value: T,
         detach: Box<dyn FnOnce() + Send>,
+        report: WatchReport,
         replace: Option<Box<dyn Fn() -> T + Send + Sync>>,
     ) -> Self {
         let (closed, _) = watch::channel(None);
         Self {
             inner: Arc::new(WatchInner {
+                report,
                 state: Mutex::new(WatchState {
                     value,
                     pending: VecDeque::new(),
@@ -589,9 +603,10 @@ impl<T: ObservedValue> CommittedWatch<T> {
         self.terminate(WatchEnd::Cancelled);
     }
 
-    /// Terminate as `session_closed`.
-    pub(crate) fn close_session(&self) {
-        self.terminate(WatchEnd::SessionClosed);
+    /// Terminate as `session_closed`, or as `session_failed` with the error
+    /// when the Session failed.
+    pub(crate) fn close_session(&self, failure: Option<Arc<SessionError>>) {
+        self.terminate(failure.map_or(WatchEnd::SessionClosed, WatchEnd::SessionFailed));
     }
 
     /// Queue one committed frame; past 100 pending frames they fold into one
@@ -674,7 +689,10 @@ impl<T: ObservedValue> CommittedWatch<T> {
             let retirement = frame.value.is_retirement();
             let seq = frame.seq;
             if let Err(error) = listener(frame.value, frame.ops, delivery_context).await {
-                self.terminate(WatchEnd::ListenerError(error));
+                if self.lock().end.is_none() {
+                    (self.inner.report)(SessionError::Other(Arc::clone(&error)));
+                    self.terminate(WatchEnd::ListenerError(error));
+                }
                 break;
             }
             self.inner

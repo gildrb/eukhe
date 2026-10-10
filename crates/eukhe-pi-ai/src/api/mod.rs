@@ -8,8 +8,8 @@
 //! `google-generative-ai`, `google-vertex`, `mistral-conversations`,
 //! `bedrock-converse-stream`, and `pi-messages`; the image API
 //! `openrouter-images`; and the classifier APIs `typesafe-system-one`,
-//! `cloudflare-workers-ai-system-one`, and `llama-cpp-classify`. Every model
-//! names its API in `model.api`.
+//! `cloudflare-workers-ai-system-one`, `llama-cpp-classify`, and
+//! `openai-decisions`. Every model names its API in `model.api`.
 //!
 //! Each wire API lives in its own module `api::<id_in_snake_case>` (port of
 //! `src/api/<id>.ts`) and exposes one constructor returning the API's
@@ -69,6 +69,7 @@ pub mod azure_openai_responses;
 pub mod bedrock_converse_stream;
 pub mod builtin;
 pub mod cache_breakpoints;
+pub(crate) mod classifier_shared;
 pub mod cloudflare;
 pub mod cloudflare_ai_binding;
 pub mod cloudflare_workers_ai_system_one;
@@ -82,6 +83,7 @@ pub mod llama_cpp_classify;
 pub mod mistral_conversations;
 pub mod openai_codex_responses;
 pub mod openai_completions;
+pub mod openai_decisions;
 pub mod openai_prompt_cache;
 pub mod openai_responses;
 pub mod openai_responses_shared;

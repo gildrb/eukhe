@@ -363,6 +363,7 @@ async fn survives_reopen_blocked_and_is_orphaned_on_abort_with_its_status_remove
                             ownership: TaskOwnership::Conversation,
                             conversation_id: None,
                             background: None,
+                            abandon_on_restart: None,
                         },
                     )
                     .await?;

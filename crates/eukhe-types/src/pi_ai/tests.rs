@@ -55,6 +55,7 @@ fn assistant_message_serializes_role_first_and_js_numbers() {
         raw_stop_reason: None,
         end_turn: None,
         timestamp: 1,
+        duration_ms: None,
     };
     let text = serde_json::to_string(&Message::Assistant(message.clone())).unwrap();
     assert_eq!(
@@ -180,6 +181,7 @@ fn events_serialize_with_camel_case_fields() {
         raw_stop_reason: None,
         end_turn: None,
         timestamp: 0,
+        duration_ms: None,
     };
     let event = AssistantMessageEvent::TextDelta {
         content_index: 2,

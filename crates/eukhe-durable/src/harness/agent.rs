@@ -12,7 +12,8 @@ use futures::FutureExt;
 use super::types::{
     Agent, AgentChange, AgentState, CompactionPolicy, ConversationRetryPolicy, Extension,
     ExtensionsChange, FieldChange, HarnessSettings, HookHandlers, ProgressPolicy, PromptSection,
-    QueueMode, RegistrySnapshot, Settings, ToolExecutionMode, ToolRegistration, ToolsChange,
+    QueueMode, RegistrySnapshot, Settings, ToolCaller, ToolExecutionMode, ToolRegistration,
+    ToolsChange,
 };
 use crate::documents::{DocDefinition, RewindableConversationDoc};
 use crate::session::{SessionError, SessionResult, Tx};
@@ -56,6 +57,9 @@ pub static AGENT_DOC: RewindableConversationDoc<AgentState> =
         Ok(token) => token,
         Err(_) => panic!("pi.agent has a valid version"),
     };
+
+/// Default `settings.context_retention_ms`: ten minutes.
+const DEFAULT_CONTEXT_RETENTION_MS: f64 = 600_000.0;
 
 /// Resolve the host settings: every field over its built-in default, object
 /// fields merged.
@@ -115,6 +119,9 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
         follow_up_mode: settings
             .and_then(|settings| settings.follow_up_mode)
             .unwrap_or(QueueMode::OneAtATime),
+        context_retention_ms: settings
+            .and_then(|settings| settings.context_retention_ms)
+            .unwrap_or(DEFAULT_CONTEXT_RETENTION_MS),
     }
 }
 
@@ -133,9 +140,10 @@ pub async fn configure(
     apply_change(&state, change)
 }
 
-/// `add_tools` of a tool round: an array gets each name it lacks appended,
-/// `{ remove }` loses the names, and unset tools already offer every tool,
-/// so nothing is written.
+/// `add_tools` of a tool round, applied to `tools` and `modelTools`, so the
+/// next request offers the tools: an array gets each name it lacks appended,
+/// `{ remove }` loses the names, and an unset filter already lets every tool
+/// through, so nothing is written.
 ///
 /// # Errors
 ///
@@ -146,30 +154,32 @@ pub async fn add_tools(
     added: &[String],
 ) -> SessionResult<()> {
     let state = tx.doc(&AGENT_DOC, conversation_id).await?;
-    let Some(tools) = state.get("tools")?.and_then(DraftItem::into_draft) else {
-        return Ok(());
-    };
-    if tools.is_array() {
-        for name in added {
-            if !draft_strings(&tools)?.contains(name) {
-                tools.push([JsonValue::from(name.as_str())])?;
+    for field in ["tools", "modelTools"] {
+        let Some(filter) = state.get(field)?.and_then(DraftItem::into_draft) else {
+            continue;
+        };
+        if filter.is_array() {
+            for name in added {
+                if !draft_strings(&filter)?.contains(name) {
+                    filter.push([JsonValue::from(name.as_str())])?;
+                }
             }
+            continue;
         }
-        return Ok(());
-    }
-    let Some(remove) = tools.get("remove")?.and_then(DraftItem::into_draft) else {
-        return Ok(());
-    };
-    let remove = draft_strings(&remove)?;
-    if remove.iter().any(|name| added.contains(name)) {
-        let kept: Vec<JsonValue> = remove
-            .iter()
-            .filter(|name| !added.contains(name))
-            .map(|name| JsonValue::from(name.as_str()))
-            .collect();
-        let mut replacement = crate::types::JsonObject::new();
-        replacement.insert("remove", JsonValue::from(kept));
-        state.set("tools", JsonValue::from(replacement))?;
+        let Some(remove) = filter.get("remove")?.and_then(DraftItem::into_draft) else {
+            continue;
+        };
+        let remove = draft_strings(&remove)?;
+        if remove.iter().any(|name| added.contains(name)) {
+            let kept: Vec<JsonValue> = remove
+                .iter()
+                .filter(|name| !added.contains(name))
+                .map(|name| JsonValue::from(name.as_str()))
+                .collect();
+            let mut replacement = crate::types::JsonObject::new();
+            replacement.insert("remove", JsonValue::from(kept));
+            state.set(field, JsonValue::from(replacement))?;
+        }
     }
     Ok(())
 }
@@ -247,20 +257,25 @@ fn apply_change(state: &Draft, change: &AgentChange) -> SessionResult<()> {
             })
         })?,
     )?;
-    set_field(
-        state,
-        "tools",
-        map_change(&change.tools, |tools| {
-            Ok(match tools {
-                ToolsChange::Exactly(tools) => tool_names(tools),
-                ToolsChange::Remove(tools) => {
-                    let mut edit = crate::types::JsonObject::new();
-                    edit.insert("remove", tool_names(tools));
-                    JsonValue::from(edit)
-                }
-            })
-        })?,
-    )?;
+    for (field, change) in [
+        ("tools", &change.tools),
+        ("modelTools", &change.model_tools),
+    ] {
+        set_field(
+            state,
+            field,
+            map_change(change, |tools| {
+                Ok(match tools {
+                    ToolsChange::Exactly(tools) => tool_names(tools),
+                    ToolsChange::Remove(tools) => {
+                        let mut edit = crate::types::JsonObject::new();
+                        edit.insert("remove", tool_names(tools));
+                        JsonValue::from(edit)
+                    }
+                })
+            })?,
+        )?;
+    }
     set_field(
         state,
         "instructions",
@@ -372,25 +387,30 @@ pub fn resolve_agent(
         }
     }
 
-    let tools: Vec<Arc<ToolRegistration>> = match state.and_then(|state| state.tools.as_ref()) {
-        None => composed.values().cloned().collect(),
-        Some(super::types::ToolFilter::Exactly(filter)) => {
-            let mut seen = HashSet::new();
-            filter
-                .iter()
-                .filter(|name| seen.insert(name.as_str()))
-                .filter_map(|name| composed.get(name).cloned())
-                .collect()
-        }
-        Some(super::types::ToolFilter::Remove { remove }) => {
-            let removed: HashSet<&str> = remove.iter().map(String::as_str).collect();
-            composed
-                .values()
-                .filter(|tool| !removed.contains(tool.name.as_str()))
-                .cloned()
-                .collect()
+    let enabled = filter_tools(
+        composed.values().cloned().collect(),
+        state.and_then(|state| state.tools.as_ref()),
+    );
+    let callable_by = |caller: ToolCaller| {
+        move |tool: &&Arc<ToolRegistration>| {
+            tool.callers
+                .as_ref()
+                .is_none_or(|callers| callers.contains(&caller))
         }
     };
+    let tools = filter_tools(
+        enabled
+            .iter()
+            .filter(callable_by(ToolCaller::Model))
+            .cloned()
+            .collect(),
+        state.and_then(|state| state.model_tools.as_ref()),
+    );
+    let callable: Vec<Arc<ToolRegistration>> = enabled
+        .iter()
+        .filter(callable_by(ToolCaller::Tools))
+        .cloned()
+        .collect();
 
     let instructions = state.and_then(|state| state.instructions.clone());
     let mut agent_sections: Vec<Arc<PromptSection>> = sections.into_values().collect();
@@ -410,9 +430,40 @@ pub fn resolve_agent(
             .unwrap_or(ModelThinkingLevel::Off),
         extensions,
         tools,
+        callable,
         sections: agent_sections,
         instructions,
         cwd: state.and_then(|state| state.cwd.clone()),
+    }
+}
+
+/// `tools` through a stored filter: an array selects exactly its names, in
+/// its order; `{ remove }` drops names.
+fn filter_tools(
+    tools: Vec<Arc<ToolRegistration>>,
+    filter: Option<&super::types::ToolFilter>,
+) -> Vec<Arc<ToolRegistration>> {
+    match filter {
+        None => tools,
+        Some(super::types::ToolFilter::Exactly(filter)) => {
+            let by_name: IndexMap<&str, &Arc<ToolRegistration>> = tools
+                .iter()
+                .map(|tool| (tool.name.as_str(), tool))
+                .collect();
+            let mut seen = HashSet::new();
+            filter
+                .iter()
+                .filter(|name| seen.insert(name.as_str()))
+                .filter_map(|name| by_name.get(name.as_str()).map(|tool| Arc::clone(tool)))
+                .collect()
+        }
+        Some(super::types::ToolFilter::Remove { remove }) => {
+            let removed: HashSet<&str> = remove.iter().map(String::as_str).collect();
+            tools
+                .into_iter()
+                .filter(|tool| !removed.contains(tool.name.as_str()))
+                .collect()
+        }
     }
 }
 

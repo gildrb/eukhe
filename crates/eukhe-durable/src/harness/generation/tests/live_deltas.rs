@@ -277,7 +277,7 @@ fn noop(name: &str) -> Arc<ToolRegistration> {
         empty_object_schema(),
         |_, _, _| async {
             Ok(ToolExecutionResult {
-                content: Some(Vec::new()),
+                output: Some(Vec::new()),
                 ..ToolExecutionResult::default()
             })
         },
@@ -892,7 +892,7 @@ async fn starts_calls_the_request_did_not_offer_as_done_and_marks_a_faulted_tool
     // the closest value whose result commit throws the same way.
     let bad = ToolRegistration::new("bad", "bad", empty_object_schema(), |_, _, _| async {
         Ok(ToolExecutionResult {
-            content: Some(Vec::new()),
+            output: Some(Vec::new()),
             usage: Some(Usage {
                 input: u64::MAX,
                 ..Usage::default()

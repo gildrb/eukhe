@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::rejecting::{is_rejection, Rejecting};
+use super::rejecting::Failing;
 use super::{
     create, marked, open_memory_nodes, open_nodes, outcome_of, owned_conversation,
     spawn_and_finish, status, until, until_status, Behavior, Opened, Script, BACKGROUND,
@@ -10,7 +10,8 @@ use super::{
 };
 use crate::harness::tests::support::context;
 use crate::harness::types::ConversationAbortOptions;
-use crate::types::{EntryDraft, TaskOptions, TaskOutcomeStatus, TaskStatus};
+use crate::session::SessionEnd;
+use crate::types::{TaskOptions, TaskOutcomeStatus, TaskStatus};
 
 #[tokio::test]
 async fn marks_a_held_completed_task_with_conversation_abort_the_work_below_is_aborted_the_outcome_stays(
@@ -127,9 +128,9 @@ async fn stops_a_cascade_at_an_unmarked_background_task_but_not_at_a_marked_one(
 }
 
 #[tokio::test]
-async fn retries_a_finalization_the_storage_rejected_with_the_next_commit() {
+async fn fails_the_harness_on_a_failed_finalization_which_reopening_applies() {
     let script = Script::new();
-    let storage = Rejecting::new();
+    let storage = Failing::new();
     let Opened {
         harness,
         root,
@@ -141,25 +142,19 @@ async fn retries_a_finalization_the_storage_rejected_with_the_next_commit() {
     until_status(&harness, parent, TaskStatus::Completing).await;
     storage.arm(parent);
     script.open("child");
-    let child = script.id("parent").await;
-    harness.wait_for_task(child, context()).await.unwrap();
-    let reported = &reports;
-    until(|| async move { reported.all().iter().any(is_rejection) }).await;
-    assert_eq!(status(&harness, parent).await, TaskStatus::Completing);
-    let conversation = root.id();
-    root.commit(
-        move |tx| async move {
-            tx.append_entry(conversation, EntryDraft::new("note"))
-                .await?;
-            Ok(())
-        },
-        context(),
-    )
-    .await
-    .unwrap();
+    let end = harness.closed().await;
+    assert!(
+        matches!(&end, SessionEnd::Failed { error } if error.to_string() == "disk gone"),
+        "{end:?}"
+    );
+    let reported = reports.all();
+    assert_eq!(reported.len(), 1);
+    assert_eq!(reported[0].to_string(), "disk gone");
+    harness.close(context()).await.unwrap();
+    let reopened = open_nodes(&script, storage.reopen() as _).await;
     assert_eq!(
-        outcome_of(&harness, parent).await,
+        outcome_of(&reopened.harness, parent).await,
         TaskOutcomeStatus::Completed
     );
-    harness.close(context()).await.unwrap();
+    reopened.harness.close(context()).await.unwrap();
 }

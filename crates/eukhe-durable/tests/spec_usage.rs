@@ -26,7 +26,8 @@ use eukhe_durable::harness::{Harness, RootOptions, GENERATION_TASK, LIVE_DOC, TO
 use eukhe_durable::session::{Session, SessionError, SessionResult, Tx};
 use eukhe_durable::tasks::{define_task, NextTaskState, Task, TaskDefinition};
 use eukhe_durable::tools::{
-    create_bash_tool, create_edit_tool, create_read_tool, BashToolOptions, CODING_TOOLS,
+    create_bash_tool, create_edit_tool, create_read_tool, BashToolOptions, ReadToolOptions,
+    CODING_TOOLS,
 };
 use eukhe_durable::types::{
     ConversationId, ConversationOwnership, ConversationQuery, DocumentReaderExt, EntryDraft,
@@ -242,7 +243,7 @@ impl HarnessSettingsSource for UserSettings {
 #[expect(clippy::too_many_lines, reason = "one TS function, ported whole")]
 fn examples(app: &Arc<dyn App>) -> Examples {
     let app = Arc::clone(app);
-    let read_tool = create_read_tool();
+    let read_tool = create_read_tool(ReadToolOptions::default());
     let edit_tool = create_edit_tool();
     let bash_tool = create_bash_tool(BashToolOptions::default());
 
@@ -511,7 +512,7 @@ fn examples(app: &Arc<dyn App>) -> Examples {
                             };
                             let text = app.answer_text(Arc::clone(&api), answer, &context).await?;
                             Ok(ToolExecutionResult {
-                                content: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+                                output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
                                 ..ToolExecutionResult::default()
                             })
                         }
@@ -888,6 +889,7 @@ fn examples(app: &Arc<dyn App>) -> Examples {
                                 ownership: TaskOwnership::Conversation,
                                 conversation_id: None,
                                 background: Some(true),
+                                abandon_on_restart: None,
                             },
                         )
                         .await?;
@@ -938,6 +940,7 @@ fn examples(app: &Arc<dyn App>) -> Examples {
                                         ownership: TaskOwnership::Conversation,
                                         conversation_id: Some(conversation_id),
                                         background: None,
+                                        abandon_on_restart: None,
                                     },
                                 )
                                 .await?; // further table writes are fine

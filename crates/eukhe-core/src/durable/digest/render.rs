@@ -153,7 +153,9 @@ pub async fn conversation_digest(
     let agent = conversation.agent(cx).await?;
     let tool_names: Vec<&str> = agent.tools.iter().map(|tool| tool.name.as_str()).collect();
     let context = digest_context(deps, &tool_names);
-    let view = conversation.context(cx).await?;
+    let view = conversation
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+        .await?;
     let goal = super::super::goals::goal_state(&harness, conversation.id(), cx).await?;
     let terms = digest_query_terms(
         goal.objective.as_deref(),

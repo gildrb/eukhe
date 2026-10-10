@@ -42,7 +42,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 fn text(text: &str) -> ToolExecutionResult {
     ToolExecutionResult {
-        content: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+        output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
         ..ToolExecutionResult::default()
     }
 }
@@ -409,6 +409,7 @@ async fn rejects_invocation_bound_waits_and_stops_watches_when_the_tools_invocat
                 let options = InvocationTaskOptions {
                     ownership: TaskOwnership::Conversation,
                     background: None,
+                    abandon_on_restart: None,
                 };
                 let child = api.create_task(&never, &json("{}"), options, &cx).await?;
                 *lock(&wait_slot) = Some(tokio::spawn(api.wait_for_task(child, &cx)));

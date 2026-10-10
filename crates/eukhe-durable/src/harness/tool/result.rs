@@ -7,7 +7,7 @@ use eukhe_types::pi_ai::{
 };
 
 use crate::entries::{ToolResultData, TOOL_RESULT_ENTRY};
-use crate::harness::live::ToolSlot;
+use crate::harness::live::SlotProgress;
 use crate::harness::output::{bound_output, OutputLimits};
 use crate::harness::types::{
     OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionResult,
@@ -16,7 +16,7 @@ use crate::harness::usage::{record_usage, UsageBucket};
 use crate::session::{SessionResult, Tx};
 use crate::types::{ConversationId, TypedEntry, TypedEntryDraft};
 
-/// How a tool task ends; the result entry is appended either way. `Failed`
+/// How a tool task ends; the result is settled either way. `Failed`
 /// (execution threw or was interrupted) records cancellation intent for the
 /// conversations the call owns; a result with `is_error` still completes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,12 +35,12 @@ pub(super) fn tool_diagnostic(code: &str, message: &str) -> ToolDiagnostic {
     }
 }
 
-/// An error result the Harness writes itself: no content and one `error`
+/// An error result the Harness writes itself: no output and one `error`
 /// diagnostic with `code`.
 #[must_use]
 pub fn harness_error(code: &str, message: &str) -> ToolExecutionResult {
     ToolExecutionResult {
-        content: Some(Vec::new()),
+        output: Some(Vec::new()),
         is_error: Some(true),
         diagnostics: Some(vec![tool_diagnostic(code, message)]),
         ..ToolExecutionResult::default()
@@ -70,7 +70,11 @@ pub(super) fn truncated(
 
 /// An error result from the slot's durable partial output, details, and
 /// diagnostics.
-pub(super) fn from_slot(slot: Option<&ToolSlot>, code: &str, message: &str) -> ToolExecutionResult {
+pub(super) fn from_slot(
+    slot: Option<&SlotProgress>,
+    code: &str,
+    message: &str,
+) -> ToolExecutionResult {
     let mut diagnostics = slot
         .and_then(|slot| slot.diagnostics.clone())
         .unwrap_or_default();
@@ -80,12 +84,12 @@ pub(super) fn from_slot(slot: Option<&ToolSlot>, code: &str, message: &str) -> T
         diagnostics.push(truncated(dropped_lines, dropped_bytes, None));
     }
     diagnostics.push(tool_diagnostic(code, message));
-    let content = match slot.and_then(|slot| slot.output.as_deref()) {
+    let output = match slot.and_then(|slot| slot.output.as_deref()) {
         None | Some("") => Vec::new(),
         Some(output) => vec![UserContentBlock::Text(TextContent::new(output))],
     };
     ToolExecutionResult {
-        content: Some(content),
+        output: Some(output),
         is_error: Some(true),
         details: slot.and_then(|slot| slot.details.clone()),
         diagnostics: Some(diagnostics),
@@ -115,6 +119,18 @@ fn render_diagnostics(diagnostics: &[ToolDiagnostic]) -> String {
     format!("<harness>\n{}\n</harness>", lines.join("\n"))
 }
 
+/// When a result was created and how long its execution took (TS `{
+/// timestamp, durationMs? }`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ToolResultMeta {
+    /// The Harness clock.
+    pub timestamp: f64,
+    /// How long `execute()` took in this attempt, measured with a monotonic
+    /// clock; `None` for calls that did not execute, and for interrupted or
+    /// aborted calls.
+    pub duration_ms: Option<u64>,
+}
+
 /// Append a `pi.tool-result` entry. The content ends with the rendered
 /// diagnostics, so the stored message is exactly what the model sees; `data`
 /// keeps the structured list. A result's usage is added to `pi.usage` in the
@@ -129,10 +145,14 @@ pub async fn append_tool_result(
     conversation_id: ConversationId,
     call: &ToolCall,
     result: &ToolExecutionResult,
-    timestamp: f64,
+    meta: ToolResultMeta,
 ) -> SessionResult<TypedEntry<ToolResultData>> {
+    let ToolResultMeta {
+        timestamp,
+        duration_ms,
+    } = meta;
     let diagnostics = result.diagnostics.clone().unwrap_or_default();
-    let mut content = result.content.clone().unwrap_or_default();
+    let mut content = result.output.clone().unwrap_or_default();
     if !diagnostics.is_empty() {
         content.push(UserContentBlock::Text(TextContent::new(
             render_diagnostics(&diagnostics),
@@ -151,6 +171,7 @@ pub async fn append_tool_result(
         nested_calls: None,
         is_error: result.is_error.unwrap_or(false),
         timestamp: timestamp_ms(timestamp),
+        duration_ms,
     };
     if let Some(usage) = &result.usage {
         record_usage(tx, conversation_id, UsageBucket::Tools, &call.name, usage).await?;

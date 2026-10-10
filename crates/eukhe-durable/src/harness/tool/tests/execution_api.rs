@@ -105,6 +105,7 @@ fn probe_tool(child: JsonTask, sink: Arc<Mutex<Vec<JsonValue>>>) -> Arc<ToolRegi
             let options = InvocationTaskOptions {
                 ownership: TaskOwnership::Conversation,
                 background: None,
+                abandon_on_restart: None,
             };
             let id = api
                 .create_task(&child, &json(r#"{"n":21}"#), options, &cx)
@@ -189,7 +190,7 @@ async fn answers_a_throwing_environment_with_a_tool_error_result_and_reports_it_
         &setup.registry,
         tool("probe", |_, _, _| async {
             Ok(ToolExecutionResult {
-                content: Some(vec![UserContentBlock::Text(TextContent::new("ran"))]),
+                output: Some(vec![UserContentBlock::Text(TextContent::new("ran"))]),
                 ..ToolExecutionResult::default()
             })
         }),

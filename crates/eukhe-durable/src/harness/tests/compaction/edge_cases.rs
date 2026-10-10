@@ -9,15 +9,16 @@ use eukhe_types::pi_ai::{AssistantMessage, Message, StopReason};
 use futures::FutureExt;
 
 use super::automatic::{event_kinds, record_events};
-use super::interactions::FaultClock;
+use super::interactions::faulting;
 use super::{
-    answer, compact, compaction_tasks, doc, failure, gated, history, kinds, live, open, result,
-    step, submission, submission_id, submit, summary, text, turn, user_text, with_stop,
-    OpenOptions, BACKGROUND, BLOCKING, MANUAL, OVERFLOW,
+    answer, compact, compaction_tasks, doc, failure, first_user_text, gated, history, kinds, live,
+    open, result, step, submission, submission_id, submit, summary, text, turn, user_text,
+    with_stop, OpenOptions, BACKGROUND, BLOCKING, MANUAL, OVERFLOW,
 };
-use crate::errors::{StorageError, StorageRejected};
+use crate::errors::StorageError;
 use crate::harness::events::{watch_events, AgentEvent};
 use crate::harness::live::{CompactionStatus, LiveState, LIVE_DOC};
+use crate::harness::tests::chat_support::open_chat;
 use crate::harness::tests::chat_support::{all_entries, chat_setup, wait_for};
 use crate::harness::tests::support::{add_hooks, add_section, compaction_task, context};
 use crate::harness::tests::task_support::deferred;
@@ -25,7 +26,9 @@ use crate::harness::types::{
     AgentChange, CompactionDecision, CompactionHooks, CompactionPolicy, CompactionReason,
     CompactionResult, FieldChange, ModelRef,
 };
+use crate::harness::usage::{UsageState, USAGE_DOC};
 use crate::session::tests::support::ControlledStorage;
+use crate::session::SessionEnd;
 use crate::types::{Storage, SubmissionStatus, TaskId, TaskOutcome};
 
 fn task_id(id: crate::types::TaskId) -> TaskId<CompactionResult> {
@@ -153,17 +156,27 @@ async fn starts_no_background_compaction_after_a_blocking_one_in_the_same_genera
 
 // TS replaces `models.completeSimple` with a throwing function. Rust
 // `Models` cannot throw there; the closest observable fault is an uncaught
-// summarize error, here a fractional clock reading the phase rejects.
+// summarize error, here the negative `maxTokens` pinned from a policy
+// changed after preparation, which the phase rejects.
 #[tokio::test]
 async fn sends_the_request_anyway_when_its_blocking_compaction_faults() {
     let chat = open(small()).await;
     history(&chat).await;
     chat.set_policy(BLOCKING);
-    let clock = FaultClock::install(&chat);
-    add_hooks(
+    let changed = Arc::new(AtomicBool::new(false));
+    let setup = Arc::clone(&chat.setup);
+    add_section(
         &chat.setup.registry,
-        compaction_task(),
-        clock.arming_hooks(),
+        "policy",
+        move |_, _| {
+            // Rendering runs after preparation read the policy; the compaction
+            // reads this one.
+            if !changed.swap(true, Ordering::SeqCst) {
+                super::set_policy(&setup, faulting(BLOCKING));
+            }
+            async { Ok(Some("p".to_owned())) }.boxed()
+        },
+        None,
         None,
     )
     .unwrap();
@@ -369,7 +382,7 @@ async fn keeps_a_background_summary_queued_through_a_retry_backoff_while_a_block
         input.wait(context()).await.unwrap().state.status(),
         SubmissionStatus::Done
     );
-    assert!(user_text(chat.faux.last_agent_messages().first()).contains("BLOCKING"));
+    assert!(first_user_text(&chat.faux.last_agent_messages()).contains("BLOCKING"));
     let settled = handle.wait(context()).await.unwrap();
     assert_eq!(settled.state.status(), SubmissionStatus::Unanswered);
     assert_eq!(settled.state.reason(), Some("stale"));
@@ -391,13 +404,19 @@ async fn summarizes_the_previous_summary_in_a_second_compaction() {
         "<conversation>\n[User]: The conversation history before this point was compacted"
     ));
     assert!(prompt.contains("FIRST"));
-    let messages = chat.root.context(context()).await.unwrap().messages;
-    assert!(user_text(messages.first()).contains("SECOND"));
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains("SECOND"));
     chat.harness.close(context()).await.unwrap();
 }
 
 #[tokio::test]
-async fn leaves_no_usage_submission_summary_or_outcome_when_the_classifying_commit_is_rejected() {
+async fn leaves_no_usage_submission_or_summary_when_the_classifying_commit_fails_which_fails_the_harness(
+) {
     let storage = ControlledStorage::new();
     let chat = open(OpenOptions {
         storage: Some(Arc::clone(&storage) as Arc<dyn Storage>),
@@ -408,34 +427,40 @@ async fn leaves_no_usage_submission_summary_or_outcome_when_the_classifying_comm
     let before = super::usage(&chat).await.models.get("faux/faux-1").copied();
     let failing = Arc::clone(&storage);
     chat.faux.summary(step(move |_| {
-        failing.fail_next_commit(StorageError::Rejected(StorageRejected::new("rejected")));
+        failing.fail_next_commit(StorageError::failed(std::io::Error::other("disk gone")));
         async { summary("SUMMARY") }
     }));
     let id = compact(&chat, None).await;
-    let outcome = result(&chat, id).await;
-    assert!(matches!(outcome, TaskOutcome::Faulted { .. }));
-    assert_eq!(
-        super::usage(&chat).await.models.get("faux/faux-1").copied(),
-        before
+    let end = chat.harness.closed().await;
+    assert!(
+        matches!(&end, SessionEnd::Failed { error } if error.to_string() == "disk gone"),
+        "{end:?}"
     );
-    assert!(!kinds(&chat.root)
-        .await
-        .iter()
-        .any(|kind| kind == "pi.compaction"));
-    assert!(chat
-        .harness
-        .inspect(context())
-        .await
-        .unwrap()
-        .submissions
-        .is_empty());
+    chat.harness.close(context()).await.unwrap();
+    // Nothing of the failed commit landed: the task is still live, without usage, entry, or submission.
+    storage.reopen();
     assert!(storage
         .submission_by_request(chat.id(), &format!("compaction:{id}"), context())
         .await
         .unwrap()
         .is_none());
-    assert_eq!(live(&chat).await.compactions, None);
-    chat.harness.close(context()).await.unwrap();
+    let record = storage.task(id.erase(), context()).await.unwrap();
+    assert_ne!(
+        record.map(|record| record.state.status()),
+        Some(crate::types::TaskStatus::Terminal)
+    );
+    let reopened = open_chat(Arc::clone(&storage) as Arc<dyn Storage>, &chat.setup, None)
+        .await
+        .unwrap();
+    let usage: UsageState = doc(&reopened.harness, &USAGE_DOC, reopened.root.id())
+        .await
+        .expect("pi.usage exists");
+    assert_eq!(usage.models.get("faux/faux-1").copied(), before);
+    assert!(!kinds(&reopened.root)
+        .await
+        .iter()
+        .any(|kind| kind == "pi.compaction"));
+    reopened.harness.close(context()).await.unwrap();
 }
 
 // ─── Pinning, silent overflow, and late policy changes ────────────────────

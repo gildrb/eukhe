@@ -67,7 +67,7 @@ fn load_versioned(version: &str, gate: &Arc<Gate>) -> Arc<Extension> {
                     // The sender lives in the gate, which this tool keeps.
                     let _ = open.wait_for(|open| *open).await;
                     Ok(ToolExecutionResult {
-                        content: Some(vec![UserContentBlock::Text(TextContent::new(version))]),
+                        output: Some(vec![UserContentBlock::Text(TextContent::new(version))]),
                         ..ToolExecutionResult::default()
                     })
                 }

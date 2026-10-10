@@ -3,16 +3,18 @@
 //! inputs (spec §5.5), finalization of held outcomes, and scheduler-written
 //! outcomes.
 
-use std::collections::HashSet;
 use std::future::Future;
 
 use eukhe_chord::context::{await_with_context, Context};
+use indexmap::IndexMap;
 
 use crate::session::{SessionError, SessionResult, TransactionScope, Tx};
-use crate::types::{AnyTaskRecord, ConversationId, TaskId, TaskOutcome, TaskState};
+use crate::types::{
+    AnyTaskRecord, ConversationId, TaskAbortReason, TaskId, TaskOutcome, TaskState,
+};
 
 use super::invocation::InvocationMode;
-use super::mirror::{marked, with_state, Queued};
+use super::mirror::{needs_request_mark, with_abort_mark, with_state, Queued};
 use super::ownership::{failed_outcome, parent_of, Background, Overlay, Scope, Up};
 use super::reservation::Resolution;
 use super::{Inner, SchedulerOutcome, TaskScheduler};
@@ -53,8 +55,10 @@ impl TaskScheduler {
     /// can take as `orphaned` when nothing it owns is live, then join the run
     /// invocation seen on the line; the commit listener signalled it. The
     /// abort invocation starts once the task's ordinary owned work is gone. A
-    /// `completing` task is only marked. The commit is enqueued at the call,
-    /// as the TS promise starts eagerly; the returned future only awaits it.
+    /// `completing` task is only marked. A request replaces a `restart` mark,
+    /// so a task abandoned after a restart that waits for its definition is
+    /// orphaned. The commit is enqueued at the call, as the TS promise starts
+    /// eagerly; the returned future only awaits it.
     ///
     /// # Errors
     ///
@@ -63,6 +67,17 @@ impl TaskScheduler {
         &self,
         id: TaskId,
         cx: &Context,
+    ) -> impl Future<Output = SessionResult<TaskAbortResult>> + Send + 'static {
+        self.abort_keeping(id, cx, KeepRestart::No)
+    }
+
+    /// [`Self::abort`]; with [`KeepRestart::Yes`], as for an owner's own
+    /// cleanup, a task abandoned after a restart keeps its mark and waits on.
+    pub(crate) fn abort_keeping(
+        &self,
+        id: TaskId,
+        cx: &Context,
+        keep_restart: KeepRestart,
     ) -> impl Future<Output = SessionResult<TaskAbortResult>> + Send + 'static {
         let inner = self.inner.arc();
         let committed = self.inner.session.commit_with(
@@ -74,6 +89,12 @@ impl TaskScheduler {
                     return Ok((TaskAbortResult::Terminal, None));
                 }
                 let invocation = inner.lock().invocations.get(&id).cloned();
+                // A restart-marked task has no run invocation; it only waits for its abort.
+                if keep_restart == KeepRestart::Yes
+                    && current.abort_reason == Some(TaskAbortReason::Restart)
+                {
+                    return Ok((TaskAbortResult::Marked, None));
+                }
                 if invocation.is_none() && !matches!(current.state, TaskState::Completing { .. }) {
                     inner.load_scopes(Queued::Skip).await?;
                     if !inner.lock().owned_live(None).contains_key(&id) {
@@ -87,8 +108,8 @@ impl TaskScheduler {
                         }
                     }
                 }
-                if !current.abort_requested {
-                    tx.set_task(marked(&current))?;
+                if needs_request_mark(&current) {
+                    tx.set_task(with_abort_mark(&current, None))?;
                 }
                 let run = invocation.filter(|invocation| invocation.mode == InvocationMode::Run);
                 Ok((TaskAbortResult::Marked, run))
@@ -96,14 +117,26 @@ impl TaskScheduler {
             cx,
             TransactionScope::default(),
         );
+        let failed = self.inner.session.failed();
         let cx = cx.clone();
         async move {
             let (result, run) = committed.await?;
-            // The commit listener signalled the run; join it.
+            // The commit listener signalled the run; join it. A run that
+            // ignores its signal can outlive a failed Session, which ends the
+            // wait instead.
             if let Some(run) = run {
-                await_with_context(run.done(), &cx)
+                // `Promise.race([run.done, session.failed])`: the first listed
+                // wins when both have settled.
+                let joined = async move {
+                    tokio::select! {
+                        biased;
+                        () = run.done() => Ok(()),
+                        error = failed => Err(error),
+                    }
+                };
+                await_with_context(joined, &cx)
                     .await
-                    .map_err(SessionError::Aborted)?;
+                    .map_err(SessionError::Aborted)??;
             }
             Ok(result)
         }
@@ -145,8 +178,8 @@ impl TaskScheduler {
                             continue;
                         }
                         reached.push(record.id);
-                        if !record.abort_requested {
-                            tx.set_task(marked(record))?;
+                        if needs_request_mark(record) {
+                            tx.set_task(with_abort_mark(record, None))?;
                         }
                     }
                 }
@@ -205,7 +238,7 @@ impl Inner {
             (cascade, checks)
         };
         let inner = std::sync::Arc::clone(&self);
-        let pass_checks = checks.clone();
+        let pass_checks = checks;
         let result = self
             .session
             .commit_with(
@@ -216,15 +249,26 @@ impl Inner {
                     let queued = inner
                         .load_scopes(if cascade { Queued::Load } else { Queued::Skip })
                         .await?;
+                    // A cascade from an abandoned owner passes its `restart` reason on; any other
+                    // intent marks, or upgrades a `restart` mark, as a request. Collected first, so
+                    // a request wins over a `restart` mark of the same pass.
                     let mut marks = Marks::default();
                     {
                         // Loading edges can reveal a cancelled owner, so marks
                         // are derived on every pass.
                         let state = inner.lock();
                         for record in state.live.values() {
-                            if !record.background && state.below_cancelled(parent_of(record)) {
-                                marks.mark(&tx, record)?;
+                            if record.background {
+                                continue;
                             }
+                            let Some(owner) = state.cancelling_owner(parent_of(record)) else {
+                                continue;
+                            };
+                            // Only an owner abandoned after a restart, and nothing else, passes its
+                            // reason on.
+                            let restart = owner.abort_reason == Some(TaskAbortReason::Restart)
+                                && !failed_outcome(owner);
+                            marks.mark(record, restart.then_some(TaskAbortReason::Restart));
                         }
                     }
                     for id in pass_checks {
@@ -241,11 +285,12 @@ impl Inner {
                         for member in &on {
                             if let Some(record) = state.live.get(member) {
                                 if !failed_outcome(record) {
-                                    marks.mark(&tx, record)?;
+                                    marks.mark(record, None);
                                 }
                             }
                         }
                     }
+                    marks.apply(&tx)?;
                     for id in queued {
                         let below = inner.lock().below_cancelled(Up::Conversation(id));
                         if below {
@@ -259,18 +304,12 @@ impl Inner {
             )
             .await;
         if let Err(error) = result {
-            // Any pass may have staged marks, so a failed one is retried with the next commit.
-            let closing = {
-                let mut state = self.lock();
-                state.cascade_pending = true;
-                state.fail_fast_checks.extend(checks);
-                state.closing
-            };
-            if !closing {
-                self.report(error);
-            }
+            // No extension code runs in this commit: a failure is a storage
+            // failure, a host callback, or a bug. None is fixed by running the
+            // pass again, so it fails the Session, which reports it.
+            self.fail_session(error);
         }
-        self.resolve_idle_waiters();
+        self.settle_idle();
     }
 
     /// Whether any of `ids` holds or ended with an outcome other than `completed`.
@@ -365,17 +404,40 @@ impl Inner {
     }
 }
 
-/// Abort marks staged by one reconcile pass, each task at most once.
+/// Abort marks staged by one reconcile pass, each task at most once, in
+/// staging order: a request wins over a `restart` mark of the same pass.
 #[derive(Default)]
-struct Marks(HashSet<TaskId>);
+struct Marks(IndexMap<TaskId, (AnyTaskRecord, Option<TaskAbortReason>)>);
 
 impl Marks {
-    fn mark(&mut self, tx: &Tx, record: &AnyTaskRecord) -> SessionResult<()> {
-        if record.abort_requested || !self.0.insert(record.id) {
-            return Ok(());
+    fn mark(&mut self, record: &AnyTaskRecord, reason: Option<TaskAbortReason>) {
+        if self
+            .0
+            .get(&record.id)
+            .is_some_and(|(_, staged)| staged.is_none())
+        {
+            return;
         }
-        tx.set_task(marked(record))
+        if record.abort_requested && (record.abort_reason.is_none() || reason.is_some()) {
+            return;
+        }
+        self.0.insert(record.id, (record.clone(), reason));
     }
+
+    fn apply(self, tx: &Tx) -> SessionResult<()> {
+        for (record, reason) in self.0.into_values() {
+            tx.set_task(with_abort_mark(&record, reason))?;
+        }
+        Ok(())
+    }
+}
+
+/// Whether an abort keeps a `restart` mark (an owner's own cleanup through
+/// `abort_owned`) instead of replacing it with a request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum KeepRestart {
+    No,
+    Yes,
 }
 
 /// The scheduler-written outcome a held outcome is, if any.

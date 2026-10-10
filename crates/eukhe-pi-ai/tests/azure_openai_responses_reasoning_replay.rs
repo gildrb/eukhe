@@ -54,6 +54,7 @@ fn create_output(model: &Model) -> AssistantMessage {
         raw_stop_reason: None,
         end_turn: None,
         timestamp: now(),
+        duration_ms: None,
     }
 }
 

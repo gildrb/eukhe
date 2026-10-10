@@ -6,12 +6,18 @@ use std::sync::Arc;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonNumber};
 use eukhe_pi_ai::typebox::{Options, TSchema, Type};
-use eukhe_types::pi_ai::{TextContent, UserContentBlock};
+use eukhe_types::pi_ai::{
+    ImageContent, Modality, ModelImageResizeOptions, TextContent, UserContentBlock,
+};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
 use super::env::require_env;
-use super::image::{detect_supported_image_mime_type_of, ByteSource};
+use super::image::{detect_supported_image_mime_type_of, image_dimensions, ByteSource};
+use super::image_processor::{
+    base64_length, to_base64, ImageLimits, ImageProcessor, ImageResize, DEFAULT_IMAGE_LIMITS,
+    INLINE_IMAGE_TYPES,
+};
 use super::path_utils::resolve_read_tool_path;
 use crate::env::{
     range_decoder, starts_with_bom, BinaryReader, FileError, FileInfo, LineRange, LineScan,
@@ -20,7 +26,7 @@ use crate::env::{
 use crate::harness::define::define_tool;
 use crate::harness::output::character_end;
 use crate::harness::types::{
-    ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionResult, ToolRegistration,
+    ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionApi, ToolExecutionResult, ToolRegistration,
 };
 use crate::session::{SessionError, SessionResult};
 use crate::truncate::{
@@ -177,61 +183,254 @@ async fn read_head(
     Ok(text)
 }
 
-/// Reads text files. Remarks about truncation and continuation are
-/// diagnostics; the content is only file text.
+/// Options of [`create_read_tool`] (TS `ReadToolOptions`).
+#[derive(Clone, Default)]
+pub struct ReadToolOptions {
+    /// Resizes and converts images; without one, images within
+    /// `DEFAULT_IMAGE_LIMITS.max_bytes` pass through as they are.
+    pub images: Option<Arc<dyn ImageProcessor>>,
+}
+
+/// Reads text files and images. Remarks about truncation, continuation, and
+/// image processing are diagnostics; the content is only file text, or one
+/// image, which programs get as its `ImageContent`.
 #[must_use]
-pub fn create_read_tool() -> Arc<ToolRegistration> {
+pub fn create_read_tool(options: ReadToolOptions) -> Arc<ToolRegistration> {
+    let formats = if options.images.is_none() {
+        "jpg, png, gif, webp"
+    } else {
+        "jpg, png, gif, webp, bmp"
+    };
+    let images = options.images;
     define_tool(ToolRegistration::new(
         "read",
         format!(
-            "Read the contents of a text file. Output is truncated to {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
+            "Read the contents of a file. Supports text files and images ({formats}). Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
             DEFAULT_MAX_BYTES / 1024
         ),
         read_schema(),
-        |args, api, cx| async move {
-            let ReadToolInput {
-                path,
-                offset,
-                limit,
-            } = serde_json::from_value(args).map_err(SessionError::other)?;
-            let env = require_env(api.as_ref())?;
-            let absolute_path = resolve_read_tool_path(env.as_ref(), &path, &cx).await?;
-            let reader = env
-                .open_binary_reader(&absolute_path, OpenBinaryReaderOptions::default(), &cx)
-                .await?;
-            let result = read_consistent(reader.as_ref(), &path, offset, limit, &cx).await;
-            reader.close(&cx).await;
-            result
+        move |args, api, cx| {
+            let images = images.clone();
+            async move {
+                let ReadToolInput {
+                    path,
+                    offset,
+                    limit,
+                } = serde_json::from_value(args).map_err(SessionError::other)?;
+                let env = require_env(api.as_ref())?;
+                let absolute_path = resolve_read_tool_path(env.as_ref(), &path, &cx).await?;
+                let reader = env
+                    .open_binary_reader(&absolute_path, OpenBinaryReaderOptions::default(), &cx)
+                    .await?;
+                let call = ReadCall {
+                    reader: reader.as_ref(),
+                    api: api.as_ref(),
+                    images: images.as_deref(),
+                    path: &path,
+                    cx: &cx,
+                };
+                let result = call.read_consistent(offset, limit).await;
+                reader.close(&cx).await;
+                result
+            }
         },
     ))
 }
 
-/// A concurrent writer can change the file between the scan and the reads.
-/// Appending (a growing log) leaves the scanned bytes as they were; a file
-/// that shrank or was rewritten in place is read again once.
-async fn read_consistent(
-    reader: &dyn BinaryReader,
-    path: &str,
-    offset: Option<f64>,
-    limit: Option<f64>,
-    cx: &Context,
-) -> SessionResult<ToolExecutionResult> {
-    let mut retried = false;
-    loop {
-        let before = reader.info(cx).await?;
-        let result = read_text(reader, &before, path, offset, limit, cx).await?;
-        let after = reader.info(cx).await?;
-        #[expect(clippy::float_cmp, reason = "TS compares mtimeMs with ===")]
-        let unchanged = after.size == before.size && after.mtime_ms == before.mtime_ms;
-        if after.size > before.size || unchanged {
-            return Ok(result);
+/// One `read` call over its opened file.
+struct ReadCall<'a> {
+    reader: &'a dyn BinaryReader,
+    api: &'a dyn ToolExecutionApi,
+    images: Option<&'a dyn ImageProcessor>,
+    path: &'a str,
+    cx: &'a Context,
+}
+
+impl ReadCall<'_> {
+    /// A concurrent writer can change the file between the scan and the
+    /// reads. Appending (a growing log) leaves the scanned text as it was; an
+    /// image must be whole. Otherwise the file is read again once.
+    async fn read_consistent(
+        &self,
+        offset: Option<f64>,
+        limit: Option<f64>,
+    ) -> SessionResult<ToolExecutionResult> {
+        let (reader, path, cx) = (self.reader, self.path, self.cx);
+        let mut retried = false;
+        loop {
+            let before = reader.info(cx).await?;
+            let source = ReaderSource {
+                reader,
+                size: before.size,
+                cx,
+            };
+            let mime_type = detect_supported_image_mime_type_of(&source).await?;
+            let result = match mime_type {
+                None => read_text(reader, path, offset, limit, cx).await?,
+                Some(mime_type) => {
+                    let model = image_model(self.api, cx).await?;
+                    self.read_image(&before, mime_type, &model).await?
+                }
+            };
+            let after = reader.info(cx).await?;
+            #[expect(clippy::float_cmp, reason = "TS compares mtimeMs with ===")]
+            let unchanged = after.size == before.size && after.mtime_ms == before.mtime_ms;
+            if unchanged || (mime_type.is_none() && after.size > before.size) {
+                return Ok(result);
+            }
+            if retried {
+                return Err(SessionError::error(format!(
+                    "{path} changed while it was read"
+                )));
+            }
+            retried = true;
         }
-        if retried {
-            return Err(SessionError::error(format!(
-                "{path} changed while it was read"
-            )));
+    }
+
+    /// One image block, prepared by the processor or, without one, as it is
+    /// when its format is inline and it fits the limits (its size is checked
+    /// before reading it, its dimensions from its header); otherwise an error
+    /// result saying why. What happened to the image is an `info` diagnostic,
+    /// so programs get the bare `ImageContent`. A model without image input
+    /// sees pi-ai's placeholder instead; a diagnostic says so.
+    async fn read_image(
+        &self,
+        info: &FileInfo,
+        mime_type: &str,
+        ImageModel { vision, limits }: &ImageModel,
+    ) -> SessionResult<ToolExecutionResult> {
+        let path = self.path;
+        let mut notes: Vec<String> = Vec::new();
+        let image = if let Some(processor) = self.images {
+            let bytes = self.reader.read(0.0, number(info.size), self.cx).await?;
+            let Some(prepared) = processor.prepare(&bytes, mime_type, *limits).await else {
+                return Ok(image_error(format!(
+                    "{path} is an image ({mime_type}) that cannot be prepared for the model"
+                )));
+            };
+            if let Some(from) = &prepared.converted_from {
+                notes.push(format!("Converted from {from} to {}.", prepared.mime_type));
+            }
+            if let Some(ImageResize { from, to }) = prepared.resized {
+                let scale = scale_text(from.width, to.width);
+                notes.push(format!(
+                    "Resized from {}x{} to {}x{}. Multiply coordinates by {scale} to map them to the original.",
+                    from.width, from.height, to.width, to.height
+                ));
+            }
+            ImageContent {
+                data: prepared.data,
+                mime_type: prepared.mime_type,
+            }
+        } else {
+            if !INLINE_IMAGE_TYPES.contains(&mime_type) {
+                return Ok(image_error(format!(
+                    "{path} is an image ({mime_type}) that needs converting, and no image processor is configured"
+                )));
+            }
+            let unshrinkable = "and no image processor is configured to shrink it";
+            if base64_length(info.size) > limits.max_bytes {
+                return Ok(image_error(format!(
+                    "{path} is an image ({mime_type}) of {}, too large to send, {unshrinkable}",
+                    format_size(info.size)
+                )));
+            }
+            let bytes = self.reader.read(0.0, number(info.size), self.cx).await?;
+            let Some(size) = image_dimensions(&bytes, mime_type) else {
+                return Ok(image_error(format!(
+                    "{path} is an image ({mime_type}) whose size cannot be read"
+                )));
+            };
+            if size.width > limits.max_width || size.height > limits.max_height {
+                return Ok(image_error(format!(
+                    "{path} is an image ({mime_type}) of {}x{}, larger than {}x{}, {unshrinkable}",
+                    size.width, size.height, limits.max_width, limits.max_height
+                )));
+            }
+            ImageContent {
+                data: to_base64(&bytes),
+                mime_type: mime_type.to_owned(),
+            }
+        };
+        if !vision {
+            notes.push(
+                "The current model does not support images; it sees a placeholder instead."
+                    .to_owned(),
+            );
         }
-        retried = true;
+        let message = std::iter::once(format!("Read image file [{}].", image.mime_type))
+            .chain(notes)
+            .collect::<Vec<_>>()
+            .join(" ");
+        Ok(ToolExecutionResult {
+            output: Some(vec![UserContentBlock::Image(image)]),
+            diagnostics: Some(vec![diagnostic(
+                ToolDiagnosticSeverity::Info,
+                Some("image"),
+                message,
+            )]),
+            ..ToolExecutionResult::default()
+        })
+    }
+}
+
+/// `(from / to).toFixed(2)` for pixel counts. Rust-only: rounds the exact
+/// quotient half up in integers, which is what `toFixed` does with the
+/// quotient's double for any sizes an image has.
+fn scale_text(from: u64, to: u64) -> String {
+    if to == 0 {
+        return "Infinity".to_owned();
+    }
+    let hundredths = (u128::from(from) * 200 + u128::from(to)) / (u128::from(to) * 2);
+    format!("{}.{:02}", hundredths / 100, hundredths % 100)
+}
+
+/// What the conversation's model takes: whether images, and within which
+/// limits.
+struct ImageModel {
+    vision: bool,
+    limits: ImageLimits,
+}
+
+/// The conversation model's image input: `DEFAULT_IMAGE_LIMITS` overridden
+/// by its `inputLimits.images.resize`. Without a resolvable model, it counts
+/// as one that takes images within the defaults.
+async fn image_model(api: &dyn ToolExecutionApi, cx: &Context) -> SessionResult<ImageModel> {
+    let agent = api.agent(cx).await?;
+    let model = agent
+        .model
+        .as_ref()
+        .and_then(|model| api.models().get_model(&model.provider, &model.model_id));
+    let resize = model
+        .as_ref()
+        .and_then(|model| model.input_limits.as_ref())
+        .and_then(|limits| limits.images.as_ref())
+        .and_then(|images| images.resize.as_ref());
+    let limit = |pick: fn(&ModelImageResizeOptions) -> Option<u64>, default: u64| {
+        resize.and_then(pick).unwrap_or(default)
+    };
+    Ok(ImageModel {
+        vision: model
+            .as_ref()
+            .is_none_or(|model| model.input.contains(&Modality::Image)),
+        limits: ImageLimits {
+            max_width: limit(|resize| resize.max_width, DEFAULT_IMAGE_LIMITS.max_width),
+            max_height: limit(|resize| resize.max_height, DEFAULT_IMAGE_LIMITS.max_height),
+            max_bytes: limit(|resize| resize.max_bytes, DEFAULT_IMAGE_LIMITS.max_bytes),
+        },
+    })
+}
+
+fn image_error(message: String) -> ToolExecutionResult {
+    ToolExecutionResult {
+        output: Some(Vec::new()),
+        is_error: Some(true),
+        diagnostics: Some(vec![diagnostic(
+            ToolDiagnosticSeverity::Error,
+            Some("unsupported_image"),
+            message,
+        )]),
+        ..ToolExecutionResult::default()
     }
 }
 
@@ -278,31 +477,11 @@ fn diagnostic(
 )]
 async fn read_text(
     reader: &dyn BinaryReader,
-    info: &FileInfo,
     path: &str,
     offset: Option<f64>,
     limit: Option<f64>,
     cx: &Context,
 ) -> SessionResult<ToolExecutionResult> {
-    let source = ReaderSource {
-        reader,
-        size: info.size,
-        cx,
-    };
-    if let Some(mime_type) = detect_supported_image_mime_type_of(&source).await? {
-        // Image content is not supported yet.
-        return Ok(ToolExecutionResult {
-            content: Some(Vec::new()),
-            is_error: Some(true),
-            diagnostics: Some(vec![diagnostic(
-                ToolDiagnosticSeverity::Error,
-                Some("unsupported_image"),
-                format!("{path} is an image ({mime_type}); reading images is not supported"),
-            )]),
-            ..ToolExecutionResult::default()
-        });
-    }
-
     // `offset ? ... : 0`: zero and NaN are falsy.
     let start_line = match offset {
         Some(offset) if offset != 0.0 && !offset.is_nan() => (offset - 1.0).max(0.0),
@@ -465,7 +644,7 @@ async fn read_text(
     }
 
     Ok(ToolExecutionResult {
-        content: Some(if output_text.is_empty() {
+        output: Some(if output_text.is_empty() {
             Vec::new()
         } else {
             vec![UserContentBlock::Text(TextContent::new(output_text))]

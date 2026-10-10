@@ -40,6 +40,7 @@ fn options(ownership: TaskOwnership) -> TaskOptions {
         ownership,
         conversation_id: None,
         background: None,
+        abandon_on_restart: None,
     }
 }
 

@@ -56,7 +56,7 @@ impl Inner {
             let waiting = {
                 let state = inner.lock();
                 if state.closing {
-                    return Err(closed_error());
+                    return Err(closed_error(&inner.session));
                 }
                 state
                     .live
@@ -83,7 +83,7 @@ impl Inner {
         let waiting = {
             let state = self.lock();
             if state.closing {
-                return futures::future::ready(Err(closed_error())).boxed();
+                return futures::future::ready(Err(closed_error(&self.session))).boxed();
             }
             if state.idle(conversation_id) {
                 return futures::future::ready(Ok(())).boxed();

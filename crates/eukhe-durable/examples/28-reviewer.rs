@@ -17,7 +17,7 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::harness::{ConversationEntryQuery, Harness, RootOptions, GENERATION_TASK};
 use eukhe_durable::storage::MemoryStorage;
-use eukhe_durable::tools::{create_read_tool, CODING_TOOLS};
+use eukhe_durable::tools::{create_read_tool, ReadToolOptions, CODING_TOOLS};
 use eukhe_durable::types::ConversationOwnership;
 use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use eukhe_pi_ai::providers::faux::{
@@ -209,7 +209,9 @@ pub async fn run(
                         Arc::clone(&CODING_TOOLS),
                         Arc::clone(&reviewer_ext),
                     ])),
-                    tools: FieldChange::Set(ToolsChange::Exactly(vec![create_read_tool()])),
+                    tools: FieldChange::Set(ToolsChange::Exactly(vec![create_read_tool(
+                        ReadToolOptions::default(),
+                    )])),
                     cwd: FieldChange::Set(worktree.clone()),
                     ..AgentChange::default()
                 }),

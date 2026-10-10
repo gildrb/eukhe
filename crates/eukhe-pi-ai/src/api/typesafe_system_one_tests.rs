@@ -196,6 +196,27 @@ async fn rejects_models_for_other_classifier_apis() {
 }
 
 #[tokio::test]
+async fn rejects_image_input_before_sending() {
+    let (fetch, requests) =
+        mock_fetch(|_| json_response(200, &json!({ "answers": wire_answers() })));
+    let mut image_model = model();
+    image_model.input = serde_json::from_value(json!(["text", "image"])).expect("input");
+    let mut image_context = context();
+    image_context.images = Some(vec![serde_json::from_value(
+        json!({ "type": "image", "data": "aW1hZ2U=", "mimeType": "image/png" }),
+    )
+    .expect("image")]);
+    let result = classify(&image_model, &image_context, options(fetch)).await;
+
+    assert!(recorded(&requests).is_empty());
+    assert_eq!(result.stop_reason, ClassifierStopReason::Error);
+    assert_eq!(
+        result.error_message.as_deref(),
+        Some("System One API does not support image input")
+    );
+}
+
+#[tokio::test]
 async fn merges_headers_case_insensitively_and_supports_null_suppression() {
     let (fetch, requests) =
         mock_fetch(|_| json_response(200, &json!({ "answers": wire_answers() })));

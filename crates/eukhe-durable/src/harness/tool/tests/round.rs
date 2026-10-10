@@ -70,7 +70,7 @@ async fn runs_input_tool_call_tool_result_and_answer_and_settles_the_input() {
     let echo = tool("echo", |args, _, _| async move {
         let text = args["text"].as_str().unwrap_or("undefined").to_owned();
         Ok(ToolExecutionResult {
-            content: Some(vec![UserContentBlock::Text(TextContent::new(format!(
+            output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
                 "echo {text}"
             )))]),
             ..ToolExecutionResult::default()
@@ -126,6 +126,8 @@ async fn runs_input_tool_call_tool_result_and_answer_and_settles_the_input() {
             nested_calls: None,
             is_error: false,
             timestamp: result.timestamp,
+            // TS `toMatchObject`: the measured execution time is any value.
+            duration_ms: result.duration_ms,
         }
     );
     assert_eq!(result_text(&result), "echo hi");
@@ -337,7 +339,7 @@ async fn produces_tool_unavailable_when_the_implementation_is_unregistered_befor
         &setup.registry,
         tool("second", |_, _, _| async {
             Ok(ToolExecutionResult {
-                content: Some(vec![UserContentBlock::Text(TextContent::new("ran"))]),
+                output: Some(vec![UserContentBlock::Text(TextContent::new("ran"))]),
                 ..ToolExecutionResult::default()
             })
         }),

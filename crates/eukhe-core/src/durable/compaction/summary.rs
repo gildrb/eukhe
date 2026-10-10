@@ -312,7 +312,9 @@ async fn harness_read_context(
     conversation: &Conversation,
     cx: &Context,
 ) -> SessionResult<eukhe_durable::harness::types::ContextView> {
-    conversation.context(cx).await
+    conversation
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+        .await
 }
 
 /// The session's compaction reserve tokens (the settings file's

@@ -286,11 +286,6 @@
 		],
 		"messages": [
 			{
-				"role": "user",
-				"content": "Probe the disk.",
-				"timestamp": 1000000
-			},
-			{
 				"role": "system",
 				"content": "",
 				"toolsAdded": [
@@ -310,6 +305,11 @@
 						}
 					}
 				],
+				"timestamp": 1000000
+			},
+			{
+				"role": "user",
+				"content": "Probe the disk.",
 				"timestamp": 1000000
 			},
 			{
@@ -586,14 +586,17 @@
 							"entryId": 11
 						}
 					}
-				}
+				},
+				"startedAt": 1000000,
+				"endedAt": 1000000
 			},
 			{
 				"id": 12,
 				"conversationId": 1,
 				"kind": "pi.tool",
-				"version": 1,
+				"version": 2,
 				"input": {
+					"kind": "model",
 					"assistant": 11,
 					"callId": "call-1"
 				},
@@ -608,10 +611,13 @@
 							"message": "Tool probe was interrupted and may have partially run"
 						},
 						"result": {
+							"kind": "model",
 							"entryId": 13
 						}
 					}
-				}
+				},
+				"startedAt": 1000000,
+				"endedAt": 1000000
 			},
 			{
 				"id": 14,
@@ -629,7 +635,9 @@
 							"entryId": 15
 						}
 					}
-				}
+				},
+				"startedAt": 1000000,
+				"endedAt": 1000000
 			}
 		],
 		"submissions": [
@@ -725,7 +733,7 @@
 				},
 				"version": 1,
 				"value": {
-					"sessionId": "01a11344-3f60-76a1-9a25-fc1dbb19baba"
+					"sessionId": "01a12593-4941-74cf-87fc-0c89e3c44cd1"
 				},
 				"deltasSinceBase": 0
 			},

@@ -29,7 +29,7 @@ use crate::storage::MemoryStorage;
 use crate::tasks::{define_task, Task, TaskDefinition};
 use crate::types::{
     ConversationId, ConversationOwnership, ConversationRecord, Cursor, EntryDraft, EntryRecord,
-    RewindableFork, Storage, TaskId, TaskOptions, TaskOwnership, ROOT_CONVERSATION_ID,
+    RewindableFork, ScanOrder, Storage, TaskId, TaskOptions, TaskOwnership, ROOT_CONVERSATION_ID,
 };
 
 type JsonTask = Task<JsonValue, JsonValue, JsonValue, ()>;
@@ -136,11 +136,21 @@ async fn append(conversation: &Conversation, text: &str) -> EntryRecord {
 
 /// Texts of every entry, newest first, paging two at a time.
 async fn all_entries(conversation: &Conversation) -> Vec<String> {
+    entries_in(conversation, None).await
+}
+
+/// Texts of every entry in `order`, paging two at a time (TS
+/// `allEntries(conversation, order)`).
+async fn entries_in(conversation: &Conversation, order: Option<ScanOrder>) -> Vec<String> {
     let mut texts = Vec::new();
     let mut cursor: Option<Cursor> = None;
     loop {
+        let query = ConversationEntryQuery {
+            order,
+            ..ConversationEntryQuery::default()
+        };
         let page = conversation
-            .entries(ConversationEntryQuery::default(), 2, cursor, context())
+            .entries(query, 2, cursor, context())
             .await
             .unwrap();
         for entry in &page.items {
@@ -191,6 +201,7 @@ fn task_options() -> TaskOptions {
         ownership: TaskOwnership::Conversation,
         conversation_id: None,
         background: None,
+        abandon_on_restart: None,
     }
 }
 
@@ -616,6 +627,11 @@ async fn paginates_fork_aware_history_through_deep_ancestor_caps_and_same_commit
     assert_eq!(all_entries(&root).await, ["r3", "r2", "r1"]);
     assert_eq!(all_entries(&child).await, ["c2", "c1", "r2", "r1"]);
     assert_eq!(all_entries(&grandchild).await, ["g1", "c1", "r2", "r1"]);
+    // #10546
+    assert_eq!(
+        entries_in(&grandchild, Some(ScanOrder::Ascending)).await,
+        ["r1", "r2", "c1", "g1"]
+    );
     // TS also passes `conversationId: root.id`, which the handle ignores;
     // the Rust query has no such field.
     let bounded = grandchild
@@ -623,6 +639,7 @@ async fn paginates_fork_aware_history_through_deep_ancestor_caps_and_same_commit
             ConversationEntryQuery {
                 min_entry_id: Some(r2.id),
                 max_entry_id: Some(c1.id),
+                order: None,
             },
             10,
             None,
@@ -1091,18 +1108,21 @@ async fn gives_conversations_created_through_tx_their_documents_empty_an_owner_c
 #[tokio::test]
 async fn reads_an_absent_agent_for_conversations_a_plain_session_created_without_writing() {
     let storage = ControlledStorage::new();
-    let id = create_session(Arc::clone(&storage) as Arc<dyn Storage>)
-        .commit(
-            |tx| async move {
-                Ok(tx
-                    .create_conversation(ConversationOwnership::Ownerless)
-                    .await?
-                    .id)
-            },
-            context(),
-        )
-        .await
-        .unwrap();
+    let id = create_session(
+        Arc::clone(&storage) as Arc<dyn Storage>,
+        crate::session::SessionOptions::default(),
+    )
+    .commit(
+        |tx| async move {
+            Ok(tx
+                .create_conversation(ConversationOwnership::Ownerless)
+                .await?
+                .id)
+        },
+        context(),
+    )
+    .await
+    .unwrap();
     let (harness, _registry) = open_harness(
         Arc::clone(&storage) as Arc<dyn Storage>,
         &["read"],
@@ -1166,17 +1186,17 @@ async fn returns_stateless_handles_and_rejects_operations_after_close() {
         .root(RootOptions::default(), context())
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("Harness is closed"), "{error}");
+    assert!(error.to_string().contains("is closed"), "{error}");
     let error = harness
         .create_conversation(ownerless(), context())
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("Harness is closed"), "{error}");
+    assert!(error.to_string().contains("is closed"), "{error}");
     let error = harness
         .conversation(root.id(), context())
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("Harness is closed"), "{error}");
+    assert!(error.to_string().contains("is closed"), "{error}");
 }
 
 #[tokio::test]

@@ -9,7 +9,6 @@ use super::{
     assert_match_object, commit, create_root, cx, entry, id, ids, j, mint, ok, pending_task, q,
     rejects, v, with, Cases, ROOT,
 };
-use crate::errors::StorageError;
 use crate::types::{Storage, StoredDocument};
 
 pub(super) fn add_cases(cases: &mut Cases) {
@@ -396,7 +395,8 @@ fn add_copy_case(cases: &mut Cases) {
                 ]),
             )
             .await;
-            assert!(matches!(conflict_error, Err(StorageError::Rejected(_))));
+            // Rejected without effect: the copy and the retirement in the same batch are both absent.
+            assert!(conflict_error.is_err());
             assert!(document(s, conflict_id, json!("current")).await.is_none());
             assert_eq!(
                 document_json(s, current_copy_id, json!("current")).await["value"],
@@ -413,7 +413,7 @@ fn add_copy_case(cases: &mut Cases) {
                 }]),
             )
             .await;
-            assert!(matches!(mismatch_error, Err(StorageError::Rejected(_))));
+            assert!(mismatch_error.is_err());
             assert!(document(s, mismatch_id, json!("current")).await.is_none());
         },
     );

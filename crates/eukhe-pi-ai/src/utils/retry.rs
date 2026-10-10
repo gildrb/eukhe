@@ -40,6 +40,8 @@ static RETRYABLE_PROVIDER_ERROR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     build_provider_error_pattern(&[
         // Generic provider load, HTTP status, and server-side transient failures.
         "overloaded",
+        "server_busy",
+        "servers are currently busy",
         "currently experiencing high demand",
         "model is at capacity",
         "rate.?limit",

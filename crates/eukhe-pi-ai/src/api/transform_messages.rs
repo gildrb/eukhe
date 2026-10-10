@@ -260,6 +260,7 @@ impl SecondPass {
                         nested_calls: None,
                         is_error: true,
                         timestamp: crate::utils::now_ms(),
+                        duration_ms: None,
                     }));
                 }
             }

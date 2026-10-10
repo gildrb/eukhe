@@ -84,7 +84,7 @@ fn aborted(cx: &Context) -> Option<SessionError> {
 /// A model-facing error result (the old agent loop's `AgentToolResult::error`).
 fn error_result(message: String) -> ToolExecutionResult {
     ToolExecutionResult {
-        content: Some(vec![UserContentBlock::Text(TextContent::new(message))]),
+        output: Some(vec![UserContentBlock::Text(TextContent::new(message))]),
         is_error: Some(true),
         ..ToolExecutionResult::default()
     }
@@ -342,7 +342,7 @@ pub(crate) fn tool_result(result: &ExecuteResult) -> ToolExecutionResult {
             json!(sent.iter().map(sent_agent_message_json).collect::<Vec<_>>());
     }
     ToolExecutionResult {
-        content: Some(content),
+        output: Some(content),
         is_error: Some(matches!(
             result.status,
             ExecuteStatus::Error | ExecuteStatus::Aborted

@@ -45,7 +45,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use eukhe_types::pi_ai::{JsonValue, Tool, ToolCall};
+use eukhe_types::pi_ai::{JsonValue, Tool, ToolCall, ToolSchema};
 
 use self::compile::Validator;
 use self::context::SchemaError;
@@ -551,4 +551,43 @@ fn format_validation_path(error: &SchemaError) -> String {
     } else {
         path
     }
+}
+
+/// The first error of a value against a schema (TS `Compile(schema)`'s
+/// `Errors(value)[0]`): its JSON Pointer instance path and message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaCheckError {
+    /// `instancePath`, such as `/lines`; empty for the root.
+    pub instance_path: String,
+    pub message: String,
+}
+
+/// `Compile(schema).Check(value)`, and the first of `Errors(value)` when the
+/// value fails: `Ok(None)` when it matches, `Ok(Some(None))` when it fails
+/// without a reported error. Validates on the schema's `TypeBox` view when it
+/// has one, as the TS compiles the `TypeBox` schema itself.
+///
+/// # Errors
+///
+/// [`ValidationError::Thrown`] for the exceptions a malformed schema raises in
+/// the TS.
+pub fn check_value(
+    schema: &ToolSchema,
+    value: &JsonValue,
+) -> Result<Option<Option<SchemaCheckError>>, ValidationError> {
+    let source = JsValue::from_json(schema.typebox().unwrap_or(schema.json()));
+    let validator = Validator::compile(&source)?;
+    let value = JsValue::from_json(value);
+    if validator.check(&value)? {
+        return Ok(None);
+    }
+    let first = validator
+        .errors(&value)?
+        .into_iter()
+        .next()
+        .map(|error| SchemaCheckError {
+            instance_path: error.instance_path,
+            message: error.message,
+        });
+    Ok(Some(first))
 }

@@ -13,8 +13,8 @@
 //! `fauxProvider`, `defineTool`, `Harness.open(storage, { models, registry,
 //! now })`).
 //!
-//! `fixtures/harness_cross` (written by `@earendil-works/pi-durable` 1.0.4
-//! and this crate):
+//! `fixtures/harness_cross` (written by `@earendil-works/pi-durable` 1.1,
+//! `main` at `42a3497d0`, and this crate):
 //! - `ts-crash/`: the JSONL storage the TS process left (`process.exit(0)` in
 //!   `execute`).
 //! - `ts-crash-resumed.json` / `ts-crash-resumed/`: the final state and the
@@ -115,7 +115,7 @@ fn probe_tool(after: AfterDetails, runs: Arc<AtomicUsize>) -> Arc<ToolRegistrati
                 match after {
                     AfterDetails::Exit => std::process::exit(0),
                     AfterDetails::Finish => Ok(ToolExecutionResult {
-                        content: Some(vec![UserContentBlock::Text(TextContent::new(
+                        output: Some(vec![UserContentBlock::Text(TextContent::new(
                             "probe finished",
                         ))]),
                         ..ToolExecutionResult::default()
@@ -374,7 +374,14 @@ async fn resume(directory: &Path) -> JsonValue {
     let opened = open(directory, AfterDetails::Finish).await;
     opened.faux.set_responses(vec![answer().into()]);
     opened.harness.wait_for_idle(cx()).await.unwrap();
-    let view = opened.root.context(cx()).await.unwrap();
+    let view = opened
+        .root
+        .context(
+            cx(),
+            eukhe_durable::harness::types::ContextOptions::default(),
+        )
+        .await
+        .unwrap();
     opened.harness.close(cx()).await.unwrap();
     let storage = open_storage(directory).await;
     let dump = dump_storage(&*storage).await;

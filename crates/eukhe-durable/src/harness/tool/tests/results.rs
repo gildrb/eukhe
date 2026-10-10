@@ -224,7 +224,7 @@ async fn bounds_explicit_text_content_and_keeps_other_content() {
             "big",
             |_, _, _| async {
                 Ok(ToolExecutionResult {
-                    content: Some(vec![
+                    output: Some(vec![
                         text("a\nb\n"),
                         UserContentBlock::Image(ImageContent {
                             data: "AAAA".to_owned(),
@@ -521,7 +521,7 @@ async fn chains_after_tool_replacements_and_observes_the_round_with_after_tools(
         &setup.registry,
         tool("echo", |_, _, _| async {
             Ok(ToolExecutionResult {
-                content: Some(vec![text("raw")]),
+                output: Some(vec![text("raw")]),
                 ..ToolExecutionResult::default()
             })
         }),
@@ -534,7 +534,7 @@ async fn chains_after_tool_replacements_and_observes_the_round_with_after_tools(
         ToolHooks {
             after_tool: Some(Arc::new(|_, result, _, _| {
                 let replaced = ToolExecutionResult {
-                    content: Some(vec![text("first")]),
+                    output: Some(vec![text("first")]),
                     ..result.clone()
                 };
                 futures::future::ready(Ok(Some(replaced))).boxed()
@@ -549,7 +549,7 @@ async fn chains_after_tool_replacements_and_observes_the_round_with_after_tools(
         tool_task(),
         ToolHooks {
             after_tool: Some(Arc::new(|_, result, _, _| {
-                let replaced = content_text(result.content.as_deref().unwrap_or_default());
+                let replaced = content_text(result.output.as_deref().unwrap_or_default());
                 let details = json(&serde_json::json!({ "replaced": replaced }).to_string());
                 let replaced = ToolExecutionResult {
                     details: Some(details),
@@ -633,6 +633,7 @@ async fn task_owned_child(harness: &Harness, root_id: ConversationId) -> Convers
                             ownership: TaskOwnership::Conversation,
                             conversation_id: Some(root_id),
                             background: None,
+                            abandon_on_restart: None,
                         },
                     )
                     .await?;

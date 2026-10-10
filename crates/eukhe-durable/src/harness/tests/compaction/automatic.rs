@@ -7,8 +7,8 @@ use eukhe_chord::json::{to_json, JsonValue};
 use futures::FutureExt;
 
 use super::{
-    answer, compact, compaction_tasks, failure, gated, history, kinds, live, open, result, step,
-    submission, submission_id, submit, summary, text, turn, user_text, Chat, OpenOptions,
+    answer, compact, compaction_tasks, failure, first_user_text, gated, history, kinds, live, open,
+    result, step, submission, submission_id, submit, summary, text, turn, Chat, OpenOptions,
     BACKGROUND, BLOCKING, MANUAL, OVERFLOW,
 };
 use crate::harness::events::{watch_events, AgentEvent};
@@ -112,8 +112,13 @@ async fn starts_above_the_background_threshold_without_blocking_the_run_idle_wai
     let outcome = result(&chat, task_id(task)).await;
     assert!(matches!(outcome, TaskOutcome::Completed { .. }));
     assert_eq!(kinds(&chat.root).await.last().unwrap(), "pi.compaction");
-    let messages = chat.root.context(context()).await.unwrap().messages;
-    assert!(user_text(messages.first()).contains("SUMMARY"));
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains("SUMMARY"));
     chat.harness.close(context()).await.unwrap();
 }
 
@@ -300,7 +305,7 @@ async fn waits_for_its_compaction_which_appends_the_summary_before_the_request()
         ["pi.compaction", "pi.system", "pi.assistant"]
     );
     let request = chat.faux.last_agent_messages();
-    assert!(user_text(request.first()).contains("SUMMARY"));
+    assert!(first_user_text(&request).contains("SUMMARY"));
     let systems: Vec<_> = request
         .iter()
         .filter(|message| matches!(message, eukhe_types::pi_ai::Message::System(_)))
@@ -357,7 +362,7 @@ async fn sends_the_request_anyway(prepare: impl FnOnce(&Chat)) {
         .iter()
         .any(|kind| kind == "pi.compaction"));
     assert_eq!(
-        user_text(chat.faux.last_agent_messages().first()),
+        first_user_text(&chat.faux.last_agent_messages()),
         text("u1", 100)
     );
     chat.harness.close(context()).await.unwrap();
@@ -499,8 +504,13 @@ async fn wins_over_a_background_compaction_still_in_flight_which_then_settles_st
     let background = compaction_tasks(&chat).await.remove(0);
     chat.faux.summary(summary("BLOCKING"));
     turn(&chat, &text("u5", 1000), "a5").await;
-    let messages = chat.root.context(context()).await.unwrap().messages;
-    assert!(user_text(messages.first()).contains("BLOCKING"));
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains("BLOCKING"));
     gate.resolve(());
     let outcome = result(&chat, task_id(&background)).await;
     let record = submission(&chat, submission_id(&outcome))
@@ -572,7 +582,7 @@ async fn compacts_and_retries_with_the_same_attempt_leaving_the_error_out_of_the
         Some(JsonValue::parse(r#"{"reason":"overflow"}"#).unwrap())
     );
     let retry = chat.faux.last_agent_messages();
-    assert!(user_text(retry.first()).contains("SUMMARY"));
+    assert!(first_user_text(&retry).contains("SUMMARY"));
     assert!(!retry.iter().any(|message| matches!(
         message,
         eukhe_types::pi_ai::Message::Assistant(assistant)

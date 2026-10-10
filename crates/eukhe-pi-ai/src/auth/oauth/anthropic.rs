@@ -36,6 +36,8 @@ const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 static CALLBACK_HOST: LazyLock<String> = LazyLock::new(|| {
     get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".to_owned())
 });
+// Preferred so the port can be forwarded into containers or over SSH. Anthropic accepts any loopback port,
+// so login falls back to a free port when this one cannot be bound (#10571).
 const CALLBACK_PORT: u16 = 53692;
 const CALLBACK_PATH: &str = "/callback";
 const REDIRECT_URI: &str = "http://localhost:53692/callback";
@@ -148,23 +150,32 @@ fn authorize_url(challenge: &str, verifier: &str, redirect_uri: &str) -> String 
 
 async fn login_anthropic(interaction: &ProviderAuthInteraction) -> Result<OAuthCredential, Thrown> {
     let pkce = generate_pkce()?;
-    let callback = start_oauth_callback_server(OAuthCallbackServerOptions {
-        provider_name: "Anthropic".to_owned(),
-        host: CALLBACK_HOST.clone(),
-        port: CALLBACK_PORT,
-        path: CALLBACK_PATH.to_owned(),
-        redirect_host: None,
-        state: Some(pkce.verifier.clone()),
-        complete: Arc::new(|code| Box::pin(async move { Ok(code) })),
-        signal: Some(interaction.signal.clone()),
-        timeout_ms: None,
-    })
-    .await
-    .ok();
+    let start_callback_server = |port: u16| {
+        start_oauth_callback_server(OAuthCallbackServerOptions {
+            provider_name: "Anthropic".to_owned(),
+            host: CALLBACK_HOST.clone(),
+            port,
+            path: CALLBACK_PATH.to_owned(),
+            redirect_host: Some("localhost".to_owned()),
+            state: Some(pkce.verifier.clone()),
+            complete: Arc::new(|code| Box::pin(async move { Ok(code) })),
+            signal: Some(interaction.signal.clone()),
+            timeout_ms: None,
+        })
+    };
+    // Without a callback server, login continues with the pasted redirect URL.
+    let callback = match start_callback_server(CALLBACK_PORT).await {
+        Ok(callback) => Some(callback),
+        Err(_) => start_callback_server(0).await.ok(),
+    };
+    let redirect_uri = callback.as_ref().map_or_else(
+        || REDIRECT_URI.to_owned(),
+        |callback| callback.redirect_uri.clone(),
+    );
 
     let result = async {
         interaction.notify(AuthEvent::AuthUrl {
-            url: authorize_url(&pkce.challenge, &pkce.verifier, REDIRECT_URI),
+            url: authorize_url(&pkce.challenge, &pkce.verifier, &redirect_uri),
             instructions: Some("Complete login in your browser. If the browser is on another machine, paste the final redirect URL here.".to_owned()),
         });
 
@@ -172,7 +183,7 @@ async fn login_anthropic(interaction: &ProviderAuthInteraction) -> Result<OAuthC
             interaction,
             callback.as_ref(),
             "Complete login in your browser, or paste the authorization code / redirect URL here:",
-            REDIRECT_URI,
+            &redirect_uri,
         )
         .await?;
         let mut state = pkce.verifier.clone();
@@ -198,7 +209,7 @@ async fn login_anthropic(interaction: &ProviderAuthInteraction) -> Result<OAuthC
         interaction.notify(AuthEvent::Progress {
             message: "Exchanging authorization code for tokens...".to_owned(),
         });
-        exchange_authorization_code(&code, &state, &pkce.verifier, REDIRECT_URI, &interaction.signal).await
+        exchange_authorization_code(&code, &state, &pkce.verifier, &redirect_uri, &interaction.signal).await
     }
     .await;
     if let Some(callback) = &callback {

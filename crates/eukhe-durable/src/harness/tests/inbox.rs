@@ -148,7 +148,7 @@ fn gated_tool(
 
 fn empty_result() -> ToolExecutionResult {
     ToolExecutionResult {
-        content: Some(Vec::new()),
+        output: Some(Vec::new()),
         ..ToolExecutionResult::default()
     }
 }
@@ -693,10 +693,10 @@ mod queue {
             .find(|entry| RESET_ENTRY.is(Some(entry)))
             .unwrap();
         assert_eq!(reset.head, Some(reset.id));
-        // The follow-up's request starts at the reset: the follow-up, then the complete system baseline after the cut.
+        // The follow-up's request starts at the reset: the complete system baseline after the cut leads the follow-up.
         assert_eq!(
             *requests.lock().unwrap_or_else(PoisonError::into_inner),
-            vec![vec!["user:f".to_owned(), "system:".to_owned()]]
+            vec![vec!["system:".to_owned(), "user:f".to_owned()]]
         );
         assert_eq!(setup.faux.state().call_count, 2);
         harness.close(context()).await.unwrap();
@@ -721,7 +721,14 @@ mod queue {
             transcript(&all_entries(&root, context()).await.unwrap()),
             ["pi.user:a", "pi.assistant:first", "pi.reset:handoff"]
         );
-        let messages = to_json(&root.context(context()).await.unwrap().messages).unwrap();
+        let messages = to_json(
+            &root
+                .context(context(), crate::harness::types::ContextOptions::default())
+                .await
+                .unwrap()
+                .messages,
+        )
+        .unwrap();
         let timestamp = &messages[0]["timestamp"];
         assert!(matches!(timestamp, JsonValue::Number(_)), "{messages}");
         assert_eq!(
@@ -740,7 +747,10 @@ mod queue {
         let OpenChat { harness, root } = open_chat(memory(), &setup, None).await.unwrap();
         note(&root).await;
         root.reset(None, context()).await.unwrap();
-        let view = root.context(context()).await.unwrap();
+        let view = root
+            .context(context(), crate::harness::types::ContextOptions::default())
+            .await
+            .unwrap();
         assert_eq!(
             view.head.as_ref().map(|head| head.kind.as_str()),
             Some("pi.reset")
@@ -750,7 +760,10 @@ mod queue {
         root.reset(Some("carry on".to_owned()), context())
             .await
             .unwrap();
-        let view = root.context(context()).await.unwrap();
+        let view = root
+            .context(context(), crate::harness::types::ContextOptions::default())
+            .await
+            .unwrap();
         let reset = view.head.as_ref().unwrap();
         assert_eq!(reset.head, Some(reset.id));
         assert_eq!(
@@ -770,7 +783,12 @@ mod queue {
         let OpenChat { harness, root } = open_chat(memory(), &setup, None).await.unwrap();
         let old = note(&root).await;
         root.reset(None, context()).await.unwrap();
-        let reset = root.context(context()).await.unwrap().head.unwrap();
+        let reset = root
+            .context(context(), crate::harness::types::ContextOptions::default())
+            .await
+            .unwrap()
+            .head
+            .unwrap();
         let input_submission = submit(&root, input("a")).await;
         first.reached().await;
         let stale = submit(&root, write(head("summary", old.id))).await;

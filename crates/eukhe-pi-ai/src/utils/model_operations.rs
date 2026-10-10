@@ -1,8 +1,8 @@
 //! Model-type narrowing and error results for image/classifier models.
 
 use eukhe_types::pi_ai::{
-    AnyModel, AssistantImages, ClassifierModel, ClassifierResult, ClassifierStopReason, ImageModel,
-    ImagesStopReason, IndexMap, Model, ModelType,
+    AnyModel, AssistantImages, ClassifierContext, ClassifierModel, ClassifierResult,
+    ClassifierStopReason, ImageModel, ImagesStopReason, IndexMap, Modality, Model, ModelType,
 };
 
 use super::diagnostics::Thrown;
@@ -55,6 +55,33 @@ pub fn assert_classifier_model(model: &AnyModel) -> Result<&ClassifierModel, Mod
         AnyModel::Classifier(classifier) => Ok(classifier),
         AnyModel::Chat(_) | AnyModel::Image(_) => Err(not_a(model, "a classifier")),
     }
+}
+
+/// Rejects classifier images for models whose catalog entry does not accept image input.
+///
+/// # Errors
+///
+/// `provider` [`ModelsError`] when `context` has images and the model's
+/// `input` lacks `image`.
+pub fn assert_classifier_input_supported(
+    model: &ClassifierModel,
+    context: &ClassifierContext,
+) -> Result<(), ModelsError> {
+    if context
+        .images
+        .as_ref()
+        .is_some_and(|images| !images.is_empty())
+        && !model.input.contains(&Modality::Image)
+    {
+        return Err(ModelsError::new(
+            ModelsErrorCode::Provider,
+            format!(
+                "Model {}/{} does not accept image input",
+                model.provider, model.id
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// `Model <provider>/<id> is not <kind> model`.

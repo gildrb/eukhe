@@ -378,6 +378,7 @@ async fn own_entries(
             .parent
             .map(|parent| EntryId::from_number(parent.at.get() + 1)),
         max_entry_id: None,
+        order: None,
     };
     let mut entries = Vec::new();
     let mut cursor: Option<Cursor> = None;

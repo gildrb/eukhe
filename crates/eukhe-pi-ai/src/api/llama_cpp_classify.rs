@@ -27,7 +27,7 @@ use eukhe_types::pi_ai::{
 use futures::future::{try_join, try_join_all, BoxFuture, FutureExt, Shared};
 use serde_json::json;
 
-use super::system_one_shared::{
+use super::classifier_shared::{
     as_record, empty_result, error, fail, js_entries, model_headers, post_json, retry_options,
 };
 use super::ProviderClassifier;
@@ -669,6 +669,15 @@ async fn run(
 ) -> Result<IndexMap<String, ClassifierAnswer>, Thrown> {
     if model.api != "llama-cpp-classify" {
         return Err(error(format!("Unsupported classifier API: {}", model.api)));
+    }
+    if context
+        .images
+        .as_ref()
+        .is_some_and(|images| !images.is_empty())
+    {
+        return Err(error(format!(
+            "{LABEL} classification does not support image input"
+        )));
     }
     let temperature = options.temperature.unwrap_or(1.0);
     let positive = matches!(

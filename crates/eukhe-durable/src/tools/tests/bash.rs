@@ -13,10 +13,13 @@ use crate::env::{
     NativeExecutionEnvOptions, OutputStream, ShellExecResult, ShellOutputInfo, ShellOutputSkip,
     ShellOutputWindow, TempFileOptions,
 };
+use crate::harness::types::{ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionResult};
+use crate::tools::bash::ShellStructuredOutput;
 use crate::tools::{
     create_bash_tool, create_powershell_tool, BashPrepare, BashToolOptions, PowerShellToolOptions,
 };
 use crate::truncate::DEFAULT_MAX_LINES;
+use eukhe_chord::json::from_json;
 
 const STDOUT: ShellOutputInfo = ShellOutputInfo {
     stream: OutputStream::Stdout,
@@ -145,19 +148,46 @@ async fn falls_back_to_windows_powershell_and_reports_the_last_start_failure() {
     assert_eq!(failed.unwrap_err().to_string(), "spawn powershell ENOENT");
 }
 
+/// The structured output of a shell tool result.
+fn shell_output(result: &ToolExecutionResult) -> ShellStructuredOutput {
+    from_json(
+        result
+            .structured_output
+            .as_ref()
+            .expect("structured output"),
+    )
+    .expect("shell structured output")
+}
+
+fn exit_code_diagnostic(code: i32) -> ToolDiagnostic {
+    ToolDiagnostic {
+        severity: ToolDiagnosticSeverity::Error,
+        code: Some("exit_code".to_owned()),
+        message: format!("Command exited with code {code}"),
+    }
+}
+
 #[tokio::test]
-async fn throws_on_a_nonzero_exit_after_streaming_the_output() {
+async fn answers_a_nonzero_exit_with_an_error_result_carrying_the_exit_code() {
     let (env, _, _dir) = programs_env(&["pwsh"], "partial", 3);
-    let (failed, api) = run(
+    let (result, api) = run(
         &create_powershell_tool(PowerShellToolOptions::default()),
         json!({ "command": "exit 3" }),
         env,
     )
     .await;
+    let result = result.unwrap();
+    assert_eq!(result.is_error, Some(true));
     assert_eq!(
-        failed.unwrap_err().to_string(),
-        "Command exited with code 3"
+        shell_output(&result),
+        ShellStructuredOutput {
+            output: "partial".to_owned(),
+            truncated: false,
+            full_output_path: None,
+            exit_code: 3,
+        }
     );
+    assert_eq!(result.diagnostics, Some(vec![exit_code_diagnostic(3)]));
     assert_eq!(api.text(), "partial");
 }
 
@@ -215,6 +245,7 @@ async fn passes_the_retained_window_to_the_environment_and_forwards_what_it_skip
         window: Some(window),
         output: Mutex::new(Vec::new()),
         diagnostics: Mutex::new(Vec::new()),
+        model: None,
     });
     execute(
         &create_bash_tool(BashToolOptions::default()),
@@ -235,7 +266,8 @@ async fn passes_the_retained_window_to_the_environment_and_forwards_what_it_skip
 }
 
 #[tokio::test]
-async fn streams_combined_stdout_and_stderr_and_returns_no_content_of_its_own() {
+async fn streams_combined_stdout_and_stderr_returns_no_output_of_its_own_and_repeats_it_with_the_exit_code(
+) {
     let dir = temp_dir();
     let (result, api) = run(
         &create_bash_tool(BashToolOptions::default()),
@@ -245,11 +277,22 @@ async fn streams_combined_stdout_and_stderr_and_returns_no_content_of_its_own() 
     .await;
     assert!(api.text().contains("out"));
     assert!(api.text().contains("err"));
-    assert_eq!(result.unwrap().content, None);
+    let result = result.unwrap();
+    assert_eq!(result.output, None);
+    assert_eq!(
+        shell_output(&result),
+        ShellStructuredOutput {
+            output: api.text(),
+            truncated: false,
+            full_output_path: None,
+            exit_code: 0,
+        }
+    );
 }
 
 #[tokio::test]
-async fn throws_on_nonzero_exits_and_timeouts_after_streaming_the_output() {
+async fn answers_a_nonzero_exit_with_an_error_result_and_throws_on_a_timeout_after_streaming_the_output(
+) {
     let dir = temp_dir();
     let env: Arc<dyn ExecutionEnv> = Arc::new(native(&dir));
     let tool = create_bash_tool(BashToolOptions::default());
@@ -259,10 +302,18 @@ async fn throws_on_nonzero_exits_and_timeouts_after_streaming_the_output() {
         Arc::clone(&env),
     )
     .await;
+    let failed = failed.unwrap();
+    assert_eq!(failed.is_error, Some(true));
     assert_eq!(
-        failed.unwrap_err().to_string(),
-        "Command exited with code 7"
+        shell_output(&failed),
+        ShellStructuredOutput {
+            output: "failed".to_owned(),
+            truncated: false,
+            full_output_path: None,
+            exit_code: 7,
+        }
     );
+    assert_eq!(failed.diagnostics, Some(vec![exit_code_diagnostic(7)]));
     assert_eq!(api.text(), "failed");
     let (slow, _) = run(&tool, json!({ "command": "sleep 2", "timeout": 0.01 }), env).await;
     assert_eq!(

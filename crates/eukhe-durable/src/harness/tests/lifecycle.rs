@@ -108,6 +108,7 @@ fn conversation_task_options(background: Option<bool>) -> TaskOptions {
         ownership: TaskOwnership::Conversation,
         conversation_id: None,
         background,
+        abandon_on_restart: None,
     }
 }
 
@@ -157,6 +158,10 @@ async fn seed_running_task(storage: &dyn Storage) {
             checkpoint: json(r#"{"phase":"run"}"#),
         },
         memos: None,
+        started_at: None,
+        ended_at: None,
+        abandon_on_restart: false,
+        abort_reason: None,
     };
     storage
         .commit(
@@ -401,7 +406,7 @@ async fn closes_without_a_cancelled_caller_context_and_rethrows_the_original_err
 }
 
 #[tokio::test]
-async fn reports_a_failing_close_and_still_rethrows_the_open_error() {
+async fn rethrows_the_open_error_and_reports_it_once_though_closing_then_fails_too() {
     let inner = ControlledStorage::new();
     let storage = Arc::new(FailingClose {
         inner: Arc::clone(&inner),
@@ -415,8 +420,9 @@ async fn reports_a_failing_close_and_still_rethrows_the_open_error() {
         .await
         .unwrap_err();
     assert!(open_error.to_string().contains("disk full"), "{open_error}");
+    // The storage failure that failed open is the cause; the close that fails after it adds no report.
     let reported: Vec<String> = reports.all().iter().map(ToString::to_string).collect();
-    assert_eq!(reported, ["close failed"]);
+    assert_eq!(reported, ["disk full"]);
 }
 
 // describe("Harness close")
@@ -483,7 +489,7 @@ async fn joins_a_tool_execute_and_a_hook_that_ignore_their_signal_before_closing
                             stubborn.run().await;
                         }
                         Ok(ToolExecutionResult {
-                            content: Some(Vec::new()),
+                            output: Some(Vec::new()),
                             ..ToolExecutionResult::default()
                         })
                     }
@@ -805,6 +811,7 @@ async fn publishes_no_frame_to_states_and_watches_from_a_commit_that_settles_dur
                     ownership: TaskOwnership::Conversation,
                     conversation_id: Some(root_id),
                     background: None,
+                    abandon_on_restart: None,
                 },
             )
             .await?;
@@ -985,7 +992,10 @@ async fn rejects_conversation_and_harness_operations_once_close_begins_inspect_q
             "commit",
             outcome(root.commit(|_| async { Ok(()) }, cx)).await,
         ),
-        ("context", outcome(root.context(cx)).await),
+        (
+            "context",
+            outcome(root.context(cx, crate::harness::types::ContextOptions::default())).await,
+        ),
         (
             "entries",
             outcome(root.entries(ConversationEntryQuery::default(), 10, None, cx)).await,
@@ -1140,7 +1150,10 @@ async fn completes_reads_queued_at_the_seal_and_rejects_queued_waits_and_acquisi
     held.entered().await;
     let cx = context();
     let queued = vec![
-        ("context", settle(root.context(cx))),
+        (
+            "context",
+            settle(root.context(cx, crate::harness::types::ContextOptions::default())),
+        ),
         (
             "snapshot",
             settle_optional(harness.snapshot(&NOTES, (), cx)),
@@ -1311,7 +1324,9 @@ async fn never_schedules_from_a_read_only_viewer() {
         .unwrap();
     submission.status(context()).await.unwrap();
     root.agent(context()).await.unwrap();
-    root.context(context()).await.unwrap();
+    root.context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     root.entries(ConversationEntryQuery::default(), 10, None, context())
         .await
         .unwrap();

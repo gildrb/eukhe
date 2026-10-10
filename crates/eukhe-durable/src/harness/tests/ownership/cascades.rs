@@ -420,7 +420,10 @@ async fn derives_marks_a_crash_left_unapplied_below(abort_requested: bool, state
     let world = World::new();
     let (_directory, path) = sqlite_path("pi-durable-ownership-");
     // Without a Harness, nothing derives marks: a cancelled owner with a live task below it.
-    let session = create_session(sqlite(&path).await);
+    let session = create_session(
+        sqlite(&path).await,
+        crate::session::SessionOptions::default(),
+    );
     let hold = world.hold.clone();
     let (owner, inner) = session
         .commit(
@@ -765,14 +768,9 @@ async fn aborts_a_waiting_child_whose_awaited_task_completes_in_the_commit_that_
     harness.close(context()).await.unwrap();
 }
 
-fn mark_is_cleared(mark: &Arc<Mutex<Option<TaskId>>>) -> bool {
-    mark.lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .is_none()
-}
-
 #[tokio::test]
-async fn retries_marks_found_through_an_edge_loaded_after_reopen_when_their_commit_is_rejected() {
+async fn applies_marks_found_through_an_edge_loaded_after_reopen_once_a_failed_cascade_commit_is_reopened(
+) {
     let world = World::new();
     let (_directory, path) = sqlite_path("pi-durable-ownership-");
     let opened = open_harness(&world, sqlite(&path).await).await;
@@ -824,62 +822,55 @@ async fn retries_marks_found_through_an_edge_loaded_after_reopen_when_their_comm
         )
         .await
         .unwrap();
-    let mark = &reject_mark;
-    wait_for(|| async move { mark_is_cleared(mark) }, WAIT_UNTIL_MS).await;
-    // Any later commit, here the reservation of the new task, retries the cascade.
+    // The failed cascade commit fails the Harness. `closed` settles once its
+    // invocations have ended, and the owner's abort handler ignores its
+    // signal: let it return.
+    world.open("abort.owner", Ending::Completed);
+    assert!(matches!(
+        opened.harness.closed().await,
+        SessionEnd::Failed { .. }
+    ));
+    opened.harness.close(context()).await.unwrap();
+    // Reopening derives the mark again.
+    let opened = open_harness(&world, sqlite(&path).await).await;
     assert_eq!(
         outcome_of(&opened.harness, late).await,
         TaskOutcomeStatus::Aborted
     );
-    world.open("abort.owner", Ending::Completed);
     opened.harness.close(context()).await.unwrap();
 }
 
 #[tokio::test]
-async fn retries_a_cascade_whose_commit_the_storage_rejected() {
+async fn fails_the_harness_on_a_failed_cascade_commit_and_reopening_applies_the_cascade() {
     let world = World::new();
     let reject_mark: Arc<Mutex<Option<TaskId>>> = Arc::default();
+    let memory = ControlledStorage::new();
     let storage = Arc::new(RejectMark {
-        inner: memory(),
+        inner: Arc::clone(&memory) as Arc<dyn Storage>,
         mark: Arc::clone(&reject_mark),
     });
     let Opened {
         harness,
         root,
         reports,
-    } = open_harness(&world, storage).await;
+    } = open_harness(&world, Arc::clone(&storage) as Arc<dyn Storage>).await;
     let tree = owned_child(&world, &root, "owner", TreeOptions::default()).await;
     *reject_mark.lock().unwrap_or_else(PoisonError::into_inner) = Some(tree.inner);
     world.open("owner", Ending::Failed);
-    let reports = &reports;
-    wait_for(
-        || async move { reports.all().iter().any(is_rejection) },
-        WAIT_UNTIL_MS,
-    )
-    .await;
-    assert_eq!(
-        status(&harness, tree.owner).await.status(),
-        TaskStatus::Completing
+    let end = harness.closed().await;
+    assert!(
+        matches!(&end, SessionEnd::Failed { error } if error.to_string() == "disk gone"),
+        "{end:?}"
     );
-    assert_ne!(
-        status(&harness, tree.inner).await.status(),
-        TaskStatus::Terminal
-    );
-    // The next commit retries the cascade.
-    let root_id = root.id();
-    root.commit(
-        move |tx| async move { tx.append_entry(root_id, EntryDraft::new("note")).await },
-        context(),
-    )
-    .await
-    .unwrap();
+    let reported = reports.all();
+    assert_eq!(reported.len(), 1);
+    assert_eq!(reported[0].to_string(), "disk gone");
+    harness.close(context()).await.unwrap();
+    memory.reopen();
+    let reopened = open_harness(&world, storage).await;
     assert_eq!(
-        outcome_of(&harness, tree.inner).await,
+        outcome_of(&reopened.harness, tree.inner).await,
         TaskOutcomeStatus::Aborted
     );
-    assert_eq!(
-        outcome_of(&harness, tree.owner).await,
-        TaskOutcomeStatus::Failed
-    );
-    harness.close(context()).await.unwrap();
+    reopened.harness.close(context()).await.unwrap();
 }

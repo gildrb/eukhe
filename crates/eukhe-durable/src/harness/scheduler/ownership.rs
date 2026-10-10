@@ -274,21 +274,28 @@ impl State {
     /// finds an owner with intent before a background owner without it.
     /// Terminal owners never cascade (spec §5.4).
     pub(super) fn below_cancelled(&self, start: Up) -> bool {
+        self.cancelling_owner(start).is_some()
+    }
+
+    /// The nearest live owner above `start` whose cancellation intent reaches
+    /// it, if any; see [`Self::below_cancelled`].
+    pub(super) fn cancelling_owner(&self, start: Up) -> Option<&AnyTaskRecord> {
         for step in self.above(start, None) {
             match step {
-                Step::Unknown => return false,
+                Step::Unknown => return None,
                 Step::Conversation(_) => {}
                 Step::Task { id, node } => {
-                    if self.live.get(&id).is_some_and(cancellation_intent) {
-                        return true;
+                    if let Some(live) = self.live.get(&id).filter(|live| cancellation_intent(live))
+                    {
+                        return Some(live);
                     }
                     if node.background {
-                        return false;
+                        return None;
                     }
                 }
             }
         }
-        false
+        None
     }
 
     /// No live non-background task in the scope; a task whose owner edges are

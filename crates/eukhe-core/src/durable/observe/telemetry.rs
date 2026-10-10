@@ -698,14 +698,11 @@ impl SessionTelemetry {
                     }
                 }
             }
-            AgentEvent::ToolExecutionStart { tool_call_id, .. } => {
-                state.tool_starts.insert(tool_call_id.clone(), now);
+            AgentEvent::ToolExecutionStart { call, .. } => {
+                state.tool_starts.insert(call.tool_call_id.clone(), now);
             }
-            AgentEvent::ToolExecutionEnd {
-                tool_call_id,
-                tool_name,
-                entry,
-            } => {
+            AgentEvent::ToolExecutionEnd { call, entry, .. } => {
+                let (tool_call_id, tool_name) = (&call.tool_call_id, &call.tool_name);
                 // `is_error` is derived: no entry (a faulted or
                 // orphaned tool task), or the entry's tool-result
                 // message reports `is_error`.

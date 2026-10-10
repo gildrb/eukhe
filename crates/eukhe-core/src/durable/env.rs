@@ -46,9 +46,10 @@ mod tests {
         EnvTarget {
             conversation_id: ROOT_CONVERSATION_ID,
             cwd: cwd.map(str::to_owned),
-            read: Arc::new(eukhe_durable::session::create_session(Arc::new(
-                MemoryStorage::new(),
-            ))),
+            read: Arc::new(eukhe_durable::session::create_session(
+                Arc::new(MemoryStorage::new()),
+                eukhe_durable::session::SessionOptions::default(),
+            )),
         }
     }
 

@@ -198,6 +198,7 @@ where
                         ownership: TaskOwnership::Conversation,
                         conversation_id: None,
                         background,
+                        abandon_on_restart: None,
                     },
                 )
                 .await

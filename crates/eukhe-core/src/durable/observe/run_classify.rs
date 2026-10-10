@@ -185,6 +185,7 @@ mod tests {
             raw_stop_reason: None,
             end_turn: None,
             timestamp: 0,
+            duration_ms: None,
         }
     }
 

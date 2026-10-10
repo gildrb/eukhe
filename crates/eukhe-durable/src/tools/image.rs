@@ -2,6 +2,7 @@
 
 use std::future::Future;
 
+use super::image_processor::ImageSize;
 use crate::env::FileError;
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -89,6 +90,65 @@ pub(crate) fn detect_supported_image_mime_type(buffer: &[u8]) -> Option<&'static
     None
 }
 
+/// The width and height an image of `mime_type` declares in its header,
+/// without decoding it: PNG's IHDR, GIF's screen, WebP's VP8, VP8L, or VP8X
+/// chunk, JPEG's first SOF segment. `None` when the header cannot be read.
+pub(crate) fn image_dimensions(bytes: &[u8], mime_type: &str) -> Option<ImageSize> {
+    let size = |width, height| Some(ImageSize { width, height });
+    match mime_type {
+        "image/png" if bytes.len() >= 24 => {
+            size(read_uint32_be(bytes, 16), read_uint32_be(bytes, 20))
+        }
+        "image/gif" if bytes.len() >= 10 => {
+            size(read_uint16_le(bytes, 6), read_uint16_le(bytes, 8))
+        }
+        "image/webp" if bytes.len() >= 30 => {
+            if starts_with_ascii(bytes, 12, "VP8 ") {
+                return size(
+                    read_uint16_le(bytes, 26) & 0x3fff,
+                    read_uint16_le(bytes, 28) & 0x3fff,
+                );
+            }
+            if starts_with_ascii(bytes, 12, "VP8L") {
+                let bits = read_uint32_le(bytes, 21);
+                return size((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1);
+            }
+            if starts_with_ascii(bytes, 12, "VP8X") {
+                let uint24 = |offset: usize| {
+                    read_uint16_le(bytes, offset) + (byte_at(bytes, offset + 2) << 16)
+                };
+                return size(uint24(24) + 1, uint24(27) + 1);
+            }
+            None
+        }
+        "image/jpeg" => {
+            let mut offset = 2;
+            while offset + 9 <= bytes.len() {
+                if bytes[offset] != 0xff {
+                    return None;
+                }
+                let marker = bytes[offset + 1];
+                if marker == 0xff {
+                    offset += 1;
+                    continue;
+                }
+                // SOF0 to SOF15, except DHT (C4), JPG (C8), and DAC (CC), which share the range.
+                if (0xc0..=0xcf).contains(&marker) && ![0xc4, 0xc8, 0xcc].contains(&marker) {
+                    return size(
+                        read_uint16_be(bytes, offset + 7),
+                        read_uint16_be(bytes, offset + 5),
+                    );
+                }
+                // Not above `bytes.len()` plus 65537, so it fits.
+                offset +=
+                    2 + usize::try_from(read_uint16_be(bytes, offset + 2)).unwrap_or(usize::MAX);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 fn is_png(buffer: &[u8]) -> bool {
     buffer.len() >= 16
         && read_uint32_be(buffer, PNG_SIGNATURE.len()) == 13
@@ -153,6 +213,10 @@ fn byte_at(buffer: &[u8], offset: usize) -> u64 {
 
 fn read_uint16_le(buffer: &[u8], offset: usize) -> u64 {
     byte_at(buffer, offset) + (byte_at(buffer, offset + 1) << 8)
+}
+
+fn read_uint16_be(buffer: &[u8], offset: usize) -> u64 {
+    (byte_at(buffer, offset) << 8) + byte_at(buffer, offset + 1)
 }
 
 fn read_uint32_be(buffer: &[u8], offset: usize) -> u64 {

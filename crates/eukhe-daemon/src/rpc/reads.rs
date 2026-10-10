@@ -99,7 +99,7 @@ pub(crate) async fn context_messages(
     cx: &Context,
 ) -> Result<Vec<Value>, String> {
     let view = conversation
-        .context(cx)
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
         .await
         .map_err(|error| error.to_string())?;
     Ok(transcript_messages(&view.entries))

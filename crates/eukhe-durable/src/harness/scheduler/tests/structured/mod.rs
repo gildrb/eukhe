@@ -545,6 +545,7 @@ pub(super) const OWN_CONVERSATION: TaskOptions = TaskOptions {
     ownership: TaskOwnership::Conversation,
     conversation_id: None,
     background: None,
+    abandon_on_restart: None,
 };
 
 /// `{ ...OWN_CONVERSATION, conversationId }`.
@@ -567,6 +568,7 @@ pub(super) fn owned(owner: TaskId) -> TaskOptions {
         ownership: TaskOwnership::Task { task_id: owner },
         conversation_id: None,
         background: None,
+        abandon_on_restart: None,
     }
 }
 
@@ -812,7 +814,10 @@ pub(super) async fn seed(
     children: &[&'static str],
     edit: impl FnOnce(&Seeded) -> Vec<Patch>,
 ) -> Seeded {
-    let session = create_session(sqlite(path).await);
+    let session = create_session(
+        sqlite(path).await,
+        crate::session::SessionOptions::default(),
+    );
     let (node, children) = (script.node().clone(), children.to_vec());
     let (parent, children) = session
         .commit(

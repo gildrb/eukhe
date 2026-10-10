@@ -71,7 +71,7 @@ pub(crate) fn tool_described(name: &str, description: &str) -> Arc<ToolRegistrat
         empty_object_schema(),
         |_, _, _| async {
             Ok(ToolExecutionResult {
-                content: Some(Vec::new()),
+                output: Some(Vec::new()),
                 ..ToolExecutionResult::default()
             })
         },
@@ -155,6 +155,7 @@ pub(crate) fn assistant(text: &str, options: AssistantOptions<'_>) -> AssistantM
         raw_stop_reason: None,
         end_turn: None,
         timestamp: 2,
+        duration_ms: None,
     }
 }
 
@@ -169,6 +170,7 @@ pub(crate) fn tool_result(id: &str, text: Option<&str>) -> ToolResultMessage {
         nested_calls: None,
         is_error: false,
         timestamp: 3,
+        duration_ms: None,
     }
 }
 

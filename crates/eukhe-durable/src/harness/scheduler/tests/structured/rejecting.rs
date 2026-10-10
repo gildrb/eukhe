@@ -1,4 +1,4 @@
-//! TS `class Rejecting extends MemoryStorage`: rejects, once, the commit
+//! TS `class Failing extends ControlledStorage`: fails, once, the commit
 //! that finalizes the armed task.
 
 use std::sync::{Arc, Mutex, PoisonError};
@@ -7,8 +7,7 @@ use eukhe_chord::context::Context;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
-use crate::errors::{StorageError, StorageRejected};
-use crate::session::SessionError;
+use crate::errors::StorageError;
 use crate::storage::MemoryStorage;
 use crate::types::{
     AnyTaskRecord, ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress,
@@ -17,14 +16,14 @@ use crate::types::{
     SubmissionRecord, TaskId, TaskQuery, TaskStatus,
 };
 
-/// Memory storage that rejects the commit writing the armed task's terminal
-/// record, then disarms.
-pub(super) struct Rejecting {
+/// Memory storage that fails the commit writing the armed task's terminal
+/// record with `disk gone`, then disarms.
+pub(super) struct Failing {
     inner: MemoryStorage,
     reject: Mutex<Option<TaskId>>,
 }
 
-impl Rejecting {
+impl Failing {
     pub(super) fn new() -> Arc<Self> {
         Arc::new(Self {
             inner: MemoryStorage::new(),
@@ -36,14 +35,20 @@ impl Rejecting {
     pub(super) fn arm(&self, id: TaskId) {
         *self.reject.lock().unwrap_or_else(PoisonError::into_inner) = Some(id);
     }
+
+    /// Reopen after `close()`, keeping every committed record.
+    pub(super) fn reopen(self: &Arc<Self>) -> Arc<Self> {
+        self.inner.reopen();
+        Arc::clone(self)
+    }
 }
 
-/// TS `error instanceof StorageRejected`.
-pub(super) fn is_rejection(error: &SessionError) -> bool {
-    matches!(error, SessionError::Storage(StorageError::Rejected(_)))
-}
+/// The failure `Failing` returns.
+#[derive(Debug, thiserror::Error)]
+#[error("disk gone")]
+pub(super) struct DiskGone;
 
-impl Storage for Rejecting {
+impl Storage for Failing {
     fn commit<'a>(
         &'a self,
         writes: &'a [StorageWrite],
@@ -63,8 +68,7 @@ impl Storage for Rejecting {
             finalizes
         };
         if finalizes {
-            return futures::future::ready(Err(StorageRejected::new("rejected once").into()))
-                .boxed();
+            return futures::future::ready(Err(StorageError::failed(DiskGone))).boxed();
         }
         self.inner.commit(writes, cx)
     }

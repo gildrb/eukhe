@@ -5,7 +5,6 @@
 mod conversation;
 
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 
 use eukhe_chord::context::{without_abort_signal, Context};
@@ -34,9 +33,9 @@ use crate::harness::types::{
     HarnessInspection, HarnessOptions, RegistrySnapshot, Settings,
 };
 use crate::harness::usage::{add_usage_state, UsageState, USAGE_DOC};
-use crate::harness::util::{closed_error, scan_all};
+use crate::harness::util::{harness_closed, scan_all};
 use crate::harness::view::ConversationViews;
-use crate::session::{Session, SessionError, SessionHooks, SessionResult, Tx};
+use crate::session::{system_now, Session, SessionError, SessionHooks, SessionResult, Tx};
 use crate::tasks::SettledTask;
 use crate::types::{
     AnyTaskRecord, ConversationId, ConversationOwnership, ConversationQuery, ConversationRecord,
@@ -85,7 +84,6 @@ pub(crate) struct Core {
     submissions: Submissions,
     task_graph: TaskGraphView,
     views: ConversationViews,
-    closed: AtomicBool,
 }
 
 impl Core {
@@ -102,13 +100,6 @@ impl Core {
     /// The task graph mount.
     pub(crate) fn task_graph(&self) -> &TaskGraphView {
         &self.task_graph
-    }
-
-    fn assert_open(&self) -> SessionResult<()> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(closed_error());
-        }
-        Ok(())
     }
 
     /// Resolve a conversation's committed `pi.agent` against `snapshot`, or
@@ -190,7 +181,7 @@ impl Core {
         options: CreateOptions,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<Conversation>> {
-        if let Err(error) = self.assert_open() {
+        if let Err(error) = self.session.assert_usable() {
             return future::ready(Err(error)).boxed();
         }
         let committed = self.session.commit(
@@ -234,6 +225,7 @@ impl Core {
 /// join before Storage closes.
 struct HarnessHooks {
     conversation_created: Option<crate::harness::types::ConversationCreated>,
+    report: Arc<dyn Fn(SessionError) + Send + Sync>,
     core: Weak<Core>,
 }
 
@@ -262,13 +254,18 @@ impl SessionHooks for HarnessHooks {
         .boxed()
     }
 
-    /// Join task invocations after admission is sealed and before Storage
-    /// closes; writes no task outcome.
+    /// Signal and join task invocations after the close listeners and before
+    /// Storage closes; writes no task outcome.
     fn before_close(&self) -> BoxFuture<'static, ()> {
         match self.core.upgrade() {
             Some(core) => core.tasks.join().boxed(),
             None => future::ready(()).boxed(),
         }
+    }
+
+    /// `HarnessOptions.on_report`.
+    fn report(&self, error: SessionError) {
+        (self.report)(error);
     }
 }
 
@@ -333,7 +330,7 @@ impl Deref for Harness {
 }
 
 fn upgrade(core: &Weak<Core>) -> SessionResult<Arc<Core>> {
-    core.upgrade().ok_or_else(closed_error)
+    core.upgrade().ok_or_else(harness_closed)
 }
 
 impl Harness {
@@ -348,8 +345,8 @@ impl Harness {
     /// # Errors
     ///
     /// The abort reason of `cx`, or the failure of reconciling surviving
-    /// `running` tasks; the Harness is then closed (a close failure goes to
-    /// `on_report`).
+    /// `running` tasks; the Harness is then closed (a failing Storage close
+    /// fails the Session, which reports it).
     pub async fn open(
         storage: Arc<dyn Storage>,
         options: HarnessOptions,
@@ -361,9 +358,8 @@ impl Harness {
         let harness = Self::new(storage, options, cx)?;
         if let Err(error) = harness.core.tasks.open(cx).await {
             // The caller's context may be what failed open: close without it, and rethrow the open error.
-            if let Err(close_error) = harness.close(&without_abort_signal(cx)).await {
-                (harness.core.report)(close_error);
-            }
+            // A failing Storage close fails the Session, which reports it.
+            let _ = harness.close(&without_abort_signal(cx)).await;
             return Err(error);
         }
         Ok(harness)
@@ -382,12 +378,18 @@ impl Harness {
             Some(now) => Arc::clone(now),
             None => Arc::new(system_now),
         };
+        // TS `safeReport`/`safeNow` contain a host callback's throw; a Rust
+        // `on_report` or clock cannot throw.
         let core = Arc::new_cyclic(|weak: &Weak<Core>| {
             let hooks = HarnessHooks {
                 conversation_created: options.conversation_created.clone(),
+                report: Arc::clone(&report),
                 core: weak.clone(),
             };
-            let session = Session::with_hooks(Arc::clone(&storage), Arc::new(hooks));
+            let session = Session::with_hooks(storage, Arc::new(hooks), Some(Arc::clone(&now)));
+            // Every component reads and writes through the Session's failure
+            // guard: the raw storage serves only the Session.
+            let storage = Arc::clone(session.storage());
             let settings_options = options.clone();
             let settings: Arc<dyn Fn() -> Settings + Send + Sync> =
                 Arc::new(move || Core::settings(&settings_options));
@@ -434,26 +436,9 @@ impl Harness {
                 }),
                 context: without_abort_signal(cx),
             });
-            let queue_settings = Arc::clone(&settings);
-            let generation_core = weak.clone();
-            let resume_tasks = tasks.clone();
             let submissions = Submissions::new(
                 session.clone(),
-                SubmissionServices {
-                    now: Arc::clone(&now),
-                    queue_modes: Arc::new(move || {
-                        let settings = queue_settings();
-                        QueueModes {
-                            steering_mode: settings.steering_mode,
-                            follow_up_mode: settings.follow_up_mode,
-                        }
-                    }),
-                    generation: Arc::new(move || match generation_core.upgrade() {
-                        Some(core) => Ok(core.generation()),
-                        None => Err(closed_error()),
-                    }),
-                    resume: Arc::new(move || resume_tasks.resume()),
-                },
+                submission_services(&now, &settings, weak.clone(), tasks.clone()),
             );
             let task_graph = TaskGraphView::new(session.clone(), Arc::clone(&storage));
             let views = ConversationViews::new(session.clone(), Arc::clone(&storage));
@@ -467,10 +452,9 @@ impl Harness {
                 submissions,
                 task_graph,
                 views,
-                closed: AtomicBool::new(false),
             }
         });
-        // A fresh Session is neither closed nor poisoned, so this succeeds.
+        // A fresh Session is neither closed nor failed, so this succeeds.
         core.submissions.subscribe()?;
         core.task_graph.subscribe()?;
         core.views.subscribe()?;
@@ -484,9 +468,9 @@ impl Harness {
     ///
     /// # Errors
     ///
-    /// `Harness is closed`.
+    /// `Session is closed`, or `SessionFailed`.
     pub fn resume(&self) -> SessionResult<()> {
-        self.core.assert_open()?;
+        self.core.session.assert_usable()?;
         self.core.tasks.resume();
         Ok(())
     }
@@ -516,7 +500,7 @@ impl Harness {
         id: ConversationId,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<Option<Conversation>>> {
-        if let Err(error) = self.core.assert_open() {
+        if let Err(error) = self.core.session.assert_usable() {
             return future::ready(Err(error)).boxed();
         }
         let storage = Arc::clone(&self.core.storage);
@@ -581,6 +565,7 @@ impl Harness {
                     let query = SubmissionQuery {
                         conversation_id: None,
                         status: Some(status),
+                        order: None,
                     };
                     let storage = &core.storage;
                     let query = &query;
@@ -696,7 +681,7 @@ impl Harness {
     }
 
     /// Seal admission, join task invocations, settle admitted commits, then
-    /// close Storage. Later Harness operations reject with `Harness is
+    /// close Storage. Later Harness operations reject with `Session is
     /// closed`.
     ///
     /// # Errors
@@ -705,20 +690,32 @@ impl Harness {
     /// stops waiting; closing continues either way.
     #[must_use]
     pub fn close(&self, cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
-        self.core.closed.store(true, Ordering::SeqCst);
         self.core.session.close(cx).boxed()
     }
 }
 
-/// `Date.now()`: wall-clock milliseconds since the Unix epoch.
-fn system_now() -> f64 {
-    let elapsed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "epoch milliseconds stay below 2^53"
-    )]
-    let millis = elapsed.as_millis() as f64;
-    millis
+/// What the submission queue needs of the Harness: its clock, the queue
+/// modes of its current settings, its generation, and scheduling.
+fn submission_services(
+    now: &Arc<dyn Fn() -> f64 + Send + Sync>,
+    settings: &Arc<dyn Fn() -> Settings + Send + Sync>,
+    core: Weak<Core>,
+    tasks: TaskScheduler,
+) -> SubmissionServices {
+    let settings = Arc::clone(settings);
+    SubmissionServices {
+        now: Arc::clone(now),
+        queue_modes: Arc::new(move || {
+            let settings = settings();
+            QueueModes {
+                steering_mode: settings.steering_mode,
+                follow_up_mode: settings.follow_up_mode,
+            }
+        }),
+        generation: Arc::new(move || match core.upgrade() {
+            Some(core) => Ok(core.generation()),
+            None => Err(harness_closed()),
+        }),
+        resume: Arc::new(move || tasks.resume()),
+    }
 }

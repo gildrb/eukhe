@@ -90,6 +90,7 @@ fn assistant(content: Vec<AssistantContentBlock>, stop_reason: StopReason) -> Me
         raw_stop_reason: None,
         end_turn: None,
         timestamp: now(),
+        duration_ms: None,
     })
 }
 
@@ -242,6 +243,7 @@ async fn replays_redacted_reasoning_before_the_tool_use_block_it_belongs_to() {
                 nested_calls: None,
                 is_error: false,
                 timestamp: now(),
+                duration_ms: None,
             }),
         ],
     )

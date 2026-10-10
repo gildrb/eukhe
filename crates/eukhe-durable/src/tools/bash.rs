@@ -5,10 +5,10 @@ use std::fmt;
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
-use eukhe_chord::json::JsonNumber;
+use eukhe_chord::json::{to_json, JsonNumber};
 use eukhe_pi_ai::typebox::{Options, TSchema, Type};
 use futures::future::BoxFuture;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::env::require_env;
 use crate::env::{
@@ -38,6 +38,45 @@ fn command_schema(description: &str) -> TSchema {
             ))),
         ),
     ])
+}
+
+fn described(description: &str) -> Options {
+    Options::new().set("description", description)
+}
+
+/// What a program that calls `bash` or `powershell` receives.
+fn shell_structured_output_schema() -> TSchema {
+    Type::object([
+        (
+            "output",
+            Type::string_with(described(
+                "Combined stdout and stderr: the retained tail, as the model sees it",
+            )),
+        ),
+        (
+            "truncated",
+            Type::boolean_with(described("Whether earlier output was dropped")),
+        ),
+        (
+            "fullOutputPath",
+            Type::optional(Type::string_with(described(
+                "File with the complete output, when it was spilled",
+            ))),
+        ),
+        ("exitCode", Type::number()),
+    ])
+}
+
+/// The structured output of `bash` and `powershell` (TS
+/// `ShellStructuredOutput`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellStructuredOutput {
+    pub output: String,
+    pub truncated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_output_path: Option<String>,
+    pub exit_code: i32,
 }
 
 /// Arguments of `bash` (TS `BashToolInput`).
@@ -160,15 +199,16 @@ async fn prepare_execution(
 
 /// Run each command form in turn until one starts, streaming output to
 /// `api.output()` within the retained window, and turn the result into the
-/// tool's outcome: a spill diagnostic, and a thrown error for a failure or a
-/// nonzero exit.
+/// tool's result: a spill diagnostic, an error result for a nonzero exit, and
+/// a thrown error for a failure such as a timeout. The structured output
+/// repeats the retained output with the exit code.
 async fn run_command(
     commands: &[ExecCommand],
     execution: &BashExecution,
     timeout: Option<f64>,
     api: &Arc<dyn ToolExecutionApi>,
     cx: &Context,
-) -> SessionResult<()> {
+) -> SessionResult<ToolExecutionResult> {
     let env = require_env(api.as_ref())?;
     let on_output: OnShellOutput = {
         let api = Arc::clone(api);
@@ -205,35 +245,57 @@ async fn run_command(
         return Err(SessionError::error("No command to run"));
     };
     let spill_path = match &result {
-        Ok(value) => value.spill_path.as_ref(),
-        Err(error) => error.spill_path.as_ref(),
+        Ok(value) => value.spill_path.clone(),
+        Err(error) => error.spill_path.clone(),
     };
-    if let Some(spill_path) = spill_path {
+    if let Some(spill_path) = &spill_path {
         api.diagnostic(ToolDiagnostic {
             severity: ToolDiagnosticSeverity::Info,
             code: Some("full_output".to_owned()),
             message: format!("Full output: {spill_path}"),
         })?;
     }
-    match result {
-        Err(error) => match error.code {
-            ExecutionErrorCode::Aborted if cx.aborted() => Err(error.into()),
-            ExecutionErrorCode::Timeout => Err(SessionError::error(format!(
-                "Command timed out after {} seconds",
-                timeout.map_or_else(|| "undefined".to_owned(), js_number)
-            ))),
-            ExecutionErrorCode::Aborted => Err(SessionError::error("Command aborted")),
-            ExecutionErrorCode::ShellUnavailable
-            | ExecutionErrorCode::SpawnError
-            | ExecutionErrorCode::CallbackError
-            | ExecutionErrorCode::Unknown => Err(error.into()),
-        },
-        Ok(value) if value.exit_code != 0 => Err(SessionError::error(format!(
-            "Command exited with code {}",
-            value.exit_code
-        ))),
-        Ok(_) => Ok(()),
+    let exit_code = match result {
+        Err(error) => {
+            return match error.code {
+                ExecutionErrorCode::Aborted if cx.aborted() => Err(error.into()),
+                ExecutionErrorCode::Timeout => Err(SessionError::error(format!(
+                    "Command timed out after {} seconds",
+                    timeout.map_or_else(|| "undefined".to_owned(), js_number)
+                ))),
+                ExecutionErrorCode::Aborted => Err(SessionError::error("Command aborted")),
+                ExecutionErrorCode::ShellUnavailable
+                | ExecutionErrorCode::SpawnError
+                | ExecutionErrorCode::CallbackError
+                | ExecutionErrorCode::Unknown => Err(error.into()),
+            };
+        }
+        Ok(value) => value.exit_code,
+    };
+    let retained = api.retained_output()?;
+    let structured_output = to_json(&ShellStructuredOutput {
+        output: retained.text,
+        truncated: retained.truncated,
+        full_output_path: spill_path,
+        exit_code,
+    })
+    .map_err(SessionError::other)?;
+    if exit_code == 0 {
+        return Ok(ToolExecutionResult {
+            structured_output: Some(structured_output),
+            ..ToolExecutionResult::default()
+        });
     }
+    Ok(ToolExecutionResult {
+        structured_output: Some(structured_output),
+        is_error: Some(true),
+        diagnostics: Some(vec![ToolDiagnostic {
+            severity: ToolDiagnosticSeverity::Error,
+            code: Some("exit_code".to_owned()),
+            message: format!("Command exited with code {exit_code}"),
+        }]),
+        ..ToolExecutionResult::default()
+    })
 }
 
 fn tail_limits() -> ToolOutputLimits {
@@ -253,8 +315,8 @@ fn input(args: eukhe_types::pi_ai::JsonValue) -> SessionResult<BashToolInput> {
 /// goes to the environment, which may omit output outside it and report how
 /// much it omitted, so dropped counts stay exact. Output beyond the limits is
 /// spilled to a file whose path is reported as a diagnostic. A nonzero exit
-/// or timeout throws, which makes an error result that still carries the
-/// output and diagnostics.
+/// is an error result with the exit code; a timeout throws, which makes an
+/// error result that still carries the output and diagnostics.
 #[must_use]
 pub fn create_bash_tool(options: BashToolOptions) -> Arc<ToolRegistration> {
     let options = Arc::new(options);
@@ -279,12 +341,12 @@ pub fn create_bash_tool(options: BashToolOptions) -> Arc<ToolRegistration> {
                 )
                 .await?;
                 let command = ExecCommand::Shell(execution.command.clone());
-                run_command(&[command], &execution, args.timeout, &api, &cx).await?;
-                Ok(ToolExecutionResult::default())
+                run_command(&[command], &execution, args.timeout, &api, &cx).await
             }
         },
     );
     tool.output_limits = Some(tail_limits());
+    tool.structured_output_schema = Some(shell_structured_output_schema().into());
     define_tool(tool)
 }
 
@@ -341,11 +403,11 @@ pub fn create_powershell_tool(options: PowerShellToolOptions) -> Arc<ToolRegistr
                         ExecCommand::Argv(command)
                     })
                     .collect();
-                run_command(&commands, &execution, args.timeout, &api, &cx).await?;
-                Ok(ToolExecutionResult::default())
+                run_command(&commands, &execution, args.timeout, &api, &cx).await
             }
         },
     );
     tool.output_limits = Some(tail_limits());
+    tool.structured_output_schema = Some(shell_structured_output_schema().into());
     define_tool(tool)
 }

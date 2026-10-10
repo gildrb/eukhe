@@ -389,9 +389,11 @@ async fn login_openai_chatgpt(
     interaction: &ProviderAuthInteraction,
     options: Option<LoginOptions>,
 ) -> Result<OAuthCredential, Thrown> {
-    let device_id = options
-        .and_then(|options| options.get_device_id)
-        .map(|get_device_id| get_device_id());
+    let options = options.unwrap_or_default();
+    let device_id = options.get_device_id.map(|get_device_id| get_device_id());
+    let agent_name_hint = options
+        .agent_name
+        .unwrap_or_else(|| AGENT_NAME_HINT.to_owned());
     let host_id = agent_host_id(device_id)?;
     let pkce = generate_pkce()?;
     let state = random_value()?;
@@ -411,7 +413,7 @@ async fn login_openai_chatgpt(
 
     let query = form_urlencode(&[
         ("client_id", DYNAMIC_CLIENT_ID),
-        ("agent_name_hint", AGENT_NAME_HINT),
+        ("agent_name_hint", &agent_name_hint),
         ("ext_agent_host_id", &host_id),
         ("response_type", "code"),
         ("redirect_uri", REDIRECT_URI),

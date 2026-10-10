@@ -250,7 +250,7 @@ pub fn create_edit_tool() -> Arc<ToolRegistration> {
                         first_changed_line: diff.first_changed_line,
                     };
                     Ok(ToolExecutionResult {
-                        content: Some(vec![UserContentBlock::Text(TextContent::new(format!(
+                        output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
                             "Successfully replaced {} block(s) in {path}.",
                             edits.len()
                         )))]),

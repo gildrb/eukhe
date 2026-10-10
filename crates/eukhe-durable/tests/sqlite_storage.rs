@@ -88,6 +88,10 @@ fn pending_task(id: TaskId) -> AnyTaskRecord {
             checkpoint: JsonValue::from(serde_json::json!({ "phase": "ready" })),
         },
         memos: None,
+        started_at: None,
+        ended_at: None,
+        abandon_on_restart: false,
+        abort_reason: None,
     }
 }
 

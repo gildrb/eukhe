@@ -39,7 +39,7 @@ use crate::harness::provider::ensure_provider_session_id;
 use crate::harness::submissions::admit_submission;
 use crate::harness::types::CompactionSnapshot;
 use crate::harness::types::{
-    CompactionDecision, CompactionHooks, CompactionRequest, CompactionResult,
+    CompactionDecision, CompactionHooks, CompactionRequest, CompactionResult, ContextOptions,
     ConversationStreamOptions, ModelRef, SubmissionDraft, WriteSubmissionDraft,
 };
 use crate::harness::usage::{record_usage, UsageBucket};
@@ -122,7 +122,9 @@ async fn select(task: Current, runtime: Runtime, cx: Context) -> SessionResult<(
         return fail_no_model(&runtime, reference.as_ref(), &cx).await;
     };
     let policy = settings.compaction;
-    let view = runtime.context(conversation_id, &cx, None).await?;
+    let view = runtime
+        .context(conversation_id, &cx, ContextOptions::default())
+        .await?;
     let Some(cut) = select_cut(&view, policy.keep_recent_tokens) else {
         return complete(&runtime, &cx).await;
     };
@@ -269,7 +271,13 @@ async fn summarize(task: Current, runtime: Runtime, cx: Context) -> SessionResul
     let conversation_id = runtime.conversation_id();
     // The context at `tail` is immutable, so this is the range `select` chose.
     let view = runtime
-        .context(conversation_id, &cx, Some(request.tail))
+        .context(
+            conversation_id,
+            &cx,
+            ContextOptions {
+                at: Some(request.tail),
+            },
+        )
         .await?;
     // TS `findIndex` yields -1 when absent, and `slice(0, -1)` drops the last
     // contribution.

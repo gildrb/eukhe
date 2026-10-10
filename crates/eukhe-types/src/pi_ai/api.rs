@@ -40,6 +40,7 @@ string_enum! {
         TypesafeSystemOne => "typesafe-system-one",
         CloudflareWorkersAISystemOne => "cloudflare-workers-ai-system-one",
         LlamaCppClassify => "llama-cpp-classify",
+        OpenAIDecisions => "openai-decisions",
     }
 }
 

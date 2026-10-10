@@ -552,7 +552,7 @@ mod tests {
     ) -> SessionCore {
         let mut core = SessionCore::test_core("/tmp".to_string());
         let snapshot: SnapshotEvent = serde_json::from_value(json!({
-            "entries": [], "tools": [], "compactions": [], "inbox": [],
+            "entries": [], "tools": [], "nestedTools": [], "compactions": [], "inbox": [],
             "agent": {}, "usage": { "models": {}, "tools": {} },
         }))
         .expect("snapshot");

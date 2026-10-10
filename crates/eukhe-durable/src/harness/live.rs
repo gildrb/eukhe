@@ -8,7 +8,7 @@ pub(crate) mod run;
 
 use eukhe_chord::delta::{Draft, DraftItem, Op};
 use eukhe_chord::json::{to_json, JsonObject, JsonValue};
-use eukhe_types::pi_ai::AssistantMessage;
+use eukhe_types::pi_ai::{AssistantMessage, JsonObject as PiJsonObject, Usage};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
@@ -58,6 +58,75 @@ pub struct ToolSlot {
     /// Result entry once done; absent when the tool task faulted or was orphaned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<EntryId>,
+}
+
+/// What a running tool call publishes, shared by model-issued and nested
+/// calls: the fields of either slot an interrupted or aborted result is
+/// built from.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotProgress {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped_lines: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Vec<ToolDiagnostic>>,
+}
+
+/// Presentation of one nested call: a call a running tool made through
+/// `execute_tool()`. `call_id` is `<parentCallId>/<key>`, the call's ID in
+/// tool events and unique because keys contain no `/`. The Harness relates
+/// slots by task ID: `task_id` is the call's tool task, `parent_task_id` the
+/// calling one, model-issued or nested.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NestedToolSlot {
+    pub call_id: String,
+    pub name: String,
+    pub status: ToolSlotStatus,
+    /// Retained running output and what the bounds dropped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped_lines: Option<u64>,
+    /// Last `details()` value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<JsonValue>,
+    /// Diagnostics recorded through `api.diagnostic()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Vec<ToolDiagnostic>>,
+    pub parent_call_id: String,
+    pub parent_task_id: TaskId,
+    pub task_id: TaskId,
+    /// What the call was made with, replaced by the arguments it runs with,
+    /// after repair, `before_tool`, and coercion, once it starts executing. A
+    /// model-issued call's arguments are in its assistant entry instead.
+    pub arguments: PiJsonObject,
+    /// Once done: how the call ended, for a status line. The result itself is
+    /// in the caller's `NestedResultDoc`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<NestedToolSummary>,
+}
+
+/// How a nested call ended: an error flag, its execution time, its spend, and
+/// up to 500 characters of error text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NestedToolSummary {
+    pub is_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// A durable backoff before the next attempt.
@@ -124,6 +193,15 @@ pub struct LiveState {
     /// until the generation's `tools` phase ends it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolSlot>>,
+    /// Nested calls of running tool calls, in creation order, so a parent
+    /// precedes its children and task IDs ascend. A call's nested slots are
+    /// removed when the call settles.
+    #[serde(
+        default,
+        rename = "nestedTools",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub nested_tools: Option<Vec<NestedToolSlot>>,
     /// Live compaction tasks in task ID order; absent when none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactions: Option<Vec<CompactionStatus>>,
@@ -133,16 +211,19 @@ pub struct LiveState {
 // and no running tool slot. That holds while idle, in the commit handing a
 // generation over to its tool round, and between tools, so the delta chain
 // spans at most one generation or the overlapping execution of one round's
-// tools. A slot holds output only while running, so every base is small. Do
+// tools. A slot holds output only while running, so every base is small; a
+// nested call's result lives in its caller's task documents, never here. Do
 // not add a delta-count bound; the tool output benchmark checks this rule.
 fn live_checkpoint_when(value: &JsonObject, _ops: &[Op], _info: CheckpointInfo) -> bool {
-    value.get("generation").is_none()
-        && !value
-            .get("tools")
+    let running = |key: &str| {
+        value
+            .get(key)
             .and_then(JsonValue::as_array)
             .unwrap_or_default()
             .iter()
             .any(|slot| slot.get("status").and_then(JsonValue::as_str) == Some("running"))
+    };
+    value.get("generation").is_none() && !running("tools") && !running("nestedTools")
 }
 
 /// The `pi.live` document token (TS `LiveDoc`).
@@ -191,8 +272,8 @@ pub fn run_task_id(live: &Draft) -> SessionResult<Option<TaskId>> {
 }
 
 /// End the run owned by `task_id`: settle each of its inputs and remove
-/// `run`. Always removes `generation` and `tools`, whose presentation belongs
-/// to the ending run.
+/// `run`. Always removes `generation`, `tools`, and `nestedTools`, whose
+/// presentation belongs to the ending run.
 ///
 /// # Errors
 ///
@@ -216,6 +297,7 @@ pub fn end_run(
     }
     live.delete("generation")?;
     live.delete("tools")?;
+    live.delete("nestedTools")?;
     Ok(())
 }
 
@@ -287,27 +369,88 @@ pub fn remove_compaction_status(live: &Draft, task_id: TaskId) -> SessionResult<
 ///
 /// A tracker failure.
 pub fn tool_slot(live: &Draft, task_id: TaskId) -> SessionResult<Option<Draft>> {
-    let Some(tools) = child_draft(live, "tools")? else {
+    if let Some(tools) = child_draft(live, "tools")? {
+        if let Some(index) = find_by_task(&tools, task_id)? {
+            return Ok(Some(tools.child(index)?));
+        }
+    }
+    // Nested slots are found by binary search: a tool may make thousands of
+    // nested calls, each of which looks up its slot in several commits, and
+    // every element a search reads costs a node in the draft's change
+    // tracker. Their task IDs ascend: each slot is appended in the commit
+    // that creates its task, task IDs ascend in commit order, and removal
+    // keeps the order.
+    let Some(nested) = child_draft(live, "nestedTools")? else {
         return Ok(None);
     };
-    match find_by_task(&tools, task_id)? {
-        Some(index) => Ok(Some(tools.child(index)?)),
-        None => Ok(None),
+    let (mut low, mut high) = (0, nested.len()?);
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let candidate = nested.child(middle)?;
+        match task_id_at(&candidate, "taskId")? {
+            Some(id) if id == task_id => return Ok(Some(candidate)),
+            Some(id) if id < task_id => low = middle + 1,
+            Some(_) | None => high = middle,
+        }
     }
+    Ok(None)
 }
 
-/// Mark a slot done: the result entry, if any, now carries its running
-/// output, details, and diagnostics.
+/// Whether a slot draft is a nested call's (TS `"parentTaskId" in slot`).
 ///
 /// # Errors
 ///
-/// A tracker or JSON failure.
-pub fn finish_slot(slot: &Draft, entry: Option<EntryId>) -> SessionResult<()> {
+/// A tracker failure.
+pub fn is_nested_slot(slot: &Draft) -> SessionResult<bool> {
+    Ok(slot.get("parentTaskId")?.is_some())
+}
+
+/// Mark a slot done and clear its running output; the caller sets a
+/// model-issued call's result `entry`, or a nested call's `summary`. Neither
+/// is set when the task faulted or was orphaned.
+///
+/// # Errors
+///
+/// A tracker failure.
+pub fn finish_slot(slot: &Draft) -> SessionResult<()> {
     slot.set("status", "done")?;
-    if let Some(entry) = entry {
-        slot.set("entry", to_json(&entry)?)?;
-    }
     clear_progress(slot)
+}
+
+/// Remove the nested slots below tool task `task_id`, transitively; the list
+/// holds parents before their children.
+///
+/// # Errors
+///
+/// A tracker failure.
+pub fn remove_nested_slots(live: &Draft, task_id: TaskId) -> SessionResult<()> {
+    let Some(nested) = child_draft(live, "nestedTools")? else {
+        return Ok(());
+    };
+    let slots = nested.value()?;
+    let slots = slots.as_array().unwrap_or_default();
+    let id_at = |slot: &JsonValue, key: &str| slot.get(key).and_then(JsonValue::as_u64);
+    let mut removed = std::collections::HashSet::from([task_id.get()]);
+    for slot in slots {
+        if id_at(slot, "parentTaskId").is_some_and(|parent| removed.contains(&parent)) {
+            if let Some(id) = id_at(slot, "taskId") {
+                removed.insert(id);
+            }
+        }
+    }
+    for (index, slot) in slots.iter().enumerate().rev() {
+        if id_at(slot, "parentTaskId").is_some_and(|parent| removed.contains(&parent)) {
+            nested.splice(
+                i64::try_from(index).unwrap_or(i64::MAX),
+                1,
+                Vec::<JsonValue>::new(),
+            )?;
+        }
+    }
+    if nested.is_empty()? {
+        live.delete("nestedTools")?;
+    }
+    Ok(())
 }
 
 /// Remove what a tool published while running; its result entry or a rerun
@@ -354,9 +497,9 @@ pub fn settle_scheduler_outcome(
         if record.kind == TOOL_TASK_KIND {
             let live = tx.doc(&LIVE_DOC, record.conversation_id).await?;
             if let Some(slot) = tool_slot(&live, record.id)? {
-                finish_slot(&slot, None)?;
+                finish_slot(&slot)?;
             }
-            return Ok(());
+            return remove_nested_slots(&live, record.id);
         }
         if record.kind == COMPACTION_TASK_KIND {
             let live = tx.doc(&LIVE_DOC, record.conversation_id).await?;

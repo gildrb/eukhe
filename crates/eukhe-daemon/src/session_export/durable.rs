@@ -197,7 +197,7 @@ pub(crate) async fn export_html(
     let entries = history(conversation, cx).await?;
     let (rows, leaf_id) = file_entries(&entries)?;
     let view = conversation
-        .context(cx)
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
         .await
         .context("reading the conversation context")?;
     let system_prompt =

@@ -2,14 +2,10 @@
 //! copy of these (`cursorId`, `page`, `isAliveAt`, `isCurrentOnly`); the Rust
 //! port keeps one.
 
-use std::sync::Arc;
-
-use eukhe_chord::json::{JsonNumber, JsonObject, JsonValue};
-
-use crate::errors::{StorageError, StorageRejected};
+use crate::errors::StorageError;
 use crate::types::{
     AnyTaskRecord, ConversationRecord, ConversationSemantics, Cursor, DocumentPoint,
-    DocumentRecord, DocumentRecordScope, EntryRecord, SubmissionRecord,
+    DocumentRecord, DocumentRecordScope, EntryRecord, ScanOrder, SubmissionRecord,
 };
 
 /// A failure TS raises with `throw new Error(message)` or `new TypeError(message)`.
@@ -17,18 +13,26 @@ use crate::types::{
 #[error("{0}")]
 pub(crate) struct StorageFailure(pub(crate) String);
 
-/// `throw new Error(message)`: a failure that is not a rejection.
+/// `throw new Error(message)`: a failure that fails the Session.
 pub(crate) fn failure(message: impl Into<String>) -> StorageError {
     StorageError::failed(StorageFailure(message.into()))
 }
 
-/// `new StorageRejected(message, { cause })`, keeping a rejection cause as is.
-pub(crate) fn rejected(message: impl Into<String>, cause: StorageError) -> StorageError {
-    let cause: Arc<dyn std::error::Error + Send + Sync> = match cause {
-        StorageError::Rejected(rejection) => return StorageError::Rejected(rejection),
-        StorageError::Failed(cause) => cause,
-    };
-    StorageError::Rejected(StorageRejected::with_cause(message, cause))
+/// `new Error(message, { cause })`.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{message}")]
+pub(crate) struct CausedFailure {
+    message: String,
+    #[source]
+    cause: StorageError,
+}
+
+/// `throw new Error(message, { cause })`.
+pub(crate) fn failure_with_cause(message: impl Into<String>, cause: StorageError) -> StorageError {
+    StorageError::failed(CausedFailure {
+        message: message.into(),
+        cause,
+    })
 }
 
 /// Records a scan pages by ID.
@@ -82,13 +86,18 @@ pub(crate) fn cursor_id(cursor: Option<&Cursor>) -> Result<Option<i64>, StorageE
             )]
             Ok(Some(number.get() as i64))
         }
-        _ => Err(failure("Invalid storage cursor")),
+        _ => Err(StorageError::request("Invalid storage cursor")),
     }
 }
 
 /// One page of at most `limit` of `values`, which holds up to `limit + 1`
 /// items; the extra item only signals a continuation after the last returned.
-pub(crate) fn page<T: PageItem>(mut values: Vec<T>, limit: usize) -> crate::types::Page<T> {
+/// The cursor carries the scan's `order`.
+pub(crate) fn page<T: PageItem>(
+    mut values: Vec<T>,
+    limit: usize,
+    order: ScanOrder,
+) -> crate::types::Page<T> {
     if values.len() <= limit {
         return crate::types::Page {
             items: values,
@@ -96,14 +105,9 @@ pub(crate) fn page<T: PageItem>(mut values: Vec<T>, limit: usize) -> crate::type
         };
     }
     values.truncate(limit);
-    let next = values.last().map(|last| {
-        let mut state = JsonObject::new();
-        #[expect(clippy::cast_precision_loss, reason = "IDs are safe integers")]
-        let after =
-            JsonNumber::new(last.page_id() as f64).map_or(JsonValue::Null, JsonValue::Number);
-        state.insert("after", after);
-        Cursor::new(state)
-    });
+    let next = values
+        .last()
+        .map(|last| super::scan::next_cursor(last.page_id(), order));
     crate::types::Page {
         items: values,
         next,

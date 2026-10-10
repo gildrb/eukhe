@@ -105,6 +105,7 @@ fn conversation_owned() -> TaskOptions {
         ownership: TaskOwnership::Conversation,
         conversation_id: None,
         background: None,
+        abandon_on_restart: None,
     }
 }
 

@@ -87,6 +87,27 @@ impl<'de> Deserialize<'de> for Cursor {
     }
 }
 
+/// ID order of a scan: `ascending` is oldest first, `descending` newest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScanOrder {
+    /// Oldest first.
+    Ascending,
+    /// Newest first.
+    Descending,
+}
+
+impl ScanOrder {
+    /// The TS string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ascending => "ascending",
+            Self::Descending => "descending",
+        }
+    }
+}
+
 /// Optional filters for an ordered conversation scan; owner filters are indexed and conjunctive.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,9 +118,12 @@ pub struct ConversationQuery {
     /// Only conversations owned by this task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_task_id: Option<TaskId>,
+    /// Default `ascending`; with a cursor, the cursor's order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<ScanOrder>,
 }
 
-/// Inclusive ID bounds for a newest-first scan of one conversation's fork-aware history.
+/// Inclusive ID bounds for a scan of one conversation's fork-aware history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EntryQuery {
@@ -111,6 +135,9 @@ pub struct EntryQuery {
     /// Newest entry ID that may be returned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_entry_id: Option<EntryId>,
+    /// Default `descending`; with a cursor, the cursor's order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<ScanOrder>,
 }
 
 impl EntryQuery {
@@ -121,6 +148,7 @@ impl EntryQuery {
             conversation_id,
             min_entry_id: None,
             max_entry_id: None,
+            order: None,
         }
     }
 }
@@ -144,6 +172,9 @@ pub struct TaskQuery {
     /// Only background or ordinary tasks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<bool>,
+    /// Default `ascending`; with a cursor, the cursor's order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<ScanOrder>,
 }
 
 /// Optional filters for an ordered scan of submission records.
@@ -156,6 +187,9 @@ pub struct SubmissionQuery {
     /// Only submissions with this status.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<SubmissionStatus>,
+    /// Default `ascending`; with a cursor, the cursor's order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<ScanOrder>,
 }
 
 /// Ordered scan of document incarnations alive in one exact scope at one point.
@@ -305,12 +339,16 @@ pub struct CommitPublication {
 /// implementations add no second caller-facing commit mutex. Sequences
 /// strictly increase but may have gaps.
 ///
-/// Errors: [`StorageError::Rejected`] means a batch was rejected before any
-/// durable effect and is guaranteed not to have committed; the Session rolls it
-/// back and continues. Any other failure after admission is fatal to the open
-/// Session because its commit state is uncertain. Backends use `Rejected` for
-/// deterministic `document.copy` source, replay, and consistency failures only
-/// when rollback is guaranteed.
+/// Errors: an error a method returns is final: it fails the Session, which
+/// nothing retries, so retry transient failures inside the method. Two errors
+/// of a read fail only that read: a [`StorageError::Request`] for an invalid
+/// request (an unknown conversation, a foreign or malformed cursor, history a
+/// document does not keep), which must have no durable effect, and a failure
+/// because its caller's context was cancelled. Any error from `commit()` or
+/// `mint_id()` is fatal.
+///
+/// Cursors carry the scan's order: a scan given a cursor continues in that
+/// order, and rejects a different `order` in its query.
 ///
 /// Cursors are backend-owned JSON objects that callers only round-trip to the
 /// same scan on the same storage. `limit` is always the maximum page size.
@@ -336,7 +374,9 @@ pub trait Storage: Send + Sync {
         cx: &'a Context,
     ) -> BoxFuture<'a, Result<Seq, StorageError>>;
 
-    /// Return a fresh candidate from the Session-global numeric ID namespace;
+    /// Return a fresh candidate from the Session-global numeric ID namespace,
+    /// greater than every ID minted or stored before, also across reopen:
+    /// scans order by ID as creation order, and the Harness relies on it;
     /// brand it with [`crate::ids::id_from_number`] or use [`crate::ids::mint`].
     fn mint_id(&self) -> BoxFuture<'_, Result<u64, StorageError>>;
 
@@ -347,7 +387,7 @@ pub trait Storage: Send + Sync {
         cx: &'a Context,
     ) -> BoxFuture<'a, Result<Option<ConversationRecord>, StorageError>>;
 
-    /// Scan conversations in ascending ID order.
+    /// Scan conversations in `query.order` (default ascending) by ID.
     fn scan_conversations<'a>(
         &'a self,
         query: &'a ConversationQuery,
@@ -384,9 +424,11 @@ pub trait Storage: Send + Sync {
         cx: &'a Context,
     ) -> BoxFuture<'a, Result<Option<EntryRecord>, StorageError>>;
 
-    /// Scan the inclusive visible range newest-first, returning at most
-    /// `limit` entries and applying every conversation ancestry cap. With no
-    /// bounds it pages complete visible history.
+    /// Scan the inclusive visible range in `query.order` (default
+    /// descending), returning at most `limit` entries and applying every
+    /// conversation ancestry cap; oldest first, it reads the root's segment
+    /// first and then each fork's. With no bounds it pages complete visible
+    /// history.
     fn scan_entries<'a>(
         &'a self,
         query: &'a EntryQuery,
@@ -402,7 +444,8 @@ pub trait Storage: Send + Sync {
         cx: &'a Context,
     ) -> BoxFuture<'a, Result<Option<AnyTaskRecord>, StorageError>>;
 
-    /// Scan task records matching every supplied filter.
+    /// Scan task records matching every supplied filter in `query.order`
+    /// (default ascending) by ID.
     fn scan_tasks<'a>(
         &'a self,
         query: &'a TaskQuery,
@@ -418,7 +461,8 @@ pub trait Storage: Send + Sync {
         cx: &'a Context,
     ) -> BoxFuture<'a, Result<Option<SubmissionRecord>, StorageError>>;
 
-    /// Scan submissions matching every supplied filter in ascending ID order.
+    /// Scan submissions matching every supplied filter in `query.order`
+    /// (default ascending) by ID.
     fn scan_submissions<'a>(
         &'a self,
         query: &'a SubmissionQuery,

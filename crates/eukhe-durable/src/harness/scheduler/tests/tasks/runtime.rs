@@ -146,6 +146,10 @@ static RUNTIME_NOTES: RewindableConversationDoc<Text> = match RewindableConversa
 type ReaderSeen = (Option<String>, Option<String>, usize, usize, f64);
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one TS test with its inline task definition"
+)]
 async fn reads_committed_documents_and_context_through_the_runtime_and_forwards_the_clock_and_reports(
 ) {
     let captured: Shared<Option<StepRuntime>> = shared(None);
@@ -157,7 +161,13 @@ async fn reads_committed_documents_and_context_through_the_runtime_and_forwards_
             let seen = seen.clone();
             async move {
                 let conversation = runtime.conversation_id();
-                let view = runtime.context(conversation, &cx, None).await?;
+                let view = runtime
+                    .context(
+                        conversation,
+                        &cx,
+                        crate::harness::types::ContextOptions::default(),
+                    )
+                    .await?;
                 let ids: Vec<_> = view.entries.iter().map(|entry| entry.id).collect();
                 let (first, second) = (ids[0], ids[1]);
                 let current = text_of(runtime.snapshot(&RUNTIME_NOTES, conversation, &cx).await?);
@@ -167,12 +177,20 @@ async fn reads_committed_documents_and_context_through_the_runtime_and_forwards_
                         .await?,
                 );
                 let entries = runtime
-                    .context(conversation, &cx, Some(first))
+                    .context(
+                        conversation,
+                        &cx,
+                        crate::harness::types::ContextOptions { at: Some(first) },
+                    )
                     .await?
                     .entries
                     .len();
                 let messages = runtime
-                    .context(conversation, &cx, Some(second))
+                    .context(
+                        conversation,
+                        &cx,
+                        crate::harness::types::ContextOptions { at: Some(second) },
+                    )
                     .await?
                     .messages
                     .len();
@@ -234,7 +252,13 @@ async fn reads_committed_documents_and_context_through_the_runtime_and_forwards_
         "invocation has ended",
     );
     assert_rejects(
-        captured.context(root_id, context(), None).await,
+        captured
+            .context(
+                root_id,
+                context(),
+                crate::harness::types::ContextOptions::default(),
+            )
+            .await,
         "invocation has ended",
     );
     harness.close(context()).await.unwrap();

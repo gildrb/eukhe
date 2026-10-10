@@ -11,8 +11,8 @@ use eukhe_types::pi_ai::{
 use futures::FutureExt;
 
 use super::{
-    answer, compact, failure, history, input_tokens, kinds, live, open, result, step, summary,
-    text, text_tool, turn, user_text, with_stop, Chat, OpenOptions, MANUAL,
+    answer, compact, failure, first_user_text, history, input_tokens, kinds, live, open, result,
+    step, summary, text, text_tool, turn, user_text, with_stop, Chat, OpenOptions, MANUAL,
 };
 use crate::harness::provider::{ProviderState, PROVIDER_DOC};
 use crate::harness::tests::chat_support::tools_named;
@@ -106,8 +106,13 @@ async fn asks_before_compact_the_first_decision_wins_a_throw_is_reported_and_ski
     let outcome = result(&chat, compact(&chat, Some("why")).await).await;
     assert!(matches!(outcome, TaskOutcome::Completed { .. }));
     assert!(chat.faux.summary_requests().is_empty());
-    let messages = chat.root.context(context()).await.unwrap().messages;
-    assert!(user_text(messages.first()).contains("<summary>\nFROM HOOK\n</summary>"));
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains("<summary>\nFROM HOOK\n</summary>"));
     let reports = chat.setup.reports();
     assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].to_string(), "hook broke");

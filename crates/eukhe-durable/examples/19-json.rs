@@ -25,7 +25,7 @@ use eukhe_durable::session::Ops;
 use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
-use eukhe_durable::tools::{create_bash_tool, create_read_tool, BashToolOptions};
+use eukhe_durable::tools::{create_bash_tool, create_read_tool, BashToolOptions, ReadToolOptions};
 use eukhe_durable::types::Storage;
 use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use eukhe_pi_ai::providers::faux::{
@@ -192,7 +192,7 @@ async fn json_mode(
     let registry = create_registry();
     registry.install(define_extension(Extension {
         tools: vec![
-            create_read_tool(),
+            create_read_tool(ReadToolOptions::default()),
             create_bash_tool(BashToolOptions::default()),
         ],
         sections: vec![section(

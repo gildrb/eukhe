@@ -347,10 +347,13 @@ fn build_base_codex_headers(
     account_id: &str,
     token: &str,
 ) -> Result<HeaderMap, Thrown> {
+    // Defaults first so model and caller headers can override them, matching the other providers.
     let mut headers = HeaderMap::new();
+    set_header(&mut headers, "originator", "pi")?;
+    set_header(&mut headers, "User-Agent", get_pi_user_agent())?;
     for (name, value) in init_headers.into_iter().flatten() {
-        // `new Headers(init)` appends.
-        headers.append(header_name(name)?, header_value(value)?);
+        // `headers.set(key, value)` for each `Object.entries(initHeaders)`.
+        set_header(&mut headers, name, value)?;
     }
     for (name, value) in additional_headers.into_iter().flatten() {
         match value {
@@ -362,8 +365,6 @@ fn build_base_codex_headers(
     }
     set_header(&mut headers, "Authorization", &format!("Bearer {token}"))?;
     set_header(&mut headers, "chatgpt-account-id", account_id)?;
-    set_header(&mut headers, "originator", "pi")?;
-    set_header(&mut headers, "User-Agent", get_pi_user_agent())?;
     Ok(headers)
 }
 

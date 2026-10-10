@@ -376,6 +376,7 @@ fn background_options(conversation_id: ConversationId) -> TaskOptions {
         ownership: TaskOwnership::Conversation,
         conversation_id: Some(conversation_id),
         background: Some(true),
+        abandon_on_restart: None,
     }
 }
 
@@ -398,7 +399,7 @@ fn reply(
         _ => None,
     };
     Ok(ToolExecutionResult {
-        content: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+        output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
         details,
         ..ToolExecutionResult::default()
     })

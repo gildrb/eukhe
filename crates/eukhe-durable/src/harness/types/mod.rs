@@ -19,10 +19,11 @@ pub use agent::{
     ModelRef, ToolFilter, ToolsChange,
 };
 pub use conversation::{
-    CompactionResult, ContextView, ConversationAbortOptions, ConversationCreateOptions,
-    ConversationHandle, ConversationInit, HarnessInspection, InputSubmissionDraft, SchedulingState,
-    SettledSubmissionRecord, Submission, SubmissionAbort, SubmissionDraft, TaskBlockedReason,
-    TaskInspection, TaskInspectionState, UserInput, WhenBusy, WriteSubmissionDraft,
+    CompactionResult, ContextOptions, ContextView, ConversationAbortOptions,
+    ConversationCreateOptions, ConversationHandle, ConversationInit, HarnessInspection,
+    InputSubmissionDraft, SchedulingState, SettledSubmissionRecord, Submission, SubmissionAbort,
+    SubmissionDraft, TaskBlockedReason, TaskInspection, TaskInspectionState, UserInput, WhenBusy,
+    WriteSubmissionDraft,
 };
 pub use data::{CompactionReason, ToolDiagnostic, ToolDiagnosticSeverity};
 pub use extension::{
@@ -33,7 +34,7 @@ pub use hooks::{
     AfterResponseHook, AfterToolHook, AfterToolsHook, BeforeCompactHook, BeforeRequestHook,
     BeforeToolDecision, BeforeToolHook, CompactionDecision, CompactionHooks, CompactionRequest,
     CompactionSnapshot, GenerationHooks, HookApi, HookDone, HookFuture, HookResult, OnYieldHook,
-    RequestMessages, ToolHooks, YieldContinuation,
+    RequestMessages, ToolCallParent, ToolHookCall, ToolHooks, YieldContinuation,
 };
 pub(crate) use registry::BuiltinTasks;
 pub use registry::{InstalledSection, InstalledTool, RegistryReader, RegistrySnapshot};
@@ -44,7 +45,8 @@ pub use settings::{
     ProgressPolicy, QueueMode, ReportFn, Settings, ToolExecutionMode,
 };
 pub use tools::{
-    InvocationTaskOptions, OutputRetain, PrepareArguments, ToolCommitChange, ToolControl,
-    ToolExecute, ToolExecutionApi, ToolExecutionApiExt, ToolExecutionResult, ToolOutputChunk,
-    ToolOutputLimits, ToolRegistration, ToolReplay,
+    ExecuteToolOptions, InvocationTaskOptions, NestedToolExecutionResult, OutputRetain,
+    PrepareArguments, RetainedOutput, ToolCaller, ToolCommitChange, ToolControl, ToolExecute,
+    ToolExecutionApi, ToolExecutionApiExt, ToolExecutionResult, ToolOutputChunk, ToolOutputLimits,
+    ToolRegistration, ToolReplay,
 };

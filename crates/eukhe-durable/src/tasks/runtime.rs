@@ -21,12 +21,14 @@ use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::entries::Entry;
 use crate::env::ExecutionEnv;
 use crate::harness::types::{
-    Agent, ContextView, ConversationHandle, HookApi, HookHandlers, RegistrySnapshot, Settings,
+    Agent, ContextOptions, ContextView, ConversationHandle, HookApi, HookHandlers,
+    RegistrySnapshot, Settings,
 };
 use crate::session::{DocumentWatch, SessionError, SessionResult, Tx};
 use crate::types::{
     AnyTaskRecord, ConversationId, DocumentObserver, DocumentReader, EntryData, EntryId,
-    EntryRecord, JoinPolicy, JsonObject, TaskId, TaskOutcome, TaskRecord, TaskState, TypedEntry,
+    EntryRecord, JoinPolicy, JsonObject, TaskAbortReason, TaskId, TaskOutcome, TaskRecord,
+    TaskState, TypedEntry,
 };
 
 /// Convert between two serde shapes of one JSON value.
@@ -50,9 +52,16 @@ pub struct RunningTask<I = JsonValue, S = JsonValue, R = JsonValue> {
     pub owner: Option<TaskId>,
     pub background: bool,
     pub abort_requested: bool,
+    /// `Some(Restart)` when the abort mark abandons the task after a restart.
+    pub abort_reason: Option<TaskAbortReason>,
+    pub abandon_on_restart: bool,
     /// The running state's checkpoint.
     pub checkpoint: S,
     pub memos: Option<Arc<JsonObject>>,
+    /// Lifecycle time stamped by the Session (see [`TaskRecord::started_at`]).
+    pub started_at: Option<f64>,
+    /// Lifecycle time stamped by the Session (see [`TaskRecord::ended_at`]).
+    pub ended_at: Option<f64>,
 }
 
 impl RunningTask {
@@ -71,8 +80,12 @@ impl RunningTask {
             owner: record.owner,
             background: record.background,
             abort_requested: record.abort_requested,
+            abort_reason: record.abort_reason,
+            abandon_on_restart: record.abandon_on_restart,
             checkpoint,
             memos: record.memos,
+            started_at: record.started_at,
+            ended_at: record.ended_at,
         })
     }
 
@@ -93,8 +106,12 @@ impl RunningTask {
             owner: self.owner,
             background: self.background,
             abort_requested: self.abort_requested,
+            abort_reason: self.abort_reason,
+            abandon_on_restart: self.abandon_on_restart,
             checkpoint: from_json(&self.checkpoint)?,
             memos: self.memos,
+            started_at: self.started_at,
+            ended_at: self.ended_at,
         })
     }
 }
@@ -112,10 +129,14 @@ impl<I, S, R> RunningTask<I, S, R> {
             owner: self.owner,
             background: self.background,
             abort_requested: self.abort_requested,
+            abort_reason: self.abort_reason,
+            abandon_on_restart: self.abandon_on_restart,
             state: TaskState::Running {
                 checkpoint: self.checkpoint,
             },
             memos: self.memos,
+            started_at: self.started_at,
+            ended_at: self.ended_at,
         }
     }
 
@@ -138,8 +159,12 @@ impl<I, S, R> RunningTask<I, S, R> {
             owner: self.owner,
             background: self.background,
             abort_requested: self.abort_requested,
+            abort_reason: self.abort_reason,
+            abandon_on_restart: self.abandon_on_restart,
             checkpoint: to_json(&self.checkpoint)?,
             memos: self.memos.clone(),
+            started_at: self.started_at,
+            ended_at: self.ended_at,
         })
     }
 }
@@ -224,9 +249,15 @@ pub struct SettledTask<R = JsonValue> {
     pub owner: Option<TaskId>,
     pub background: bool,
     pub abort_requested: bool,
+    pub abort_reason: Option<TaskAbortReason>,
+    pub abandon_on_restart: bool,
     /// The terminal state's outcome.
     pub outcome: TaskOutcome<R>,
     pub memos: Option<Arc<JsonObject>>,
+    /// Lifecycle time stamped by the Session (see [`TaskRecord::started_at`]).
+    pub started_at: Option<f64>,
+    /// Lifecycle time stamped by the Session (see [`TaskRecord::ended_at`]).
+    pub ended_at: Option<f64>,
 }
 
 impl SettledTask {
@@ -245,8 +276,12 @@ impl SettledTask {
             owner: record.owner,
             background: record.background,
             abort_requested: record.abort_requested,
+            abort_reason: record.abort_reason,
+            abandon_on_restart: record.abandon_on_restart,
             outcome,
             memos: record.memos,
+            started_at: record.started_at,
+            ended_at: record.ended_at,
         })
     }
 
@@ -265,8 +300,12 @@ impl SettledTask {
             owner: self.owner,
             background: self.background,
             abort_requested: self.abort_requested,
+            abort_reason: self.abort_reason,
+            abandon_on_restart: self.abandon_on_restart,
             outcome: recode(&self.outcome)?,
             memos: self.memos,
+            started_at: self.started_at,
+            ended_at: self.ended_at,
         })
     }
 }
@@ -284,10 +323,14 @@ impl<R> SettledTask<R> {
             owner: self.owner,
             background: self.background,
             abort_requested: self.abort_requested,
+            abort_reason: self.abort_reason,
+            abandon_on_restart: self.abandon_on_restart,
             state: TaskState::Terminal {
                 outcome: self.outcome,
             },
             memos: self.memos,
+            started_at: self.started_at,
+            ended_at: self.ended_at,
         }
     }
 }
@@ -367,6 +410,10 @@ pub trait TaskRuntimeBackend: DocumentReader + DocumentObserver {
         id: TaskId,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<SettledTask>>;
+    /// Abort a task this task owns, as `Harness.abort_task()` does, and
+    /// resolve once it is terminal. Rejects for a task another owns;
+    /// resolves at once for a terminal one.
+    fn abort_owned(&self, id: TaskId, cx: &Context) -> BoxFuture<'static, SessionResult<()>>;
     /// Outcomes of terminal tasks, in order; rejects when one is missing or
     /// not terminal.
     fn outcomes(
@@ -607,6 +654,18 @@ where
         async move { settled.await?.decode() }.boxed()
     }
 
+    /// Abort a task this task owns, as `Harness.abort_task()` does, and
+    /// resolve once it is terminal. Rejects for a task another owns;
+    /// resolves at once for a terminal one.
+    #[must_use]
+    pub fn abort_owned<T>(
+        &self,
+        id: TaskId<T>,
+        cx: &Context,
+    ) -> BoxFuture<'static, SessionResult<()>> {
+        self.backend.abort_owned(id.erase(), cx)
+    }
+
     /// Outcomes of terminal tasks, in order; rejects when one is missing or
     /// not terminal. Used after a wait.
     #[must_use]
@@ -664,15 +723,15 @@ where
     }
 
     /// Committed raw active transcript and model context, optionally cut off
-    /// at the visible entry `at`.
+    /// at the visible entry `options.at`.
     #[must_use]
     pub fn context(
         &self,
         conversation_id: ConversationId,
         cx: &Context,
-        at: Option<EntryId>,
+        options: ContextOptions,
     ) -> BoxFuture<'static, SessionResult<ContextView>> {
-        self.backend.context(conversation_id, at, cx)
+        self.backend.context(conversation_id, options.at, cx)
     }
 
     /// The Harness clock.

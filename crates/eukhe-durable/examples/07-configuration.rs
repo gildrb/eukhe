@@ -44,7 +44,7 @@ fn example_tool(name: &str, description: &str) -> Arc<ToolRegistration> {
                         .and_then(|path| path.as_str())
                         .unwrap_or_default();
                     Ok(ToolExecutionResult {
-                        content: Some(vec![UserContentBlock::Text(TextContent::new(format!(
+                        output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
                             "{label} {path}"
                         )))]),
                         ..ToolExecutionResult::default()

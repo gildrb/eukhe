@@ -174,10 +174,10 @@ impl Observer {
         }
     }
 
-    fn close_session(&self) {
+    fn close_session(&self, failure: Option<Arc<SessionError>>) {
         match self {
             Self::State(source) => source.close_session(),
-            Self::Watch(watch) => watch.close_session(),
+            Self::Watch(watch) => watch.close_session(failure),
         }
     }
 }
@@ -238,13 +238,14 @@ impl TaskGraphView {
         let commits = self
             .inner
             .session
-            .subscribe_commits(Arc::new(move |publication, cx| {
+            .observe_commits(Arc::new(move |publication, cx| {
                 if let Some(inner) = weak.upgrade() {
                     let mount = lock(&inner.state).mount.clone();
                     if let Some(mount) = mount {
                         advance(&mount, publication, cx);
                     }
                 }
+                Ok(())
             }))?;
         // The subscription lives as long as the Session; dropping the handle keeps it.
         drop(commits);
@@ -267,7 +268,7 @@ impl TaskGraphView {
                 .map(|(_, observer)| observer.clone())
                 .collect();
             for observer in observers {
-                observer.close_session();
+                observer.close_session(inner.session.failure());
             }
         }))?;
         drop(close);
@@ -283,25 +284,30 @@ impl TaskGraphView {
             |value, release| Observer::State(CommittedStateSource::new(&value, release)),
             cx,
         );
+        let reporter = self.inner.session.reporter();
         async move {
             let (observer, detach) = attached.await?;
             let Observer::State(source) = observer else {
                 unreachable!("the factory creates a state source")
             };
-            replicated_state_from_source(&source, ReplicatedStateSourceOptions::default()).map_err(
-                |error| {
-                    detach();
-                    SessionError::other(error)
-                },
-            )
+            let options = ReplicatedStateSourceOptions {
+                on_error: Some(Arc::new(move |error| reporter(SessionError::other(error)))),
+            };
+            replicated_state_from_source(&source, options).map_err(|error| {
+                detach();
+                SessionError::other(error)
+            })
         }
         .boxed()
     }
 
     /// A serialized exact-frame watch of the graph; cancelling `cx` stops it.
     pub(crate) fn watch(&self, cx: &Context) -> BoxFuture<'static, SessionResult<TaskGraphWatch>> {
+        let report = self.inner.session.reporter();
         let attached = self.attach(
-            |value, release| Observer::Watch(CommittedWatch::new(value, release, None)),
+            move |value, release| {
+                Observer::Watch(CommittedWatch::new(value, release, report, None))
+            },
             cx,
         );
         let signal = cx.abort_signal();
@@ -363,7 +369,7 @@ impl TaskGraphView {
                 {
                     let mut state = lock(&inner.state);
                     if state.closed {
-                        return Err(closed_error());
+                        return Err(closed_error(&inner.session));
                     }
                     if let Some(reason) = cx.abort_signal().and_then(|signal| signal.reason()) {
                         return Err(SessionError::Aborted(reason));

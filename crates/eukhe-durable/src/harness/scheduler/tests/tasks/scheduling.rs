@@ -10,23 +10,35 @@ use super::{
     assert_rejects, complete, faulted, gated, joined, lock, one_step, open_root, open_root_with,
     reason, start, start_background, with_signal, OpenedRoot, StepRuntime,
 };
-use crate::errors::{StorageError, StorageRejected};
-use crate::harness::tests::support::{add_task, add_tool, context, tool_described};
+use crate::errors::StorageError;
+use crate::harness::tests::support::context;
 use crate::harness::tests::task_support::{
     deferred, eventually, flush, settled, Deferred, OpenTasksOptions,
 };
 use crate::harness::types::ConversationCreateOptions;
 use crate::harness::TaskAbortResult;
 use crate::session::tests::support::ControlledStorage;
-use crate::session::SessionError;
-use crate::types::{ConversationOwnership, EntryDraft, TaskId, TaskStatus};
+use crate::session::{SessionEnd, SessionError};
+use crate::types::{
+    AnyTaskRecord, ConversationOwnership, EntryDraft, ScanOrder, TaskId, TaskQuery, TaskStatus,
+};
 
-fn busy() -> StorageError {
-    StorageError::Rejected(StorageRejected::new("busy"))
+/// A test failure with a fixed message.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct TestFailure(&'static str);
+
+fn disk_gone() -> StorageError {
+    StorageError::failed(TestFailure("disk gone"))
+}
+
+/// Whether `error` is `SessionFailed` caused by the `disk gone` failure.
+fn failed_by_disk_gone(error: &SessionError) -> bool {
+    matches!(error, SessionError::Failed(failed) if failed.cause().to_string() == "disk gone")
 }
 
 #[tokio::test]
-async fn retries_reservation_on_the_next_wakeup_after_a_rejected_reservation_commit() {
+async fn fails_the_harness_on_a_failed_reservation_commit_reopening_runs_the_task() {
     let runs = Arc::new(AtomicUsize::new(0));
     let once = one_step::<(), _, _>("test.once", {
         let runs = Arc::clone(&runs);
@@ -39,8 +51,8 @@ async fn retries_reservation_on_the_next_wakeup_after_a_rejected_reservation_com
     let OpenedRoot {
         harness,
         root,
-        registry,
         reports,
+        ..
     } = open_root_with(
         storage.clone(),
         &[once.erase()],
@@ -48,66 +60,58 @@ async fn retries_reservation_on_the_next_wakeup_after_a_rejected_reservation_com
     )
     .await;
     let id = start(&root, &once).await;
-    storage.fail_next_commit(busy());
+    let waiting = harness.wait_for_task(id, context());
+    storage.fail_next_commit(disk_gone());
     harness.resume().unwrap();
-    eventually(|| std::future::ready(reports.len() == 1)).await;
-    let record = harness.get_task(id, context()).await.unwrap().unwrap();
-    assert_eq!(record.state.status(), TaskStatus::Pending);
-    // Any wakeup, here a registry change, reserves again.
-    add_tool(&registry, tool_described("wake", "wake"), None).unwrap();
-    harness.wait_for_task(id, context()).await.unwrap();
-    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    let end = harness.closed().await;
+    assert!(
+        matches!(&end, SessionEnd::Failed { error } if error.to_string() == "disk gone"),
+        "{end:?}"
+    );
+    let reported = reports.all();
+    assert_eq!(reported.len(), 1);
+    assert_eq!(reported[0].to_string(), "disk gone");
+    // The pending wait and every later call get SessionFailed with the storage error.
+    assert!(failed_by_disk_gone(&waiting.await.unwrap_err()));
+    assert!(failed_by_disk_gone(
+        &harness.get_task(id, context()).await.unwrap_err()
+    ));
+    let submitted = root
+        .submit(
+            crate::harness::types::InputSubmissionDraft::new("x"),
+            context(),
+        )
+        .await;
+    assert!(matches!(submitted, Err(SessionError::Failed(_))));
+    assert_eq!(runs.load(Ordering::SeqCst), 0);
     harness.close(context()).await.unwrap();
-}
 
-#[tokio::test]
-async fn keeps_a_wakeup_that_arrives_while_a_rejected_reservation_commit_is_in_storage() {
-    let first = one_step::<(), _, _>(
-        "test.wake-first",
-        |_task, runtime: StepRuntime, cx: Context| async move { complete(&runtime, (), &cx).await },
-    );
-    let late = one_step::<(), _, _>(
-        "test.wake-late",
-        |_task, runtime: StepRuntime, cx: Context| async move { complete(&runtime, (), &cx).await },
-    );
-    let storage = ControlledStorage::new();
-    let OpenedRoot {
-        harness,
-        root,
-        registry,
-        ..
-    } = open_root_with(
+    storage.reopen();
+    let reopened = open_root_with(
         storage.clone(),
-        &[first.erase()],
+        &[once.erase()],
         OpenTasksOptions::default(),
     )
     .await;
-    let first_id = start(&root, &first).await;
-    let late_id = start(&root, &late).await;
-    let held = storage.hold_commits();
-    storage.fail_next_commit(busy());
-    harness.resume().unwrap();
-    held.entered().await;
-    // Registering the missing definition wakes the scheduler while the doomed reservation is in storage.
-    add_task(&registry, late.erase(), None).unwrap();
-    held.release();
-    harness.wait_for_task(first_id, context()).await.unwrap();
-    harness.wait_for_task(late_id, context()).await.unwrap();
-    harness.close(context()).await.unwrap();
+    reopened.harness.resume().unwrap();
+    assert_eq!(
+        super::outcome(&reopened.harness, id).await,
+        super::completed_outcome(&())
+    );
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    reopened.harness.close(context()).await.unwrap();
 }
 
-/// TS `String(report)` is `StorageRejected: busy`; Rust displays the
-/// rejection's message, and the report is the Storage rejection itself.
 #[tokio::test]
-async fn reruns_a_task_whose_fault_write_was_rejected() {
+async fn fails_the_harness_instead_of_running_a_task_again_when_its_fault_write_fails() {
     let runs = Arc::new(AtomicUsize::new(0));
     let storage = ControlledStorage::new();
-    let throws = one_step::<(), _, _>("test.rejected-fault", {
+    let throws = one_step::<(), _, _>("test.failed-fault", {
         let (runs, storage) = (Arc::clone(&runs), Arc::clone(&storage));
         move |_task, _runtime, _cx| {
             // The next commit is the step's fault write.
             if runs.fetch_add(1, Ordering::SeqCst) + 1 == 1 {
-                storage.fail_next_commit(busy());
+                storage.fail_next_commit(disk_gone());
             }
             async { Err(SessionError::error("boom")) }
         }
@@ -125,16 +129,29 @@ async fn reruns_a_task_whose_fault_write_was_rejected() {
     .await;
     let id = start(&root, &throws).await;
     harness.resume().unwrap();
-    assert_eq!(super::outcome(&harness, id).await, faulted("boom"));
-    assert_eq!(runs.load(Ordering::SeqCst), 2);
-    let reports = reports.all();
-    assert_eq!(reports.len(), 1);
+    let end = harness.closed().await;
     assert!(
-        matches!(&reports[0], SessionError::Storage(StorageError::Rejected(rejection)) if rejection.to_string() == "busy"),
-        "{:?}",
-        reports[0]
+        matches!(&end, SessionEnd::Failed { error } if error.to_string() == "disk gone"),
+        "{end:?}"
     );
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    let reported = reports.all();
+    assert_eq!(reported.len(), 1);
+    assert_eq!(reported[0].to_string(), "disk gone");
     harness.close(context()).await.unwrap();
+
+    // Reopening recovers the task as after a crash: still running, so its phase runs again.
+    storage.reopen();
+    let reopened = open_root_with(
+        storage.clone(),
+        &[throws.erase()],
+        OpenTasksOptions::default(),
+    )
+    .await;
+    reopened.harness.resume().unwrap();
+    assert_eq!(super::outcome(&reopened.harness, id).await, faulted("boom"));
+    assert_eq!(runs.load(Ordering::SeqCst), 2);
+    reopened.harness.close(context()).await.unwrap();
 }
 
 #[tokio::test]
@@ -197,6 +214,47 @@ async fn waits_for_harness_and_conversation_idleness_counting_blocked_work_and_i
     harness.close(context()).await.unwrap();
     assert_rejects(harness.wait_for_idle(context()).await, "closed");
     assert_rejects(root.wait_for_idle(context()).await, "closed");
+}
+
+// #10546
+#[tokio::test]
+async fn pages_the_newest_tasks_first_without_scanning_older_ones() {
+    let idle = one_step::<(), _, _>("test.idle", |_task, _runtime, _cx| async { Ok(()) });
+    let OpenedRoot { harness, root, .. } = open_root(&[idle.erase()]).await;
+    let mut ids = Vec::new();
+    for _ in 0..5 {
+        ids.push(start(&root, &idle).await.erase());
+    }
+    let first = harness
+        .commit(
+            |tx| async move {
+                tx.scan_tasks(
+                    TaskQuery {
+                        order: Some(ScanOrder::Descending),
+                        ..TaskQuery::default()
+                    },
+                    2,
+                    None,
+                )
+                .await
+            },
+            context(),
+        )
+        .await
+        .unwrap();
+    let page_ids =
+        |items: &[AnyTaskRecord]| -> Vec<TaskId> { items.iter().map(|record| record.id).collect() };
+    assert_eq!(page_ids(&first.items), [ids[4], ids[3]]);
+    let next = first.next;
+    let second = harness
+        .commit(
+            move |tx| async move { tx.scan_tasks(TaskQuery::default(), 2, next).await },
+            context(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page_ids(&second.items), [ids[2], ids[1]]);
+    harness.close(context()).await.unwrap();
 }
 
 #[tokio::test]

@@ -93,6 +93,7 @@ fn login_interaction(
 fn device_id_options(device_id: &'static str) -> LoginOptions {
     LoginOptions {
         get_device_id: Some(Arc::new(move || device_id.to_owned())),
+        agent_name: None,
     }
 }
 
@@ -149,6 +150,27 @@ async fn registers_a_user_owned_client_and_stores_its_issued_id_and_granted_scop
     assert_eq!(
         credential.extra.get("scopes"),
         Some(&json!(REQUIRED_SCOPE.split(' ').collect::<Vec<_>>()))
+    );
+}
+
+#[tokio::test]
+async fn uses_the_apps_agent_name_as_the_name_hint() {
+    let (_guard, _bodies) = stub_token_endpoint(token_response(REQUIRED_SCOPE)).await;
+    let events = Events::default();
+    openai_chatgpt_oauth()
+        .login(
+            login_interaction(Some("oaiapp_issued"), events.clone()),
+            Some(LoginOptions {
+                agent_name: Some("my-app".to_owned()),
+                ..device_id_options(DEVICE_ID)
+            }),
+        )
+        .await
+        .expect("login");
+
+    assert_eq!(
+        url_param(&events.auth_url(), "agent_name_hint").as_deref(),
+        Some("my-app")
     );
 }
 

@@ -57,6 +57,7 @@ static BUILTIN_CLASSIFIER_APIS: ApiTable<ProviderClassifier> = &[
         super::cloudflare_workers_ai_system_one::classifier,
     ),
     ("llama-cpp-classify", super::llama_cpp_classify::classifier),
+    ("openai-decisions", super::openai_decisions::classifier),
 ];
 
 /// Loading an API module whose id has no registry entry: the Rust
@@ -254,4 +255,10 @@ pub fn cloudflare_workers_ai_system_one_api() -> ProviderClassifier {
 #[must_use]
 pub fn llama_cpp_classify_api() -> ProviderClassifier {
     lazy_classifier("llama-cpp-classify")
+}
+
+/// TS `openAIDecisionsApi()`.
+#[must_use]
+pub fn openai_decisions_api() -> ProviderClassifier {
+    lazy_classifier("openai-decisions")
 }

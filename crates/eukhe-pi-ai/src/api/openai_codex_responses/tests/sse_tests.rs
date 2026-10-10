@@ -439,6 +439,40 @@ async fn clamps_codex_session_id_header_to_64_characters() {
 }
 
 #[tokio::test]
+async fn lets_model_and_caller_headers_override_originator_and_user_agent() {
+    let _isolation = isolate().await;
+    let (fetch, calls) = completed_fetch();
+    let model = model_with(json!({ "headers": { "originator": "my-app" } }));
+    let mut options = sse_options(fetch);
+    let token = options.request.api_key.clone().expect("token");
+    options.request.headers = Some(
+        [
+            ("user-agent".to_owned(), Some("my-app/1.0".to_owned())),
+            (
+                "Authorization".to_owned(),
+                Some("Bearer ignored".to_owned()),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+
+    stream(&model, &say_hello(), provider_options(options, json!({})))
+        .result()
+        .await;
+
+    let call = &calls.calls()[0];
+    let header = |name: &str| {
+        call.headers
+            .get(name)
+            .map(|value| value.to_str().expect("ascii").to_owned())
+    };
+    assert_eq!(header("originator").as_deref(), Some("my-app"));
+    assert_eq!(header("User-Agent").as_deref(), Some("my-app/1.0"));
+    assert_eq!(header("Authorization"), Some(format!("Bearer {token}")));
+}
+
+#[tokio::test]
 async fn preserves_gpt_5_5_xhigh_reasoning_effort_from_simple_options() {
     let _isolation = isolate().await;
     let (fetch, calls) = completed_fetch();

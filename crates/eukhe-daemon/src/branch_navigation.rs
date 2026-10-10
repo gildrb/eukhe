@@ -213,6 +213,7 @@ impl MovePoint {
                     ConversationEntryQuery {
                         min_entry_id: None,
                         max_entry_id: Some(EntryId::from_number(max)),
+                        order: None,
                     },
                     1,
                     None,

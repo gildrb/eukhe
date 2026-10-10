@@ -11,6 +11,7 @@ use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context as TaskContext, Poll, Waker};
+use std::time::{Duration, Instant};
 
 use futures::Stream;
 use tokio::sync::watch;
@@ -253,11 +254,20 @@ impl<T, R> Drop for EventStreamIter<T, R> {
     }
 }
 
-/// The assistant message event stream (TS `AssistantMessageEventStream`):
+/// Event stream of one assistant response (TS `AssistantMessageEventStream`):
 /// completes at `done` or `error` with the final assistant message.
+///
+/// It also times the response: the final message (`done` or `error` event, or
+/// the result passed to `end()`) gets `duration_ms`, measured with a monotonic
+/// clock from the stream's creation, unless the message already has one or its
+/// `timestamp` predates the stream. A stream that forwards a response which
+/// started elsewhere, such as a deferred result fetched later, therefore
+/// leaves it untimed.
 #[derive(Clone, Debug)]
 pub struct AssistantMessageEventStream {
     inner: EventStream<AssistantMessageEvent, AssistantMessage>,
+    started_at: u64,
+    started_at_monotonic: Instant,
 }
 
 impl Default for AssistantMessageEventStream {
@@ -275,6 +285,8 @@ impl AssistantMessageEventStream {
     /// with TS's "Unexpected event type for final result" otherwise.
     #[must_use]
     pub fn new() -> Self {
+        let started_at = crate::utils::now_ms();
+        let started_at_monotonic = Instant::now();
         Self {
             inner: EventStream::new(
                 |event| {
@@ -300,17 +312,50 @@ impl AssistantMessageEventStream {
                     }
                 },
             ),
+            started_at,
+            started_at_monotonic,
         }
     }
 
-    /// See [`EventStream::push`].
-    pub fn push(&self, event: AssistantMessageEvent) {
+    /// See [`EventStream::push`]. Times the final message of a `done` or
+    /// `error` event.
+    pub fn push(&self, mut event: AssistantMessageEvent) {
+        match &mut event {
+            AssistantMessageEvent::Done { message, .. } => self.time(message),
+            AssistantMessageEvent::Error { error, .. } => self.time(error),
+            AssistantMessageEvent::Start { .. }
+            | AssistantMessageEvent::TextStart { .. }
+            | AssistantMessageEvent::TextDelta { .. }
+            | AssistantMessageEvent::TextEnd { .. }
+            | AssistantMessageEvent::ThinkingStart { .. }
+            | AssistantMessageEvent::ThinkingDelta { .. }
+            | AssistantMessageEvent::ThinkingEnd { .. }
+            | AssistantMessageEvent::ToolCallStart { .. }
+            | AssistantMessageEvent::ToolCallDelta { .. }
+            | AssistantMessageEvent::ToolCallEnd { .. } => {}
+        }
         self.inner.push(event);
     }
 
-    /// See [`EventStream::end`].
-    pub fn end(&self, result: Option<AssistantMessage>) {
+    /// See [`EventStream::end`]. Times the given result.
+    pub fn end(&self, mut result: Option<AssistantMessage>) {
+        if let Some(message) = &mut result {
+            self.time(message);
+        }
         self.inner.end(result);
+    }
+
+    fn time(&self, message: &mut AssistantMessage) {
+        if self.inner.inner.lock().done
+            || message.duration_ms.is_some()
+            || message.timestamp < self.started_at
+        {
+            return;
+        }
+        let elapsed = self.started_at_monotonic.elapsed();
+        // TS `Math.round(performance.now() - start)`: round to whole milliseconds.
+        let rounded = (elapsed + Duration::from_micros(500)).as_millis();
+        message.duration_ms = Some(u64::try_from(rounded).unwrap_or(u64::MAX));
     }
 
     /// See [`EventStream::events`].
@@ -324,7 +369,8 @@ impl AssistantMessageEventStream {
         self.inner.result().await
     }
 
-    /// The underlying generic stream.
+    /// The underlying generic stream. Events pushed through it bypass
+    /// response timing.
     #[must_use]
     pub fn as_event_stream(&self) -> &EventStream<AssistantMessageEvent, AssistantMessage> {
         &self.inner
@@ -421,5 +467,74 @@ mod tests {
         drop(first);
         let mut second = stream.events();
         assert_eq!(second.next().await, Some(1));
+    }
+
+    fn message(timestamp: u64, duration_ms: Option<u64>) -> AssistantMessage {
+        let mut message: AssistantMessage = serde_json::from_value(serde_json::json!({
+            "role": "assistant",
+            "content": [],
+            "api": "openai-responses",
+            "provider": "openai",
+            "model": "m",
+            "usage": {
+                "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+            },
+            "stopReason": "stop",
+            "timestamp": timestamp,
+        }))
+        .unwrap();
+        message.duration_ms = duration_ms;
+        message
+    }
+
+    fn done(message: AssistantMessage) -> AssistantMessageEvent {
+        AssistantMessageEvent::Done {
+            reason: eukhe_types::pi_ai::DoneReason::Stop,
+            message,
+        }
+    }
+
+    #[tokio::test]
+    async fn sets_duration_on_the_final_done_or_error_message_of_a_response_it_saw_start() {
+        let stream = AssistantMessageEventStream::new();
+        stream.push(done(message(crate::utils::now_ms(), None)));
+        assert!(stream.result().await.duration_ms.is_some());
+
+        let failed = AssistantMessageEventStream::new();
+        let mut error = message(crate::utils::now_ms(), None);
+        error.stop_reason = eukhe_types::pi_ai::StopReason::Error;
+        failed.push(AssistantMessageEvent::Error {
+            reason: eukhe_types::pi_ai::ErrorReason::Error,
+            error,
+        });
+        assert!(failed.result().await.duration_ms.is_some());
+
+        let ended = AssistantMessageEventStream::new();
+        ended.end(Some(message(crate::utils::now_ms(), None)));
+        assert!(ended.result().await.duration_ms.is_some());
+    }
+
+    #[tokio::test]
+    async fn keeps_an_existing_duration() {
+        let preset = AssistantMessageEventStream::new();
+        preset.push(done(message(crate::utils::now_ms(), Some(1234))));
+        assert_eq!(preset.result().await.duration_ms, Some(1234));
+    }
+
+    #[tokio::test]
+    async fn leaves_a_message_untimed_when_it_started_before_the_stream() {
+        let stream = AssistantMessageEventStream::new();
+        stream.push(done(message(crate::utils::now_ms() - 60_000, None)));
+        assert_eq!(stream.result().await.duration_ms, None);
+    }
+
+    #[tokio::test]
+    async fn does_not_time_a_message_pushed_after_the_stream_completed() {
+        let stream = AssistantMessageEventStream::new();
+        stream.push(done(message(crate::utils::now_ms(), None)));
+        let mut late = message(crate::utils::now_ms(), None);
+        stream.time(&mut late);
+        assert_eq!(late.duration_ms, None);
     }
 }

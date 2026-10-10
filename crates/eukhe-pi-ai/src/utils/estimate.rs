@@ -1,4 +1,4 @@
-//! Character-based context token estimation (4 chars per token).
+//! Character-based context token estimation (3.5 chars per token).
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Message, StopReason, Usage, UserContent, UserContentBlock,
@@ -20,7 +20,9 @@ pub struct ContextUsageEstimate {
     pub last_usage_index: Option<usize>,
 }
 
-const CHARS_PER_TOKEN: u64 = 4;
+/// TS `CHARS_PER_TOKEN = 3.5`, kept as the exact fraction 7/2.
+const CHARS_PER_TOKEN_NUMERATOR: u64 = 7;
+const CHARS_PER_TOKEN_DENOMINATOR: u64 = 2;
 const ESTIMATED_IMAGE_CHARS: u64 = 4800;
 
 /// Context tokens a usage block describes: `total_tokens`, or the sum of its parts when zero.
@@ -34,7 +36,7 @@ pub fn calculate_context_tokens(usage: &Usage) -> u64 {
 
 /// `Math.ceil(chars / CHARS_PER_TOKEN)`.
 const fn chars_to_tokens(chars: u64) -> u64 {
-    chars.div_ceil(CHARS_PER_TOKEN)
+    (chars * CHARS_PER_TOKEN_DENOMINATOR).div_ceil(CHARS_PER_TOKEN_NUMERATOR)
 }
 
 fn length(text: &str) -> u64 {
@@ -202,6 +204,7 @@ mod tests {
             raw_stop_reason: None,
             end_turn: None,
             timestamp,
+            duration_ms: None,
         })
     }
 
@@ -210,6 +213,27 @@ mod tests {
             content: UserContent::Text(text.into()),
             timestamp,
         })
+    }
+
+    /// Regression for #10497: large new inputs need more room than chars/4 allows.
+    #[test]
+    fn reserves_3_5_characters_per_token_for_new_text_when_limiting_output() {
+        let context = normalize_context(Context {
+            system_prompt: None,
+            messages: vec![create_assistant(100, 2_000), user(&"x".repeat(3_500), 200)],
+            tools: None,
+        });
+        assert_eq!(
+            estimate_context_tokens(context.messages()),
+            ContextUsageEstimate {
+                tokens: 3_000,
+                usage_tokens: 2_000,
+                trailing_tokens: 1_000,
+                last_usage_index: Some(0),
+            }
+        );
+        // `buildBaseOptions(model, context).maxTokens` (2_904) belongs to the
+        // api/simple-options slice.
     }
 
     #[test]
@@ -226,13 +250,13 @@ mod tests {
         assert_eq!(
             estimate_context_tokens(context.messages()),
             ContextUsageEstimate {
-                tokens: 1_005,
+                tokens: 1_149,
                 usage_tokens: 0,
-                trailing_tokens: 1_005,
+                trailing_tokens: 1_149,
                 last_usage_index: None,
             }
         );
-        // `buildBaseOptions(model, context).maxTokens` (4_899) belongs to the
+        // `buildBaseOptions(model, context).maxTokens` (4_755) belongs to the
         // api/simple-options slice.
     }
 
@@ -252,9 +276,9 @@ mod tests {
         assert_eq!(
             estimate_context_tokens(context.messages()),
             ContextUsageEstimate {
-                tokens: 2_001,
+                tokens: 2_002,
                 usage_tokens: 2_000,
-                trailing_tokens: 1,
+                trailing_tokens: 2,
                 last_usage_index: Some(3),
             }
         );

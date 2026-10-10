@@ -538,10 +538,11 @@ async fn aborts_while_waiting_for_an_sse_chunk() {
     assert_eq!(message.stop_reason, StopReason::Aborted);
 }
 
-#[tokio::test]
-async fn applies_the_request_timeout_while_waiting_for_an_sse_chunk() {
+#[tokio::test(start_paused = true)]
+async fn applies_the_request_timeout_while_waiting_for_response_headers() {
     let model = mistral_model("mistral-large-latest");
-    let (fetch, _) = mock_fetch(hanging_response()).await;
+    let fetch: eukhe_pi_ai::types::FetchFunction =
+        Arc::new(|_request| Box::pin(std::future::pending()));
     let mut options = options("test", fetch);
     options.stream.request.timeout_ms = Some(5.0);
 
@@ -550,10 +551,67 @@ async fn applies_the_request_timeout_while_waiting_for_an_sse_chunk() {
         .await;
 
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert!(message
-        .error_message
-        .as_deref()
-        .is_some_and(|text| text.to_lowercase().contains("timeout")));
+    assert_eq!(
+        message.error_message.as_deref(),
+        Some("Mistral response headers timed out after 5ms")
+    );
+}
+
+/// Regression test for #10609: an active stream must not be cut off after `timeoutMs`.
+#[tokio::test(start_paused = true)]
+async fn does_not_abort_an_active_stream_that_lasts_longer_than_the_request_timeout() {
+    let model = mistral_model("mistral-large-latest");
+    let thinking_event = json!({
+        "choices": [{ "index": 0, "delta": { "content": [
+            { "type": "thinking", "thinking": [{ "type": "text", "text": "x" }] },
+        ] } }],
+    });
+    let fetch: eukhe_pi_ai::types::FetchFunction = Arc::new(move |_request| {
+        let thinking = format!("data: {thinking_event}\n\n");
+        Box::pin(async move {
+            let terminal = format!(
+                "data: {}\n\ndata: [DONE]\n\n",
+                create_terminal_event("stop")
+            );
+            let chunks = futures::stream::unfold(0, move |index| {
+                let thinking = thinking.clone();
+                let terminal = terminal.clone();
+                async move {
+                    match index {
+                        0..5 => {
+                            if index > 0 {
+                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                            }
+                            Some((Ok::<_, std::io::Error>(thinking.into_bytes()), index + 1))
+                        }
+                        5 => {
+                            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                            Some((Ok(terminal.into_bytes()), index + 1))
+                        }
+                        _ => None,
+                    }
+                }
+            });
+            let response = http::Response::builder()
+                .status(200)
+                .header("content-type", "text/event-stream")
+                .body(reqwest::Body::wrap_stream(chunks))
+                .expect("response");
+            Ok(reqwest::Response::from(response))
+        })
+    });
+    let mut options = options("test", fetch);
+    options.stream.request.timeout_ms = Some(20.0);
+
+    let message = stream_mistral(&model, &hello_context(), options)
+        .result()
+        .await;
+
+    assert_eq!(message.stop_reason, StopReason::Stop);
+    assert_eq!(
+        serde_json::to_value(&message.content).expect("content"),
+        json!([{ "type": "thinking", "thinking": "xxxxx" }])
+    );
 }
 
 #[tokio::test]

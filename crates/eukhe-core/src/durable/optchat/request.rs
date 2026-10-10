@@ -70,7 +70,12 @@ pub(super) async fn transform(
     let Some(handle) = harness.conversation(conversation, &cx).await? else {
         return Ok(None);
     };
-    let view = handle.context(&cx).await?;
+    let view = handle
+        .context(
+            &cx,
+            eukhe_durable::harness::types::ContextOptions::default(),
+        )
+        .await?;
     let mut start_message = None;
     let mut state_rows: Vec<Message> = Vec::new();
     for (entry, contributed) in view.entries.iter().zip(&view.contributions) {

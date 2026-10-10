@@ -5,9 +5,9 @@ use eukhe_chord::json::{to_json, JsonValue};
 use eukhe_types::pi_ai::{AssistantMessage, Message, UserContent, UserMessage};
 
 use super::{
-    answer, compact, compaction_tasks, failure, gated, history, kinds, live, open, result,
-    submission, submission_id, submit, summary, text, turn, user_text, Chat, OpenOptions, BLOCKING,
-    MANUAL,
+    answer, compact, compaction_tasks, failure, first_user_text, gated, history, kinds, live, open,
+    result, submission, submission_id, submit, summary, text, turn, user_text, Chat, OpenOptions,
+    BLOCKING, MANUAL,
 };
 use crate::harness::tests::chat_support::{all_entries, wait_for};
 use crate::harness::tests::support::context;
@@ -80,7 +80,7 @@ async fn places_a_reset_queued_after_the_summary_last_and_makes_a_summary_queued
         assert_eq!(kinds(&chat.root).await.last().unwrap(), "pi.reset");
         assert_eq!(
             chat.root
-                .context(context())
+                .context(context(), crate::harness::types::ContextOptions::default())
                 .await
                 .unwrap()
                 .head
@@ -106,7 +106,7 @@ async fn places_a_summary_left_queued_by_a_failed_run_at_the_next_submission_bef
     turn(&chat, "again", "ok").await;
     assert_eq!(status(&handle).await, SubmissionStatus::Done);
     let request = chat.faux.last_agent_messages();
-    assert!(user_text(request.first()).contains("SUMMARY"));
+    assert!(first_user_text(&request).contains("SUMMARY"));
     assert!(request
         .iter()
         .any(|message| user_text(Some(message)) == "again"));
@@ -171,7 +171,7 @@ async fn loses_an_application_edit_placed_while_a_compaction_summarizes() {
     assert!(user_text(chat.faux.summary_requests()[0].messages.get(1)).contains("[User]: u1 "));
     assert!(!chat
         .root
-        .context(context())
+        .context(context(), crate::harness::types::ContextOptions::default())
         .await
         .unwrap()
         .messages
@@ -192,7 +192,12 @@ async fn keeps_the_kept_entries_mounted_in_the_conversation_view() {
         5000,
     )
     .await;
-    let entries = chat.root.context(context()).await.unwrap().entries;
+    let entries = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .entries;
     assert_eq!(state.value()["entries"], to_json(&entries).unwrap());
     state.dispose().unwrap();
     chat.harness.close(context()).await.unwrap();
@@ -249,7 +254,7 @@ async fn places_a_manual_summary_selected_before_the_blocking_one_landed_its_equ
     );
     // The request after the blocking compaction used its summary; the manual
     // one landed at the final boundary.
-    assert!(user_text(chat.faux.last_agent_messages().first()).contains("BLOCKING"));
+    assert!(first_user_text(&chat.faux.last_agent_messages()).contains("BLOCKING"));
     assert_eq!(
         handle.wait(context()).await.unwrap().state.status(),
         SubmissionStatus::Done
@@ -262,8 +267,13 @@ async fn places_a_manual_summary_selected_before_the_blocking_one_landed_its_equ
         .collect();
     assert_eq!(markers.len(), 2);
     assert_eq!(markers[1].head, markers[0].head);
-    let messages = chat.root.context(context()).await.unwrap().messages;
-    assert!(user_text(messages.first()).contains("MANUAL"));
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains("MANUAL"));
     assert!(!messages
         .iter()
         .any(|message| user_text(Some(message)).contains("BLOCKING")));
@@ -368,7 +378,7 @@ async fn places_a_summary_that_survived_esc_at_the_next_submission_before_its_in
     turn(&chat, "u5", "a5").await;
     assert_eq!(status(&handle).await, SubmissionStatus::Done);
     let request = chat.faux.last_agent_messages();
-    assert!(user_text(request.first()).contains("SUMMARY"));
+    assert!(first_user_text(&request).contains("SUMMARY"));
     assert!(request
         .iter()
         .any(|message| user_text(Some(message)) == "u5"));
@@ -426,7 +436,11 @@ async fn apply_edits_carried_by_an_older_head_marker_in_the_range() {
         )
         .await
         .unwrap();
-    let view = chat.root.context(context()).await.unwrap();
+    let view = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(
         view.entries[1..]
             .iter()

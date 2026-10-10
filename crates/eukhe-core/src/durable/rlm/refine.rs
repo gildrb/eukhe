@@ -294,7 +294,12 @@ pub(crate) async fn refine(
                 model_ref.model_id
             )
         })?;
-    let messages = transcript(&conversation.context(cx).await?.messages)?;
+    let messages = transcript(
+        &conversation
+            .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+            .await?
+            .messages,
+    )?;
     let plan = plan_refinement(
         &messages,
         &planning_state,

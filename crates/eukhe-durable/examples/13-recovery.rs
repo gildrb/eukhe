@@ -205,6 +205,7 @@ pub async fn run(
                         ownership: TaskOwnership::Conversation,
                         conversation_id: None,
                         background: None,
+                        abandon_on_restart: None,
                     },
                 )
                 .await

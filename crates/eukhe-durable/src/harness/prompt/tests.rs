@@ -107,10 +107,19 @@ async fn append_drafts(conversation: &Conversation, drafts: &[SystemDraft]) {
 /// then yields `desired` in order.
 async fn apply(conversation: &Conversation, desired: &[(&str, &str)]) -> Vec<Planned> {
     let desired = desired_map(desired);
-    let view = conversation.context(context()).await.unwrap();
+    let view = conversation
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     let drafts = plan_system_entries(&view, &desired, &[], 7);
     append_drafts(conversation, &drafts).await;
-    let replayed = replay_sections(&conversation.context(context()).await.unwrap().messages);
+    let replayed = replay_sections(
+        &conversation
+            .context(context(), crate::harness::types::ContextOptions::default())
+            .await
+            .unwrap()
+            .messages,
+    );
     assert_eq!(
         replayed.into_iter().collect::<Vec<_>>(),
         desired.into_iter().collect::<Vec<_>>()
@@ -199,6 +208,7 @@ fn input() -> PromptInput {
             sections: Vec::new(),
             instructions: None,
             cwd: None,
+            callable: Vec::new(),
         }),
         env: None,
         shown: IndexMap::new(),
@@ -518,10 +528,19 @@ async fn apply_tools(
     tools: &[Tool],
     sections: &[(&str, &str)],
 ) -> Vec<ToolPlan> {
-    let view = conversation.context(context()).await.unwrap();
+    let view = conversation
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     let drafts = plan_system_entries(&view, &desired_map(sections), tools, 7);
     append_drafts(conversation, &drafts).await;
-    let offered = get_current_tools(&conversation.context(context()).await.unwrap().messages);
+    let offered = get_current_tools(
+        &conversation
+            .context(context(), crate::harness::types::ContextOptions::default())
+            .await
+            .unwrap()
+            .messages,
+    );
     assert_eq!(
         offered,
         tools.iter().map(to_tool_declaration).collect::<Vec<_>>()

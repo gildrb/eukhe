@@ -193,6 +193,13 @@ impl ControlledStorage {
     pub(crate) fn fail_next_commit(&self, error: StorageError) {
         self.control().commit_failure = Some(error);
     }
+
+    /// Reopen after `close()`, as a fresh process would reopen the same
+    /// database, keeping every committed record.
+    pub(crate) fn reopen(&self) -> &Self {
+        self.inner.reopen();
+        self
+    }
 }
 
 impl Storage for ControlledStorage {

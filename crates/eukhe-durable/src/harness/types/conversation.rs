@@ -244,6 +244,13 @@ impl fmt::Debug for ConversationCreateOptions {
     }
 }
 
+/// Options of a context read (TS `{ readonly at?: EntryId }`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ContextOptions {
+    /// Cut the context off at this visible entry.
+    pub at: Option<EntryId>,
+}
+
 /// Raw active transcript and derived model context.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextView {

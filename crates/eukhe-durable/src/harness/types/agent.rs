@@ -35,8 +35,8 @@ pub enum ExtensionSelection {
     },
 }
 
-/// Stored tool filter over the selected extensions' tools: an array offers
-/// exactly these, in order.
+/// Stored tool filter: an array selects exactly these names, in order; `{
+/// remove }` drops names.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ToolFilter {
@@ -57,8 +57,16 @@ pub struct AgentState {
     pub thinking_level: Option<ModelThinkingLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extensions: Option<ExtensionSelection>,
+    /// Filters the selected extensions' tools: the enabled tools. An array
+    /// enables exactly these, in order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<ToolFilter>,
+    /// Filters the enabled tools the model may call (`callers` includes
+    /// `model`): the tools offered to it. An array offers exactly these, in
+    /// order. Never widens: other tools can still call the ones it leaves
+    /// out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_tools: Option<ToolFilter>,
     /// Rendered after every extension section, as the section
     /// `instructions`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,8 +102,8 @@ pub enum ExtensionsChange {
     },
 }
 
-/// The `tools` of an [`AgentChange`]: an array offers exactly these; `{
-/// remove }` drops them. Tools stand for their names.
+/// The `tools` or `model_tools` of an [`AgentChange`]: an array selects
+/// exactly these; `{ remove }` drops them. Tools stand for their names.
 #[derive(Debug, Clone)]
 pub enum ToolsChange {
     Exactly(Vec<Arc<ToolRegistration>>),
@@ -110,6 +118,7 @@ pub struct AgentChange {
     pub thinking_level: FieldChange<ModelThinkingLevel>,
     pub extensions: FieldChange<ExtensionsChange>,
     pub tools: FieldChange<ToolsChange>,
+    pub model_tools: FieldChange<ToolsChange>,
     pub instructions: FieldChange<String>,
     pub cwd: FieldChange<String>,
 }
@@ -121,8 +130,12 @@ pub struct Agent {
     pub model: Option<ModelRef>,
     pub thinking_level: ModelThinkingLevel,
     pub extensions: Vec<Arc<Extension>>,
-    /// The tools a request offers, in order.
+    /// The tools a request offers, in order: enabled, callable by the model,
+    /// and selected by `model_tools`.
     pub tools: Vec<Arc<ToolRegistration>>,
+    /// The tools nested calls (`execute_tool()`) resolve among, in order:
+    /// enabled and callable by tools.
+    pub callable: Vec<Arc<ToolRegistration>>,
     /// Extension sections, then `instructions` when set.
     pub sections: Vec<Arc<PromptSection>>,
     pub instructions: Option<String>,

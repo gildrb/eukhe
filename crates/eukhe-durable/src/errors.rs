@@ -1,9 +1,9 @@
 //! Public error types (`errors.ts`) and the storage error model (spec §10).
 
 use std::error::Error;
-use std::fmt;
 use std::sync::Arc;
 
+use crate::session::SessionError;
 use crate::types::ConversationId;
 
 /// A transaction read a table after its first table write. Read every
@@ -23,33 +23,25 @@ impl ReadAfterWrite {
     }
 }
 
-/// Storage rejected a batch before any durable effect; the owning Session may
-/// continue safely.
-#[derive(Clone)]
-pub struct StorageRejected {
+/// A Storage read rejected an invalid request, such as an unknown
+/// conversation or a cursor from another scan, with no durable effect. Unlike
+/// any other error a Storage returns, it fails only that read, not the
+/// Session; from `commit()` it is fatal like any other.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+pub struct StorageRequestError {
     message: String,
-    cause: Option<Arc<dyn Error + Send + Sync + 'static>>,
 }
 
-impl StorageRejected {
-    /// A rejection with `message`.
+impl StorageRequestError {
+    /// The JS `error.name`.
+    pub const NAME: &'static str = "StorageRequestError";
+
+    /// An invalid-request error with `message`.
     #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            cause: None,
-        }
-    }
-
-    /// A rejection with `message` caused by `cause` (TS `ErrorOptions.cause`).
-    #[must_use]
-    pub fn with_cause(
-        message: impl Into<String>,
-        cause: Arc<dyn Error + Send + Sync + 'static>,
-    ) -> Self {
-        Self {
-            message: message.into(),
-            cause: Some(cause),
         }
     }
 
@@ -58,34 +50,33 @@ impl StorageRejected {
     pub fn message(&self) -> &str {
         &self.message
     }
+}
 
-    /// The cause, if any.
+/// The Session failed, so nothing runs or commits any more. It fails when a
+/// Storage method fails, a commit cannot be adopted, or the Harness's own
+/// bookkeeping fails (a scheduler commit, an internal commit listener).
+/// `cause` is that first error. Reopen the Session; reopening recovers from
+/// what was committed.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("Session failed after a storage error; close and reopen it")]
+pub struct SessionFailed {
+    cause: Arc<SessionError>,
+}
+
+impl SessionFailed {
+    /// The JS `error.name`.
+    pub const NAME: &'static str = "SessionFailed";
+
+    /// The failure caused by `cause`.
     #[must_use]
-    pub fn cause(&self) -> Option<&Arc<dyn Error + Send + Sync + 'static>> {
-        self.cause.as_ref()
+    pub fn new(cause: Arc<SessionError>) -> Self {
+        Self { cause }
     }
-}
 
-impl fmt::Debug for StorageRejected {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StorageRejected")
-            .field("message", &self.message)
-            .field("cause", &self.cause)
-            .finish()
-    }
-}
-
-impl fmt::Display for StorageRejected {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl Error for StorageRejected {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.cause
-            .as_deref()
-            .map(|cause| cause as &(dyn Error + 'static))
+    /// The error that failed the Session (TS `error.cause`).
+    #[must_use]
+    pub fn cause(&self) -> &Arc<SessionError> {
+        &self.cause
     }
 }
 
@@ -107,14 +98,14 @@ impl ConversationBusy {
 
 /// Failure of a [`Storage`](crate::types::Storage) operation.
 ///
-/// A [`StorageError::Rejected`] commit had no durable effect. Any other
-/// failure of an admitted commit leaves its state uncertain, which is fatal to
-/// the owning Session (TS: any error other than `StorageRejected`).
+/// Any failure is final: it fails the owning Session, which nothing retries.
+/// Only a [`StorageError::Request`] from a read, or a read whose caller's
+/// context was cancelled, fails just that read.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum StorageError {
-    /// The batch was rejected before any durable effect.
+    /// A read rejected an invalid request with no durable effect.
     #[error(transparent)]
-    Rejected(#[from] StorageRejected),
+    Request(#[from] StorageRequestError),
     /// Any other failure, including cancellation through the operation's context.
     #[error(transparent)]
     Failed(Arc<dyn Error + Send + Sync + 'static>),
@@ -127,9 +118,15 @@ impl StorageError {
         Self::Failed(Arc::new(error))
     }
 
-    /// Whether this is a [`StorageRejected`] rejection.
+    /// A [`StorageRequestError`] with `message`.
     #[must_use]
-    pub fn is_rejected(&self) -> bool {
-        matches!(self, Self::Rejected(_))
+    pub fn request(message: impl Into<String>) -> Self {
+        Self::Request(StorageRequestError::new(message))
+    }
+
+    /// Whether this is a [`StorageRequestError`].
+    #[must_use]
+    pub fn is_request(&self) -> bool {
+        matches!(self, Self::Request(_))
     }
 }

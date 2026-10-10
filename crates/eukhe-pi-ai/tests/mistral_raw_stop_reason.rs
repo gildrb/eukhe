@@ -5,6 +5,7 @@ mod mistral_support;
 use eukhe_pi_ai::api::mistral_conversations::stream as stream_mistral;
 use eukhe_pi_ai::compat::get_model;
 use eukhe_pi_ai::types::ProviderStreamOptions;
+use eukhe_pi_ai::utils::retry::is_retryable_assistant_error;
 use eukhe_pi_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{AssistantMessage, Context, StopReason};
 use mistral_support::{mock_fetch, MockResponse};
@@ -53,8 +54,10 @@ async fn preserves_raw_mistral_finish_reasons_for_provider_error_stops() {
     assert_eq!(message.raw_stop_reason.as_deref(), Some("error"));
     assert_eq!(
         message.error_message.as_deref(),
-        Some("Provider stopped with: error")
+        Some("Provider stopped with: error (server error)")
     );
+    // #10487
+    assert!(is_retryable_assistant_error(&message));
 }
 
 #[tokio::test]
@@ -67,4 +70,5 @@ async fn treats_unknown_mistral_finish_reasons_as_provider_error_stops() {
         message.error_message.as_deref(),
         Some("Provider stopped with: unmapped_error")
     );
+    assert!(!is_retryable_assistant_error(&message));
 }

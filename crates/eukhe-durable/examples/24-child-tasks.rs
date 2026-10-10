@@ -222,6 +222,7 @@ fn checkout_task(payment: &Payment, console: Console) -> Checkout {
                                     },
                                     conversation_id: None,
                                     background: None,
+                                    abandon_on_restart: None,
                                 };
                                 let input = to_json(&PaymentInput { card })?;
                                 payments.push(
@@ -362,6 +363,7 @@ async fn checkout(
         ownership: TaskOwnership::Conversation,
         conversation_id: None,
         background: None,
+        abandon_on_restart: None,
     };
     Ok(root
         .commit(

@@ -8,7 +8,7 @@ use super::support::{
     assistant, context, describe_message, open_harness, system, tool_result, user,
     AssistantOptions, OpenHarnessOptions,
 };
-use crate::harness::types::ConversationCreateOptions;
+use crate::harness::types::{ContextOptions, ConversationCreateOptions};
 use crate::harness::{Conversation, Harness, RootOptions};
 use crate::storage::MemoryStorage;
 use crate::types::{
@@ -107,7 +107,11 @@ async fn returns_the_whole_transcript_without_a_head_and_excludes_model_less_ent
     let answer = setup
         .message(assistant("hello", AssistantOptions::default()), "message")
         .await;
-    let view = setup.root.context(context()).await.unwrap();
+    let view = setup
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert!(view.head.is_none());
     assert_eq!(ids(&view.entries), vec![first.id, note.id, answer.id]);
     assert_eq!(described(&view.messages), ["user:hi", "assistant:hello"]);
@@ -138,7 +142,11 @@ async fn excludes_aborted_error_and_deferred_assistant_messages_but_keeps_their_
     setup
         .message(stopped("done", StopReason::Length), "message")
         .await;
-    let view = setup.root.context(context()).await.unwrap();
+    let view = setup
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(view.entries.len(), 5);
     assert_eq!(view.entries[1].id, aborted.id);
     assert_eq!(described(&view.messages), ["user:q", "assistant:done"]);
@@ -161,7 +169,11 @@ async fn resolves_self_heads_and_uses_the_newest_head_marker() {
             "message",
         )
         .await;
-    let view = setup.root.context(context()).await.unwrap();
+    let view = setup
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(view.head.as_ref().map(|head| head.id), Some(reset.id));
     assert_eq!(ids(&view.entries), vec![reset.id, after.id]);
     assert_eq!(
@@ -177,7 +189,11 @@ async fn resolves_self_heads_and_uses_the_newest_head_marker() {
         }))
         .await;
     let tail = setup.message(user("next"), "message").await;
-    let view = setup.root.context(context()).await.unwrap();
+    let view = setup
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(view.head.as_ref().map(|head| head.id), Some(summary.id));
     assert_eq!(ids(&view.entries), vec![summary.id, after.id, tail.id]);
     assert_eq!(
@@ -209,7 +225,11 @@ async fn applies_the_newest_edit_per_target_within_the_active_range() {
             }]);
         }))
         .await;
-    let view = setup.root.context(context()).await.unwrap();
+    let view = setup
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(view.entries.len(), 5);
     assert_eq!(described(&view.messages), ["user:first v3"]);
 
@@ -219,7 +239,11 @@ async fn applies_the_newest_edit_per_target_within_the_active_range() {
             draft.head = Some(EntryHead::Entry(second.id));
         }))
         .await;
-    let view = setup.root.context(context()).await.unwrap();
+    let view = setup
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(view.head.as_ref().map(|head| head.id), Some(reset.id));
     assert!(described(&view.messages).is_empty());
     setup
@@ -227,7 +251,11 @@ async fn applies_the_newest_edit_per_target_within_the_active_range() {
             draft.edits = Some(vec![replace(second.id, "second v2")]);
         }))
         .await;
-    let view = setup.root.context(context()).await.unwrap();
+    let view = setup
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(described(&view.messages), ["user:second v2"]);
 }
 
@@ -261,7 +289,11 @@ async fn keeps_positional_system_messages_and_orders_tool_results_by_call_order(
     setup
         .message(assistant("done", AssistantOptions::default()), "message")
         .await;
-    let view = setup.root.context(context()).await.unwrap();
+    let view = setup
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(
         described(&view.messages),
         [
@@ -273,6 +305,67 @@ async fn keeps_positional_system_messages_and_orders_tool_results_by_call_order(
             "system:cwd",
             "assistant:done",
         ]
+    );
+}
+
+// #10542
+#[tokio::test]
+async fn leads_with_a_system_message_that_only_user_messages_precede_and_keeps_later_ones_in_place()
+{
+    let setup = setup().await;
+    setup.message(user("first"), "message").await;
+    setup.message(user("steered"), "message").await;
+    setup
+        .message(system(sections(&[("preamble", "You help.")])), "pi.system")
+        .await;
+    setup
+        .message(assistant("answer", AssistantOptions::default()), "message")
+        .await;
+    setup.message(user("next"), "message").await;
+    setup
+        .message(system(sections(&[("cwd", "/repo")])), "pi.system")
+        .await;
+    let view = setup
+        .root
+        .context(context(), ContextOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        described(&view.messages),
+        [
+            "system:preamble",
+            "user:first",
+            "user:steered",
+            "assistant:answer",
+            "user:next",
+            "system:cwd",
+        ]
+    );
+    // Stored order and contributions stay as committed.
+    let contributions: Vec<Message> = view.contributions.concat();
+    assert_eq!(
+        described(&contributions)[..3],
+        ["user:first", "user:steered", "system:preamble"]
+    );
+
+    // After a reset, the baseline written after the handoff leads too.
+    setup
+        .append(draft("reset", |draft| {
+            draft.head = Some(EntryHead::SelfEntry);
+            draft.model = Some(vec![user("handoff").into()]);
+        }))
+        .await;
+    setup
+        .message(system(sections(&[("preamble", "Baseline.")])), "pi.system")
+        .await;
+    let view = setup
+        .root
+        .context(context(), ContextOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        described(&view.messages),
+        ["system:preamble", "user:handoff"]
     );
 }
 
@@ -303,7 +396,10 @@ async fn synthesizes_missing_tool_results_after_a_fork_and_drops_results_cut_fro
         )
         .await
         .unwrap();
-    let child_view = child.context(context()).await.unwrap();
+    let child_view = child
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert_eq!(
         described(&child_view.messages),
         [
@@ -330,7 +426,11 @@ async fn synthesizes_missing_tool_results_after_a_fork_and_drops_results_cut_fro
         }),
     )
     .await;
-    let parent_view = setup.root.context(context()).await.unwrap();
+    let parent_view = setup
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap();
     assert!(parent_view.messages.is_empty());
     let kinds: Vec<&str> = parent_view
         .entries
@@ -338,4 +438,100 @@ async fn synthesizes_missing_tool_results_after_a_fork_and_drops_results_cut_fro
         .map(|entry| entry.kind.as_str())
         .collect();
     assert_eq!(kinds, ["reset", "message"]);
+}
+
+// #10512
+#[tokio::test]
+async fn reads_the_context_as_of_an_earlier_entry_as_a_fork_at_that_entry_starts() {
+    let setup = setup().await;
+    let at = |id: EntryId| ContextOptions { at: Some(id) };
+    let first = setup.message(user("first"), "message").await;
+    let call = setup
+        .message(
+            assistant(
+                "calling",
+                AssistantOptions {
+                    calls: &["x", "y"],
+                    ..AssistantOptions::default()
+                },
+            ),
+            "message",
+        )
+        .await;
+    let result = setup.message(tool_result("x", None), "message").await;
+    setup.message(tool_result("y", None), "message").await;
+    let edit = setup
+        .append(draft("edit", |draft| {
+            draft.edits = Some(vec![replace(first.id, "first v2")]);
+        }))
+        .await;
+    let reset = setup
+        .append(draft("reset", |draft| {
+            draft.head = Some(EntryHead::SelfEntry);
+            draft.model = Some(vec![user("fresh start").into()]);
+        }))
+        .await;
+    let tail = setup
+        .message(
+            assistant("after reset", AssistantOptions::default()),
+            "message",
+        )
+        .await;
+
+    let root = &setup.root;
+    for entry in [&first, &call, &result, &edit, &reset, &tail] {
+        let fork = root
+            .fork(
+                entry.id,
+                ConversationCreateOptions::new(ConversationOwnership::Ownerless),
+                context(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            root.context(context(), at(entry.id)).await.unwrap(),
+            fork.context(context(), ContextOptions::default())
+                .await
+                .unwrap()
+        );
+    }
+    // Stepped back before the edit and the reset: neither applies, and a cut call gets synthesized results.
+    assert_eq!(
+        described(&root.context(context(), at(call.id)).await.unwrap().messages),
+        [
+            "user:first",
+            "assistant:calling",
+            "result:x:error",
+            "result:y:error",
+        ]
+    );
+    let current = root
+        .context(context(), ContextOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(root.context(context(), at(tail.id)).await.unwrap(), current);
+    // TS `{}`: `ContextOptions::default()`.
+    assert_eq!(
+        root.context(context(), ContextOptions::default())
+            .await
+            .unwrap(),
+        current
+    );
+
+    let other = root
+        .fork(
+            first.id,
+            ConversationCreateOptions::new(ConversationOwnership::Ownerless),
+            context(),
+        )
+        .await
+        .unwrap();
+    let error = other
+        .context(context(), at(tail.id))
+        .await
+        .expect_err("the tail is not visible from the fork");
+    assert!(
+        error.to_string().contains("is not visible"),
+        "unexpected error: {error}"
+    );
 }

@@ -60,6 +60,7 @@ async fn create_in(harness: &Harness, task: &AnyTask) -> TaskId {
                     ownership: TaskOwnership::Conversation,
                     conversation_id: None,
                     background: None,
+                    abandon_on_restart: None,
                 },
             )
             .await

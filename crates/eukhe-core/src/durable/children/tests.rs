@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_durable::errors::{StorageError, StorageRejected};
+use eukhe_durable::errors::StorageError;
 use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::registry::create_registry;
 use eukhe_durable::harness::types::{
@@ -250,7 +250,7 @@ impl Storage for GatedStorage {
     ) -> BoxFuture<'a, Result<Seq, StorageError>> {
         if self.refuse_terminal.load(Ordering::SeqCst) && writes.iter().any(ends_child_task) {
             self.refused.fetch_add(1, Ordering::SeqCst);
-            return futures::future::ready(Err(StorageError::Rejected(StorageRejected::new(
+            return futures::future::ready(Err(StorageError::failed(std::io::Error::other(
                 "the child task's terminal commit is refused",
             ))))
             .boxed();
@@ -445,7 +445,7 @@ fn spawn_tool(requests: HostRequestRegistry) -> Arc<Extension> {
                     Err(error) => format!("error: {error:#}"),
                 };
                 Ok(ToolExecutionResult {
-                    content: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+                    output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
                     ..ToolExecutionResult::default()
                 })
             }
@@ -641,7 +641,8 @@ async fn spawn_reports_once_across_a_reopen_between_submit_and_terminal() {
     assert_eq!(spawn.depth, 1);
     eventually(|| async { host.prompt_keys() == [format!("rlm:{task_id}:prompt")] }).await;
 
-    // The child settles; the report lands, but its terminal commit is lost.
+    // The child settles; the report lands, but its terminal commit fails,
+    // which fails the Session (any storage failure is final).
     storage.refuse_terminal.store(true, Ordering::SeqCst);
     setup.faux.append_responses(vec![answer("noted")]);
     host.settle(
@@ -660,23 +661,18 @@ async fn spawn_reports_once_across_a_reopen_between_submit_and_terminal() {
         .await
         .unwrap()
         .is_some());
-    first.root.wait_for_idle(cx()).await.unwrap();
+    let failed = first.root.wait_for_idle(cx()).await.unwrap_err();
+    assert!(
+        failed
+            .to_string()
+            .contains("Session failed after a storage error"),
+        "{failed}"
+    );
     let report = format!(
         "[child-exited: no-reply child:{}]\n\nLast assistant text: the flake is a race",
         row.session_name
     );
-    assert_eq!(
-        user_texts(&first.root, "[child-exited").await,
-        std::slice::from_ref(&report)
-    );
     first.harness.close(cx()).await.unwrap();
-    // The only failures are the refused terminal commits (each rerun of the
-    // report phase found its submission by request id).
-    let reports = lock(&setup.reports).clone();
-    assert!(!reports.is_empty());
-    assert!(reports.iter().all(|error| error
-        .to_string()
-        .contains("the child task's terminal commit is refused")));
     lock(&setup.reports).clear();
     let stored = storage
         .inner

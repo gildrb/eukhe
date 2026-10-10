@@ -536,6 +536,7 @@ fn refuted_message(model: &Model, text: &str) -> AssistantMessage {
         raw_stop_reason: None,
         end_turn: None,
         timestamp: now_millis(),
+        duration_ms: None,
     }
 }
 

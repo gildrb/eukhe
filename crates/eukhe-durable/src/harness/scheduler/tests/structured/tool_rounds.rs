@@ -10,7 +10,7 @@ use super::chat::{
     blocking_tool, events_of, input, invalid_final_stream, is_tool_result, listen, live, noop,
     run_task, scan, start_hooked, text_message, tool_calls, turns, with_mode, with_stream,
 };
-use super::rejecting::{is_rejection, Rejecting};
+use super::rejecting::Failing;
 use super::{json, outcome_of, state, status, Behavior, Script};
 use crate::harness::define::define_tool;
 use crate::harness::live::LiveState;
@@ -18,9 +18,10 @@ use crate::harness::tests::chat_support::{all_entries, chat_setup, open_chat, wa
 use crate::harness::tests::support::{add_hooks, add_task, add_tool, context, generation_task};
 use crate::harness::tests::task_support::settled;
 use crate::harness::types::{GenerationHooks, ToolExecutionMode};
+use crate::session::{SessionEnd, SessionError};
 use crate::storage::MemoryStorage;
 use crate::types::{
-    EntryDraft, SubmissionStatus, TaskOutcome, TaskOutcomeStatus, TaskQuery, TaskState, TaskStatus,
+    SubmissionStatus, TaskOutcome, TaskOutcomeStatus, TaskQuery, TaskState, TaskStatus,
 };
 
 /// The tool result messages of the conversation's tool result entries.
@@ -285,7 +286,7 @@ async fn ends_a_turn_at_the_generations_hold_before_its_successors_turn_starts()
 /// Rust replaces the faux provider's `stream_simple` the same way the
 /// generation tests do.
 #[tokio::test]
-async fn keeps_run_control_with_a_faulted_generation_until_its_owned_work_drains_and_retries_a_rejected_final_commit(
+async fn keeps_run_control_with_a_faulted_generation_until_its_owned_work_drains_and_fails_the_harness_on_a_failed_final_commit(
 ) {
     let script = Script::new();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
@@ -307,7 +308,7 @@ async fn keeps_run_control_with_a_faulted_generation_until_its_owned_work_drains
     )
     .unwrap();
     script.script("hooked", Behavior::default().gated_abort("abort.hooked"));
-    let storage = Rejecting::new();
+    let storage = Failing::new();
     let OpenChat { harness, root } = open_chat(Arc::clone(&storage) as _, &setup, None)
         .await
         .unwrap();
@@ -339,43 +340,44 @@ async fn keeps_run_control_with_a_faulted_generation_until_its_owned_work_drains
     wait_for(|| async move { logged.logged("abort:hooked") }, 5000).await;
     storage.arm(generation);
     script.open("abort.hooked");
-    // The final commit, with the run's cleanup, is rejected once: nothing of the cleanup lands.
-    let reports = &setup;
-    wait_for(
-        || async move { reports.reports().iter().any(is_rejection) },
-        5000,
-    )
-    .await;
-    assert_eq!(run_task(&harness, &root).await, Some(generation));
-    let kinds = |entries: Vec<crate::types::EntryRecord>| -> Vec<String> {
-        entries.into_iter().map(|entry| entry.kind).collect()
-    };
-    assert_eq!(
-        kinds(all_entries(&root, context()).await.unwrap()),
-        ["pi.user"]
+    // The final commit, with the run's cleanup, fails: nothing of the cleanup lands, and the Harness fails.
+    let end = harness.closed().await;
+    assert!(
+        matches!(&end, SessionEnd::Failed { error } if error.to_string() == "disk gone"),
+        "{end:?}"
     );
-    assert!(!settled(&waiter).await);
-    // The next commit retries it; the partial becomes one aborted entry.
-    let id = root.id();
-    root.commit(
-        move |tx| async move {
-            tx.append_entry(id, EntryDraft::new("note")).await?;
-            Ok(())
-        },
-        context(),
-    )
-    .await
-    .unwrap();
-    let settled_submission = submission.wait(context()).await.unwrap();
+    match waiter.await.unwrap() {
+        Err(SessionError::Failed(failed)) => assert_eq!(failed.cause().to_string(), "disk gone"),
+        other => panic!("expected SessionFailed, got {other:?}"),
+    }
+    harness.close(context()).await.unwrap();
+    // Reopening finalizes the run; the partial becomes one aborted entry.
+    let reopened = open_chat(storage.reopen() as _, &setup, None)
+        .await
+        .unwrap();
+    script.set_harness(&reopened.harness);
+    let again = reopened
+        .harness
+        .submission(submission.id(), context())
+        .await
+        .unwrap()
+        .unwrap();
+    let settled_submission = again.wait(context()).await.unwrap();
     assert_eq!(
         settled_submission.state.status(),
         SubmissionStatus::Unanswered
     );
     assert_eq!(settled_submission.state.reason(), Some("faulted"));
-    assert_eq!(live(&harness, &root).await, Some(LiveState::default()));
     assert_eq!(
-        kinds(all_entries(&root, context()).await.unwrap()),
-        ["pi.user", "note", "pi.assistant"]
+        live(&reopened.harness, &reopened.root).await,
+        Some(LiveState::default())
     );
-    harness.close(context()).await.unwrap();
+    let kinds = |entries: Vec<crate::types::EntryRecord>| -> Vec<String> {
+        entries.into_iter().map(|entry| entry.kind).collect()
+    };
+    assert_eq!(
+        kinds(all_entries(&reopened.root, context()).await.unwrap()),
+        ["pi.user", "pi.assistant"]
+    );
+    reopened.harness.close(context()).await.unwrap();
 }

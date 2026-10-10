@@ -97,7 +97,8 @@ fn map_chat_stop_reason(reason: &str) -> (StopReason, Option<String>) {
         "tool_calls" => (StopReason::ToolUse, None),
         "error" => (
             StopReason::Error,
-            Some("Provider stopped with: error".to_owned()),
+            // Mistral reports transient server failures this way; "server error" makes the message retryable.
+            Some("Provider stopped with: error (server error)".to_owned()),
         ),
         other => (
             StopReason::Error,

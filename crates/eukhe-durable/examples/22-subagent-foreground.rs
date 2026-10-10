@@ -222,7 +222,7 @@ fn subagent_extension() -> Arc<Extension> {
                 };
                 let text = answer_text(&api, answer, &call_context).await?;
                 Ok(ToolExecutionResult {
-                    content: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+                    output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
                     details: Some(details(child)?),
                     ..ToolExecutionResult::default()
                 })
@@ -250,10 +250,9 @@ fn print_event(print: &UnboundedSender<String>, indent: &str, event: &AgentEvent
                 _ => None,
             }
         }
-        AgentEvent::ToolExecutionStart {
-            tool_name, args, ..
-        } => Some(format!(
-            "{indent}tool {tool_name}({})",
+        AgentEvent::ToolExecutionStart { call, args } => Some(format!(
+            "{indent}tool {}({})",
+            call.tool_name,
             serde_json::to_string(args).unwrap_or_default()
         )),
         _ => None,

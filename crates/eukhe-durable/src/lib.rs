@@ -9,6 +9,7 @@ pub mod env;
 pub mod errors;
 pub mod harness;
 pub mod ids;
+pub mod images;
 pub mod session;
 pub mod storage;
 pub mod tasks;

@@ -80,7 +80,7 @@ pub(super) fn noop() -> ToolRegistration {
         empty_object_schema(),
         |_, _, _| async {
             Ok(ToolExecutionResult {
-                content: Some(Vec::new()),
+                output: Some(Vec::new()),
                 ..ToolExecutionResult::default()
             })
         },
@@ -193,11 +193,9 @@ pub(super) fn labels(events: &[AgentEvent]) -> Vec<String> {
     events
         .iter()
         .filter_map(|event| match event {
-            AgentEvent::ToolExecutionEnd {
-                tool_call_id,
-                entry,
-                ..
-            } => Some(format!("end:{tool_call_id}:{}", entry.is_some())),
+            AgentEvent::ToolExecutionEnd { call, entry, .. } => {
+                Some(format!("end:{}:{}", call.tool_call_id, entry.is_some()))
+            }
             AgentEvent::MessageEnd { entry } => {
                 let message = entry.model.as_ref().and_then(|model| model.first());
                 Some(match message {

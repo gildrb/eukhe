@@ -134,6 +134,8 @@ pub(crate) type Definition = Arc<dyn AnyDocDefinition>;
 /// Session services used by a transaction while it holds the mutation line.
 pub(crate) trait TransactionHost: Send + Sync {
     fn storage(&self) -> &Arc<dyn Storage>;
+    /// Wall clock for task lifecycle times.
+    fn now(&self) -> f64;
     /// The cached current incarnation without loading.
     fn cached(&self, address_id: &str) -> Option<Arc<LoadedDocument>>;
     /// The cached current incarnation, cold-loading and migrating it when necessary.
@@ -782,8 +784,12 @@ impl Tx {
                 owner: owner.as_ref().map(|owner| owner.id),
                 background: options.background.unwrap_or(false),
                 abort_requested: false,
+                abort_reason: None,
+                abandon_on_restart: options.abandon_on_restart == Some(true),
                 state: TaskState::Pending { checkpoint },
                 memos: None,
+                started_at: None,
+                ended_at: None,
             };
             tx.lock().task_entry(id).write = Some((TaskWriteKind::Create, record));
             Ok(id)
@@ -855,29 +861,27 @@ impl Tx {
         let mut state = self.lock();
         state.assert_open()?;
         state.has_table_write = true;
+        let host = Arc::clone(&self.inner.host);
         let task = state.task_entry(value.id);
-        if let Some((kind, candidate)) = &task.write {
-            if candidate.state.status() == TaskStatus::Terminal {
-                return Err(SessionError::error(format!(
-                    "Task {} already has a terminal candidate",
-                    value.id
-                )));
-            }
-            if candidate.conversation_id != value.conversation_id {
-                return Err(SessionError::error(format!(
-                    "Task {} cannot change conversations",
-                    value.id
-                )));
-            }
-            let kind = if *kind == TaskWriteKind::Create {
-                TaskWriteKind::Create
-            } else {
-                TaskWriteKind::Replace
-            };
-            task.write = Some((kind, value));
-        } else {
-            task.write = Some((TaskWriteKind::Replace, value));
+        let candidate = task.write.as_ref().map(|(_, record)| record);
+        if candidate.is_some_and(|candidate| candidate.state.status() == TaskStatus::Terminal) {
+            return Err(SessionError::error(format!(
+                "Task {} already has a terminal candidate",
+                value.id
+            )));
         }
+        if candidate.is_some_and(|candidate| candidate.conversation_id != value.conversation_id) {
+            return Err(SessionError::error(format!(
+                "Task {} cannot change conversations",
+                value.id
+            )));
+        }
+        let kind = match &task.write {
+            Some((TaskWriteKind::Create, _)) => TaskWriteKind::Create,
+            Some((TaskWriteKind::Replace, _)) | None => TaskWriteKind::Replace,
+        };
+        let value = stamp_times(value, candidate, || host.now());
+        task.write = Some((kind, value));
         Ok(())
     }
 
@@ -1744,4 +1748,26 @@ pub(crate) async fn join<T>(handle: tokio::task::JoinHandle<SessionResult<T>>) -
             )),
         },
     }
+}
+
+/// Lifecycle times: `started_at` on the first change to `running`, `ended_at`
+/// on the change to `terminal`. Once set, they carry over from the replaced
+/// record; records written before they existed lack them.
+fn stamp_times(
+    mut value: AnyTaskRecord,
+    candidate: Option<&AnyTaskRecord>,
+    now: impl Fn() -> f64,
+) -> AnyTaskRecord {
+    let status = value.state.status();
+    let started_at = candidate
+        .and_then(|candidate| candidate.started_at)
+        .or(value.started_at)
+        .or_else(|| (status == TaskStatus::Running).then(&now));
+    let ended_at = candidate
+        .and_then(|candidate| candidate.ended_at)
+        .or(value.ended_at)
+        .or_else(|| (status == TaskStatus::Terminal).then(&now));
+    value.started_at = started_at;
+    value.ended_at = ended_at;
+    value
 }

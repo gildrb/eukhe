@@ -19,7 +19,7 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::harness::{Conversation, Harness, RootOptions};
 use eukhe_durable::storage::MemoryStorage;
-use eukhe_durable::tools::{create_read_tool, CODING_TOOLS};
+use eukhe_durable::tools::{create_read_tool, ReadToolOptions, CODING_TOOLS};
 use eukhe_durable::types::{DocumentReaderExt, RewindableFork};
 use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use eukhe_pi_ai::providers::faux::{
@@ -75,7 +75,7 @@ fn submit_plan() -> Arc<ToolRegistration> {
             )
             .await?;
             Ok(ToolExecutionResult {
-                content: Some(vec![UserContentBlock::Text(TextContent::new(
+                output: Some(vec![UserContentBlock::Text(TextContent::new(
                     "Plan submitted.",
                 ))]),
                 control: Some(ToolControl {
@@ -156,7 +156,7 @@ pub async fn run(
 
     // Plan mode is a change to the conversation's agent: select the plan extension and offer only reading and
     // submitting. Clearing both returns to the host's default selection and every tool.
-    let read = create_read_tool();
+    let read = create_read_tool(ReadToolOptions::default());
     let enter_plan_mode = AgentChange {
         extensions: FieldChange::Set(ExtensionsChange::Edit {
             add: Some(vec![Arc::clone(&plan)]),
@@ -258,7 +258,9 @@ pub async fn run(
         .await?;
 
     // The model saw each switch as a system prompt change in its transcript.
-    let view = root.context(cx).await?;
+    let view = root
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+        .await?;
     for message in &view.messages {
         let Message::System(message) = message else {
             continue;

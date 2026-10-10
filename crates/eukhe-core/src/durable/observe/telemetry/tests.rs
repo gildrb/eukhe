@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use eukhe_durable::harness::types::{AgentState, CompactionReason};
 use eukhe_durable::harness::usage::UsageState;
-use eukhe_durable::harness::{AgentEvent, MessageChange, SnapshotEvent};
+use eukhe_durable::harness::{AgentEvent, MessageChange, SnapshotEvent, ToolEventCall};
 use eukhe_durable::types::{ConversationId, EntryId, EntryRecord, SubmissionId, TaskId};
 use eukhe_telemetry::{MockSink, TelemetryClient, TelemetryClientConfig};
 use eukhe_types::pi_ai::{
@@ -135,6 +135,7 @@ fn assistant_message() -> AssistantMessage {
         raw_stop_reason: None,
         end_turn: None,
         timestamp: 0,
+        duration_ms: None,
     }
 }
 
@@ -176,6 +177,7 @@ fn tool_result_entry(tool_call_id: &str, tool_name: &str, is_error: bool) -> Ent
             nested_calls: None,
             is_error,
             timestamp: 0,
+            duration_ms: None,
         })]),
         data: None,
         edits: None,
@@ -237,14 +239,25 @@ fn tool_events(tool: &str, is_error: Option<bool>) -> (AgentEvent, AgentEvent) {
     let call_id = format!("{tool}-1");
     (
         AgentEvent::ToolExecutionStart {
-            tool_call_id: call_id.clone(),
-            tool_name: tool.to_string(),
+            call: ToolEventCall {
+                tool_call_id: call_id.clone(),
+                tool_name: tool.to_string(),
+                task_id: None,
+                parent_tool_call_id: None,
+                parent_task_id: None,
+            },
             args: json!({ "command": "private command" }).into(),
         },
         AgentEvent::ToolExecutionEnd {
-            tool_call_id: call_id.clone(),
-            tool_name: tool.to_string(),
+            call: ToolEventCall {
+                tool_call_id: call_id.clone(),
+                tool_name: tool.to_string(),
+                task_id: None,
+                parent_tool_call_id: None,
+                parent_task_id: None,
+            },
             entry: is_error.map(|is_error| tool_result_entry(&call_id, tool, is_error)),
+            result: None,
         },
     )
 }
@@ -999,6 +1012,7 @@ async fn snapshot_is_a_no_op() {
             run: None,
             generation: None,
             tools: Vec::new(),
+            nested_tools: Vec::new(),
             compactions: Vec::new(),
             inbox: Vec::new(),
             agent: AgentState::default(),

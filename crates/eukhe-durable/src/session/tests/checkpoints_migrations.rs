@@ -20,8 +20,10 @@ use crate::documents::{
     DocDefinition, DocFamilyDefinition, RewindableConversationDoc, RewindableConversationDocFamily,
     SessionDoc,
 };
-use crate::errors::{StorageError, StorageRejected};
-use crate::session::{ObservedDocumentValue, Ops, Session, SessionResult, Tx, WatchListener};
+use crate::errors::StorageError;
+use crate::session::{
+    ObservedDocumentValue, Ops, Session, SessionError, SessionResult, Tx, WatchListener,
+};
 use crate::types::{
     ConversationId, ConversationOwnership, DocumentAddress, DocumentBase, DocumentContent,
     DocumentDelta, DocumentPoint, DocumentScope, EntryDraft, EntryId, RewindableFork, Storage,
@@ -460,7 +462,7 @@ async fn skips_the_predicate_for_empty_batches_but_calls_it_for_nonempty_structu
 /// TS throws from the second document's predicate. A Rust `CheckpointWhenFn`
 /// returns `bool` and cannot fail, and predicates run after every other
 /// validation, so the closest failure after checkpoint selection is a Storage
-/// rejection of the prepared batch. `ControlledStorage` records the offered
+/// failure of the prepared batch. `ControlledStorage` records the offered
 /// batch before rejecting it, so `storage.commits` grows by one where TS
 /// expects no growth; publications and exact snapshots stay unchanged.
 #[tokio::test]
@@ -500,14 +502,10 @@ async fn rolls_back_every_prepared_document_when_a_checkpoint_predicate_throws()
         .await
         .unwrap();
     flush().await;
-    let first = snapshot(&session, &FIRST).await;
-    let second = snapshot(&session, &SECOND).await;
     let commits = storage.commit_count();
     let published = publications.len();
 
-    storage.fail_next_commit(StorageError::Rejected(StorageRejected::new(
-        "checkpoint failed",
-    )));
+    storage.fail_next_commit(StorageError::failed(TestFailure("checkpoint failed")));
     let result = session
         .commit(
             |tx| async move {
@@ -523,29 +521,18 @@ async fn rolls_back_every_prepared_document_when_a_checkpoint_predicate_throws()
     assert_eq!(FIRST_CALLS.load(Ordering::SeqCst), 1);
     assert_eq!(storage.commit_count(), commits + 1);
     assert_eq!(publications.len(), published);
-    assert!(Arc::ptr_eq(&snapshot(&session, &FIRST).await, &first));
-    assert!(Arc::ptr_eq(&snapshot(&session, &SECOND).await, &second));
-
-    session
-        .commit(
-            |tx| async move {
-                tx.doc(&FIRST, ()).await?.set("count", 3)?;
-                tx.doc(&SECOND, ()).await?.set("count", 4)?;
-                Ok(())
-            },
-            context(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        snapshot_json(&session, &FIRST).await,
-        json(r#"{"count":3}"#)
-    );
-    assert_eq!(
-        snapshot_json(&session, &SECOND).await,
-        json(r#"{"count":4}"#)
-    );
+    // A Storage failure now fails the Session (TS `SessionFailed`), so the
+    // TS follow-up commit on the same Session has no Rust counterpart.
+    assert!(matches!(
+        session.snapshot(&FIRST, (), context()).await,
+        Err(SessionError::Failed(_))
+    ));
 }
+
+/// A test failure with a fixed message.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct TestFailure(&'static str);
 
 #[tokio::test]
 async fn persists_repeated_false_decisions_as_deltas_and_replays_the_complete_tail() {

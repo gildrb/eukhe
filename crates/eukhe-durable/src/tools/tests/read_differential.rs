@@ -8,15 +8,16 @@
 use std::sync::Arc;
 
 use eukhe_chord::json::to_json;
-use eukhe_types::pi_ai::{TextContent, UserContentBlock};
+use eukhe_types::pi_ai::{ImageContent, TextContent, UserContentBlock};
 use serde_json::{json, Map, Value};
 
 use super::support::{native, run, temp_dir};
 use crate::env::{range_decoder, ExecutionEnv};
 use crate::harness::output::character_end;
 use crate::harness::types::{ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionResult};
-use crate::tools::create_read_tool;
 use crate::tools::image::detect_supported_image_mime_type;
+use crate::tools::image_processor::to_base64;
+use crate::tools::{create_read_tool, ReadToolOptions};
 use crate::truncate::{
     format_size, truncate_head, TruncationOptions, TruncationResult, DEFAULT_MAX_BYTES,
 };
@@ -79,14 +80,14 @@ fn reference_read(
 ) -> Result<ToolExecutionResult, String> {
     if let Some(mime_type) = detect_supported_image_mime_type(bytes) {
         return Ok(ToolExecutionResult {
-            content: Some(Vec::new()),
-            is_error: Some(true),
+            output: Some(vec![UserContentBlock::Image(ImageContent {
+                data: to_base64(bytes),
+                mime_type: mime_type.to_owned(),
+            })]),
             diagnostics: Some(vec![ToolDiagnostic {
-                severity: ToolDiagnosticSeverity::Error,
-                code: Some("unsupported_image".to_owned()),
-                message: format!(
-                    "{path} is an image ({mime_type}); reading images is not supported"
-                ),
+                severity: ToolDiagnosticSeverity::Info,
+                code: Some("image".to_owned()),
+                message: format!("Read image file [{mime_type}]."),
             }]),
             ..ToolExecutionResult::default()
         });
@@ -191,7 +192,7 @@ fn reference_read(
         }
     }
     Ok(ToolExecutionResult {
-        content: Some(if output_text.is_empty() {
+        output: Some(if output_text.is_empty() {
             Vec::new()
         } else {
             vec![UserContentBlock::Text(TextContent::new(output_text))]
@@ -313,7 +314,7 @@ fn args(path: &str, offset: Option<f64>, limit: Option<f64>) -> Value {
 async fn returns_exactly_what_reading_the_whole_file_returned() {
     let dir = temp_dir();
     let env: Arc<dyn ExecutionEnv> = Arc::new(native(&dir));
-    let tool = create_read_tool();
+    let tool = create_read_tool(ReadToolOptions::default());
     for seed in 1..=400 {
         let mut next = random(seed);
         let file = random_file(&mut next);
@@ -351,7 +352,7 @@ async fn detects_animated_pngs_whose_ac_tl_chunk_lies_far_beyond_the_header() {
     png.extend(chunk("IDAT", 10));
     std::fs::write(dir.path().join("a.png"), &png).unwrap();
     let (actual, _) = run(
-        &create_read_tool(),
+        &create_read_tool(ReadToolOptions::default()),
         json!({ "path": "a.png" }),
         Arc::new(native(&dir)),
     )

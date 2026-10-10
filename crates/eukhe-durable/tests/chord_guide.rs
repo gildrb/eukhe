@@ -937,6 +937,7 @@ async fn runs_the_job_output_watch_until_the_producer_retires_its_document() -> 
                         ownership: TaskOwnership::Conversation,
                         conversation_id: None,
                         background: None,
+                        abandon_on_restart: None,
                     },
                 )
                 .await

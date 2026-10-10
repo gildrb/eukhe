@@ -40,16 +40,16 @@ pub use ids::{
 pub use readers::{DocumentObserver, DocumentObserverExt, DocumentReader, DocumentReaderExt};
 pub use storage::{
     CommitChange, CommitPublication, ConversationQuery, Cursor, DocumentCommitChange,
-    DocumentQuery, EntryQuery, Page, Storage, StorageWrite, StoredEntry, SubmissionQuery,
-    TaskQuery,
+    DocumentQuery, EntryQuery, Page, ScanOrder, Storage, StorageWrite, StoredEntry,
+    SubmissionQuery, TaskQuery,
 };
 pub use submissions::{
     InputSubmission, SubmissionCreate, SubmissionRecord, SubmissionSettlement, SubmissionState,
     SubmissionStatus, SubmissionType, WriteSubmission,
 };
 pub use tasks::{
-    AnyTaskRecord, JoinPolicy, TaskOptions, TaskOutcome, TaskOutcomeError, TaskOutcomeStatus,
-    TaskOwnership, TaskRecord, TaskState, TaskStatus,
+    AnyTaskRecord, JoinPolicy, TaskAbortReason, TaskOptions, TaskOutcome, TaskOutcomeError,
+    TaskOutcomeStatus, TaskOwnership, TaskRecord, TaskState, TaskStatus,
 };
 pub use transcript::{
     ContextEdit, ContextEditAction, ConversationOwner, ConversationOwnership, ConversationParent,

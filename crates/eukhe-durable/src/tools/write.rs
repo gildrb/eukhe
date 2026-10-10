@@ -60,7 +60,7 @@ pub fn create_write_tool() -> Arc<ToolRegistration> {
                         return Err(operation_aborted());
                     }
                     Ok(ToolExecutionResult {
-                        content: Some(vec![UserContentBlock::Text(TextContent::new(format!(
+                        output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
                             "Successfully wrote to {path}"
                         )))]),
                         ..ToolExecutionResult::default()

@@ -332,7 +332,7 @@ impl Worker {
 /// `session.state.messages`).
 async fn context_messages(conversation: &Conversation, cx: &Context) -> Result<Vec<Value>, String> {
     let view = conversation
-        .context(cx)
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
         .await
         .map_err(|error| error.to_string())?;
     Ok(transcript_messages(&view.entries))
@@ -405,7 +405,10 @@ fn context_usage(messages: &[Value], context_window: u64) -> Value {
 async fn render_system_prompt(hosted: &HostedSession, cx: &Context) -> Result<String, String> {
     let main = hosted.main().map_err(|error| error.to_string())?;
     let agent = Arc::new(main.agent(cx).await.map_err(|error| error.to_string())?);
-    let view = main.context(cx).await.map_err(|error| error.to_string())?;
+    let view = main
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+        .await
+        .map_err(|error| error.to_string())?;
     let shown: IndexMap<String, String> = get_current_system_message(&view.messages)
         .and_then(|message| message.sections)
         .map(|sections| {

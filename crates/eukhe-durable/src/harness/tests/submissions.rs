@@ -660,6 +660,7 @@ async fn enables_scheduling_when_a_caller_submits_or_waits() {
                         ownership: TaskOwnership::Conversation,
                         conversation_id: None,
                         background: None,
+                        abandon_on_restart: None,
                     },
                 )
                 .await

@@ -187,7 +187,7 @@ async fn lets_a_tool_that_owns_live_work_finish_its_call_at_the_hold_while_the_g
                     )
                     .await?;
                     Ok(ToolExecutionResult {
-                        content: Some(vec![UserContentBlock::Text(TextContent::new("started"))]),
+                        output: Some(vec![UserContentBlock::Text(TextContent::new("started"))]),
                         ..ToolExecutionResult::default()
                     })
                 }
@@ -274,7 +274,7 @@ async fn holds_a_faulted_tools_slot_and_task_failed_until_the_work_it_owns_drain
                     )
                     .await?;
                     Ok(ToolExecutionResult {
-                        content: Some(Vec::new()),
+                        output: Some(Vec::new()),
                         usage: Some(Usage {
                             input: u64::MAX,
                             ..Usage::default()

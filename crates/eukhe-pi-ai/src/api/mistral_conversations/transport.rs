@@ -11,10 +11,10 @@ use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use super::{type_error, MistralFailure, MistralOptions};
-use crate::auth::errors::{js_error, timeout_signal};
+use crate::auth::errors::js_error;
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::headers::headers_to_record;
-use crate::utils::js::{is_js_whitespace, js_trim, json_stringify};
+use crate::utils::js::{is_js_whitespace, js_trim, json_stringify, number_to_js_string};
 use crate::utils::json_parse::js_json_parse;
 use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::sleep::timer_duration;
@@ -47,29 +47,41 @@ pub(super) async fn request_mistral_stream(
 ) -> Result<MistralEventReader, MistralFailure> {
     let url = chat_completions_url(&model.base_url)?;
     let headers = build_mistral_headers(model, api_key, options)?;
+    // The timeout covers only the wait for response headers. Long streams (e.g. extended thinking)
+    // must not be cut off by a fixed deadline; body stalls are left to the HTTP client idle timeout.
     let timeout_ms = options
         .stream
         .request
         .timeout_ms
         .unwrap_or(DEFAULT_TIMEOUT_MS);
-    let timeout =
-        timeout_signal(u64::try_from(timer_duration(timeout_ms).as_millis()).unwrap_or(u64::MAX));
-    let signal = match &options.stream.request.signal {
-        Some(signal) => AbortSignal::any(&[signal.clone(), timeout]),
-        None => timeout,
-    };
+    let signal = options.stream.request.signal.clone();
 
     let mut request = reqwest::Request::new(reqwest::Method::POST, url);
     *request.headers_mut() = headers;
     *request.body_mut() = Some(json_stringify(wire_payload).into());
 
-    signal.throw_if_aborted().map_err(MistralFailure::Thrown)?;
+    if let Some(signal) = &signal {
+        signal.throw_if_aborted().map_err(MistralFailure::Thrown)?;
+    }
     let exchange = match &options.stream.request.fetch {
         Some(fetch) => fetch(request),
         None => default_fetch(request),
     };
+    let aborted = async {
+        match &signal {
+            Some(signal) => signal.cancelled().await,
+            None => std::future::pending().await,
+        }
+    };
     let response = tokio::select! {
-        reason = signal.cancelled() => return Err(MistralFailure::Thrown(reason)),
+        biased;
+        reason = aborted => return Err(MistralFailure::Thrown(reason)),
+        () = tokio::time::sleep(timer_duration(timeout_ms)) => {
+            return Err(MistralFailure::Thrown(js_error(format!(
+                "Mistral response headers timed out after {}ms",
+                number_to_js_string(timeout_ms)
+            ))));
+        }
         response = exchange => response.map_err(MistralFailure::Thrown)?,
     };
 
@@ -283,11 +295,10 @@ impl Utf8Decoder {
 }
 
 /// TS `readMistralEvents`: the SSE events of a streaming response. Reading
-/// fails with the signal's reason once the combined abort/timeout signal
-/// fires.
+/// fails with the signal's reason once the caller's signal aborts.
 pub(super) struct MistralEventReader {
     response: reqwest::Response,
-    signal: AbortSignal,
+    signal: Option<AbortSignal>,
     decoder: Utf8Decoder,
     buffer: String,
     body_done: bool,
@@ -295,7 +306,7 @@ pub(super) struct MistralEventReader {
 }
 
 impl MistralEventReader {
-    fn new(response: reqwest::Response, signal: AbortSignal) -> Self {
+    fn new(response: reqwest::Response, signal: Option<AbortSignal>) -> Self {
         Self {
             response,
             signal,
@@ -335,13 +346,24 @@ impl MistralEventReader {
                     ParsedEvent::Done | ParsedEvent::Empty => Ok(None),
                 };
             }
-            self.signal.throw_if_aborted()?;
+            if let Some(signal) = &self.signal {
+                signal.throw_if_aborted()?;
+            }
+            let signal = self.signal.clone();
+            let aborted = async {
+                match &signal {
+                    Some(signal) => signal.cancelled().await,
+                    None => std::future::pending().await,
+                }
+            };
             let chunk = tokio::select! {
-                reason = self.signal.cancelled() => return Err(reason),
+                reason = aborted => return Err(reason),
                 chunk = self.response.chunk() => chunk
                     .map_err(|error| type_error(&format!("terminated: {error}")))?,
             };
-            self.signal.throw_if_aborted()?;
+            if let Some(signal) = &self.signal {
+                signal.throw_if_aborted()?;
+            }
             if let Some(bytes) = chunk {
                 self.decoder.decode(&bytes, &mut self.buffer);
             } else {

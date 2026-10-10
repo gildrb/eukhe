@@ -17,7 +17,7 @@ use crate::documents::{
     SessionDocFamily,
 };
 use crate::errors::StorageError;
-use crate::session::{SessionResult, TransactionScope, Tx, TxFuture};
+use crate::session::{SessionError, SessionResult, TransactionScope, Tx, TxFuture};
 use crate::types::{
     AnyTaskRecord, ConversationId, DocumentAddress, DocumentContent, DocumentPoint, DocumentScope,
     LatestFork, RewindableFork, Storage, StorageWrite,
@@ -992,7 +992,7 @@ async fn rolls_back_prepared_documents_when_batch_assembly_fails() {
 }
 
 #[tokio::test]
-async fn poisons_the_session_after_an_uncertain_storage_failure_and_publishes_nothing() {
+async fn fails_the_session_after_a_storage_failure_and_publishes_nothing() {
     let (test, conversation_id) = setup_live().await;
     flush().await;
     let before = snapshot_live(&test, conversation_id).await;
@@ -1018,17 +1018,17 @@ async fn poisons_the_session_after_an_uncertain_storage_failure_and_publishes_no
     flush().await;
     assert_eq!(test.publications.len(), published);
     assert!(message(&before).is_none());
-    assert_error(
+    assert!(matches!(
         test.session
             .snapshot(&LIVE_DOC, conversation_id, context())
             .await,
-        "poisoned",
-    );
-    assert_error(
+        Err(SessionError::Failed(_))
+    ));
+    assert!(matches!(
         test.session.commit(|_tx| async { Ok(()) }, context()).await,
-        "poisoned",
-    );
-    // TS awaits close and ignores nothing: a poisoned close still settles.
+        Err(SessionError::Failed(_))
+    ));
+    // TS awaits close and ignores nothing: a failed close still settles.
     let _ = test.session.close(context()).await;
 }
 

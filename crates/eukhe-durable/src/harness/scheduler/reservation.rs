@@ -12,10 +12,11 @@ use crate::harness::types::{
 };
 use crate::session::{SessionError, SessionResult, TransactionScope};
 use crate::tasks::{AnyTask, Migrated};
-use crate::types::{AnyTaskRecord, TaskId, TaskState, TaskStatus};
+use crate::types::{AnyTaskRecord, TaskAbortReason, TaskId, TaskState, TaskStatus};
 
 use super::invocation::{Invocation, InvocationMode};
-use super::mirror::{with_state, Queued};
+use super::mirror::{with_abort_mark, with_state, Queued};
+use super::ownership::parent_of;
 use super::state::{FailedMigration, State};
 use super::{Inner, SchedulerOutcome, TaskScheduler};
 
@@ -24,8 +25,9 @@ use super::{Inner, SchedulerOutcome, TaskScheduler};
 pub(super) enum Resolution {
     Ready {
         task: AnyTask,
-        /// The record, migrated when the definition is newer.
-        record: AnyTaskRecord,
+        /// The record, migrated when the definition is newer; boxed, as a
+        /// record is far larger than a blocked reason.
+        record: Box<AnyTaskRecord>,
         migrated: bool,
     },
     Blocked(TaskBlockedReason),
@@ -244,9 +246,8 @@ impl Inner {
         }
         .await;
         if let Err(error) = result {
-            if !self.closing() {
-                self.report(error);
-            }
+            // As in `reconcile()`: the reservation commit runs no extension code.
+            self.fail_session(error);
         }
         let dirty = {
             let mut state = self.lock();
@@ -260,16 +261,41 @@ impl Inner {
     }
 
     /// Reserve every eligible task in one commit; orphan abort-marked tasks no
-    /// definition can take. The commit is enqueued now.
+    /// definition can take, unless abandoned after a restart. The first pass
+    /// after open only abort-marks the abandoned tasks, so later passes see
+    /// the marks. The commit is enqueued now.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one TS method: the reservation commit and its bookkeeping share state"
+    )]
     fn reserve(&self) -> impl Future<Output = SessionResult<Vec<Reservation>>> + Send + 'static {
         let reservations: Arc<Mutex<Vec<Reservation>>> = Arc::default();
+        let abandoned: Arc<Mutex<Vec<TaskId>>> = Arc::default();
         let inner = self.arc();
         let staged = Arc::clone(&reservations);
+        let staged_abandoned = Arc::clone(&abandoned);
         let committed = self.session.commit_with(
             move |tx| async move {
                 {
                     let state = inner.lock();
                     if !state.enabled || state.closing {
+                        return Ok(());
+                    }
+                    if !state.abandoned.is_empty() {
+                        for id in &state.abandoned {
+                            if let Some(record) = state.live.get(id) {
+                                if !record.abort_requested {
+                                    tx.set_task(with_abort_mark(
+                                        record,
+                                        Some(TaskAbortReason::Restart),
+                                    ))?;
+                                }
+                            }
+                        }
+                        *staged_abandoned
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner) =
+                            state.abandoned.iter().copied().collect();
                         return Ok(());
                     }
                 }
@@ -298,12 +324,24 @@ impl Inner {
                     } else {
                         InvocationMode::Run
                     };
+                    // Work below an owner with cancellation intent waits for its cascade mark
+                    // instead of running a phase; schedule the cascade, which may not have run yet.
+                    if mode == InvocationMode::Run
+                        && !record.background
+                        && inner.lock().below_cancelled(parent_of(&record))
+                    {
+                        inner.lock().cascade_pending = true;
+                        inner.schedule_reconcile();
+                        continue;
+                    }
                     let snapshot = snapshot
                         .get_or_insert_with(|| inner.registry.snapshot())
                         .clone();
                     match inner.resolve(&record, &snapshot) {
                         Resolution::Blocked(reason) => {
-                            if mode == InvocationMode::Abort {
+                            // An abandoned task waits for its definition, so its abort handler can
+                            // clean up.
+                            if mode == InvocationMode::Abort && record.abort_reason.is_none() {
                                 let reason = reason.as_str().to_owned();
                                 inner
                                     .terminate(&tx, &record, SchedulerOutcome::Orphaned { reason })
@@ -363,6 +401,17 @@ impl Inner {
                 }
                 return Err(error);
             }
+            // Marked, or already marked or gone: done with them. Reserve again, now seeing the
+            // marks.
+            let abandoned =
+                std::mem::take(&mut *abandoned.lock().unwrap_or_else(PoisonError::into_inner));
+            if !abandoned.is_empty() {
+                let mut state = inner.lock();
+                for id in &abandoned {
+                    state.abandoned.shift_remove(id);
+                }
+                state.dirty = true;
+            }
             Ok(reservations)
         }
     }
@@ -386,7 +435,7 @@ impl Inner {
             } => {
                 return Resolution::Ready {
                     task,
-                    record: record.clone(),
+                    record: Box::new(record.clone()),
                     migrated: false,
                 }
             }
@@ -426,7 +475,7 @@ impl Inner {
                 };
                 Resolution::Ready {
                     task,
-                    record: migrated,
+                    record: Box::new(migrated),
                     migrated: true,
                 }
             }

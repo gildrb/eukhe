@@ -273,6 +273,7 @@ fn create_empty_message(model: &Model, stop_reason: StopReason) -> AssistantMess
         raw_stop_reason: None,
         end_turn: None,
         timestamp: now_ms(),
+        duration_ms: None,
     }
 }
 

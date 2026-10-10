@@ -472,6 +472,28 @@ fn add_fork_history_case(cases: &mut Cases) {
             assert_eq!(ids(&third.items), v(json!([root_first])));
             assert!(third.next.is_none());
 
+            // Oldest first: the root's segment, then each fork's, each capped at the next fork point.
+            let ascending = q(json!({ "conversationId": grandchild_id, "order": "ascending" }));
+            let first_up = ok(s.scan_entries(&ascending, 2, None, cx()).await);
+            assert_eq!(ids(&first_up.items), v(json!([root_first, root_fork_point])));
+            let second_up = ok(s.scan_entries(&ascending, 2, first_up.next.as_ref(), cx()).await);
+            assert_eq!(ids(&second_up.items), v(json!([child_fork_point, grandchild_head])));
+            let third_up = ok(s.scan_entries(&query, 2, second_up.next.as_ref(), cx()).await);
+            assert_eq!(ids(&third_up.items), v(json!([grandchild_tail])));
+            assert!(third_up.next.is_none());
+            let bounded = q(json!({
+                "conversationId": grandchild_id,
+                "order": "ascending",
+                "minEntryId": root_fork_point,
+                "maxEntryId": child_fork_point,
+            }));
+            assert_eq!(
+                ids(&ok(s.scan_entries(&bounded, 10, None, cx()).await).items),
+                v(json!([root_fork_point, child_fork_point]))
+            );
+            let descending = q(json!({ "conversationId": grandchild_id, "order": "descending" }));
+            rejects(s.scan_entries(&descending, 2, first_up.next.as_ref(), cx()), "cursor").await;
+
             let current_marker =
                 j(&ok(s.find_latest_head_marker(id(grandchild_id), None, cx()).await));
             assert_eq!(current_marker["id"], v(grandchild_head));

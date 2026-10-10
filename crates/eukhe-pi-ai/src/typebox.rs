@@ -696,4 +696,56 @@ impl Type {
             Options::new(),
         )
     }
+
+    /// `Type.Partial(type)`.
+    #[must_use]
+    pub fn partial(schema: TSchema) -> TSchema {
+        Self::partial_with(schema, Options::new())
+    }
+
+    /// `Type.Partial(type, options)`: an `Object` with every property made
+    /// optional (so no `required`), keeping its other keys and merging
+    /// `options`. Non-object types only take the options.
+    #[must_use]
+    pub fn partial_with(schema: TSchema, options: Options) -> TSchema {
+        if !algebra::is_kind(&schema.view, "Object") {
+            return update(schema, &[], options);
+        }
+        let empty = JsonObject::new();
+        let json_properties = schema
+            .json
+            .get("properties")
+            .and_then(JsonValue::as_object)
+            .unwrap_or(&empty);
+        let view_properties = schema
+            .view
+            .get("properties")
+            .and_then(JsonValue::as_object)
+            .unwrap_or(&empty);
+        let properties: Vec<(String, TSchema)> = view_properties
+            .iter()
+            .map(|(key, view)| {
+                let property = TSchema {
+                    json: json_properties
+                        .get(key)
+                        .cloned()
+                        .unwrap_or_else(|| view.clone()),
+                    view: view.clone(),
+                };
+                (key.clone(), Self::optional(property))
+            })
+            .collect();
+        let mut merged = Options::new();
+        if let Some(fields) = schema.json.as_object() {
+            for (key, value) in fields {
+                if !matches!(key.as_str(), "type" | "required" | "properties") {
+                    merged = merged.set(key.clone(), value.clone());
+                }
+            }
+        }
+        for (key, value) in options.entries {
+            merged = merged.with(key, value);
+        }
+        Self::object_with(properties, merged)
+    }
 }

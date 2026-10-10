@@ -11,6 +11,7 @@ use crate::session::{SessionError, Unsubscribe};
 use crate::tasks::{AnyTask, SettledTask};
 use crate::types::{AnyTaskRecord, ConversationId, TaskId};
 
+pub(super) use super::contexts::{Expiry, KeptContext};
 use super::invocation::Invocation;
 use super::ownership::TaskNode;
 
@@ -45,6 +46,10 @@ pub(super) struct State {
     /// `failFast` waiters the next reconcile checks for a failed task in `on`:
     /// at open, when they start waiting, and when one of their tasks fails.
     pub(super) fail_fast_checks: IndexSet<TaskId>,
+    /// Live tasks with `abandon_on_restart` found at open, from an earlier
+    /// Harness. The first reservation pass abort-marks them with reason
+    /// `restart`, so nothing of them or below them runs a phase again.
+    pub(super) abandoned: IndexSet<TaskId>,
     pub(super) reconcile_scheduled: bool,
     pub(super) cascade_pending: bool,
     pub(super) unsubscribe_registry: Option<Unsubscribe>,
@@ -57,4 +62,11 @@ pub(super) struct State {
     pub(super) closing: bool,
     pub(super) dirty: bool,
     pub(super) draining: bool,
+    /// Context range last read through a task runtime, per conversation: a
+    /// later read, by any of its tasks, scans only newer entries. Derived and
+    /// never persisted; dropped at the first idle check after
+    /// `settings.context_retention_ms` of idleness, and at close.
+    pub(super) contexts: HashMap<ConversationId, KeptContext>,
+    /// Timer for the earliest expiry of an idle context.
+    pub(super) expiry: Option<Expiry>,
 }

@@ -21,8 +21,12 @@ use crate::harness::live::run::{
     append_assistant, create_generation, hand_over, start_run, timestamp,
 };
 use crate::harness::live::{child_draft, end_run, run_task_id, ToolSlot, ToolSlotStatus, LIVE_DOC};
-use crate::harness::tool::{append_tool_result, harness_error, ToolTaskInput, ToolTaskResult};
-use crate::harness::types::{GenerationHooks, ToolControl, ToolExecutionMode, UserInput};
+use crate::harness::tool::{
+    append_tool_result, harness_error, ToolResultMeta, ToolTaskInput, ToolTaskResult,
+};
+use crate::harness::types::{
+    ContextOptions, GenerationHooks, ToolControl, ToolExecutionMode, UserInput,
+};
 use crate::session::{SessionResult, Tx};
 use crate::tasks::AnyTask;
 use crate::types::{
@@ -91,13 +95,14 @@ async fn create_tool_task(
 ) -> SessionResult<TaskId> {
     tx.create_task(
         tool.as_definition_ref(),
-        to_json(&ToolTaskInput { assistant, call_id })?,
+        to_json(&ToolTaskInput::Model { assistant, call_id })?,
         TaskOptions {
             ownership: TaskOwnership::Task {
                 task_id: generation,
             },
             conversation_id: None,
             background: None,
+            abandon_on_restart: None,
         },
     )
     .await
@@ -269,7 +274,13 @@ pub(super) async fn start_tool_round(
         Some(messages) => messages,
         None => {
             runtime
-                .context(conversation_id, cx, Some(request.cutoff))
+                .context(
+                    conversation_id,
+                    cx,
+                    ContextOptions {
+                        at: Some(request.cutoff),
+                    },
+                )
                 .await?
                 .messages
         }
@@ -307,14 +318,13 @@ pub(super) async fn start_tool_round(
                             "tool_unavailable",
                             &format!("Tool {} is not available", call.name),
                         );
-                        let result = append_tool_result(
-                            &tx,
-                            conversation_id,
-                            call,
-                            &unavailable,
-                            runtime.now()?,
-                        )
-                        .await?;
+                        let meta = ToolResultMeta {
+                            timestamp: runtime.now()?,
+                            duration_ms: None,
+                        };
+                        let result =
+                            append_tool_result(&tx, conversation_id, call, &unavailable, meta)
+                                .await?;
                         slots.push(slot(call, None, ToolSlotStatus::Done, Some(result.id)));
                         continue;
                     }
@@ -388,8 +398,14 @@ pub(super) async fn finish_tool_round(
     let mut controls: Vec<(TaskId, Option<ToolControl>)> = Vec::with_capacity(tools.len());
     for (id, outcome) in tools.iter().zip(outcomes) {
         let control = match outcome {
-            TaskOutcome::Completed { result } => result.control,
-            TaskOutcome::Failed { .. }
+            // Version 1 results have no kind; every result a generation's round reads is a model-issued call's.
+            TaskOutcome::Completed {
+                result: ToolTaskResult::Model { control, .. },
+            } => control,
+            TaskOutcome::Completed {
+                result: ToolTaskResult::Nested,
+            }
+            | TaskOutcome::Failed { .. }
             | TaskOutcome::Aborted { .. }
             | TaskOutcome::Orphaned { .. }
             | TaskOutcome::Faulted { .. } => None,
@@ -502,6 +518,7 @@ pub(super) async fn finish_tool_round(
                         }
                     } else {
                         live.delete("tools")?;
+                        live.delete("nestedTools")?;
                         if run_task_id(&live)? == Some(task_id) {
                             let inputs = live.child("run")?.child("inputs")?;
                             let users = outcome

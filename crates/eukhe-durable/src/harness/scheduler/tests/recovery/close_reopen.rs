@@ -1,7 +1,7 @@
 //! TS `describe("task recovery")`.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
@@ -11,10 +11,10 @@ use crate::harness::tests::support::context;
 use crate::harness::tests::task_support::{
     aborted, aborted_with, completed, deferred, flush, open_tasks, Deferred, OpenTasksOptions,
 };
-use crate::harness::TaskAbortResult;
+use crate::harness::{Conversation, TaskAbortResult};
 use crate::session::tests::support::json;
 use crate::tasks::{define_task, AnyTask, NextTaskState, TaskDefinition};
-use crate::types::{TaskOptions, TaskOutcome, TaskOwnership, TaskState};
+use crate::types::{TaskId, TaskOptions, TaskOutcome, TaskOwnership, TaskState, TaskStatus};
 
 /// Fake external service whose operations are idempotent by request key.
 #[derive(Clone, Default)]
@@ -150,25 +150,7 @@ async fn resumes_an_intent_effect_outcome_task_interrupted_after_its_intent_acro
         .root(crate::harness::RootOptions::default(), context())
         .await
         .unwrap();
-    let definition = transfer.as_definition_ref();
-    let id = root
-        .commit(
-            move |tx| async move {
-                tx.create_task(
-                    definition,
-                    json(r#"{"amount":7}"#),
-                    TaskOptions {
-                        ownership: TaskOwnership::Conversation,
-                        conversation_id: None,
-                        background: None,
-                    },
-                )
-                .await
-            },
-            context(),
-        )
-        .await
-        .unwrap();
+    let id = create_transfer(&root, &transfer).await;
     first.harness.resume().unwrap();
     until(|| service.calls() == 1).await;
     first.harness.close(context()).await.unwrap();
@@ -224,6 +206,92 @@ async fn resumes_an_intent_effect_outcome_task_interrupted_after_its_intent_acro
         Some(receipt.into_record())
     );
     third.harness.close(context()).await.unwrap();
+}
+
+/// `tx.createTask(Transfer, { amount: 7 }, { ownership: { kind: "conversation" } })`.
+async fn create_transfer(root: &Conversation, transfer: &AnyTask) -> TaskId {
+    let definition = transfer.as_definition_ref();
+    root.commit(
+        move |tx| async move {
+            tx.create_task(
+                definition,
+                json(r#"{"amount":7}"#),
+                TaskOptions {
+                    ownership: TaskOwnership::Conversation,
+                    conversation_id: None,
+                    background: None,
+                    abandon_on_restart: None,
+                },
+            )
+            .await
+        },
+        context(),
+    )
+    .await
+    .unwrap()
+}
+
+// #10549
+#[tokio::test]
+async fn keeps_a_tasks_started_at_across_close_and_reopen_and_stamps_ended_at_when_it_settles() {
+    let (_directory, path) = sqlite_path();
+    let service = TransferService::default();
+    let transfer = transfer_task(&service, &Arc::new(AtomicBool::new(true)));
+    let clock = Arc::new(AtomicU64::new(2_000_f64.to_bits()));
+    let set_clock = |ms: f64| clock.store(ms.to_bits(), Ordering::SeqCst);
+    let options = || {
+        let now = Arc::clone(&clock);
+        OpenTasksOptions {
+            now: Some(Arc::new(move || f64::from_bits(now.load(Ordering::SeqCst)))),
+            ..OpenTasksOptions::default()
+        }
+    };
+
+    let first = open_tasks(
+        sqlite(&path).await,
+        std::slice::from_ref(&transfer),
+        options(),
+    )
+    .await;
+    let root = first
+        .harness
+        .root(crate::harness::RootOptions::default(), context())
+        .await
+        .unwrap();
+    let id = create_transfer(&root, &transfer).await;
+    first.harness.resume().unwrap();
+    until(|| service.calls() == 1).await;
+    set_clock(3_000.0);
+    first.harness.close(context()).await.unwrap();
+
+    set_clock(9_000.0);
+    let second = open_tasks(
+        sqlite(&path).await,
+        std::slice::from_ref(&transfer),
+        options(),
+    )
+    .await;
+    let reopened = second
+        .harness
+        .get_task(id, context())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            reopened.state.status(),
+            reopened.started_at,
+            reopened.ended_at
+        ),
+        (TaskStatus::Pending, Some(2_000.0), None)
+    );
+    second.harness.resume().unwrap();
+    let receipt = second.harness.wait_for_task(id, context()).await.unwrap();
+    assert_eq!(
+        (receipt.started_at, receipt.ended_at),
+        (Some(2_000.0), Some(9_000.0))
+    );
+    second.harness.close(context()).await.unwrap();
 }
 
 /// TS `Abortable`: the run ignores its signal until `run_release`; the abort

@@ -53,6 +53,7 @@ fn assistant(content: Vec<AssistantContentBlock>, stop_reason: StopReason) -> Me
         raw_stop_reason: None,
         end_turn: None,
         timestamp: now(),
+        duration_ms: None,
     })
 }
 
@@ -66,6 +67,7 @@ fn tool_result(id: &str, name: &str, text: &str) -> Message {
         nested_calls: None,
         is_error: false,
         timestamp: now(),
+        duration_ms: None,
     })
 }
 
