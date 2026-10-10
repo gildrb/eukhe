@@ -353,7 +353,7 @@ mod tests {
         // glyph); no body.
         let row = InjectedPromptRow {
             kind: InjectedPromptKind::PythonSkillsUnavailable {
-                skills: vec!["websearch".to_string(), "edit".to_string()],
+                skills: vec!["lookup".to_string(), "edit".to_string()],
             },
             body: Some("[python-skills-unavailable]\n\n...".to_string()),
         };
@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(rows.len(), 2, "{rows:?}");
         assert_eq!(
             flat(&rows[1]).trim_end(),
-            " Python skills unavailable - websearch, edit"
+            " Python skills unavailable - lookup, edit"
         );
         assert_eq!(rows[1][1].style, theme().fg_style(ThemeColor::Muted));
         assert_eq!(rows[1][2].style, theme().fg_style(ThemeColor::Dim));
@@ -370,7 +370,7 @@ mod tests {
         assert!(rows.len() > 2, "body renders expanded: {rows:?}");
         assert_eq!(
             flat(&rows[1]).trim_end(),
-            " Python skills unavailable - websearch, edit"
+            " Python skills unavailable - lookup, edit"
         );
         // The names truncate to the TS budget (62 columns, `...`).
         let long: Vec<String> = (0..12).map(|i| format!("skill-{i}")).collect();

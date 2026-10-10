@@ -107,16 +107,6 @@ impl SettingsManager {
         Self::from_storage(storage)
     }
 
-    /// A new manager over the same settings store (a fresh read; the
-    /// runtime overrides carry over), for long-lived readers such as the
-    /// telemetry switch.
-    #[must_use]
-    pub fn reopen(&self) -> Self {
-        let mut fresh = Self::from_storage(Arc::clone(&self.storage));
-        fresh.apply_overrides(&self.runtime_overrides);
-        fresh
-    }
-
     /// In-memory manager (tests, embedded hosts).
     #[must_use]
     pub fn in_memory(initial: &Settings) -> Self {
@@ -450,28 +440,6 @@ impl SettingsManager {
         self.save_global()
     }
 
-    /// `telemetry.enabled` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_telemetry_enabled(&mut self, enabled: bool) -> Result<()> {
-        let telemetry = self.global.telemetry.get_or_insert_with(Default::default);
-        telemetry.enabled = Some(enabled);
-        self.save_global()
-    }
-
-    /// `telemetry.noticeShown` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_telemetry_notice_shown(&mut self, shown: bool) -> Result<()> {
-        let telemetry = self.global.telemetry.get_or_insert_with(Default::default);
-        telemetry.notice_shown = Some(shown);
-        self.save_global()
-    }
-
     /// `onboardingShown` setter.
     ///
     /// # Errors
@@ -511,48 +479,6 @@ impl SettingsManager {
             .as_ref()
             .and_then(|compaction| compaction.enabled)
             .unwrap_or(true)
-    }
-
-    /// `agentTraces.enabled`: unset means OFF — trace sharing is
-    /// opt-in, exactly the TS default. The first-run onboarding question
-    /// is the opt-in moment; `/traces` stays the change path, and the
-    /// value persists only when a choice is made.
-    #[must_use]
-    pub fn get_agent_traces_enabled(&self) -> bool {
-        self.merged
-            .agent_traces
-            .as_ref()
-            .and_then(|traces| traces.enabled)
-            .unwrap_or(false)
-    }
-
-    /// Whether a trace-sharing choice was ever written: the
-    /// `agentTraces.enabled` key present in the merged settings. A
-    /// provisioned or copied-config home carries one, and the first-run
-    /// flow never asks such a home the trace question — the standing
-    /// choice stands and the flow completes silently. Only a fresh home
-    /// (no choice written) is asked, once.
-    #[must_use]
-    pub fn agent_traces_choice_written(&self) -> bool {
-        self.merged
-            .agent_traces
-            .as_ref()
-            .and_then(|traces| traces.enabled)
-            .is_some()
-    }
-
-    /// `agentTraces.enabled` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_agent_traces_enabled(&mut self, enabled: bool) -> Result<()> {
-        let traces = self
-            .global
-            .agent_traces
-            .get_or_insert_with(Default::default);
-        traces.enabled = Some(enabled);
-        self.save_global()
     }
 
     /// Replace the `packages` array in the global settings file.
@@ -994,42 +920,6 @@ impl SettingsManager {
         self.merged.transport.unwrap_or(TransportSetting::Auto)
     }
 
-    /// `telemetry.enabled` when any scope sets it (`None`: nothing set, the
-    /// default-on posture), resolved like [`Self::get_telemetry_enabled`].
-    #[must_use]
-    pub fn telemetry_enabled_setting(&self) -> Option<bool> {
-        let set = [
-            self.global.telemetry.as_ref(),
-            self.project.telemetry.as_ref(),
-            self.runtime_overrides.telemetry.as_ref(),
-        ]
-        .iter()
-        .any(|scope| scope.and_then(|t| t.enabled).is_some());
-        set.then(|| self.get_telemetry_enabled())
-    }
-
-    /// Telemetry is enabled only when every scope says so (default true).
-    #[must_use]
-    pub fn get_telemetry_enabled(&self) -> bool {
-        [
-            self.global.telemetry.as_ref(),
-            self.project.telemetry.as_ref(),
-            self.runtime_overrides.telemetry.as_ref(),
-        ]
-        .iter()
-        .all(|scope| scope.and_then(|t| t.enabled).unwrap_or(true))
-    }
-
-    #[must_use]
-    pub fn get_telemetry_notice_shown(&self) -> bool {
-        self.runtime_overrides
-            .telemetry
-            .as_ref()
-            .and_then(|t| t.notice_shown)
-            .or_else(|| self.global.telemetry.as_ref().and_then(|t| t.notice_shown))
-            .unwrap_or(false)
-    }
-
     /// `requestTiming`: unset means OFF — the per-request timing timeline
     /// is opt-in, exactly the TS default (`getRequestTiming`).
     #[must_use]
@@ -1233,19 +1123,6 @@ mod tests {
     }
 
     #[test]
-    fn reopen_keeps_the_runtime_overrides_in_the_merged_settings() {
-        let mut manager = SettingsManager::in_memory(&Settings::default());
-        manager.apply_overrides(&Settings {
-            markdown: Some(MarkdownSettings {
-                code_block_indent: Some("    ".to_string()),
-                mermaid: None,
-            }),
-            ..Settings::default()
-        });
-        assert_eq!(manager.reopen().get_code_block_indent(), "    ");
-    }
-
-    #[test]
     fn code_block_indent_reads_markdown_settings_with_ts_default() {
         // `markdown.codeBlockIndent` (TS getCodeBlockIndent): absent -> the
         // TS default two spaces; set -> the configured string.
@@ -1317,12 +1194,11 @@ mod tests {
             Arc::new(super::super::storage::InMemorySettingsStorage::default());
         storage
             .with_lock(SettingsScope::Global, &mut |_| {
-                Some(r#"{ "queueMode": "all", "telemetry": true }"#.into())
+                Some(r#"{ "queueMode": "all" }"#.into())
             })
             .unwrap();
         let manager = SettingsManager::from_storage(storage);
         assert_eq!(manager.get_steering_mode(), QueueModeSetting::All);
-        assert!(manager.get_telemetry_enabled());
     }
 
     #[test]
@@ -1355,38 +1231,6 @@ mod tests {
         );
         manager.global.idle_eviction_minutes = Some(serde_json::json!(45));
         assert_eq!(manager.get_idle_eviction(), IdleEviction::Minutes(45));
-    }
-
-    #[test]
-    fn agent_traces_default_off_and_persist_the_opt_in() {
-        // Unset means OFF (sharing is opt-in): the first-run onboarding
-        // question is the opt-in moment, and the answer writes the
-        // global scope and survives a reload.
-        let mut manager = SettingsManager::in_memory(&Settings::default());
-        assert!(!manager.get_agent_traces_enabled());
-        manager.set_agent_traces_enabled(true).unwrap();
-        assert!(manager.get_agent_traces_enabled());
-        manager.reload().unwrap();
-        assert!(manager.get_agent_traces_enabled());
-        manager.set_agent_traces_enabled(false).unwrap();
-        assert!(!manager.get_agent_traces_enabled());
-    }
-
-    #[test]
-    fn agent_traces_choice_written_marks_a_provisioned_home() {
-        // The choice-written predicate separates a fresh home (nothing
-        // written — the flow asks the question once) from a provisioned or
-        // copied-config home (any standing choice — the flow completes
-        // silently). Both answer values count: the predicate is about the
-        // choice being made, not its direction.
-        let mut manager = SettingsManager::in_memory(&Settings::default());
-        assert!(!manager.agent_traces_choice_written());
-        manager.set_agent_traces_enabled(false).unwrap();
-        assert!(manager.agent_traces_choice_written());
-        manager.reload().unwrap();
-        assert!(manager.agent_traces_choice_written());
-        manager.set_agent_traces_enabled(true).unwrap();
-        assert!(manager.agent_traces_choice_written());
     }
 
     #[test]

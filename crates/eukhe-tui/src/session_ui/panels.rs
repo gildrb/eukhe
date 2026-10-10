@@ -203,14 +203,6 @@ impl SessionUi {
     pub(super) fn open_scoped_agents_view(&mut self, view: &mut AgentView) {
         self.subagents_focused = false;
         self.update_subagent_summary(view);
-        // `tui subagents open`: fire-and-forget like the scroll adoption
-        // event - the keypress never waits on the telemetry flush.
-        if let Some(telemetry) = self.telemetry.clone() {
-            let children_total = self.subagent_counts.total as u64;
-            tokio::spawn(async move {
-                telemetry.subagents_view_opened(children_total).await;
-            });
-        }
         self.scoped_agents_view = Some(crate::agents_view::AgentsViewScope {
             active_session_id: Some(self.active_session_id.clone()),
             session_id: Some(self.session_id.clone()),
@@ -221,14 +213,6 @@ impl SessionUi {
         self.dirty = true;
     }
 
-    fn emit_activity_opened(&self, kind: &'static str) {
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.activity_opened(kind).await;
-            });
-        }
-    }
-
     /// The dock's Enter hand-off (the operator's direct-navigation
     /// redesign): the focused group opens its own view directly -- the
     /// scoped agents view for subagents, the heartbeats view, or the
@@ -236,7 +220,6 @@ impl SessionUi {
     pub(super) fn open_dock_group_view(&mut self, view: &mut AgentView) {
         match self.activity_group {
             crate::chrome::ActivityGroup::Subagents => {
-                self.emit_activity_opened("subagents");
                 // The same gate as before: a run that cannot open the
                 // scoped agents view shows the note instead of leaving
                 // the session view.
@@ -251,19 +234,15 @@ impl SessionUi {
                 }
             }
             crate::chrome::ActivityGroup::Heartbeats => {
-                self.emit_activity_opened("heartbeats");
                 self.open_heartbeats_view(view);
             }
             crate::chrome::ActivityGroup::Bash => {
-                self.emit_activity_opened("bash");
                 self.open_bash_view(view);
             }
             crate::chrome::ActivityGroup::Factory => {
-                self.emit_activity_opened("factory");
                 self.open_factory_page(view);
             }
             crate::chrome::ActivityGroup::Goal => {
-                self.emit_activity_opened("goal");
                 self.open_goal_panel(view);
             }
         }
@@ -288,7 +267,7 @@ impl SessionUi {
     /// Open the read-only info panel over the editor dock (the
     /// operator's 2026-09-26 directive: the client info displays --
     /// `/context`, `/session`, `/system-prompt`, `/logs`, `/changelog`,
-    /// `/hotkeys`, the `/traces` blocks, and `/list` -- render as the
+    /// `/hotkeys`, and `/list` -- render as the
     /// docked popup panel, the `/mcp` and `/model` panel grammar,
     /// instead of flooding the transcript with rows that persist). The
     /// content is whatever the command already built; ESC closes and

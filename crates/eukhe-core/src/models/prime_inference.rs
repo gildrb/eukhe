@@ -105,7 +105,7 @@ mod tests {
 
     /// Internal consistency: every bundled prime-inference catalog entry in
     /// the generated model registry carries the same base URL as the
-    /// private-model / live-catalog constant.
+    /// private-model constant.
     #[test]
     fn generated_catalog_base_urls_match_const() {
         let models = eukhe_ai::models_generated::get_models("prime-inference");

@@ -65,16 +65,12 @@ impl Supervisor {
             parent.worker_id,
             children.len()
         ));
-        let mut closed = 0usize;
         let mut unclosed: Vec<Arc<ResidentWorker>> = Vec::new();
         for child in children {
-            if self.close_dead_child(&child).await {
-                closed += 1;
-            } else {
+            if !self.close_dead_child(&child).await {
                 unclosed.push(child);
             }
         }
-        self.note_children_closed(closed);
         if !unclosed.is_empty() {
             let supervisor = Arc::clone(self);
             tokio::spawn(async move {
@@ -97,15 +93,11 @@ impl Supervisor {
                 return;
             }
             let mut still_open = Vec::new();
-            let mut closed = 0usize;
             for child in unclosed {
-                if self.close_dead_child(&child).await {
-                    closed += 1;
-                } else {
+                if !self.close_dead_child(&child).await {
                     still_open.push(child);
                 }
             }
-            self.note_children_closed(closed);
             unclosed = still_open;
             if unclosed.is_empty() {
                 return;

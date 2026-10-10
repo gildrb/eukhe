@@ -14,7 +14,6 @@ async fn created_worker() -> (tempfile::TempDir, Arc<Worker>) {
         active_session_id: "rlm-session".to_owned(),
         agent_dir: dir.path().join("agent"),
         recovery_journal_path: dir.path().join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({ "responses": ["ack"] })),
     };
     let worker = Arc::new(Worker::new(config, None));

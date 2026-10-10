@@ -201,10 +201,7 @@ async fn notice_rides_the_next_turn_as_model_context() {
     // pushes exactly this row; TS drives `_onPythonSkillsUnavailable` the
     // same way in its regression).
     let errors: UnavailablePythonSkills = vec![
-        (
-            "websearch".to_string(),
-            "No module named 'websearch'".to_string(),
-        ),
+        ("lookup".to_string(), "No module named 'lookup'".to_string()),
         ("edit".to_string(), "boom".to_string()),
     ];
     engine.session.queue_next_turn_row(notice_message(&errors));
@@ -235,13 +232,13 @@ async fn notice_rides_the_next_turn_as_model_context() {
     assert!(notice.display, "the notice is user-visible");
     assert_eq!(
         notice.details,
-        Some(serde_json::json!({ "skills": ["websearch", "edit"] }))
+        Some(serde_json::json!({ "skills": ["lookup", "edit"] }))
     );
     let eukhe_types::ai::UserContent::Text(content) = &notice.content else {
         panic!("text content");
     };
     assert!(
-        content.contains("- websearch: No module named 'websearch'"),
+        content.contains("- lookup: No module named 'lookup'"),
         "{content}"
     );
     assert!(content.contains("- edit: boom"), "{content}");

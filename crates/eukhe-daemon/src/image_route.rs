@@ -63,7 +63,6 @@ impl AgentSessionEngine {
             auth,
             self.config.agent_dir.join("models.json"),
         );
-        registry.load_private_authorization_from_cache();
         let available: Vec<eukhe_types::ai::Model> =
             registry.get_available().into_iter().cloned().collect();
         // Route acceptance runs the same request-auth resolution the routed
@@ -129,7 +128,6 @@ impl AgentSessionEngine {
                 let allowlist = crate::model_allowlist::load(&self.cwd(), &self.config.agent_dir);
                 if let Err(refusal) = crate::model_allowlist::assert_allowed(&allowlist, &selector)
                 {
-                    self.note_model_refused("image_route", &selector);
                     return Err(format!("{refusal:#}"));
                 }
                 Some(resolved)
@@ -329,7 +327,6 @@ mod tests {
             session_file: None,
             faux_script: None,
             supervisor_link: None,
-            telemetry_disabled: None,
             cron_store: None,
             queued_steering_probe: None,
         })

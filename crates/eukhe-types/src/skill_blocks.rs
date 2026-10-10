@@ -78,15 +78,14 @@ mod tests {
 
     #[test]
     fn parses_block_without_user_message() {
-        let text = "<skill name=\"websearch\" location=\"/skills/websearch/SKILL.md\">\nReferences are relative to /skills/websearch.\n\nRun a search.\n</skill>";
+        let text = "<skill name=\"lookup\" location=\"/skills/lookup/SKILL.md\">\nReferences are relative to /skills/lookup.\n\nRun a search.\n</skill>";
         let parsed = parse_skill_block(text).expect("parses");
         assert_eq!(
             parsed,
             ParsedSkillBlock {
-                name: "websearch".to_string(),
-                location: "/skills/websearch/SKILL.md".to_string(),
-                content: "References are relative to /skills/websearch.\n\nRun a search."
-                    .to_string(),
+                name: "lookup".to_string(),
+                location: "/skills/lookup/SKILL.md".to_string(),
+                content: "References are relative to /skills/lookup.\n\nRun a search.".to_string(),
                 user_message: None,
             }
         );
@@ -119,7 +118,7 @@ mod tests {
         for text in [
             "",
             "hello world",
-            "/skill:websearch run a search",
+            "/skill:lookup run a search",
             "<skill name=\"x\" location=\"/x\">\nbody\n",
             "prefix <skill name=\"x\" location=\"/x\">\nb\n</skill>",
             "<skill name=\"x\" location=\"/x\">\nb\n</skill> trailing",

@@ -2553,7 +2553,7 @@ class FactorySettingReadTest(unittest.TestCase):
 
     def test_round_trips_the_real_settings_document_shape(self) -> None:
         # A settings file as the daemon writes it: flat camelCase keys and
-        # nested feature objects (agentTraces/telemetry/terminal); the
+        # nested feature objects (terminal); the
         # factory key is shaped exactly like the other feature toggles.
         # /factory on writes enabled true over the same document...
         document = {
@@ -2561,8 +2561,6 @@ class FactorySettingReadTest(unittest.TestCase):
             "defaultModel": "internal/glm-5.3-fast",
             "rlmMaxDepth": 2,
             "theme": "dark",
-            "agentTraces": {"enabled": False},
-            "telemetry": {"enabled": None, "noticeShown": True},
             "terminal": {"showImages": True},
             "factory": {"enabled": True},
         }

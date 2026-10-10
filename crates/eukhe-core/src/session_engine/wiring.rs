@@ -1,6 +1,6 @@
 use super::{
     auxiliary_model, compaction, compaction_exec, image_model_routing, ipython_state,
-    provider_adapter, refine, semantic_edges, telemetry, AgentSession, PromptBatchRow,
+    provider_adapter, refine, semantic_edges, AgentSession, PromptBatchRow,
 };
 
 impl AgentSession {
@@ -116,13 +116,6 @@ impl AgentSession {
     /// session snapshots the engine's loaded list here).
     pub fn set_skills(&mut self, skills: Vec<crate::skills::Skill>) {
         self.skills = skills;
-    }
-
-    /// Bind the telemetry handle the `skill_use_count` counter counts
-    /// through (the engine wiring owns the telemetry lifetime and
-    /// installs it once the session telemetry is assembled).
-    pub fn set_skill_telemetry(&mut self, telemetry: std::sync::Arc<telemetry::SessionTelemetry>) {
-        self.skill_telemetry = Some(telemetry);
     }
 
     /// Bind the auto-refine surface for this session (the engine wiring

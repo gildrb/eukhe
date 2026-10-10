@@ -216,9 +216,9 @@ mod tests {
         let cases: Vec<(String, Option<UnavailablePythonSkills>)> = vec![
             (
                 format!(
-                    "{PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER}{{\"websearch\":\"No module named 'websearch'\"}}\n"
+                    "{PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER}{{\"lookup\":\"No module named 'lookup'\"}}\n"
                 ),
-                Some(vec![("websearch".into(), "No module named 'websearch'".into())]),
+                Some(vec![("lookup".into(), "No module named 'lookup'".into())]),
             ),
             (
                 format!("noise\n{PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER}{{\"edit\":\"boom\"}}"),
@@ -242,13 +242,13 @@ mod tests {
         // Non-string values and empty messages drop (TS keeps only
         // non-empty string entries); ordering follows the marker's JSON.
         let stdout = format!(
-            "{PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER}{{\"edit\":\"boom\",\"null_skill\":null,\"list_skill\":[1],\"empty_skill\":\"\",\"websearch\":\"No module named 'websearch'\"}}"
+            "{PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER}{{\"edit\":\"boom\",\"null_skill\":null,\"list_skill\":[1],\"empty_skill\":\"\",\"lookup\":\"No module named 'lookup'\"}}"
         );
         assert_eq!(
             parse_unavailable_python_skills(&stdout),
             Some(vec![
                 ("edit".into(), "boom".into()),
-                ("websearch".into(), "No module named 'websearch'".into()),
+                ("lookup".into(), "No module named 'lookup'".into()),
             ])
         );
         // A report whose every value drops stays silent.

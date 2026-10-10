@@ -390,12 +390,6 @@ impl eukhe_tui::client_settings::ClientSettings for RecordingSettings {
         *self.factory_enabled.lock().expect("factory gate lock") = enabled;
         Ok(())
     }
-    fn telemetry_status(&self) -> String {
-        "telemetry enabled".to_string()
-    }
-    fn set_telemetry_enabled(&self, _enabled: bool) -> Result<String> {
-        Ok("telemetry enabled".to_string())
-    }
     fn warnings_anthropic_extra_usage(&self) -> bool {
         true
     }
@@ -427,11 +421,8 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),

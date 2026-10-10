@@ -51,17 +51,11 @@ impl AgentSessionEngine {
                 .map(|link_config| link_config.socket_path.clone())
                 .unwrap_or_default(),
         ));
-        let model_refusal_telemetry =
-            std::sync::Arc::new(crate::model_allowlist::ModelRefusalTelemetry::new(
-                config.agent_dir.clone(),
-                config.telemetry_disabled == Some(true),
-            ));
         let children = config.supervisor_link.as_ref().map(|link_config| {
             Arc::new(SupervisorChildSessions::new(
                 Arc::clone(&link),
                 config.agent_dir.clone(),
                 link_config.active_session_id.clone(),
-                std::sync::Arc::clone(&model_refusal_telemetry),
             ))
         });
         let autonomous_driver = std::sync::RwLock::new(std::sync::Arc::new(
@@ -211,7 +205,6 @@ impl AgentSessionEngine {
             auto_compaction_abort: std::sync::Mutex::new(None),
             compaction_summary_sink: std::sync::Mutex::new(None),
             turn_wait_sink: std::sync::Mutex::new(None),
-            model_refusal_telemetry,
             semantic_identity: std::sync::Mutex::new(None),
         })
     }
@@ -846,12 +839,6 @@ impl AgentSessionEngine {
             // bumped version and never applies its edits or surfaces its
             // rows.
             engine.session.discard_compact_auto_refine();
-            // The session's telemetry ends with it (the TS dispose
-            // callback the replacement teardown runs); best-effort like
-            // every end path, a failed flush never fails the teardown.
-            if let Some(telemetry) = &engine.telemetry {
-                let _ = telemetry.end().await;
-            }
             engine.dispose_kernel().await;
         }
     }
@@ -1161,28 +1148,6 @@ impl AgentSessionEngine {
         if let Some(children) = &self.children {
             children.set_model(format!("{}/{}", model.provider, model.id));
         }
-        // Session telemetry: the composition root is this worker process;
-        // the create command's opt-out rides the engine config (TS main.ts
-        // `telemetryDisabled` on the runtime config). Sinks resolve from
-        // settings + env inside `build_client`.
-        let telemetry = (self.config.telemetry_disabled != Some(true)).then(|| {
-            let settings =
-                eukhe_core::settings::SettingsManager::create(self.cwd(), &self.config.agent_dir);
-            eukhe_core::session_engine::telemetry::TelemetryWiring {
-                client: eukhe_core::session_engine::telemetry::build_client(
-                    &settings,
-                    &self.config.agent_dir,
-                ),
-                execution_mode: create_resources.execution_mode.clone(),
-                now: None,
-                telemetry_enabled: Some(
-                    eukhe_core::session_engine::telemetry::telemetry_enabled_switch(
-                        &self.cwd(),
-                        &self.config.agent_dir,
-                    ),
-                ),
-            }
-        });
         // Bound before the awaited build: the purge-clone binding must not
         // hold the lock guard across the await.
         let queued_goal_context_purge = self
@@ -1222,7 +1187,6 @@ impl AgentSessionEngine {
         eukhe_core::session_engine::engine::create_session(SessionEngineConfig {
             semantic_edges,
             memory,
-            telemetry,
             cwd,
             // TS settings.imageModel routing: the daemon owns the routing
             // (the armed route overrides the serving target + the run's

@@ -408,10 +408,6 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
         .args(["--mode", "daemon", "--daemon-socket"])
         .arg(&socket)
         .env("EUKHE_CODING_AGENT_DIR", &agent_dir)
-        // The daemon's startup catalog refresh must never reach the network
-        // from a test: EUKHE_OFFLINE keeps it on the bundled/models.json
-        // snapshot (the same fallback the picker renders).
-        .env("EUKHE_OFFLINE", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -505,7 +501,6 @@ async fn create_session_via_daemon(
                 "sessionDir": session_dir.display().to_string(),
                 "script": script_path.display().to_string(),
             })),
-            telemetry_disabled: None,
             runtime_metadata: None,
             lifecycle: None,
             env: None,
@@ -550,9 +545,7 @@ fn base_options(
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -560,7 +553,6 @@ fn base_options(
         restore_dock_focus: false,
         client_settings: None,
         provider_auth: None,
-        traces: None,
     }
 }
 

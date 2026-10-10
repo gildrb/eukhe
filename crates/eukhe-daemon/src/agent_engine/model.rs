@@ -145,12 +145,11 @@ impl AgentSessionEngine {
     /// The create-time session-model restore (see
     /// [`SessionEngine::restore_session_model`]): reset the selection to
     /// the spawn-time fallback (the TS runtime-config reset), read the
-    /// session file's saved model context, give the in-flight
-    /// catalog/auth refreshes the bounded readiness window, and record
-    /// the decision for this file. Explicit spawn flags win (TS
-    /// `options.model`); a session with no saved model keeps the startup
-    /// chain; a restore that still misses after the window records the
-    /// fallback (`model_fallback_message`, never silent).
+    /// session file's saved model context, look it up in the local
+    /// registry, and record the decision for this file. Explicit spawn
+    /// flags win (TS `options.model`); a session with no saved model keeps
+    /// the startup chain; a restore that misses records the fallback
+    /// (`model_fallback_message`, never silent).
     pub(super) async fn restore_session_model_at(
         &self,
         session_path: &std::path::Path,
@@ -201,7 +200,7 @@ impl AgentSessionEngine {
         }
         // An explicit create flag wins for the MODEL (TS `options.model`)
         // — the saved thinking above still applies, then the restore skips
-        // the model's readiness window entirely.
+        // the model lookup entirely.
         if self.current_selection().model.is_some() {
             return;
         }
@@ -209,18 +208,11 @@ impl AgentSessionEngine {
             return;
         };
         let auth = eukhe_core::auth::AuthStorage::create(&self.config.agent_dir);
-        let mut registry = eukhe_core::models::ModelRegistry::create(
+        let registry = eukhe_core::models::ModelRegistry::create(
             auth,
             self.config.agent_dir.join("models.json"),
         );
-        registry.load_private_authorization_from_cache();
-        let restored = eukhe_core::models::find_session_model_with_readiness_wait(
-            &mut registry,
-            &provider,
-            &model_id,
-            eukhe_core::models::SESSION_MODEL_RESTORE_READINESS_TIMEOUT_MS,
-        )
-        .await;
+        let restored = eukhe_core::models::find_session_model(&registry, &provider, &model_id);
         let (model, fallback_message) = if let Some(restored) = restored {
             (Some((restored.provider, restored.id)), None)
         } else {
@@ -250,11 +242,11 @@ impl AgentSessionEngine {
         });
         // The decision is on the record now, so the level must resolve
         // against the model this session actually runs on (the restored
-        // pin, or the startup chain after a missed window) — TS
+        // pin, or the startup chain after a miss) — TS
         // `createAgentSession` resolves the model first and clamps the
         // thinking level against it. A concurrent summary/roster read may
         // have populated the cache against the startup chain while the
-        // restore was still awaiting: drop the cache once more so the
+        // session file was still being read: drop the cache once more so the
         // post-decision resolution wins for every later reader (the reset
         // dropped it too, but the window in between is concurrent).
         *self
@@ -293,32 +285,16 @@ impl AgentSessionEngine {
         eukhe_core::models::resolve_cli_model(Some(&provider), &model_id, registry.get_all()).model
     }
 
-    /// Emit the daemon model-allowlist refusal's adoption event (schema
-    /// v1 `model refused`) from any of this worker's enforcement seams.
-    /// The telemetry binds to the engine's live cwd, so a session that
-    /// moved directories reports through the current project scope.
-    pub(crate) fn note_model_refused(&self, surface: &str, selector: &str) {
-        self.model_refusal_telemetry
-            .note_refused(surface, selector, &self.cwd());
-    }
-
     /// Resolve the model through the composed registry, then enforce the
     /// settings `allowedModels` allowlist: a resolution outside the
     /// allowlist fails loudly here (the silent-fallback guarantee — the
     /// startup chain never lands a session on a model the daemon may not
-    /// resolve to), and the refusal emits `model refused`.
+    /// resolve to).
     pub(super) fn resolve_registry_model(&self) -> anyhow::Result<Model> {
         let model = self.resolve_registry_model_unchecked()?;
         let selector = format!("{}/{}", model.provider, model.id);
         let allowlist = crate::model_allowlist::load(&self.cwd(), &self.config.agent_dir);
-        if let Err(refusal) = crate::model_allowlist::assert_allowed(&allowlist, &selector) {
-            if let Some(refusal) =
-                refusal.downcast_ref::<eukhe_core::models::ModelAllowlistRefusal>()
-            {
-                self.note_model_refused("session_start", &refusal.selector);
-            }
-            return Err(refusal);
-        }
+        crate::model_allowlist::assert_allowed(&allowlist, &selector)?;
         Ok(model)
     }
 
@@ -327,15 +303,10 @@ impl AgentSessionEngine {
     /// chain.
     fn resolve_registry_model_unchecked(&self) -> anyhow::Result<Model> {
         let auth = eukhe_core::auth::AuthStorage::create(&self.config.agent_dir);
-        let mut registry = eukhe_core::models::ModelRegistry::create(
+        let registry = eukhe_core::models::ModelRegistry::create(
             auth,
             self.config.agent_dir.join("models.json"),
         );
-        // A fresh registry gates private Prime Inference models out until the
-        // async authorization refresh runs; adopt the on-disk authorization
-        // cache so create-time resolution can pick the session's private
-        // model (e.g. internal/glm-5.3-fast).
-        registry.load_private_authorization_from_cache();
         let selection = self.current_selection();
         let Some(model_name) = selection.model.as_deref() else {
             // No flagged model: the restored-from-session decision comes

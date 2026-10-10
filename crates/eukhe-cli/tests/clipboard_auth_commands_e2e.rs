@@ -21,9 +21,8 @@
 //! scripted daemon session driven headlessly — `/copy` emits the TS OSC 52
 //! clipboard sequence after a turn, `/import` replaces the session from a
 //! fixture JSONL (with the missing-cwd confirm retry and the TS file error),
-//! `/traces` renders the status block and writes the setting through the
-//! composition-root hook, and `/login` + `/logout` run the provider auth
-//! flows through a scripted hook.
+//! and `/login` + `/logout` run the provider auth flows through a scripted
+//! hook.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -190,151 +189,6 @@ use eukhe_tui::provider_auth::{
     ProviderAuthFuture, ProviderAuthOutcome, ProviderRow, ProviderRowsFuture,
     ProviderWarningFuture, PRIME_INFERENCE_PROVIDER_ID,
 };
-use eukhe_tui::traces::{
-    TraceLoginOutcome, TracePreviewInfo, TracePreviewOutcome, TraceUploadAllNote,
-    TraceUploadAllNoteSender, TraceUploadAllReport, TraceUploadCancel, TraceUploadStatus,
-    TracesCommands, TracesCommandsHandle, TracesFuture,
-};
-
-struct ScriptedTraces {
-    credential: Mutex<Option<String>>,
-    enabled: Mutex<Vec<bool>>,
-    set_calls: Mutex<Vec<bool>>,
-    logins: Mutex<std::collections::VecDeque<TraceLoginOutcome>>,
-    uploads: Mutex<std::collections::VecDeque<eukhe_tui::traces::TraceUploadReport>>,
-}
-
-impl ScriptedTraces {
-    fn new(credential: Option<String>) -> Self {
-        ScriptedTraces {
-            credential: Mutex::new(credential),
-            enabled: Mutex::new(vec![false]),
-            set_calls: Mutex::new(Vec::new()),
-            logins: Mutex::new(std::collections::VecDeque::default()),
-            uploads: Mutex::new(std::collections::VecDeque::default()),
-        }
-    }
-
-    fn handle(self: &Arc<Self>) -> TracesCommandsHandle {
-        TracesCommandsHandle(Arc::clone(self) as Arc<dyn TracesCommands>)
-    }
-}
-
-impl TracesCommands for ScriptedTraces {
-    fn enabled(&self) -> TracesFuture<bool> {
-        let last = self
-            .enabled
-            .lock()
-            .unwrap()
-            .last()
-            .copied()
-            .unwrap_or(false);
-        Box::pin(async move { last })
-    }
-
-    fn set_enabled(&self, enabled: bool) -> TracesFuture<anyhow::Result<()>> {
-        self.enabled.lock().unwrap().push(enabled);
-        self.set_calls.lock().unwrap().push(enabled);
-        Box::pin(async move { Ok(()) })
-    }
-
-    fn credential(&self) -> TracesFuture<Option<String>> {
-        let credential = self.credential.lock().unwrap().clone();
-        Box::pin(async move { credential })
-    }
-
-    fn preview(&self, session_file: Option<&str>) -> TracesFuture<TracePreviewOutcome> {
-        // The scripted preview: a session file renders the ready block
-        // header; no file is the TS fallback row.
-        let outcome = match session_file {
-            Some(file) => TracePreviewOutcome::Ready(Box::new(TracePreviewInfo {
-                session_file: file.to_string(),
-                size: 64,
-                max_bytes: 20 * 1024 * 1024,
-                uploadable: true,
-                endpoint: "https://api.primeintellect.ai/api/v1/agent-traces/sessions/s"
-                    .to_string(),
-                session_id: "s".to_string(),
-                trace_id: "s".to_string(),
-                parent_session_id: None,
-                git_repo: None,
-                git_commit: None,
-                content_preview: "{\"type\":\"session\"}".to_string(),
-                truncated: false,
-            })),
-            None => TracePreviewOutcome::NoSessionFile,
-        };
-        Box::pin(async move { outcome })
-    }
-
-    fn upload_current(
-        &self,
-        _session_file: Option<&str>,
-    ) -> TracesFuture<eukhe_tui::traces::TraceUploadReport> {
-        // The scripted one-shot upload: the queued reports answer in
-        // order, defaulting to the uploaded row.
-        let report = self.uploads.lock().unwrap().pop_front().unwrap_or(
-            eukhe_tui::traces::TraceUploadReport {
-                status: TraceUploadStatus::Uploaded,
-                text: "Trace uploaded (64 bytes).".to_string(),
-            },
-        );
-        Box::pin(async move { report })
-    }
-
-    fn upload_all(
-        &self,
-        _session_dir: Option<&str>,
-        progress: TraceUploadAllNoteSender,
-        cancel: TraceUploadCancel,
-    ) -> TracesFuture<TraceUploadAllReport> {
-        // The scripted sweep: two files upload with a live counter; the
-        // 300ms hold keeps the run in flight across a second submit (the
-        // one-sweep-at-a-time guard reads the live run synchronously).
-        Box::pin(async move {
-            let _ = cancel;
-            let _ = progress.send(TraceUploadAllNote::Progress {
-                completed: 0,
-                total: 2,
-            });
-            // The hold keeps the run in flight across the next submit
-            // (the one-sweep guard reads the live run synchronously).
-            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-            let _ = progress.send(TraceUploadAllNote::Progress {
-                completed: 2,
-                total: 2,
-            });
-            TraceUploadAllReport {
-                total: 2,
-                uploaded: 2,
-                failed: 0,
-                skipped: 0,
-                bytes_stored: 128,
-                log_path: "/agent/logs/agent-traces.log".to_string(),
-            }
-        })
-    }
-
-    fn login(
-        &self,
-        _panel: eukhe_tui::auth_panel::AuthPanelHandle,
-    ) -> TracesFuture<TraceLoginOutcome> {
-        // The scripted login flow: the queued outcomes answer in order,
-        // defaulting to the credential's resolution.
-        let outcome = self.logins.lock().unwrap().pop_front().unwrap_or_else(|| {
-            if self.credential.lock().unwrap().is_some() {
-                TraceLoginOutcome::Status(
-                    "Saved API key for Prime Intellect Traces. Credentials saved to /agent/auth.json."
-                        .to_string(),
-                )
-            } else {
-                TraceLoginOutcome::Cancelled
-            }
-        });
-        Box::pin(async move { outcome })
-    }
-}
-
 /// The login/logout flows the scripted hook serves: one API-key provider
 /// whose key the hook stores, like the composition root's auth store.
 struct ScriptedProviderAuth {
@@ -512,14 +366,12 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
 
 /// The interactive options over one attached scripted session, with the
 /// command hooks injected.
-#[allow(clippy::too_many_arguments)]
 fn command_options(
     socket: &Path,
     dir: &Path,
     session_dir: &Path,
     script_path: &Path,
     session_id: &str,
-    traces: Option<TracesCommandsHandle>,
     provider_auth: Option<eukhe_tui::provider_auth::ProviderAuthCommandsHandle>,
 ) -> eukhe_tui::interactive::InteractiveOptions {
     eukhe_tui::interactive::InteractiveOptions {
@@ -545,11 +397,8 @@ fn command_options(
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces,
         provider_auth,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -583,7 +432,6 @@ async fn create_session_via_daemon(
                 "sessionDir": session_dir.display().to_string(),
                 "script": script_path.display().to_string(),
             })),
-            telemetry_disabled: None,
             runtime_metadata: None,
             lifecycle: None,
             env: None,
@@ -657,7 +505,6 @@ async fn tui_copy_emits_the_ts_osc52_sequence() {
         &session_dir,
         &script_path,
         &session_id,
-        None,
         None,
     );
     let plan = eukhe_tui::interactive::HeadlessPlan {
@@ -749,7 +596,6 @@ async fn tui_copy_toast_coalesces_consecutive_copies_and_auto_dismisses() {
         &session_dir,
         &script_path,
         &session_id,
-        None,
         None,
     );
     let plan = eukhe_tui::interactive::HeadlessPlan {
@@ -882,7 +728,6 @@ async fn tui_prime_login_renders_the_inline_team_picker() {
         &session_dir,
         &script_path,
         &session_id,
-        None,
         Some(eukhe_tui::provider_auth::ProviderAuthCommandsHandle(
             Arc::clone(&auth) as Arc<dyn ProviderAuthCommands>,
         )),
@@ -1007,7 +852,6 @@ async fn tui_prime_login_escape_keeps_the_default_team_status() {
         &session_dir,
         &script_path,
         &session_id,
-        None,
         Some(eukhe_tui::provider_auth::ProviderAuthCommandsHandle(
             Arc::clone(&auth) as Arc<dyn ProviderAuthCommands>,
         )),
@@ -1082,7 +926,6 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
         &session_dir,
         &script_path,
         &session_id,
-        None,
         None,
     );
     // The fixture: the live session's exported JSONL branch, plus a copy
@@ -1161,7 +1004,6 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
         &script_path,
         &fresh_id,
         None,
-        None,
     );
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -1231,7 +1073,6 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
         &script_path,
         &fresh_id,
         None,
-        None,
     );
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![eukhe_tui::interactive::HeadlessStep::Submit(
@@ -1249,389 +1090,6 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
     assert!(
         rendered_frames(&outcome).contains("Usage: /import <path.jsonl>"),
         "the usage error renders"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// /traces
-// ---------------------------------------------------------------------------
-
-/// `/traces` renders the TS status block and drives the settings writes
-/// through the hook; the upload/preview/login arms run the engine surface
-/// end to end (the one-shot upload, the preview block, the upload-all
-/// sweep with its live counter, and the login flow's parked terminal
-/// run).
-#[tokio::test]
-async fn tui_traces_renders_status_and_toggles_the_setting() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    let session_dir = agent_dir.join("sessions");
-    std::fs::create_dir_all(&session_dir).expect("session dir");
-    let supervisor = spawn_supervisor(dir.path());
-    let script = serde_json::json!({ "engine": "faux", "responses": [
-        { "text": "ok" },
-    ] });
-    let script_path = dir.path().join("script.json");
-    std::fs::write(&script_path, script.to_string()).expect("write script");
-    let session_id = create_session_via_daemon(
-        &supervisor.socket,
-        &script_path,
-        &script,
-        dir.path(),
-        &session_dir,
-    )
-    .await;
-    let traces = Arc::new(ScriptedTraces::new(Some("PRIME_API_KEY".to_string())));
-    let traces_view = Arc::clone(&traces);
-    let options = command_options(
-        &supervisor.socket,
-        dir.path(),
-        &session_dir,
-        &script_path,
-        &session_id,
-        Some(traces.handle()),
-        None,
-    );
-    let plan = eukhe_tui::interactive::HeadlessPlan {
-        steps: vec![
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces".to_string()),
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces on".to_string()),
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces off".to_string()),
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces sideways".to_string()),
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces preview".to_string()),
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces upload".to_string()),
-        ],
-        width: 120,
-        height: 36,
-    };
-    let outcome = eukhe_tui::interactive::run_interactive(
-        options,
-        eukhe_tui::interactive::UiMode::Headless(plan),
-    )
-    .await
-    .expect("interactive run");
-    let rendered = rendered_frames(&outcome);
-    assert!(
-        rendered.contains("Trace Sharing"),
-        "the status block renders:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("Automatic uploads: Disabled"),
-        "the flag row renders:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("Credential: PRIME_API_KEY"),
-        "the credential row renders:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("Endpoint: https://api.primeintellect.ai"),
-        "the endpoint row renders:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("Session file: "),
-        "the session file row renders:\n{rendered}"
-    );
-    // The enable arm: the setting write, then the one-shot upload's
-    // message riding the status row (TS `formatTraceUploadResult`).
-    assert!(
-        rendered.contains("Trace sharing enabled. Trace uploaded (64 bytes)."),
-        "the enable status renders:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("Trace sharing disabled."),
-        "the disable status renders:\n{rendered}"
-    );
-    assert!(
-        rendered.contains(
-            "Usage: /traces [status|on|off|preview|upload|upload-current|upload-all|login]"
-        ),
-        "the usage warning renders:\n{rendered}"
-    );
-    // The preview arm renders the TS block over the scripted engine
-    // result.
-    assert!(
-        rendered.contains("Trace Preview"),
-        "the preview block renders:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("Nothing has been uploaded by this command."),
-        "the preview disclaimer renders:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("Uploadable: Yes"),
-        "the preview uploadable row renders:\n{rendered}"
-    );
-    // The one-shot upload arm: the same formatted row, as a status row
-    // (no credential only would be the error).
-    assert!(
-        rendered.contains("Trace uploaded (64 bytes)."),
-        "the upload row renders:\n{rendered}"
-    );
-    assert_eq!(
-        *traces_view.set_calls.lock().unwrap(),
-        vec![true, false],
-        "the on/off writes reached the hook in order"
-    );
-}
-
-/// The upload-all sweep runs in the background: the live counter rewrites
-/// the status row, and the settled summary lands when the run finishes.
-#[tokio::test]
-async fn tui_traces_upload_all_sweeps_with_live_progress() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    let session_dir = agent_dir.join("sessions");
-    std::fs::create_dir_all(&session_dir).expect("session dir");
-    let supervisor = spawn_supervisor(dir.path());
-    let script = serde_json::json!({ "engine": "faux", "responses": [
-        { "text": "ok" },
-    ] });
-    let script_path = dir.path().join("script.json");
-    std::fs::write(&script_path, script.to_string()).expect("write script");
-    let session_id = create_session_via_daemon(
-        &supervisor.socket,
-        &script_path,
-        &script,
-        dir.path(),
-        &session_dir,
-    )
-    .await;
-    let traces = Arc::new(ScriptedTraces::new(Some("PRIME_API_KEY".to_string())));
-    let options = command_options(
-        &supervisor.socket,
-        dir.path(),
-        &session_dir,
-        &script_path,
-        &session_id,
-        Some(traces.handle()),
-        None,
-    );
-    let plan = eukhe_tui::interactive::HeadlessPlan {
-        steps: vec![
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces upload-all".to_string()),
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces upload-all".to_string()),
-        ],
-        width: 120,
-        height: 36,
-    };
-    let outcome = eukhe_tui::interactive::run_interactive(
-        options,
-        eukhe_tui::interactive::UiMode::Headless(plan),
-    )
-    .await
-    .expect("interactive run");
-    let rendered = rendered_frames(&outcome);
-    // The live counter (TS `showStatus`: the clear-key hint follows the
-    // run loop's binding).
-    assert!(
-        rendered.contains("Uploading traces: 2/2 (Ctrl+C to cancel)"),
-        "the progress row renders:\n{rendered}"
-    );
-    // The settled summary (TS's parts joined with `; `).
-    assert!(
-        rendered.contains("Uploaded 2 of 2 traces; 128 bytes stored."),
-        "the summary row renders:\n{rendered}"
-    );
-    // The one-sweep guard: the second submit while the first still runs
-    // never starts a second sweep (the TS warning it shows is a status
-    // row the later progress rewrites in place, exactly like TS).
-    assert_eq!(
-        rendered.matches("Uploading traces: 0/2").count(),
-        1,
-        "exactly one sweep started:\n{rendered}"
-    );
-}
-
-/// Without a credential the upload arms answer the TS errors; the enable
-/// arm parks the login first (a cancelled login stops it silently, an
-/// errored login shows the flow's row).
-#[tokio::test]
-async fn tui_traces_without_a_credential_runs_the_login_flow() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    let session_dir = agent_dir.join("sessions");
-    std::fs::create_dir_all(&session_dir).expect("session dir");
-    let supervisor = spawn_supervisor(dir.path());
-    let script = serde_json::json!({ "engine": "faux", "responses": [
-        { "text": "ok" },
-    ] });
-    let script_path = dir.path().join("script.json");
-    std::fs::write(&script_path, script.to_string()).expect("write script");
-    let session_id = create_session_via_daemon(
-        &supervisor.socket,
-        &script_path,
-        &script,
-        dir.path(),
-        &session_dir,
-    )
-    .await;
-    // The enable arm's parked login: the scripted flow fails.
-    let traces = Arc::new(ScriptedTraces::new(None));
-    traces
-        .logins
-        .lock()
-        .unwrap()
-        .push_back(TraceLoginOutcome::Error(
-            "Failed to login to Prime Intellect Traces: no browser and no pasted key.".to_string(),
-        ));
-    let options = command_options(
-        &supervisor.socket,
-        dir.path(),
-        &session_dir,
-        &script_path,
-        &session_id,
-        Some(traces.handle()),
-        None,
-    );
-    let plan = eukhe_tui::interactive::HeadlessPlan {
-        steps: vec![
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces on".to_string()),
-            // The login flow runs in the background against the inline
-            // auth panel: the settle wait lets its outcome row land in
-            // the captured frames.
-            eukhe_tui::interactive::HeadlessStep::WaitMs(400),
-        ],
-        width: 120,
-        height: 36,
-    };
-    let outcome = eukhe_tui::interactive::run_interactive(
-        options,
-        eukhe_tui::interactive::UiMode::Headless(plan),
-    )
-    .await
-    .expect("interactive run");
-    let rendered = rendered_frames(&outcome);
-    assert!(
-        rendered
-            .contains("Failed to login to Prime Intellect Traces: no browser and no pasted key."),
-        "the login flow's error row renders:\n{rendered}"
-    );
-    assert!(
-        !rendered.contains("Trace sharing enabled"),
-        "the enable stops after the failed login:\n{rendered}"
-    );
-
-    // A cancelled login stays silent (TS the cancelled dialog); the
-    // upload arms answer their TS rows.
-    let traces = Arc::new(ScriptedTraces::new(None));
-    let traces_view = Arc::clone(&traces);
-    let options = command_options(
-        &supervisor.socket,
-        dir.path(),
-        &session_dir,
-        &script_path,
-        &session_id,
-        Some(traces.handle()),
-        None,
-    );
-    let plan = eukhe_tui::interactive::HeadlessPlan {
-        steps: vec![
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces on".to_string()),
-            eukhe_tui::interactive::HeadlessStep::WaitMs(400),
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces upload-current".to_string()),
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces upload-all".to_string()),
-        ],
-        width: 120,
-        height: 36,
-    };
-    let outcome = eukhe_tui::interactive::run_interactive(
-        options,
-        eukhe_tui::interactive::UiMode::Headless(plan),
-    )
-    .await
-    .expect("interactive run");
-    let rendered = rendered_frames(&outcome);
-    assert!(
-        !rendered.contains("Trace sharing enabled"),
-        "the enable stops after the cancelled login:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("Trace sharing needs a Prime API key. Run /traces login."),
-        "the upload error renders:\n{rendered}"
-    );
-    assert!(
-        traces_view.set_calls.lock().unwrap().is_empty(),
-        "no setting write happened without a credential"
-    );
-}
-
-/// A successful login lets the enable arm continue (TS the login-first
-/// `on` path): the setting write, then the one-shot upload message.
-#[tokio::test]
-async fn tui_traces_login_enables_and_uploads() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    let session_dir = agent_dir.join("sessions");
-    std::fs::create_dir_all(&session_dir).expect("session dir");
-    let supervisor = spawn_supervisor(dir.path());
-    let script = serde_json::json!({ "engine": "faux", "responses": [
-        { "text": "ok" },
-    ] });
-    let script_path = dir.path().join("script.json");
-    std::fs::write(&script_path, script.to_string()).expect("write script");
-    let session_id = create_session_via_daemon(
-        &supervisor.socket,
-        &script_path,
-        &script,
-        dir.path(),
-        &session_dir,
-    )
-    .await;
-    let traces = Arc::new(ScriptedTraces::new(None));
-    // The login succeeds and the credential resolves afterwards (TS
-    // re-reads it after the flow).
-    traces
-        .logins
-        .lock()
-        .unwrap()
-        .push_back(TraceLoginOutcome::Status(
-            "Saved API key for Prime Intellect Traces. Credentials saved to /agent/auth.json."
-                .to_string(),
-        ));
-    traces
-        .credential
-        .lock()
-        .unwrap()
-        .replace("Prime Intellect Traces credential".to_string());
-    let traces_view = Arc::clone(&traces);
-    let options = command_options(
-        &supervisor.socket,
-        dir.path(),
-        &session_dir,
-        &script_path,
-        &session_id,
-        Some(traces.handle()),
-        None,
-    );
-    let plan = eukhe_tui::interactive::HeadlessPlan {
-        steps: vec![
-            eukhe_tui::interactive::HeadlessStep::Submit("/traces on".to_string()),
-            // The login flow runs in the background against the inline
-            // auth panel: the settle wait lets its outcome row land in
-            // the captured frames.
-            eukhe_tui::interactive::HeadlessStep::WaitMs(400),
-        ],
-        width: 120,
-        height: 36,
-    };
-    let outcome = eukhe_tui::interactive::run_interactive(
-        options,
-        eukhe_tui::interactive::UiMode::Headless(plan),
-    )
-    .await
-    .expect("interactive run");
-    let rendered = rendered_frames(&outcome);
-    // TS `showStatus` rewrites back-to-back status rows in place: the
-    // login's row is superseded by the enable row (the surviving TS
-    // observable); the enable write proves the flow itself completed.
-    assert!(
-        rendered.contains("Trace sharing enabled. Trace uploaded (64 bytes)."),
-        "the enable continues after the login:\n{rendered}"
-    );
-    assert_eq!(
-        *traces_view.set_calls.lock().unwrap(),
-        vec![true],
-        "the enable write reached the hook"
     );
 }
 
@@ -1670,7 +1128,6 @@ async fn tui_login_and_logout_run_the_provider_flows() {
         &session_dir,
         &script_path,
         &session_id,
-        None,
         Some(eukhe_tui::provider_auth::ProviderAuthCommandsHandle(
             Arc::clone(&auth) as Arc<dyn ProviderAuthCommands>,
         )),
@@ -1739,7 +1196,6 @@ async fn tui_login_and_logout_run_the_provider_flows() {
         &session_dir,
         &script_path,
         &session_id,
-        None,
         Some(eukhe_tui::provider_auth::ProviderAuthCommandsHandle(
             Arc::clone(&auth) as Arc<dyn ProviderAuthCommands>,
         )),
@@ -1797,7 +1253,6 @@ async fn tui_logout_with_no_stored_credentials_reports_the_ts_status() {
         &session_dir,
         &script_path,
         &session_id,
-        None,
         Some(ScriptedProviderAuth::new().handle()),
     );
     let plan = eukhe_tui::interactive::HeadlessPlan {

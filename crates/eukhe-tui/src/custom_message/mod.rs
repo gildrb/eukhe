@@ -741,17 +741,17 @@ mod tests {
         let unavailable = decoded(&json!({
             "role": "custom",
             "customType": PYTHON_SKILLS_UNAVAILABLE_CUSTOM_TYPE,
-            "content": "[python-skills-unavailable]\n\n- websearch: No module named 'websearch'",
+            "content": "[python-skills-unavailable]\n\n- lookup: No module named 'lookup'",
             "display": true,
-            "details": { "skills": ["websearch", "edit"] },
+            "details": { "skills": ["lookup", "edit"] },
         }));
         assert!(matches!(
             unavailable.as_slice(),
             [ChatEntry::InjectedPrompt(boxed)]
                 if matches!(&boxed.kind,
                     InjectedPromptKind::PythonSkillsUnavailable { skills }
-                        if skills == &vec!["websearch".to_string(), "edit".to_string()])
-                    && boxed.body.as_deref() == Some("[python-skills-unavailable]\n\n- websearch: No module named 'websearch'")
+                        if skills == &vec!["lookup".to_string(), "edit".to_string()])
+                    && boxed.body.as_deref() == Some("[python-skills-unavailable]\n\n- lookup: No module named 'lookup'")
         ));
     }
 

@@ -20,118 +20,25 @@ fn recorded_process_alive(
     alive != Some(false) && (expected.is_none() || observed.is_none() || expected == observed)
 }
 
-#[cfg(test)]
-mod recorded_process_tests {
-    use super::recorded_process_alive;
-
-    #[test]
-    fn unobservable_start_id_keeps_live_tombstone_owned_by_recorded_pid() {
-        assert!(recorded_process_alive(Some(true), Some("original"), None));
-        assert!(recorded_process_alive(None, Some("original"), None));
-        assert!(recorded_process_alive(Some(true), None, None));
-        assert!(recorded_process_alive(
-            Some(true),
-            Some("original"),
-            Some("original")
-        ));
-        assert!(!recorded_process_alive(
-            Some(true),
-            Some("original"),
-            Some("recycled")
-        ));
-        assert!(!recorded_process_alive(Some(false), Some("original"), None));
-    }
-}
-
-/// One descriptor's boot-adoption decision, reported as a count in the
-/// pass's `worker_adoption` event (telemetry: counts only, never session
-/// payload).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum AdoptionOutcome {
-    /// Live socket adopted (incl. a worker that re-registered before the
-    /// descriptor scan reached it).
-    AdoptedLive,
-    /// Dead descriptor relaunched (journal-proven busy evidence).
-    Revived,
-    /// Dead descriptor with no durable busy evidence: stayed down.
-    SkippedIdle,
-    /// The descriptor carried a durable stop tombstone: the boot re-ran
-    /// the stop's finalization instead of adopting or reviving.
-    Stopped,
-    /// Adoption or relaunch failed.
-    Failed,
-}
-
 impl Supervisor {
-    /// Emit the boot descriptor-adoption pass's `daemon event` (schema v1,
-    /// kind `worker_adoption`): the per-outcome counts, primitives only —
-    /// never session payload.
-    fn note_worker_adoption(
-        &self,
-        adopted_live: usize,
-        revived: usize,
-        skipped_idle: usize,
-        stopped: usize,
-        failed: usize,
-    ) {
-        if let Some(client) = &*self.telemetry.lock().unwrap() {
-            eukhe_core::session_engine::telemetry::track_worker_adoption(
-                client,
-                adopted_live,
-                revived,
-                skipped_idle,
-                stopped,
-                failed,
-            );
-        }
-    }
-
     /// Adopt or relaunch persisted workers, concurrently: one dead worker's
     /// relaunch (create replay) must not delay adopting live sessions. The
     /// fan-out is capped ([`crate::recovery_pacing::ADOPTION_CONCURRENCY`]):
     /// a large sessions dir must not turn the pass into a relaunch storm
-    /// that starves the control plane for its whole duration. The pass
-    /// reports its decisions as one `worker_adoption` event (counts only,
-    /// never session payload).
+    /// that starves the control plane for its whole duration.
     pub(super) async fn adopt_persisted_workers(self: &Arc<Self>) {
         let descriptors = load_descriptors(&self.descriptor_dir, &self.options.socket_path);
-        let adopted_live = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let revived = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let skipped_idle = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let stopped = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let failed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let jobs: Vec<_> = descriptors
             .into_iter()
             .map(|(path, descriptor)| {
                 let supervisor = Arc::clone(self);
-                let adopted_live = Arc::clone(&adopted_live);
-                let revived = Arc::clone(&revived);
-                let skipped_idle = Arc::clone(&skipped_idle);
-                let stopped = Arc::clone(&stopped);
-                let failed = Arc::clone(&failed);
                 move || async move {
-                    let outcome = supervisor.adopt_persisted_worker(path, descriptor).await;
-                    let counter = match outcome {
-                        AdoptionOutcome::AdoptedLive => adopted_live,
-                        AdoptionOutcome::Revived => revived,
-                        AdoptionOutcome::SkippedIdle => skipped_idle,
-                        AdoptionOutcome::Stopped => stopped,
-                        AdoptionOutcome::Failed => failed,
-                    };
-                    counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    supervisor.adopt_persisted_worker(path, descriptor).await;
                 }
             })
             .collect();
         crate::recovery_pacing::run_bounded(jobs, crate::recovery_pacing::ADOPTION_CONCURRENCY)
             .await;
-        let adopted_live = adopted_live.load(std::sync::atomic::Ordering::Relaxed);
-        let revived = revived.load(std::sync::atomic::Ordering::Relaxed);
-        let skipped_idle = skipped_idle.load(std::sync::atomic::Ordering::Relaxed);
-        let stopped = stopped.load(std::sync::atomic::Ordering::Relaxed);
-        let failed = failed.load(std::sync::atomic::Ordering::Relaxed);
-        if adopted_live + revived + skipped_idle + stopped + failed > 0 {
-            self.note_worker_adoption(adopted_live, revived, skipped_idle, stopped, failed);
-        }
         // TS arms the owner cleanup for every adopted worker: an owner that
         // does not reconnect within the grace loses its worker.
         for resident in self.registry.list().await {
@@ -155,7 +62,7 @@ impl Supervisor {
         self: &Arc<Self>,
         path: PathBuf,
         descriptor: crate::descriptor::WorkerDescriptor,
-    ) -> AdoptionOutcome {
+    ) {
         let worker_id = descriptor.worker_id.clone();
         let guard = self.registry.adoption_guard(&worker_id).await;
         if self.registry.get(&worker_id).await.is_some() {
@@ -163,7 +70,7 @@ impl Supervisor {
             self.log_line(&format!(
                 "session worker {worker_id} already registered; skipping descriptor adoption"
             ));
-            return AdoptionOutcome::AdoptedLive;
+            return;
         }
         let socket_path = PathBuf::from(&descriptor.socket_path);
         // A tombstoned descriptor belongs to its recorded process, not
@@ -220,7 +127,7 @@ impl Supervisor {
         // leave the stopped session resident).
         if resident.descriptor.lock().await.stop_requested_at.is_some() {
             self.finish_tombstoned_stop(&resident, alive).await;
-            return AdoptionOutcome::Stopped;
+            return;
         }
         // The adoption answer plus the revival's spawned child, when one
         // was launched: the monitor must watch the process that actually
@@ -280,7 +187,7 @@ impl Supervisor {
                 self.log_line(&format!(
                     "session worker {worker_id} was idle at exit; not revived (reopens on the next client open)"
                 ));
-                return AdoptionOutcome::SkippedIdle;
+                return;
             }
             // The revival ownership gate: the busy-evidence filter above
             // answered "did the journal ever prove live work?"; this gate
@@ -308,7 +215,7 @@ impl Supervisor {
                     "session worker {worker_id} not revived: {}",
                     veto.log_reason()
                 ));
-                return AdoptionOutcome::SkippedIdle;
+                return;
             }
             // Dead worker with journal-proven live work: relaunch from the
             // durable create command. The worker rehydrates the session
@@ -322,7 +229,7 @@ impl Supervisor {
                 Err(error) => (Err(error), None),
             }
         };
-        let outcome = match result {
+        match result {
             Ok(()) => {
                 self.registry.insert(Arc::clone(&resident)).await;
                 // A live leftover keeps its real pid; a revived worker is
@@ -344,19 +251,12 @@ impl Supervisor {
                 self.log_line(&format!(
                     "adopted session worker {worker_id} (was alive: {alive})"
                 ));
-                if alive {
-                    AdoptionOutcome::AdoptedLive
-                } else {
-                    AdoptionOutcome::Revived
-                }
             }
             Err(error) => {
                 self.log_line(&format!("could not adopt worker {worker_id}: {error:#}"));
-                AdoptionOutcome::Failed
             }
-        };
+        }
         drop(guard);
-        outcome
     }
 
     /// `worker_register`: a session worker presenting its identity (boot
@@ -408,7 +308,7 @@ impl Supervisor {
                 Err(error) => {
                     let message = format!("{error:#}");
                     // The definitive unknown-worker refusal is observable
-                    // (log + telemetry) and the worker retires on it: a live
+                    // (logged) and the worker retires on it: a live
                     // worker this supervisor will never adopt (its descriptor
                     // is gone, or its registration hit a stop tombstone)
                     // would otherwise hold its session lease forever.
@@ -416,7 +316,6 @@ impl Supervisor {
                         self.log_line(&format!(
                             "session worker {active_session_id} registration refused; the worker retires"
                         ));
-                        self.note_daemon_event("registration_refused", None);
                     }
                     return fail(&message);
                 }
@@ -763,5 +662,28 @@ impl Supervisor {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod recorded_process_tests {
+    use super::recorded_process_alive;
+
+    #[test]
+    fn unobservable_start_id_keeps_live_tombstone_owned_by_recorded_pid() {
+        assert!(recorded_process_alive(Some(true), Some("original"), None));
+        assert!(recorded_process_alive(None, Some("original"), None));
+        assert!(recorded_process_alive(Some(true), None, None));
+        assert!(recorded_process_alive(
+            Some(true),
+            Some("original"),
+            Some("original")
+        ));
+        assert!(!recorded_process_alive(
+            Some(true),
+            Some("original"),
+            Some("recycled")
+        ));
+        assert!(!recorded_process_alive(Some(false), Some("original"), None));
     }
 }

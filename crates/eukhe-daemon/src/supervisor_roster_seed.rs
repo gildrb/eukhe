@@ -857,7 +857,6 @@ pub(crate) mod tests {
                     .map(|dir| dir.to_string_lossy().to_string())
                     .unwrap_or_default(),
             ),
-            telemetry_disabled: Some(true),
             created_at: "t".to_string(),
             updated_at: "t".to_string(),
             lifecycle: eukhe_types::daemon::DaemonWorkerLifecycle::Ready,

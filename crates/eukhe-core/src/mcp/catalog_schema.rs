@@ -4,9 +4,9 @@
 //! (`packages/ai/src/mcp/catalog.ts` `validateMcpServiceEntry`).
 //!
 //! Whole-file fail-closed: any unknown key, wrong type, or broken invariant
-//! rejects the entire payload — a bad catalog falls back to the last-good
-//! snapshot (`deny_unknown_fields` mirrors the versioned-path discipline:
-//! additive schema changes require a version bump, so old clients keep their
+//! rejects the entire payload — a bad catalog falls back to the compiled
+//! built-ins (`deny_unknown_fields` mirrors the versioned-path discipline:
+//! additive schema changes require a version bump, so old clients drop the
 //! snapshot silently instead of mis-parsing).
 
 use serde::Deserialize;
@@ -480,9 +480,9 @@ pub(crate) fn server_id_valid(server: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
 }
 
-/// Parse and validate a plugins catalog payload (v1 local or v2 remote/
-/// bundled). Whole-file fail-closed: any invalid entry rejects the entire
-/// file; callers keep their last-good snapshot on `Err`.
+/// Parse and validate a plugins catalog payload (v1 local or v2 bundled).
+/// Whole-file fail-closed: any invalid entry rejects the entire file;
+/// callers fall back to the compiled built-ins on `Err`.
 pub fn parse_plugins_catalog(bytes: &[u8]) -> Result<PluginsCatalog, String> {
     // Never echo parser text: it can quote raw (possibly secret) input.
     let envelope: CatalogFileEnvelope = serde_json::from_slice(bytes)
@@ -659,7 +659,7 @@ mod tests {
     }
 
     /// Fail-closed: one malformed entry rejects the ENTIRE file (plugins do
-    /// not use skip-invalid; a bad file falls back to the last-good snapshot).
+    /// not use skip-invalid; a bad file falls back to the compiled built-ins).
     #[test]
     fn one_malformed_entry_rejects_the_whole_file() {
         let catalog: serde_json::Value = serde_json::from_str(REAL_PAYLOAD).unwrap();

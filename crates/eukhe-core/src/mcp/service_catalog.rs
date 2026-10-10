@@ -1,6 +1,7 @@
 //! The merged MCP service catalog: resolution of the compiled legacy
-//! built-ins, declared local sources, and the remote (discovery-only)
-//! catalog, plus the durable endpoint pins for installed connections whose
+//! built-ins, declared local sources, and the catalog-repo (discovery-only)
+//! entries of the packaged bundled snapshot, plus the durable endpoint pins
+//! for installed connections whose
 //! source vanished. Port of
 //! `packages/coding-agent/src/core/mcp/service-catalog.ts`
 //! (`resolveMcpServiceCatalog` + `mapCatalogEntry`) over the
@@ -8,7 +9,7 @@
 //!
 //! Resolution order, first wins per id: compiled built-ins (linear, notion)
 //! -> declared local sources (`mcp-services.json`, trusted by construction)
-//! -> remote catalog entries (discovery-only). A local source can never
+//! -> bundled catalog-repo entries (discovery-only). A local source can never
 //! shadow or rebind a builtin id (refused at load with a visible
 //! diagnostic); a remote id a local source already owns is dropped with a
 //! visible duplicate diagnostic. The SAME resolution feeds the host

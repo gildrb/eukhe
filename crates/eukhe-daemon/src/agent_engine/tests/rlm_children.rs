@@ -319,7 +319,6 @@ fn can_passivate_worker_mirrors_the_release_gates_and_adds_the_registry_rule() {
                 active_session_id: "parent-session".to_string(),
                 worker_token: "token".to_string(),
             }),
-            telemetry_disabled: None,
             cron_store: None,
             queued_steering_probe: None,
         })

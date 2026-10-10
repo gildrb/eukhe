@@ -1,32 +1,25 @@
 //! `eukhe model list [search]`: the models catalog table. Port of
-//! `cli/list-models.ts` -- registry refresh, fuzzy search, and the
-//! provider/model/context/max-out/thinking/images table.
+//! `cli/list-models.ts` -- the local registry's available models, fuzzy
+//! search, and the provider/model/context/max-out/thinking/images table.
 
 use crate::mode::RunOptions;
 
 /// Run the model-list runtime path: build the registry against the agent
-/// dir, refresh entitlements, and print the catalog table. The TS product
-/// exits 0 after listing (including the no-models message).
-pub fn run(options: &RunOptions) -> Result<i32, String> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| error.to_string())?;
-    rt.block_on(list(options))
-}
-
-async fn list(options: &RunOptions) -> Result<i32, String> {
+/// dir and print the available models (or the no-models guidance). The TS
+/// product exits 0 after listing.
+pub fn run(options: &RunOptions) {
     let config = &options.config;
     let auth = eukhe_core::auth::AuthStorage::create(&config.agent_dir);
-    let mut registry =
+    let registry =
         eukhe_core::models::ModelRegistry::create(auth, config.agent_dir.join("models.json"));
     if let Some(error) = registry.get_error() {
         eprintln!("Warning: errors loading models.json:\n{error}");
     }
-    let models = registry.refresh_available_models().await;
+    let models: Vec<eukhe_types::ai::Model> =
+        registry.get_available().into_iter().cloned().collect();
     if models.is_empty() {
         println!("{}", no_models_available_message());
-        return Ok(0);
+        return;
     }
     let search = options.list_models.clone().flatten();
     let mut filtered = match search {
@@ -38,7 +31,7 @@ async fn list(options: &RunOptions) -> Result<i32, String> {
             );
             if matched.is_empty() {
                 println!("No models matching \"{pattern}\"");
-                return Ok(0);
+                return;
             }
             matched
         }
@@ -46,7 +39,6 @@ async fn list(options: &RunOptions) -> Result<i32, String> {
     };
     filtered.sort_by(|a, b| a.provider.cmp(&b.provider).then_with(|| a.id.cmp(&b.id)));
     print_table(&filtered);
-    Ok(0)
 }
 
 /// The TS `formatNoModelsAvailableMessage`: guidance plus the bundled docs

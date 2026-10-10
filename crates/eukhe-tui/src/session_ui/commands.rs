@@ -108,10 +108,6 @@ impl SessionUi {
         let command = registry
             .get(resolved.name)
             .expect("resolved name is builtin");
-        // `agent command used` (TS `captureAgentCommandUsed`): one report
-        // per submitted builtin, client and session commands alike, by its
-        // canonical name, before the command runs.
-        self.track_command_used(resolved.name);
         match command.execution {
             SlashCommandExecution::Session => self.send_prompt(text, behavior, view),
             SlashCommandExecution::Client => {
@@ -135,7 +131,6 @@ impl SessionUi {
         view.editor.clear_history();
         view.editor.set_text("");
         self.note(&format!("started session {id}"), view);
-        self.track_feature_outcome("new", "completed", None);
         Ok(())
     }
 
@@ -157,8 +152,8 @@ impl SessionUi {
             "new" => {
                 // The lane's app.session.new dispatch owns /new: the
                 // startup-scope-aware session start (draft and prompt
-                // history cleared, the status row, the feature outcome)
-                // lives in one place, the same route the key takes.
+                // history cleared, the status row) lives in one place, the
+                // same route the key takes.
                 self.start_new_session(view).await?;
             }
             // TS `/quit` shuts the client down; this build's exit detaches
@@ -201,8 +196,6 @@ impl SessionUi {
                     return Ok(());
                 }
                 self.open_model_picker(view, "").await?;
-                self.track_menu_opened("model", "command");
-                self.track_feature_outcome("model", "initiated", None);
             }
             "memory-model" => {
                 if !resolved.args.trim().is_empty() {
@@ -212,8 +205,6 @@ impl SessionUi {
                     return Ok(());
                 }
                 self.open_memory_model_picker(view, "").await?;
-                self.track_menu_opened("memory-model", "command");
-                self.track_feature_outcome("memory-model", "initiated", None);
             }
             // `/effort [level]` (TS `handleEffortCommand`): the
             // session's thinking levels drive the outcome -- a model
@@ -248,7 +239,6 @@ impl SessionUi {
                 match effort_picker::effort_command(&levels, current.as_deref(), &resolved.args) {
                     effort_picker::EffortCommandOutcome::Open(picker) => {
                         view.effort_picker = Some(picker);
-                        self.track_feature_outcome("effort", "initiated", None);
                     }
                     effort_picker::EffortCommandOutcome::Unsupported => {
                         self.note("Current model does not support thinking", view);
@@ -272,7 +262,6 @@ impl SessionUi {
             // `/tree` (TS `showTreeSelector`): the session-tree navigator.
             "tree" => {
                 if resolved.args.is_empty() {
-                    self.track_feature_outcome("tree", "initiated", None);
                     self.open_tree_selector(view, None).await?;
                 } else {
                     self.note("Usage: /tree", view);
@@ -282,7 +271,6 @@ impl SessionUi {
             // message into a new session.
             "fork" => {
                 if resolved.args.is_empty() {
-                    self.track_feature_outcome("fork", "initiated", None);
                     self.open_fork_selector(view).await?;
                 } else {
                     self.note("Usage: /fork", view);
@@ -292,7 +280,6 @@ impl SessionUi {
             // the current position.
             "clone" => {
                 if resolved.args.is_empty() {
-                    self.track_feature_outcome("clone", "initiated", None);
                     self.handle_clone_command(view).await?;
                 } else {
                     self.note("Usage: /clone", view);
@@ -319,7 +306,6 @@ impl SessionUi {
                 if resolved.args.is_empty() {
                     self.open_provider_auth(AuthSelectorKind::Login, view)
                         .await?;
-                    self.track_feature_outcome("login", "initiated", None);
                 } else {
                     view.editor
                         .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
@@ -332,7 +318,6 @@ impl SessionUi {
                 if resolved.args.is_empty() {
                     self.open_provider_auth(AuthSelectorKind::Logout, view)
                         .await?;
-                    self.track_feature_outcome("logout", "initiated", None);
                 } else {
                     view.editor
                         .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
@@ -349,13 +334,6 @@ impl SessionUi {
                     format!("/import {}", resolved.args)
                 };
                 self.open_import_confirm(&command_text, view);
-            }
-            // `/traces [status|on|off|preview|upload|upload-current|
-            // upload-all|login]` (TS `handleTracesCommand`): the status
-            // block, the settings writes, and the TS command shapes over
-            // the upload subsystem this build has.
-            "traces" => {
-                self.handle_traces_command(resolved, view).await?;
             }
             // `/factory [on|off|status]`: the factory's opt-in gate (the
             // operator's directive: the factory is disabled until the
@@ -467,28 +445,6 @@ impl SessionUi {
                     _ => self.error_row("Usage: /factory [on|off|status]", view),
                 }
             }
-            // `/telemetry [status|on|off]`: the report (on/off and why, the
-            // endpoint, the installation id), or the persisted switch the
-            // running telemetry clients re-read at their next send.
-            "telemetry" => {
-                let Some(settings) = &self.client_settings else {
-                    self.note("/telemetry is not available in this client yet", view);
-                    return Ok(());
-                };
-                let report = match resolved.args.trim().to_lowercase().as_str() {
-                    "" | "status" => Ok(settings.telemetry_status()),
-                    "on" => settings.set_telemetry_enabled(true),
-                    "off" => settings.set_telemetry_enabled(false),
-                    _ => {
-                        self.error_row("Usage: /telemetry [status|on|off]", view);
-                        return Ok(());
-                    }
-                };
-                match report {
-                    Ok(report) => self.note(&report, view),
-                    Err(error) => self.error_row(&format!("{error:#}"), view),
-                }
-            }
             // TS `handleMcpCommand`'s login/logout branches: the auth
             // flows run in the client process (the composition root's
             // hook); the other management subcommands surface through the
@@ -515,18 +471,6 @@ impl SessionUi {
             "export" => {
                 self.handle_export_command(resolved, view).await?;
             }
-            // TS `handleShareCommand`: an argument is the usage error (the
-            // text stays in the editor); otherwise the session exports to a
-            // temp file and uploads as a secret gist.
-            "share" => {
-                if resolved.args.is_empty() {
-                    self.handle_share_command(view).await?;
-                } else {
-                    view.editor
-                        .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
-                    self.error_row("Usage: /share", view);
-                }
-            }
             // `/hotkeys` (TS `handleHotkeysCommand` after
             // `echoLocalCommand`): the typed command echoes as a user
             // message block, then the full keyboard-shortcut reference
@@ -550,7 +494,6 @@ impl SessionUi {
                     Some("Hotkeys".to_string()),
                     InfoContent::Markdown(crate::hotkeys::hotkeys_guide(view.editor.keybindings())),
                 );
-                self.track_menu_opened("hotkeys", "command");
             }
 
             // `/session` (TS `handleSessionCommand`): the daemon's
@@ -586,7 +529,6 @@ impl SessionUi {
                                 name.as_deref(),
                             )),
                         );
-                        self.track_menu_opened("session", "command");
                     }
                     Err(error) => {
                         self.error_row(&format!("{error:#}"), view);
@@ -635,7 +577,6 @@ impl SessionUi {
                                 &tree, width, scope,
                             )),
                         );
-                        self.track_menu_opened("context", "command");
                     }
                     Err(error) => {
                         self.error_row(&format!("{error:#}"), view);
@@ -675,7 +616,6 @@ impl SessionUi {
                         // The header row (`System Prompt (N chars)`) is
                         // the panel's head.
                         self.open_info_panel(view, None, InfoContent::Rows(rows));
-                        self.track_menu_opened("system-prompt", "command");
                     }
                     Err(error) => {
                         self.error_row(&format!("{error:#}"), view);
@@ -703,7 +643,6 @@ impl SessionUi {
                     None,
                     InfoContent::Rows(info_commands::logs_rows(&agent_dir.join("logs"))),
                 );
-                self.track_menu_opened("logs", "command");
             }
             // `/changelog` (TS `handleChangelogCommand`): the shipped
             // CHANGELOG.md entries, newest first, in the read-only info
@@ -722,7 +661,6 @@ impl SessionUi {
                         &Self::changelog_path(),
                     )),
                 );
-                self.track_menu_opened("changelog", "command");
             }
             // `/settings` (TS `showSettingsSelector`): the inline settings
             // menu; the rows read the daemon state and the settings seam.
@@ -870,17 +808,6 @@ impl SessionUi {
         Ok(())
     }
 
-    /// Report a menu surface opening (`tui menu opened`, fire-and-forget
-    /// like the other adoption seams): `menu` names the surface (`model`,
-    /// `mcp`), `source` how it opened (`command`, `tab`).
-    pub(super) fn track_menu_opened(&self, menu: &'static str, source: &'static str) {
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.menu_opened(menu, source).await;
-            });
-        }
-    }
-
     /// Fetch the session's slash-command catalog in the background (TS
     /// `refreshConnectionCatalog`'s `getCommands` arm, best-effort with a
     /// bounded wait like the heartbeat refresh): the response carries the
@@ -978,16 +905,7 @@ impl SessionUi {
             )
             .await
         {
-            Ok(data) => {
-                // The queue delivery mode rides the state (TS
-                // `steeringMode`): cached here -- every state read is the
-                // single refresh seam -- so the queued-input adoption
-                // event reports the live mode without a fetch.
-                if let Some(mode) = data.get("steeringMode").and_then(Value::as_str) {
-                    self.steering_mode = mode.to_string();
-                }
-                Some(data)
-            }
+            Ok(data) => Some(data),
             Err(error) => {
                 self.note(&format!("{error:#}"), view);
                 None

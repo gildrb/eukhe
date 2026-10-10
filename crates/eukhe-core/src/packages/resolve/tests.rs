@@ -918,16 +918,11 @@ fn on_missing_skip_leaves_the_source_out() {
 // -- bundled skills -------------------------------------------------------------
 
 #[test]
-fn bundled_skills_collect_with_websearch_excluded_until_enabled() {
+fn bundled_skills_collect_with_the_extra_overrides_applied() {
     let fixture = Fixture::new();
     let bundled = fixture.temp_dir.join("bundled-skills");
-    skill_md(&bundled, "websearch", "Search the web");
+    skill_md(&bundled, "first-skill", "First");
     skill_md(&bundled, "other-skill", "Other");
-    let settings_path = fixture.agent_dir.join("settings.json");
-    std::fs::create_dir_all(&fixture.agent_dir).unwrap();
-
-    // Default: websearch is bundled and enabled.
-    std::fs::write(&settings_path, serde_json::json!({}).to_string()).unwrap();
     let mut manager = PackageManager::with_options(PackageManagerOptions {
         cwd: fixture.manager.cwd().to_path_buf(),
         agent_dir: fixture.agent_dir.clone(),
@@ -936,34 +931,19 @@ fn bundled_skills_collect_with_websearch_excluded_until_enabled() {
         extra_builtin_skill_overrides: vec!["-other-skill/SKILL.md".to_string()],
     });
     let result = manager.resolve().unwrap();
-    let websearch = result
+    let first = result
         .skills
         .iter()
-        .find(|r| r.path.to_string_lossy().contains("websearch"))
-        .expect("websearch collected");
-    assert!(websearch.enabled, "websearch enabled by default");
-    assert_eq!(websearch.metadata.source, MetadataSource::Builtin);
+        .find(|r| r.path.to_string_lossy().contains("first-skill"))
+        .expect("first collected");
+    assert!(first.enabled, "bundled skills are enabled by default");
+    assert_eq!(first.metadata.source, MetadataSource::Builtin);
     let other = result
         .skills
         .iter()
         .find(|r| r.path.to_string_lossy().contains("other-skill"))
         .expect("other collected");
     assert!(!other.enabled, "extra builtin overrides apply");
-
-    // bundledSkills.websearch=false force-excludes the websearch skill.
-    std::fs::write(
-        &settings_path,
-        serde_json::json!({"bundledSkills": {"websearch": false}}).to_string(),
-    )
-    .unwrap();
-    manager.reload_settings().unwrap();
-    let result = manager.resolve().unwrap();
-    let websearch = result
-        .skills
-        .iter()
-        .find(|r| r.path.to_string_lossy().contains("websearch"))
-        .expect("websearch still collected");
-    assert!(!websearch.enabled, "websearch excluded until enabled");
 }
 
 #[test]

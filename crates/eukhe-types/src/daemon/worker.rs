@@ -227,8 +227,6 @@ pub struct DaemonWorkerDescriptor {
     pub session_file: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_dir: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub telemetry_disabled: Option<bool>,
     pub created_at: String,
     pub updated_at: String,
     pub lifecycle: DaemonWorkerLifecycle,

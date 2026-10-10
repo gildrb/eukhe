@@ -24,8 +24,7 @@ mod tests;
 // get_api_key, refresh_oauth) moved to the child module at the same tree
 // position (auth::manager::lookup) as its own impl AuthStorage block -
 // inherent impls split freely; the pub methods stay on the facade-
-// resident type (external callers resolve through the type; the
-// agent_traces engine's get_api_key_with_source_token call checked);
+// resident type (external callers resolve through the type);
 // refresh_oauth keeps its private level (the lookup child is its only
 // caller - zero pub(super) bumps, verified by the caller map); the
 // child's bare calls into the facade's candidate/staleness machinery

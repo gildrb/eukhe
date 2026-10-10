@@ -884,10 +884,10 @@ print(json.dumps({"closure": sorted(closure), "violations": violations}))
 #[test]
 fn extra_recorded_skills_do_not_force_reinstall() {
     // A session's set ([edit]) must be served by a venv that also carries
-    // records from other sessions ([websearch]): the file is a cache.
+    // records from other sessions ([lookup]): the file is a cache.
     let recorded = Some(vec![
         skill("edit", "/skills/edit", "h1"),
-        skill("websearch", "/skills/websearch", "h2"),
+        skill("lookup", "/skills/lookup", "h2"),
     ]);
     let current = [skill("edit", "/skills/edit", "h1")];
     assert!(recorded_skills_cover(recorded.as_deref(), &current));
@@ -1140,17 +1140,17 @@ async fn skill_with_unlocked_dependencies_is_uninstalled_and_reported() {
     let uv = fake_uv(
         dir.path(),
         &format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\ncase \"$*\" in\n  'pip check'*) echo 'The package `eukhe-skill-websearch` requires `httpx>=0.27,<1`, but it'\"'\"'s not installed' >&2; exit 1;;\nesac\nexit 0\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\ncase \"$*\" in\n  'pip check'*) echo 'The package `eukhe-skill-lookup` requires `httpx>=0.27,<1`, but it'\"'\"'s not installed' >&2; exit 1;;\nesac\nexit 0\n",
             dir.path().join("uv.log").display()
         ),
     );
     let venv = dir.path().join("venv");
     std::fs::create_dir_all(&venv).unwrap();
-    let websearch = dir.path().join("skills/websearch");
-    std::fs::create_dir_all(&websearch).unwrap();
+    let lookup = dir.path().join("skills/lookup");
+    std::fs::create_dir_all(&lookup).unwrap();
     std::fs::write(
-        websearch.join("pyproject.toml"),
-        "[project]\nname = \"eukhe-skill-websearch\"\ndependencies = [\"httpx>=0.27,<1\"]\n",
+        lookup.join("pyproject.toml"),
+        "[project]\nname = \"eukhe-skill-lookup\"\ndependencies = [\"httpx>=0.27,<1\"]\n",
     )
     .unwrap();
     let edit = dir.path().join("skills/edit");
@@ -1164,12 +1164,9 @@ async fn skill_with_unlocked_dependencies_is_uninstalled_and_reported() {
             pyproject_hash: "h1".to_string(),
         },
         BootstrapPythonSkill {
-            import_name: "websearch".to_string(),
-            package_path: websearch.to_string_lossy().into_owned(),
-            pyproject_path: websearch
-                .join("pyproject.toml")
-                .to_string_lossy()
-                .into_owned(),
+            import_name: "lookup".to_string(),
+            package_path: lookup.to_string_lossy().into_owned(),
+            pyproject_path: lookup.join("pyproject.toml").to_string_lossy().into_owned(),
             pyproject_hash: "h2".to_string(),
         },
     ];
@@ -1197,11 +1194,11 @@ async fn skill_with_unlocked_dependencies_is_uninstalled_and_reported() {
                 "pip install --no-config --python {} --no-deps --no-index --no-build-isolation --editable {} --editable {}",
                 python.display(),
                 edit.display(),
-                websearch.display()
+                lookup.display()
             ),
             format!("pip check --no-config --python {}", python.display()),
             format!(
-                "pip uninstall --no-config --python {} eukhe-skill-websearch",
+                "pip uninstall --no-config --python {} eukhe-skill-lookup",
                 python.display()
             ),
         ]
@@ -1209,7 +1206,7 @@ async fn skill_with_unlocked_dependencies_is_uninstalled_and_reported() {
     assert_eq!(
         *warnings.lock().unwrap(),
         vec![
-            "Warning: Python skill websearch needs packages the hash-locked kernel venv does not provide and will be unavailable:\nThe package `eukhe-skill-websearch` requires `httpx>=0.27,<1`, but it's not installed".to_string()
+            "Warning: Python skill lookup needs packages the hash-locked kernel venv does not provide and will be unavailable:\nThe package `eukhe-skill-lookup` requires `httpx>=0.27,<1`, but it's not installed".to_string()
         ]
     );
     let recorded = read_bootstrap_version(&venv)

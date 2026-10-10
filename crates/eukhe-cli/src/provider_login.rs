@@ -10,9 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use eukhe_core::auth::{
-    AuthCredential, AuthSource, AuthStatus, SERPER_CREDENTIAL_ID, SERPER_CREDENTIAL_NAME,
-};
+use eukhe_core::auth::{AuthCredential, AuthSource, AuthStatus};
 use eukhe_core::models::ModelRegistry;
 use eukhe_tui::provider_auth::{
     AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAuthCommands,
@@ -54,7 +52,6 @@ const BUILT_IN_PROVIDER_DISPLAY_NAMES: &[(&str, &str)] = &[
     ("opencode-go", "OpenCode Go"),
     ("openai", "OpenAI"),
     ("openrouter", "OpenRouter"),
-    ("prime-traces", "Prime Intellect Traces"),
     ("prime-inference", "Prime Inference"),
     ("vercel-ai-gateway", "Vercel AI Gateway"),
     ("xai", "xAI (Grok)"),
@@ -242,9 +239,9 @@ impl ProviderAuth {
 impl ProviderAuthCommands for ProviderAuth {
     /// TS `getLoginProviderOptions`: the subscription rows and the
     /// API-key model providers, sorted TS-style with prime-inference
-    /// first. The service rows (the MCP OAuth integrations, the
-    /// web-search credential) live on the `/mcp` view (the operator's
-    /// 2026-09-24 `/login`-is-providers-only directive).
+    /// first. The service rows (the MCP OAuth integrations) live on the
+    /// `/mcp` view (the operator's 2026-09-24 `/login`-is-providers-only
+    /// directive).
     fn login_options(&self) -> ProviderRowsFuture {
         let provider = self.clone();
         Box::pin(async move {
@@ -351,8 +348,7 @@ impl ProviderAuth {
     /// The login row build (blocking: the auth store and MCP manager
     /// locks must stay off the async workers). The operator's 2026-09-24
     /// directive keeps `/login` providers only: the service rows (the MCP
-    /// OAuth integrations, the web-search credential) live on the `/mcp`
-    /// view instead.
+    /// OAuth integrations) live on the `/mcp` view instead.
     fn login_rows_blocking(self) -> Vec<ProviderRow> {
         let provider = self;
         {
@@ -455,19 +451,9 @@ impl ProviderAuth {
                 }
                 AuthCredential::Oauth { .. } => AuthType::Oauth,
             };
-            let (is_serper, is_mcp) = (
-                provider_id == SERPER_CREDENTIAL_ID,
-                provider_id.starts_with("mcp:"),
-            );
-            let name = if is_serper {
-                SERPER_CREDENTIAL_NAME.to_string()
-            } else if is_mcp {
-                provider_id
-                    .strip_prefix("mcp:")
-                    .unwrap_or(&provider_id)
-                    .to_string()
-            } else {
-                display_name(&provider_id)
+            let name = match provider_id.strip_prefix("mcp:") {
+                Some(server) => server.to_string(),
+                None => display_name(&provider_id),
             };
             rows.push(ProviderRow {
                 id: provider_id,

@@ -352,7 +352,6 @@ impl SessionUi {
             no_session: false,
             session: SessionSelection::New,
             initial_message: None,
-            telemetry_disabled: self.telemetry_disabled,
             theme: String::new(),
             code_block_indent: self.code_block_indent.clone(),
             show_images: self.show_images,
@@ -364,9 +363,7 @@ impl SessionUi {
             version: String::new(),
             onboarding: None,
             client_auth: self.client_auth.clone(),
-            traces: self.traces.clone(),
             provider_auth: self.provider_auth.clone(),
-            telemetry: self.telemetry.clone(),
             keybindings: self.keybindings.clone(),
             // The `/new` run keeps this process's stash store: a draft
             // stashed for the fresh session survives into the next chat
@@ -435,7 +432,6 @@ impl SessionUi {
         }
         rows.push(raw("switch with /switch <n|id>".to_string()));
         self.open_info_panel(view, Some("Sessions".to_string()), InfoContent::Rows(rows));
-        self.track_menu_opened("list", "command");
         Ok(())
     }
 
@@ -553,7 +549,6 @@ pub(super) async fn create_session(
             no_session: options.no_session.then_some(true),
             name: None,
             config: Some(options.create_config()),
-            telemetry_disabled: options.telemetry_disabled.filter(|disabled| *disabled),
             runtime_metadata: None,
             // TS `clientOwned: parsed.noSession`: only a noSession
             // create is client-owned.

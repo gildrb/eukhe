@@ -174,7 +174,6 @@ impl AgentsViewMode {
         match outcome {
             Ok(()) => {
                 self.set_status(&format!("Renamed to {}", rename.name));
-                self.actions.push("renamed");
                 if let RenameTarget::Saved { session_path } = rename.target {
                     if let Some(saved) = self.saved.iter_mut().find(|saved| {
                         saved.get("path").and_then(Value::as_str) == Some(session_path.as_str())

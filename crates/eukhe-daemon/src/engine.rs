@@ -314,27 +314,6 @@ pub trait SessionEngine: Send + Sync {
     /// detached child task runs). Engines without children ignore it.
     fn on_turn_done(&self) {}
 
-    /// Finalize session telemetry at session close: emit
-    /// `agent session ended` and flush once (TS dispose callback).
-    /// Best-effort: implementations bound the wait (sink timeouts) and never
-    /// fail or block shutdown. Engines without telemetry do nothing.
-    fn end_telemetry(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(std::future::ready(()))
-    }
-
-    /// The daemon `kill` path: emit `session archived` then finalize
-    /// (`agent session ended` + flush), after the turn settles (TS runs the
-    /// dispose-callback telemetry after the awaited `session.abort()`).
-    /// Best-effort like `end_telemetry`: never blocks a close on a live
-    /// turn — the kill handler aborts the in-flight run first.
-    fn archive_session_telemetry(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(std::future::ready(()))
-    }
-
     /// The `(provider, model id)` pair the session will run on, when the
     /// engine can resolve one; fresh daemon sessions record it in their
     /// creation prefix (`model_change`). Engines without a model return
@@ -353,10 +332,9 @@ pub trait SessionEngine: Send + Sync {
 
     /// TS `createAgentSession`'s restored-from-session step: a session
     /// being revived (scheduled wake, update restore, worker relaunch)
-    /// restores the model its file pins before the startup chain, giving
-    /// the daemon boot's in-flight catalog fetch a bounded readiness
-    /// window — without it a revived session silently lands on the
-    /// startup-chain default instead of the model it was running on. The
+    /// restores the model its file pins before the startup chain — without
+    /// it a revived session silently lands on the startup-chain default
+    /// instead of the model it was running on. The
     /// worker calls this at create, before the create-config selection;
     /// explicit flags win, a miss records the fallback (never silent).
     ///

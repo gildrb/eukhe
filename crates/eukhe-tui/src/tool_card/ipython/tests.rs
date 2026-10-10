@@ -377,14 +377,6 @@ fn bash_dominated_cell_renders_as_bash() {
         text_of(&lines[0]),
         " ok bash - cargo test -p eukhe-tui - +2 more - ^ 5 v 1 lines - 2ms"
     );
-    assert_eq!(
-        bash_dominated_stats(&card),
-        Some(BashCellStats {
-            bash_lines: 4,
-            cell_lines: 5,
-            count: 3,
-        })
-    );
 }
 
 #[test]
@@ -407,5 +399,4 @@ fn bash_minority_cell_stays_python() {
         text_of(&lines[0]),
         " ok python - r = await sh(\"ls\") - ^ 4 v 1 lines - 5ms"
     );
-    assert_eq!(bash_dominated_stats(&card), None);
 }

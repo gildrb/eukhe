@@ -332,7 +332,6 @@ fn replacement_params(
         parent_session_path: live.parent_session_path,
         child_script: live.child_script,
         model_patterns: None,
-        execution_mode: None,
         spawned_by_request_id: None,
         prompt: live.prompt,
         autonomous: None,

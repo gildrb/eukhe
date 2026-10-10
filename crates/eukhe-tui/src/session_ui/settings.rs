@@ -44,7 +44,7 @@ impl SessionUi {
     /// The import confirm (TS `handleImportCommand`'s confirm): parse
     /// the path, park the confirm, and let the panel answer it.
     pub(super) fn open_import_confirm(&mut self, command_text: &str, view: &mut AgentView) {
-        let Some(input_path) = crate::export_share::path_command_argument(command_text, "/import")
+        let Some(input_path) = crate::path_argument::path_command_argument(command_text, "/import")
         else {
             self.error_row("Usage: /import <path.jsonl>", view);
             return;
@@ -279,7 +279,6 @@ impl SessionUi {
             .available_names();
         let rows = crate::settings_menu::settings_menu_rows(&values);
         view.settings_menu = Some(crate::settings_menu::SettingsMenu::new(rows));
-        self.track_menu_opened("settings", "command");
         self.dirty = true;
     }
 

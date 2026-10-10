@@ -153,7 +153,6 @@ impl Supervisor {
             RouteAdmission::ClientRequest => match inflight.try_acquire_owned() {
                 Ok(permit) => permit,
                 Err(_saturated) => {
-                    self.note_daemon_event("worker_overloaded", None);
                     return Ok(WorkerReply::Typed(
                         crate::backpressure::overloaded_response(command_type, &resident.worker_id),
                     ));
@@ -210,7 +209,6 @@ impl Supervisor {
             match admission {
                 RouteAdmission::ClientRequest => {
                     resident.pending.lock().await.remove(&request_id);
-                    self.note_daemon_event("worker_overloaded", None);
                     return Ok(WorkerReply::Typed(
                         crate::backpressure::overloaded_response(command_type, &resident.worker_id),
                     ));
@@ -656,34 +654,6 @@ impl Supervisor {
                 }
             }
         }
-        if let DaemonCommand::Attach {
-            telemetry_disabled: Some(true),
-            ..
-        }
-        | DaemonCommand::Reattach {
-            telemetry_disabled: Some(true),
-            ..
-        } = command
-        {
-            let worker_disabled = {
-                let descriptor = resident.descriptor.lock().await;
-                descriptor.telemetry_disabled
-            };
-            if worker_disabled != Some(true) {
-                // TS `assertTelemetryAttachAllowed`: a telemetry-disabled
-                // client may not attach to a worker running with telemetry
-                // enabled.
-                return (
-                    vec![response_line(&response_failure(
-                        Some(&command_id),
-                        &type_name,
-                        "Cannot attach to this active agent while telemetry is disabled for the current invocation. Stop the agent and retry so it can restart without telemetry.",
-                        None,
-                    ))],
-                    false,
-                );
-            }
-        }
         let timeout = client_route_timeout(command);
         let (worker_command, mut payload) = match client_command_payload(command, client_id) {
             Ok(payload) => payload,
@@ -826,14 +796,6 @@ impl Supervisor {
                 let active_id = reply
                     .relayed_active_session_id()
                     .map_or_else(|| resident.worker_id.clone(), str::to_string);
-                self.note_daemon_event(
-                    if matches!(command, DaemonCommand::Reattach { .. }) {
-                        "reattach"
-                    } else {
-                        "attach"
-                    },
-                    None,
-                );
                 let (session_id, session_file) = {
                     let descriptor = resident.descriptor.lock().await;
                     (
@@ -882,14 +844,6 @@ impl Supervisor {
                                 .get("activeSessionId")
                                 .and_then(Value::as_str)
                                 .map_or_else(|| resident.worker_id.clone(), str::to_string);
-                            self.note_daemon_event(
-                                if matches!(command, DaemonCommand::Reattach { .. }) {
-                                    "reattach"
-                                } else {
-                                    "attach"
-                                },
-                                None,
-                            );
                             // The binding table learns the id the worker
                             // reports (a durable-id or file-stem attach
                             // resolves to the worker's current id), keyed
@@ -930,7 +884,6 @@ impl Supervisor {
                 }
                 if let DaemonCommand::Detach { .. } = command {
                     if response.success {
-                        self.note_daemon_event("detach", None);
                         // The retire removes the RESIDENT's active id - the
                         // id the attached list actually holds (the selector
                         // may be a durable-id alias for the same session).
@@ -1131,7 +1084,6 @@ impl Supervisor {
             no_session: None,
             name: None,
             config: Some(json!({ "cwd": cwd, "rlmDepth": depth })),
-            telemetry_disabled: None,
             runtime_metadata: Some(json!({ "rlmChildId": child_id })),
             lifecycle: None,
             env: None,
@@ -1287,7 +1239,7 @@ impl Supervisor {
             std::path::Path::new(&session_file),
             &live,
         );
-        self.capture_deleted_child_usage(&session_file, &child_id, "rlm_delete")
+        self.capture_deleted_child_usage(&session_file, &child_id)
             .await;
         crate::saved_session_commands::remove_session_artifacts(std::path::Path::new(
             &session_file,

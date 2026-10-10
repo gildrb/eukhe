@@ -140,14 +140,12 @@ pub(super) fn close_expired_recovery(
                 "The Eukhe daemon shut down while this window was attached. The session transcript remains saved; restart Eukhe and reopen it from Agents View.",
                 view,
             );
-            session.exit_reason = "daemon_closed";
         }
         RecoveryKind::Lost => {
             session.note(
                 "could not reconnect to the daemon within 10 minutes -- run `eukhe attach` to resume.",
                 view,
             );
-            session.exit_reason = "daemon_reconnect_failed";
         }
     }
 }

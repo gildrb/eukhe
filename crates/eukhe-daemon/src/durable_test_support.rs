@@ -107,9 +107,6 @@ pub(crate) async fn hosted(fixture: &Fixture) -> std::sync::Arc<crate::worker::H
     let request = crate::worker::durable_host::HostRequest {
         config: fixture.config(SESSION_ID),
         scripted: None,
-        // Test fixtures install no telemetry (an opted-out create).
-        telemetry_disabled: Some(true),
-        execution_mode: None,
     };
     std::sync::Arc::new(
         crate::worker::HostedSession::open(request, &fixture.agent_dir, cx())
@@ -176,7 +173,6 @@ pub(crate) async fn created_worker_with(
         active_session_id: active_session_id.to_owned(),
         agent_dir: dir.path().join("agent"),
         recovery_journal_path: dir.path().join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(serde_json::json!({ "responses": responses })),
     };
     let worker = std::sync::Arc::new(crate::worker::Worker::new(config, None));

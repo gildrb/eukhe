@@ -112,12 +112,6 @@ pub fn worker_launch_env(
     if let Some(dir) = &descriptor.session_dir {
         env.insert(crate::paths::SESSION_DIR_ENV.to_string(), dir.clone());
     }
-    if descriptor.telemetry_disabled == Some(true) {
-        env.insert(
-            crate::worker::WORKER_TELEMETRY_DISABLED_ENV.to_string(),
-            "1".to_string(),
-        );
-    }
     env
 }
 
@@ -611,7 +605,6 @@ mod tests {
             root_session_id: None,
             session_file: Some("/a.jsonl".to_string()),
             session_dir: None,
-            telemetry_disabled: None,
             created_at: "t".to_string(),
             updated_at: "t".to_string(),
             lifecycle: WorkerLifecycle::Ready,

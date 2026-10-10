@@ -92,16 +92,10 @@ pub(super) struct HeadlessSettle {
     pub(super) idle_barrier: bool,
     /// A frame the loop has not painted yet.
     pub(super) dirty: bool,
-    /// A `/share` upload whose outcome has not landed.
-    pub(super) share_pending: bool,
     /// A `/reload` whose outcome has not landed.
     pub(super) reload_pending: bool,
-    /// A `/traces` upload whose outcome has not landed.
-    pub(super) traces_upload_pending: bool,
     /// The inline auth panel is mounted.
     pub(super) auth_panel_open: bool,
-    /// A `/traces login` flow is pending.
-    pub(super) traces_login_pending: bool,
     /// An MCP auth flow is pending.
     pub(super) mcp_auth_pending: bool,
     /// The Anthropic subscription warning's `mark_anthropic_warning_shown`
@@ -127,11 +121,8 @@ impl HeadlessSettle {
             queued: view.queued.steering.len() + view.queued.follow_ups.len(),
             idle_barrier,
             dirty: session.dirty,
-            share_pending: session.share_pending(),
             reload_pending: session.reload_pending(),
-            traces_upload_pending: session.traces_upload_pending(),
             auth_panel_open: view.auth_panel.is_some(),
-            traces_login_pending: session.pending_traces_login(),
             mcp_auth_pending: session.pending_mcp_auth(),
             anthropic_warning_mark_pending: session.anthropic_warning_mark_pending(),
         }
@@ -170,20 +161,11 @@ impl HeadlessSettle {
         if self.dirty {
             blockers.push("an unpainted frame".to_string());
         }
-        if self.share_pending {
-            blockers.push("a share upload in flight".to_string());
-        }
         if self.reload_pending {
             blockers.push("a reload in flight".to_string());
         }
-        if self.traces_upload_pending {
-            blockers.push("a traces upload in flight".to_string());
-        }
         if self.auth_panel_open {
             blockers.push("the inline auth panel open".to_string());
-        }
-        if self.traces_login_pending {
-            blockers.push("a pending traces login".to_string());
         }
         if self.mcp_auth_pending {
             blockers.push("a pending MCP auth flow".to_string());

@@ -135,18 +135,6 @@ impl AgentSessionEngine {
                         return BoundaryRun::Cancelled;
                     }
                 }
-                // Adoption telemetry (TS `compaction_end` handling counts
-                // every completed compaction into the active run; the
-                // centrally-measured duration fires the timing stage).
-                {
-                    let guard = self.session.blocking_lock();
-                    if let Some(telemetry) = guard
-                        .as_deref()
-                        .and_then(|engine| engine.telemetry.as_ref())
-                    {
-                        telemetry.note_compaction(Some(run.duration_ms));
-                    }
-                }
                 // TS `_scheduleAutoRefineAfterCompaction`: the compaction
                 // arms the compact-trigger review; the run stops on
                 // purpose, and the worker services the armed round off the

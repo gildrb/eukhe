@@ -18,15 +18,14 @@
 //!   teardown) leaves a `kernel-state.dill` snapshot in its artifact dir;
 //! - a resumed session PREWARMS from the snapshot alone (the config flag
 //!   stays off — only `hasSnapshot` fires the boot), so the boot lands
-//!   before the first prompt and reports `cold: false` through the
-//!   `kernel bootstrap` telemetry;
+//!   before the first prompt and restores the snapshot (a revived boot);
 //! - the first `ipython` call in the resumed session sees the old
 //!   variables WITHOUT re-running the setup cell — the namespace revived;
 //! - the `ipython_state_restored` notice (TS `_onIpythonStateRestored`,
 //!   `deliverAs: "nextTurn"`) rides the next admitted turn and lands
 //!   durably, naming what came back;
 //! - a fresh session without a snapshot and without the config prewarm
-//!   stays lazy (no boot, no event).
+//!   stays lazy (no boot).
 //!
 //! The kernel Python is ambient product state (the auto-bootstrapped
 //! kernel venv); like `kernel_lifecycle.rs`, these tests skip (with a
@@ -44,9 +43,7 @@ use eukhe_core::session::manager::SessionManager;
 use eukhe_core::session_engine::engine::{create_session, SessionEngineConfig};
 use eukhe_core::session_engine::provider_adapter::{json_round_trip, real_stream_fn};
 use eukhe_core::session_engine::state_restore_notice::IPYTHON_STATE_RESTORED_CUSTOM_TYPE;
-use eukhe_core::session_engine::telemetry::{build_client, TelemetryWiring};
 use eukhe_core::session_engine::{PromptOptions, PromptOutcome};
-use eukhe_core::settings::SettingsManager;
 use eukhe_types::session::FileEntry;
 
 /// The faux provider registry is process-global and the tests drive it:
@@ -212,14 +209,12 @@ async fn run_turn(engine: &eukhe_core::session_engine::engine::SessionEngine, te
     engine.session.agent().wait_for_idle().await;
 }
 
-/// The session test fixtures: isolated agent dir, sessions dir, cwd, and
-/// the telemetry client.
+/// The session test fixtures: isolated agent dir, sessions dir, and cwd.
 struct Fixture {
     dir: tempfile::TempDir,
     agent_dir: PathBuf,
     sessions_dir: PathBuf,
     cwd: PathBuf,
-    client: eukhe_telemetry::TelemetryClient,
 }
 
 fn fixture() -> Fixture {
@@ -230,14 +225,11 @@ fn fixture() -> Fixture {
     std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
     let cwd = dir.path().join("project");
     std::fs::create_dir_all(&cwd).expect("cwd");
-    let settings = SettingsManager::create(&cwd, &agent_dir);
-    let client = build_client(&settings, &agent_dir);
     Fixture {
         dir,
         agent_dir,
         sessions_dir,
         cwd,
-        client,
     }
 }
 
@@ -256,12 +248,6 @@ impl Fixture {
             stream_fn: Some(faux.stream_fn.clone()),
             tools: Vec::new(),
             session_manager: Some(session_manager),
-            telemetry: Some(TelemetryWiring {
-                client: self.client.clone(),
-                execution_mode: Some("test".to_string()),
-                now: None,
-                telemetry_enabled: None,
-            }),
             ..Default::default()
         }
     }

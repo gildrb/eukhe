@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 
 use super::durable_host::suspended::WithdrawnInput;
 use super::{sender_is_child_of, HostedSession, Worker};
+use crate::compaction::durable::ManualCompactionError;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 
 /// One input to admit on the main conversation.
@@ -363,7 +364,9 @@ impl Worker {
         }
     }
 
-    /// Run one typed session command on the main conversation.
+    /// Run one typed session command on the main conversation. The answer
+    /// settles with the command (TS `_executeSelectedSessionCommand` awaits
+    /// it): no turn runs, so the ack is the client's completion signal.
     async fn run_session_command(
         &self,
         hosted: &Arc<HostedSession>,
@@ -375,6 +378,11 @@ impl Worker {
             Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
         let main = session.main();
+        if session_command.name == eukhe_core::durable::SessionCommandName::Compact {
+            return self
+                .run_compact_command(hosted, &main, command, session_command)
+                .await;
+        }
         let outcome = eukhe_core::durable::execute_session_command(
             &session,
             &main,
@@ -396,6 +404,47 @@ impl Worker {
             Some(error) => response_failure(None, command, &error, None),
             None => response_success(None, command, None),
         }
+    }
+
+    /// `/compact [instructions]`: the echo row, then the `compact`
+    /// command's manual compaction with its frame pair (the loader's
+    /// `compaction_start` carries the instructions; a skip ends with its
+    /// warning). A skip answers success: TS's queued-command catch arm
+    /// stays silent, the warning end is the report. An abort or failure
+    /// records the `Command failed: <e>` result row and answers the error.
+    async fn run_compact_command(
+        &self,
+        hosted: &Arc<HostedSession>,
+        main: &Conversation,
+        command: &str,
+        session_command: &eukhe_core::durable::SessionCommand,
+    ) -> DaemonResponse {
+        let cx = &BACKGROUND_CONTEXT;
+        if let Err(error) =
+            eukhe_core::durable::commit_session_command_echo(main, session_command, cx).await
+        {
+            return response_failure(None, command, &error, None);
+        }
+        let instructions = (!session_command.args.is_empty()).then(|| session_command.args.clone());
+        let response = match self.compaction.compact(instructions).await {
+            Ok(_) | Err(ManualCompactionError::Skipped(_)) => response_success(None, command, None),
+            Err(error @ (ManualCompactionError::Aborted | ManualCompactionError::Failed(_))) => {
+                let message = error.to_string();
+                match eukhe_core::durable::commit_session_command_failure(
+                    main,
+                    session_command,
+                    &message,
+                    cx,
+                )
+                .await
+                {
+                    Ok(()) => response_failure(None, command, &message, None),
+                    Err(commit) => response_failure(None, command, &commit, None),
+                }
+            }
+        };
+        hosted.events_delivered().await;
+        response
     }
 
     pub(crate) async fn handle_queue(

@@ -62,9 +62,6 @@ pub const WORKER_RECOVERY_JOURNAL_ENV: &str = "EUKHE_INTERNAL_DAEMON_WORKER_RECO
 pub const WORKER_SCRIPT_ENV: &str = "EUKHE_INTERNAL_DAEMON_WORKER_SCRIPT";
 /// Worker socket path (supervisor passes it explicitly).
 pub const WORKER_SOCKET_ENV: &str = "EUKHE_INTERNAL_DAEMON_WORKER_SOCKET";
-/// Telemetry opt-out for the worker's sessions (supervisor passes the create
-/// command's `telemetryDisabled` through here, TS descriptor parity).
-pub const WORKER_TELEMETRY_DISABLED_ENV: &str = "EUKHE_INTERNAL_DAEMON_WORKER_TELEMETRY_DISABLED";
 /// Supervisor-lost exit window (ms): a session worker whose supervisor
 /// socket stays unreachable for this long exits instead of lingering
 /// orphaned (TS `WORKER_SUPERVISOR_LOST_EXIT_MS_ENV` wire parity; the

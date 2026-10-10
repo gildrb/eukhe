@@ -3,24 +3,16 @@
 //!
 //! [`create_models`] registers every built-in pi-ai provider (the eukhe
 //! `prime-inference` provider included), composes the user's
-//! `<agent_dir>/models.json` over them (`compose`), and wires two
-//! persistent stores (`stores`):
+//! `<agent_dir>/models.json` over them (`compose`), and wires the
+//! credential store (`stores`): a pi-ai `CredentialStore` over eukhe's
+//! `<agent_dir>/auth.json`, through eukhe's own `FileAuthStorageBackend`
+//! (same file, same lock directory, same atomic 0600 writes, same
+//! process-local serialization), so the old engine and this one share one
+//! document.
 //!
-//! - credentials: a pi-ai `CredentialStore` over eukhe's
-//!   `<agent_dir>/auth.json`, through eukhe's own `FileAuthStorageBackend`
-//!   (same file, same lock directory, same atomic 0600 writes, same
-//!   process-local serialization), so the old engine and this one share one
-//!   document;
-//! - dynamic catalogs: a `ModelsStore` at `<agent_dir>/models-store.json`
-//!   (the pi coding-agent `FileModelsStore`, also over the auth backend).
-//!
-//! Catalog refresh: `create_models` awaits an offline refresh
-//! (`allowNetwork: false`), which restores the last persisted Prime Inference
-//! catalog without touching the network, then starts the network refresh in
-//! the background (unless `EUKHE_OFFLINE` is set). The Prime provider gates
-//! its own fetch to once an hour; a failed or slow fetch never delays or
-//! fails session open, and the compiled offline catalog serves until a fetch
-//! succeeds — the same no-cold-start posture as eukhe's catalog chain.
+//! Catalogs are fully local: every provider serves its compiled catalog
+//! and the collection never refreshes a provider's model list over the
+//! network.
 //!
 //! # auth.json mapping
 //!
@@ -82,7 +74,6 @@ use eukhe_durable::harness::types::ModelRef;
 use eukhe_pi_ai::auth::{AuthContext, AuthOperationOptions};
 use eukhe_pi_ai::models::{
     clamp_thinking_level, create_models as create_pi_models, CreateModelsOptions, Models,
-    ModelsRefreshOptions,
 };
 use eukhe_pi_ai::providers::all::builtin_providers;
 use eukhe_pi_ai::utils::abort::operation_signal;
@@ -139,78 +130,31 @@ pub struct ResolvedModel {
 /// `eukhe_pi_ai::models::Models` with every built-in pi-ai provider,
 /// credentials from eukhe's auth storage, custom providers/models from
 /// eukhe `models.json`, and Prime Inference through the pi-ai
-/// `prime-inference` provider. See the module docs for the stores and the
-/// refresh policy.
+/// `prime-inference` provider's compiled catalog. See the module docs.
 ///
 /// # Errors
 ///
-/// [`ModelsError::ModelsJson`] when `models.json` is unreadable or invalid;
-/// [`ModelsError::Cancelled`] when `cx` is cancelled during the offline
-/// catalog restore.
-pub async fn create_models(agent_dir: &Path, cx: &Context) -> Result<Models, ModelsError> {
-    let network = if crate::models::private_auth::is_offline_mode_enabled() {
-        CatalogNetwork::Offline
-    } else {
-        CatalogNetwork::Background
-    };
-    build_models(agent_dir, None, network, cx).await
-}
-
-/// Whether [`build_models`] starts the network catalog refresh.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CatalogNetwork {
-    /// Refresh from the network in the background after the offline restore.
-    Background,
-    /// Offline restore only (`EUKHE_OFFLINE`).
-    Offline,
+/// [`ModelsError::ModelsJson`] when `models.json` is unreadable or invalid.
+pub fn create_models(agent_dir: &Path) -> Result<Models, ModelsError> {
+    build_models(agent_dir, None)
 }
 
 /// [`create_models`] with an injectable auth context (`None`: the process
 /// environment and file system).
-async fn build_models(
+fn build_models(
     agent_dir: &Path,
     auth_context: Option<Arc<dyn AuthContext>>,
-    network: CatalogNetwork,
-    cx: &Context,
 ) -> Result<Models, ModelsError> {
     let models = create_pi_models(CreateModelsOptions {
         credentials: Some(Arc::new(stores::AuthJsonCredentialStore::new(
             agent_dir.join("auth.json"),
         ))),
-        models_store: Some(Arc::new(stores::FileModelsStore::new(
-            agent_dir.join("models-store.json"),
-        ))),
+        models_store: None,
         auth_context,
     });
     for provider in compose::compose_providers(builtin_providers(), &agent_dir.join("models.json"))?
     {
         models.set_provider(provider);
-    }
-
-    let restored = models
-        .refresh(ModelsRefreshOptions {
-            allow_network: Some(false),
-            signal: cx.abort_signal(),
-            ..ModelsRefreshOptions::default()
-        })
-        .await;
-    if restored.aborted {
-        return Err(ModelsError::Cancelled);
-    }
-    for (provider, error) in &restored.errors {
-        tracing::warn!(%provider, "restoring the persisted model catalog failed: {error}");
-    }
-    match network {
-        CatalogNetwork::Offline => {}
-        CatalogNetwork::Background => {
-            let background = models.clone();
-            tokio::spawn(async move {
-                let refreshed = background.refresh(ModelsRefreshOptions::default()).await;
-                for (provider, error) in &refreshed.errors {
-                    tracing::warn!(%provider, "refreshing the model catalog failed: {error}");
-                }
-            });
-        }
     }
     Ok(models)
 }
@@ -492,19 +436,13 @@ mod tests {
         },
     }"#;
 
-    async fn offline_models(agent_dir: &Path) -> Result<Models, ModelsError> {
-        build_models(
-            agent_dir,
-            Some(Arc::new(EmptyAuthContext)),
-            CatalogNetwork::Offline,
-            &BACKGROUND_CONTEXT,
-        )
-        .await
+    fn offline_models(agent_dir: &Path) -> Result<Models, ModelsError> {
+        build_models(agent_dir, Some(Arc::new(EmptyAuthContext)))
     }
 
-    async fn battery_models(agent_dir: &Path, models_json: &str) -> Models {
+    fn battery_models(agent_dir: &Path, models_json: &str) -> Models {
         std::fs::write(agent_dir.join("models.json"), models_json).unwrap();
-        offline_models(agent_dir).await.unwrap()
+        offline_models(agent_dir).unwrap()
     }
 
     fn settings(value: Value) -> SettingsManager {
@@ -553,7 +491,7 @@ mod tests {
                 anthropic.id
             ),
         );
-        let models = battery_models(dir.path(), &models_json).await;
+        let models = battery_models(dir.path(), &models_json);
 
         let reason = models.get_model("battery", "mock-reason").unwrap();
         assert_eq!(
@@ -621,8 +559,8 @@ mod tests {
     /// addresses a level can think even with `reasoning: false`, for
     /// models.json models and built-in catalog models alike; an all-null
     /// map claims nothing.
-    #[tokio::test]
-    async fn a_map_addressed_level_makes_a_model_thinking_capable() {
+    #[test]
+    fn a_map_addressed_level_makes_a_model_thinking_capable() {
         let dir = tempfile::tempdir().unwrap();
         let models = battery_models(
             dir.path(),
@@ -636,8 +574,7 @@ mod tests {
                     { "id": "null-map", "thinkingLevelMap": { "off": null } },
                 ]
             } } }"#,
-        )
-        .await;
+        );
         let levels = |provider: &str, id: &str| {
             eukhe_pi_ai::models::get_supported_thinking_levels(
                 &models.get_model(provider, id).unwrap(),
@@ -698,8 +635,8 @@ mod tests {
     /// ceiling): the durable path has no such ceiling. A models.json
     /// `maxTokens` reaches the provider request unchanged, only clamped to
     /// the context window's room.
-    #[tokio::test]
-    async fn a_models_json_max_tokens_reaches_the_request_unchanged() {
+    #[test]
+    fn a_models_json_max_tokens_reaches_the_request_unchanged() {
         let dir = tempfile::tempdir().unwrap();
         let models = battery_models(
             dir.path(),
@@ -710,8 +647,7 @@ mod tests {
                 "models": [ { "id": "glm-5.2", "reasoning": true,
                               "contextWindow": 393216, "maxTokens": 131072 } ]
             } } }"#,
-        )
-        .await;
+        );
         let model = models.get_model("glm-h200", "glm-5.2").unwrap();
         assert_eq!(model.max_tokens, 131_072);
         let context = eukhe_types::pi_ai::TranscriptContext::from_normalized_messages(Vec::new());
@@ -720,15 +656,15 @@ mod tests {
         assert_eq!(base.max_tokens, Some(131_072));
     }
 
-    #[tokio::test]
-    async fn an_invalid_models_json_fails_with_the_file_named() {
+    #[test]
+    fn an_invalid_models_json_fails_with_the_file_named() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("models.json"),
             r#"{ "providers": { "custom": { "models": [{ "id": "x" }] } } }"#,
         )
         .unwrap();
-        let Err(error) = offline_models(dir.path()).await else {
+        let Err(error) = offline_models(dir.path()) else {
             panic!("an invalid models.json must fail");
         };
         assert_eq!(
@@ -743,7 +679,7 @@ mod tests {
     #[tokio::test]
     async fn settings_default_model_and_thinking_resolve_clamped() {
         let dir = tempfile::tempdir().unwrap();
-        let models = battery_models(dir.path(), BATTERY_MODELS_JSON).await;
+        let models = battery_models(dir.path(), BATTERY_MODELS_JSON);
         let reason = settings(json!({
             "defaultProvider": "battery", "defaultModel": "mock-reason",
             "defaultThinkingLevel": "high"
@@ -783,7 +719,7 @@ mod tests {
     #[tokio::test]
     async fn a_requested_model_and_level_win_over_settings() {
         let dir = tempfile::tempdir().unwrap();
-        let models = battery_models(dir.path(), BATTERY_MODELS_JSON).await;
+        let models = battery_models(dir.path(), BATTERY_MODELS_JSON);
         let defaults = settings(json!({
             "defaultProvider": "battery", "defaultModel": "mock-plain",
             "defaultThinkingLevel": "minimal"
@@ -823,7 +759,7 @@ mod tests {
     #[tokio::test]
     async fn allowed_models_refuses_models_outside_the_allowlist() {
         let dir = tempfile::tempdir().unwrap();
-        let models = battery_models(dir.path(), BATTERY_MODELS_JSON).await;
+        let models = battery_models(dir.path(), BATTERY_MODELS_JSON);
         let allowlisted = settings(json!({
             "defaultProvider": "battery", "defaultModel": "mock-plain",
             "allowedModels": ["battery/mock-reason"]
@@ -854,7 +790,7 @@ mod tests {
     #[tokio::test]
     async fn nothing_resolves_without_credentials() {
         let dir = tempfile::tempdir().unwrap();
-        let models = offline_models(dir.path()).await.unwrap();
+        let models = offline_models(dir.path()).unwrap();
         assert!(!models.get_models(None).is_empty());
         assert_eq!(
             resolve(&models, &settings(json!({})), None, None)

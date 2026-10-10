@@ -111,8 +111,8 @@ impl Skill {
         self.kind == SkillKind::Python
     }
 
-    /// The kind label the prompt inventory and telemetry share
-    /// (`<type>` in `format_skills_for_prompt`, `skill_kind` in events).
+    /// The kind label the prompt inventory shows (`<type>` in
+    /// `format_skills_for_prompt`).
     #[must_use]
     pub fn kind_label(&self) -> &'static str {
         if self.is_python() {

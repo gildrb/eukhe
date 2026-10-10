@@ -628,7 +628,6 @@ fn session_summaries_carry_the_thinking_level_for_both_session_kinds() {
                 "thinking": "high",
                 "rlmDepth": 1,
                 "parentSessionPath": session_file.to_string_lossy(),
-                "executionMode": "print",
             },
             "runtimeMetadata": {
                 "kind": "subagent",

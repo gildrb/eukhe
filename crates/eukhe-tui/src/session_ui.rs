@@ -8,6 +8,7 @@ mod auth;
 mod bash;
 mod chat_view;
 mod commands;
+mod copy_export;
 mod factory;
 mod heartbeats;
 mod keys;
@@ -19,7 +20,6 @@ mod prompt;
 mod queue;
 mod sessions_fork;
 mod settings;
-mod share;
 mod stream;
 
 pub(crate) use apply::CompactionAbortNote;
@@ -44,8 +44,6 @@ pub(crate) use prompt::SubmitBehavior;
 use sessions_fork::{create_session, terminal_columns};
 use settings::PendingConfirm;
 pub(crate) use settings::ReloadNote;
-pub(crate) use share::{ShareNote, TracesUploadNote};
-use share::{ShareRun, TraceUploadAllRun, TracesLoginIntent};
 use stream::already_running_warning;
 pub(crate) use stream::resume_hint_from_stats;
 use stream::streaming_tray_hint;
@@ -67,7 +65,6 @@ use crate::chat::{
 };
 use crate::daemon_client::{DaemonClient, DaemonClientEvent};
 use crate::effort_picker::{self, EffortPickerAction};
-use crate::export_share::{self, GhAuthStatus, GistOutcome};
 use crate::goal_surface::{format_goal_status, tray_goal_label, GoalPanel, GoalView};
 use crate::heartbeats_picker::{
     parse_heartbeats, scope_heartbeats, sort_heartbeats, HeartbeatAction, HeartbeatEntry,
@@ -92,7 +89,7 @@ use crate::snapshot::{
 };
 use crate::tree_selector::{TreeSelector, TreeSelectorAction};
 use crate::user_message_selector::{UserMessageSelector, UserMessageSelectorAction};
-use crate::view::{AgentView, ShareLoader};
+use crate::view::AgentView;
 
 use crossterm::event::KeyEvent;
 use std::time::{Duration, Instant};
@@ -188,9 +185,6 @@ pub(crate) struct SessionUi {
     pasted_images: std::collections::BTreeMap<u64, LoadedImage>,
     /// The next `[image #N]` marker id (TS `nextImageMarkerId`).
     next_image_marker_id: u64,
-    /// Telemetry opt-out carried over from the run options; every attach to
-    /// another session keeps carrying it (TS attach parity).
-    telemetry_disabled: Option<bool>,
     /// The chat markdown fenced-code indent from the run's options
     /// (`markdown.codeBlockIndent`); `/new` re-opens with the same value
     /// instead of resetting it to the default.
@@ -244,36 +238,11 @@ pub(crate) struct SessionUi {
     /// The next side-question local id suffix (the daemon only requires
     /// per-client uniqueness).
     side_question_counter: u64,
-    /// A `/share` gist upload in flight (TS `BorderedLoader` + the gh
-    /// spawn): aborting the task kills `gh` (kill-on-drop).
-    share: Option<ShareRun>,
-    /// Where the upload task reports its outcome (the run loop folds it
-    /// into the transcript).
-    share_notes: mpsc::UnboundedSender<ShareNote>,
     /// A `/reload` in flight (the reload box replaces the editor while
     /// the request travels).
     reload: Option<tokio::task::JoinHandle<()>>,
     /// Where the reload task reports its outcome.
     reload_notes: mpsc::UnboundedSender<ReloadNote>,
-    /// A `/traces upload-all` sweep in flight (TS the arm's
-    /// `traceUploadAllAbortController`): the run task and the cancel
-    /// handle the clear key fires.
-    trace_upload: Option<TraceUploadAllRun>,
-    /// Where the upload-all task reports its progress and outcome (the
-    /// run loop folds them into the transcript).
-    traces_upload_notes: mpsc::UnboundedSender<crate::traces::TraceUploadAllNote>,
-    /// A parked `/traces login` (or the enable arm's credential-less
-    /// entry): the run loop mounts the inline auth panel and spawns the
-    /// flow once; the parked intent leaves with the spawn.
-    pending_traces_login: Option<TracesLoginIntent>,
-    /// The in-flight traces login's enable intent: taken from the park
-    /// when the flow spawns (so a later key cannot spawn a second flow
-    /// over the same panel), consumed by the settle.
-    traces_login_run: Option<TracesLoginIntent>,
-    /// The generation of the in-flight traces login: incremented on
-    /// each spawn; a late settle from a superseded run never clears
-    /// the newer login's panel (#2845 review).
-    traces_login_gen: u64,
     /// Where the background catalog refresh delivers `get_model_catalog`
     /// responses (the run loop folds them into the picker catalog).
     catalog_updates: mpsc::UnboundedSender<ModelCatalogUpdate>,
@@ -311,13 +280,6 @@ pub(crate) struct SessionUi {
     turn_ends_seen: u64,
     /// The last submitted prompt's expected completion in wire order.
     last_prompt_turn_end: u64,
-    /// The session's queue delivery mode (TS `steeringMode`, the state's
-    /// `steeringMode`): `all` delivers the queued steering prefix as one
-    /// batched turn at the boundary; `one-at-a-time` one per turn. The
-    /// product default is `all`. Cached at every connection-state read
-    /// so the queued-input adoption event reports the mode without a
-    /// synchronous fetch.
-    pub(crate) steering_mode: String,
     /// The chat index of the assistant message still streaming.
     streaming_index: Option<usize>,
     /// The loader's token accounting (TS `AgentActivityTracker`), reported
@@ -343,9 +305,6 @@ pub(crate) struct SessionUi {
     pub(crate) osc_sink: crate::clipboard::OscSink,
     /// The question the open confirm panel answers.
     pending_confirm: Option<PendingConfirm>,
-    /// `/traces`: the settings + credential state the composition root
-    /// owns (the trace upload subsystem itself stays unported).
-    traces: Option<crate::traces::TracesCommandsHandle>,
     /// `/login` + `/logout`: the provider auth flows the composition root
     /// owns (credential storage, OAuth flows, the provider catalog).
     provider_auth: Option<crate::provider_auth::ProviderAuthCommandsHandle>,
@@ -497,10 +456,6 @@ pub(crate) struct SessionUi {
     /// A succeeded compaction replaced the durable transcript (TS
     /// `rebuildChatFromMessages`): the next loop pass re-fetches it.
     pub(crate) transcript_stale: bool,
-    /// Adoption telemetry (counted into `tui exit`); `None` drops events.
-    pub(crate) telemetry: Option<std::sync::Arc<dyn crate::interactive::InteractionTelemetry>>,
-    /// How the client run ended (the `tui exit` reason).
-    pub(crate) exit_reason: &'static str,
     /// TS #2458 `daemonClosingNotice`: the reason the daemon last
     /// announced itself closing; cleared once a fresh attach
     /// (re)establishes the connection. An announced `shutdown` arms the
@@ -540,9 +495,6 @@ pub(crate) struct SessionUi {
     /// and the raw output the streamed chunks accumulated for its fold.
     user_bash_running: bool,
     user_bash_card: Option<String>,
-    /// When the mounted run started (the settle telemetry's duration
-    /// bucket).
-    user_bash_started_at: Option<std::time::Instant>,
     user_bash_counter: u64,
     /// The attached snapshot's bash slot state (TS
     /// `applyConnectionStateSnapshot` patches `isBashRunning`): consumed
@@ -586,8 +538,6 @@ pub(crate) struct SessionUi {
     /// typed command partial: a picker apply must keep it (TS's selector
     /// never touches the editor).
     picker_restored_draft: bool,
-    /// Whether this run already reported its first suspend cycle.
-    suspend_adoption_emitted: bool,
 }
 
 /// Why one transcript rebuild runs (TS: a session rebind renders through
@@ -913,13 +863,12 @@ impl SessionUi {
     /// `openExternalEditor`'s readback): a saved text replaces the editor
     /// draft; a non-zero editor exit keeps it (TS is silent); an IO/spawn
     /// failure surfaces the error row TS swallows (no swallowed errors).
-    /// `tui external editor used` reports the outcome.
     pub(crate) fn apply_external_editor_outcome(
         &mut self,
         outcome: anyhow::Result<Option<String>>,
         view: &mut AgentView,
     ) {
-        let settled = match outcome {
+        match outcome {
             Ok(Some(text)) => {
                 view.editor.set_text(&text);
                 // The editor child received the expanded text, so the
@@ -931,18 +880,9 @@ impl SessionUi {
                 // registry.
                 view.editor
                     .restore_paste_snapshot(crate::editor::EditorPasteSnapshot::default());
-                "applied"
             }
-            Ok(None) => "unchanged",
-            Err(error) => {
-                self.error_row(&format!("{error:#}"), view);
-                "failed"
-            }
-        };
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.external_editor_used(settled).await;
-            });
+            Ok(None) => {}
+            Err(error) => self.error_row(&format!("{error:#}"), view),
         }
         self.dirty = true;
     }
@@ -951,11 +891,6 @@ impl SessionUi {
     /// spawn (checked after each dispatched key).
     pub(crate) fn pending_mcp_auth(&self) -> bool {
         self.pending_mcp_auth.is_some()
-    }
-
-    /// The `tui exit` reason recorded at the point the loop stopped.
-    pub(crate) fn exit_reason(&self) -> &'static str {
-        self.exit_reason
     }
 }
 

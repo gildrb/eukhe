@@ -91,8 +91,6 @@ pub struct RuntimeConfig {
     pub no_themes: bool,
     pub no_context_files: bool,
     pub autonomous: Option<AutonomousConfig>,
-    pub execution_mode: Option<AppMode>,
-    pub telemetry_disabled: bool,
     pub serialized_refine: bool,
     pub initial_goal: Option<InitialGoal>,
 }
@@ -202,28 +200,6 @@ impl Runtime for UnavailableRuntime {
     }
 }
 
-/// TS main.ts `telemetryDisabled = isTelemetryEnabled(settings) ? undefined
-/// : true`: env overrides first (`EUKHE_OFFLINE` / `DO_NOT_TRACK` /
-/// `EUKHE_TELEMETRY`), then the settings AND. Returns true when
-/// telemetry is disabled for this invocation.
-pub fn telemetry_disabled(settings: &eukhe_core::settings::SettingsManager) -> bool {
-    !eukhe_core::session_engine::telemetry::telemetry_switch(settings).enabled()
-}
-
-/// The daemon session create's `telemetry_disabled` (TS `telemetryDisabled`):
-/// only an environment opt-out rides the wire. A settings opt-out stays the
-/// live switch the session's client re-reads, so `/telemetry on` resumes the
-/// running session instead of waiting for a new one.
-pub(crate) fn create_telemetry_disabled(config: &RuntimeConfig) -> Option<bool> {
-    matches!(
-        eukhe_core::session_engine::telemetry::telemetry_switch(
-            &eukhe_core::settings::SettingsManager::create(&config.cwd, &config.agent_dir)
-        ),
-        eukhe_core::session_engine::telemetry::TelemetrySwitch::Env { enabled: false, .. }
-    )
-    .then_some(true)
-}
-
 /// Build the runtime config from parsed args, mirroring `runtimeConfigFromArgs`.
 pub fn runtime_config_from_args(
     parsed: &Args,
@@ -231,7 +207,6 @@ pub fn runtime_config_from_args(
     agent_dir: PathBuf,
     session_dir: Option<PathBuf>,
     app_mode: AppMode,
-    telemetry_disabled: bool,
 ) -> RuntimeConfig {
     // isLocalPath: only npm:/git:/github:/http(s):/ssh: sources are not local;
     // everything else resolves against the session cwd (utils/paths.ts).
@@ -282,98 +257,11 @@ pub fn runtime_config_from_args(
         no_themes: parsed.no_themes,
         no_context_files: parsed.no_context_files,
         autonomous: AutonomousConfig::from_args(parsed),
-        execution_mode: (app_mode != AppMode::Daemon).then_some(app_mode),
-        telemetry_disabled,
         // Serialized refine is only used by print/json/rpc clients.
         serialized_refine: !matches!(app_mode, AppMode::Interactive | AppMode::Daemon),
         initial_goal: parsed.goal.as_ref().map(|objective| InitialGoal {
             objective: objective.clone(),
             token_budget: parsed.goal_token_budget,
         }),
-    }
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-
-    /// Run the body with the three telemetry env overrides held at a known
-    /// state and restored after (an assertion panic must never leave the
-    /// process env mutated, and a host-exported opt-out must not bleed in).
-    pub(crate) fn with_clean_telemetry_env(body: impl FnOnce() + std::panic::UnwindSafe) {
-        // The env is process-wide: tests that rewrite it take turns.
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let vars = ["EUKHE_TELEMETRY", "DO_NOT_TRACK", "EUKHE_OFFLINE"];
-        let saved: Vec<(String, Option<String>)> = vars
-            .iter()
-            .map(|key| ((*key).to_string(), std::env::var(key).ok()))
-            .collect();
-        for key in vars {
-            std::env::remove_var(key);
-        }
-        // Restore the env FIRST, then resume the panic: a failed
-        // assertion must fail the test (never swallow), and the restore
-        // must survive it.
-        let outcome = std::panic::catch_unwind(body);
-        for (key, value) in saved {
-            match value {
-                Some(value) => std::env::set_var(key, value),
-                None => std::env::remove_var(key),
-            }
-        }
-        if let Err(panic) = outcome {
-            std::panic::resume_unwind(panic);
-        }
-    }
-
-    /// The opt-out chain (the operator's explicit ask: nothing sends when
-    /// disabled): settings `telemetry.enabled=false` disables, and the env
-    /// overrides apply in the documented precedence - `DO_NOT_TRACK` and
-    /// `EUKHE_OFFLINE` disable even against `EUKHE_TELEMETRY=1`.
-    #[test]
-    fn telemetry_opt_out_resolves_disabled() {
-        with_clean_telemetry_env(|| {
-            let dir = tempfile::tempdir().unwrap();
-            let agent_dir = dir.path().join("agent");
-            let mut settings = eukhe_core::settings::SettingsManager::create(dir.path(), agent_dir);
-            settings.set_telemetry_enabled(false).unwrap();
-            assert!(
-                telemetry_disabled(&settings),
-                "settings telemetry.enabled=false opts out"
-            );
-        });
-    }
-
-    #[test]
-    fn telemetry_env_overrides_apply_in_precedence() {
-        with_clean_telemetry_env(|| {
-            let dir = tempfile::tempdir().unwrap();
-            let agent_dir = dir.path().join("agent");
-            let settings = eukhe_core::settings::SettingsManager::create(dir.path(), agent_dir);
-            // `EUKHE_TELEMETRY=1` re-enables over the settings default.
-            std::env::set_var("EUKHE_TELEMETRY", "1");
-            assert!(!telemetry_disabled(&settings));
-            // But DO_NOT_TRACK outranks it: still disabled.
-            std::env::set_var("DO_NOT_TRACK", "1");
-            assert!(telemetry_disabled(&settings));
-            // And EUKHE_OFFLINE outranks the re-enable too.
-            std::env::set_var("EUKHE_OFFLINE", "1");
-            assert!(telemetry_disabled(&settings));
-        });
-    }
-
-    /// Default-on: a fresh install resolves enabled (telemetry stays on by
-    /// default, matching the TS posture) with the env overrides cleared.
-    #[test]
-    fn telemetry_defaults_on() {
-        with_clean_telemetry_env(|| {
-            let dir = tempfile::tempdir().unwrap();
-            let agent_dir = dir.path().join("agent");
-            let settings = eukhe_core::settings::SettingsManager::create(dir.path(), agent_dir);
-            assert!(!telemetry_disabled(&settings));
-        });
     }
 }

@@ -76,7 +76,6 @@ fn assistant_updates_stream_live_while_the_turn_runs() {
         session_file: None,
         faux_script: Some(script.to_string()),
         supervisor_link: None,
-        telemetry_disabled: None,
         cron_store: None,
         queued_steering_probe: None,
     })
@@ -153,7 +152,6 @@ fn agent_engine_streams_updates_and_final_message() {
         session_file: None,
         faux_script: Some(serde_json::json!({ "responses": ["streamed answer"] }).to_string()),
         supervisor_link: None,
-        telemetry_disabled: None,
         cron_store: None,
         queued_steering_probe: None,
     })

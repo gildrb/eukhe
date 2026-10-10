@@ -1,6 +1,6 @@
 //! The `SessionEngine` trait impl for [`AgentSessionEngine`]: the
 //! worker-facing engine contract - model and goal config surfaces,
-//! the turn state machine, and the export/telemetry reads - as one
+//! the turn state machine, and the export reads - as one
 //! impl block (a trait impl is one block per type; it moved whole).
 
 use std::future::Future;
@@ -241,24 +241,6 @@ impl SessionEngine for AgentSessionEngine {
         })
     }
 
-    /// Finalize telemetry on the live core session: `agent session ended`
-    /// plus one flush (TS dispose callback). Best-effort by contract: a
-    /// failed end never blocks or fails shutdown.
-    fn end_telemetry(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(async move {
-            let session = self.session.lock().await;
-            let Some(engine) = session.as_deref() else {
-                return;
-            };
-            let Some(telemetry) = &engine.telemetry else {
-                return;
-            };
-            let _ = telemetry.end().await;
-        })
-    }
-
     /// The TS replacement teardown (see
     /// [`Self::retire_session_runtime`]): the replacement flows retire the
     /// live runtime - kernel dispose plus the built session's drop - so
@@ -268,26 +250,6 @@ impl SessionEngine for AgentSessionEngine {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
         Box::pin(async move {
             self.retire_session_runtime().await;
-        })
-    }
-
-    /// The daemon `kill` path: report `session archived` (lifetime in ms),
-    /// then finalize with `agent session ended` + flush. Best-effort like
-    /// all telemetry; `SessionTelemetry::end` is idempotent, so a later
-    /// worker shutdown stays a no-op for a killed session.
-    fn archive_session_telemetry(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(async move {
-            let session = self.session.lock().await;
-            let Some(engine) = session.as_deref() else {
-                return;
-            };
-            let Some(telemetry) = &engine.telemetry else {
-                return;
-            };
-            telemetry.note_archived();
-            let _ = telemetry.end().await;
         })
     }
 
@@ -315,11 +277,9 @@ impl SessionEngine for AgentSessionEngine {
 
     /// TS `createAgentSession`'s restored-from-session step (sdk.ts): a
     /// session that already ran on a model restores it before the startup
-    /// chain — the saved model context from the session file, through the
-    /// bounded readiness wait (a revived worker races the daemon boot's
-    /// catalog fetch; without the wait a private model is missing from
-    /// the cold registry and the session silently lands on the featured
-    /// default instead of the model it was running on). The worker calls
+    /// chain — the saved model context from the session file, looked up
+    /// in the local registry (a model the registry no longer lists falls
+    /// back to the startup chain, never silently). The worker calls
     /// this at create, before the create-config selection is adopted: a
     /// successful restore pins the model into the selection (the TS
     /// session holds its restored model), an explicit create flag still
@@ -731,18 +691,6 @@ impl SessionEngine for AgentSessionEngine {
                 }
             }
             eukhe_core::session_engine::compact_session::CompactOutcome::Ran(run) => {
-                // Adoption telemetry (TS `compaction_end` handling counts
-                // every completed compaction into the active run; the
-                // manual wire run counts like the `/compact` command).
-                {
-                    let guard = self.session.blocking_lock();
-                    if let Some(telemetry) = guard
-                        .as_deref()
-                        .and_then(|engine| engine.telemetry.as_ref())
-                    {
-                        telemetry.note_compaction(Some(run.duration_ms));
-                    }
-                }
                 // TS `compact()` schedules the compact-trigger auto-refine
                 // review after every successful compaction (the manual path
                 // included); the `compact` command consumes the round once

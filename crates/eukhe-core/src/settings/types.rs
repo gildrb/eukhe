@@ -219,20 +219,8 @@ pub struct MarkdownSettings {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BundledSkillsSettings {
-    pub websearch: Option<bool>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WarningSettings {
     pub anthropic_extra_usage: Option<bool>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentTracesSettings {
-    pub enabled: Option<bool>,
 }
 
 /// `factory` (the agent factory's opt-in gate): `factory.enabled` is
@@ -243,16 +231,6 @@ pub struct AgentTracesSettings {
 #[serde(rename_all = "camelCase")]
 pub struct FactorySettings {
     pub enabled: Option<bool>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TelemetrySettings {
-    pub enabled: Option<bool>,
-    pub notice_shown: Option<bool>,
-    /// Local JSONL mirror at `<agentDir>/telemetry.jsonl` (default on:
-    /// user-observable transparency).
-    pub local_mirror: Option<bool>,
 }
 
 /// User-declared MCP server (settings `mcpServers` entry).
@@ -331,9 +309,7 @@ pub struct Settings {
     pub compaction: Option<CompactionSettings>,
     pub memory: Option<MemorySettings>,
     pub auto_refine: Option<AutoRefineSettings>,
-    pub agent_traces: Option<AgentTracesSettings>,
     pub factory: Option<FactorySettings>,
-    pub telemetry: Option<TelemetrySettings>,
     pub branch_summary: Option<BranchSummarySettings>,
     pub retry: Option<RetrySettings>,
     pub provider_backup_model: Option<String>,
@@ -357,7 +333,6 @@ pub struct Settings {
     pub prompts: Option<Vec<String>>,
     pub themes: Option<Vec<String>>,
     pub enable_skill_commands: Option<bool>,
-    pub bundled_skills: Option<BundledSkillsSettings>,
     pub enable_builtin_skills: Option<bool>,
     pub terminal: Option<TerminalSettings>,
     pub images: Option<ImageSettings>,

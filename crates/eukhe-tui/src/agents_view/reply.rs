@@ -660,7 +660,6 @@ impl AgentsViewMode {
     pub(super) fn reply_result(&mut self, key: &str, outcome: Result<ReplySent, String>) {
         match outcome {
             Ok(sent) => {
-                self.actions.push("reply_sent");
                 if let Some(notice) = sent.cwd_notice {
                     self.status = Some(Status::sticky(&notice));
                 } else {
@@ -696,7 +695,6 @@ impl AgentsViewMode {
     pub(super) fn kill_result(&mut self, key: &str, outcome: Result<(), String>) {
         match outcome {
             Ok(()) => {
-                self.actions.push("killed");
                 // TS's kill arm disarms the unchanged composer with no
                 // editor check (`disarmIfUnchanged`); the in-flight
                 // draft marks it.
@@ -909,12 +907,6 @@ async fn send_reply(
         else {
             return Err("Cannot resume a session without a saved session file".to_string());
         };
-        let telemetry_disabled = request
-            .resume_config
-            .get("telemetryDisabled")
-            .and_then(Value::as_bool)
-            .filter(|disabled| *disabled)
-            .map(|_| true);
         // The resumed session runs in THIS pane: the create carries the
         // client's Herdr pane identity like every create (a client
         // outside a Herdr pane sends nothing -- the wire keeps its shape).
@@ -931,7 +923,6 @@ async fn send_reply(
                 no_session: None,
                 name: None,
                 config: Some(request.resume_config.clone()),
-                telemetry_disabled,
                 runtime_metadata: None,
                 lifecycle: None,
                 env: client_env,

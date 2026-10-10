@@ -178,25 +178,19 @@ fn scope_toggles_between_the_scoped_list_and_the_catalog() {
 {}",
         rows.join("\n")
     );
-    assert_eq!(
-        picker.handle_key("alt+s", &kb()),
-        ModelPickerAction::ScopeToggled { scoped: false },
-        "alt+s swaps to the catalog side"
-    );
+    assert_eq!(picker.handle_key("alt+s", &kb()), ModelPickerAction::None);
+    assert!(!picker.scoped_side(), "alt+s swaps to the catalog side");
     assert_eq!(
         picker.filtered_len(),
         9,
         "the catalog side lists everything"
     );
-    assert_eq!(
-        picker.handle_key("alt+s", &kb()),
-        ModelPickerAction::ScopeToggled { scoped: true },
-        "alt+s swaps back to the scoped side"
-    );
+    assert_eq!(picker.handle_key("alt+s", &kb()), ModelPickerAction::None);
+    assert!(picker.scoped_side(), "alt+s swaps back to the scoped side");
     assert_eq!(picker.filtered_len(), 2);
-    assert_eq!(
-        picker.handle_key("\u{df}", &kb()),
-        ModelPickerAction::ScopeToggled { scoped: false },
+    assert_eq!(picker.handle_key("\u{df}", &kb()), ModelPickerAction::None);
+    assert!(
+        !picker.scoped_side(),
         "the option-composed \u{df} toggles too"
     );
     assert_eq!(picker.filtered_len(), 9);
@@ -214,21 +208,15 @@ fn a_scope_the_catalog_cannot_resolve_still_scopes() {
     let mut picker = ModelPicker::new(options);
     assert!(picker.has_scoped_models(), "the session's scope counts");
     assert_eq!(picker.filtered_len(), 0, "the scoped side has no rows yet");
-    assert_eq!(
-        picker.handle_key("alt+s", &kb()),
-        ModelPickerAction::ScopeToggled { scoped: false },
-        "alt+s still offers the catalog side"
-    );
+    assert_eq!(picker.handle_key("alt+s", &kb()), ModelPickerAction::None);
+    assert!(!picker.scoped_side(), "alt+s still offers the catalog side");
     assert_eq!(
         picker.filtered_len(),
         9,
         "the catalog side lists everything"
     );
-    assert_eq!(
-        picker.handle_key("alt+s", &kb()),
-        ModelPickerAction::ScopeToggled { scoped: true },
-        "alt+s returns to the scoped side"
-    );
+    assert_eq!(picker.handle_key("alt+s", &kb()), ModelPickerAction::None);
+    assert!(picker.scoped_side(), "alt+s returns to the scoped side");
     let mut refreshed = battery_catalog();
     refreshed.push(model("prime-inference", "mock-9", "Mock 9", false, None));
     picker.update_state(None, refreshed, configured());

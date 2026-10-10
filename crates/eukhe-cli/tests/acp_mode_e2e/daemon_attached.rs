@@ -16,7 +16,6 @@ fn acp_daemon_attached_default_session_persists_and_resumes() {
     )
     .unwrap();
     let child = daemon_attached_command(&home_path, &socket, &["--mode", "acp"])
-        .env("DO_NOT_TRACK", "1")
         .spawn()
         .expect("binary present");
     let mut first = AcpChild::wrap(child, Some(home), socket.clone());
@@ -44,7 +43,6 @@ fn acp_daemon_attached_default_session_persists_and_resumes() {
         .iter()
         .any(|text| text == "Name a river."));
     let descriptor = worker_descriptor(&home_path);
-    assert_eq!(descriptor["telemetryDisabled"], json!(true), "{descriptor}");
     assert!(
         descriptor.get("ownerClientId").is_none(),
         "a resident session has no owner: {descriptor}"

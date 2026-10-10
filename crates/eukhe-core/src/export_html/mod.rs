@@ -8,7 +8,7 @@
 //!
 //! Two entry points:
 //! - [`export_session_to_html`] exports a live session (the daemon worker's
-//!   `export_html` command, driven by the TUI `/export` and `/share`).
+//!   `export_html` command, driven by the TUI `/export`).
 //! - [`export_from_file`] exports an arbitrary session file (the CLI
 //!   `session export` command).
 //!

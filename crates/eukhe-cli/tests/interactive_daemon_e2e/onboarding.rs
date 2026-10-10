@@ -1,11 +1,10 @@
-//! First-run onboarding verifiers: the trace question, the sign-in flow,
-//! and the completion marker's persistence.
+//! First-run onboarding verifiers: the silent model-ready completion, the
+//! sign-in flow, and the completion marker's persistence.
 
 use super::*;
 
 /// The product's settings-backed onboarding persistence (the
-/// `SettingsOnboardingSink` glue over the public settings manager, minus
-/// the best-effort telemetry the e2e harness has no client for).
+/// `SettingsOnboardingSink` glue over the public settings manager).
 struct FreshHomeOnboardingSink {
     cwd: PathBuf,
     agent_dir: PathBuf,
@@ -17,26 +16,9 @@ impl eukhe_tui::interactive::OnboardingSink for FreshHomeOnboardingSink {
             .get_onboarding_shown()
     }
 
-    fn agent_traces_choice_written(&self) -> bool {
-        eukhe_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir)
-            .agent_traces_choice_written()
-    }
-
-    fn set_agent_traces_enabled(&self, enabled: bool) -> anyhow::Result<()> {
-        eukhe_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir)
-            .set_agent_traces_enabled(enabled)
-    }
-
     fn mark_onboarding_complete(&self) -> anyhow::Result<()> {
         eukhe_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir)
             .set_onboarding_shown(true)
-    }
-
-    fn onboarding_incomplete(
-        &self,
-        _outcome: &'static str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(std::future::ready(()))
     }
 }
 
@@ -53,123 +35,21 @@ impl eukhe_tui::interactive::OnboardingSink for FailingMarkOnboardingSink {
             .get_onboarding_shown()
     }
 
-    fn agent_traces_choice_written(&self) -> bool {
-        eukhe_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir)
-            .agent_traces_choice_written()
-    }
-
-    fn set_agent_traces_enabled(&self, _enabled: bool) -> anyhow::Result<()> {
-        Ok(())
-    }
-
     fn mark_onboarding_complete(&self) -> anyhow::Result<()> {
         Err(anyhow::anyhow!("settings disk full"))
     }
-
-    fn onboarding_incomplete(
-        &self,
-        _outcome: &'static str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(std::future::ready(()))
-    }
 }
 
-/// A fresh install asks the trace question exactly once, as the first-run
-/// onboarding step — the opt-in moment for trace sharing (sharing ships
-/// OFF, so `Share` opts in and `Not now` leaves it off; TS asks
-/// unconditionally with the same default). One Enter answers it: the
-/// answer and the completion flag persist together, and the released pane
-/// runs the submitted turn. The flag then gates the next launch's task
-/// mount (the `onboarding_gate_follows_settings_and_auth` unit) and the
-/// phase's own marker check, so the question never returns.
-#[tokio::test]
-async fn fresh_home_asks_the_trace_question_once_and_completes() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    let session_dir = agent_dir.join("sessions");
-    std::fs::create_dir_all(&session_dir).expect("session dir");
-    let supervisor = spawn_supervisor(dir.path());
-
-    let script = serde_json::json!({ "responses": [
-        { "text": "hello fresh home", "delayMs": 20 },
-    ] });
-    std::fs::write(
-        dir.path().join("script.json"),
-        serde_json::to_string(&script).expect("script json"),
-    )
-    .expect("script.json");
-
-    // The task mounts exactly as the product's model-ready gate builds it;
-    // the sink persists through the real settings manager.
-    let mut options = base_options(&supervisor, dir.path(), &session_dir);
-    options.onboarding = Some(eukhe_tui::interactive::OnboardingTask {
-        sink: std::sync::Arc::new(FreshHomeOnboardingSink {
-            cwd: dir.path().to_path_buf(),
-            agent_dir: agent_dir.clone(),
-        }),
-        model_ready: std::sync::Arc::new(|| true),
-        current_model: None,
-        provider_auth: None,
-    });
-    // Enter answers the mounted question on its pre-selected `Share` row;
-    // the submission that follows must reach the editor, not the dialog.
-    let plan = eukhe_tui::interactive::HeadlessPlan {
-        steps: vec![
-            eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
-                crossterm::event::KeyCode::Enter,
-                crossterm::event::KeyModifiers::NONE,
-            )),
-            eukhe_tui::interactive::HeadlessStep::Submit("hi".to_string()),
-            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
-        ],
-        width: 100,
-        height: 30,
-    };
-    let outcome = run_headless_bounded(options, plan)
-        .await
-        .expect("interactive run");
-
-    // The question owned the pane first, then released it to the session:
-    // the answer and the completion flag persisted together.
-    let rendered = outcome.frames.join("\n");
-    assert!(
-        rendered.contains("Upload agent traces"),
-        "the onboarding question rendered once for the fresh home:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("hello fresh home"),
-        "the answered dialog released the pane and the first turn ran:\n{rendered}"
-    );
-    let settings = eukhe_core::settings::SettingsManager::create(dir.path(), &agent_dir);
-    assert!(
-        settings.get_onboarding_shown(),
-        "the answered flow marked onboarding shown"
-    );
-    assert!(
-        settings.get_agent_traces_enabled(),
-        "the pre-selected Share answer persisted"
-    );
-    drop(supervisor);
-}
-
-/// A provisioned home (sharing explicitly opted out, a copied config) never
-/// sees the trace question: the standing choice stands and the flow
+/// A home whose startup model is ready has nothing to ask: the flow
 /// completes silently — the session screen owns the first frame, the
 /// submitted prompt runs directly, and only the completion flag is
-/// written. (TS #2368 asks such a home the question; the operator's
-/// existing-user ruling removes it for the rust port.)
+/// written, so the gate never mounts the task again.
 #[tokio::test]
-async fn provisioned_opt_out_home_completes_silently_without_the_question() {
+async fn model_ready_home_completes_silently() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
-    // The provisioned opt-out home: copied config, no onboarding flag.
-    std::fs::write(
-        agent_dir.join("settings.json"),
-        r#"{ "agentTraces": { "enabled": false } }"#,
-    )
-    .expect("provisioned settings");
     let supervisor = spawn_supervisor(dir.path());
 
     let script = serde_json::json!({ "responses": [
@@ -210,19 +90,7 @@ async fn provisioned_opt_out_home_completes_silently_without_the_question() {
         rendered.contains("hello provisioned home"),
         "the session started directly and completed its first turn:\n{rendered}"
     );
-    assert!(
-        !rendered.contains("Upload agent traces"),
-        "the question never owned a session frame:\n{rendered}"
-    );
-
-    // The silent completion persists only the flag: the standing opt-out
-    // survives untouched and a fresh manager reads the pair, so the gate
-    // never mounts the task again.
     let settings = eukhe_core::settings::SettingsManager::create(dir.path(), &agent_dir);
-    assert!(
-        !settings.get_agent_traces_enabled(),
-        "the standing opt-out survived the silent completion"
-    );
     assert!(
         settings.get_onboarding_shown(),
         "the silent flow marked onboarding shown"
@@ -383,9 +251,9 @@ impl eukhe_tui::provider_auth::ProviderAuthCommands for FullFlowProviderAuth {
 /// the inline auth panel (a progress line, the paste prompt), the default
 /// GLM 5.3 model applies behind the pane, the connect-more-providers
 /// picker connects one more provider through its key prompt and
-/// re-mounts with the connected mark, and the trace question ends the
-/// flow — every answer, both credentials, and the completion flag
-/// persist together, and the released pane runs the submitted turn.
+/// re-mounts with the connected mark, and Continue ends the flow — both
+/// credentials and the completion flag persist together, and the released
+/// pane runs the submitted turn.
 #[tokio::test]
 async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -469,9 +337,6 @@ async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
             // pinned Continue row ends the step.
             wait_render("  ok"),
             enter(),
-            // The trace question: Enter on the pre-selected Share row.
-            wait_render("Upload agent traces"),
-            enter(),
             // The released pane runs the submitted turn.
             eukhe_tui::interactive::HeadlessStep::Submit("hi".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
@@ -501,10 +366,6 @@ async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
         "the providers picker rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("Upload agent traces"),
-        "the trace question ended the flow:\n{rendered}"
-    );
-    assert!(
         rendered.contains("hello full flow"),
         "the completed flow released the pane and the first turn ran:\n{rendered}"
     );
@@ -528,16 +389,11 @@ async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
         "the provider login's status row applied:\n{rendered}"
     );
 
-    // Everything persisted together: the flag, the answer, both
-    // credentials.
+    // Everything persisted together: the flag and both credentials.
     let settings = eukhe_core::settings::SettingsManager::create(dir.path(), &agent_dir);
     assert!(
         settings.get_onboarding_shown(),
         "the completed flow marked onboarding shown"
-    );
-    assert!(
-        settings.get_agent_traces_enabled(),
-        "the Share answer persisted"
     );
     let auth = eukhe_core::auth::AuthStorage::create(&agent_dir);
     assert!(
@@ -554,7 +410,7 @@ async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
 }
 
 /// A failed completion write surfaces a warning row and never kills the
-/// run: a provisioned home whose settings write fails still completes the
+/// run: a model-ready home whose settings write fails still completes the
 /// flow for this run (the session stays usable), the warning names the
 /// failed persistence, and the unpersisted marker honestly re-mounts the
 /// flow next launch. The run never dies over a settings write.
@@ -564,11 +420,6 @@ async fn a_failed_completion_write_surfaces_a_warning_and_never_kills_the_run() 
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
-    std::fs::write(
-        agent_dir.join("settings.json"),
-        r#"{ "agentTraces": { "enabled": false } }"#,
-    )
-    .expect("provisioned settings");
     let supervisor = spawn_supervisor(dir.path());
 
     let script = serde_json::json!({ "responses": [
@@ -608,10 +459,6 @@ async fn a_failed_completion_write_surfaces_a_warning_and_never_kills_the_run() 
         "the session ran its first turn despite the failed write:\n{rendered}"
     );
     assert!(
-        !rendered.contains("Upload agent traces"),
-        "the standing choice never re-opened the question:\n{rendered}"
-    );
-    assert!(
         rendered.contains("could not be saved"),
         "the failed persistence surfaced as a warning row:\n{rendered}"
     );
@@ -620,111 +467,6 @@ async fn a_failed_completion_write_surfaces_a_warning_and_never_kills_the_run() 
     assert!(
         !settings.get_onboarding_shown(),
         "the failed write left the marker unset"
-    );
-    drop(supervisor);
-}
-
-/// The re-show regression: the agents-view flow re-runs the onboarding
-/// phase for every session it opens with the SAME task (the task mounts
-/// once at startup, then rides the cloned options), so the phase gates on
-/// the persisted completion marker itself. A `Not now` answer completes
-/// the flow (opt-out + flag together), and a second session opened with
-/// the same task starts straight at the session screen — the question
-/// never returns, `/traces` stays the change path.
-#[tokio::test]
-async fn a_completed_flow_never_reopens_the_question_for_a_later_session() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    let session_dir = agent_dir.join("sessions");
-    std::fs::create_dir_all(&session_dir).expect("session dir");
-    let supervisor = spawn_supervisor(dir.path());
-
-    // One scripted response: the faux queue spans one session (each
-    // created session replays from the top), so both runs render the
-    // same turn text and the assertions stay per-run.
-    let script = serde_json::json!({ "responses": [
-        { "text": "hello each session", "delayMs": 20 },
-    ] });
-    std::fs::write(
-        dir.path().join("script.json"),
-        serde_json::to_string(&script).expect("script json"),
-    )
-    .expect("script.json");
-
-    // The SAME options (the same task object) back both session runs, the
-    // way `run_agents_view_flow` clones `base` into every session open.
-    let mut options = base_options(&supervisor, dir.path(), &session_dir);
-    options.onboarding = Some(eukhe_tui::interactive::OnboardingTask {
-        sink: std::sync::Arc::new(FreshHomeOnboardingSink {
-            cwd: dir.path().to_path_buf(),
-            agent_dir: agent_dir.clone(),
-        }),
-        model_ready: std::sync::Arc::new(|| true),
-        current_model: None,
-        provider_auth: None,
-    });
-    // Down + Enter answers `Not now` (the answer that used to re-show the
-    // question on every later session open), then the turn runs.
-    let first_plan = eukhe_tui::interactive::HeadlessPlan {
-        steps: vec![
-            eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
-                crossterm::event::KeyCode::Down,
-                crossterm::event::KeyModifiers::NONE,
-            )),
-            eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
-                crossterm::event::KeyCode::Enter,
-                crossterm::event::KeyModifiers::NONE,
-            )),
-            eukhe_tui::interactive::HeadlessStep::Submit("hi".to_string()),
-            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
-        ],
-        width: 100,
-        height: 30,
-    };
-    let first = run_headless_bounded(options.clone(), first_plan)
-        .await
-        .expect("first interactive run");
-    let first_rendered = first.frames.join("\n");
-    assert!(
-        first_rendered.contains("Upload agent traces"),
-        "the fresh home was asked once:\n{first_rendered}"
-    );
-    assert!(
-        first_rendered.contains("hello each session"),
-        "the answered dialog released the pane and the first turn ran:\n{first_rendered}"
-    );
-    let settings = eukhe_core::settings::SettingsManager::create(dir.path(), &agent_dir);
-    assert!(
-        !settings.get_agent_traces_enabled(),
-        "the Not-now answer persisted (the opt-out)"
-    );
-    assert!(
-        settings.get_onboarding_shown(),
-        "the completion flag persisted with the answer"
-    );
-
-    // The second session with the same task: no key step answers anything,
-    // so the phase must exit before the submission reaches the editor —
-    // the persisted marker is the phase's own gate.
-    let second_plan = eukhe_tui::interactive::HeadlessPlan {
-        steps: vec![
-            eukhe_tui::interactive::HeadlessStep::Submit("again".to_string()),
-            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
-        ],
-        width: 100,
-        height: 30,
-    };
-    let second = run_headless_bounded(options, second_plan)
-        .await
-        .expect("second interactive run");
-    let second_rendered = second.frames.join("\n");
-    assert!(
-        second_rendered.contains("hello each session"),
-        "the second session started directly and completed its turn:\n{second_rendered}"
-    );
-    assert!(
-        !second_rendered.contains("Upload agent traces"),
-        "the completed flow never reopened the question:\n{second_rendered}"
     );
     drop(supervisor);
 }

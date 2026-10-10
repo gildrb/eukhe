@@ -258,106 +258,6 @@ fn enter_routes_paste_and_connect() {
     );
 }
 
-/// A response with the api-key credential section (the daemon's
-/// `credentials` array: the stored keys the view manages alongside the
-/// connections).
-fn credentials_response() -> serde_json::Value {
-    let mut response = catalog_response();
-    response["credentials"] = json!([
-        {"id": "serper", "label": "Serper (web search)", "configured": false}
-    ]);
-    response
-}
-
-/// The api-key credential rows render alongside the connections: the row
-/// rides after the service cards, carries its honest status, and Enter
-/// routes to the paste-the-key flow.
-#[test]
-fn credential_rows_render_and_route() {
-    let mut view = McpView::from_response(&credentials_response(), 19);
-    // The credential row rides after the service cards.
-    assert_eq!(view.selected_server(), Some("fixture-echo"));
-    for _ in 0..4 {
-        view.handle_key("down", &kb());
-    }
-    assert_eq!(view.selected_server(), Some("serper"));
-    let rows = frame_text(&mut view);
-    let selected = rows
-        .iter()
-        .find(|row| row.starts_with('>'))
-        .expect("selected row");
-    assert!(
-        selected.starts_with("> Serper (web search)"),
-        "the credential row renders its label: {selected}"
-    );
-    assert!(
-        selected.ends_with("Not configured"),
-        "the unconfigured credential row keeps the honest status: {selected}"
-    );
-    // A credential row carries no description: the detail line falls back
-    // to its status (TS `secondaryText ?? statusText`).
-    assert!(
-        rows.iter().any(|row| row == " Not configured"),
-        "the detail line: {rows:?}"
-    );
-    assert_eq!(
-        rows.last().map(String::as_str),
-        Some(" up/down navigate - Enter add key - Esc close"),
-        "the hint names the add-key step"
-    );
-    assert_eq!(
-        view.handle_key("enter", &kb()),
-        McpViewAction::Key {
-            id: "serper".to_string(),
-            label: "Serper (web search)".to_string(),
-        }
-    );
-}
-
-/// A configured credential row reads `Configured` and its hint names the
-/// replace step (the same prompt replaces the stored key).
-#[test]
-fn a_configured_credential_names_the_replace_step() {
-    let mut response = credentials_response();
-    response["credentials"] = json!([
-        {"id": "serper", "label": "Serper (web search)", "configured": true}
-    ]);
-    let mut view = McpView::from_response(&response, 19);
-    for _ in 0..4 {
-        view.handle_key("down", &kb());
-    }
-    let rows = frame_text(&mut view);
-    let selected = rows
-        .iter()
-        .find(|row| row.starts_with('>'))
-        .expect("selected row");
-    assert!(
-        selected.ends_with("Configured"),
-        "the configured status: {selected}"
-    );
-    assert_eq!(
-        rows.last().map(String::as_str),
-        Some(" up/down navigate - Enter replace key - Esc close"),
-        "the hint names the replace-key step"
-    );
-}
-
-/// The credential rows join the search: the identity fields (label, id)
-/// match, and a non-matching query filters them out.
-#[test]
-fn the_credential_rows_join_the_search() {
-    let mut view = McpView::from_response(&credentials_response(), 19);
-    view.set_search("serper");
-    assert_eq!(view.selected_server(), Some("serper"));
-    let rows = frame_text(&mut view);
-    assert!(
-        rows.iter().any(|row| row.contains("Serper (web search)")),
-        "the credential row matches its id: {rows:?}"
-    );
-    view.set_search("zzz");
-    assert_eq!(view.selected_server(), None);
-}
-
 /// The TS navigation: arrows clamp at the list's bounds -- up at the
 /// first row stays there, down at the last row stays there (never the
 /// wrap-around the port had).
@@ -491,7 +391,7 @@ fn search_scores_match_the_ts_bands() {
     });
     let github = McpServiceRow::from_value(&github).expect("row");
     assert_eq!(
-        row_search_score(&McpRow::Service(github), "linear"),
+        row_search_score(&github, "linear"),
         Some(SCORE_DESCRIPTION_SUBSTRING + 4.0 * 0.01)
     );
     // The subsequence fallback with its run floor: "crdb"-style
@@ -501,7 +401,6 @@ fn search_scores_match_the_ts_bands() {
         "description": "the SQL database"
     });
     let cockroach = McpServiceRow::from_value(&cockroach).expect("row");
-    let cockroach = McpRow::Service(cockroach);
     let score = row_search_score(&cockroach, "crdb");
     assert!(score.is_some(), "the tight abbreviation matches");
     assert_eq!(
@@ -516,7 +415,7 @@ fn search_scores_match_the_ts_bands() {
     });
     let notion = McpServiceRow::from_value(&notion).expect("row");
     assert_eq!(
-        row_search_score(&McpRow::Service(notion), "notion workflows"),
+        row_search_score(&notion, "notion workflows"),
         Some(SCORE_EXACT + SCORE_DESCRIPTION_WORD_START)
     );
 }

@@ -190,8 +190,6 @@ impl AgentView {
             Some(selector.render(&self.theme, width, kb))
         } else if let Some(selector) = self.fork_selector.as_ref() {
             Some(selector.render(&self.theme, width, kb))
-        } else if let Some(loader) = self.share_loader.as_ref() {
-            Some(self.render_share_loader(loader, width))
         } else if let Some(confirm) = self.confirm.as_ref() {
             Some(confirm.render(&self.theme, width, kb))
         } else if let Some(selector) = self.provider_auth.as_mut() {

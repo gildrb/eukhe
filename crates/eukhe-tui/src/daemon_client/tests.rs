@@ -257,17 +257,6 @@ fn failed_response_is_a_typed_rejection() {
     );
 }
 
-#[test]
-fn model_catalog_changed_parses_to_the_refresh_event() {
-    // The worker's broadcast frame parses into the refresh event:
-    // unknown payloads stay None, this one never drops silently.
-    let value = json!({"type": "model_catalog_changed"});
-    assert!(matches!(
-        client_event_from_value(&value),
-        Some(DaemonClientEvent::ModelCatalogChanged)
-    ));
-}
-
 /// The cross-view layout handoff's live-sequence tracker keys the
 /// stash on the LATEST sequence the worker reported, so the
 /// session-event frame's `meta.sequence` must ride the parsed event
@@ -565,7 +554,6 @@ async fn direct_upgrade_routes_attach_and_streams_events() {
             client_id: None,
             capabilities: None,
             resume_cursor: None,
-            telemetry_disabled: None,
             recovery_config: None,
             env: None,
             launch_env: None,

@@ -17,11 +17,9 @@
     clippy::cast_precision_loss
 )]
 
-//! End-to-end verifier for the TUI export/share commands: a scripted daemon
-//! session driven headlessly — `/export` (HTML and JSONL) writes the file and
-//! reports the TS success row, and `/share` uploads through a stub `gh` on
-//! PATH (no real upload ever leaves the box) and surfaces the share viewer
-//! URL. `Usage: /share` is the TS error row when arguments appear.
+//! End-to-end verifier for the TUI export command: a scripted daemon session
+//! driven headlessly — `/export` (HTML and JSONL) writes the file and
+//! reports the TS success row.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -176,49 +174,14 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     panic!("supervisor socket never appeared");
 }
 
-/// A stub `gh` binary: `auth status` succeeds, `gist create` requires the
-/// upload file and prints a gist URL. No upload ever leaves the box.
-fn write_stub_gh(dir: &Path) {
-    let script = r#"#!/bin/bash
-case "$1" in
-  auth) exit 0 ;;
-  gist)
-    if [ $# -lt 4 ] || [ ! -f "$4" ]; then
-      echo "gist: upload file missing" >&2
-      exit 1
-    fi
-    echo "https://gist.github.com/testuser/abc123"
-    ;;
-  *) echo "unsupported: $1" >&2; exit 1 ;;
-esac
-"#;
-    std::fs::write(dir.join("gh"), script).expect("write stub gh");
-    make_executable(&dir.join("gh"));
-}
-
-fn make_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let mut permissions = std::fs::metadata(path).expect("stat").permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(path, permissions).expect("chmod");
-}
-
 #[tokio::test]
-async fn tui_export_and_share_surface() {
+async fn tui_export_surface() {
     use base64::Engine as _;
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
     let supervisor = spawn_supervisor(dir.path());
-
-    // The stub gh on PATH (isolated bin dir, PATH restored after the run).
-    let stub_dir = dir.path().join("bin");
-    std::fs::create_dir_all(&stub_dir).expect("bin dir");
-    write_stub_gh(&stub_dir);
-    let previous_path = std::env::var("PATH").unwrap_or_default();
-    let previous_viewer_url = std::env::var("EUKHE_SHARE_VIEWER_URL").ok();
-    std::env::set_var("PATH", format!("{}:{}", stub_dir.display(), previous_path));
 
     // A live scripted session: one prompt, one scripted answer.
     // The faux engine (`engine: "faux"`) drives the real agent engine, so
@@ -243,7 +206,6 @@ async fn tui_export_and_share_surface() {
                 "sessionDir": session_dir.display().to_string(),
                 "script": script_path.display().to_string(),
             })),
-            telemetry_disabled: None,
             runtime_metadata: None,
             lifecycle: None,
             env: None,
@@ -282,11 +244,8 @@ async fn tui_export_and_share_surface() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -305,9 +264,6 @@ async fn tui_export_and_share_surface() {
                 "/export {}",
                 jsonl_out.display()
             )),
-            eukhe_tui::interactive::HeadlessStep::Submit("/share".to_string()),
-            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 5_000 },
-            eukhe_tui::interactive::HeadlessStep::Submit("/share now".to_string()),
         ],
         width: 100,
         height: 30,
@@ -318,12 +274,6 @@ async fn tui_export_and_share_surface() {
     )
     .await
     .expect("interactive run");
-
-    std::env::set_var("PATH", previous_path);
-    match previous_viewer_url {
-        Some(value) => std::env::set_var("EUKHE_SHARE_VIEWER_URL", value),
-        None => std::env::remove_var("EUKHE_SHARE_VIEWER_URL"),
-    }
 
     let rendered = outcome.frames.join("\n");
 
@@ -387,26 +337,5 @@ async fn tui_export_and_share_surface() {
     assert!(
         jsonl.contains("say hi"),
         "branch export carries the turn:\n{jsonl}"
-    );
-
-    // The share rows: the stub gist URL surfaced as the viewer link.
-    assert!(
-        rendered.contains("Share URL: https://pi.dev/session/#abc123"),
-        "share viewer URL missing:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("Gist: https://gist.github.com/testuser/abc123"),
-        "gist URL missing:\n{rendered}"
-    );
-    // The loader surfaced while the upload ran (TS BorderedLoader).
-    assert!(
-        rendered.contains("Creating gist..."),
-        "share loader row missing:\n{rendered}"
-    );
-
-    // `/share` with an argument is the TS usage error row.
-    assert!(
-        rendered.contains("Error: Usage: /share"),
-        "usage error row missing:\n{rendered}"
     );
 }

@@ -214,8 +214,7 @@ impl ExitGuard {
     /// The run decided to leave (exit key, session request, or the daemon
     /// connection closing): the process must be gone within
     /// [`FORCE_QUIT_AFTER_MS`] even if the shutdown path wedges -- the
-    /// bounded stats/detach/telemetry requests and the exit flush are all
-    /// best-effort now.
+    /// bounded stats/detach requests are all best-effort now.
     pub(crate) fn arm_for_exit(&self) {
         let now_ms = self.ms(Instant::now());
         self.arm(now_ms + FORCE_QUIT_AFTER_MS);

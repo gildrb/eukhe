@@ -206,8 +206,9 @@ const CORPUS: &[&[&str]] = &[
     // Model catalog rows (`model list`): the full table plus search and
     // no-match paths. These rows need provider auth visible to both
     // binaries (PRIME_API_KEY on this box) so the catalog, not the
-    // no-models guidance, is what prints; EUKHE_OFFLINE keeps the catalog
-    // deterministic (bundled, no network refresh).
+    // no-models guidance, is what prints; EUKHE_OFFLINE keeps the TS
+    // reference's catalog deterministic (bundled, no network refresh; the
+    // eukhe catalog is always local).
     &["model", "list"],
     &["model", "list", "gpt"],
     &["model", "list", "claude"],

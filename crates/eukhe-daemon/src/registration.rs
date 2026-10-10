@@ -388,7 +388,6 @@ mod tests {
             active_session_id: "abc123def456".to_string(),
             agent_dir: dir.to_path_buf(),
             recovery_journal_path: dir.join("recovery.jsonl"),
-            telemetry_disabled: None,
             script: None,
         }
     }

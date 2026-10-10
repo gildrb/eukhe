@@ -98,14 +98,11 @@ impl AgentSession {
         // TS `_finishSubmissionNormalization` order: skill commands expand
         // first (`/skill:<name>` into its `<skill>` block), prompt templates
         // second; both are gated by the same policy flag.
-        let (normalized, used_skill) = if expand {
-            let (skill_expanded, used_skill) =
-                crate::skills::expand_skill_command(text, &self.skills);
-            let normalized =
-                crate::skills::expand_prompt_template(&skill_expanded, &self.prompt_templates);
-            (normalized, used_skill)
+        let normalized = if expand {
+            let (skill_expanded, _) = crate::skills::expand_skill_command(text, &self.skills);
+            crate::skills::expand_prompt_template(&skill_expanded, &self.prompt_templates)
         } else {
-            (text.to_string(), None)
+            text.to_string()
         };
 
         if let Some(command) = parse_session_command(&self.slash_commands, &normalized) {
@@ -114,19 +111,6 @@ impl AgentSession {
 
         let state = self.agent.state().await;
         let busy = state.is_streaming;
-        // The `skill_use_count` session counter counts at the admission
-        // seam: an admitted user turn whose text IS a skill block counts
-        // once. A pre-expanded block (the daemon emits the accepted row
-        // before admission) counts here too — the block parse carries the
-        // skill identity.
-        let skill_used = used_skill.is_some()
-            || eukhe_types::skill_blocks::parse_skill_block(&normalized)
-                .is_some_and(|block| self.skills.iter().any(|skill| skill.name == block.name));
-        if skill_used {
-            if let Some(telemetry) = &self.skill_telemetry {
-                telemetry.note_skill_used();
-            }
-        }
         if busy && options.streaming_behavior.is_none() {
             anyhow::bail!(
                 "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message."

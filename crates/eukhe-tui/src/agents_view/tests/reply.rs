@@ -199,7 +199,6 @@ fn enter_submits_the_reply_and_the_outcomes_land() {
         matches!(mode.composer, Composer::Search),
         "the success disarms"
     );
-    assert_eq!(mode.actions.last(), Some(&"reply_sent"));
 }
 
 /// The follow-up key and the streaming behavior (TS `sendReply`'s
@@ -350,7 +349,6 @@ fn view_commands_route_and_reject() {
         "the stopped target disarms"
     );
     assert_eq!(live.status_text(), Some("Agent stopped"));
-    assert_eq!(live.actions.last(), Some(&"killed"));
 }
 
 /// The hint rows (TS `renderReplyComposerHints`): the confirm word by

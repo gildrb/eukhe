@@ -56,8 +56,7 @@ pub(crate) const REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS: u64 = 30 * 60 * 1000;
 pub(crate) const REVIVAL_CLOCK_SKEW_MS: u64 = 60 * 1000;
 
 /// One veto against relaunching a dead descriptor, with the park's log
-/// reason (the adoption telemetry stays counts-only; the reason lives in
-/// the daemon log).
+/// reason (the reason lives in the daemon log).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RevivalVeto {
     /// The supervisor already gave up on this worker (`lifecycle: failed`):
@@ -169,7 +168,6 @@ mod tests {
             root_session_id: None,
             session_file: session_file.map(|p| p.to_string_lossy().to_string()),
             session_dir: None,
-            telemetry_disabled: None,
             created_at: String::new(),
             updated_at: String::new(),
             lifecycle: DaemonWorkerLifecycle::Ready,

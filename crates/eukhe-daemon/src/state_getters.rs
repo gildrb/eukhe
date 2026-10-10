@@ -21,7 +21,9 @@ use serde_json::{json, Value};
 
 use crate::context_tree_cache::WalkRequest;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
-use crate::worker::durable_host::wire_messages::{transcript_messages, transcript_messages_of};
+use crate::worker::durable_host::wire_messages::{
+    assistant_context_tokens, entry_wire_message_with, transcript_messages, transcript_messages_of,
+};
 use crate::worker::{model_metadata, HostedSession, Worker};
 
 impl Worker {
@@ -349,22 +351,35 @@ pub(crate) fn model_context_window(model: Option<&Value>) -> Option<u64> {
 
 /// The tray's context usage off the shown conversation's event mirror (the
 /// attach snapshot's `state.contextUsage` and `get_session_stats`): the
-/// estimate `get_context_tree` computes, over the same active entries the
-/// Harness derives (the newest head marker, then the visible non-head
-/// entries from its head on), without a Harness read, so the attach can
-/// fill it under the core lock it already holds.
+/// estimate `get_context_tree` computes, over [`mirror_context_messages`],
+/// so the attach can fill it under the core lock it already holds.
 pub(crate) fn mirror_context_usage(entries: &[EntryRecord], context_window: u64) -> Value {
-    let messages =
-        match entries.iter().rev().find(|entry| entry.head.is_some()) {
-            None => transcript_messages_of(entries),
-            Some(marker) => {
-                let start = marker.head;
-                transcript_messages_of(std::iter::once(marker).chain(entries.iter().filter(
-                    |entry| entry.head.is_none() && start.is_none_or(|start| entry.id >= start),
-                )))
-            }
-        };
-    context_usage(&messages, context_window)
+    context_usage(&mirror_context_messages(entries), context_window)
+}
+
+/// The active context off the event mirror as wire `AgentMessage` rows (TS
+/// `session.state.messages`): the newest head marker (the compaction
+/// summary), then the visible non-head entries from its head on -- the
+/// entries the Harness derives -- without a Harness read. The summary's
+/// `tokensBefore` is the context the last answer before it measured.
+pub(crate) fn mirror_context_messages(entries: &[EntryRecord]) -> Vec<Value> {
+    let Some(position) = entries.iter().rposition(|entry| entry.head.is_some()) else {
+        return transcript_messages_of(entries);
+    };
+    let marker = &entries[position];
+    let tokens_before = entries[..position]
+        .iter()
+        .rev()
+        .find_map(assistant_context_tokens)
+        .unwrap_or(0);
+    let start = marker.head;
+    let kept = entries
+        .iter()
+        .filter(|entry| entry.head.is_none() && start.is_none_or(|start| entry.id >= start));
+    entry_wire_message_with(marker, tokens_before)
+        .into_iter()
+        .chain(transcript_messages_of(kept))
+        .collect()
 }
 
 /// TS `estimateContextTokens` over `messages` against `context_window`:

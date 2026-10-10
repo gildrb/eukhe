@@ -454,7 +454,7 @@ mod tests {
     fn groups_follow_ts_ordering_and_labels() {
         let paths = resolved(vec![
             resource(
-                "/agent/skills/builtin/websearch/SKILL.md",
+                "/agent/skills/builtin/bundled-skill/SKILL.md",
                 metadata(
                     MetadataSource::Builtin,
                     SourceScope::User,
@@ -603,9 +603,9 @@ mod tests {
         let mut item = user_skill_item(root.path());
         item.metadata.source = MetadataSource::Builtin;
         item.metadata.base_dir = Some(PathBuf::from("/exe/skills"));
-        item.path = PathBuf::from("/exe/skills/websearch/SKILL.md");
+        item.path = PathBuf::from("/exe/skills/bundled-skill/SKILL.md");
         let written = toggle_resource(&mut settings, &cwd, &agent_dir, &item, false).unwrap();
-        assert_eq!(written, "-websearch/SKILL.md");
+        assert_eq!(written, "-bundled-skill/SKILL.md");
     }
 
     #[test]

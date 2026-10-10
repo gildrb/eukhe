@@ -1,5 +1,5 @@
 //! The apply concern: the streamed-event pump -- client events, turn
-//! updates, assistant/tool rows, compaction aborts, and the telemetry seams.
+//! updates, assistant/tool rows, and compaction aborts.
 use super::{
     assistant_message_parts, event_to_update, pop_superseded_attempt_row, AgentView, ChatEntry,
     CompactionReason, CompactionState, DaemonClientEvent, DaemonCommand, Duration, Map,
@@ -160,7 +160,32 @@ impl SessionUi {
         let Some(messages) = data.get("messages").and_then(Value::as_array) else {
             return;
         };
-        let entries = crate::snapshot::transcript_to_entries(messages);
+        let mut entries = crate::snapshot::transcript_to_entries(messages);
+        // The durable summary entry does not record the `/compact` focus;
+        // the live `compaction_end` did (the outcome row pushed before the
+        // re-fetch), so the rebuilt summary keeps it.
+        for entry in &mut entries {
+            let ChatEntry::CompactionSummary {
+                summary,
+                custom_instructions: rebuilt @ None,
+                ..
+            } = entry
+            else {
+                continue;
+            };
+            *rebuilt = view.chat.iter().find_map(|shown| {
+                if let ChatEntry::CompactionSummary {
+                    summary: shown_summary,
+                    custom_instructions: Some(focus),
+                    ..
+                } = shown
+                {
+                    (shown_summary == summary).then(|| focus.clone())
+                } else {
+                    None
+                }
+            });
+        }
         view.clear_chat();
         for entry in entries {
             view.push_entry(entry);
@@ -181,51 +206,6 @@ impl SessionUi {
     /// only the loop owns those.
     pub(crate) fn take_external_editor_request(&mut self) -> Option<String> {
         self.external_editor_request.take()
-    }
-
-    /// Report the run's first suspend cycle (`tui suspend used`),
-    /// fire-and-forget like the scroll event: the keypress never waits on
-    /// the telemetry flush. `outcome` is `resumed` (the SIGCONT
-    /// continuation restored the terminal) or `failed` (the cycle errored).
-    pub(crate) fn track_suspend_used(&mut self, outcome: &'static str) {
-        if self.suspend_adoption_emitted {
-            return;
-        }
-        self.suspend_adoption_emitted = true;
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.suspend_used(outcome).await;
-            });
-        }
-    }
-
-    /// Report a builtin command submission (`agent command used`),
-    /// fire-and-forget like the scroll event: the command's handling never
-    /// waits on the telemetry flush.
-    pub(super) fn track_command_used(&mut self, command: &'static str) {
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.command_used(command).await;
-            });
-        }
-    }
-
-    /// Report a feature attempt's observed outcome (`agent feature
-    /// outcome`), fire-and-forget like the command event: the feature's
-    /// handling never waits on the telemetry flush.
-    pub(super) fn track_feature_outcome(
-        &mut self,
-        feature: &'static str,
-        outcome: &'static str,
-        duration_ms: Option<u64>,
-    ) {
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry
-                    .feature_outcome(feature, outcome, duration_ms)
-                    .await;
-            });
-        }
     }
 
     pub(crate) fn apply_client_event(&mut self, event: DaemonClientEvent, view: &mut AgentView) {
@@ -325,15 +305,6 @@ impl SessionUi {
             // (another client's pause/resume reaches the dock at once).
             DaemonClientEvent::HeartbeatsChanged => {
                 self.spawn_heartbeat_refresh();
-            }
-            // A background daemon-side catalog refresh changed the served
-            // snapshot (the Rust-only no-stall picker-open extension):
-            // every client re-fetches instantly -- the daemon answers from
-            // the warm caches, no stall -- and an open `/model` picker
-            // folds the fresh catalog through its stable update path
-            // (`apply_model_catalog` keeps the selection), no flicker.
-            DaemonClientEvent::ModelCatalogChanged => {
-                self.spawn_model_catalog_refresh();
             }
             // A worker replacement superseded the id this client holds:
             // the interactive loop re-attaches to the session's current id
@@ -736,11 +707,6 @@ impl SessionUi {
     /// stays at the call sites -- the two keys dispose of its pane
     /// differently.
     pub(super) fn interrupt_running_work(&self, view: &AgentView) {
-        // TS `interruptOrClearInput` aborts the trace upload sweep first
-        // (the handler shows the cancelled row when the run settles).
-        if let Some(run) = &self.trace_upload {
-            run.cancel.cancel();
-        }
         if view.compaction.is_some() {
             // The compaction loader is up (TS `isAgentCompacting()`):
             // the interrupt cancels the compaction run only -- the agent
@@ -1001,32 +967,12 @@ impl SessionUi {
                 if !partial {
                     card.ended_at = Some(std::time::Instant::now());
                     self.pending_tools.remove(tool_call_id);
-                    self.track_ipython_bash_rendered(card);
                 }
                 view.mark_entry_stale(index);
                 return true;
             }
         }
         false
-    }
-
-    /// `tui ipython bash rendered`: the settled ipython card that renders
-    /// as bash reports its bash share, primitives only.
-    fn track_ipython_bash_rendered(&self, card: &crate::tool_card::ToolCallCard) {
-        if card.name != "ipython" {
-            return;
-        }
-        let Some(stats) = crate::tool_card::ipython::bash_dominated_stats(card) else {
-            return;
-        };
-        let Some(telemetry) = self.telemetry.clone() else {
-            return;
-        };
-        tokio::spawn(async move {
-            telemetry
-                .ipython_bash_rendered(stats.bash_lines, stats.cell_lines, stats.count)
-                .await;
-        });
     }
 
     /// Update the loader activity label (agent-activity tracker subset).

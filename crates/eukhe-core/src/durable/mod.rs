@@ -60,7 +60,7 @@ pub use open::{open_session, EukheSession, OpenError};
 pub use prompt::{section_keys, PROMPT_EXTENSION};
 pub use registry::create_eukhe_registry;
 pub use session_commands::{
-    classify_session_command, execute_session_command, SessionCommand, SessionCommandName,
-    SessionCommandOutcome,
+    classify_session_command, commit_session_command_echo, commit_session_command_failure,
+    execute_session_command, SessionCommand, SessionCommandName, SessionCommandOutcome,
 };
 pub use settings::{harness_settings, thinking_level, EukheSettings};

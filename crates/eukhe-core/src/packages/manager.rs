@@ -176,16 +176,6 @@ impl PackageManager {
             .unwrap_or(true)
     }
 
-    /// Settings flag: the bundled websearch skill (default true).
-    pub(super) fn bundled_websearch_enabled(&self) -> bool {
-        self.settings
-            .settings()
-            .bundled_skills
-            .as_ref()
-            .and_then(|bundled| bundled.websearch)
-            .unwrap_or(true)
-    }
-
     /// Extra force-exclude patterns for built-in skills.
     pub(super) fn extra_builtin_skill_overrides(&self) -> &[String] {
         &self.extra_builtin_skill_overrides

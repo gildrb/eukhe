@@ -67,7 +67,7 @@ fn a_skill_block_user_message_decodes_to_the_card() {
     // trailing argument text, never the raw block.
     let message = json!({
         "role": "user",
-        "content": "<skill name=\"websearch\" location=\"/s/SKILL.md\">\nRun one query.\n</skill>\n\nfind parity tuis"
+        "content": "<skill name=\"lookup\" location=\"/s/SKILL.md\">\nRun one query.\n</skill>\n\nfind parity tuis"
     });
     let entries = message_value_to_entries(&message);
     assert!(
@@ -76,7 +76,7 @@ fn a_skill_block_user_message_decodes_to_the_card() {
             [
                 ChatEntry::SkillInvocation(card),
                 ChatEntry::User { text }
-            ] if card.name == "websearch"
+            ] if card.name == "lookup"
                 && card.content == "Run one query."
                 && text == "find parity tuis"
         ),

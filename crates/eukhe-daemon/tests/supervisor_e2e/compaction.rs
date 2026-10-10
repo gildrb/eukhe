@@ -287,11 +287,8 @@ fn compaction_commands_scripted_session() {
     assert_eq!(messages[0]["summary"], serde_json::json!("second summary"));
     assert_eq!(messages[0]["tokensBefore"], data["tokensBefore"]);
     assert!(
-        messages[0]["retainedMessageCount"]
-            .as_u64()
-            .unwrap_or_default()
-            > 0,
-        "the empty scripted cut retains the transcript"
+        messages.len() > 1,
+        "the empty scripted cut retains the transcript after the summary: {messages:?}"
     );
 
     // The compaction is durable: a fresh attach replays the compacted view.

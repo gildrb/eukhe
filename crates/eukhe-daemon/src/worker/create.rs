@@ -44,10 +44,6 @@ pub(crate) struct CreateParams {
     pub(crate) parent_session_path: Option<String>,
     pub(crate) child_script: Option<String>,
     pub(crate) model_patterns: Option<Vec<String>>,
-    /// The create payload's `executionMode` (the telemetry execution mode
-    /// the client stamps, TS main.ts `executionMode: appMode`); absent
-    /// (an agent-spawned session) stays `None` (reported as `unknown`).
-    pub(crate) execution_mode: Option<String>,
     /// The parent's in-flight model request the spawn anchored to (TS
     /// `spawnedByRequestId`, in the create config): reaches the child's
     /// semantic-edge ledger registration.
@@ -160,8 +156,6 @@ impl CreateParams {
                         .map(str::to_string)
                         .collect()
                 }),
-            execution_mode: text(Some(payload), "executionMode")
-                .filter(|mode| !mode.trim().is_empty()),
             spawned_by_request_id: text(Some(payload), "spawnedByRequestId"),
             prompt,
             autonomous,
@@ -351,19 +345,6 @@ impl Worker {
             registration.notify_session_created(summary.session_id.clone());
         }
         self.poke_context_tree_refresh();
-        // TS session boot resolves the initial model through
-        // `refreshAvailableModels`, which also fetches the live Prime
-        // Inference catalog in the background and caches it on disk. Fire
-        // the same refresh here: the effect is the cache file (fresh
-        // registries read it), and failures fall back to the cached or
-        // bundled catalog without touching the session.
-        let agent_dir = self.config.agent_dir.clone();
-        tokio::spawn(async move {
-            let auth = eukhe_core::auth::AuthStorage::create(&agent_dir);
-            let mut registry =
-                eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
-            let _ = registry.refresh_available_models().await;
-        });
         let mut data = serde_json::to_value(&summary).unwrap_or(Value::Null);
         if payload.get("interruptedCompaction").is_some() {
             // A failed abort keeps the supervisor's record pending: the
@@ -572,12 +553,7 @@ impl Worker {
         let scripted = self
             .scripted_models()
             .map_err(|error| fail(format!("invalid create script: {error}")))?;
-        let request = HostRequest {
-            config,
-            scripted,
-            telemetry_disabled: self.config.telemetry_disabled,
-            execution_mode: params.execution_mode.clone(),
-        };
+        let request = HostRequest { config, scripted };
         let hosted = match HostedSession::open(request, &self.config.agent_dir, cx).await {
             Ok(hosted) => Arc::new(hosted),
             Err(durable_host::HostError::Lease(error)) => {

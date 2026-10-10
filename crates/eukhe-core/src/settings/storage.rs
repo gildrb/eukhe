@@ -322,23 +322,16 @@ pub(crate) fn opt_in_fsync_calls() -> usize {
     OPT_IN_FSYNC.with(std::cell::Cell::get)
 }
 
-/// Atomic write: temp file + rename, private mode like `writeFileAtomicSync`.
+/// Atomic write: temp file + rename, private mode like the TS
+/// `writeFileAtomicSync(path, data, options)`.
 ///
-/// The default durability: NO fsync. The atomic rename still means a reader
-/// never sees a torn file, and a hard crash leaves either the previous file
-/// (before the rename) or the new file (after it). That is the right class
-/// for regenerable files (caches, mirrors); files whose loss costs the user
-/// state (credentials, settings, cron state, the MCP registry, the harness
-/// state) opt in through [`atomic_write_with`] — the audit is per call
-/// site, never blanket.
-pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
-    atomic_write_with(path, content, AtomicWriteOptions::default())
-}
-
-/// [`atomic_write`] with explicit [`AtomicWriteOptions`]: the TS
-/// `writeFileAtomicSync(path, data, options)` shape. `fsync: true` syncs the
-/// temp file before the rename and the parent directory after it, so the
-/// new content survives a power loss once this returns.
+/// The default durability ([`AtomicWriteOptions::default`]): NO fsync. The
+/// atomic rename still means a reader never sees a torn file, and a hard
+/// crash leaves either the previous file (before the rename) or the new file
+/// (after it). Files whose loss costs the user state (credentials, settings,
+/// cron state, the MCP registry, the harness state) opt in to `fsync: true`,
+/// which syncs the temp file before the rename and the parent directory
+/// after it, so the new content survives a power loss once this returns.
 pub fn atomic_write_with(path: &Path, content: &str, options: AtomicWriteOptions) -> Result<()> {
     let temp = PathBuf::from(format!("{}.tmp{}", path.display(), std::process::id()));
     {
@@ -367,7 +360,7 @@ pub fn atomic_write_with(path: &Path, content: &str, options: AtomicWriteOptions
 }
 
 /// The real file behind `path` (TS `realpathIfPresentSync`), so an
-/// [`atomic_write`] replaces the symlink's target instead of the symlink
+/// [`atomic_write_with`] replaces the symlink's target instead of the symlink
 /// itself: a shared document linked into the agent dir stays shared.
 /// A missing path is returned as-is; a dangling symlink chain is followed
 /// hop by hop (a relative target resolves against the link's physical
@@ -480,7 +473,7 @@ mod tests {
         let path = dir.path().join("state.json");
 
         let before = opt_in_fsync_calls();
-        atomic_write(&path, "default bytes\n").unwrap();
+        atomic_write_with(&path, "default bytes\n", AtomicWriteOptions::default()).unwrap();
         assert_eq!(
             opt_in_fsync_calls(),
             before,

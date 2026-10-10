@@ -274,15 +274,8 @@ async fn sessions_with_fake_child_subagents(
     )
     .await;
     let link = Arc::new(crate::supervisor_link::SupervisorLink::new(socket));
-    let sessions = SupervisorChildSessions::new(
-        link,
-        std::env::temp_dir(),
-        "parent-live".to_string(),
-        std::sync::Arc::new(crate::model_allowlist::ModelRefusalTelemetry::new(
-            std::env::temp_dir(),
-            /*telemetry_disabled*/ true,
-        )),
-    );
+    let sessions =
+        SupervisorChildSessions::new(link, std::env::temp_dir(), "parent-live".to_string());
     // A live parent carries its resolved model on the identity; the
     // spawn path resolves the child's model from it.
     sessions.set_identity(ParentIdentity {

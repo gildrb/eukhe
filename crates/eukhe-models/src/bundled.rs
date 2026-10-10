@@ -5,8 +5,7 @@
 //! build time and shipped beside the executable (a damaged installation
 //! still offers the compiled model definitions). The models asset is parsed
 //! with the strict schema, pinned to compiled transports, and joined with
-//! the compiled offline Prime Inference entries so onboarding works before
-//! the first credentialed fetch.
+//! the compiled Prime Inference entries.
 
 use std::path::{Path, PathBuf};
 

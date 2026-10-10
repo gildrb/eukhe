@@ -32,7 +32,6 @@ in
       example = lib.literalExpression ''
         {
           memory = { model = "anthropic/claude-sonnet-5-5"; thinking = "medium"; };
-          telemetry.enabled = false;
         }
       '';
       description = ''

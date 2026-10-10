@@ -69,10 +69,7 @@ mod tests {
 
     fn errors() -> UnavailablePythonSkills {
         vec![
-            (
-                "websearch".to_string(),
-                "No module named 'websearch'".to_string(),
-            ),
+            ("lookup".to_string(), "No module named 'lookup'".to_string()),
             ("edit".to_string(), "boom".to_string()),
         ]
     }
@@ -84,14 +81,14 @@ mod tests {
         assert!(message.display);
         assert_eq!(
             message.details,
-            Some(serde_json::json!({ "skills": ["websearch", "edit"] }))
+            Some(serde_json::json!({ "skills": ["lookup", "edit"] }))
         );
         let eukhe_types::ai::UserContent::Text(content) = &message.content else {
             panic!("text content");
         };
         assert_eq!(
             content,
-            "[python-skills-unavailable]\n\nThese installed Python skill modules failed to import into the Python kernel, so calling them raises an error:\n- websearch: No module named 'websearch'\n- edit: boom\n\nTheir shell command forms fail the same way. Fix the import error first (for example install the missing dependency with `uv pip install <pkg>` or reinstall the skill into the kernel venv), or use another approach."
+            "[python-skills-unavailable]\n\nThese installed Python skill modules failed to import into the Python kernel, so calling them raises an error:\n- lookup: No module named 'lookup'\n- edit: boom\n\nTheir shell command forms fail the same way. Fix the import error first (for example install the missing dependency with `uv pip install <pkg>` or reinstall the skill into the kernel venv), or use another approach."
         );
     }
 }

@@ -495,12 +495,8 @@ impl Supervisor {
                 // capture never fails the stop (the transcript
                 // survives the sweep, so the bucket's lazy fallback
                 // still reads it).
-                self.capture_deleted_child_usage(
-                    &root_session_file,
-                    &deleted.child_id,
-                    "rlm_delete",
-                )
-                .await;
+                self.capture_deleted_child_usage(&root_session_file, &deleted.child_id)
+                    .await;
                 crate::saved_session_commands::remove_session_artifacts(Path::new(
                     &root_session_file,
                 ));
@@ -513,7 +509,7 @@ impl Supervisor {
                 // the sweep finish from the ledger alone (restart
                 // coverage).
                 if let Some(child_id) = self.tombstoned_child_at(&root_session_file).await {
-                    self.capture_deleted_child_usage(&root_session_file, &child_id, "adoption")
+                    self.capture_deleted_child_usage(&root_session_file, &child_id)
                         .await;
                     crate::saved_session_commands::remove_session_artifacts(Path::new(
                         &root_session_file,
@@ -550,7 +546,6 @@ impl Supervisor {
         self: &Arc<Self>,
         session_file: &str,
         child_id: &str,
-        source: &'static str,
     ) {
         let Ok(ledger) = self.rlm_spawn_ledger_for(None).await else {
             self.log_line("deleted-child capture: could not resolve the spawn ledger");
@@ -565,9 +560,12 @@ impl Supervisor {
         let captured = tokio::task::spawn_blocking(move || {
             append_deleted_child_usage_amendments(&ledger, &session_file, &child_id)
         })
-        .await
-        .unwrap_or(None);
-        self.note_deleted_child_usage_captured(source, captured.unwrap_or(0));
+        .await;
+        if let Err(error) = captured {
+            self.log_line(&format!(
+                "deleted-child capture: the capture task failed: {error}"
+            ));
+        }
     }
 
     /// The ephemeral stop's schedule cancel (TS

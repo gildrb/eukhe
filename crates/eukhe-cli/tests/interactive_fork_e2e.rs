@@ -255,7 +255,6 @@ async fn make_session_active(socket: &Path, session_path: &Path, cwd: &Path) -> 
                 "cwd": cwd.display().to_string(),
                 "sessionDir": session_path.parent().expect("sessions dir").display().to_string(),
             })),
-            telemetry_disabled: None,
             runtime_metadata: None,
             lifecycle: None,
             env: None,

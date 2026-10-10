@@ -87,30 +87,6 @@ pub type RestoreCallback = Arc<dyn Fn(&RestoreResult) + Send + Sync>;
 /// kernel (import name -> import error), once the kernel is usable.
 pub type UnavailableSkillsCallback = Arc<dyn Fn(&UnavailablePythonSkills) + Send + Sync>;
 
-/// Outcome of one full kernel bootstrap (spawn + handshake + namespace
-/// restore + runtime bootstrap), reported once per actual boot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KernelBootstrapOutcome {
-    /// The kernel process is running, revived, and runtime-bootstrapped.
-    Ready,
-    /// Any stage failed; the kernel was torn down before the error surfaced.
-    Error,
-}
-
-/// One kernel boot's facts for the `kernel_bootstrap_*` session counters.
-#[derive(Debug, Clone, Copy)]
-pub struct KernelBootstrapStats {
-    /// No prior namespace snapshot existed to restore (fresh session vs a
-    /// revived one).
-    pub cold: bool,
-    pub outcome: KernelBootstrapOutcome,
-    /// Wall time of the whole bootstrap, milliseconds.
-    pub duration_ms: u64,
-}
-
-/// Reports kernel bootstrap results (the `kernel_bootstrap_*` session counters).
-pub type KernelBootstrapResultHandler = Arc<dyn Fn(KernelBootstrapStats) + Send + Sync>;
-
 #[derive(Default, Clone)]
 pub struct IpythonKernelProvisionerOptions {
     /// Python override. Must have eukhe-runtime installed.
@@ -140,9 +116,6 @@ pub struct IpythonKernelProvisionerOptions {
     /// session can tell the model before it wastes turns calling them
     /// (TS `IpythonToolOptions.onUnavailableSkills`).
     pub on_unavailable_skills: Option<UnavailableSkillsCallback>,
-    /// Publishes the per-boot result for the `kernel_bootstrap_*` counters.
-    /// Telemetry only; kernel behavior never depends on it.
-    pub on_bootstrap_result: Option<KernelBootstrapResultHandler>,
 }
 
 /// Why and how long one startup failed, published through the shared startup
@@ -994,37 +967,8 @@ async fn run_startup(
 }
 
 /// Boot one kernel, restore the prior namespace, then run the runtime
-/// bootstrap. Reports the result through `on_bootstrap_result` once per
-/// actual boot (`kernel bootstrap` telemetry): timing starts at the first
-/// spawn, `cold` means no prior namespace snapshot existed to restore.
+/// bootstrap.
 async fn start_kernel(
-    inner: &Arc<ProvisionerInner>,
-    on_progress: Option<&KernelBootstrapProgressHandler>,
-    pending_stop: Option<tokio::sync::watch::Receiver<bool>>,
-    memo: &tokio::sync::watch::Receiver<Option<StartupResult>>,
-) -> anyhow::Result<ReplKernelManager> {
-    let started = std::time::Instant::now();
-    let cold = !inner
-        .options
-        .snapshot_dir
-        .as_ref()
-        .is_some_and(|dir| snapshot_path_in(dir).exists());
-    let result = start_kernel_impl(inner, on_progress, pending_stop, memo).await;
-    if let Some(report) = &inner.options.on_bootstrap_result {
-        report(KernelBootstrapStats {
-            cold,
-            duration_ms: started.elapsed().as_millis() as u64,
-            outcome: match &result {
-                Ok(_) => KernelBootstrapOutcome::Ready,
-                Err(_) => KernelBootstrapOutcome::Error,
-            },
-        });
-    }
-    result
-}
-
-/// The bootstrap itself; see [`start_kernel`].
-async fn start_kernel_impl(
     inner: &Arc<ProvisionerInner>,
     on_progress: Option<&KernelBootstrapProgressHandler>,
     mut pending_stop: Option<tokio::sync::watch::Receiver<bool>>,

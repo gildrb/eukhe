@@ -385,7 +385,6 @@ fn thinking_level_changes_reach_the_roster_push() {
                 "thinking": "low",
                 "rlmDepth": 1,
                 "parentSessionPath": session_file.to_string_lossy(),
-                "executionMode": "print",
             },
             "runtimeMetadata": {
                 "kind": "subagent",

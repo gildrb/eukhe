@@ -478,7 +478,6 @@ dependencies = [
  "eukhe-daemon",
  "eukhe-durable",
  "eukhe-pi-ai",
- "eukhe-telemetry",
  "eukhe-tui",
  "eukhe-types",
  "futures",
@@ -506,13 +505,11 @@ dependencies = [
  "eukhe-durable",
  "eukhe-models",
  "eukhe-pi-ai",
- "eukhe-telemetry",
  "eukhe-types",
  "fancy-regex",
  "futures",
  "getrandom 0.3.4",
  "globset",
- "hmac",
  "ignore",
  "libc",
  "nix",
@@ -545,9 +542,7 @@ dependencies = [
  "eukhe-chord",
  "eukhe-core",
  "eukhe-durable",
- "eukhe-models",
  "eukhe-pi-ai",
- "eukhe-telemetry",
  "eukhe-types",
  "filetime",
  "futures",
@@ -594,15 +589,9 @@ version = "0.9.9-eukhe.1"
 dependencies = [
  "eukhe-ai",
  "eukhe-types",
- "hex",
- "hmac",
- "reqwest",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
- "thiserror",
- "tokio",
  "tracing",
 ]
 
@@ -641,21 +630,6 @@ dependencies = [
  "url",
  "uuid",
  "zstd",
-]
-
-[[package]]
-name = "eukhe-telemetry"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "reqwest",
- "rustix 1.1.4",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
 ]
 
 [[package]]

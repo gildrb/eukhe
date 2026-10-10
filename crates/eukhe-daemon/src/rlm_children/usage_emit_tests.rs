@@ -63,10 +63,6 @@ fn registry(agent_dir: &Path) -> SupervisorChildSessions {
         Arc::new(SupervisorLink::new(socket)),
         agent_dir.to_path_buf(),
         "parent-live".to_string(),
-        std::sync::Arc::new(crate::model_allowlist::ModelRefusalTelemetry::new(
-            agent_dir.to_path_buf(),
-            /*telemetry_disabled*/ true,
-        )),
     )
 }
 

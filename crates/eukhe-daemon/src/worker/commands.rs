@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use super::durable_host::bridge::{QueuedInput, QueuedMode};
 use super::durable_host::meta;
 use super::durable_host::suspended::{write_suspended, SuspendedState, WithdrawnInput};
-use super::durable_host::wire_messages::{entry_wire_message, transcript_messages};
+use super::durable_host::wire_messages::entry_wire_message;
 use super::{response_failure, response_success, HostedSession, KillCloseReason, Worker};
 use crate::protocol::DaemonResponse;
 
@@ -462,7 +462,9 @@ impl Worker {
         let messages = core
             .view
             .as_ref()
-            .map(|view| transcript_messages(&view.translator.mirror().entries))
+            .map(|view| {
+                crate::state_getters::mirror_context_messages(&view.translator.mirror().entries)
+            })
             .unwrap_or_default();
         response_success(None, "get_messages", Some(json!({ "messages": messages })))
     }
@@ -589,11 +591,6 @@ impl Worker {
                 if let Err(error) = meta::mark_archived(hosted.harness(), &BACKGROUND_CONTEXT).await
                 {
                     return response_failure(None, "kill", &error.to_string(), None);
-                }
-                // The archive reaches telemetry before the close ends the
-                // session (the old engine's `session archived` order).
-                if let Some(telemetry) = hosted.telemetry() {
-                    telemetry.note_archived();
                 }
             }
         }

@@ -24,8 +24,8 @@ use super::McpServerConfig;
 /// when a connection record outlives its catalog entry. The claim "the
 /// catalog source is unavailable" is honest only when a validated remote
 /// catalog snapshot is in hand — TS always has one (the compiled catalog
-/// in the deployed release, the fetch lane's last-good cache or the
-/// packaged bundle on main), so it never claims absence it cannot prove;
+/// in the deployed release, the packaged bundle on main), so it never
+/// claims absence it cannot prove;
 /// without a snapshot the pin keeps the connection manageable but makes
 /// no source-unavailable claim.
 pub(crate) const PINNED_FROM_RECORD_HINT: &str =
@@ -83,12 +83,11 @@ pub struct BuildViewsInputs<'a> {
     pub user_servers: Option<&'a HashMap<String, McpServerConfig>>,
     pub credentials: &'a SnapshotCredentials,
     pub records: &'a HashMap<String, McpConnectionRecord>,
-    /// A validated remote catalog snapshot is in hand (the fetch lane's
-    /// last-good cache or the packaged bundle): the pinned-definition hint
-    /// claims the service left the catalog, so it renders only when a
-    /// snapshot can PROVE that. Without one (the fetch never ran, failed,
-    /// or the bundle is missing) the pin keeps the connection manageable
-    /// but stays silent.
+    /// A validated catalog snapshot is in hand (the packaged bundle): the
+    /// pinned-definition hint claims the service left the catalog, so it
+    /// renders only when a snapshot can PROVE that. Without one (the bundle
+    /// is missing or invalid) the pin keeps the connection manageable but
+    /// stays silent.
     pub catalog_available: bool,
 }
 
@@ -491,29 +490,6 @@ pub struct McpConnectionView {
     pub login_pending: Option<bool>,
     pub source: ViewSource,
     pub setup_hint: Option<String>,
-}
-
-/// The `/mcp` view's api-key credential catalog: the non-provider keys the
-/// product stores in the shared auth store and offers alongside the MCP
-/// connections (the web-search key the websearch skill's runtime reads).
-pub const API_KEY_CREDENTIALS: &[(&str, &str)] = &[(
-    crate::auth::SERPER_CREDENTIAL_ID,
-    crate::auth::SERPER_CREDENTIAL_NAME,
-)];
-
-/// One row of the `/mcp` view's api-key credential section (the daemon's
-/// `get_mcp_connections` response): a stored key the surface manages. Enter
-/// opens the paste-the-key prompt; the submitted key lands in the row's auth
-/// slot (the `AuthCredential::ApiKey` form).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpCredentialView {
-    /// The auth-store slot the credential writes and the runtime reads
-    /// (e.g. `serper`).
-    pub id: String,
-    pub label: String,
-    /// True when the shared auth store holds an API key at the slot.
-    pub configured: bool,
 }
 
 /// The conflict hint of a reserved-ownership ruling (canonical and disabled

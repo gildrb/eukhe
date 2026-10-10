@@ -921,14 +921,11 @@ impl Supervisor {
             // catalog snapshot must rescan instead of serving them (TS #2487
             // invalidates the shared snapshot on the saved-session delete).
             self.invalidate_passive_catalog();
-            let captured = tombstone_saved_session_delete_captured(
+            tombstone_saved_session_delete_captured(
                 &self.options.agent_dir,
                 sessions_dir.as_deref().unwrap_or(&self.options.agent_dir),
                 &capture,
             );
-            if captured > 0 {
-                self.note_deleted_child_usage_captured("saved_delete", captured);
-            }
             // The deleted file's binding dies with it: a stale id for the
             // session can never rebind again (no successor worker can take
             // the file over), so the entries drop instead of leaking for

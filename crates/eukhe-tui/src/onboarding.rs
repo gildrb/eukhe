@@ -1,19 +1,14 @@
 //! First-run onboarding surface (TS `PrimeOnboardingSplashComponent` +
 //! `OnboardingChoiceComponent`): the welcome line and the flow panels
 //! the full first-run flow mounts inside the block (the login dialog,
-//! the connect-more providers picker, the trace question).
-//! [`OnboardingChoice`] is the
-//! reusable question panel (options with optional detail subtitles, a
-//! row-width override, a seeded cursor); the splash mounts one for the
-//! trace question and owns the pane until the flow completes; the
-//! answers and the completion flag persist through
-//! [`crate::interactive::OnboardingSink`].
+//! the team question, the connect-more providers picker).
+//! [`OnboardingChoice`] is the reusable question panel (options with
+//! optional detail subtitles, a row-width override, a seeded cursor); the
+//! completion flag persists through [`crate::interactive::OnboardingSink`].
 //!
-//! The two first-run shapes both live here: a home whose startup model
-//! is ready skips to the question (the splash mounts it immediately, TS
-//! `immediate: true`), while a home with no usable model runs the full
-//! flow (TS `runOnboardingFlow`'s not-ready branch) -- the welcome
-//! screen's description and login action, then the flow panels in
+//! A home with no usable model runs the full flow (TS
+//! `runOnboardingFlow`'s not-ready branch) -- the welcome screen's
+//! description and login action, then the flow panels in
 //! [`crate::onboarding_flow`], one at a time.
 
 use crate::keybindings::KeybindingsManager;
@@ -23,35 +18,6 @@ use crate::onboarding_flow::{welcome_action_row, welcome_rows, OnboardingPanel};
 use crate::style::{Color, Modifier, Style};
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
-
-/// The trace-sharing question (TS `askOnboardingTraceOptIn`).
-pub const TRACE_OPT_IN_PROMPT: &str = "Upload agent traces to Prime Intellect Traces?";
-const TRACE_OPT_IN_DESCRIPTION: &str = "Uploads session traces to the Prime Intellect Traces service, a third-party dataset of agent sessions.";
-const TRACE_OPT_IN_NOTE: &str = "You can change this anytime with /traces.";
-/// Choice rows: `Share` opts in (index 0), `Not now` keeps traces off.
-const CHOICES: [&str; 2] = ["Share", "Not now"];
-
-/// The trace question's options (TS `askOnboardingTraceOptIn` mounts
-/// `[{ label: "Share" }, { label: "Not now" }]`).
-pub(crate) fn trace_question_options() -> Vec<OnboardingChoiceOption> {
-    CHOICES
-        .iter()
-        .map(|label| OnboardingChoiceOption {
-            label: (*label).to_string(),
-            detail: None,
-        })
-        .collect()
-}
-
-/// The trace question's copy (TS `askOnboardingTraceOptIn`'s config).
-pub(crate) fn trace_question_config() -> OnboardingChoiceOptions {
-    OnboardingChoiceOptions {
-        prompt: Some(TRACE_OPT_IN_PROMPT.to_string()),
-        description: Some(TRACE_OPT_IN_DESCRIPTION.to_string()),
-        note: Some(TRACE_OPT_IN_NOTE.to_string()),
-        row_width: None,
-    }
-}
 
 /// The onboarding team question's prompt (TS `showPrimeTeamSelector`'s
 /// onboarding arm mounts `OnboardingChoiceComponent` with this prompt).
@@ -101,10 +67,6 @@ const HIGHLIGHT_LIFT: f64 = 0.08;
 
 /// The outcome of one onboarding key press.
 pub enum OnboardingDecision {
-    /// Enter on a choice row: the index of the selected option.
-    Selected(usize),
-    /// Cancel: the flow completed without an answer.
-    Cancelled,
     /// Exit keys while onboarding owns the pane: quit the app.
     Exit,
     /// Enter on the welcome screen's login action (TS the splash's
@@ -126,27 +88,7 @@ pub struct OnboardingScreen {
     panel: Option<OnboardingPanel>,
 }
 
-impl Default for OnboardingScreen {
-    fn default() -> Self {
-        Self {
-            flow_started: true,
-            panel: Some(OnboardingPanel::Question(OnboardingChoice::new(
-                trace_question_options(),
-                None,
-                trace_question_config(),
-            ))),
-        }
-    }
-}
-
 impl OnboardingScreen {
-    /// The model-ready branch's splash (TS `immediate: true`): the trace
-    /// question mounts directly under the welcome line.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// The full flow's splash (TS the plain `showOnboardingSplash`): the
     /// welcome text and the single login action, until Enter starts the
     /// flow.
@@ -280,9 +222,7 @@ impl OnboardingScreen {
                     reply: Some(reply),
                 });
             }
-            AuthPanelRequest::ProviderSettled { .. }
-            | AuthPanelRequest::McpSettled { .. }
-            | AuthPanelRequest::TracesSettled { .. } => {}
+            AuthPanelRequest::ProviderSettled { .. } | AuthPanelRequest::McpSettled { .. } => {}
         }
     }
 
@@ -442,17 +382,6 @@ mod tests {
     fn custom_theme(json: &str, mode: ColorMode) -> Theme {
         let json: ThemeJson = serde_json::from_str(json).expect("valid theme json");
         Theme::from_json(&json, mode).expect("theme resolves")
-    }
-
-    /// The trace-question pane at 80x24, pinned cell for cell: the
-    /// welcome line, then the question panel directly under it.
-    #[test]
-    fn trace_question_render_is_unchanged() {
-        const GOLDEN: &str = r#"[[], [Span { style: Style::new(), content: " " }, Span { style: Style::new().fg(Color::Reset), content: "Welcome to " }, Span { style: Style::new().fg(Color::Reset).bold(), content: "eukhe" }], [], [Span { style: Style::new().fg(Color::Reset), content: " Upload agent traces to Prime Intellect Traces?" }], [], [Span { style: Style::new().fg(Color::Rgb(161, 161, 170)), content: " Uploads session traces to the Prime Intellect" }], [Span { style: Style::new().fg(Color::Rgb(161, 161, 170)), content: " Traces service, a third-party dataset of agent" }], [Span { style: Style::new().fg(Color::Rgb(161, 161, 170)), content: " sessions." }], [], [Span { style: Style::new(), content: " " }, Span { style: Style::new().fg(Color::Reset).bg(Color::Rgb(35, 35, 35)).bold(), content: "> Share" }, Span { style: Style::new().fg(Color::Rgb(113, 113, 122)).bg(Color::Rgb(35, 35, 35)), content: "                       " }], [Span { style: Style::new(), content: " " }, Span { style: Style::new().fg(Color::Rgb(161, 161, 170)), content: "  Not now" }, Span { style: Style::new().fg(Color::Rgb(113, 113, 122)), content: "                     " }], [], [Span { style: Style::new().fg(Color::Rgb(113, 113, 122)), content: " You can change this anytime with /traces." }], [], [], [], [], [], [], [], [], [], [], []]"#;
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-        let kb = crate::keybindings::KeybindingsManager::new();
-        let lines = OnboardingScreen::new().render(&theme, 80, 24, &kb);
-        assert_eq!(format!("{lines:?}"), GOLDEN);
     }
 
     #[test]

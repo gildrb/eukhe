@@ -96,12 +96,6 @@ class TheMappingTestCase(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-tui")
 
-    def test_pa_telemetry_only_runs_all_dependents(self):
-        rc, out, outputs = run_mapper(["crates/eukhe-telemetry/src/lib.rs"])
-        self.assertEqual(rc, 0, out)
-        self.assertEqual(outputs["crates"],
-                         "eukhe-cli,eukhe-core,eukhe-daemon,eukhe-telemetry,eukhe-tui")
-
     def test_an_unknown_crate_fails_safe(self):
         rc, out, outputs = run_mapper(["crates/eukhe-future/src/lib.rs"])
         self.assertEqual(rc, 0, out)

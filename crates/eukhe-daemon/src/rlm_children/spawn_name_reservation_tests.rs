@@ -144,15 +144,8 @@ async fn sessions_with_gated_supervisor(
     )
     .await;
     let link = Arc::new(crate::supervisor_link::SupervisorLink::new(socket));
-    let sessions = SupervisorChildSessions::new(
-        link,
-        std::env::temp_dir(),
-        "parent-live".to_string(),
-        std::sync::Arc::new(crate::model_allowlist::ModelRefusalTelemetry::new(
-            std::env::temp_dir(),
-            /*telemetry_disabled*/ true,
-        )),
-    );
+    let sessions =
+        SupervisorChildSessions::new(link, std::env::temp_dir(), "parent-live".to_string());
     sessions.set_identity(ParentIdentity {
         model: Some("mock/mock-1".to_string()),
         cwd: Some(std::env::temp_dir().to_string_lossy().to_string()),

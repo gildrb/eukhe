@@ -144,21 +144,17 @@ pub(super) async fn hand_terminal_to_requests(
 ) {
     use crate::suspend::{SuspendSignals, SuspendTerminal};
     if session.take_suspend_request() && renderer.is_terminal() {
-        match crate::suspend::suspend_cycle(
+        if let Err(error) = crate::suspend::suspend_cycle(
             &mut crate::suspend::ProcessSignals,
             &mut TerminalHandoff {
                 renderer: &mut *renderer,
             },
         ) {
-            Ok(()) => session.track_suspend_used("resumed"),
-            Err(error) => {
-                session.track_suspend_used("failed");
-                session.error_row(&format!("{error:#}"), view);
-                // Try to take the terminal back so the run stays usable;
-                // if that also fails, the next draw surfaces the broken
-                // frame.
-                let _ = renderer.resume();
-            }
+            session.error_row(&format!("{error:#}"), view);
+            // Try to take the terminal back so the run stays usable;
+            // if that also fails, the next draw surfaces the broken
+            // frame.
+            let _ = renderer.resume();
         }
     }
     let Some(command) = session.take_external_editor_request() else {

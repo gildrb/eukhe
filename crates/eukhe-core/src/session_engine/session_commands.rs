@@ -265,9 +265,6 @@ async fn execute_compact(
             execution.compaction_skipped = Some(message);
         }
         CompactOutcome::Ran(run) => {
-            if let Some(telemetry) = &engine.telemetry {
-                telemetry.note_compaction(Some(run.duration_ms));
-            }
             execution.compaction = Some(CompactionExecution {
                 entry: run.entry,
                 result: run.result,
@@ -337,15 +334,6 @@ async fn execute_goal(
     execution: &mut SessionCommandExecution,
 ) -> Result<(), String> {
     let goal = parse_goal_command(&command.args)?;
-    // The goal command's fixed choice for the feature-outcome seam
-    // (captured before the driver arm moves the command's fields).
-    let goal_choice = match goal {
-        GoalCommand::Status => "status",
-        GoalCommand::Clear => "clear",
-        GoalCommand::Pause => "pause",
-        GoalCommand::Resume => "resume",
-        GoalCommand::Start { .. } => "create",
-    };
     let driver: Arc<tokio::sync::Mutex<GoalDriver>> = engine.goal_driver.clone();
     let session = engine.session.session_handle().clone();
     let mut context_message: Option<CustomMessage> = None;
@@ -415,11 +403,6 @@ async fn execute_goal(
     // turn's primary record (an injected custom row), never an early
     // durable row — the loop admission appends it once.
     execution.continuation_message = context_message;
-    // The goal command's observed result at this seam (the driver applied
-    // the action), counted as `feature_goal_completed_count`.
-    if let Some(telemetry) = engine.telemetry.as_ref() {
-        telemetry.note_feature_outcome("goal", "completed", Some(goal_choice));
-    }
     Ok(())
 }
 

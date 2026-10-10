@@ -15,6 +15,7 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
+use eukhe_pi_ai::models::{create_models as create_pi_models, CreateModelsOptions, Models};
 
 use super::deps::{
     HostDeps, OpenedSession, ResolvedServices, ServiceStop, SessionConfig, SessionStorage,
@@ -171,9 +172,14 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         EukheSettings::new(&config.cwd, &config.agent_dir)
     });
     let manager = settings.manager();
+    // A caller-supplied collection (the faux-script seams) may serve several
+    // sessions (the daemon worker's script across replacements), so the
+    // session wraps a session-local collection over its provider rows: the
+    // rows' request state (the script queue) stays shared, while this
+    // session's wrappers never reach another session's requests.
     let models = match &config.models {
-        Some(models) => models.clone(),
-        None => create_models(&config.agent_dir, cx).await?,
+        Some(models) => session_local_models(models),
+        None => create_models(&config.agent_dir)?,
     };
     // The session's semantic-edge recorder (the ACP request-id ledger) at
     // the TS locations (`semanticEdgeLedgerPath`): a spawned child's in its
@@ -214,18 +220,18 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         },
     ));
     // The session's own model collection gets the eukhe provider behaviors
-    // (failover, quota park, image routing, request timing); a shared
-    // collection (the daemon's faux scripts) stays unwrapped.
+    // (failover, quota park, image routing, request timing); a
+    // caller-supplied collection (the faux scripts) serves its rows as-is.
     if config.models.is_none() {
         // The runtime registers itself on the deps; the handle it returns
         // is for callers that need it before the deps are reachable.
         let _ = ProviderRuntime::install(&models, &deps);
-        // The semantic-edge wrapper rides OUTERMOST (over the provider
-        // runtime's timing fn, the old engine's wrap order): every model
-        // request mints its id, sends it on the wire headers, and settles
-        // on the ledger.
-        wrap_models_with_semantic_edges(&models, &semantic_edges);
     }
+    // The semantic-edge wrapper rides OUTERMOST (over the provider
+    // runtime's timing fn, the old engine's wrap order): every model
+    // request mints its id, sends it on the wire headers, and settles on
+    // the ledger.
+    wrap_models_with_semantic_edges(&models, &semantic_edges);
     let registry = create_eukhe_registry(&deps)?;
 
     let session_id = config.session_id.clone();
@@ -297,10 +303,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
 /// semantic-edge recorder (TS `wrapStreamFnWithSemanticEdges`, outermost
 /// over the provider runtime's wrappers): each provider row is re-wrapped
 /// in place.
-fn wrap_models_with_semantic_edges(
-    models: &eukhe_pi_ai::models::Models,
-    recorder: &Arc<SemanticEdgeRecorder>,
-) {
+fn wrap_models_with_semantic_edges(models: &Models, recorder: &Arc<SemanticEdgeRecorder>) {
     for provider in models.get_providers() {
         let mut provider = (*provider).clone();
         provider.stream = wrap_stream_fn(Arc::clone(recorder), provider.stream);
@@ -308,6 +311,18 @@ fn wrap_models_with_semantic_edges(
             wrap_stream_simple_fn(Arc::clone(recorder), provider.stream_simple);
         models.set_provider(provider);
     }
+}
+
+/// A session-local collection over a caller-supplied collection's provider
+/// rows. The caller-supplied collections are the in-memory faux seams
+/// (built over [`CreateModelsOptions::default`]), so the local collection
+/// takes the same default credential and catalog stores.
+fn session_local_models(shared: &Models) -> Models {
+    let models = create_pi_models(CreateModelsOptions::default());
+    for provider in shared.get_providers() {
+        models.set_provider((*provider).clone());
+    }
+    models
 }
 
 async fn open_storage(

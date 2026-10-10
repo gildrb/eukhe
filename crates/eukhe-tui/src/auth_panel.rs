@@ -37,7 +37,6 @@ use crate::menu_panel::{
 use crate::provider_auth::ProviderAuthOutcome;
 use crate::search_input::SearchInput;
 use crate::theme::{Theme, ThemeColor};
-use crate::traces::TraceLoginOutcome;
 use crate::{Line, Span};
 
 // The render surface (the per-surface chrome, the progress block, the
@@ -187,15 +186,6 @@ pub enum AuthPanelRequest {
     },
     /// A `/mcp` view auth command settled: its status line applies.
     McpSettled { note: String },
-    /// The `/traces` login settled: the login's outcome applies (the
-    /// enable intent continues in the session). `gen` is the login
-    /// run's generation: the arm matches it against the run loop's
-    /// current counter, so a superseded (Esc'd) run's late settle
-    /// cannot clear a newer login (#2845 review).
-    TracesSettled {
-        outcome: TraceLoginOutcome,
-        gen: u64,
-    },
 }
 
 /// A login flow's cooperative cancel signal: the flag the blocking body

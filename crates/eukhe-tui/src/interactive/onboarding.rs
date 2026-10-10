@@ -3,8 +3,8 @@
 //! screens, and the phase that runs the flow before the session screen.
 
 use super::{
-    mpsc, AgentView, Duration, ExitGuard, Future, Instant, KeybindingsManager, Pin, Renderer,
-    Result, SessionUi, UiInput,
+    mpsc, AgentView, Duration, ExitGuard, Instant, KeybindingsManager, Renderer, Result, SessionUi,
+    UiInput,
 };
 use crate::glyphs::WARN;
 
@@ -18,19 +18,6 @@ pub trait OnboardingSink: Send + Sync {
     /// it opens with the same task, so a completed flow re-checks the
     /// persisted marker here and never shows anything again.
     fn onboarding_shown(&self) -> bool;
-    /// Whether a trace-sharing choice was ever written (TS
-    /// `settings.agentTraces.enabled` presence): a provisioned or
-    /// copied-config home carries one. Such homes never see the question
-    /// -- the standing choice stands and the flow completes silently;
-    /// only a fresh home (no choice written) is asked once.
-    fn agent_traces_choice_written(&self) -> bool;
-    /// Persist the trace-sharing answer (TS `setAgentTracesEnabled`).
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err` when persisting the choice to the settings store
-    /// fails.
-    fn set_agent_traces_enabled(&self, enabled: bool) -> anyhow::Result<()>;
     /// Mark the onboarding flow completed (TS `markOnboardingShown` +
     /// `flush`); an aborted flow leaves the flag unset.
     ///
@@ -38,15 +25,6 @@ pub trait OnboardingSink: Send + Sync {
     ///
     /// Returns `Err` when persisting the completion marker fails.
     fn mark_onboarding_complete(&self) -> anyhow::Result<()>;
-    /// The flow ran but did not complete (TS `runStartupOnboarding`'s
-    /// `finally`): `outcome` is `aborted` (cancelled, quit, or no usable
-    /// model at the end) or `error` (the flow failed). Resolves once the
-    /// report is delivered (or dropped), so a quit right after cannot
-    /// tear the runtime down under it.
-    fn onboarding_incomplete(
-        &self,
-        outcome: &'static str,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
 /// The model-readiness probe (TS `isOnboardingModelReady` over
@@ -57,12 +35,12 @@ pub trait OnboardingSink: Send + Sync {
 pub type ModelReadiness = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
 
 /// The first-run flow to run before the session screen (TS
-/// `runStartupOnboarding`): the model-ready branch asks the trace
-/// question on the immediate splash; a home with no usable model runs
-/// the full flow (TS `runOnboardingFlow`'s not-ready branch) -- the
+/// `runStartupOnboarding`): a home whose startup model is ready has
+/// nothing to ask and completes silently; a home with no usable model
+/// runs the full flow (TS `runOnboardingFlow`'s not-ready branch) -- the
 /// welcome screen's login action, the Prime Inference sign-in through
-/// the inline auth panel, the default-model apply, the
-/// connect-more-providers picker, and the trace question.
+/// the inline auth panel, the default-model apply, and the
+/// connect-more-providers picker.
 #[derive(Clone)]
 pub struct OnboardingTask {
     pub sink: std::sync::Arc<dyn OnboardingSink>,
@@ -393,15 +371,7 @@ pub(super) async fn run_onboarding_phase(
     if task.sink.onboarding_shown() {
         return Ok(false);
     }
-    let result = run_onboarding_flow(task, session, view, drive).await;
-    // Only a completed flow sets the marker; every other ending reports
-    // its outcome (TS `onboarding completed` with `aborted` / `error`).
-    if !task.sink.onboarding_shown() {
-        task.sink
-            .onboarding_incomplete(if result.is_err() { "error" } else { "aborted" })
-            .await;
-    }
-    result
+    run_onboarding_flow(task, session, view, drive).await
 }
 
 async fn run_onboarding_flow(
@@ -411,50 +381,8 @@ async fn run_onboarding_flow(
     drive: &mut PaneDrive<'_>,
 ) -> Result<bool> {
     if (task.model_ready)() {
-        // The ready branch's standing-choice gate (the operator ruling): a
-        // home that already carries a trace-sharing choice (a provisioned
-        // or copied-config home, or a `/traces` change made before the
-        // flow completed) never sees the question -- the standing choice
-        // stands and the flow completes silently. The question below is
-        // the first-run step for a fresh home only -- asked exactly once,
-        // then the marker gates every later run.
-        if task.sink.agent_traces_choice_written() {
-            if let Err(error) = task.sink.mark_onboarding_complete() {
-                warn_onboarding_persist_failure(session, view, &error);
-            }
-            return Ok(false);
-        }
-        // The model-ready branch (TS `runOnboardingFlow`'s ready case):
-        // the immediate splash mounts the trace question alone.
-        let screen = crate::onboarding::OnboardingScreen::new();
-        let (_screen, outcome) =
-            drive_onboarding_pane(view, &mut *drive, screen, None, &mut session.osc_sink).await?;
-        match outcome {
-            PaneOutcome::InputClosed => return Ok(false),
-            PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Exit) => return Ok(true),
-            PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Selected(index)) => {
-                // `Share` opts in; `Not now` keeps traces off (TS
-                // finish(index === 0)). A cancel writes no answer at all,
-                // but the flow still completed. A write that fails
-                // surfaces as a warning row: the flow still settled this
-                // run, but an unpersisted marker re-mounts it next launch --
-                // the user must know, the run never dies over it.
-                if let Err(error) = task.sink.set_agent_traces_enabled(index == 0) {
-                    warn_onboarding_persist_failure(session, view, &error);
-                }
-            }
-            // A cancel writes no answer; the flow still completed (TS
-            // finish(undefined)).
-            PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Cancelled) => {}
-            // The question binds nothing else; a settled flow never ran.
-            PaneOutcome::Decision(
-                crate::onboarding::OnboardingDecision::Begin
-                | crate::onboarding::OnboardingDecision::Pick(_),
-            )
-            | PaneOutcome::Flow(_) => {
-                unreachable!("the question panel yields Selected or Cancelled only")
-            }
-        }
+        // The model-ready branch: nothing to ask -- the flow completes
+        // silently and the marker gates every later run.
         if let Err(error) = task.sink.mark_onboarding_complete() {
             warn_onboarding_persist_failure(session, view, &error);
         }
@@ -464,7 +392,7 @@ async fn run_onboarding_flow(
     // The full flow (TS `runOnboardingFlow`'s not-ready branch): one
     // sequence for every first launch. Signing in is instant when a
     // Prime CLI token is already on disk, so users who arrive with
-    // credentials still reach the same account, provider and trace
+    // credentials still reach the same account and provider
     // questions. A flow that aborts (a cancelled or failed sign-in,
     // the exit keys) leaves the marker unset -- the next launch retries.
     let screen = crate::onboarding::OnboardingScreen::welcome();
@@ -476,11 +404,7 @@ async fn run_onboarding_flow(
         PaneOutcome::InputClosed => return Ok(false),
         PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Exit) => return Ok(true),
         PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Begin) => {}
-        PaneOutcome::Decision(
-            crate::onboarding::OnboardingDecision::Selected(_)
-            | crate::onboarding::OnboardingDecision::Cancelled
-            | crate::onboarding::OnboardingDecision::Pick(_),
-        )
+        PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Pick(_))
         | PaneOutcome::Flow(_) => {
             unreachable!("the welcome screen yields Begin or Exit only")
         }
@@ -643,11 +567,7 @@ async fn run_onboarding_flow(
             PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Pick(
                 crate::onboarding_flow::ProviderPick::Provider(id),
             )) => id,
-            PaneOutcome::Decision(
-                crate::onboarding::OnboardingDecision::Selected(_)
-                | crate::onboarding::OnboardingDecision::Cancelled
-                | crate::onboarding::OnboardingDecision::Begin,
-            )
+            PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Begin)
             | PaneOutcome::Flow(_) => unreachable!("the picker yields Pick only"),
         };
         let row = rows
@@ -785,42 +705,6 @@ async fn run_onboarding_flow(
         // The loop re-mounts a fresh picker with fresh connected marks.
     }
 
-    // The trace question (TS `askOnboardingTraceOptIn`), the flow's last
-    // step -- the merged question surface. A home that already carries a
-    // standing choice skips it (the operator ruling: the choice stands)
-    // while the flow still completes below -- an aborted retry (the model
-    // still not ready) leaves the marker unset, so the next launch runs
-    // the sign-in again without re-asking.
-    if !task.sink.agent_traces_choice_written() {
-        screen.mount_panel(crate::onboarding_flow::OnboardingPanel::Question(
-            crate::onboarding_choice::OnboardingChoice::new(
-                crate::onboarding::trace_question_options(),
-                None,
-                crate::onboarding::trace_question_config(),
-            ),
-        ));
-        let (_screen, outcome) =
-            drive_onboarding_pane(view, &mut *drive, screen, None, &mut session.osc_sink).await?;
-        match outcome {
-            PaneOutcome::InputClosed => return Ok(false),
-            PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Exit) => return Ok(true),
-            PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Selected(index)) => {
-                // `Share` opts in; `Not now` keeps traces off. A cancel
-                // writes no answer, but the flow still completed.
-                if let Err(error) = task.sink.set_agent_traces_enabled(index == 0) {
-                    warn_onboarding_persist_failure(session, view, &error);
-                }
-            }
-            PaneOutcome::Decision(crate::onboarding::OnboardingDecision::Cancelled) => {}
-            PaneOutcome::Decision(
-                crate::onboarding::OnboardingDecision::Begin
-                | crate::onboarding::OnboardingDecision::Pick(_),
-            )
-            | PaneOutcome::Flow(_) => {
-                unreachable!("the question panel yields Selected or Cancelled only")
-            }
-        }
-    }
     // TS `runStartupOnboarding`: only a completed flow whose model is
     // ready marks onboarding seen -- a flow whose sign-in left the home
     // without a usable model stays unset and retries next launch.
@@ -835,8 +719,7 @@ async fn run_onboarding_flow(
 /// A failed onboarding persistence write surfaces as a warning row in the
 /// session: the flow still settled for this run, but an unpersisted marker
 /// re-mounts the whole flow on the next launch -- the user must know, and the
-/// run never dies over a settings write (the session stays usable; `/traces`
-/// stays the change path).
+/// run never dies over a settings write (the session stays usable).
 fn warn_onboarding_persist_failure(
     session: &mut SessionUi,
     view: &mut AgentView,

@@ -85,7 +85,6 @@ impl Supervisor {
         self.log_line(&format!(
             "rebinding stale session id {selector} -> {current}"
         ));
-        self.note_daemon_event("session_rebound", None);
         let was_attached = attached.rebind(&self.session_subscribers, selector, &current);
         if was_attached {
             let (session_id, session_file) = {
@@ -437,11 +436,6 @@ impl Supervisor {
             "list_saved_sessions",
             Some(json!({ "sessions": sessions })),
         )));
-        // Telemetry: how many served rows carry a usage summary — the
-        // agents-view spend columns' data (a count only, never session
-        // payload).
-        let rows_with_usage = infos.iter().filter(|info| info.usage.is_some()).count();
-        self.note_saved_sessions_listed(rows_with_usage);
         lines
     }
 

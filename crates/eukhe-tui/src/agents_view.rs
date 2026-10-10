@@ -223,11 +223,6 @@ pub struct AgentsViewOutcome {
     /// `statusMessage` on the open result): the unattachable-child
     /// fallback surfaces it in the next view run.
     pub status_message: Option<String>,
-    /// The view actions this run performed (`program_shown`, when a
-    /// ctrl+o turned a spawn program on; `renamed`, when a rename
-    /// landed): the composition root emits the `tui agents action`
-    /// adoption events at the run's end.
-    pub actions: Vec<&'static str>,
     /// The incident notice state this run ended with, for the caller to
     /// restore on re-entry (TS `persistentState.incidentNoticeState`):
     /// dismissal horizons and the consumed log offset survive.
@@ -532,11 +527,6 @@ struct AgentsViewMode {
     /// fetch while it holds, and the exit link carries it so the flow's
     /// next view run skips its own fetch.
     saved_catalog_loaded: bool,
-    /// The view actions this run performed (reported on the outcome so
-    /// the composition root emits the adoption events at the run's
-    /// end -- the view owns no telemetry handle): `program_shown`,
-    /// `renamed`.
-    actions: Vec<&'static str>,
     /// The daemon's heartbeat catalog (the dock's source, TS
     /// `heartbeats`): each row counts its own session's jobs.
     heartbeats: Vec<crate::heartbeats_picker::HeartbeatEntry>,
@@ -635,7 +625,6 @@ impl AgentsViewMode {
             saved_stream: Vec::new(),
             saved_catalog_loaded: false,
             incident_notice_state,
-            actions: Vec::new(),
             heartbeats: Vec::new(),
         }
     }
@@ -1483,7 +1472,6 @@ async fn run_agents_view_surface(
                 .and_then(|row| row.cwd.clone())
                 .map(std::path::PathBuf::from),
             status_message: opened.as_ref().and_then(|row| row.status_message.clone()),
-            actions: std::mem::take(&mut mode.actions),
             incident_notice_state: mode.incident_notice_state,
         },
     })

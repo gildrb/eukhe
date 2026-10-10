@@ -147,7 +147,6 @@ async fn arms_refuse_before_create() {
         active_session_id: SESSION.to_owned(),
         agent_dir: dir.path().join("agent"),
         recovery_journal_path: dir.path().join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: None,
     };
     let worker = Worker::new(config, None);

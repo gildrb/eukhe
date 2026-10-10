@@ -11,7 +11,6 @@ eukhe-types = { path = "../eukhe-types" }
 eukhe-core = { path = "../eukhe-core" }
 eukhe-agent = { path = "../eukhe-agent" }
 eukhe-ai = { path = "../eukhe-ai" }
-eukhe-telemetry = { path = "../eukhe-telemetry" }
 # The session worker hosts the eukhe agent on the durable Harness
 # (`eukhe-durable`, the pi-durable port) with `eukhe-pi-ai` models and
 # `eukhe-chord` contexts/JSON.
@@ -35,16 +34,7 @@ socket2 = "0.6"
 # The supervisor property suite draws sibling rosters for the live
 # rename ladder; the plain std features are enough (no fork/timeout).
 proptest = { workspace = true }
-# Test-only: `ModelCatalog::with_urls` + the compiled offline Prime
-# Inference entries build the loopback catalog the session-model restore
-# tests script (the eukhe-core tests/common pattern, in-crate), and the
-# catalog-repo child-resolution regression writes the layer-A disk cache
-# in the eukhe-models snapshot shape; the crate's runtime surface goes
-# through eukhe-core.
-eukhe-models = { path = "../eukhe-models" }
 url = "2"
-# The MCP catalog e2e seeds the fetch lane's snapshot envelope: the real
-# catalog url/scope constants keep the seeded cache byte-honest.
 # `test-util` (tokio time pause) is test-only: the mutation-drain latch test
 # drives real timeouts through the paused clock.
 tokio = { workspace = true, features = ["test-util"] }

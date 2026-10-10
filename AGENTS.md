@@ -69,15 +69,15 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 
 ## Critical path
 
-First paint and every frame the user waits on never block on network, disk sync, or
+First paint and every frame the user waits on never block on disk sync or
 background bookkeeping.
 
-- No user-visible path awaits the network. HTTP on a render path (telemetry, catalog
-  fetch) runs on a background worker; timeout, retry, and ordering live with the worker.
-- Telemetry is fire-and-forget. `eukhe-telemetry`'s worker owns delivery. Telemetry
-  properties never carry prompt, session, or file content.
-- `the_startup_flush_never_blocks_the_first_frame` (a hanging sink must not delay
-  paint) guards this. Changes to the launch path keep it passing.
+- eukhe is fully local. The only outbound traffic is the model request to the
+  provider the user configured and that provider's own auth (explicit login,
+  cloud credential metadata), plus MCP servers the user configured. No
+  telemetry, no catalog fetches, no uploads.
+- Startup work never delays the first paint; slow bookkeeping runs on a
+  background worker. Changes to the launch path keep the first frame unblocked.
 
 ## Merge gates
 
@@ -92,14 +92,13 @@ background bookkeeping.
 |Crate|Purpose|Direct workspace dependencies|
 |---|---|---|
 |`eukhe-types`|Shared wire and domain types|none|
-|`eukhe-telemetry`|Events and sinks|none|
 |`eukhe-agent`|Provider-independent agent loop|none|
 |`eukhe-ai`|Providers, model registry, streaming|`eukhe-types`|
-|`eukhe-models`|Live model catalog and transport|`eukhe-ai`, `eukhe-types`|
-|`eukhe-core`|Session engine, tools, skills, kernel, settings, chat memory|`eukhe-types`, `eukhe-ai`, `eukhe-models`, `eukhe-agent`, `eukhe-telemetry`|
-|`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-core`, `eukhe-agent`, `eukhe-ai`, `eukhe-telemetry`, `eukhe-models`|
+|`eukhe-models`|Bundled model catalog and transport pinning|`eukhe-ai`, `eukhe-types`|
+|`eukhe-core`|Session engine, tools, skills, kernel, settings, chat memory|`eukhe-types`, `eukhe-ai`, `eukhe-models`, `eukhe-agent`|
+|`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-core`, `eukhe-agent`, `eukhe-ai`, `eukhe-models`|
 |`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`|
-|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-core`, `eukhe-ai`, `eukhe-agent`, `eukhe-daemon`, `eukhe-tui`, `eukhe-telemetry`|
+|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-core`, `eukhe-ai`, `eukhe-agent`, `eukhe-daemon`, `eukhe-tui`|
 
 - Dependencies point from higher crates to lower crates only. No cycles.
 - `eukhe-tui` renders from wire types and events; it does not link the session engine.

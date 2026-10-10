@@ -134,13 +134,6 @@ pub struct Supervisor {
     /// seam (`create_reuse.rs`).
     pub(crate) opening_files:
         std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// Daemon-lifecycle telemetry (`daemon event` schema v1), resolved at
-    /// run start (None = opted out); never blocks supervision paths.
-    telemetry: std::sync::Mutex<Option<eukhe_telemetry::TelemetryClient>>,
-    /// The frequent supervision events (attach/detach, worker exits and
-    /// restarts, overloads, saved-session listings), counted and sent as
-    /// one `daemon event` summary per window instead of one event each.
-    daemon_event_counts: std::sync::Mutex<notes::DaemonEventCounts>,
     pub(crate) registry: SessionRegistry,
     /// Worker outbound frames, with their client routing. The payload is
     /// shared (`Arc`): every connected client's event arm receives every
@@ -290,8 +283,6 @@ impl Supervisor {
             worker_connect_budget: std::sync::Mutex::new(None),
             session_bindings: crate::session_bindings::SessionBindingTable::new(),
             opening_files: std::sync::Mutex::new(std::collections::HashMap::new()),
-            telemetry: std::sync::Mutex::new(None),
-            daemon_event_counts: std::sync::Mutex::default(),
             registry: SessionRegistry::new(),
             events,
             session_subscribers: subscribers::SessionSubscribers::new(),
@@ -328,67 +319,12 @@ impl Supervisor {
     ///
     /// # Panics
     ///
-    /// Panics when the telemetry mutex is poisoned (a holder panicked
+    /// Panics when a supervisor mutex is poisoned (a holder panicked
     /// while holding the lock).
     pub async fn run(self: Arc<Self>) -> Result<()> {
         // Before any socket or worker exists: workers and their kernels
         // inherit the raised limit.
         let open_file_limit = eukhe_core::platform::process::raise_open_file_limit();
-        // Daemon telemetry: same env/settings posture as the sessions
-        // (the supervisor is the `daemon` execution mode). Only an
-        // environment opt-out skips the client: a settings opt-out is the
-        // client's live switch, so `/telemetry on` resumes without a
-        // daemon restart.
-        {
-            let settings = eukhe_core::settings::SettingsManager::create(
-                std::env::current_dir().unwrap_or_default(),
-                &self.options.agent_dir,
-            );
-            let env_forced_off = matches!(
-                eukhe_core::session_engine::telemetry::telemetry_switch(&settings),
-                eukhe_core::session_engine::telemetry::TelemetrySwitch::Env { enabled: false, .. }
-            );
-            *self.telemetry.lock().unwrap() = (!env_forced_off).then(|| {
-                eukhe_core::session_engine::telemetry::build_client(
-                    &settings,
-                    &self.options.agent_dir,
-                )
-            });
-        }
-        // Live model catalog (both fetch layers): the supervisor process
-        // keeps the disk caches warm for every worker it spawns — a forced
-        // startup refresh (layer A provider catalog + the credentialed
-        // Prime Inference snapshot for the logged-in account) and then the
-        // hourly loop. Fire-and-forget: workers always have the
-        // last-good chain (disk snapshot | bundled | compiled) and the
-        // refresh only adds live pricing and catalog-repo/new entries.
-        let _ = eukhe_core::models::startup_refresh(&self.options.agent_dir);
-        eukhe_core::models::spawn_hourly_refresh(&self.options.agent_dir);
-        // The plugins service catalog's keep-warm (the `/mcp` view's remote
-        // catalog): the same supervisor-owned cadence — a forced startup
-        // refresh plus the hourly loop, fire-and-forget, failures keep the
-        // last-good disk cache (the packaged bundled snapshot serves
-        // until the first fetch lands).
-        eukhe_core::mcp::startup_plugins_refresh(&self.options.agent_dir);
-        eukhe_core::mcp::spawn_hourly_plugins_refresh(&self.options.agent_dir);
-        // Adoption telemetry for the wiring: one `daemon event` (kind
-        // `catalog_refresh`) when the startup refresh settles — the
-        // served model count, primitives only. The awaited refresh is
-        // gated, so it coalesces with the startup refresh's in-flight
-        // fetches instead of refetching.
-        {
-            let supervisor = Arc::clone(&self);
-            tokio::spawn(async move {
-                let agent_dir = &supervisor.options.agent_dir;
-                let catalog = eukhe_core::models::catalog_for(Some(&agent_dir.join("models.json")));
-                let credentials = eukhe_core::models::prime_credentials_for_dir(agent_dir);
-                catalog
-                    .refresh_with_credentials(false, credentials.as_ref())
-                    .await;
-                let count = catalog.resolve(credentials.as_ref()).len();
-                supervisor.note_catalog_refresh(count);
-            });
-        }
         socket::prepare_socket_path(&self.options.socket_path).await?;
         let listener = bind_transport(&self.options.socket_path)
             .await
@@ -548,7 +484,6 @@ impl Supervisor {
         // path survives even a poisoned bind-time capture.
         let expected_identity = self.bound_socket_identity.lock().unwrap().clone();
         socket::cleanup_socket_path_after_close(&self.options.socket_path, expected_identity);
-        self.flush_telemetry_on_exit().await;
         Ok(())
     }
 }

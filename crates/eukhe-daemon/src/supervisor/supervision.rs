@@ -99,7 +99,6 @@ impl Supervisor {
                         "session worker {} stopped intentionally (status {status:?})",
                         resident.worker_id
                     ));
-                    self.note_daemon_event("worker_exited", Some("normal"));
                     return;
                 }
             } else if adopted_pid != 0 {
@@ -131,7 +130,6 @@ impl Supervisor {
                     return;
                 }
             }
-            self.note_daemon_event("worker_exited", Some("crash"));
             // A hard-killed parent bypasses every worker-side close (#246's
             // teardowns never ran): the supervisor closes its resident RLM
             // children here, before the restart, so a relaunched parent
@@ -218,7 +216,6 @@ impl Supervisor {
                     // that dies fast must accumulate toward the give-up cap
                     // (the reset now comes only from a stable lifetime on
                     // the crash path).
-                    self.note_daemon_event("worker_restarted", None);
                     child = Some(new_child);
                 }
                 Err(error) => {
@@ -826,17 +823,6 @@ impl Supervisor {
                         reader_resident
                             .heartbeat_snapshot_generation
                             .fetch_add(1, Ordering::Relaxed);
-                        let _ =
-                            events.send((ClientRouting::Broadcast, std::sync::Arc::new(payload)));
-                    } else if outbound_type == "model_catalog_changed" {
-                        // A worker's background catalog refresh changed
-                        // the served snapshot: every client re-fetches
-                        // (the sessions' pickers fold the fresh catalog
-                        // through their stable update path — no flicker).
-                        // Rust-only extension: the no-stall picker-open
-                        // refresh returns the validated snapshot instantly
-                        // and lands the fresh catalog through this
-                        // broadcast.
                         let _ =
                             events.send((ClientRouting::Broadcast, std::sync::Arc::new(payload)));
                     }

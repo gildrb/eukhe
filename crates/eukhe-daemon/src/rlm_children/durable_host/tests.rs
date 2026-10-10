@@ -2,8 +2,9 @@
 //! run once, a spawn creates under the requested id and finds a resident
 //! child again after a parent restart, a settled child reports its answer,
 //! reply flag, and usage, a restarted parent's resumed watch fails a child
-//! whose run was interrupted, the task prompt lands as the parent's spawn
-//! kickoff row, and `rlm.rename` routes self and child renames.
+//! whose run was interrupted (without waking one no worker hosts), the
+//! task prompt lands as the parent's spawn kickoff row, and `rlm.rename`
+//! routes self and child renames.
 
 use std::sync::{Arc, Mutex};
 
@@ -21,11 +22,14 @@ use crate::protocol::{response_failure, response_success};
 
 const CHILD_SESSION: &str = "0192a000-0000-7000-8000-00000000c001";
 
-/// What the fake supervisor saw, and the resident sessions it lists.
+/// What the fake supervisor saw, the resident sessions it lists, and
+/// whether no worker hosts the child (its non-waking probes answer the
+/// unknown-session error).
 #[derive(Default)]
 struct Supervisor {
     commands: Vec<Value>,
     resident: Vec<Value>,
+    child_unhosted: bool,
 }
 
 type Shared = Arc<Mutex<Supervisor>>;
@@ -66,6 +70,15 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
             Some(id),
             command_type,
             "Unknown active session: child-passivated",
+            None,
+        ),
+        "get_state" | "get_session_stats" if lock(shared).child_unhosted => response_failure(
+            Some(id),
+            command_type,
+            &format!(
+                "Unknown active session: {}",
+                command["activeSessionId"].as_str().unwrap_or_default()
+            ),
             None,
         ),
         "prompt" | "wait_for_idle" | "abort" | "kill" | "rename" => {
@@ -137,10 +150,6 @@ async fn host(shared: &Shared, agent_dir: &std::path::Path) -> SupervisorChildSe
         Arc::new(crate::supervisor_link::SupervisorLink::new(socket)),
         agent_dir.to_path_buf(),
         "parent-live".to_owned(),
-        Arc::new(crate::model_allowlist::ModelRefusalTelemetry::new(
-            agent_dir.to_path_buf(),
-            /*telemetry_disabled*/ true,
-        )),
     );
     sessions.set_identity(ParentIdentity {
         model: Some("mock/mock-1".to_owned()),
@@ -326,6 +335,31 @@ async fn a_resumed_watch_fails_a_child_whose_run_was_interrupted() {
     )
     .unwrap();
     assert_eq!(display.status, "running");
+}
+
+/// A resumed watch over an interrupted child no worker hosts (the parent's
+/// death closed it) settles it as interrupted from the non-waking probe
+/// alone: the idle wait, which would wake the passivated child, never runs.
+#[tokio::test]
+async fn a_resumed_watch_leaves_an_unhosted_interrupted_child_passive() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    lock(&shared).child_unhosted = true;
+    write_child_display(dir.path(), "running");
+    let sessions = host(&shared, dir.path()).await;
+    let observed = sessions.wait_settled(resumed_wait()).await.unwrap();
+    assert_eq!(
+        observed.state,
+        RlmChildRunState::Failed {
+            error: super::INTERRUPTED_ERROR.to_owned(),
+        }
+    );
+    assert_eq!(observed.usage, None);
+    assert_eq!(commands_of(&shared, "get_state").len(), 1);
+    assert!(
+        commands_of(&shared, "wait_for_idle").is_empty(),
+        "the resumed watch must not wake an unhosted child"
+    );
 }
 
 /// A resumed watch over a child whose display a settle already completed

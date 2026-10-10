@@ -178,6 +178,8 @@ pub struct SessionConfig {
     pub children: Option<Arc<dyn RlmSubagentHost>>,
     pub prompt: PromptConfig,
     /// Model collection; `None` builds it from eukhe auth and `models.json`.
+    /// A supplied collection (the in-memory faux seams) may be shared: the
+    /// session serves its provider rows through a session-local collection.
     pub models: Option<Models>,
     /// Shared MCP manager (the daemon worker's); `None` builds one.
     pub mcp: Option<Arc<Mutex<crate::mcp::McpManager>>>,

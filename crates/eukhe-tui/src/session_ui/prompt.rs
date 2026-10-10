@@ -38,7 +38,7 @@ pub(crate) struct PromptSubmitNote {
     pub(crate) session_id: String,
     /// The submitted text (the draft restore and the rebind replay).
     pub(crate) text: String,
-    /// The submit lane (the queued-input telemetry and the rebind replay).
+    /// The submit lane (the rebind replay).
     pub(crate) behavior: SubmitBehavior,
     /// The collected prompt images (the rebind replay sends the same set).
     pub(crate) images: Option<serde_json::Value>,
@@ -50,21 +50,12 @@ pub(crate) struct PromptSubmitNote {
     /// The stash head this submit captured (TS `promptStashToRestore`): its
     /// admitted outcome restores it if it is still the head.
     pub(crate) stash_to_restore: Option<PromptStash>,
-    /// Whether the turn was already active at submit time (the
-    /// queued-input telemetry's lane gate; the inline path read the same
-    /// flag after its await, which nothing could move while the loop was
-    /// blocked).
-    pub(crate) turn_was_active: bool,
-    /// The expected end of this admitted prompt in submit order.
-    pub(crate) expected_turn_end: u64,
+    /// The expected end of this admitted prompt in submit order; `None`
+    /// for a session command, which runs no turn (its ack settles it).
+    pub(crate) expected_turn_end: Option<u64>,
     /// The submit's generation (TS `inputSubmissionGeneration`): a newer
     /// submit supersedes an older one's draft-restore right.
     pub(crate) generation: u64,
-    /// The submission's `input_id` (#2117 `agent input stage`).
-    pub(crate) input_id: String,
-    /// When the submit was accepted (the stage durations measure from
-    /// here).
-    pub(crate) submitted_at: std::time::Instant,
     /// Whether a failure may still rebind once (the replayed request is
     /// the second and last attempt -- the inline path's
     /// `rebind_available`).
@@ -93,16 +84,9 @@ pub(crate) struct PromptOrder {
     pub(crate) images: Option<serde_json::Value>,
     pub(crate) stashed_images: Vec<(u64, LoadedImage)>,
     pub(crate) stash_to_restore: Option<PromptStash>,
-    pub(crate) turn_was_active: bool,
-    pub(crate) expected_turn_end: u64,
+    pub(crate) expected_turn_end: Option<u64>,
     pub(crate) generation: u64,
     pub(crate) rebind_available: bool,
-    /// The submission's `input_id` (#2117 `agent input stage`): a fresh
-    /// uuid per submitted prompt, pairing the stage observations.
-    pub(crate) input_id: String,
-    /// When the submit was accepted (the stage durations measure from
-    /// here).
-    pub(crate) submitted_at: std::time::Instant,
 }
 
 impl SessionUi {
@@ -121,15 +105,9 @@ impl SessionUi {
         };
         let marker_id = self.next_image_marker_id;
         self.next_image_marker_id += 1;
-        let mime_type = attachment.mime_type.clone();
         self.remember_pasted_image(marker_id, attachment, view);
         view.editor
             .insert_text_at_cursor(&format_image_marker(marker_id));
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.image_pasted(&mime_type).await;
-            });
-        }
         if !self.model_supports_images(view) {
             // The turn routes to `settings.imageModel` when one is
             // configured (the images are sent to the routed model);
@@ -284,12 +262,6 @@ impl SessionUi {
         let Some(draft) = self.snapshot_prompt_stash(view, true) else {
             return;
         };
-        if let Some(telemetry) = self.telemetry.clone() {
-            let had_images = !draft.images.is_empty();
-            tokio::spawn(async move {
-                telemetry.prompt_stash("agents_view", had_images).await;
-            });
-        }
         let mut store = self
             .prompt_stash
             .lock()
@@ -307,12 +279,6 @@ impl SessionUi {
         let Some(draft) = self.snapshot_prompt_stash(view, true) else {
             return;
         };
-        if let Some(telemetry) = self.telemetry.clone() {
-            let had_images = !draft.images.is_empty();
-            tokio::spawn(async move {
-                telemetry.prompt_stash("session_switch", had_images).await;
-            });
-        }
         let mut store = self
             .prompt_stash
             .lock()
@@ -379,12 +345,6 @@ impl SessionUi {
         // stay atomic and expand on submit.
         if let Some(snapshot) = &stash.paste_snapshot {
             view.editor.restore_paste_snapshot(snapshot.clone());
-        }
-        if let Some(telemetry) = self.telemetry.clone() {
-            let had_images = !stash.images.is_empty();
-            tokio::spawn(async move {
-                telemetry.prompt_stash("restored", had_images).await;
-            });
         }
         self.note("Restored stashed prompt", view);
         true
@@ -811,14 +771,22 @@ impl SessionUi {
         rebind_available: bool,
         generation: u64,
     ) {
-        // The queued-input telemetry gates on the turn state at submit
-        // time (the inline path read the same flag right after its
-        // await, with the loop blocked so no event could move it); an
-        // earlier submit still in flight held `turn_active` true on the
-        // inline path too, so it counts here.
-        let turn_was_active = self.turn_active || self.prompt_in_flight > 0;
-        let expected_turn_end = self.last_prompt_turn_end.max(self.turn_ends_seen) + 1;
-        self.last_prompt_turn_end = expected_turn_end;
+        // A session command (`/compact`, `/goal`, ...) runs on the session,
+        // not as a turn: the worker classifies an image-less prompt the
+        // same way and answers once the command settled, with no
+        // `turn_end` to wait for.
+        let session_command = images.is_none()
+            && SlashCommandRegistry::builtin_cached()
+                .parse(&text)
+                .and_then(|resolved| SlashCommandRegistry::builtin_cached().get(resolved.name))
+                .is_some_and(|command| {
+                    command.execution == eukhe_types::slash_commands::SlashCommandExecution::Session
+                });
+        let expected_turn_end = (!session_command).then(|| {
+            let expected = self.last_prompt_turn_end.max(self.turn_ends_seen) + 1;
+            self.last_prompt_turn_end = expected;
+            expected
+        });
         self.prompt_in_flight += 1;
         let _ = self.prompt_orders.send(PromptOrder {
             client: self.client.clone(),
@@ -829,12 +797,9 @@ impl SessionUi {
             images,
             stashed_images,
             stash_to_restore,
-            turn_was_active,
             expected_turn_end,
             generation,
             rebind_available,
-            input_id: uuid::Uuid::new_v4().to_string(),
-            submitted_at: std::time::Instant::now(),
         });
     }
 
@@ -896,11 +861,8 @@ impl SessionUi {
                 images: order.images,
                 stashed_images: order.stashed_images,
                 stash_to_restore: order.stash_to_restore,
-                turn_was_active: order.turn_was_active,
                 expected_turn_end: order.expected_turn_end,
                 generation: order.generation,
-                input_id: order.input_id,
-                submitted_at: order.submitted_at,
                 rebind_available: order.rebind_available,
                 result,
             });
@@ -967,50 +929,15 @@ impl SessionUi {
         }
         match note.result {
             Ok(()) => {
-                // `agent input stage` (v2, #2117): the submission's observed
-                // dispatch outcome at the submit seam - queued behind a
-                // running turn, or dispatched straight into an admitted
-                // turn. The turn's own terminal state rides the session
-                // telemetry's run events.
-                if let Some(telemetry) = self.telemetry.clone() {
-                    let (stage, outcome) = if note.turn_was_active {
-                        ("queued", "started")
-                    } else {
-                        ("dispatch", "success")
-                    };
-                    let input_id = note.input_id.clone();
-                    let duration_ms = note.submitted_at.elapsed().as_millis() as u64;
-                    tokio::spawn(async move {
-                        telemetry
-                            .input_stage(input_id, stage, outcome, duration_ms)
-                            .await;
-                    });
-                }
-                // A submission while a turn runs parks in the queue behind
-                // it: the queue strip shows the message until the session
-                // delivers it (adoption telemetry for the follow-up queue).
-                if note.turn_was_active {
-                    if let Some(telemetry) = self.telemetry.clone() {
-                        let lane = match note.behavior {
-                            SubmitBehavior::Steer => "steering",
-                            SubmitBehavior::FollowUp => "follow_up",
-                        };
-                        // The queued-input adoption event carries the session's
-                        // queue delivery mode (`tui input queued`'s
-                        // `steering_mode`): exposure under batched delivery is
-                        // the multi-steer batch feature's adoption signal.
-                        let steering_mode = self.steering_mode.clone();
-                        tokio::spawn(async move {
-                            telemetry.queued_input(lane, steering_mode).await;
-                        });
-                    }
-                }
                 // The daemon can stream the complete turn before the ACK
                 // reaches this channel. In that case turn_end already owns
                 // the idle state; re-arming it would strand WaitIdle until
                 // timeout. The per-submit end watermark also keeps a prior
                 // turn's end from settling a queued later prompt.
-                if self.turn_ends_seen < note.expected_turn_end {
+                if note
+                    .expected_turn_end
+                    .is_some_and(|expected| self.turn_ends_seen < expected)
+                {
                     self.turn_active = true;
                     self.start_loader(view);
                     self.dirty = true;
@@ -1035,18 +962,6 @@ impl SessionUi {
                 Ok(())
             }
             Err(error) => {
-                // `agent input stage` (v2): the submission was rejected at
-                // the dispatch boundary (the stage's `rejected` stage,
-                // outcome `error`).
-                if let Some(telemetry) = self.telemetry.clone() {
-                    let input_id = note.input_id.clone();
-                    let duration_ms = note.submitted_at.elapsed().as_millis() as u64;
-                    tokio::spawn(async move {
-                        telemetry
-                            .input_stage(input_id, "rejected", "error", duration_ms)
-                            .await;
-                    });
-                }
                 let rendered = format!("{error:#}");
                 // One rebind attempt per submit (never a loop): a prompt
                 // refused with the unknown-session error - the held active

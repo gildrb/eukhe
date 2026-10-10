@@ -49,11 +49,8 @@ async fn tui_attaches_prompts_streams_lists_and_switches() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -216,11 +213,8 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -307,11 +301,8 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -470,9 +461,7 @@ async fn tui_model_picker_applies_and_effort_reports() {
         &eukhe_core::auth::AuthStorageData::default(),
         std::sync::Arc::new(eukhe_core::auth::NoOAuth),
     );
-    let mut registry =
-        eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
-    registry.load_private_authorization_from_cache();
+    let registry = eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
     let catalog: Vec<eukhe_types::ai::Model> =
         registry.get_available().into_iter().cloned().collect();
     assert_eq!(catalog.len(), 1, "the models.json model resolves available");
@@ -504,11 +493,8 @@ async fn tui_model_picker_applies_and_effort_reports() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -616,9 +602,7 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
         &eukhe_core::auth::AuthStorageData::default(),
         std::sync::Arc::new(eukhe_core::auth::NoOAuth),
     );
-    let mut registry =
-        eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
-    registry.load_private_authorization_from_cache();
+    let registry = eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
     let catalog: Vec<eukhe_types::ai::Model> =
         registry.get_available().into_iter().cloned().collect();
     assert_eq!(catalog.len(), 1, "the models.json model resolves available");
@@ -647,11 +631,8 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -738,11 +719,8 @@ async fn tui_compact_on_a_short_session_warns_nothing_to_compact() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -782,27 +760,26 @@ async fn tui_compact_on_a_short_session_warns_nothing_to_compact() {
     );
     // The skip records no durable result row (TS's queued-command catch arm
     // stays silent): only the echo row persisted.
-    let mut saw_compaction_entry = false;
-    let mut saw_result_row = false;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        saw_compaction_entry |= content.contains("\"type\":\"compaction\"");
-        saw_result_row |= content.contains("\"session_slash_command_result\"");
-    }
-    assert!(
-        !saw_compaction_entry,
-        "a skipped compaction persisted no compaction entry"
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let transcript = read_transcript(&storages[0]);
+    assert_eq!(
+        transcript.custom_rows("session_slash_command").len(),
+        1,
+        "the /compact echo row persisted: {:?}",
+        transcript.entries
     );
     assert!(
-        !saw_result_row,
-        "a skipped compaction persisted no result row"
+        transcript.of_kind("pi.compaction").is_empty(),
+        "a skipped compaction persisted no compaction entry: {:?}",
+        transcript.entries
+    );
+    assert!(
+        transcript
+            .custom_rows("session_slash_command_result")
+            .is_empty(),
+        "a skipped compaction persisted no result row: {:?}",
+        transcript.entries
     );
     drop(supervisor);
 }
@@ -878,11 +855,8 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -1007,22 +981,15 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
         "the third Ctrl+O re-collapsed the block:\n{last}"
     );
 
-    // The compaction entry persisted (the durable `compaction` record).
-    let mut saw_compaction_entry = false;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        saw_compaction_entry |= content.contains("\"type\":\"compaction\"");
-    }
-    assert!(
-        saw_compaction_entry,
-        "the compaction entry persisted to the session file"
+    // The compaction entry persisted (the durable `pi.compaction` record).
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let transcript = read_transcript(&storages[0]);
+    assert_eq!(
+        transcript.of_kind("pi.compaction").len(),
+        1,
+        "the compaction entry persisted to the session storage: {:?}",
+        transcript.entries
     );
     drop(supervisor);
 }
@@ -1076,11 +1043,8 @@ async fn tui_session_tree_navigates_forks_and_clones() {
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -1196,19 +1160,28 @@ async fn tui_session_tree_navigates_forks_and_clones() {
         settled.contains("first answer"),
         "the moved branch kept the target path:\n{settled}"
     );
-    // The daemon's durable fork forks the main conversation inside the
-    // session's storage (branch_navigation: the storage and the session id
-    // stay), so the second tree carries both branches under the shared
-    // first turn: the fork's active branch first, the source's after it.
+    // The daemon's fork of a persisted session writes a new storage beside
+    // the source (TS `createBranchedSession` writes a new session file):
+    // the forked turn lands in the new storage, and the source keeps its
+    // second turn untouched.
+    let storages = session_dirs(&session_dir);
     assert_eq!(
-        session_dirs(&session_dir).len(),
-        1,
-        "the fork stays in the session's storage"
+        storages.len(),
+        2,
+        "the fork wrote a new storage beside the source: {storages:?}"
+    );
+    let (forked, source): (Vec<_>, Vec<_>) = storages
+        .iter()
+        .partition(|storage| storage_contains(storage, "post-fork answer"));
+    assert_eq!(
+        (forked.len(), source.len()),
+        (1, 1),
+        "exactly the fork's storage holds the post-fork turn: {storages:?}"
     );
     assert!(
-        rendered.contains("|- * user: second question")
-            && rendered.contains("`- user: second question"),
-        "the tree lists the fork's branch and the source's branch:\n{rendered}"
+        storage_contains(source[0], "second answer"),
+        "the source kept its second turn: {}",
+        source[0].display()
     );
     drop(supervisor);
 }

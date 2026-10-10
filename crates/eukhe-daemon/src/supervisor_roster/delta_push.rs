@@ -27,7 +27,6 @@ async fn supervisor_with_registered_worker(dir: &Path) -> Supervisor {
         root_session_id: None,
         session_file: Some(dir.join("session.jsonl").to_string_lossy().to_string()),
         session_dir: Some(dir.to_string_lossy().to_string()),
-        telemetry_disabled: Some(true),
         created_at: "t".to_string(),
         updated_at: "t".to_string(),
         lifecycle: eukhe_types::daemon::DaemonWorkerLifecycle::Ready,

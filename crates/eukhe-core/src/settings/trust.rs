@@ -166,9 +166,9 @@ pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Sett
 /// `Settings` field does not compile until it is classified here.
 /// Withheld: anything that names a program, command, or shell; installs
 /// or spawns code (packages, MCP servers and catalogs, skill paths);
-/// moves where sessions and kernel snapshots live; grants consent to send
-/// data (traces, telemetry) or toggles execution gates (factory, the
-/// model allowlist); hides startup output (and so this warning); the
+/// moves where sessions and kernel snapshots live; toggles execution
+/// gates (factory, the model allowlist); hides startup output (and so
+/// this warning); the
 /// global-only `trustedProjects`; and unknown keys. Everything else is a
 /// UI, model, or limit preference.
 fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
@@ -193,9 +193,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         compaction,
         memory,
         auto_refine,
-        agent_traces,
         factory,
-        telemetry,
         branch_summary,
         retry,
         provider_backup_model,
@@ -212,7 +210,6 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         prompts,
         themes,
         enable_skill_commands,
-        bundled_skills,
         enable_builtin_skills,
         terminal,
         images,
@@ -232,9 +229,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         extra,
     } = document;
     let withheld = [
-        ("agentTraces", agent_traces.is_some()),
         ("factory", factory.is_some()),
-        ("telemetry", telemetry.is_some()),
         ("shellPath", shell_path.is_some()),
         ("quietStartup", quiet_startup.is_some()),
         ("shellCommandPrefix", shell_command_prefix.is_some()),
@@ -274,9 +269,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         compaction,
         memory,
         auto_refine,
-        agent_traces: None,
         factory: None,
-        telemetry: None,
         branch_summary,
         retry,
         provider_backup_model,
@@ -293,7 +286,6 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         prompts,
         themes,
         enable_skill_commands,
-        bundled_skills,
         enable_builtin_skills,
         terminal,
         images,
@@ -378,7 +370,6 @@ mod tests {
             "sessionDir": "./planted-sessions",
             "packages": ["npm:evil"],
             "skills": ["../evil-skills"],
-            "telemetry": { "enabled": true },
             "unknownKey": 1
         })
     }
@@ -412,7 +403,6 @@ mod tests {
                 project_dir: Some(project_dir.clone()),
                 global_settings_path: Some(global_path.clone()),
                 ignored_keys: [
-                    "telemetry",
                     "shellPath",
                     "shellCommandPrefix",
                     "npmCommand",
@@ -431,7 +421,7 @@ mod tests {
             vec![(
                 SettingsScope::Project,
                 format!(
-                    "Project is not trusted: ignored project settings telemetry, shellPath, \
+                    "Project is not trusted: ignored project settings shellPath, \
                      shellCommandPrefix, npmCommand, mcpServers, packages, skills, sessionDir, \
                      unknownKey. To allow them, add {} to trustedProjects in {}.",
                     project_dir.display(),

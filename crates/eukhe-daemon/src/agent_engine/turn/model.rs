@@ -51,11 +51,10 @@ impl AgentSessionEngine {
             .map_or_else(|| model.clone(), |route| route.target.model);
         if self.config.faux_script.is_none() && self.current_selection().api_key.is_none() {
             let auth = eukhe_core::auth::AuthStorage::create(&self.config.agent_dir);
-            let mut registry = eukhe_core::models::ModelRegistry::create(
+            let registry = eukhe_core::models::ModelRegistry::create(
                 auth,
                 self.config.agent_dir.join("models.json"),
             );
-            registry.load_private_authorization_from_cache();
             if !registry.has_configured_auth(&preflight_model) {
                 let uses_oauth = registry
                     .auth
@@ -144,20 +143,14 @@ impl AgentSessionEngine {
                 .as_ref()
                 .map(|engine| engine.session.shared_persistence())
         };
-        // Retry/failover adoption telemetry (TS `auto_retry_start` counting):
-        // retries increment `retry_count`, provider switches `failover_count`.
-        // The semantic-edge recorder rides the same snapshot (TS
-        // `prepareTurnRetry` / `clearTurnRetry` ride the retry events: the
-        // parked id makes the retried call reuse the failed attempt's
-        // idempotency key).
-        let (telemetry, semantic_edges) = {
+        // The semantic-edge recorder (TS `prepareTurnRetry` /
+        // `clearTurnRetry` ride the retry events: the parked id makes the
+        // retried call reuse the failed attempt's idempotency key).
+        let semantic_edges = {
             let guard = self.session.blocking_lock();
-            (
-                guard.as_deref().and_then(|engine| engine.telemetry.clone()),
-                guard
-                    .as_deref()
-                    .and_then(|engine| engine.session.semantic_edges()),
-            )
+            guard
+                .as_deref()
+                .and_then(|engine| engine.session.semantic_edges())
         };
         // The failover-captured primary target state (TS `_backupModel`):
         // the model and its thinking level, restored when the turn settles
@@ -246,7 +239,6 @@ impl AgentSessionEngine {
                 },
                 |event| {
                     let mut emit = emit_cell.borrow_mut();
-                    let telemetry = telemetry.clone();
                     let semantic_edges = semantic_edges.clone();
                     async move {
                         // TS parks the id at `auto_retry_start` and clears
@@ -265,13 +257,6 @@ impl AgentSessionEngine {
                                     recorder.clear_turn_retry();
                                 }
                             }
-                        }
-                        if let Some(telemetry) = &telemetry {
-                            // One retry event in, one telemetry seam out: the
-                            // Start counts the retry (plus a backup-provider
-                            // failover) and measures the wait; the End emits
-                            // the unresolved error's recovery update.
-                            telemetry.note_auto_retry_event(&event);
                         }
                         let engine_event = retry_event_to_engine_event(event);
                         if !emit(engine_event) {

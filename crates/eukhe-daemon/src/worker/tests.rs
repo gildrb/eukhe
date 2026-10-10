@@ -26,7 +26,6 @@ fn worker(dir: &Path, journal: &str, script: Value) -> Arc<Worker> {
         active_session_id: "worker-test".to_owned(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join(journal),
-        telemetry_disabled: Some(true),
         script: Some(script),
     };
     let worker = Worker::new(config, None);

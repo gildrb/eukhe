@@ -19,7 +19,6 @@ fn worker_config(dir: &Path, script: Option<Value>) -> WorkerConfig {
         active_session_id: "switch-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: Some(true),
         script,
     }
 }

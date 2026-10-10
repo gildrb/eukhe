@@ -11,8 +11,8 @@
 //!   structural parse;
 //! - `compat` validated per `api` (`crate::compat`);
 //! - duplicates reject even in skip-invalid mode;
-//! - remote refresh parses with skip-invalid semantics: bad entries drop,
-//!   the rest of the refresh survives.
+//! - the lenient mode parses with skip-invalid semantics: bad entries drop,
+//!   the rest of the payload survives.
 
 use std::collections::BTreeSet;
 
@@ -35,7 +35,7 @@ pub struct ModelCatalogV1 {
 /// How an invalid entry is handled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InvalidEntries {
-    /// Remote refresh: drop bad entries, keep the rest.
+    /// Lenient parse: drop bad entries, keep the rest.
     SkipInvalid,
     /// Bundled/strict loads: one bad entry rejects the payload.
     Reject,

@@ -13,7 +13,7 @@ use super::{
     run_onboarding_phase, AgentView, DaemonClient, Duration, ExitGuard, HeadlessSettle, Instant,
     InteractiveOptions, InteractiveOutcome, PaneDrive, ReconnectConnect, ReconnectLoop,
     RecoveryKind, Renderer, Result, SessionReconnect, SessionSelection, SessionUi, SurfaceExit,
-    UiInput, UiMode, VecDeque, TELEMETRY_EXIT_TIMEOUT_MS,
+    UiInput, UiMode, VecDeque,
 };
 use anyhow::Context;
 
@@ -123,16 +123,15 @@ async fn run_interactive_surface(
     // the settled outcome into the session.
     let (prompt_tx, mut prompt_rx) =
         mpsc::unbounded_channel::<crate::session_ui::PromptSubmitNote>();
-    // The `/share` upload task reports here; the loop folds the outcome
-    // into the transcript and clears the loader.
-    let (share_tx, mut share_rx) = mpsc::unbounded_channel::<crate::session_ui::ShareNote>();
+    // Prompt outcomes that arrived while daemon frames were still queued:
+    // the daemon writes a command's frames before its answer, so those
+    // frames apply first (the events arm folds these in after its batch).
+    // A session command's answer is its completion, so its rows must
+    // never trail it.
+    let mut deferred_prompt_notes = Vec::new();
     // The `/reload` task reports here; the loop folds the client-side
     // re-reads (keybindings, theme) and the outcome row.
     let (reload_tx, mut reload_rx) = mpsc::unbounded_channel::<crate::session_ui::ReloadNote>();
-    // The `/traces upload-all` sweep reports here; the loop folds the live
-    // progress into the status row and the settled summary.
-    let (traces_upload_tx, mut traces_upload_rx) =
-        mpsc::unbounded_channel::<crate::session_ui::TracesUploadNote>();
     // The background model-catalog refresh (`get_model_catalog`) reports
     // here; the loop folds it into the picker catalog and any open picker.
     let (catalog_tx, mut catalog_rx) =
@@ -270,9 +269,7 @@ async fn run_interactive_surface(
         let notes_tx = notes_tx.clone();
         let compaction_abort_tx = compaction_abort_tx.clone();
         let prompt_tx = prompt_tx.clone();
-        let share_tx = share_tx.clone();
         let reload_tx = reload_tx.clone();
-        let traces_upload_tx = traces_upload_tx.clone();
         let catalog_tx = catalog_tx.clone();
         let auth_panel_tx = auth_panel_tx.clone();
         let heartbeats_tx = heartbeats_tx.clone();
@@ -287,9 +284,7 @@ async fn run_interactive_surface(
                 notes_tx,
                 compaction_abort_tx,
                 prompt_tx,
-                share_tx,
                 reload_tx,
-                traces_upload_tx,
                 catalog_tx,
                 auth_panel_tx,
                 crate::session_ui::ActivityUpdates {
@@ -566,10 +561,6 @@ async fn run_interactive_surface(
             )
             .await;
     }
-    // The once-per-installation telemetry disclosure (TS
-    // agent-session-services): rendered as an info row here, in the
-    // transcript the user reads.
-    session.maybe_show_telemetry_notice(&mut view);
     // TS `restorePromptStashOnOpen`: a draft stashed on the way out (a
     // previous chat view of this session left via the agents view or a
     // switch) returns to the editor when its chat reopens.
@@ -656,13 +647,6 @@ async fn run_interactive_surface(
     // queued behind the open dispatch first, in order.
     let mut last_bash_refresh = Instant::now();
     let mut last_factory_refresh = Instant::now();
-    // The enhanced-key modes settle once (kitty answer or fallback) and
-    // report one adoption event; headless runs hold pipes and never probe.
-    let mut enhanced_keys_pending = renderer.is_terminal();
-    // The hyperlink capability is env-based and settles at run start (no
-    // probe round-trip like the kitty keyboard protocol); terminal runs
-    // report it once alongside the enhanced-key modes.
-    let mut hyperlinks_pending = renderer.is_terminal();
     // The frame scheduler (TS `requestRender` + `scheduleRender`): state
     // changes coalesce, and the loop paints at most one frame per
     // MIN_RENDER_INTERVAL_MS. `last_render_at` is `None` before the first
@@ -727,34 +711,6 @@ async fn run_interactive_surface(
     let mut session_reconnect: Option<SessionReconnect> = None;
 
     'run: while running {
-        // The enhanced-key modes settle once per run: the kitty probe
-        // answered, or the modifyOtherKeys fallback fired. One adoption
-        // event reports the established combination.
-        if enhanced_keys_pending {
-            if let Some((kitty, modify_other_keys)) = crate::enhanced_keys::settle_state() {
-                if let Some(telemetry) = &session.telemetry {
-                    telemetry.enhanced_keys(kitty, modify_other_keys).await;
-                }
-                enhanced_keys_pending = false;
-            }
-        }
-
-        // The OSC 8 hyperlink capability settles once per run with the
-        // terminal identity the paint backend binds to: one adoption event
-        // reports the gate (`tui hyperlinks`). The one-shot client's
-        // flush shutdown can wait out a slow telemetry endpoint, so the
-        // event is spawned instead of awaited - the run's first frame and
-        // input handling never block on it.
-        if hyperlinks_pending {
-            if let Some(telemetry) = session.telemetry.clone() {
-                let enabled = crate::hyperlinks::hyperlinks_enabled();
-                tokio::spawn(async move {
-                    telemetry.hyperlinks_active(enabled).await;
-                });
-            }
-            hyperlinks_pending = false;
-        }
-
         // Drain the whole queued input batch in this one iteration (TS
         // `handleInput` dispatches every event of a stdin chunk, then
         // schedules one render): a burst of wheel turns or held keys
@@ -934,13 +890,6 @@ async fn run_interactive_surface(
                             // fatal.
                             Err(error) => return Err(error),
                         }
-                        // A parked `/traces login` (or the enable arm's
-                        // login-first step): mount the inline auth panel
-                        // and spawn the flow (the panel channel carries
-                        // its requests and the settled outcome).
-                        if session.pending_traces_login() {
-                            session.run_traces_login(&mut view);
-                        }
                         hand_terminal_to_requests(&mut session, &mut view, &mut renderer).await;
                         // The `/mcp` view resolved to an auth request (its
                         // Enter on a connection, or the pasteable service's
@@ -989,14 +938,6 @@ async fn run_interactive_surface(
                             session.error_row(&format!("{error:#}"), &mut view);
                             view.editor.set_text(&text);
                             session.dirty = true;
-                        }
-                        // A parked `/traces login` (or the enable arm's
-                        // login-first step): mount the inline auth panel and
-                        // spawn the flow (the Submit path needs the same
-                        // dispatch the Key path has -- headless plans drive
-                        // commands as submissions).
-                        if session.pending_traces_login() {
-                            session.run_traces_login(&mut view);
                         }
                     }
                     UiInput::HeadlessDone => headless_done = true,
@@ -1072,11 +1013,9 @@ async fn run_interactive_surface(
                     && session.exit_requested
                     && (session.open_agents_view || session.pending_selection.is_some())
                 {
-                    session.exit_reason = "session_request";
                     break 'run;
                 }
                 if session.exit_requested && renderer.is_terminal() {
-                    session.exit_reason = "session_request";
                     break;
                 }
                 // Headless input keeps the one-step-per-iteration order the
@@ -1101,10 +1040,10 @@ async fn run_interactive_surface(
             }
         }
         // The headless exit gate: the plan completed, and the run ends
-        // once every settle member drains (a `/share` upload in flight
+        // once every settle member drains (an inline auth flow in flight
         // holds the run open like an active turn -- the headless harness
-        // must not finish before its outcome rows land, and an inline
-        // auth flow is work like an upload; a live terminal never ends
+        // must not finish before its outcome rows land; a live terminal
+        // never ends
         // the run on its own). The members are snapshotted so the bound
         // below can name exactly what stuck.
         let settle = headless_done.then(|| {
@@ -1359,6 +1298,9 @@ async fn run_interactive_surface(
                         session.dirty = true;
                     }
                 }
+                for note in deferred_prompt_notes.drain(..) {
+                    session.apply_prompt_outcome(note, &mut view).await?;
+                }
             }
             reader_death = async {
                 // One-shot: after the loss is handled (or suppressed), park
@@ -1463,19 +1405,9 @@ async fn run_interactive_surface(
                     session.apply_compaction_abort_outcome(outcome, &mut view);
                 }
             }
-            maybe_share = share_rx.recv() => {
-                if let Some(outcome) = maybe_share {
-                    session.apply_share_outcome(outcome, &mut view);
-                }
-            }
             maybe_reload = reload_rx.recv() => {
                 if let Some(outcome) = maybe_reload {
                     session.apply_reload_outcome(outcome, &mut view).await;
-                }
-            }
-            maybe_traces_upload = traces_upload_rx.recv() => {
-                if let Some(note) = maybe_traces_upload {
-                    session.apply_traces_upload_note(note, &mut view);
                 }
             }
             maybe_catalog = catalog_rx.recv() => {
@@ -1521,10 +1453,14 @@ async fn run_interactive_surface(
             }
             maybe_prompt = prompt_rx.recv() => {
                 if let Some(note) = maybe_prompt {
-                    // Protocol corruption stays fatal exactly like the
-                    // inline submit's ladder (the handle-key catch's
-                    // "everything else" arm).
-                    session.apply_prompt_outcome(note, &mut view).await?;
+                    if events.is_empty() {
+                        // Protocol corruption stays fatal exactly like the
+                        // inline submit's ladder (the handle-key catch's
+                        // "everything else" arm).
+                        session.apply_prompt_outcome(note, &mut view).await?;
+                    } else {
+                        deferred_prompt_notes.push(note);
+                    }
                 }
             }
             _reconnect_tick = async {
@@ -1680,7 +1616,6 @@ async fn run_interactive_surface(
                                         &format!("reattach after the update failed: {error:#} -- run `eukhe attach` to resume"),
                                         &mut view,
                                     );
-                                    session.exit_reason = "update_reattach_failed";
                                     session.dirty = true;
                                     running = false;
                                 }
@@ -1790,10 +1725,7 @@ async fn run_interactive_surface(
         // requestRender a quiet turn produces, so a turn without stream
         // events paints at the 80ms loader cadence, not the 16ms frame
         // cap).
-        let animating = session.turn_active
-            || view.retry.is_some()
-            || view.compaction.is_some()
-            || view.share_loader.is_some();
+        let animating = session.turn_active || view.retry.is_some() || view.compaction.is_some();
         if animating {
             let now = Instant::now();
             let started = *anim_started.get_or_insert(now);
@@ -1895,14 +1827,13 @@ async fn run_interactive_surface(
             render_deadline = None;
         }
         if session.exit_requested {
-            session.exit_reason = "session_request";
             running = false;
         }
     }
 
     // The run decided to leave: arm the force-quit deadline so every
-    // cleanup step below is best-effort (stats fetch, detach, telemetry,
-    // the exit flush). A wedged shutdown path cannot hold the process
+    // cleanup step below is best-effort (stats fetch, detach). A wedged
+    // shutdown path cannot hold the process
     // open past it; the healthy path always finishes well inside.
     // A handoff (agents-back, a `/resume` selection) is a view switch,
     // not an exit: the process keeps running, and TS `returnToAgentsView`
@@ -1946,28 +1877,6 @@ async fn run_interactive_surface(
         session.detach_for_handoff();
     } else {
         session.detach_for_exit().await;
-    }
-    // `tui exit` (schema v1): how the run ended. Bounded the same way as
-    // the detach -- telemetry must never hold the exit path open either.
-    // The handoff still emits the event but does not wait for the flush:
-    // the agents view keeps the process (and the runtime) alive, so the
-    // background flush completes while the user is already in the view
-    // (TS hands the pane to the next mode without any teardown await).
-    let exit_reason = session.exit_reason();
-    let turn_active_at_exit = session.turn_active;
-    if let Some(telemetry) = session.telemetry.clone() {
-        let exit_event = async move {
-            let () = telemetry
-                .client_exit(exit_reason, turn_active_at_exit)
-                .await;
-        };
-        if session.open_agents_view {
-            tokio::spawn(exit_event);
-        } else {
-            let _ =
-                tokio::time::timeout(Duration::from_millis(TELEMETRY_EXIT_TIMEOUT_MS), exit_event)
-                    .await;
-        }
     }
     // Agents-back, `/resume`, and `/resume <selector>` hand the terminal to
     // the next surface in-process: the live area clears for it. Every

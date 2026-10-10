@@ -15,7 +15,7 @@
 
 /// A model the daemon refused to resolve: the resolved selector is outside
 /// the configured allowlist. Typed so enforcement seams can downcast the
-/// refusal (adoption telemetry) out of the resolution errors that stay
+/// refusal out of the resolution errors that stay
 /// TS-parity (unknown / unauthenticated / expired models).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelAllowlistRefusal {

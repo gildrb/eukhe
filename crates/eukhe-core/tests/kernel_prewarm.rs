@@ -15,8 +15,7 @@
 //! `rlmDepth === 0` in the session):
 //!
 //! - a main session whose engine config requests the prewarm boots its
-//!   kernel in the background at creation — observable through the
-//!   `kernel bootstrap` telemetry event — so a compaction with NO `ipython`
+//!   kernel in the background at creation — so a compaction with NO `ipython`
 //!   tool use still lands the `ipython_state` notice row (TS parity: the
 //!   TS daemon prewarms, so its sessions always have the running kernel the
 //!   post-compaction notice reads);
@@ -33,9 +32,7 @@ use std::time::{Duration, Instant};
 use eukhe_core::session_engine::compact_session::CompactOutcome;
 use eukhe_core::session_engine::engine::{create_session, SessionEngineConfig};
 use eukhe_core::session_engine::provider_adapter::{json_round_trip, real_stream_fn};
-use eukhe_core::session_engine::telemetry::{build_client, TelemetryWiring};
 use eukhe_core::session_engine::{PromptOptions, PromptOutcome};
-use eukhe_core::settings::SettingsManager;
 use eukhe_types::session::FileEntry;
 
 /// The faux provider registry is process-global and both tests drive it:
@@ -175,8 +172,6 @@ async fn prewarmed_kernel_lands_compaction_notice_without_tool_use() {
         .to_string(),
     )
     .expect("settings");
-    let settings = SettingsManager::create(&cwd, &agent_dir);
-    let client = build_client(&settings, &agent_dir);
 
     // Two plain text turns (a single turn is too short for a cut) and the
     // compaction summarizer's reply; no `ipython` tool call anywhere.
@@ -194,12 +189,6 @@ async fn prewarmed_kernel_lands_compaction_notice_without_tool_use() {
         model: Some(agent_model(&faux.model)),
         stream_fn: Some(faux.stream_fn),
         tools: Vec::new(),
-        telemetry: Some(TelemetryWiring {
-            client: client.clone(),
-            execution_mode: Some("test".to_string()),
-            now: None,
-            telemetry_enabled: None,
-        }),
         prewarm_ipython_kernel: Some(true),
         ..Default::default()
     })
@@ -275,8 +264,6 @@ async fn subagent_sessions_stay_lazy_despite_the_prewarm_flag() {
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let cwd = dir.path().join("project");
     std::fs::create_dir_all(&cwd).expect("cwd");
-    let settings = SettingsManager::create(&cwd, &agent_dir);
-    let client = build_client(&settings, &agent_dir);
 
     let faux = faux_session(vec!["ok".to_string()]);
     let engine = create_session(SessionEngineConfig {
@@ -288,12 +275,6 @@ async fn subagent_sessions_stay_lazy_despite_the_prewarm_flag() {
         model: Some(agent_model(&faux.model)),
         stream_fn: Some(faux.stream_fn),
         tools: Vec::new(),
-        telemetry: Some(TelemetryWiring {
-            client: client.clone(),
-            execution_mode: Some("test".to_string()),
-            now: None,
-            telemetry_enabled: None,
-        }),
         rlm_depth: Some(1),
         prewarm_ipython_kernel: Some(true),
         ..Default::default()
@@ -330,136 +311,4 @@ async fn subagent_sessions_stay_lazy_despite_the_prewarm_flag() {
         );
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-}
-
-/// The live opt-out env is process-wide: the counters' switch test scrubs
-/// the three override vars (the Cargo test config sets `DO_NOT_TRACK`)
-/// while it runs and restores them after, serialized through its own lock.
-static TELEMETRY_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-const TELEMETRY_ENV_VARS: [&str; 3] = ["DO_NOT_TRACK", "EUKHE_OFFLINE", "EUKHE_TELEMETRY"];
-
-struct CleanTelemetryEnv {
-    saved: Vec<(&'static str, Option<String>)>,
-    _env_lock: std::sync::MutexGuard<'static, ()>,
-}
-
-impl CleanTelemetryEnv {
-    fn default() -> Self {
-        // Held first: the vars may not be touched while another env test
-        // runs.
-        let env_lock = TELEMETRY_ENV_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let saved = TELEMETRY_ENV_VARS
-            .iter()
-            .map(|var| {
-                let value = std::env::var(var).ok();
-                std::env::remove_var(var);
-                (*var, value)
-            })
-            .collect();
-        Self {
-            saved,
-            _env_lock: env_lock,
-        }
-    }
-}
-
-impl Drop for CleanTelemetryEnv {
-    fn drop(&mut self) {
-        for (var, value) in self.saved.drain(..) {
-            match value {
-                Some(value) => std::env::set_var(var, value),
-                None => std::env::remove_var(var),
-            }
-        }
-    }
-}
-
-/// The counters' live switch is installed at the engine's creation, before
-/// the MCP and kernel seams that count into them capture their handles:
-/// a settings opt-out through the whole prewarm window (the boot
-/// completes while telemetry is off) never records the boot, and a later
-/// enable cannot send what the off period counted. Regression for the
-/// pre-install-window finding: the switch used to arrive only at the
-/// first-turn install, so an off-period prewarm boot counted.
-#[tokio::test]
-#[allow(clippy::await_holding_lock)]
-async fn an_off_switch_at_creation_keeps_the_prewarm_window_uncounted() {
-    let Some(_kernel_python) = kernel_python() else {
-        return;
-    };
-    let _env = CleanTelemetryEnv::default();
-    let _guard = FAUX_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let cwd = dir.path().join("project");
-    std::fs::create_dir_all(&cwd).expect("cwd");
-    let mut settings = SettingsManager::create(&cwd, &agent_dir);
-    // Telemetry off through the whole prewarm window.
-    settings.set_telemetry_enabled(false).expect("settings off");
-    let mock = std::sync::Arc::new(eukhe_telemetry::MockSink::new());
-    let mut config = eukhe_telemetry::TelemetryClientConfig::new("install-1");
-    config.sinks = vec![mock.clone() as std::sync::Arc<dyn eukhe_telemetry::TelemetrySink>];
-    let client = eukhe_telemetry::TelemetryClient::spawn(config).expect("client");
-
-    let faux = faux_session(vec!["ok".to_string()]);
-    let engine = create_session(SessionEngineConfig {
-        cron_store: None,
-        steering_mode: None,
-        follow_up_mode: None,
-        cwd: cwd.clone(),
-        agent_dir: agent_dir.clone(),
-        model: Some(agent_model(&faux.model)),
-        stream_fn: Some(faux.stream_fn),
-        tools: Vec::new(),
-        telemetry: Some(TelemetryWiring {
-            client,
-            execution_mode: Some("test".to_string()),
-            now: None,
-            telemetry_enabled: Some(
-                eukhe_core::session_engine::telemetry::telemetry_enabled_switch(&cwd, &agent_dir),
-            ),
-        }),
-        prewarm_ipython_kernel: Some(true),
-        ..Default::default()
-    })
-    .await
-    .expect("create the prewarmed session");
-
-    // The boot completes inside the off window (however the creation
-    // interleaved, the switch already gated the counters).
-    wait_for_kernel_boot(&engine).await;
-
-    // A later enable must not send the off-period boot.
-    settings.set_telemetry_enabled(true).expect("settings on");
-    let outcome = engine
-        .prompt("hello", PromptOptions::default())
-        .await
-        .expect("prompt");
-    assert_eq!(outcome, PromptOutcome::Prompt);
-    engine.session.agent().wait_for_idle().await;
-    engine
-        .telemetry
-        .as_ref()
-        .expect("the depth-0 session installed telemetry")
-        .end()
-        .await
-        .expect("end");
-
-    let events = mock.events();
-    let ended = events
-        .iter()
-        .find(|event| event.name == "agent session ended")
-        .expect("the session-ended event flushed after the re-enable");
-    assert_eq!(
-        ended.properties.get("kernel_bootstrap_count"),
-        Some(&serde_json::json!(0)),
-        "the off-window prewarm boot never counted:\n{:?}",
-        ended.properties
-    );
 }

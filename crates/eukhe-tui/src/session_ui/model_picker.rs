@@ -183,15 +183,6 @@ impl SessionUi {
             .map(|picker| picker.handle_key(&id, view.editor.keybindings()));
         match action {
             Some(ModelPickerAction::None) | None => {}
-            Some(ModelPickerAction::ScopeToggled { scoped }) => {
-                // The picker stays mounted (TS consumes the key inside the
-                // selector); only the adoption event rides out.
-                if let Some(telemetry) = self.telemetry.clone() {
-                    tokio::spawn(async move {
-                        telemetry.scoped_models_used("toggle_scope", scoped).await;
-                    });
-                }
-            }
             Some(ModelPickerAction::Cancel) => {
                 view.model_picker = None;
                 self.model_picker_target = None;
@@ -503,22 +494,6 @@ impl SessionUi {
                 self.model_selection.model = Some(model_id.clone());
                 self.refresh_model_label(&provider, &model_id, view).await;
                 self.note(&format!("Model: {provider}/{model_id}"), view);
-                if let Some(telemetry) = self.telemetry.clone() {
-                    // TS has no scoped-models telemetry: the Rust adoption
-                    // event reports the cycle's lane (the response's
-                    // `isScoped`).
-                    let action = match direction {
-                        CycleDirection::Forward => "cycle_forward",
-                        CycleDirection::Backward => "cycle_backward",
-                    };
-                    let scoped = data
-                        .get("isScoped")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
-                    tokio::spawn(async move {
-                        telemetry.scoped_models_used(action, scoped).await;
-                    });
-                }
             }
             Err(error) => {
                 // TS `showError`: the ! Error row with the error tone.

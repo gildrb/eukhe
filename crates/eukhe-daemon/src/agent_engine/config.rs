@@ -26,9 +26,6 @@ pub struct AgentEngineConfig {
     /// link. Present only inside a daemon worker; it enables the kernel's
     /// `agent_message/agent_observe` host requests.
     pub supervisor_link: Option<SupervisorLinkConfig>,
-    /// Telemetry opt-out from the create command (Some(true) installs no
-    /// telemetry; None/Some(false) resolve the configured sinks).
-    pub telemetry_disabled: Option<bool>,
     /// The worker's kernel cron wiring (TS daemon-mode wires its
     /// `AgentCronJobStore.forSessionArtifacts()` into the session runtime):
     /// the shared scheduled-jobs store kernel `rlm_heartbeat.*` host
@@ -72,16 +69,16 @@ pub(crate) struct GoalRuntimeHandles {
 
 /// The session-model restore decision for one session file (TS
 /// `createAgentSession`'s restored-from-session step): the model the
-/// session's file pins, computed once at the create/replace seam through
-/// the bounded catalog-readiness wait, or the on-the-record fallback when
-/// the window missed (TS `modelFallbackMessage`). Scoped to
+/// session's file pins, computed once at the create/replace seam from the
+/// local registry, or the on-the-record fallback when the restore missed
+/// (TS `modelFallbackMessage`). Scoped to
 /// `session_file`: the resolution consults it only while the engine owns
 /// that file, so a replacement flow recomputes its own instead of
 /// silently keeping the previous session's pin.
 #[derive(Clone)]
 pub(super) struct RestoredSessionModel {
     pub(super) session_file: std::path::PathBuf,
-    /// `None` when the restore missed after the readiness window.
+    /// `None` when the restore missed.
     pub(super) model: Option<(String, String)>,
     pub(super) fallback_message: Option<String>,
 }
@@ -95,9 +92,6 @@ pub(crate) struct CreateSessionResources {
     pub(crate) skills: Vec<String>,
     pub(crate) prompt_templates: Vec<String>,
     pub(crate) autonomous: Option<eukhe_core::autonomous::AgentAutonomousConfig>,
-    /// The creating client's mode (`interactive`, `acp`, ...) for the
-    /// session's telemetry; absent reports `unknown` (TS parity).
-    pub(crate) execution_mode: Option<String>,
 }
 
 /// The create command's `--models` scope inputs (TS main.ts:548-568 +
@@ -141,24 +135,5 @@ impl eukhe_core::session_engine::rlm_usage::RlmChildUsageSink for ProducerUsageS
         Box::pin(async move {
             producer.forget_child(&rlm_child_id).await;
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::CreateSessionResources;
-    use serde::Deserialize as _;
-
-    /// The create payload's `executionMode` reaches the session telemetry;
-    /// a create without one (an agent-spawned session) stays `None`
-    /// (reported as `unknown`, TS parity).
-    #[test]
-    fn create_resources_read_the_execution_mode() {
-        let payload = serde_json::json!({ "cwd": "/tmp", "executionMode": "interactive" });
-        let resources = CreateSessionResources::deserialize(&payload).unwrap();
-        assert_eq!(resources.execution_mode.as_deref(), Some("interactive"));
-        let resources =
-            CreateSessionResources::deserialize(&serde_json::json!({ "cwd": "/tmp" })).unwrap();
-        assert_eq!(resources.execution_mode, None);
     }
 }

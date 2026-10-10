@@ -48,23 +48,37 @@ impl CompactionManager {
     /// `compact` (TS `session.compact(customInstructions)`): abort the
     /// running turn, run one manual compaction, and answer the TS
     /// `CompactionResult`; skips, aborts, and failures answer the session's
-    /// error message exactly like the TS daemon catch. A compaction that
-    /// compacted continues an active goal (the abort ended its in-run loop).
+    /// error message exactly like the TS daemon catch.
     pub(crate) async fn run(&self, custom_instructions: Option<String>) -> DaemonResponse {
+        match self.compact(custom_instructions).await {
+            Ok(result) => response_success(None, "compact", Some(result)),
+            Err(error) => response_failure(None, "compact", &error.to_string(), None),
+        }
+    }
+
+    /// One manual compaction with its `compaction_start`/`compaction_end`
+    /// frame pair, settled: the `compact` command and the `/compact`
+    /// session command share it. A compaction that compacted continues an
+    /// active goal (the abort ended its in-run loop).
+    pub(crate) async fn compact(
+        &self,
+        custom_instructions: Option<String>,
+    ) -> Result<Value, ManualCompactionError> {
         let Some(hosted) = self.session.get() else {
-            return response_failure(None, "compact", "Session is still initializing", None);
+            return Err(ManualCompactionError::Failed(
+                "Session is still initializing".to_string(),
+            ));
         };
-        let main = match hosted.main() {
-            Ok(main) => main,
-            Err(error) => return response_failure(None, "compact", &error.to_string(), None),
-        };
+        let main = hosted
+            .main()
+            .map_err(|error| ManualCompactionError::Failed(error.to_string()))?;
         // TS `compact()` aborts the agent first: the compaction summarizes a
         // settled transcript.
         let busy = self.core.lock().unwrap().is_busy();
         if busy {
-            if let Err(error) = main.abort(ConversationAbortOptions::default(), cx()).await {
-                return response_failure(None, "compact", &error.to_string(), None);
-            }
+            main.abort(ConversationAbortOptions::default(), cx())
+                .await
+                .map_err(|error| ManualCompactionError::Failed(error.to_string()))?;
         }
         // The claim ties the run's task frames to this command.
         if let Some(view) = self.core.lock().unwrap().view.as_mut() {
@@ -80,10 +94,10 @@ impl CompactionManager {
         )
         .await;
         let instructions = custom_instructions.as_deref();
-        match outcome {
+        match &outcome {
             Ok(result) => {
                 self.settle(
-                    compaction_end_success("manual", &result, false, instructions),
+                    compaction_end_success("manual", result, false, instructions),
                     true,
                 );
                 // The abort before the compaction ended an active goal's
@@ -99,7 +113,6 @@ impl CompactionManager {
                         "eukhe-daemon: the post-compaction goal continuation failed: {error}"
                     );
                 }
-                response_success(None, "compact", Some(result))
             }
             Err(ManualCompactionError::Skipped(message)) => {
                 let end = compaction_end_unsuccessful(
@@ -120,29 +133,27 @@ impl CompactionManager {
                     );
                     emit_worker_event_with(&self.core, &self.events, end);
                 }
-                response_failure(None, "compact", message, None)
             }
             Err(ManualCompactionError::Aborted) => {
                 self.settle(
                     compaction_end_unsuccessful("manual", true, None, Some("error"), instructions),
                     true,
                 );
-                response_failure(None, "compact", durable::COMPACTION_CANCELLED, None)
             }
             Err(ManualCompactionError::Failed(error)) => {
                 self.settle(
                     compaction_end_unsuccessful(
                         "manual",
                         false,
-                        Some(&error),
+                        Some(error),
                         Some("error"),
                         instructions,
                     ),
                     false,
                 );
-                response_failure(None, "compact", &error, None)
             }
         }
+        outcome
     }
 
     /// Settle this command's claim with its `compaction_end` frame,

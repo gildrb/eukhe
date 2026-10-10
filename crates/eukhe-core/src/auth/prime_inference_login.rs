@@ -1,7 +1,6 @@
 //! Prime Inference login orchestration (TS `prime-inference-auth.ts`'s
 //! `loginPrimeInference`): the production prime-cli credential reuse, the
-//! browser challenge over the arm-agnostic core the traces login owns
-//! (`prime_traces.rs`'s `run_prime_browser_login` — no scope on the URL),
+//! browser challenge (`prime_browser_login.rs`'s `run_prime_browser_login`),
 //! and the inference access check on the resulting key. The interactive
 //! surface (the URL raced against the paste prompt, the fallback, the
 //! cancellation) is the composition root's (`eukhe-cli`'s
@@ -10,11 +9,13 @@
 
 use std::path::Path;
 
+use super::prime_browser_login::{
+    run_prime_browser_login, PrimeAuthInfo, DEFAULT_POLL_INTERVAL_MS,
+};
 use super::prime_inference::{
     check_prime_inference_access, read_prime_cli_config, PrimeAccessError, PrimeHttp,
     PrimeInferenceAuthConfig, DEFAULT_REQUEST_TIMEOUT_MS,
 };
-use super::prime_traces::{run_prime_browser_login, PrimeAuthInfo, DEFAULT_POLL_INTERVAL_MS};
 use super::types::PrimeTeamAssignment;
 
 /// TS `PrimeInferenceLoginResult`'s `source` (`"prime-cli" | "browser"`).
@@ -140,13 +141,10 @@ pub async fn login_prime_inference(
         callbacks
             .progress("No eligible production Prime CLI API key found. Starting browser login...");
     }
-    // TS `runPrimeBrowserLogin` without a scope: the inference
-    // challenge's URL carries only the code.
     let api_key = run_prime_browser_login(
         http,
         &config.base_url,
         &config.frontend_url,
-        None,
         callbacks.on_auth,
         request_timeout_ms,
         poll_interval_ms,

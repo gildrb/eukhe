@@ -198,7 +198,6 @@ async fn a_fresh_create_spawn_record_keeps_the_unsynced_shape() {
         no_session: None,
         name: Some("faux".to_string()),
         config: None,
-        telemetry_disabled: None,
         runtime_metadata: None,
         lifecycle: None,
         env: None,

@@ -56,22 +56,6 @@ impl OutboundFrame {
             seq: 0,
         }
     }
-
-    /// `model_catalog_changed`: a background catalog refresh changed what
-    /// this worker would answer for `get_model_catalog` (Rust-only
-    /// extension over the TS daemon-mode protocol — TS awaits
-    /// `refreshModelCatalog` inside the request; the no-stall picker-open
-    /// refresh returns the validated snapshot instantly and lands the
-    /// fresh catalog through this broadcast instead). Every client
-    /// re-fetches; an open picker folds the catalog through its stable
-    /// update path, so the selection never flickers.
-    pub(crate) fn model_catalog_changed() -> Self {
-        OutboundFrame {
-            payload: br#"{"type":"model_catalog_changed"}"#.to_vec(),
-            outbound_type: "model_catalog_changed",
-            seq: 0,
-        }
-    }
 }
 
 /// The worker's outbound event pump: one sequence-stamped broadcast stream
@@ -911,15 +895,14 @@ impl Worker {
             core.attached_client_ids.push(client_id.clone());
         }
         let summary = self.summary_locked(&core);
-        // The transcript of the shown conversation, from the same mirror
-        // (and under the same lock) the event sequence advances with.
+        // The shown conversation's active context (TS `session.state.messages`:
+        // the compaction summary first, then the kept entries), from the same
+        // mirror (and under the same lock) the event sequence advances with.
         let mut messages: Vec<Value> = core
             .view
             .as_ref()
             .map(|view| {
-                super::durable_host::wire_messages::transcript_messages(
-                    &view.translator.mirror().entries,
-                )
+                crate::state_getters::mirror_context_messages(&view.translator.mirror().entries)
             })
             .unwrap_or_default();
         // A streaming assistant message is part of the attach state: the

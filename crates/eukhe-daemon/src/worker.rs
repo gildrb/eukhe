@@ -46,8 +46,7 @@ pub(crate) use durable_host::{HostedSession, SessionSlot};
 pub use env::{
     WORKER_ACTIVE_SESSION_ID_ENV, WORKER_CWD_ENV, WORKER_INSTANCE_ID_ENV,
     WORKER_RECOVERY_JOURNAL_ENV, WORKER_ROLE_ENV, WORKER_SCRIPT_ENV, WORKER_SOCKET_ENV,
-    WORKER_SUPERVISOR_LOST_EXIT_MS_ENV, WORKER_SUPERVISOR_SOCKET_ENV,
-    WORKER_TELEMETRY_DISABLED_ENV, WORKER_TOKEN_ENV,
+    WORKER_SUPERVISOR_LOST_EXIT_MS_ENV, WORKER_SUPERVISOR_SOCKET_ENV, WORKER_TOKEN_ENV,
 };
 use serde_json::Map;
 pub(crate) use session_core::SessionCore;
@@ -116,8 +115,6 @@ pub struct Worker {
     /// Connection tokens whose attach guard already released.
     pub(crate) released_attach_tokens: std::sync::Mutex<std::collections::HashSet<String>>,
     pub(crate) events: Arc<EventPump>,
-    /// The `/model` catalog background-refresh coalescing gate.
-    pub(crate) model_catalog_refresh_gate: std::sync::Arc<crate::model_catalog::RefreshGate>,
     /// The revival evidence: the journal records `busy` while a run is
     /// active on the session.
     recovery: Arc<Mutex<Option<WorkerRecoveryJournal>>>,
@@ -180,9 +177,6 @@ pub struct Worker {
     /// read it (the sender identity block and the family edges),
     /// published at every create and rename.
     pub(crate) own_summary: Arc<Mutex<Option<Value>>>,
-    /// The daemon model-allowlist refusal telemetry (`model refused`): one
-    /// client per worker, deduplicated per (surface, selector).
-    pub(crate) model_refusal_telemetry: Arc<crate::model_allowlist::ModelRefusalTelemetry>,
 }
 
 /// Whether a delivery's sender is one of THIS session's children, by the
@@ -225,10 +219,6 @@ impl Worker {
     /// Build the worker: the session core, the event pump, and the
     /// feature managers. The session itself opens at `create`.
     pub fn new(config: WorkerConfig, registration: Option<RegistrationHandle>) -> Self {
-        let model_refusal_telemetry = Arc::new(crate::model_allowlist::ModelRefusalTelemetry::new(
-            config.agent_dir.clone(),
-            config.telemetry_disabled == Some(true),
-        ));
         let events = Arc::new(EventPump::new());
         let supervisor_claims = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let core = Arc::new(Mutex::new(SessionCore::new(
@@ -316,9 +306,6 @@ impl Worker {
             session_attachments: std::sync::Mutex::new(std::collections::HashMap::new()),
             released_attach_tokens: std::sync::Mutex::new(std::collections::HashSet::new()),
             events,
-            model_catalog_refresh_gate: std::sync::Arc::new(
-                crate::model_catalog::RefreshGate::default(),
-            ),
             recovery,
             side_questions,
             peer_grants: PeerGrantStore::new(),
@@ -344,7 +331,6 @@ impl Worker {
             scripted_models: std::sync::OnceLock::new(),
             rlm_children: std::sync::OnceLock::new(),
             own_summary: Arc::new(Mutex::new(None)),
-            model_refusal_telemetry,
         }
     }
 

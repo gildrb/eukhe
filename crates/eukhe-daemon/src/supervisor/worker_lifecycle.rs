@@ -123,7 +123,6 @@ impl Supervisor {
             no_session,
             name,
             config,
-            telemetry_disabled,
             runtime_metadata,
             env,
             ..
@@ -273,7 +272,6 @@ impl Supervisor {
             "skills",
             "promptTemplates",
             "autonomous",
-            "executionMode",
         ] {
             if let Some(value) = config_object.and_then(|config| config.get(key)) {
                 durable_rest.insert(key.to_string(), value.clone());
@@ -320,9 +318,6 @@ impl Supervisor {
             root_session_id: None,
             session_file: session_path.clone(),
             session_dir: session_dir.clone(),
-            // TS main.ts `telemetryDisabled`: only ever `Some(true)`
-            // (the enabled case stays absent on the wire).
-            telemetry_disabled: telemetry_disabled.and(Some(true)),
             created_at: now.clone(),
             updated_at: now,
             lifecycle: DaemonWorkerLifecycle::Starting,

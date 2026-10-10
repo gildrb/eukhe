@@ -1,11 +1,10 @@
 //! MCP catalog e2e: the `/mcp` view's daemon surface serves the RESOLVED
 //! service catalog (the discovery rows the interactive view renders), the
 //! paste flow installs a token service end-to-end through the real daemon,
-//! and the disconnect removes it. The disk-cache path feeds the catalog (the
-//! fetch lane writes its `mcp-service-catalog.v2.json` snapshot envelope; the
-//! daemon reads the validated cache), and the pinned-definition hint gates on
-//! that snapshot being in hand, with the linear/notion compiled fallback
-//! covered by the eukhe-core verifiers.
+//! and the disconnect removes it. The packaged bundled snapshot
+//! (`<package-dir>/mcp-services.bundled.json`) feeds the catalog, and the
+//! pinned-definition hint gates on that snapshot being in hand, with the
+//! linear/notion compiled fallback covered by the eukhe-core verifiers.
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -83,26 +82,32 @@ fn kernel_python() -> Option<PathBuf> {
 /// serializing them keeps the harness out of parallel-spawn resource races.
 static DAEMON_E2E: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Spawn the supervisor. `package_dir` carries the bundled MCP services
+/// snapshot the catalog resolves (`None`: no bundle at all — a stray
+/// ambient package dir must never leak in either way; the kernel runtime
+/// and skills fall back to the source checkout).
 #[allow(clippy::zombie_processes)]
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon {
+fn spawn_supervisor(
+    socket: &Path,
+    agent_dir: &Path,
+    kernel_python: &Path,
+    package_dir: Option<&Path>,
+) -> Daemon {
     let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let child = Command::new(binary)
+    let mut command = Command::new(binary);
+    command
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
         .env("EUKHE_KERNEL_PYTHON", kernel_python)
-        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-        // The fetch lane is live in the supervisor now (startup + hourly
-        // refreshes of this very cache file): EUKHE_OFFLINE keeps those off
-        // the network so a live fetch can never race the cache state this
-        // test arranges on disk (the same posture as the model-catalog
-        // e2e; the daemon serves the arranged cache directly).
-        .env("EUKHE_OFFLINE", "1")
-        // The tests own catalog availability through the agent dir alone;
-        // a stray package dir's bundled snapshot must never leak in.
-        .env_remove("EUKHE_PACKAGE_DIR")
+        .env("EUKHE_CODING_AGENT_DIR", agent_dir);
+    match package_dir {
+        Some(dir) => command.env("EUKHE_PACKAGE_DIR", dir),
+        None => command.env_remove("EUKHE_PACKAGE_DIR"),
+    };
+    let child = command
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .env(
@@ -242,18 +247,17 @@ fn seeded_catalog_document() -> Value {
     catalog
 }
 
-/// The fetch lane's disk form: the catalog document wrapped in the snapshot
-/// envelope `{url, scope, fetchedAt, payload}` the cache reader validates
-/// (a bare catalog document at the cache path never serves — proven by the
-/// eukhe-core remote-source tests).
-fn snapshot_envelope(payload: &Value) -> String {
-    serde_json::to_string(&json!({
-        "url": eukhe_models::fetch::MCP_SERVICE_CATALOG_URL,
-        "scope": eukhe_models::cache::PUBLIC_SCOPE,
-        "fetchedAt": 1_790_082_036_135_u64,
-        "payload": payload,
-    }))
-    .expect("serialize snapshot")
+/// A package dir carrying `catalog` as the bundled MCP services snapshot
+/// (the bare catalog document the build ships).
+fn bundled_package_dir(root: &Path, catalog: &Value) -> PathBuf {
+    let package_dir = root.join("package");
+    std::fs::create_dir_all(&package_dir).expect("package dir");
+    std::fs::write(
+        package_dir.join("mcp-services.bundled.json"),
+        catalog.to_string(),
+    )
+    .expect("write bundled catalog");
+    package_dir
 }
 
 #[test]
@@ -267,17 +271,12 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let sessions_dir = dir.path().join("sessions");
     std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
-    // The validated disk cache: the fetch lane's snapshot envelope, read by
-    // the daemon's catalog resolution (fail-closed parsing is covered in
-    // eukhe-core).
-    std::fs::write(
-        agent_dir.join("mcp-service-catalog.v2.json"),
-        snapshot_envelope(&seeded_catalog_document()),
-    )
-    .expect("write disk cache");
+    // The packaged bundled snapshot, read by the daemon's catalog
+    // resolution (fail-closed parsing is covered in eukhe-core).
+    let package_dir = bundled_package_dir(dir.path(), &seeded_catalog_document());
 
     let socket = dir.path().join("mcp.sock");
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, Some(&package_dir));
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -344,21 +343,6 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
     assert_eq!(
         github["pasteToken"], true,
         "github is pasteable (alias pair)"
-    );
-    // The api-key credential section serves the stored-key rows the view
-    // manages alongside the connections: the web-search entry, honestly
-    // unconfigured in the fresh agent dir.
-    let credentials = roster["data"]["credentials"]
-        .as_array()
-        .unwrap_or_else(|| panic!("credentials array: {roster}"));
-    let serper = credentials
-        .iter()
-        .find(|credential| credential["id"] == "serper")
-        .expect("the web-search credential row");
-    assert_eq!(serper["label"], "Serper (web search)");
-    assert_eq!(
-        serper["configured"], false,
-        "a fresh agent dir holds no serper key"
     );
 
     // The paste flow installs end-to-end: the credential is stored bound to
@@ -493,9 +477,8 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
 /// The pinned-definition hint gating through the real daemon (Kevin's
 /// dogfood report, TS parity): a connection record whose service left the
 /// catalog shows the catalog-source hint ONLY when a validated snapshot is
-/// in hand to prove that. With the cache gone and no packaged bundle (a
-/// dev install, a cold box before the first fetch) the pinned row stays
-/// manageable and is never one-click connectable, but no
+/// in hand to prove that. With no packaged bundle (a dev install) the
+/// pinned row stays manageable and is never one-click connectable, but no
 /// source-unavailable claim: TS always has its catalog, so it never claims
 /// absence it cannot prove.
 #[test]
@@ -507,26 +490,22 @@ fn pinned_hint_needs_a_snapshot_to_claim_the_source_unavailable() {
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    // A fetched catalog that does NOT define the service, plus the durable
+    // A bundled catalog that does NOT define the service, plus the durable
     // record the pin is built from.
-    let cache = json!({
+    let bundled = json!({
         "version": 2,
         "counts": {},
         "entries": [{
-            "server": "cache-only", "service": "cache-only", "label": "Cache Only",
-            "url": "https://cache-only.example/mcp", "aliases": [],
-            "transport": { "type": "http", "url": "https://cache-only.example/mcp" },
+            "server": "bundle-only", "service": "bundle-only", "label": "Bundle Only",
+            "url": "https://bundle-only.example/mcp", "aliases": [],
+            "transport": { "type": "http", "url": "https://bundle-only.example/mcp" },
             "auth": { "strategy": "oauth", "clientRegistration": "dynamic" },
             "setup": { "status": "ready" },
             "verification": { "status": "unverified" },
             "legacyBuiltin": false, "provenance": [{ "source": "prime" }]
         }]
     });
-    std::fs::write(
-        agent_dir.join("mcp-service-catalog.v2.json"),
-        snapshot_envelope(&cache),
-    )
-    .expect("write disk cache");
+    let package_dir = bundled_package_dir(dir.path(), &bundled);
     let record = json!({
         "version": 1,
         "connections": {
@@ -543,13 +522,12 @@ fn pinned_hint_needs_a_snapshot_to_claim_the_source_unavailable() {
     });
     std::fs::write(agent_dir.join("mcp-connections.json"), record.to_string())
         .expect("write records");
-    let cache_path = agent_dir.join("mcp-service-catalog.v2.json");
 
-    // Cache present: the snapshot proves the service is gone — the hint
+    // Bundle present: the snapshot proves the service is gone — the hint
     // shows, byte-exact.
     {
-        let socket = dir.path().join("cache-present.sock");
-        let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+        let socket = dir.path().join("bundle-present.sock");
+        let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, Some(&package_dir));
         wait_socket_ready(&socket);
         let (mut client, _hello) = Client::connect(&socket);
         let view = pinned_service_view(&mut client, dir.path(), "present");
@@ -569,11 +547,10 @@ fn pinned_hint_needs_a_snapshot_to_claim_the_source_unavailable() {
         client.shutdown_daemon();
     }
 
-    // Cache absent (and no packaged bundle): the row stays, the claim does
-    // not — the ordinary account hint is all the card says.
-    std::fs::remove_file(&cache_path).expect("remove the cache");
-    let socket = dir.path().join("cache-absent.sock");
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    // No packaged bundle: the row stays, the claim does not — the ordinary
+    // account hint is all the card says.
+    let socket = dir.path().join("bundle-absent.sock");
+    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, None);
     wait_socket_ready(&socket);
     let (mut client, _hello) = Client::connect(&socket);
     let view = pinned_service_view(&mut client, dir.path(), "absent");

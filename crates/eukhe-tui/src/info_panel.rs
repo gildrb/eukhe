@@ -1,7 +1,7 @@
 //! The read-only inline info panel (the operator's 2026-09-26
 //! directive): the client info displays -- `/context`, `/session`,
-//! `/system-prompt`, `/logs`, `/changelog`, `/hotkeys`, the `/traces`
-//! status and preview blocks, and `/list` -- render as the docked popup
+//! `/system-prompt`, `/logs`, `/changelog`, `/hotkeys`, and `/list` --
+//! render as the docked popup
 //! panel over the editor dock (the `/mcp` and `/model` panel grammar:
 //! the ruled frame, the scroll indicator, the key hint, one blank under
 //! the hint) instead of flooding the chat transcript with rows that

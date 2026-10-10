@@ -7,7 +7,7 @@ use super::{
     ActivityUpdates, AgentView, BTreeMap, ChatEntry, CompactionAbortNote, Context, DaemonClient,
     DaemonCommand, DockFold, Duration, GoalView, HashSet, InteractiveOptions, LoaderTokenTracker,
     Map, MessageBlock, ModelCatalogUpdate, PromptOrder, PromptSubmitNote, ReattachOutcome,
-    RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi, ShareNote, Value,
+    RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi, Value,
     EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
 };
 
@@ -20,27 +20,14 @@ impl SessionUi {
         notes: mpsc::UnboundedSender<String>,
         compaction_abort_notes: mpsc::UnboundedSender<CompactionAbortNote>,
         prompt_notes: mpsc::UnboundedSender<PromptSubmitNote>,
-        share_notes: mpsc::UnboundedSender<ShareNote>,
         reload_notes: mpsc::UnboundedSender<ReloadNote>,
-        traces_upload_notes: mpsc::UnboundedSender<crate::traces::TraceUploadAllNote>,
         catalog_updates: mpsc::UnboundedSender<ModelCatalogUpdate>,
         auth_panel_notes: mpsc::UnboundedSender<crate::auth_panel::AuthPanelRequest>,
         activity_updates: ActivityUpdates,
     ) -> Result<SessionUi> {
         let active_session_id = match &options.session {
-            SessionSelection::New => create_session(&client, options, None).await?,
-            SessionSelection::NewChild { rlm_depth, .. } => {
-                let id = create_session(&client, options, None).await?;
-                // `tui agents new scoped`, fire-and-forget (the
-                // `subagents_view_opened` pattern): the open never waits on
-                // the telemetry flush.
-                if let Some(telemetry) = options.telemetry.clone() {
-                    let depth = *rlm_depth;
-                    tokio::spawn(async move {
-                        telemetry.scoped_agent_created(depth).await;
-                    });
-                }
-                id
+            SessionSelection::New | SessionSelection::NewChild { .. } => {
+                create_session(&client, options, None).await?
             }
             SessionSelection::Attach(id) => id.clone(),
             SessionSelection::Resume(_) => {
@@ -78,7 +65,6 @@ impl SessionUi {
             models_fetched_at: None,
             catalog_updates,
             heartbeat_updates: activity_updates.heartbeats,
-            telemetry_disabled: options.telemetry_disabled,
             code_block_indent: options.code_block_indent.clone(),
             tree_filter_mode: crate::tree_list::filter_mode_from_str(&options.tree_filter_mode),
             branch_summary_skip_prompt: options.branch_summary_skip_prompt,
@@ -92,15 +78,8 @@ impl SessionUi {
             anthropic_warning_mark_pending: std::sync::Arc::default(),
             active_side_question_id: None,
             side_question_counter: 0,
-            share: None,
             reload: None,
             reload_notes,
-            share_notes,
-            trace_upload: None,
-            traces_upload_notes,
-            pending_traces_login: None,
-            traces_login_run: None,
-            traces_login_gen: 0,
             pasted_images: BTreeMap::default(),
             next_image_marker_id: 1,
             pending_snapshot: None,
@@ -115,7 +94,6 @@ impl SessionUi {
             turn_active: false,
             turn_ends_seen: 0,
             last_prompt_turn_end: 0,
-            steering_mode: "all".to_string(),
             streaming_index: None,
             working_tokens: LoaderTokenTracker::default(),
             turn_error_shown: false,
@@ -124,7 +102,6 @@ impl SessionUi {
             last_assistant_text: None,
             osc_sink: crate::clipboard::OscSink::Stdout,
             pending_confirm: None,
-            traces: options.traces.clone(),
             provider_auth: options.provider_auth.clone(),
             pending_model_sign_in: None,
             auth_panel_notes,
@@ -171,8 +148,6 @@ impl SessionUi {
             input_submission_generation: 0,
             prompt_in_flight: 0,
             transcript_stale: false,
-            telemetry: options.telemetry.clone(),
-            exit_reason: "daemon_closed",
             daemon_closing_notice: None,
             transport_lost: None,
             pending_rebind: None,
@@ -183,7 +158,6 @@ impl SessionUi {
             escape_tree_shortcut_spent: false,
             user_bash_running: false,
             user_bash_card: None,
-            user_bash_started_at: None,
             user_bash_counter: 0,
             resync_bash: None,
             loader_anchor_ms: None,
@@ -194,7 +168,6 @@ impl SessionUi {
             external_editor_request: None,
             pending_mcp_auth: None,
             picker_restored_draft: false,
-            suspend_adoption_emitted: false,
         };
         session
             .attach_session(&active_session_id, DockFold::FirstFrame)
@@ -338,7 +311,6 @@ impl SessionUi {
                 "elide_snapshot_images".to_string(),
             ]),
             resume_cursor: None,
-            telemetry_disabled: self.telemetry_disabled.filter(|disabled| *disabled),
             recovery_config: None,
             env: client_env.clone(),
             launch_env: None,
@@ -711,7 +683,6 @@ impl SessionUi {
         match kind {
             RebuildKind::Rebind => {
                 self.user_bash_card = None;
-                self.user_bash_started_at = None;
             }
             RebuildKind::Resync => {
                 if let Some(resync) = resync_bash {
@@ -734,7 +705,6 @@ impl SessionUi {
                             {
                                 card.set_complete(None, false, false, None);
                             }
-                            self.user_bash_started_at = None;
                             // TS flushes inside the active-component branch:
                             // a side run (no mounted card) never flushes.
                             if !resync.snap_streaming {

@@ -3,55 +3,6 @@ use super::*;
 use proptest::prelude::*;
 use proptest::test_runner::RngSeed;
 
-/// The cargo test config sets `DO_NOT_TRACK=1`; the daemon's live
-/// recording gate reads it (env before settings). Tests that exercise
-/// gated daemon-event paths hold this guard while the three override
-/// vars are scrubbed, and restore them after. The env is process-wide,
-/// so these tests serialize through the crate-wide
-/// `test_support::TELEMETRY_ENV_MUTEX` (shared with `agent_engine`'s
-/// `telemetry_opt_in`) while they hold it.
-const TELEMETRY_ENV_VARS: [&str; 3] = ["DO_NOT_TRACK", "EUKHE_OFFLINE", "EUKHE_TELEMETRY"];
-
-struct CleanTelemetryEnv {
-    saved: Vec<(&'static str, Option<String>)>,
-    _env_lock: std::sync::MutexGuard<'static, ()>,
-}
-
-impl Default for CleanTelemetryEnv {
-    fn default() -> Self {
-        // Held first: the vars may not be touched while another env test
-        // runs.
-        let env_lock = crate::test_support::TELEMETRY_ENV_MUTEX
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let saved = TELEMETRY_ENV_VARS
-            .iter()
-            .map(|var| {
-                let value = std::env::var(var).ok();
-                std::env::remove_var(var);
-                (*var, value)
-            })
-            .collect();
-        Self {
-            saved,
-            _env_lock: env_lock,
-        }
-    }
-}
-
-impl Drop for CleanTelemetryEnv {
-    fn drop(&mut self) {
-        // The manual drop runs before the field drops: the restore lands
-        // while the env lock is still held.
-        for (var, value) in self.saved.drain(..) {
-            match value {
-                Some(value) => std::env::set_var(var, value),
-                None => std::env::remove_var(var),
-            }
-        }
-    }
-}
-
 /// The crash-path failure count: spawn-dies-fast churn accumulates to
 /// the give-up cap (the storm's counter could never grow while
 /// relaunch-spawns kept resetting it); a child that lived past the
@@ -567,7 +518,6 @@ async fn adoption_settles_then_seeds_the_roster_once() {
         root_session_id: None,
         session_file: Some(root_file.to_string_lossy().to_string()),
         session_dir: Some(sessions_dir.to_string_lossy().to_string()),
-        telemetry_disabled: Some(true),
         created_at: "t".to_string(),
         updated_at: "t".to_string(),
         lifecycle: DaemonWorkerLifecycle::Ready,
@@ -632,7 +582,6 @@ async fn a_create_while_shutting_down_is_refused() {
         no_session: None,
         name: None,
         config: None,
-        telemetry_disabled: None,
         runtime_metadata: None,
         lifecycle: None,
         env: None,
@@ -722,7 +671,6 @@ async fn a_failed_stop_persist_gates_the_kill_stop_belt() {
         root_session_id: Some("live-1".to_string()),
         session_file: Some(session_file.to_string_lossy().to_string()),
         session_dir: Some(sessions_dir.to_string_lossy().to_string()),
-        telemetry_disabled: None,
         created_at: "t".to_string(),
         updated_at: "t".to_string(),
         lifecycle: DaemonWorkerLifecycle::Ready,
@@ -802,7 +750,6 @@ async fn an_existing_tombstone_carries_the_stop_past_its_failed_re_write() {
         root_session_id: Some("live-1".to_string()),
         session_file: None,
         session_dir: Some(sessions_dir.to_string_lossy().to_string()),
-        telemetry_disabled: None,
         created_at: "t".to_string(),
         updated_at: "t".to_string(),
         lifecycle: DaemonWorkerLifecycle::Ready,
@@ -918,7 +865,6 @@ async fn first_signal_drains_a_settling_turn_and_rejects_new_work() {
         no_session: None,
         name: None,
         config: None,
-        telemetry_disabled: None,
         runtime_metadata: None,
         lifecycle: None,
         env: None,
@@ -1182,7 +1128,6 @@ async fn idle_passivation_refuses_a_client_owned_worker() {
         root_session_id: Some("root-1".to_string()),
         session_file: None,
         session_dir: None,
-        telemetry_disabled: None,
         created_at: "t".to_string(),
         updated_at: "t".to_string(),
         lifecycle: DaemonWorkerLifecycle::Ready,
@@ -1303,7 +1248,6 @@ async fn a_passivated_row_prompt_joins_an_already_hosting_resident() {
         root_session_id: Some("child-1".to_string()),
         session_file: Some(session_file.to_string_lossy().into_owned()),
         session_dir: Some(artifacts.to_string_lossy().into_owned()),
-        telemetry_disabled: None,
         created_at: "t".to_string(),
         updated_at: "t".to_string(),
         lifecycle: DaemonWorkerLifecycle::Ready,
@@ -1815,7 +1759,6 @@ async fn a_ledger_child_wake_joins_an_already_hosting_resident() {
         root_session_id: Some("kid-1".to_string()),
         session_file: Some(session_file.to_string_lossy().into_owned()),
         session_dir: Some(artifacts.to_string_lossy().into_owned()),
-        telemetry_disabled: None,
         created_at: "t".to_string(),
         updated_at: "t".to_string(),
         lifecycle: DaemonWorkerLifecycle::Ready,
@@ -1856,76 +1799,6 @@ async fn a_ledger_child_wake_joins_an_already_hosting_resident() {
         supervisor.registry.list().await.len(),
         before,
         "the ledger wake's reuse arm must not launch a second worker"
-    );
-}
-
-/// The daemon's exit sends the partial `daemon event` summary of the
-/// current window (the window is under an hour, so no count sent it yet).
-#[tokio::test]
-async fn the_exit_flush_sends_the_partial_daemon_event_summary() {
-    let _env = CleanTelemetryEnv::default();
-    let dir = tempfile::TempDir::new().unwrap();
-    let supervisor = Supervisor::new(SupervisorOptions {
-        socket_path: dir.path().join("daemon.sock"),
-        agent_dir: dir.path().join("agent"),
-    })
-    .expect("supervisor");
-    let mock = Arc::new(eukhe_telemetry::MockSink::new());
-    let mut config = eukhe_telemetry::TelemetryClientConfig::new("install-1");
-    config.sinks = vec![mock.clone() as Arc<dyn eukhe_telemetry::TelemetrySink>];
-    *supervisor.telemetry.lock().unwrap() =
-        Some(eukhe_telemetry::TelemetryClient::spawn(config).unwrap());
-    supervisor.note_daemon_event("attach", None);
-    supervisor.note_daemon_event("attach", None);
-    assert!(mock.events().is_empty(), "the window is still open");
-    supervisor.flush_telemetry_on_exit().await;
-    let events = mock.events();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].name, "daemon event");
-    assert_eq!(
-        events[0].properties.get("kind"),
-        Some(&Value::from("summary"))
-    );
-    assert_eq!(
-        events[0].properties.get("attach_count"),
-        Some(&Value::from(2))
-    );
-}
-
-/// The daemon's live gate counts only while telemetry is on: events
-/// that fire during a settings opt-out window never ride the summary
-/// after a re-enable. The counters skip while off (they are not
-/// severed), so the on-period count before the window still reports.
-#[tokio::test]
-async fn off_window_daemon_events_never_count_into_the_summary() {
-    let _env = CleanTelemetryEnv::default();
-    let dir = tempfile::TempDir::new().unwrap();
-    let agent_dir = dir.path().join("agent");
-    let mut settings = eukhe_core::settings::SettingsManager::create(dir.path(), &agent_dir);
-    settings.set_telemetry_enabled(false).unwrap();
-    let supervisor = Supervisor::new(SupervisorOptions {
-        socket_path: dir.path().join("daemon.sock"),
-        agent_dir: agent_dir.clone(),
-    })
-    .expect("supervisor");
-    let mock = Arc::new(eukhe_telemetry::MockSink::new());
-    let mut config = eukhe_telemetry::TelemetryClientConfig::new("install-1");
-    config.sinks = vec![mock.clone() as Arc<dyn eukhe_telemetry::TelemetrySink>];
-    *supervisor.telemetry.lock().unwrap() =
-        Some(eukhe_telemetry::TelemetryClient::spawn(config).unwrap());
-    // Off: the event skips, so nothing counts.
-    supervisor.note_daemon_event("attach", None);
-    settings.set_telemetry_enabled(true).unwrap();
-    // Back on: the event counts again.
-    supervisor.note_daemon_event("attach", None);
-    supervisor.flush_telemetry_on_exit().await;
-    let events = mock.events();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].name, "daemon event");
-    assert_eq!(
-        events[0].properties.get("attach_count"),
-        Some(&Value::from(1)),
-        "the off-window attach never counts"
     );
 }
 

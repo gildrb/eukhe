@@ -6,14 +6,10 @@ use super::{json, ModelRegistry, Value};
 use eukhe_durable::harness::usage::{add_usage as add_ledger_usage, UsageState};
 use eukhe_types::pi_ai::Usage;
 
-/// The worker's model registry (auth storage + `models.json`, with the
-/// on-disk private-authorization cache adopted so create-time resolution
-/// sees the same availability the create path does).
+/// The worker's model registry (auth storage + `models.json`).
 pub(crate) fn worker_model_registry(agent_dir: &std::path::Path) -> ModelRegistry {
     let auth = eukhe_core::auth::AuthStorage::create(agent_dir);
-    let mut registry = ModelRegistry::create(auth, agent_dir.join("models.json"));
-    registry.load_private_authorization_from_cache();
-    registry
+    ModelRegistry::create(auth, agent_dir.join("models.json"))
 }
 
 /// The TS `Usage` wire shape (the TS `emptyUsage`).

@@ -113,7 +113,6 @@ impl Worker {
                 )),
                 self.config.agent_dir.clone(),
                 self.config.active_session_id.clone(),
-                Arc::clone(&self.model_refusal_telemetry),
             ));
             let session = self.session.clone();
             host.set_parent_model_source(Arc::new(move || {

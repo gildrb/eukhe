@@ -67,11 +67,8 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -199,11 +196,8 @@ async fn tui_renders_and_fires_user_keybindings_from_settings() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         // The exact load path the CLI uses: the fixture overrides the
         // default set.
         keybindings: eukhe_tui::keybindings::KeybindingsManager::create(&agent_dir),
@@ -366,11 +360,8 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -517,11 +508,8 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -625,9 +613,7 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
         &eukhe_core::auth::AuthStorageData::default(),
         std::sync::Arc::new(eukhe_core::auth::NoOAuth),
     );
-    let mut registry =
-        eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
-    registry.load_private_authorization_from_cache();
+    let registry = eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
     let catalog: Vec<eukhe_types::ai::Model> =
         registry.get_available().into_iter().cloned().collect();
     assert_eq!(
@@ -658,11 +644,8 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),

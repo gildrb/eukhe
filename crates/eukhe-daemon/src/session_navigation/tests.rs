@@ -17,7 +17,6 @@ async fn created_worker(dir: &Path, cwd: &Path) -> Arc<Worker> {
         active_session_id: SESSION.to_owned(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({ "responses": ["one", "two", "three"] })),
     };
     let worker = Arc::new(Worker::new(config, None));

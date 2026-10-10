@@ -13,7 +13,6 @@ eukhe-ai = { path = "../eukhe-ai" }
 eukhe-agent = { path = "../eukhe-agent" }
 eukhe-daemon = { path = "../eukhe-daemon" }
 eukhe-tui = { path = "../eukhe-tui" }
-eukhe-telemetry = { path = "../eukhe-telemetry" }
 # The durable agent session the print/json/rpc modes run on (submissions,
 # event streams, faux-script models, chord contexts).
 eukhe-durable = { workspace = true }
@@ -33,8 +32,8 @@ path = "src/main.rs"
 [dev-dependencies]
 tempfile = "3"
 base64 = "0.22"
-# The traces login tests encrypt the challenge result with the flow's own
-# public key (same versions the workspace resolves for the engine).
+# The Prime Inference login tests encrypt the challenge result with the
+# flow's own public key (same versions the workspace resolves for the engine).
 rsa = { version = "0.9", features = ["sha2", "pem"] }
 sha2 = "0.10"
 libc = "0.2"

@@ -51,8 +51,7 @@ rustPlatform.buildRustPackage {
           uv
           git
         ]
-      } \
-      --set-default EUKHE_TELEMETRY 0
+      }
   '';
 
   meta = {

@@ -43,9 +43,6 @@ pub enum ModelPickerAction {
     Cancel,
     /// Navigation, filtering, or effort editing only.
     None,
-    /// The scope key toggled the picker's list (the caller reports the
-    /// adoption event; the picker stays mounted).
-    ScopeToggled { scoped: bool },
 }
 
 /// The outcome of dispatching a model-picker command with an optional search.
@@ -272,9 +269,6 @@ impl ModelPicker {
                 let query = self.search.value().to_string();
                 self.filter_models(&query);
                 self.select_current_or_top();
-                return ModelPickerAction::ScopeToggled {
-                    scoped: self.scoped_side(),
-                };
             }
             return ModelPickerAction::None;
         }

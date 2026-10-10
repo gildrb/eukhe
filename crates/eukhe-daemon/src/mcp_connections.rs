@@ -26,66 +26,60 @@ impl Worker {
     }
 
     /// `get_mcp_connections`: the roster from the session's MCP manager
-    /// (auth gating over settings plus the built-in catalog), the resolved
-    /// service-catalog views, and the api-key credential rows (the stored
-    /// keys the `/mcp` view manages alongside the connections), from ONE
-    /// fresh local read — the manager reloads the auth store and
-    /// re-resolves its integrations and catalog first (TS
-    /// `buildServiceCatalogViews` re-reads the store and re-resolves the
-    /// catalog on every open), so an externally changed settings file, a
-    /// record another process wrote, or a key the interactive client just
-    /// stored is visible on the next open. The roster and credential reads
-    /// gate through the auth store, whose snapshot takes a blocking lock —
-    /// never on the runtime.
+    /// (auth gating over settings plus the built-in catalog) and the
+    /// resolved service-catalog views, from ONE fresh local read — the
+    /// manager reloads the auth store and re-resolves its integrations and
+    /// catalog first (TS `buildServiceCatalogViews` re-reads the store and
+    /// re-resolves the catalog on every open), so an externally changed
+    /// settings file, a record another process wrote, or a credential the
+    /// interactive client just stored is visible on the next open. The
+    /// roster read gates through the auth store, whose snapshot takes a
+    /// blocking lock — never on the runtime.
     pub(crate) async fn handle_get_mcp_connections(&self) -> DaemonResponse {
         let manager = match self.mcp_manager("get_mcp_connections") {
             Ok(manager) => manager,
             Err(response) => return response,
         };
         let roster_manager = Arc::clone(&manager);
-        let (roster, services, credentials, diagnostics) =
-            match tokio::task::spawn_blocking(move || {
-                let mut manager = roster_manager
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
-                // The auth store re-read comes FIRST: the interactive client
-                // stores the api-key credentials through its own storage
-                // instance (the `/mcp` key flow runs client-side), so the
-                // view's reads must reload the store to see them.
-                manager.reload_auth_storage();
-                manager.refresh();
-                (
-                    manager.connection_roster(),
-                    manager.service_catalog_views(),
-                    manager.api_key_credential_views(),
-                    manager.service_catalog_diagnostics().to_vec(),
-                )
-            })
-            .await
-            {
-                Ok(read) => read,
-                Err(error) => {
-                    return response_failure(
-                        None,
-                        "get_mcp_connections",
-                        &format!("MCP roster read failed: {error}"),
-                        None,
-                    );
-                }
-            };
+        let (roster, services, diagnostics) = match tokio::task::spawn_blocking(move || {
+            let mut manager = roster_manager
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            // The auth store re-read comes FIRST: the interactive client
+            // stores credentials through its own storage instance (the
+            // `/mcp` login flows run client-side), so the view's reads
+            // must reload the store to see them.
+            manager.reload_auth_storage();
+            manager.refresh();
+            (
+                manager.connection_roster(),
+                manager.service_catalog_views(),
+                manager.service_catalog_diagnostics().to_vec(),
+            )
+        })
+        .await
+        {
+            Ok(read) => read,
+            Err(error) => {
+                return response_failure(
+                    None,
+                    "get_mcp_connections",
+                    &format!("MCP roster read failed: {error}"),
+                    None,
+                );
+            }
+        };
         let connections: Vec<Value> = roster
             .into_iter()
             .map(|entry| serde_json::to_value(&entry).unwrap_or(Value::Null))
             .collect();
         let services = serde_json::to_value(&services).unwrap_or(Value::Array(Vec::new()));
-        let credentials = serde_json::to_value(&credentials).unwrap_or(Value::Array(Vec::new()));
         response_success(
             None,
             "get_mcp_connections",
             Some(json!({
                 "connections": connections,
                 "services": services,
-                "credentials": credentials,
                 "catalogDiagnostics": diagnostics,
             })),
         )
@@ -125,10 +119,6 @@ impl Worker {
             Ok(inputs) => eukhe_core::mcp::install_static_token(inputs, token).await,
             Err(message) => Err(message),
         };
-        if install.is_ok() {
-            let manager = manager.lock().unwrap_or_else(PoisonError::into_inner);
-            manager.note_usage("paste-install", server);
-        }
         match install {
             Ok(outcome) => response_success(
                 None,

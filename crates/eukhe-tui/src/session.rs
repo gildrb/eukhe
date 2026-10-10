@@ -385,7 +385,7 @@ mod tests {
         let entry = FileEntry::Message {
             message: AgentMessage::User(eukhe_types::ai::UserMessage {
                 content: eukhe_types::ai::UserContent::Text(
-                    "<skill name=\"websearch\" location=\"/s/SKILL.md\">\nRun one query.\n</skill>\n\nfind parity tuis"
+                    "<skill name=\"lookup\" location=\"/s/SKILL.md\">\nRun one query.\n</skill>\n\nfind parity tuis"
                         .to_string(),
                 ),
                 timestamp: 1,
@@ -406,7 +406,7 @@ mod tests {
         };
         match card {
             crate::chat::ChatEntry::SkillInvocation(row) => {
-                assert_eq!(row.name, "websearch");
+                assert_eq!(row.name, "lookup");
                 assert_eq!(row.content, "Run one query.");
             }
             other => panic!("card: {other:?}"),

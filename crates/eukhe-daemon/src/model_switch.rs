@@ -11,7 +11,7 @@ use std::path::Path;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::thinking_level;
-use eukhe_core::models::{ModelAllowlistRefusal, SetModelSelectionError};
+use eukhe_core::models::SetModelSelectionError;
 use eukhe_core::settings::{SettingsManager, ThinkingLevelSetting};
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
 use eukhe_pi_ai::auth::AuthOperationOptions;
@@ -152,9 +152,7 @@ impl Worker {
 
     /// The daemon model allowlist gate for `model` (settings
     /// `allowedModels`): `None` when allowed, else the loud command
-    /// failure. The typed refusal also emits the adoption event (`model
-    /// refused`); a fail-closed unreadable-allowlist error is a settings
-    /// problem, not an allowlist refusal, and emits nothing.
+    /// failure.
     pub(crate) fn model_allowlist_refusal(
         &self,
         command: &str,
@@ -170,10 +168,6 @@ impl Worker {
         let cwd = Path::new(&cwd);
         let allowlist = crate::model_allowlist::load(cwd, &self.config.agent_dir);
         let refusal = crate::model_allowlist::assert_allowed(&allowlist, &selector).err()?;
-        if refusal.downcast_ref::<ModelAllowlistRefusal>().is_some() {
-            self.model_refusal_telemetry
-                .note_refused(command, &selector, cwd);
-        }
         Some(response_failure(None, command, &refusal.to_string(), None))
     }
 }

@@ -1,11 +1,11 @@
 //! Transport pinning — the security invariant of the catalog.
 //!
 //! Ported from `parseProviderModelCatalog` in
-//! `provider-model-catalog.ts`: every remote model must match a compiled
+//! `provider-model-catalog.ts`: every catalog model must match a compiled
 //! `(provider, api, baseUrl)` tuple. Non-matching entries drop silently;
 //! request headers come from the compiled transport templates
 //! (`template?.headers ?? transport.headers`), never from catalog data;
-//! prime-inference entries are skipped (that domain is fetched live).
+//! prime-inference entries are skipped (that domain ships compiled).
 
 use std::collections::HashMap;
 
@@ -78,8 +78,8 @@ pub fn pin_catalog_models(
 ) -> Result<Vec<Model>, String> {
     let mut models = Vec::with_capacity(catalog_models.len());
     for model in catalog_models {
-        // Prime Inference is fetched live with credentials; the remote
-        // catalog never carries it.
+        // Prime Inference ships compiled; the provider catalog never
+        // carries it.
         if model.provider == "prime-inference" {
             continue;
         }

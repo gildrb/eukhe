@@ -57,7 +57,6 @@ fn pin_state_env(command: &mut Command, root: &Path) {
     command
         .env("EUKHE_CODING_AGENT_DIR", &agent_dir)
         .env("TMPDIR", &tmp_dir)
-        .env("EUKHE_TELEMETRY", "0")
         // A supervisor killed at teardown must not leak its session workers
         // into later test binaries.
         .env(

@@ -141,10 +141,6 @@ impl PackageManager {
                     });
                 }
                 let mut builtin_skill_overrides = user_overrides[0].clone();
-                if !self.bundled_websearch_enabled() {
-                    // Web search stays disabled until explicitly enabled.
-                    builtin_skill_overrides.push("-websearch/SKILL.md".to_string());
-                }
                 builtin_skill_overrides
                     .extend(self.extra_builtin_skill_overrides().iter().cloned());
                 add_resources(

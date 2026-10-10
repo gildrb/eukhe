@@ -269,9 +269,9 @@ pub struct AgentSessionEngine {
     selection: std::sync::Arc<std::sync::RwLock<EngineModelSelection>>,
     /// TS `createAgentSession`'s restored-from-session decision, scoped to
     /// the session file it was computed for: a revived session's saved
-    /// model (or, after a missed restore window, the on-the-record
+    /// model (or, after a missed restore, the on-the-record
     /// fallback message — TS `modelFallbackMessage`). Computed once per
-    /// file at the create/replace seam (the bounded readiness wait) and
+    /// file at the create/replace seam and
     /// consulted by every unflagged resolution; a replacement flow that
     /// moves the worker onto another file recomputes its own (TS
     /// re-restores at every session boot), and an explicit create flag
@@ -281,11 +281,11 @@ pub struct AgentSessionEngine {
     /// `createAgentSession` resolves the model ONCE and the session then
     /// holds it as `session.model`): the `(provider, id)` the first
     /// unflagged, unrestored resolution picked. Later resolutions keep
-    /// that identity (re-resolved exactly, so a catalog refresh updates
+    /// that identity (re-resolved exactly, so a models.json edit updates
     /// the metadata, TS `_refreshCurrentModelFromRegistry`) instead of
     /// re-running the chain against a catalog that may have changed —
-    /// a background catalog fetch landing the provider's featured
-    /// default must never silently move a live session (or its
+    /// a newly configured provider's featured default must never
+    /// silently move a live session (or its
     /// list/summary row) off the model it runs on. Dropped wherever the
     /// chain's inputs legitimately change: an explicit provider/model
     /// selection, the create's `--models` scope, and the per-session
@@ -473,11 +473,6 @@ pub struct AgentSessionEngine {
     /// run's duration, and [`SessionEngine::abort_auto_compaction`]
     /// aborts whatever run holds it.
     pub(crate) auto_compaction_abort: std::sync::Mutex<Option<std::sync::Arc<AbortController>>>,
-    /// The daemon model-allowlist refusal telemetry (`model refused`),
-    /// shared with the RLM children host so every enforcement seam in
-    /// this worker emits through one lazily-built client.
-    pub(crate) model_refusal_telemetry:
-        std::sync::Arc<crate::model_allowlist::ModelRefusalTelemetry>,
     /// This session's semantic-edge identity (TS
     /// `semanticEdgeLedgerPath`/`semanticParentSessionId`/
     /// `semanticSpawnedByRequestId`): stamped by `configure_rlm_identity`

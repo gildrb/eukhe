@@ -107,14 +107,14 @@ mod tests {
         // TS `parseSkillBlock`: the block card plus the trailing argument
         // text as its own user block.
         let entries = skill_invocation_entries(
-            "<skill name=\"websearch\" location=\"/s/SKILL.md\">\nRun one query.\n</skill>\n\nfind parity tuis",
+            "<skill name=\"lookup\" location=\"/s/SKILL.md\">\nRun one query.\n</skill>\n\nfind parity tuis",
         )
         .expect("parses");
         assert_eq!(
             entries,
             vec![
                 ChatEntry::SkillInvocation(Box::new(SkillInvocationRow {
-                    name: "websearch".to_string(),
+                    name: "lookup".to_string(),
                     content: "Run one query.".to_string(),
                 })),
                 ChatEntry::User {
@@ -124,7 +124,7 @@ mod tests {
         );
         // A block without arguments renders the card alone.
         let entries = skill_invocation_entries(
-            "<skill name=\"websearch\" location=\"/s/SKILL.md\">\nRun one query.\n</skill>",
+            "<skill name=\"lookup\" location=\"/s/SKILL.md\">\nRun one query.\n</skill>",
         )
         .expect("parses");
         assert!(matches!(
@@ -133,7 +133,7 @@ mod tests {
         ));
         // Every other user text is an ordinary prompt.
         assert!(skill_invocation_entries("hello world").is_none());
-        assert!(skill_invocation_entries("/skill:websearch find tuis").is_none());
+        assert!(skill_invocation_entries("/skill:lookup find tuis").is_none());
     }
 
     /// The collapsed card is the header row alone: no box, no pad rows,
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn collapsed_header_row() {
         let row = SkillInvocationRow {
-            name: "websearch".to_string(),
+            name: "lookup".to_string(),
             content: "Run one query.".to_string(),
         };
         let rows = render_skill_invocation(&row, Detail::Overview, &theme(), 40, true);
@@ -149,7 +149,7 @@ mod tests {
             .iter()
             .map(|row| flat(row).trim_end().to_string())
             .collect();
-        assert_eq!(trimmed, vec!["", " [skill] websearch"], "{rows:?}");
+        assert_eq!(trimmed, vec!["", " [skill] lookup"], "{rows:?}");
         // The label is the shared `customMessageLabel` span, the name the
         // `customMessageText` fg.
         assert_eq!(

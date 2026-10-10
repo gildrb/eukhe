@@ -465,7 +465,7 @@ mod tests {
             cwd: "/w".to_string(),
             messages_path: Some("/log.jsonl".to_string()),
             skills: vec![
-                skill("web-search", Some("websearch")),
+                skill("edit", Some("edit")),
                 skill("refine", Some("refine")),
                 skill("agent-message", Some("agent_message")),
             ],

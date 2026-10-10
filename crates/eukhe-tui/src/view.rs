@@ -21,30 +21,6 @@ mod viewport;
 pub use frame::ChatFrame;
 pub use viewport::{ScrollAmount, ScrollRequest};
 
-/// A `/share` gist upload in flight (TS `BorderedLoader` with
-/// `CancellableLoader`): the spinner "Creating gist..." rows that replace
-/// the editor while `gh gist create` runs.
-#[derive(Debug, Clone)]
-pub struct ShareLoader {
-    /// The message under the spinner.
-    pub message: String,
-}
-
-impl ShareLoader {
-    #[must_use]
-    pub fn new() -> Self {
-        ShareLoader {
-            message: "Creating gist...".to_string(),
-        }
-    }
-}
-
-impl Default for ShareLoader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 pub struct AgentView {
     pub theme: Theme,
     /// The chat markdown fenced-code indent (`markdown.codeBlockIndent`,
@@ -121,9 +97,6 @@ pub struct AgentView {
     /// The dedicated bash view (the dock's Bash group's destination):
     /// while set, it owns the editor dock like the inline pickers.
     pub bash_view: Option<crate::bash_view::BashView>,
-    /// A `/share` gist upload in flight (TS `BorderedLoader`): while set,
-    /// it replaces the editor with the cancellable loader rows.
-    pub share_loader: Option<ShareLoader>,
     /// The `/reload` box (TS `handleReloadCommand`'s `reloadBox`): a
     /// bordered note that replaces the editor while the reload travels.
     pub reload_box: Option<String>,
@@ -271,8 +244,8 @@ impl AgentView {
         }
         // The input-less frame owners (the key dispatch's same set): the
         // heartbeats picker, the bash view, the read-only goal and info
-        // panels, the fork selector, the pending confirm, the share
-        // loader, the reload box, and the auth panel (its own channel
+        // panels, the fork selector, the pending confirm, the reload box,
+        // and the auth panel (its own channel
         // drives it). None of them leaves a paste to the editor behind.
         if self.heartbeats_picker.is_some()
             || self.bash_view.is_some()
@@ -280,7 +253,6 @@ impl AgentView {
             || self.info_panel.is_some()
             || self.fork_selector.is_some()
             || self.confirm.is_some()
-            || self.share_loader.is_some()
             || self.reload_box.is_some()
             || self.auth_panel.is_some()
         {
@@ -325,7 +297,6 @@ impl AgentView {
             heartbeats_picker: None,
             goal_panel: None,
             bash_view: None,
-            share_loader: None,
             reload_box: None,
             side_pane: None,
             settings_menu: None,

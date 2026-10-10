@@ -78,7 +78,6 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
     });
     let auth = crate::auth::AuthStorage::create(agent_dir);
     let mut registry = crate::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
-    registry.load_private_authorization_from_cache();
     let (selector, model) = if let Some(selector) = explicit {
         let model = crate::models::resolver::find_exact_model_reference_match(
             &selector,

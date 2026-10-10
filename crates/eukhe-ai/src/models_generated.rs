@@ -3,10 +3,11 @@
 //! The TS catalog is the tiny built-in fallback + transport trust table
 //! (32 providers, 152 models: one-plus transport-template model per
 //! `(provider, api, baseUrl)` tuple the client implements, plus the 110
-//! offline Prime Inference onboarding entries); the full model catalog is
-//! fetched from the `PrimeIntellect-ai/prime-agent-catalog` repo at
-//! runtime (no-cold-start chain: validated disk cache -> packaged
-//! bundled snapshot -> this compiled fallback). The data lives here as
+//! offline Prime Inference onboarding entries); the full model catalog
+//! ships as the packaged bundled snapshot generated at build time from the
+//! `PrimeIntellect-ai/prime-agent-catalog` repo (no-cold-start chain:
+//! packaged bundled snapshot -> this compiled fallback; never fetched at
+//! runtime). The data lives here as
 //! hand-maintained Rust source mirroring the TS object literal — there is
 //! no generated `models.generated.json` and no generator; the table
 //! changes only with a client release, exactly like its TS source.
@@ -4542,9 +4543,8 @@ mod tests {
     }
 
     /// The compiled Prime Inference section is the conservative fallback
-    /// (TS #2519): it declares no reasoning controls — the live catalog's
-    /// `supported_parameters` rebuild them at runtime
-    /// (eukhe-models `build_prime_inference_models`) — and it never carries the
+    /// (TS #2519): it declares no reasoning controls — a models.json compat
+    /// override can declare them per route — and it never carries the
     /// zai thinking format (TS #2459: Prime Inference rejects
     /// `enable_thinking` with a 400).
     #[test]

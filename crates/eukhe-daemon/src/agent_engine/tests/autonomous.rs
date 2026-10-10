@@ -102,7 +102,6 @@ fn autonomous_gate_pass_and_failure_drive_the_loop() {
                 serde_json::json!({ "responses": ["first attempt", "fixed it"] }).to_string(),
             ),
             supervisor_link: None,
-            telemetry_disabled: None,
             cron_store: None,
             queued_steering_probe: None,
         })
@@ -208,7 +207,6 @@ fn the_turn_loop_is_driven_by_the_driver_trait() {
             session_file: None,
             faux_script: Some(serde_json::json!({ "responses": ["one", "two"] }).to_string()),
             supervisor_link: None,
-            telemetry_disabled: None,
             cron_store: None,
             queued_steering_probe: None,
         })

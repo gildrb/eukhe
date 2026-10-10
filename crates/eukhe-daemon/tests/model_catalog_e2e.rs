@@ -1,9 +1,7 @@
-//! End-to-end verifier for the `/model` picker's live catalog surface: the
-//! daemon's `get_model_catalog` command must serve the registry snapshot
-//! (full catalog plus the providers with configured auth), and an offline
-//! daemon (no network, no live catalog) must fall back to the bundled
-//! catalog with the disk cache untouched — the offline fallback the picker
-//! renders when the refresh cannot land.
+//! End-to-end verifier for the `/model` picker's catalog surface: the
+//! daemon's `get_model_catalog` command must serve the local registry
+//! snapshot (the built-in catalog plus models.json, with the providers
+//! that have configured auth).
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -38,9 +36,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Supervisor {
         .stderr(Stdio::null())
         .env_remove("PRIME_API_KEY")
         .env_remove("EUKHE_CODING_AGENT_DIR")
-        // Offline mode: the catalog refresh must stay on the bundled
-        // fallback and never write the disk cache (TS `EUKHE_OFFLINE`).
-        .env("EUKHE_OFFLINE", "1")
         .spawn()
         .expect("spawn eukhe-daemon supervisor");
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -148,7 +143,7 @@ fn write_models_json(agent_dir: &Path, base_url: &str) {
 }
 
 #[test]
-fn offline_daemon_serves_the_bundled_catalog_fallback() {
+fn daemon_serves_the_local_catalog() {
     let temp = tempfile::Builder::new()
         .prefix("pa-model-catalog-")
         .tempdir()
@@ -156,8 +151,7 @@ fn offline_daemon_serves_the_bundled_catalog_fallback() {
     let dir = temp.path();
     let agent_dir = dir.join("agent");
     let socket = dir.join("daemon.sock");
-    // No auth beyond the models.json key: no provider credentials, no
-    // private-model entitlements.
+    // No auth beyond the models.json key: no provider credentials.
     write_models_json(&agent_dir, "http://127.0.0.1:9/v1");
     let supervisor = spawn_supervisor(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
@@ -191,7 +185,7 @@ fn offline_daemon_serves_the_bundled_catalog_fallback() {
     let models = data["models"].as_array().expect("models array");
     assert!(
         models.len() > 100,
-        "the bundled catalog must serve as the offline fallback (got {} models)",
+        "the built-in catalog must serve (got {} models)",
         models.len()
     );
     // The models.json custom model is part of the catalog.
@@ -218,17 +212,12 @@ fn offline_daemon_serves_the_bundled_catalog_fallback() {
         .filter_map(Value::as_str)
         .collect();
     assert_eq!(providers, vec!["prime-inference"]);
-    // Private Prime Inference models stay out without authorization.
+    // Private Prime Inference models stay out unless models.json declares
+    // them.
     assert!(models.iter().all(|model| !model["id"]
         .as_str()
         .unwrap_or_default()
         .starts_with("internal/")));
-
-    // The offline refresh never wrote the live-catalog cache.
-    assert!(
-        !agent_dir.join("prime-inference-models-cache.json").exists(),
-        "offline mode must not write the catalog cache"
-    );
     drop(client);
     drop(supervisor);
 }

@@ -158,7 +158,6 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "schedule" => run_nested_agent_command("schedule", "cron", &rest),
         "status" => run_status(&rest),
         "doctor" => run_doctor(&rest),
-        "telemetry" => run_telemetry(&rest),
         "incident" => run_incident_command(&rest),
         "shutdown" => run_shutdown(&rest),
         "package" => run_package(&rest),
@@ -399,39 +398,6 @@ fn run_doctor(args: &[String]) -> PublicCommandResult {
         daemon_discovery::run_ps(json, &options.state_root());
     }
     handled()
-}
-
-/// `eukhe telemetry [status|on|off]`: the same report and settings
-/// switch as the `/telemetry` slash command, for the current directory's
-/// settings scope.
-fn run_telemetry(args: &[String]) -> PublicCommandResult {
-    let usage = || fail(format!("Usage: {APP_NAME} telemetry [status|on|off]"), None);
-    if args.len() > 1 {
-        return usage();
-    }
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let agent_dir = crate::config::get_agent_dir();
-    let mut settings = eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir);
-    let report = match args.first().map(String::as_str) {
-        None | Some("status") => {
-            Ok(eukhe_core::session_engine::telemetry::telemetry_status_text(&settings, &agent_dir))
-        }
-        Some(choice @ ("on" | "off")) => {
-            eukhe_core::session_engine::telemetry::set_telemetry_enabled_text(
-                &mut settings,
-                &agent_dir,
-                choice == "on",
-            )
-        }
-        Some(_) => return usage(),
-    };
-    match report {
-        Ok(report) => {
-            println!("{report}");
-            handled()
-        }
-        Err(error) => fail(format!("{error:#}"), None),
-    }
 }
 
 /// `eukhe incident` (TS `runIncidentCommand`): parse the options,

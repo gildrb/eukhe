@@ -39,7 +39,6 @@ async fn get_commands_enumerates_skills_before_the_first_prompt() {
                 json!({ "engine": "faux", "responses": [{ "text": "ok" }] }).to_string(),
             ),
             supervisor_link: None,
-            telemetry_disabled: None,
             cron_store: None,
             queued_steering_probe: None,
         })
@@ -379,7 +378,6 @@ fn run_skill_prompt_body(
         session_file: None,
         faux_script: Some(json!({ "engine": "faux", "responses": [{ "text": "ok" }] }).to_string()),
         supervisor_link: None,
-        telemetry_disabled: None,
         cron_store: None,
         queued_steering_probe: None,
     })

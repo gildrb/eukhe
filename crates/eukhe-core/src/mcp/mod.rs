@@ -3,12 +3,12 @@
 //! host requests. Port of core/mcp/mcp-manager.ts plus the TS MCP catalog
 //! (the OAuth flow lives in the `oauth*` submodules).
 
+mod bundled_source;
 mod catalog_plugin_views;
 mod catalog_schema;
 mod catalog_status_views;
 mod catalog_views;
 mod connection_store;
-mod fetch_lane;
 mod local_catalog;
 mod login;
 mod manager_catalog;
@@ -17,15 +17,12 @@ mod oauth_callback;
 mod oauth_discovery;
 mod oauth_http;
 mod probe;
-mod remote_source;
 mod service_catalog;
 mod url_checks;
 
-pub use catalog_plugin_views::{McpCredentialView, API_KEY_CREDENTIALS};
 pub use catalog_views::{
     mcp_credential_field_prompt_label, mcp_paste_credential, McpPasteCredential,
 };
-pub use fetch_lane::{spawn_hourly_plugins_refresh, startup_plugins_refresh};
 pub use login::{wire_begin_login, McpLoginContext, McpOAuth};
 pub use manager_catalog::{
     install_static_token, remove_mcp_connection, McpConnectionHandles, PasteInstallInputs,
@@ -258,20 +255,13 @@ pub struct McpManagerOptions {
     /// Declared local service-catalog sources (settings
     /// `mcpCatalogSources`, ~-relative allowed); re-read on refresh.
     pub get_catalog_sources: Option<Box<dyn Fn() -> Vec<String> + Send + Sync>>,
-    /// The remote plugins-catalog snapshot source; defaults to the disk
-    /// cache then the packaged bundled snapshot. Never fetches — the
-    /// fetch/cadence layer owns writing the cache.
+    /// The plugins-catalog snapshot source; defaults to the packaged
+    /// bundled snapshot. Never fetches.
     pub remote_source: Option<manager_catalog::RemoteCatalogSourceFn>,
     /// Injectable verification probe (tests); the real streamable-HTTP
     /// handshake by default.
     pub probe_override: Option<probe::McpEndpointProbe>,
 }
-
-/// Telemetry usage reporter for MCP connector activity: called with
-/// `(action, server)` on every successful `mcp.*` host request. Server name
-/// only — never tool names, arguments, or results. Set by the session engine
-/// before host handlers register (the wire handlers capture it).
-pub type McpUsageReporter = std::sync::Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// Host-side MCP manager: auth gating, config resolution, `mcp.*` host
 /// requests, and ACP session servers.
@@ -283,28 +273,18 @@ pub struct McpManager {
     get_catalog_sources: Option<Box<dyn Fn() -> Vec<String> + Send + Sync>>,
     remote_source: Option<manager_catalog::RemoteCatalogSourceFn>,
     probe_override: Option<probe::McpEndpointProbe>,
-    usage_report: Option<McpUsageReporter>,
     integrations: HashMap<String, ResolvedIntegration>,
     /// The resolved service catalog (the SAME resolution feeds integrations
     /// and the `/mcp` view).
     service_catalog: service_catalog::McpCatalogResolution,
-    /// Whether the last resolution had a validated remote catalog snapshot
-    /// in hand (the fetch lane's last-good cache or the packaged bundle):
-    /// the pinned-definition hint claims a service left the catalog, so it
-    /// renders only when a snapshot can prove that.
+    /// Whether the last resolution had a validated catalog snapshot in
+    /// hand (the packaged bundle): the pinned-definition hint claims a
+    /// service left the catalog, so it renders only when a snapshot can
+    /// prove that.
     catalog_available: bool,
     connection_store: std::sync::Arc<std::sync::Mutex<connection_store::McpConnectionStore>>,
     acp_servers: std::sync::Arc<std::sync::Mutex<HashMap<String, AcpMcpServerConfig>>>,
     acp_owner_id: std::sync::Mutex<Option<String>>,
-}
-
-impl McpManager {
-    /// Set the telemetry usage reporter (session engine wiring; see
-    /// [`McpUsageReporter`]). Must run before
-    /// [`McpManager::register_host_handlers`] so the handlers capture it.
-    pub fn set_usage_report(&mut self, reporter: Option<McpUsageReporter>) {
-        self.usage_report = reporter;
-    }
 }
 
 fn provider_id(server: &str) -> String {
@@ -331,9 +311,8 @@ impl McpManager {
             None => connection_store::McpConnectionStore::in_memory(),
         }));
         let remote_source = options.remote_source.or_else(|| {
-            agent_dir.as_ref().map(|dir| {
-                let dir = dir.clone();
-                Box::new(move || remote_source::remote_plugins_snapshot(&dir))
+            agent_dir.as_ref().map(|_| {
+                Box::new(bundled_source::bundled_plugins_snapshot)
                     as manager_catalog::RemoteCatalogSourceFn
             })
         });
@@ -345,7 +324,6 @@ impl McpManager {
             get_catalog_sources: options.get_catalog_sources,
             remote_source,
             probe_override: options.probe_override,
-            usage_report: None,
             integrations: HashMap::new(),
             service_catalog: crate::mcp::service_catalog::McpCatalogResolution::default(),
             catalog_available: false,
@@ -625,23 +603,13 @@ impl McpManager {
             Ok(number.min(max_limit as u64) as usize)
         }
 
-        let (
-            auth,
-            acp_servers,
-            usage_refresh,
-            acp_servers_for_config,
-            integrations,
-            usage_config,
-            begin_login,
-        ) = {
+        let (auth, acp_servers, acp_servers_for_config, integrations, begin_login) = {
             let manager = manager.lock().unwrap();
             (
                 manager.auth_storage.clone(),
                 manager.acp_servers.clone(),
-                manager.usage_report.clone(),
                 manager.acp_servers.clone(),
                 manager.integrations.clone(),
-                manager.usage_report.clone(),
                 manager.begin_login.clone(),
             )
         };
@@ -649,7 +617,6 @@ impl McpManager {
             "mcp.refresh",
             host_handler(move |payload| {
                 let auth = auth.clone();
-                let usage_refresh = usage_refresh.clone();
                 let acp_servers = acp_servers.clone();
                 Box::pin(async move {
                     let server = payload
@@ -680,9 +647,6 @@ impl McpManager {
                             "Could not refresh credentials for {server}"
                         ));
                     }
-                    if let Some(report) = &usage_refresh {
-                        report("refresh", &server);
-                    }
                     Ok(json!({}))
                 })
             }),
@@ -692,7 +656,6 @@ impl McpManager {
             host_handler(move |payload| {
                 let integrations = integrations.clone();
                 let acp_servers = acp_servers_for_config.clone();
-                let usage_config = usage_config.clone();
                 Box::pin(async move {
                     let server = payload
                         .data
@@ -708,9 +671,6 @@ impl McpManager {
                         let mut config = serde_json::to_value(acp).unwrap_or(Value::Null);
                         if let Value::Object(map) = &mut config {
                             map.insert("credentialSource".to_string(), json!("acp"));
-                        }
-                        if let Some(report) = &usage_config {
-                            report("config", &server);
                         }
                         return Ok(config);
                     }
@@ -732,9 +692,6 @@ impl McpManager {
                             if let Value::Object(map) = &mut config {
                                 map.insert("credentialSource".to_string(), json!("static-token"));
                             }
-                        }
-                        if let Some(report) = &usage_config {
-                            report("config", &server);
                         }
                         return Ok(config);
                     }

@@ -3252,7 +3252,7 @@ def factory_enabled() -> bool:
     ``/factory on`` (the persisted setting is ``factory.enabled`` in the
     agent dir's ``settings.json`` -- the same nested-camelCase document the
     daemon and TUI settings surface write, e.g. ``{"factory": {"enabled":
-    true}}`` beside ``compaction``/``agentTraces``). The read mirrors the
+    true}}`` beside ``compaction``). The read mirrors the
     lenient settings loading on the Rust side: a missing file or key, a
     wrong-typed value, or a corrupt document all read as unset, and unset
     means disabled -- the opt-in default is fail-closed, so an unreadable

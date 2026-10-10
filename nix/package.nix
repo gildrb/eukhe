@@ -51,8 +51,7 @@ stdenv.mkDerivation {
           uv
           git
         ]
-      } \
-      --set-default EUKHE_TELEMETRY 0
+      }
     runHook postInstall
   '';
 

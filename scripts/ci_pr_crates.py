@@ -43,14 +43,13 @@ FILES_API_CEILING = 3000
 # The changes job must select without installing Rust or running Cargo.
 WORKSPACE_DEPS = {
     "eukhe-types": set(),
-    "eukhe-telemetry": set(),
     "eukhe-ai": {"eukhe-types"},
     "eukhe-models": {"eukhe-ai"},
     "eukhe-agent": {"eukhe-ai", "eukhe-types"},
-    "eukhe-core": {"eukhe-agent", "eukhe-ai", "eukhe-models", "eukhe-types", "eukhe-telemetry"},
+    "eukhe-core": {"eukhe-agent", "eukhe-ai", "eukhe-models", "eukhe-types"},
     "eukhe-daemon": {"eukhe-core"},
     "eukhe-tui": {"eukhe-types", "eukhe-core"},
-    "eukhe-cli": {"eukhe-types", "eukhe-telemetry", "eukhe-ai", "eukhe-models",
+    "eukhe-cli": {"eukhe-types", "eukhe-ai", "eukhe-models",
                "eukhe-agent", "eukhe-core", "eukhe-daemon", "eukhe-tui"},
 }
 
@@ -104,7 +103,7 @@ def select_crates(rows: list[tuple[str, str]]) -> list[str] | None:
                 print(f"non-crate path {candidate}: the full selection runs")
                 return None
     # eukhe-types owns the shared wire vocabulary: run every workspace test for
-    # its changes, including the independent eukhe-telemetry leaf crate.
+    # its changes.
     if "eukhe-types" in crates:
         return sorted(WORKSPACE_DEPS)
     # Walk upward through the DAG until no dependent is left unselected.

@@ -1,11 +1,10 @@
 //! The `/mcp` view: the TS `ServiceCatalogPickerComponent`'s catalog
 //! surface -- the resolved service catalog's cards (catalog services plus
-//! user-declared servers, connected-first) and the api-key credential
-//! rows (the stored keys, e.g. the web-search key) over the daemon's
+//! user-declared servers, connected-first) over the daemon's
 //! `get_mcp_connections` response, with the TS picker's search bands,
 //! ONE fixed detail line, and the navigate/action/close hint. Enter runs
 //! the connection's login flow (TS `onSelect` -> `authenticate`) or the
-//! credential's paste-the-key prompt; Esc closes. The panel is the same
+//! token-paste flow; Esc closes. The panel is the same
 //! inline shape as the `/model` picker (the bordered search field over
 //! `>`-marker rows), and its frame is budgeted so the dock can never
 //! overflow the terminal (the detail line drops when the viewport is too
@@ -21,7 +20,7 @@ use serde_json::Value;
 
 mod rows;
 
-use rows::{flatten_to_single_line, McpCredentialRow, McpRow, McpServiceRow};
+use rows::{flatten_to_single_line, McpServiceRow};
 
 /// The search field's placeholder (TS `MenuSearchInput("Search MCP
 /// connections")`).
@@ -179,7 +178,7 @@ fn description_match_score(text: &str, token: &str) -> Option<f64> {
 /// every token must match somewhere; each token's best field score is
 /// summed into the row's total. Identity fields first; the
 /// description/setup-hint band only when no identity field matched.
-fn row_search_score(row: &McpRow, query: &str) -> Option<f64> {
+fn row_search_score(row: &McpServiceRow, query: &str) -> Option<f64> {
     let query = query.trim().to_lowercase();
     let tokens: Vec<&str> = query
         .split_whitespace()
@@ -221,12 +220,6 @@ pub enum McpViewAction {
     /// the paste flow (TS `actionText` "paste token"). `label` is the
     /// service's display name (the panel's title reads "Connect {label}").
     Paste { server: String, label: String },
-    /// Enter on an api-key credential row (the stored keys the view
-    /// manages alongside the connections): open the paste-the-key prompt
-    /// (the panel's masked paste field). `id` is the credential's auth
-    /// slot, `label` its display name (the panel's title reads "Connect
-    /// {label}").
-    Key { id: String, label: String },
     /// Esc, Ctrl+C, or back: close without selecting.
     Cancel,
     /// Navigation or search editing only.
@@ -235,12 +228,11 @@ pub enum McpViewAction {
 
 /// The `/mcp` service-catalog view: the resolved catalog's cards (the
 /// TS `ServiceCatalogPickerComponent`'s catalog surface -- every resolved
-/// service plus user-declared servers, connected-first) and the api-key
-/// credential rows, with the TS picker's search bands and one fixed
-/// detail line.
+/// service plus user-declared servers, connected-first), with the TS
+/// picker's search bands and one fixed detail line.
 #[derive(Debug)]
 pub struct McpView {
-    rows: Vec<McpRow>,
+    rows: Vec<McpServiceRow>,
     search: SearchInput,
     filtered: Vec<usize>,
     selected: usize,
@@ -251,11 +243,9 @@ pub struct McpView {
 
 impl McpView {
     /// Build the view over the daemon's `get_mcp_connections` response:
-    /// the resolved `services` cards (the catalog surface) plus the
-    /// `credentials` rows (the api-key entries the view manages alongside
-    /// the connections). The response carries no live tool listing -- the
-    /// picker opens from this local state exactly like TS, so the open is
-    /// instant.
+    /// the resolved `services` cards (the catalog surface). The response
+    /// carries no live tool listing -- the picker opens from this local
+    /// state exactly like TS, so the open is instant.
     pub fn from_response(data: &Value, viewport_rows: usize) -> Self {
         let services: Vec<McpServiceRow> = data
             .get("services")
@@ -267,37 +257,24 @@ impl McpView {
                     .collect()
             })
             .unwrap_or_default();
-        let credentials: Vec<McpCredentialRow> = data
-            .get("credentials")
-            .and_then(Value::as_array)
-            .map(|entries| {
-                entries
-                    .iter()
-                    .filter_map(McpCredentialRow::from_value)
-                    .collect()
-            })
-            .unwrap_or_default();
         // The catalog cards own the service rows when the daemon serves
         // them (TS `buildPluginViews` already includes user-declared
         // servers); a daemon that predates the catalog surface serves only
         // the legacy `connections` roster, and its rows render from the
-        // roster. The credential rows ride after the cards (the api-key
-        // class the view serves alongside the connections).
-        let mut rows: Vec<McpRow> = if services.is_empty() {
+        // roster.
+        let rows: Vec<McpServiceRow> = if services.is_empty() {
             data.get("connections")
                 .and_then(Value::as_array)
                 .map(|entries| {
                     entries
                         .iter()
                         .filter_map(McpServiceRow::from_roster_entry)
-                        .map(McpRow::Service)
                         .collect()
                 })
                 .unwrap_or_default()
         } else {
-            services.into_iter().map(McpRow::Service).collect()
+            services
         };
-        rows.extend(credentials.into_iter().map(McpRow::Credential));
         let mut view = McpView {
             rows,
             search: SearchInput::new(),
@@ -311,12 +288,11 @@ impl McpView {
         view
     }
 
-    /// The selected row's action target (Enter's service id, or the
-    /// credential's auth slot).
+    /// The selected row's action target (Enter's service id).
     pub fn selected_server(&self) -> Option<&str> {
         self.rows
             .get(*self.filtered.get(self.selected)?)
-            .map(McpRow::target)
+            .map(McpServiceRow::target)
     }
 
     /// One key press (TS `ServiceCatalogPickerComponent.handleInput`):
@@ -360,17 +336,11 @@ impl McpView {
                 .get(self.selected)
                 .and_then(|index| self.rows.get(*index));
             return match selected_row {
-                // The credential rows route to the paste-the-key prompt
-                // (a configured row's Enter replaces the stored key).
-                Some(McpRow::Credential(credential)) => McpViewAction::Key {
-                    id: credential.id.clone(),
-                    label: credential.label.clone(),
-                },
-                Some(McpRow::Service(service)) if service.wants_paste() => McpViewAction::Paste {
+                Some(service) if service.wants_paste() => McpViewAction::Paste {
                     server: service.target().to_string(),
                     label: service.label.clone(),
                 },
-                Some(McpRow::Service(service)) => McpViewAction::Select {
+                Some(service) => McpViewAction::Select {
                     server: service.target().to_string(),
                     label: service.label.clone(),
                 },
@@ -506,7 +476,7 @@ impl McpView {
             .filtered
             .get(self.selected)
             .and_then(|index| self.rows.get(*index))
-            .map(McpRow::action_text);
+            .map(McpServiceRow::action_text);
         lines.push(hint_line(theme, width, kb, action));
         lines
     }

@@ -147,6 +147,37 @@ pub async fn execute_session_command(
     outcome
 }
 
+/// Commit only the `session_slash_command` echo row of `command`: the
+/// host that runs the command itself (the daemon worker's `/compact`,
+/// which drives the manual compaction and its event pair) records the
+/// attempt first, as [`execute_session_command`] does.
+///
+/// # Errors
+///
+/// The commit failure.
+pub async fn commit_session_command_echo(
+    conversation: &Conversation,
+    command: &SessionCommand,
+    cx: &Context,
+) -> Result<(), String> {
+    append_rows(conversation, vec![echo_row(command)], cx).await
+}
+
+/// Commit the `Command failed: <error>` result row of `command` (the
+/// failure arm of a host-run command, see [`commit_session_command_echo`]).
+///
+/// # Errors
+///
+/// The commit failure.
+pub async fn commit_session_command_failure(
+    conversation: &Conversation,
+    command: &SessionCommand,
+    error: &str,
+    cx: &Context,
+) -> Result<(), String> {
+    append_rows(conversation, vec![failure_row(command, error)], cx).await
+}
+
 /// A custom row before its timestamp and draft.
 struct Row {
     custom_type: &'static str,

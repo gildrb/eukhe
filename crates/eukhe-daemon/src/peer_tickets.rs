@@ -339,7 +339,6 @@ mod tests {
                     root_session_id: None,
                     session_file: Some("/sessions/some-session.jsonl".to_string()),
                     session_dir: None,
-                    telemetry_disabled: None,
                     created_at: "t".to_string(),
                     updated_at: "t".to_string(),
                     lifecycle: DaemonWorkerLifecycle::Ready,

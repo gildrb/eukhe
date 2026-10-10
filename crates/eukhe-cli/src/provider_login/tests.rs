@@ -125,7 +125,6 @@ async fn login_options_list_providers_only() {
     let dir = tempfile::tempdir().expect("temp dir");
     let agent = dir.path().join("agent");
     std::fs::create_dir_all(&agent).expect("agent dir");
-    std::env::remove_var("EUKHE_TRACES_API_KEY");
     std::env::remove_var("PRIME_API_KEY");
     let auth = ProviderAuth::new(dir.path(), agent.clone());
     let rows = auth.login_options().await;
@@ -143,9 +142,8 @@ async fn login_options_list_providers_only() {
         );
     }
     // The operator's 2026-09-24 directive: /login is providers only --
-    // the service rows (MCP OAuth integrations, the web search
-    // credential) never appear; the /mcp view owns MCP logins.
-    assert!(!rows.iter().any(|row| row.id == "serper"));
+    // the MCP OAuth integration rows never appear; the /mcp view owns
+    // MCP logins.
     assert!(!rows.iter().any(|row| row.id.starts_with("mcp:")));
     // Prime Inference sorts first among the api-key rows (TS rule).
     assert!(
@@ -262,50 +260,6 @@ async fn login_stores_an_api_key_and_logout_removes_it() {
             auth.logout(&stored[0]).await,
             ProviderAuthOutcome::Status(
                 "Removed stored API key for OpenAI. Environment variables and models.json config are unchanged."
-                    .to_string()
-            )
-        );
-    assert!(auth.logout_options().await.is_empty());
-}
-
-#[tokio::test]
-async fn a_stored_web_search_key_pairs_with_the_logout_row() {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let agent = dir.path().join("agent");
-    std::fs::create_dir_all(&agent).expect("agent dir");
-    let auth = ProviderAuth::new(dir.path(), agent);
-    // A key stored at the runtime's slot (the `/mcp` view's key flow
-    // writes the same store through the same form).
-    let row = ProviderRow {
-        id: "serper".to_string(),
-        name: "Serper (web search)".to_string(),
-        auth_type: AuthType::ApiKey,
-        status: None,
-        flow: AuthFlow::ApiKeyPrompt,
-        configured: false,
-        available: true,
-    };
-    match auth.login(&row, Some("the-key")).await {
-        ProviderAuthOutcome::Status(message) => {
-            assert!(
-                message.starts_with("Saved API key for Serper (web search)."),
-                "the store status: {message}"
-            );
-        }
-        other => panic!("expected the store status, got {other:?}"),
-    }
-    // The logout row pairs with the stored key: the `/logout` surface
-    // lists it by its credential name and removes it.
-    let stored = auth.logout_options().await;
-    let row = stored
-        .iter()
-        .find(|row| row.id == "serper")
-        .expect("the web-search credential's logout row");
-    assert_eq!(row.name, "Serper (web search)");
-    assert_eq!(
-            auth.logout(row).await,
-            ProviderAuthOutcome::Status(
-                "Removed stored API key for Serper (web search). Environment variables and models.json config are unchanged."
                     .to_string()
             )
         );

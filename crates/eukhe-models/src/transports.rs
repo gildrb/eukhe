@@ -3,8 +3,8 @@
 //! The compiled model catalog (`eukhe_ai::models_generated`, ported from the TS
 //! `models.generated.ts`) is the hand-maintained table of transports the
 //! client implements: 42 `(provider, api, baseUrl)` tuples across 31 public
-//! providers, plus the 110 offline Prime Inference entries (live-fetch
-//! domain, one transport tuple of its own). It only changes with a client
+//! providers, plus the 110 offline Prime Inference entries (one transport
+//! tuple of its own). It only changes with a client
 //! release — the catalog can select among these transports but never
 //! introduce one.
 
@@ -30,7 +30,7 @@ pub fn compiled_models() -> &'static [Model] {
 }
 
 /// Distinct compiled `(provider, api, baseUrl)` tuples (Prime Inference
-/// excluded — its transport is served by the live-fetch domain).
+/// excluded — its entries ship as their own compiled section).
 #[must_use]
 pub fn compiled_transport_tuples() -> Vec<(&'static str, &'static str, &'static str)> {
     let mut tuples: Vec<(&'static str, &'static str, &'static str)> = Vec::new();
@@ -54,9 +54,9 @@ pub fn compiled_transport_tuples() -> Vec<(&'static str, &'static str, &'static 
     tuples
 }
 
-/// The compiled offline Prime Inference entries (the onboarding fallback
-/// before the first credentialed fetch). Private ids (internal/, dev/, ids
-/// containing `:`) never ship compiled.
+/// The compiled Prime Inference entries (joined into every resolved
+/// catalog). Private ids (internal/, dev/, ids containing `:`) never ship
+/// compiled.
 #[must_use]
 pub fn prime_inference_offline_entries() -> Vec<Model> {
     compiled_models()

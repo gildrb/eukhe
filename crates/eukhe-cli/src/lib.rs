@@ -27,7 +27,6 @@
 pub(crate) mod args;
 pub(crate) mod chat_command;
 pub(crate) mod client_settings;
-pub(crate) mod client_traces;
 pub(crate) mod codex_subscription_login;
 pub(crate) mod command_registry;
 pub(crate) mod config;
@@ -59,8 +58,6 @@ pub(crate) mod session_export;
 pub(crate) mod sessions_table_format;
 pub(crate) mod styling;
 pub(crate) mod subscription_login;
-pub(crate) mod telemetry_notice;
-pub(crate) mod traces_login;
 
 /// The runtime boundary: everything a mode-runner crate implements to plug
 /// into the `eukhe` binary, plus the entry point that drives it.
@@ -90,10 +87,6 @@ pub fn main_with_runtime(args: &[String], runtime: &dyn mode::Runtime) -> i32 {
 
 fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String> {
     use std::io::IsTerminal;
-
-    // Telemetry reports the version `--version` prints (the packaged
-    // manifest's version when one sits beside the binary).
-    eukhe_telemetry::set_version(crate::config::version());
 
     let offline_mode = args.iter().any(|arg| arg == "--offline")
         || crate::config::is_truthy_env_flag(
@@ -242,11 +235,6 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     }
 
     let agent_dir = crate::config::get_agent_dir();
-    // Telemetry opt-in resolution (TS main.ts): env override, then settings.
-    // The runtime config only carries the disabled case.
-    let telemetry_disabled = crate::mode::telemetry_disabled(
-        &eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir),
-    );
     let session_dir = parsed
         .session_dir
         .as_deref()
@@ -305,7 +293,6 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
             agent_dir,
             session_dir.clone(),
             app_mode,
-            telemetry_disabled,
         ),
         session: mode::SessionOptions {
             continue_recent: parsed.continue_,

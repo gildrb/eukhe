@@ -97,11 +97,8 @@ fn options(selection: ModelSelection) -> InteractiveOptions {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: crate::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -121,15 +118,6 @@ fn create_config_carries_the_requested_thinking_level() {
     assert_eq!(config["thinking"], "max");
 }
 
-/// The daemon worker stamps the client's mode on the session's telemetry
-/// (TS `executionMode: appMode`): interactive sessions report
-/// `interactive`, never the worker's own `daemon` context.
-#[test]
-fn create_config_names_the_interactive_execution_mode() {
-    let config = options(ModelSelection::default()).create_config();
-    assert_eq!(config["executionMode"], "interactive");
-}
-
 #[test]
 fn create_config_omits_thinking_when_no_flag_was_given() {
     let config = options(ModelSelection::default()).create_config();
@@ -147,7 +135,6 @@ fn create_config_binds_a_new_child_to_its_parent() {
         opts.create_config(),
         json!({
             "cwd": "/tmp",
-            "executionMode": "interactive",
             "parentSessionPath": "/x/p.jsonl",
             "rlmDepth": 2
         })
@@ -226,23 +213,11 @@ fn the_headless_settle_names_every_stuck_member() {
             ..Default::default()
         },
         HeadlessSettle {
-            share_pending: true,
-            ..Default::default()
-        },
-        HeadlessSettle {
             reload_pending: true,
             ..Default::default()
         },
         HeadlessSettle {
-            traces_upload_pending: true,
-            ..Default::default()
-        },
-        HeadlessSettle {
             auth_panel_open: true,
-            ..Default::default()
-        },
-        HeadlessSettle {
-            traces_login_pending: true,
             ..Default::default()
         },
         HeadlessSettle {
@@ -279,15 +254,12 @@ fn the_headless_settle_names_every_stuck_member() {
         queued: 1,
         idle_barrier: true,
         dirty: true,
-        share_pending: true,
         reload_pending: true,
-        traces_upload_pending: true,
         auth_panel_open: true,
-        traces_login_pending: true,
         mcp_auth_pending: true,
         anthropic_warning_mark_pending: true,
     };
-    assert_eq!(all.blockers().len(), 13);
+    assert_eq!(all.blockers().len(), 10);
     assert!(
         all.blockers()
             .iter()

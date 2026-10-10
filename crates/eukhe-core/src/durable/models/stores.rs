@@ -1,7 +1,7 @@
-//! The persistent stores of the durable model collection: the pi-ai
-//! [`CredentialStore`] over eukhe's `auth.json` and the [`ModelsStore`] over
-//! `models-store.json`, both through eukhe's locked file backend. The
-//! `auth.json` format mapping is documented on the parent module.
+//! The persistent credential store of the durable model collection: the
+//! pi-ai [`CredentialStore`] over eukhe's `auth.json`, through eukhe's locked
+//! file backend. The `auth.json` format mapping is documented on the parent
+//! module.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -10,7 +10,6 @@ use eukhe_pi_ai::auth::{
     ApiKeyCredential, ApiKeyType, AuthOperationOptions, AuthType, Credential, CredentialInfo,
     CredentialStore, ModifyFn, OAuthCredential,
 };
-use eukhe_pi_ai::models_store::{ModelsStore, ModelsStoreEntry, ModelsStoreOperationOptions};
 use eukhe_pi_ai::providers::prime_inference::{
     PRIME_API_KEY_ENV, PRIME_INFERENCE_PROVIDER_ID, PRIME_TEAM_ID_ENV,
 };
@@ -361,105 +360,10 @@ impl CredentialStore for AuthJsonCredentialStore {
     }
 }
 
-/// Locked JSON-backed storage for dynamically refreshed provider catalogs:
-/// the pi coding-agent `FileModelsStore`, over eukhe's locked file backend.
-pub(super) struct FileModelsStore {
-    backend: Arc<FileAuthStorageBackend>,
-}
-
-impl FileModelsStore {
-    pub(super) fn new(path: impl Into<std::path::PathBuf>) -> Self {
-        Self {
-            backend: Arc::new(FileAuthStorageBackend::new(path)),
-        }
-    }
-}
-
-fn store_error(error: &str) -> String {
-    format!("models-store.json: {error}")
-}
-
-fn throw_if_store_aborted(options: &ModelsStoreOperationOptions) -> Result<(), Thrown> {
-    match &options.signal {
-        Some(signal) => signal.throw_if_aborted(),
-        None => Ok(()),
-    }
-}
-
-impl ModelsStore for FileModelsStore {
-    fn read(
-        &self,
-        provider_id: &str,
-        options: ModelsStoreOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<ModelsStoreEntry>, Thrown>> {
-        let id = provider_id.to_owned();
-        let backend = Arc::clone(&self.backend);
-        Box::pin(async move {
-            throw_if_store_aborted(&options)?;
-            let entry = blocking(move || {
-                let document = read_document(&backend).map_err(|error| store_error(&error))?;
-                document
-                    .get(&id)
-                    .map(|entry| {
-                        serde_json::from_value::<ModelsStoreEntry>(entry.clone())
-                            .map_err(|error| store_error(&format!("entry {id}: {error}")))
-                    })
-                    .transpose()
-            })
-            .await?;
-            throw_if_store_aborted(&options)?;
-            Ok(entry)
-        })
-    }
-
-    fn write(
-        &self,
-        provider_id: &str,
-        entry: ModelsStoreEntry,
-        options: ModelsStoreOperationOptions,
-    ) -> BoxFuture<'_, Result<(), Thrown>> {
-        let id = provider_id.to_owned();
-        let backend = Arc::clone(&self.backend);
-        Box::pin(async move {
-            throw_if_store_aborted(&options)?;
-            let value = serde_json::to_value(&entry).map_err(|error| thrown(error.to_string()))?;
-            blocking(move || {
-                update_document(&backend, |document| {
-                    document.insert(id.clone(), value.clone());
-                    Ok((true, ()))
-                })
-                .map_err(|error| store_error(&error))
-            })
-            .await
-        })
-    }
-
-    fn delete(
-        &self,
-        provider_id: &str,
-        options: ModelsStoreOperationOptions,
-    ) -> BoxFuture<'_, Result<(), Thrown>> {
-        let id = provider_id.to_owned();
-        let backend = Arc::clone(&self.backend);
-        Box::pin(async move {
-            throw_if_store_aborted(&options)?;
-            blocking(move || {
-                update_document(&backend, |document| {
-                    document.shift_remove(&id);
-                    Ok((true, ()))
-                })
-                .map_err(|error| store_error(&error))
-            })
-            .await
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use eukhe_pi_ai::models_store::ModelsStoreEntry;
     use serde_json::json;
 
     use super::*;
@@ -491,7 +395,7 @@ mod tests {
                 "type": "mcp_static_token", "bearer": "lin-token",
                 "endpoint": "https://mcp.linear.app"
             },
-            "serper": { "type": "api_key", "key": "serper-key" }
+            "zai": { "type": "api_key", "key": "zai-key" }
         })
     }
 
@@ -566,7 +470,7 @@ mod tests {
                 ("openai-codex", AuthType::OAuth),
                 ("openai", AuthType::ApiKey),
                 ("prime-inference", AuthType::ApiKey),
-                ("serper", AuthType::ApiKey),
+                ("zai", AuthType::ApiKey),
             ]
             .map(|(provider_id, kind)| CredentialInfo {
                 provider_id: provider_id.to_owned(),
@@ -696,24 +600,5 @@ mod tests {
                 .starts_with("Invalid auth.json credential for provider \"xai\""),
             "{error}"
         );
-    }
-
-    #[tokio::test]
-    async fn models_store_round_trips_entries() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = FileModelsStore::new(dir.path().join("models-store.json"));
-        let entry = ModelsStoreEntry {
-            checked_at: Some(1_700_000_000_000.0),
-            ..ModelsStoreEntry::default()
-        };
-        let store_options = ModelsStoreOperationOptions::default;
-        assert_eq!(store.read("p", store_options()).await.unwrap(), None);
-        store
-            .write("p", entry.clone(), store_options())
-            .await
-            .unwrap();
-        assert_eq!(store.read("p", store_options()).await.unwrap(), Some(entry));
-        store.delete("p", store_options()).await.unwrap();
-        assert_eq!(store.read("p", store_options()).await.unwrap(), None);
     }
 }

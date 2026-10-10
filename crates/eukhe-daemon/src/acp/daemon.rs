@@ -616,7 +616,6 @@ async fn bind_daemon_session(
             client_id: None,
             capabilities: None,
             resume_cursor: None,
-            telemetry_disabled: None,
             recovery_config: None,
             env: None,
             launch_env: None,
@@ -1343,7 +1342,7 @@ async fn prompt_turn(
         .await;
     // The settlement loop (TS `finalizePendingTerminal`): the barrier is
     // the event, no timer, and the roster re-read is the response-cut
-    // telemetry (a child can publish a terminal status before its result
+    // signal (a child can publish a terminal status before its result
     // reaches the parent). A failed barrier or read errors the prompt; a
     // degraded status would spin the loop.
     let settled_status = loop {

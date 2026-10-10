@@ -221,11 +221,8 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: Some(ProviderAuthCommandsHandle(Arc::new(ScriptedProviderAuth))),
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -261,14 +258,6 @@ impl eukhe_tui::client_auth::ClientAuthCommands for ScriptedClientAuth {
         _panel: AuthPanelHandle,
     ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send>> {
         Box::pin(async move { Ok("Connected.".to_string()) })
-    }
-
-    fn api_key(
-        &self,
-        _credential: &str,
-        _panel: AuthPanelHandle,
-    ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send>> {
-        Box::pin(async move { Ok("Saved API key.".to_string()) })
     }
 
     fn logout(

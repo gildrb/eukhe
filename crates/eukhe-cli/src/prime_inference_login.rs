@@ -2,8 +2,8 @@
 //! `runPrimeInferenceLogin`): the core login's prime-cli credential
 //! reuse, the browser challenge raced against the pasted-key prompt,
 //! the whoami access check, the team selection, and the credential
-//! write. The race and its cooperative cancellation follow the traces
-//! login's proven shape (TS `Promise.race([browserLoginOrFallback,
+//! write. The race and its cooperative cancellation (TS
+//! `Promise.race([browserLoginOrFallback,
 //! manualKeyEntry, dialogCancelled])`; a manual key drops the browser
 //! poll mid-flight and a failed browser keeps the prompt under the
 //! fallback text). The flow renders through the inline auth panel (TS

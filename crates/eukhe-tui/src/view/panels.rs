@@ -1,11 +1,10 @@
 //! The panel assembly: the dock -- the queued-input strip, the
 //! autocomplete overlay, the borderless composer, the status line, and
-//! the `/speed` footer -- plus the share loader and reload-box panels
-//! that replace the composer in flight.
+//! the `/speed` footer -- plus the reload-box panel that replaces the
+//! composer in flight.
 
 use super::editor_surface;
-use super::{AgentView, ShareLoader};
-use crate::style::Style;
+use super::AgentView;
 use crate::theme::ThemeColor;
 use crate::{Line, Span};
 
@@ -83,43 +82,6 @@ impl AgentView {
             None,
         );
         (surface.rows, surface.cursor)
-    }
-
-    /// The `/share` loader rows (TS `BorderedLoader` + `CancellableLoader`):
-    /// border, spinner + message, cancel hint, border -- replacing the
-    /// editor in the dock while `gh gist create` runs.
-    pub(super) fn render_share_loader(&self, loader: &ShareLoader, width: usize) -> Vec<Line> {
-        let border = self.theme.fg_style(ThemeColor::Border);
-        let muted = self.theme.fg_style(ThemeColor::Muted);
-        let dim = self.theme.fg_style(ThemeColor::Dim);
-        let spinner = crate::glyphs::SPINNER[self.pulse_frame % crate::glyphs::SPINNER.len()];
-        let mut rows: Vec<Line> = Vec::with_capacity(7);
-        rows.push(vec![Span::styled(
-            crate::glyphs::RULE.repeat(width.max(1)),
-            border,
-        )]);
-        let mut row: Line = vec![Span::styled(" ".to_string(), Style::default())];
-        // TS `BorderedLoader` wraps a `Loader` with the muted spinner and
-        // muted message color fns; the gap between them is the unstyled
-        // plain space (the `Loader` pen reset -- see `chat::render_loader`).
-        row.push(Span::styled(spinner.to_string(), muted));
-        row.push(Span::raw(" ".to_string()));
-        row.push(Span::styled(loader.message.clone(), muted));
-        rows.push(row);
-        rows.push(vec![Span::raw(String::new())]);
-        // TS `keyHint("tui.select.cancel", "cancel")`: every key of the
-        // binding, first letter capitalized, then the description.
-        let key_text = self.editor.keybindings().key_text("tui.select.cancel");
-        let mut hint: Line = vec![Span::styled(" ".to_string(), Style::default())];
-        hint.push(Span::styled(key_text, dim));
-        hint.push(Span::styled(" cancel".to_string(), muted));
-        rows.push(hint);
-        rows.push(vec![Span::raw(String::new())]);
-        rows.push(vec![Span::styled(
-            crate::glyphs::RULE.repeat(width.max(1)),
-            border,
-        )]);
-        rows
     }
 
     /// The `/reload` box (TS `handleReloadCommand`): `DynamicBorder`, blank,

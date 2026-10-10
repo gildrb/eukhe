@@ -605,14 +605,13 @@ mod tests {
     }
 
     /// Port of the TS regression (#2519, gateway-verified 2026-09-21):
-    /// a Prime Inference route sends only the reasoning parameters its live
-    /// catalog declaration selects — an effort-declared route sends
+    /// a Prime Inference route sends only the reasoning parameters its
+    /// declared compat selects — an effort-declared route sends
     /// `reasoning_effort` values, a toggle-declared route the `reasoning`
     /// object — and `enable_thinking` never reaches a Prime Inference
-    /// route. The live declarations rebuild each model's compat and
-    /// thinking levels (eukhe-models `build_prime_inference_models`); these
-    /// fixtures hold the two rebuilt shapes, so the request shaping keeps
-    /// its #2519 coverage independent of the compiled fallback catalog.
+    /// route. These fixtures hold the two declared shapes (as a models.json
+    /// compat override sets them), so the request shaping keeps its #2519
+    /// coverage independent of the compiled fallback catalog.
     #[test]
     fn sends_only_the_declared_reasoning_parameters_for_live_rebuilt_routes() {
         // Effort-declared route (the glm-5.3 shape): reasoning_effort with

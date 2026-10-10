@@ -170,7 +170,7 @@ fn subscription_options(
     options.script_path = None;
     options.model_selection = eukhe_tui::interactive::ModelSelection {
         provider: Some("anthropic".to_string()),
-        model: Some("claude-test".to_string()),
+        model: Some("claude-haiku-4-5".to_string()),
         api_key: None,
         thinking: None,
     };
@@ -201,9 +201,9 @@ async fn tui_anthropic_warning_warns_once_then_a_fresh_process_reattaches_silent
     // The session runs on an Anthropic model, so the startup detection
     // arm's provider gate passes and the fake credential resolves the
     // warning. No faux script: the durable faux provider always registers
-    // as provider `faux`, so the flagged `anthropic/claude-test` resolves
-    // from the real catalog (the provider's template; no turn runs, so no
-    // credential is ever needed).
+    // as provider `faux`, so the session runs on a registered catalog
+    // model (`anthropic/claude-haiku-4-5`: pi-ai `Models` serves registered
+    // models only; no turn runs, so no credential is ever needed).
 
     // Run one: the fresh session warns once and marks the gate.
     let options = subscription_options(
@@ -231,7 +231,8 @@ async fn tui_anthropic_warning_warns_once_then_a_fresh_process_reattaches_silent
     let rendered = outcome.frames.join("\n");
     assert!(
         rendered.contains(E2E_SUBSCRIPTION_WARNING),
-        "the new session drew the ban-risk warning:\n{rendered}"
+        "the new session drew the ban-risk warning (open notice: {:?}):\n{rendered}",
+        outcome.agents_view_notice
     );
     let session = outcome.active_session_id.clone();
 
@@ -500,11 +501,8 @@ async fn tui_two_back_to_back_submits_reach_the_daemon_in_order() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -620,11 +618,8 @@ async fn tui_submit_outlived_by_switch_stays_silent_on_the_new_session() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -738,11 +733,8 @@ async fn tui_headless_done_with_a_turn_settling_parks_the_closed_input_channel()
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),
@@ -864,11 +856,8 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
         onboarding: None,
-        telemetry_disabled: None,
         client_auth: None,
-        traces: None,
         provider_auth: None,
-        telemetry: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
         session_rlm_depth: None,
         prompt_stash: std::sync::Arc::default(),

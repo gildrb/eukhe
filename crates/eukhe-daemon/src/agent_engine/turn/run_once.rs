@@ -41,11 +41,10 @@ impl AgentSessionEngine {
             return Vec::new();
         }
         let auth = eukhe_core::auth::AuthStorage::create(&self.config.agent_dir);
-        let mut registry = eukhe_core::models::ModelRegistry::create(
+        let registry = eukhe_core::models::ModelRegistry::create(
             auth,
             self.config.agent_dir.join("models.json"),
         );
-        registry.load_private_authorization_from_cache();
         let available: Vec<eukhe_types::ai::Model> =
             registry.get_available().into_iter().cloned().collect();
         let candidates = eukhe_core::models::failover_candidates(model, &available);

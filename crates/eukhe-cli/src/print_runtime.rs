@@ -36,13 +36,8 @@ impl crate::mode::Runtime for PrintRuntime {
         // (TS main: listModels runs after session assembly, before any mode
         // transport, and exits 0).
         if options.list_models.is_some() {
-            return match crate::list_models::run(options) {
-                Ok(code) => Ok(code),
-                Err(message) => {
-                    eprintln!("Error: {message}");
-                    Ok(1)
-                }
-            };
+            crate::list_models::run(options);
+            return Ok(0);
         }
         match options.app_mode {
             // Runtime failures print themselves and exit non-zero; the typed
@@ -109,9 +104,6 @@ fn run_on_runtime(future: impl Future<Output = Result<i32, String>>) -> Result<i
 /// until the client disconnects. Any startup failure is an `Error:` exit 1
 /// before the first ACP frame.
 async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
-    // The disclosure prints on the ACP client's stderr before any
-    // transport starts.
-    crate::telemetry_notice::print_if_due(&options.config);
     // Flag > env > default: the same `EUKHE_DAEMON_SOCKET` contract as
     // every other mode.
     let socket_path = crate::config::resolve_daemon_socket_path(options.daemon_socket.as_deref());
@@ -185,8 +177,6 @@ async fn daemon_acp_create(
     let mut create_config = serde_json::json!({
         "cwd": cwd.display().to_string(),
         "sessionDir": sessions_dir(options).display().to_string(),
-        // The telemetry execution mode (TS main.ts `executionMode: appMode`).
-        "executionMode": "acp",
     });
     if let Some(provider) = &config.provider {
         create_config["provider"] = serde_json::json!(provider);
@@ -236,7 +226,6 @@ async fn daemon_acp_create(
         no_session: options.session.no_session.then_some(true),
         name: None,
         config: Some(create_config),
-        telemetry_disabled: crate::mode::create_telemetry_disabled(config),
         runtime_metadata: None,
         lifecycle: Some(lifecycle),
         env: None,
@@ -249,7 +238,6 @@ async fn daemon_acp_create(
 /// The RPC headless mode: the TS `modes/rpc` JSONL command surface over
 /// stdio, on durable sessions this module's factory opens.
 async fn rpc_mode_main(options: &RunOptions) -> Result<i32, String> {
-    crate::telemetry_notice::print_if_due(&options.config);
     let config = &options.config;
     eukhe_daemon::rpc::run_rpc_mode(eukhe_daemon::rpc::RpcOptions {
         engine_factory: rpc_engine_factory(options),
@@ -346,8 +334,6 @@ async fn print_mode_main(
     options: &RunOptions,
     lease: &mut Option<eukhe_daemon::lease::SessionLease>,
 ) -> Result<i32, String> {
-    // Every headless mode discloses immediately.
-    crate::telemetry_notice::print_if_due(&options.config);
     let cx = &*BACKGROUND_CONTEXT;
     let mut opened = open_headless_session(
         options,

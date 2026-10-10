@@ -217,12 +217,6 @@ impl SessionUi {
         if view.settings_menu.is_some() {
             return self.handle_settings_menu_key(key, view).await;
         }
-        // The `/share` loader owns the frame while an upload runs (TS the
-        // loader takes focus): the cancel binding aborts, other keys are
-        // the loader's.
-        if view.share_loader.is_some() {
-            return self.handle_share_loader_key(key, view);
-        }
         let Some(id) = key_event_to_id(&key) else {
             return Ok(());
         };
@@ -422,7 +416,6 @@ impl SessionUi {
             return Ok(());
         }
         if view.editor.keybindings().matches(&id, "app.exit") && view.editor.get_text().is_empty() {
-            self.exit_reason = "ctrl_d";
             *running = false;
             return Ok(());
         }
@@ -449,7 +442,6 @@ impl SessionUi {
             // interrupt action shows the same hint but never exits on the
             // second press (TS `handleInterruptKey` has no exit branch).
             if self.ctrl_c_hint_visible() && !interrupt {
-                self.exit_reason = "ctrl_c_twice";
                 *running = false;
                 return Ok(());
             }
@@ -492,8 +484,7 @@ impl SessionUi {
         }
         // TS `app.model.select` (default ctrl+l, `showModelSelector`):
         // the same surface `/model` opens (TS registers it between the
-        // suspend and the detail actions). No command was submitted, so
-        // the menu telemetry reports the `shortcut` source.
+        // suspend and the detail actions).
         if view.editor.keybindings().matches(&id, "app.model.select") {
             // The picker takes the frame: a completion request parked by
             // this same press must not materialize a dropdown over the
@@ -506,7 +497,6 @@ impl SessionUi {
             // keep it -- the Tab path's flag truth, not a typed-command
             // partial (TS's selector never touches the editor).
             self.picker_restored_draft = true;
-            self.track_menu_opened("model", "shortcut");
             self.dirty = true;
             return Ok(());
         }
@@ -565,11 +555,6 @@ impl SessionUi {
                         kind: StatusKind::Warning,
                     });
                     self.last_status_index = None;
-                    if let Some(telemetry) = self.telemetry.clone() {
-                        tokio::spawn(async move {
-                            telemetry.external_editor_used("no_editor").await;
-                        });
-                    }
                 }
                 Some(command) => {
                     self.external_editor_request = Some(command);
@@ -775,7 +760,6 @@ impl SessionUi {
                         if view.model_picker.is_none() {
                             self.picker_restored_draft = false;
                         }
-                        self.track_menu_opened("model", "tab");
                         self.dirty = true;
                         return Ok(());
                     }
@@ -784,7 +768,6 @@ impl SessionUi {
                         if view.model_picker.is_none() {
                             self.picker_restored_draft = false;
                         }
-                        self.track_menu_opened("memory-model", "tab");
                         self.dirty = true;
                         return Ok(());
                     }
@@ -798,7 +781,6 @@ impl SessionUi {
                         if view.mcp_view.is_none() {
                             self.picker_restored_draft = false;
                         }
-                        self.track_menu_opened("mcp", "tab");
                         self.dirty = true;
                         return Ok(());
                     }

@@ -128,5 +128,3 @@ pub(crate) mod worker_stderr;
 
 #[cfg(test)]
 pub(crate) mod durable_test_support;
-#[cfg(test)]
-pub(crate) mod test_support;

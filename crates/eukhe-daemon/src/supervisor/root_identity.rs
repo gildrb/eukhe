@@ -286,7 +286,6 @@ impl Supervisor {
                     "session identity move for {} did not persist (the pending side record carries it; repairing on the next roster write): {error:#}",
                     resident.worker_id
                 ));
-                self.note_daemon_event("root_identity_persist_failed", None);
             }
         }
         // The binding table learns the moved-to identity here: the

@@ -32,9 +32,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-/// The lane of the RPC children: plain children share it; the timed
-/// children (wall-clock frame-visibility oracles) take it alone, so sibling
-/// children never starve their budgets under a parallel test run.
+/// The lane of the RPC children: plain children share it; the corpus
+/// children (10 MiB fixtures, the stalled-reader oracle's bounded poll)
+/// take it alone, so sibling children never starve them under a parallel
+/// test run.
 static CHILD_LANE: std::sync::RwLock<()> = std::sync::RwLock::new(());
 
 /// The child plus the tempdir it runs in: the tempdir must outlive the
@@ -1226,14 +1227,13 @@ fn write_corpus_fixture(path: &std::path::Path, size_mib: usize) {
     std::fs::write(path, text).unwrap();
 }
 
-/// One timestamped RPC child for the compaction-visibility oracles: the
-/// reader records each frame with the `Instant` its read chunk arrived,
-/// so a frame's client-visibility time is the pipe-arrival time, not a
-/// later poll (the same arrival-accurate rule the bench frame pump has).
-struct TimedRpcChild {
+/// One RPC child over a corpus fixture for the compaction-frame oracles,
+/// with a deferrable stdout reader (the stalled-reader oracle holds the
+/// pipe unread until `begin_reading`).
+struct CorpusRpcChild {
     child: std::process::Child,
     stdin: std::process::ChildStdin,
-    frames: Option<std::sync::mpsc::Receiver<(std::time::Instant, Value)>>,
+    frames: Option<std::sync::mpsc::Receiver<Value>>,
     /// Held while the reader is deferred (the stalled-reader oracle).
     pending_stdout: Option<std::process::ChildStdout>,
     next_id: u64,
@@ -1244,8 +1244,8 @@ struct TimedRpcChild {
     _lane: std::sync::RwLockWriteGuard<'static, ()>,
 }
 
-impl TimedRpcChild {
-    fn spawn(fixture: &std::path::Path, script: &Value) -> TimedRpcChild {
+impl CorpusRpcChild {
+    fn spawn(fixture: &std::path::Path, script: &Value) -> CorpusRpcChild {
         let mut child = Self::spawn_stalled(fixture, script);
         child.begin_reading();
         child
@@ -1254,7 +1254,7 @@ impl TimedRpcChild {
     /// Spawn with the reader thread deferred: the stalled-reader oracle
     /// holds the child's stdout pipe unread (a full pipe blocks the
     /// writer task mid-write) until `begin_reading` starts the drain.
-    fn spawn_stalled(fixture: &std::path::Path, script: &Value) -> TimedRpcChild {
+    fn spawn_stalled(fixture: &std::path::Path, script: &Value) -> CorpusRpcChild {
         let exclusive_lane = CHILD_LANE
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1284,7 +1284,7 @@ impl TimedRpcChild {
             let mut stderr = stderr;
             while matches!(stderr.read(&mut sink), Ok(n) if n > 0) {}
         });
-        TimedRpcChild {
+        CorpusRpcChild {
             child,
             stdin,
             frames: None,
@@ -1309,7 +1309,6 @@ impl TimedRpcChild {
                 match stdout.read(&mut chunk) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        let arrived = Instant::now();
                         buf.extend_from_slice(&chunk[..n]);
                         while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
                             let line: Vec<u8> = buf.drain(..=pos).collect();
@@ -1319,7 +1318,7 @@ impl TimedRpcChild {
                             }
                             let frame: Value =
                                 serde_json::from_str(&line).expect("valid JSON line");
-                            if tx.send((arrived, frame)).is_err() {
+                            if tx.send(frame).is_err() {
                                 return;
                             }
                         }
@@ -1337,19 +1336,18 @@ impl TimedRpcChild {
         self.stdin.flush().unwrap();
     }
 
-    fn command(&mut self, command: &Value) -> (String, Instant) {
+    fn command(&mut self, command: &Value) -> String {
         self.next_id += 1;
         let id = format!("t-{}", self.next_id);
         let mut frame = command.clone();
         frame["id"] = json!(id);
-        let sent = Instant::now();
         self.send(&frame);
-        (id, sent)
+        id
     }
 
-    /// Read frames until `id`'s response, returning the events seen
-    /// before it, each with its arrival instant.
-    fn wait_response(&mut self, id: &str, timeout: Duration) -> (Value, Vec<(Instant, Value)>) {
+    /// Read frames until `id`'s response, returning the frames seen
+    /// before it, in order.
+    fn wait_response(&mut self, id: &str, timeout: Duration) -> (Value, Vec<Value>) {
         let deadline = Instant::now() + timeout;
         let mut events = Vec::new();
         let frames = self.frames.as_ref().expect("reader started");
@@ -1357,13 +1355,11 @@ impl TimedRpcChild {
             let timeout_left = deadline.saturating_duration_since(Instant::now());
             assert!(!timeout_left.is_zero(), "timed out waiting for {id}");
             match frames.recv_timeout(timeout_left) {
-                Ok((arrived, frame)) => {
-                    if frame.get("type").and_then(Value::as_str) == Some("response")
-                        && frame.get("id").and_then(Value::as_str) == Some(id)
-                    {
+                Ok(frame) => {
+                    if is_response(&frame, id) {
                         return (frame, events);
                     }
-                    events.push((arrived, frame));
+                    events.push(frame);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     panic!("timed out waiting for response {id} (events: {events:?})")
@@ -1374,9 +1370,35 @@ impl TimedRpcChild {
             }
         }
     }
+
+    /// Read frames until the first event of `kind`, returning it with
+    /// the frames seen before it (responses included), in order.
+    fn wait_event(&mut self, kind: &str, timeout: Duration) -> (Value, Vec<Value>) {
+        let deadline = Instant::now() + timeout;
+        let mut before = Vec::new();
+        let frames = self.frames.as_ref().expect("reader started");
+        loop {
+            let timeout_left = deadline.saturating_duration_since(Instant::now());
+            assert!(!timeout_left.is_zero(), "timed out waiting for {kind}");
+            match frames.recv_timeout(timeout_left) {
+                Ok(frame) => {
+                    if frame.get("type").and_then(Value::as_str) == Some(kind) {
+                        return (frame, before);
+                    }
+                    before.push(frame);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    panic!("timed out waiting for {kind} (frames: {before:?})")
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    panic!("rpc child closed before {kind} (frames: {before:?})")
+                }
+            }
+        }
+    }
 }
 
-impl Drop for TimedRpcChild {
+impl Drop for CorpusRpcChild {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -1384,84 +1406,71 @@ impl Drop for TimedRpcChild {
 }
 
 /// The compaction's `compaction_start` frame reaches the client BEFORE
-/// the compaction pipeline runs (the served-path oracle): the handler
-/// flushes the queued frame before entering the pre-summarizer CPU span
-/// (digest capture, cut scan, token estimation, details extraction) —
-/// a span that runs to the summarizer's `await` without an executor
-/// yield, so without the flush the queued frame strands behind it and
-/// the client sees the compaction start only when the span ends. TS
-/// writes stdout frames synchronously at the emit, so the flush is the
-/// TS-parity shape, and the oracle bites from both sides: the start must
-/// arrive inside the flush budget, and the pipeline after it must be a
-/// span an unflushed frame would have straggled behind.
+/// the compaction pipeline settles (the served-path oracle): the start
+/// frame publishes at the task commit, ahead of the summarizer, so a
+/// client reacting to it still observes the compaction in flight. TS
+/// writes stdout frames synchronously at the emit; a start frame
+/// stranded in the writer queue behind the pipeline would reach the
+/// client only alongside its `compaction_end`. The scripted summarizer
+/// holds its request open (the faux `delayMs` hold), so the pipeline
+/// stays observably live while the client reacts: the oracle is the
+/// ordering of the client's own `get_state` round-trip against the
+/// compaction's settle, never a wall-clock budget.
 #[test]
 fn rpc_compact_flushes_the_start_frame_before_the_pipeline() {
     let home = tempfile::TempDir::new().unwrap();
     let fixture = home.path().join("sess").join("fixture.jsonl");
     write_corpus_fixture(&fixture, 10);
     let script = json!({
-        // The faux harness's response budget is finite (repeat-last is a
-        // daemon-seam key the CLI harness ignores): the split-turn cut
-        // makes two concurrent summarizer calls, so the script queues
-        // one response each.
+        // One summarizer call (pi-durable cuts at entry boundaries): its
+        // request holds in flight far beyond the test's lifetime, so the
+        // compaction cannot settle before the client's reaction lands —
+        // the child is killed on drop, never waited out.
         "responses": [
-            { "text": "corpus history summary: the scale corpus ran" },
-            { "text": "corpus turn-prefix summary: the final marker" },
+            { "text": "corpus history summary: the scale corpus ran", "delayMs": 600_000 },
         ],
     });
-    let mut client = TimedRpcChild::spawn(&fixture, &script);
-    let (ready, _) = client.command(&json!({ "type": "get_state" }));
+    let mut client = CorpusRpcChild::spawn(&fixture, &script);
+    let ready = client.command(&json!({ "type": "get_state" }));
     let (_, _) = client.wait_response(&ready, TIMEOUT);
-    let (id, sent) = client.command(&json!({ "type": "compact" }));
-    let (response, events) = client.wait_response(&id, TIMEOUT);
-    assert_eq!(response["success"], true, "the response: {response}");
-    let result = &response["data"];
-    let summary = result["summary"].as_str().expect("the summary");
-    // One summarizer call: pi-durable cuts at entry boundaries, so no
-    // turn-prefix summary is composed (the second scripted answer stays
-    // unused).
+    let compact_id = client.command(&json!({ "type": "compact" }));
+    let (start, before_start) = client.wait_event("compaction_start", TIMEOUT);
+    assert_eq!(start["reason"], "manual");
     assert!(
-        summary.contains("corpus history summary: the scale corpus ran"),
-        "the summarizer's answer: {summary}"
-    );
-    assert!(
-        result["tokensBefore"].is_number(),
-        "the CompactionResult shape"
-    );
-    let mut cs: Option<(Instant, &Value)> = None;
-    let mut ce: Option<(Instant, &Value)> = None;
-    for (arrived, event) in &events {
-        match event.get("type").and_then(Value::as_str) {
-            Some("compaction_start") if cs.is_none() => cs = Some((*arrived, event)),
-            Some("compaction_end") if ce.is_none() => ce = Some((*arrived, event)),
-            _ => {}
-        }
-    }
-    let (start_at, cs_event) = cs.expect("the compaction_start event");
-    let (end_at, _) = ce.expect("the compaction_end event");
-    assert_eq!(cs_event["reason"], "manual");
-    assert!(
-        cs_event.get("result").is_none(),
+        start.get("result").is_none(),
         "compaction_start carries no result (TS shape)"
     );
-    let cs_ms = start_at.duration_since(sent).as_secs_f64() * 1000.0;
-    let start_to_end_ms = end_at.duration_since(start_at).as_secs_f64() * 1000.0;
-    // The flush: the start frame is visible to the client immediately
-    // (a pipe write, microseconds) — well before the pre-summarizer span
-    // (tens of milliseconds at this session size) could strand it.
     assert!(
-        cs_ms < 20.0,
-        "compaction_start arrived {cs_ms:.1}ms after the command: \
-         the queued frame stranded behind the pre-summarizer span"
+        !before_start
+            .iter()
+            .any(|frame| is_response(frame, &compact_id)),
+        "the compact response must not precede compaction_start: {before_start:?}"
     );
-    // Anti-vacuity: the span after the start frame is exactly the
-    // stranding window — a session too small to strand a frame would
-    // make the assert above vacuous.
+    // The reaction: a `get_state` sent only after the start frame arrived
+    // still finds the compaction running, and answers before the
+    // compaction settles — the start frame reached the client while the
+    // pipeline was live, not behind it.
+    let probe = client.command(&json!({ "type": "get_state" }));
+    let (state, before_probe) = client.wait_response(&probe, TIMEOUT);
+    assert_eq!(state["success"], true, "get_state: {state}");
+    assert_eq!(
+        state["data"]["isCompacting"], true,
+        "the compaction is still in flight when the client reacts to its start frame"
+    );
+    let settled = before_probe.iter().find(|frame| {
+        is_response(frame, &compact_id)
+            || frame.get("type").and_then(Value::as_str) == Some("compaction_end")
+    });
     assert!(
-        start_to_end_ms > 20.0,
-        "the compaction span after the start frame was only \
-         {start_to_end_ms:.1}ms: the fixture is too small to strand a frame"
+        settled.is_none(),
+        "the compaction settled before the reaction to its start frame: {settled:?}"
     );
+}
+
+/// Whether `frame` is the response to the command `id`.
+fn is_response(frame: &Value, id: &str) -> bool {
+    frame.get("type").and_then(Value::as_str) == Some("response")
+        && frame.get("id").and_then(Value::as_str) == Some(id)
 }
 
 /// A stalled reader never wedges a compaction: with the client's pipe
@@ -1484,13 +1493,13 @@ fn rpc_compact_flush_is_bounded_against_a_stalled_reader() {
             { "text": "corpus turn-prefix summary: the final marker" },
         ],
     });
-    let mut client = TimedRpcChild::spawn_stalled(&fixture, &script);
+    let mut client = CorpusRpcChild::spawn_stalled(&fixture, &script);
     // No reader thread touches stdout: the get_messages response (the
     // session's whole serialized context, well over the pipe capacity)
     // fills the pipe and the writer task blocks mid-write — the queued
     // frames stay unwritten through the compaction.
-    let (messages, _) = client.command(&json!({ "type": "get_messages" }));
-    let (id, _) = client.command(&json!({ "type": "compact" }));
+    let messages = client.command(&json!({ "type": "get_messages" }));
+    let id = client.command(&json!({ "type": "compact" }));
     // The compaction runs BEHIND the stalled pipe: the durable
     // compaction entry lands in the imported session's durable storage
     // while no reader drains the child. The entry's appearance IS the
@@ -1547,8 +1556,8 @@ fn rpc_prompt_admitted_compact_frames_flush_after_the_response() {
             { "text": "corpus turn-prefix summary: the final marker" },
         ],
     });
-    let mut client = TimedRpcChild::spawn(&fixture, &script);
-    let (id, _) = client.command(&json!({ "type": "prompt", "message": "/compact" }));
+    let mut client = CorpusRpcChild::spawn(&fixture, &script);
+    let id = client.command(&json!({ "type": "prompt", "message": "/compact" }));
     // Collect every frame until the prompt's response AND both
     // compaction frames have arrived (the buffered frames flush at the
     // handler's end, so they land right after the response).
@@ -1566,7 +1575,7 @@ fn rpc_prompt_admitted_compact_frames_flush_after_the_response() {
             .expect("reader started")
             .recv_timeout(timeout_left)
         {
-            Ok((_, frame)) => {
+            Ok(frame) => {
                 seen.push(frame);
                 let seen_response = seen.iter().any(|frame: &Value| {
                     frame.get("type").and_then(Value::as_str) == Some("response")

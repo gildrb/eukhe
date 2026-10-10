@@ -1,7 +1,5 @@
-//! The `/mcp` view's row model: the two row classes the daemon's
-//! `get_mcp_connections` response carries -- the service-catalog cards
-//! (TS `McpPluginView`) and the api-key credential rows (the stored keys
-//! the view manages alongside the connections) -- with their shared
+//! The `/mcp` view's row model: the service-catalog cards the daemon's
+//! `get_mcp_connections` response carries (TS `McpPluginView`), with their
 //! render/search projection (the label line, the trailing status, the
 //! detail copy, the Enter action hint, and the search-band fields).
 
@@ -165,7 +163,7 @@ impl McpServiceRow {
     /// The trailing status text (TS `statusText`, catalog mode): the honest
     /// state vocabulary, with the record-carried tool count on connected
     /// rows (the picker reads local state only, like TS).
-    fn status_text(&self) -> (ThemeColor, String) {
+    pub(super) fn status_text(&self) -> (ThemeColor, String) {
         if self.login_pending {
             return (ThemeColor::Warning, "Login in progress".to_string());
         }
@@ -231,7 +229,7 @@ impl McpServiceRow {
     /// order): the paste step for pasteable token services, the accounts
     /// step for rows with an account, `manage` for user-declared
     /// non-OAuth servers, then the connection-state verbs.
-    fn action_text(&self) -> &'static str {
+    pub(super) fn action_text(&self) -> &'static str {
         if self.paste_token && self.connection_ids.is_empty() {
             return "paste token";
         }
@@ -251,142 +249,28 @@ impl McpServiceRow {
     }
 }
 
-/// One api-key credential entry (the daemon's `credentials` array): a
-/// non-provider key the product stores in the shared auth store, offered
-/// alongside the MCP connections (the web-search key the websearch skill
-/// reads). Enter opens the paste-the-key prompt; the submitted key lands
-/// in the credential's auth slot.
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct McpCredentialRow {
-    pub(super) id: String,
-    pub(super) label: String,
-    configured: bool,
-}
-
-impl McpCredentialRow {
-    /// Parse one daemon `credentials` entry.
-    pub(super) fn from_value(value: &Value) -> Option<Self> {
-        Some(McpCredentialRow {
-            id: value.get("id")?.as_str()?.to_string(),
-            label: value
-                .get("label")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            configured: value
-                .get("configured")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-        })
-    }
-
-    /// The trailing status (the provider-auth vocabulary): a stored key
-    /// reads `Configured`, an empty slot `Not configured`.
-    fn status_text(&self) -> (ThemeColor, String) {
-        if self.configured {
-            (ThemeColor::Success, "Configured".to_string())
-        } else {
-            (ThemeColor::Muted, "Not configured".to_string())
-        }
-    }
-
-    /// The Enter action hint: paste the key (a configured row's Enter
-    /// replaces the stored key the same way).
-    fn action_text(&self) -> &'static str {
-        if self.configured {
-            "replace key"
-        } else {
-            "add key"
-        }
-    }
-}
-
-/// One `/mcp` view row: a service-catalog card or an api-key credential
-/// (the two row classes the daemon's `get_mcp_connections` response
-/// carries).
-#[derive(Debug, Clone, PartialEq)]
-// The service card is the wide row (its catalog metadata); the credential
-// row is deliberately small. The rows are a per-open rendered list (a
-// handful of entries), never a hot data structure -- boxing would spend a
-// deref on every render path for no measurable size win.
-#[allow(clippy::large_enum_variant)]
-pub(super) enum McpRow {
-    Service(McpServiceRow),
-    Credential(McpCredentialRow),
-}
-
-impl McpRow {
+impl McpServiceRow {
     /// The rendered row's primary line (TS `MenuRow` primary: the label
     /// alone, flattened).
     pub(super) fn primary_line(&self) -> String {
-        flatten_to_single_line(match self {
-            McpRow::Service(service) => &service.label,
-            McpRow::Credential(credential) => &credential.label,
-        })
-    }
-
-    /// The action target (the service id or the credential's auth slot).
-    pub(super) fn target(&self) -> &str {
-        match self {
-            McpRow::Service(service) => service.service_id.as_str(),
-            McpRow::Credential(credential) => credential.id.as_str(),
-        }
-    }
-
-    /// The trailing status text (TS `statusText`): the honest state
-    /// vocabulary of the row's class.
-    pub(super) fn status_text(&self) -> (ThemeColor, String) {
-        match self {
-            McpRow::Service(service) => service.status_text(),
-            McpRow::Credential(credential) => credential.status_text(),
-        }
-    }
-
-    /// The selected row's detail copy (TS `secondaryText`): the honest
-    /// setup guidance for setup-required/error rows, the description
-    /// otherwise. A credential row carries none -- the detail falls back
-    /// to its status (TS `secondaryText ?? statusText`).
-    pub(super) fn detail_text(&self) -> Option<String> {
-        match self {
-            McpRow::Service(service) => service.detail_text(),
-            McpRow::Credential(_) => None,
-        }
-    }
-
-    /// The Enter action hint (TS `actionText`).
-    pub(super) fn action_text(&self) -> &'static str {
-        match self {
-            McpRow::Service(service) => service.action_text(),
-            McpRow::Credential(credential) => credential.action_text(),
-        }
+        flatten_to_single_line(&self.label)
     }
 
     /// The identity fields the search bands rank first.
     pub(super) fn identity_fields(&self) -> Vec<&str> {
-        match self {
-            McpRow::Service(service) => {
-                let mut fields = vec![service.label.as_str(), service.service_id.as_str()];
-                fields.extend(service.aliases.iter().map(String::as_str));
-                fields
-            }
-            McpRow::Credential(credential) => {
-                vec![credential.label.as_str(), credential.id.as_str()]
-            }
-        }
+        let mut fields = vec![self.label.as_str(), self.service_id.as_str()];
+        fields.extend(self.aliases.iter().map(String::as_str));
+        fields
     }
 
     /// The description-band fields (matched only when no identity field
     /// matched).
     pub(super) fn description_fields(&self) -> Vec<&str> {
-        match self {
-            McpRow::Service(service) => service
-                .description
-                .iter()
-                .chain(service.setup_hint.iter())
-                .map(String::as_str)
-                .collect(),
-            McpRow::Credential(_) => Vec::new(),
-        }
+        self.description
+            .iter()
+            .chain(self.setup_hint.iter())
+            .map(String::as_str)
+            .collect()
     }
 }
 

@@ -269,36 +269,6 @@ impl ClientSettings for CliClientSettings {
         set_warnings_anthropic_extra_usage,
         bool
     );
-
-    fn telemetry_status(&self) -> String {
-        eukhe_core::session_engine::telemetry::telemetry_status_text(
-            &self.manager(),
-            &self.agent_dir,
-        )
-    }
-
-    fn set_telemetry_enabled(&self, enabled: bool) -> Result<String> {
-        eukhe_core::session_engine::telemetry::set_telemetry_enabled_text(
-            &mut self.manager(),
-            &self.agent_dir,
-            enabled,
-        )
-    }
-
-    fn telemetry_notice_due(&self) -> bool {
-        // TS agent-session-services: telemetry enabled, onboarding
-        // already shown (a first interactive launch belongs to the
-        // onboarding screen; the notice surfaces on the next launch),
-        // and the notice not yet shown.
-        let manager = self.manager();
-        eukhe_core::session_engine::telemetry::telemetry_switch(&manager).enabled()
-            && manager.get_onboarding_shown()
-            && !manager.get_telemetry_notice_shown()
-    }
-
-    fn set_telemetry_notice_shown(&self) -> Result<()> {
-        self.manager().set_telemetry_notice_shown(true)
-    }
 }
 
 #[cfg(test)]

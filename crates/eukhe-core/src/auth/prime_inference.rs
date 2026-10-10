@@ -118,8 +118,7 @@ pub trait PrimeHttp: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, String>> + Send + 'a>>;
 }
 
-/// The production transport (reqwest over rustls, the catalog fetch's
-/// shape).
+/// The production transport (reqwest over rustls).
 pub struct ReqwestPrimeHttp;
 
 impl PrimeHttp for ReqwestPrimeHttp {

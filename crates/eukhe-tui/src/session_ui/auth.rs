@@ -385,14 +385,6 @@ impl SessionUi {
                 view.auth_panel = None;
                 self.note(&note, view);
             }
-            AuthPanelRequest::TracesSettled { outcome, gen } => {
-                // A superseded run's late settle cannot clear a newer
-                // login: the generation guard (#2845 review).
-                if gen == self.traces_login_gen {
-                    view.auth_panel = None;
-                    self.finish_traces_login(outcome, view).await;
-                }
-            }
         }
         self.dirty = true;
     }
@@ -416,7 +408,6 @@ impl SessionUi {
             return Ok(());
         }
         self.open_mcp_view("/mcp", view, "").await?;
-        self.track_menu_opened("mcp", "command");
         Ok(())
     }
 
@@ -552,22 +543,6 @@ impl SessionUi {
                 // token, store it bound to the service endpoint, verify.
                 self.pending_mcp_auth = Some(McpAuthIntent {
                     args: format!("paste {server}"),
-                    title: format!("Connect {label}"),
-                });
-            }
-            Some(crate::mcp_view::McpViewAction::Key { id, label }) => {
-                view.mcp_view = None;
-                self.dirty = true;
-                if self.picker_restored_draft {
-                    self.picker_restored_draft = false;
-                } else {
-                    view.editor.set_text("");
-                }
-                // The api-key credential's client surface: prompt for the
-                // key (masked), store it in the credential's auth slot --
-                // the exact contract the runtime reads.
-                self.pending_mcp_auth = Some(McpAuthIntent {
-                    args: format!("key {id}"),
                     title: format!("Connect {label}"),
                 });
             }

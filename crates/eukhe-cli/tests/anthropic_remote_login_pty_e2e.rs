@@ -333,7 +333,6 @@ fn isolate(command: &mut Command, root: &Path, agent_dir: &Path) {
         .env("EUKHE_CODING_AGENT_DIR", agent_dir)
         .env("EUKHE_SESSION_DIR", agent_dir.join("sessions"))
         .env("EUKHE_OFFLINE", "1")
-        .env("EUKHE_TELEMETRY", "0")
         .env("EUKHE_FAUX_SCRIPT", root.join("script.json"))
         .env("BROWSER", "/bin/true")
         .env_remove("TMUX")

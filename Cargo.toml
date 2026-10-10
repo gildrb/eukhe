@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/eukhe-telemetry",
     "crates/eukhe-types",
     "crates/eukhe-chord",
     "crates/eukhe-ai",
@@ -42,7 +41,6 @@ anyhow = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tracing = { version = "0.1", features = ["attributes"] }
-eukhe-telemetry = { path = "crates/eukhe-telemetry" }
 eukhe-types = { path = "crates/eukhe-types" }
 eukhe-ai = { path = "crates/eukhe-ai" }
 eukhe-chord = { path = "crates/eukhe-chord" }

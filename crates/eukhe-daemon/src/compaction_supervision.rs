@@ -586,7 +586,6 @@ impl crate::supervisor::Supervisor {
             }
             terminal
         };
-        self.note_compaction_abort_declared();
         // The synthetic `compaction_end`: an abort carries `aborted: true`
         // with no error message, and the `errorSeverity` mirrors the end
         // the worker itself would have landed for this run — the manual
