@@ -204,6 +204,17 @@ impl SessionUi {
                 self.track_menu_opened("model", "command");
                 self.track_feature_outcome("model", "initiated", None);
             }
+            "memory-model" => {
+                if !resolved.args.trim().is_empty() {
+                    view.editor
+                        .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
+                    self.error_row("Usage: /memory-model (Tab filters the picker)", view);
+                    return Ok(());
+                }
+                self.open_memory_model_picker(view, "").await?;
+                self.track_menu_opened("memory-model", "command");
+                self.track_feature_outcome("memory-model", "initiated", None);
+            }
             // `/effort [level]` (TS `handleEffortCommand`): the
             // session's thinking levels drive the outcome -- a model
             // without reasoning reports the TS note, a missing argument

@@ -81,6 +81,19 @@ pub trait ClientSettings: Send + Sync {
     /// unset by default). Read-only for the paste-time hint that names the
     /// setting when the session model lacks image input.
     fn image_model(&self) -> Option<String>;
+    /// `memory.model` (global compaction-model selector), as
+    /// `"provider/model-id"` or unset.
+    fn memory_model(&self) -> Option<String> {
+        None
+    }
+    /// Persists the compaction model globally as exact provider/id parts.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when opening or persisting the settings store fails.
+    fn set_memory_model(&self, _provider: &str, _model_id: &str) -> Result<()> {
+        anyhow::bail!("Memory model settings are unavailable")
+    }
     /// `enableSkillCommands` (TS default true).
     fn enable_skill_commands(&self) -> bool;
     /// Persists `enableSkillCommands` to the global scope.

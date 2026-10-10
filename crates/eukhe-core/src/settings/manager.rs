@@ -9,7 +9,9 @@ use super::load::from_value_lenient;
 use super::merge::{deep_merge, migrate};
 use super::storage::{SettingsScope, SettingsStorage};
 use super::trust::{apply_project_trust, effective_project, ProjectTrust};
-use super::types::{QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting};
+use super::types::{
+    MemorySettings, QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting,
+};
 
 pub const RECENT_MODELS_LIMIT: usize = 20;
 pub const DEFAULT_IDLE_EVICTION_MINUTES: u64 = 90;
@@ -258,6 +260,19 @@ impl SettingsManager {
         self.save_global()
     }
 
+    /// Persist `memory.model` globally as an exact `provider/model-id`
+    /// selector without replacing the compactor's other memory settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the global settings file cannot be written.
+    pub fn set_memory_model(&mut self, provider: &str, model_id: &str) -> Result<()> {
+        self.global
+            .memory
+            .get_or_insert_with(MemorySettings::default)
+            .model = Some(format!("{provider}/{model_id}"));
+        self.save_global()
+    }
     /// `markdown.codeBlockIndent` (TS `getCodeBlockIndent`): the string the
     /// chat markdown renderer indents fenced code blocks by; the default
     /// matches the TS default, two spaces.
