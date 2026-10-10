@@ -104,7 +104,9 @@ async fn an_unscripted_request_fails_the_run_with_its_error() {
         matches!(primary, HeadlessPrimary::Assistant(_)),
         "{primary:?}"
     );
-    let stderr = primary.failure().expect("exit 1").expect("stderr text");
+    let Some(RunFailure::Message(stderr)) = primary.failure() else {
+        panic!("exit 1 with stderr text");
+    };
     assert!(!stderr.is_empty());
 }
 

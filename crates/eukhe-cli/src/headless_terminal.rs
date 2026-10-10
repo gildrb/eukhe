@@ -51,12 +51,11 @@ impl HeadlessPrimary {
         }
     }
 
-    /// Whether the run exits non-zero, with the stderr text when there is
-    /// one (a failed or aborted request).
-    pub(crate) fn failure(&self) -> Option<Option<String>> {
+    /// Whether the run exits non-zero, and what it prints to stderr.
+    pub(crate) fn failure(&self) -> Option<RunFailure> {
         match self {
             Self::Assistant(message) => match message.stop_reason {
-                StopReason::Error | StopReason::Aborted => Some(Some(
+                StopReason::Error | StopReason::Aborted => Some(RunFailure::Message(
                     message
                         .error_message
                         .clone()
@@ -73,9 +72,17 @@ impl HeadlessPrimary {
             },
             Self::SlashCommandResult {
                 success, severity, ..
-            } => (!success || severity.as_deref() == Some("error")).then_some(None),
+            } => (!success || severity.as_deref() == Some("error")).then_some(RunFailure::Silent),
         }
     }
+}
+
+/// A failed run's stderr: the failed or aborted request's text, or nothing
+/// (a failed slash command already showed its result).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RunFailure {
+    Message(String),
+    Silent,
 }
 
 fn stop_reason_name(reason: StopReason) -> &'static str {

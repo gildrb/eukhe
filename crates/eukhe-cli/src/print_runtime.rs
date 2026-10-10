@@ -24,7 +24,7 @@ use crate::headless_session::{
     open_headless_session, sessions_dir, stderr_turn_wait, HeadlessSession, HeadlessTarget,
     Selection,
 };
-use crate::headless_terminal::select_terminal_result;
+use crate::headless_terminal::{select_terminal_result, RunFailure};
 use crate::mode::{AppMode, MissingSubsystem, RunOptions};
 
 /// The runtime: print/json, rpc, acp, daemon, and interactive dispatch.
@@ -410,12 +410,11 @@ async fn run_prompts(
         let result = select_terminal_result(&conversation, cx).await?;
         if let Some(primary) = result.primary {
             match primary.failure() {
-                Some(stderr) => {
+                Some(RunFailure::Message(stderr)) => {
                     exit_code = 1;
-                    if let Some(stderr) = stderr {
-                        eprintln!("{stderr}");
-                    }
+                    eprintln!("{stderr}");
                 }
+                Some(RunFailure::Silent) => exit_code = 1,
                 None => println!("{}", primary.stdout_text()),
             }
         }

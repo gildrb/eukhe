@@ -395,44 +395,41 @@ async fn session_config(
         ..PromptConfig::default()
     };
     session.turn_wait = turn_wait;
-    match std::env::var("EUKHE_FAUX_SCRIPT") {
-        Ok(script) => {
-            let script = parse_faux_script(&script)
-                .map_err(|error| format!("invalid EUKHE_FAUX_SCRIPT: {error}"))?;
-            session.model = Some(ModelRequest {
-                provider: Some("faux".to_owned()),
-                pattern: script.model.id.clone(),
-            });
-            let (models, _provider) = create_faux_script_models(script);
-            session.models = Some(models);
-            // The faux harness keeps the classic continuing conversation
-            // (its scripts assert carried context; no chat memory offline).
-        }
-        Err(_) => {
-            session.model = flag_model(options);
-            // The chat memory: this process owns it when no daemon (or
-            // other process) does, else it is the owner's client.
-            let memory = eukhe_core::memory::Memory::open(
-                eukhe_core::memory::chat_dir(&config.agent_dir),
-                Arc::new(eukhe_core::memory::SettingsSummarizer::new(
-                    config.agent_dir.clone(),
-                )),
-            )
-            .await
-            .map_err(|error| format!("cannot open the chat memory: {error:#}"))?;
-            session.memory = Some(memory);
-            // TS `createAgentSessionServices` builds every CLI session on a
-            // manager whose settings closures re-read settings on each
-            // resolution; auth construction blocks, so it runs off the
-            // async runtime.
-            let (cwd, agent_dir) = (cwd.to_path_buf(), config.agent_dir.clone());
-            let manager = tokio::task::spawn_blocking(move || {
-                crate::mcp_login::cli_mcp_manager(&cwd, &agent_dir)
-            })
-            .await
-            .map_err(|error| format!("MCP manager construction failed: {error}"))?;
-            session.mcp = Some(Arc::new(std::sync::Mutex::new(manager)));
-        }
+    if let Ok(script) = std::env::var("EUKHE_FAUX_SCRIPT") {
+        let script = parse_faux_script(&script)
+            .map_err(|error| format!("invalid EUKHE_FAUX_SCRIPT: {error}"))?;
+        session.model = Some(ModelRequest {
+            provider: Some("faux".to_owned()),
+            pattern: script.model.id.clone(),
+        });
+        let (models, _provider) = create_faux_script_models(script);
+        session.models = Some(models);
+        // The faux harness keeps the classic continuing conversation
+        // (its scripts assert carried context; no chat memory offline).
+    } else {
+        session.model = flag_model(options);
+        // The chat memory: this process owns it when no daemon (or
+        // other process) does, else it is the owner's client.
+        let memory = eukhe_core::memory::Memory::open(
+            eukhe_core::memory::chat_dir(&config.agent_dir),
+            Arc::new(eukhe_core::memory::SettingsSummarizer::new(
+                config.agent_dir.clone(),
+            )),
+        )
+        .await
+        .map_err(|error| format!("cannot open the chat memory: {error:#}"))?;
+        session.memory = Some(memory);
+        // TS `createAgentSessionServices` builds every CLI session on a
+        // manager whose settings closures re-read settings on each
+        // resolution; auth construction blocks, so it runs off the
+        // async runtime.
+        let (cwd, agent_dir) = (cwd.to_path_buf(), config.agent_dir.clone());
+        let manager = tokio::task::spawn_blocking(move || {
+            crate::mcp_login::cli_mcp_manager(&cwd, &agent_dir)
+        })
+        .await
+        .map_err(|error| format!("MCP manager construction failed: {error}"))?;
+        session.mcp = Some(Arc::new(std::sync::Mutex::new(manager)));
     }
     Ok(session)
 }
