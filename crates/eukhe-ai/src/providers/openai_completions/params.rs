@@ -400,10 +400,10 @@ mod tests {
         );
     }
 
-    /// A custom model on a loopback OpenAI-compatible server (llama.cpp,
-    /// vLLM, SGLang) must not receive `store`: those servers reject unknown
-    /// fields with a 400 ("Unsupported chat request field: store"), and
-    /// omitting it is correct for real OpenAI too, where the
+    /// A custom model on a loopback OpenAI-compatible server (`llama.cpp`,
+    /// `vLLM`, `SGLang`) must not receive `store`: those servers reject
+    /// unknown fields with a 400 ("Unsupported chat request field: store"),
+    /// and omitting it is correct for real `OpenAI` too, where the
     /// chat-completions default is already false.
     #[test]
     fn loopback_custom_models_omit_the_store_field() {
