@@ -134,20 +134,19 @@ fn suspended_checkpoint_when(
 }
 
 /// The conversation-scope `eukhe.daemon.suspended` document (version 1).
-static SUSPENDED_DOC: ConversationDoc<SuspendedState> =
-    match ConversationDoc::define(
-        DocDefinition {
-            kind: "eukhe.daemon.suspended",
-            version: 1,
-            initial: SuspendedState::default,
-            migrate: None,
-            checkpoint_when: Some(suspended_checkpoint_when),
-        },
-        LatestFork::Current,
-    ) {
-        Ok(token) => token,
-        Err(_) => panic!("eukhe.daemon.suspended has a valid version"),
-    };
+static SUSPENDED_DOC: ConversationDoc<SuspendedState> = match ConversationDoc::define(
+    DocDefinition {
+        kind: "eukhe.daemon.suspended",
+        version: 1,
+        initial: SuspendedState::default,
+        migrate: None,
+        checkpoint_when: Some(suspended_checkpoint_when),
+    },
+    LatestFork::Current,
+) {
+    Ok(token) => token,
+    Err(_) => panic!("eukhe.daemon.suspended has a valid version"),
+};
 
 /// Read the withdrawn inputs of `conversation_id` (defaults when never
 /// written).

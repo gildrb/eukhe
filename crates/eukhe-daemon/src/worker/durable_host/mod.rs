@@ -218,7 +218,21 @@ impl HostedSession {
 
     /// Resolves once every event batch committed so far reached the wire
     /// (immediately without a bridge).
+    ///
+    /// A commit publishes to its listeners in turn on the session line, so
+    /// a submission waiter can wake before the event stream queued the same
+    /// commit's frames. One read on the line first passes that publication.
     pub(crate) async fn events_delivered(&self) {
+        if let Ok(main) = self.main() {
+            // A closed harness ends the event stream too, which resolves
+            // `delivered` below: the barrier read has nothing left to pass.
+            let barrier = self
+                .harness
+                .conversation(main.id(), &eukhe_chord::context::BACKGROUND_CONTEXT);
+            if let Err(error) = barrier.await {
+                eprintln!("eukhe-daemon worker: event delivery barrier read failed: {error}");
+            }
+        }
         let delivered = lock(&self.bridge).as_ref().map(EventBridge::delivered);
         if let Some(delivered) = delivered {
             delivered.await;

@@ -458,6 +458,7 @@ async fn compact_admits_a_compaction_task() {
         kinds,
         [
             "pi.user",
+            CUSTOM_ENTRY.kind(),
             "pi.assistant",
             "pi.user",
             "pi.assistant",

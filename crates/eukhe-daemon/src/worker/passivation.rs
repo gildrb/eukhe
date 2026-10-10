@@ -253,7 +253,10 @@ mod tests {
 
     fn gates(attached: usize, rlm_depth: u32, paused: bool, bash: bool) -> ParkGates {
         let core = core(attached, rlm_depth);
-        ParkGates::of(&core.lock().unwrap_or_else(std::sync::PoisonError::into_inner), paused, bash)
+        let guard = core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        ParkGates::of(&guard, paused, bash)
     }
 
     /// The settled-child release needs the park state plus the
@@ -262,10 +265,22 @@ mod tests {
     #[test]
     fn the_child_release_needs_the_park_state() {
         assert!(child_release_due(&gates(0, 1, false, false)));
-        assert!(!child_release_due(&gates(0, 0, false, false)), "a root never releases");
-        assert!(!child_release_due(&gates(1, 1, false, false)), "an attached client holds it");
-        assert!(!child_release_due(&gates(0, 1, true, false)), "a pause defers it");
-        assert!(!child_release_due(&gates(0, 1, false, true)), "a live bash holds it");
+        assert!(
+            !child_release_due(&gates(0, 0, false, false)),
+            "a root never releases"
+        );
+        assert!(
+            !child_release_due(&gates(1, 1, false, false)),
+            "an attached client holds it"
+        );
+        assert!(
+            !child_release_due(&gates(0, 1, true, false)),
+            "a pause defers it"
+        );
+        assert!(
+            !child_release_due(&gates(0, 1, false, true)),
+            "a live bash holds it"
+        );
     }
 
     /// A busy, compacting, shutting-down, or queued park never releases.
@@ -273,10 +288,18 @@ mod tests {
     fn a_live_park_never_releases() {
         let core = core(0, 1);
         {
-            let mut locked = core.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut locked = core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             locked.shutdown_requested = true;
         }
-        let gates = ParkGates::of(&core.lock().unwrap_or_else(std::sync::PoisonError::into_inner), false, false);
+        let gates = ParkGates::of(
+            &core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            false,
+            false,
+        );
         assert!(!child_release_due(&gates));
     }
 

@@ -165,7 +165,9 @@ pub(crate) async fn write_input_row(
 /// (only the minted capability admits them), a heartbeat fire is the
 /// engine-minted internal prompt. Agent messages and plain prompts stay
 /// user rows — a same-text human row never flags.
-pub(crate) fn injection_kind(custom_row: Option<&Value>) -> Option<super::session_core::InjectionKind> {
+pub(crate) fn injection_kind(
+    custom_row: Option<&Value>,
+) -> Option<super::session_core::InjectionKind> {
     let row = custom_row?;
     if crate::child_status_notices::is_reserved_child_status_custom_type(row) {
         return Some(super::session_core::InjectionKind::ChildStatusNotice);
@@ -311,7 +313,9 @@ impl Worker {
         // until the release delivers it; a waiting prompt answers the
         // pause error instead of waiting the lease out.
         if self.input_pauses.paused() {
-            return self.hold_input(&hosted, &request, command, wait, false).await;
+            return self
+                .hold_input(&hosted, &request, command, wait, false)
+                .await;
         }
         let handle = match self.admit_input(&hosted, &request).await {
             Ok(handle) => handle,
@@ -429,7 +433,9 @@ impl Worker {
         // A live input-pause lease holds the delivery like any admission;
         // the release delivers it.
         if self.input_pauses.paused() {
-            return self.hold_input(&hosted, &request, command, false, true).await;
+            return self
+                .hold_input(&hosted, &request, command, false, true)
+                .await;
         }
         match self.admit_input(&hosted, &request).await {
             Ok(_) => response_success(None, command, Some(json!({ "queued": true }))),
@@ -535,7 +541,9 @@ impl Worker {
         // admission; the card row above already committed, and the
         /// release delivers the prompt.
         if self.input_pauses.paused() {
-            return self.hold_input(&hosted, &request, COMMAND, false, false).await;
+            return self
+                .hold_input(&hosted, &request, COMMAND, false, false)
+                .await;
         }
         if let Err(error) = self.admit_input(&hosted, &request).await {
             return response_failure(None, COMMAND, &error, None);

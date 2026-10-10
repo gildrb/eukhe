@@ -17,7 +17,9 @@ mod session_core;
 pub(crate) use config::WorkerConfig;
 use env::KillCloseReason;
 mod input;
-pub(crate) use input::{injection_kind, parse_prompt_images, submit_input, write_input_row, InputRequest};
+pub(crate) use input::{
+    injection_kind, parse_prompt_images, submit_input, write_input_row, InputRequest,
+};
 mod lifecycle;
 mod passivation;
 mod summary;

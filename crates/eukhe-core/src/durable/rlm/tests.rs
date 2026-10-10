@@ -71,6 +71,18 @@ fn cx() -> &'static Context {
 /// Kernel boots and cells run in real time.
 const WAIT_MS: u64 = 90_000;
 
+/// Serializes the real-kernel tests: each boots a CPython kernel, and
+/// several boots at once starve every wait budget under a parallel test
+/// run (the daemon tests' `FAUX_TEST_LOCK` pattern).
+static KERNEL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Hold for the whole body of a real-kernel test.
+fn kernel_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    KERNEL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Directories, models, and the faux provider of one session that survive a
 /// reopen, like a worker host's own objects.
 struct Fixture {
@@ -250,6 +262,7 @@ async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_ipytho
     if kernel_python().is_none() {
         return;
     }
+    let _kernel = kernel_test_lock();
     let fixture = Fixture::new();
     let gate = fixture.dir.path().join("gate");
     let code = format!(
@@ -289,6 +302,7 @@ async fn abort_interrupts_the_running_cell_and_the_kernel_stays_usable() {
     if kernel_python().is_none() {
         return;
     }
+    let _kernel = kernel_test_lock();
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![ipython(
         "c1",
@@ -333,6 +347,7 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
     if kernel_python().is_none() {
         return;
     }
+    let _kernel = kernel_test_lock();
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
         ipython("c1", "import os\nx = 41\nprint(os.getpid())"),
@@ -441,6 +456,7 @@ async fn host_requests_reach_their_handlers_with_the_running_tool_call() {
     if kernel_python().is_none() {
         return;
     }
+    let _kernel = kernel_test_lock();
     let fixture = Fixture::new();
     let code = "import rlm, json\nprobe = await rlm.host_request('test.probe', {'n': 1})\ninfo = await rlm.host_request('model.info')\nprint(json.dumps([probe, info['provider'], info['id']]))";
     fixture
@@ -487,6 +503,7 @@ async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_
     if kernel_python().is_none() {
         return;
     }
+    let _kernel = kernel_test_lock();
     let fixture = Fixture::new();
     let code = "import rlm, json\nstatus = await rlm.host_request('compact.status')\nrun = await rlm.host_request('compact.run')\nrefine = await rlm.host_request('refine.run', {'instructions': 'remember x'})\npending = await rlm.host_request('refine.status')\nprint(json.dumps([status['scheduled'], status['tokens'] is not None, run, refine['scheduled'], pending], sort_keys=True))";
     let proposal = json!({
@@ -528,9 +545,12 @@ async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_
         .filter(|entry| entry.kind.starts_with("eukhe."))
         .map(|entry| (entry.kind.clone(), custom_type(entry)))
         .collect();
+    // The harness digest rows ride the cold boundaries: the first request
+    // and the request after the refinement updated the harness state.
     assert_eq!(
         rows,
         vec![
+            ("eukhe.custom".to_owned(), Some("harness_digest".to_owned())),
             (
                 "eukhe.custom-state".to_owned(),
                 Some("eukhe.refinement".to_owned())
@@ -543,6 +563,7 @@ async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_
                 "eukhe.custom".to_owned(),
                 Some("refinement_notice".to_owned())
             ),
+            ("eukhe.custom".to_owned(), Some("harness_digest".to_owned())),
         ]
     );
     // The rows land between the requesting round and the final answer.
@@ -605,6 +626,7 @@ async fn kernel_bash_activity_reaches_the_booted_kernel() {
     if kernel_python().is_none() {
         return;
     }
+    let _kernel = kernel_test_lock();
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
         ipython("c1", "handle = bash('sleep 30')\nprint(handle.pid > 0)"),

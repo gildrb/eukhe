@@ -159,7 +159,9 @@ async fn open_submit_answers_and_commits_entries() {
         .into_iter()
         .filter(|(kind, text)| {
             kind == "eukhe.custom"
-                && text.as_deref().is_some_and(|text| text.starts_with("[harness-digest]"))
+                && text
+                    .as_deref()
+                    .is_some_and(|text| text.starts_with("[harness-digest]"))
         })
         .count();
     assert_eq!(digest_rows, 1);
@@ -168,7 +170,9 @@ async fn open_submit_answers_and_commits_entries() {
         .filter(|(kind, text)| {
             kind != "pi.system"
                 && !(kind == "eukhe.custom"
-                    && text.as_deref().is_some_and(|text| text.starts_with("[harness-digest]")))
+                    && text
+                        .as_deref()
+                        .is_some_and(|text| text.starts_with("[harness-digest]")))
         })
         .collect();
     assert_eq!(
@@ -217,7 +221,9 @@ async fn reopening_the_storage_keeps_the_root_and_its_entries() {
         .filter(|(kind, text)| {
             kind != "pi.system"
                 && !(kind == "eukhe.custom"
-                    && text.as_deref().is_some_and(|text| text.starts_with("[harness-digest]")))
+                    && text
+                        .as_deref()
+                        .is_some_and(|text| text.starts_with("[harness-digest]")))
         })
         .filter_map(|(_, text)| text)
         .collect();
@@ -228,7 +234,9 @@ async fn reopening_the_storage_keeps_the_root_and_its_entries() {
             .into_iter()
             .filter(|(kind, text)| {
                 kind == "eukhe.custom"
-                    && text.as_deref().is_some_and(|text| text.starts_with("[harness-digest]"))
+                    && text
+                        .as_deref()
+                        .is_some_and(|text| text.starts_with("[harness-digest]"))
             })
             .count(),
         1

@@ -847,7 +847,11 @@ mod tests {
         let harness = Harness::new().await;
         let mut receiver = harness.pump.subscribe();
         let call = faux_assistant_message(
-            vec![faux_tool_call("ipython", json!({}), Some("call-1".to_string()))],
+            vec![faux_tool_call(
+                "ipython",
+                serde_json::Map::new(),
+                Some("call-1".to_string()),
+            )],
             FauxAssistantMessageOptions {
                 stop_reason: Some(StopReason::ToolUse),
                 ..FauxAssistantMessageOptions::default()
@@ -856,14 +860,13 @@ mod tests {
         let follow_up = FauxResponseStep::factory(|context, _, _, _| {
             // The blocked call reached the model as the deactivated-tool
             // answer.
-            let blocked = context
-                .messages()
-                .iter()
-                .any(|message| matches!(message, Message::ToolResult(result) if result.is_error
+            let blocked = context.messages().iter().any(|message| {
+                matches!(message, Message::ToolResult(result) if result.is_error
                     && result.tool_call_id == "call-1"
                     && result.content.first().is_some_and(|block|
                         matches!(block, UserContentBlock::Text(text)
-                            if text.text == SIDE_QUESTION_TOOL_BLOCKED))));
+                            if text.text == SIDE_QUESTION_TOOL_BLOCKED)))
+            });
             assert!(blocked, "the block error must answer the call");
             Ok(faux_assistant_message(
                 "answered from context",
@@ -901,7 +904,7 @@ mod tests {
             faux_assistant_message(
                 vec![
                     faux_text(text),
-                    faux_tool_call("ipython", json!({}), Some(text.to_string())),
+                    faux_tool_call("ipython", serde_json::Map::new(), Some(text.to_string())),
                 ],
                 FauxAssistantMessageOptions {
                     stop_reason: Some(StopReason::ToolUse),

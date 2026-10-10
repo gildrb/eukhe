@@ -152,8 +152,14 @@ fn latest_record(dir: &Path, journal: &str) -> WorkerRecoveryRecord {
 /// messages.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_prompt_streams_session_events_and_answers() {
+    const ANSWER: &str = "the answer arrives in several streamed pieces";
     let dir = tempfile::tempdir().expect("tempdir");
-    let worker = created(dir.path(), json!({ "responses": ["the answer"] })).await;
+    // Streamed: an instant answer commits before any partial publishes.
+    let worker = created(
+        dir.path(),
+        json!({ "tokensPerSecond": 20, "responses": [ANSWER] }),
+    )
+    .await;
     let mut events = worker.events.subscribe();
     let response = worker
         .dispatch("prompt_and_wait", &json!({ "message": "hello" }))
@@ -161,44 +167,59 @@ async fn a_prompt_streams_session_events_and_answers() {
     assert!(response.success, "prompt: {response:?}");
     // `prompt_and_wait` answers once the run settled and its frames are out.
     let events = drain(&mut events);
-    let position = |pred: &dyn Fn(&Value) -> bool| {
-        events
-            .iter()
-            .position(pred)
-            .unwrap_or_else(|| panic!("missing event in {events:?}"))
+    let position = |name: &str, pred: &dyn Fn(&Value) -> bool| {
+        events.iter().position(pred).unwrap_or_else(|| {
+            let kinds: Vec<String> = events
+                .iter()
+                .map(|event| {
+                    event["type"].as_str().unwrap_or_default().to_owned()
+                        + "/"
+                        + event["message"]["role"].as_str().unwrap_or_default()
+                })
+                .collect();
+            panic!("missing {name} in {kinds:?}")
+        })
     };
-    let agent_start = position(&|event| kind(event) == "agent_start");
-    let turn_start = position(&|event| kind(event) == "turn_start");
-    let user_start = position(&|event| kind(event) == "message_start" && role(event) == "user");
-    let user_end = position(&|event| kind(event) == "message_end" && role(event) == "user");
-    let assistant_start =
-        position(&|event| kind(event) == "message_start" && role(event) == "assistant");
-    let update = position(&|event| kind(event) == "message_update");
-    let assistant_end =
-        position(&|event| kind(event) == "message_end" && role(event) == "assistant");
-    let agent_end = position(&|event| kind(event) == "agent_end");
+    let agent_start_at = position("agent_start", &|event| kind(event) == "agent_start");
+    let turn_start_at = position("turn_start", &|event| kind(event) == "turn_start");
+    let user_start_at = position("user_start", &|event| {
+        kind(event) == "message_start" && role(event) == "user"
+    });
+    let user_end_at = position("user_end", &|event| {
+        kind(event) == "message_end" && role(event) == "user"
+    });
+    let assistant_start_at = position("assistant_start", &|event| {
+        kind(event) == "message_start" && role(event) == "assistant"
+    });
+    let update_at = position("update", &|event| kind(event) == "message_update");
+    let assistant_end_at = position("assistant_end", &|event| {
+        kind(event) == "message_end" && role(event) == "assistant"
+    });
+    let agent_end_at = position("agent_end", &|event| kind(event) == "agent_end");
     assert!(
-        agent_start < turn_start
-            && turn_start < user_start
-            && user_start < user_end
-            && user_end < assistant_start
-            && assistant_start < update
-            && update < assistant_end
-            && assistant_end < agent_end,
+        agent_start_at < turn_start_at
+            && turn_start_at < user_start_at
+            && user_start_at < user_end_at
+            && user_end_at < assistant_start_at
+            && assistant_start_at < update_at
+            && update_at < assistant_end_at
+            && assistant_end_at < agent_end_at,
         "frame order: {events:?}"
     );
-    let run_messages = events[agent_end]["messages"].as_array().expect("messages");
+    let run_messages = events[agent_end_at]["messages"]
+        .as_array()
+        .expect("messages");
     assert_eq!(
         run_messages
             .iter()
             .map(|m| m["role"].clone())
             .collect::<Vec<_>>(),
-        [json!("user"), json!("assistant")]
+        [json!("user"), json!("custom"), json!("assistant")]
     );
-    assert_eq!(text(&events[assistant_end]["message"]), "the answer");
+    assert_eq!(text(&events[assistant_end_at]["message"]), ANSWER);
     let transcript = messages(&worker).await;
     assert_eq!(texts_of(&transcript, "user"), ["hello"]);
-    assert_eq!(texts_of(&transcript, "assistant"), ["the answer"]);
+    assert_eq!(texts_of(&transcript, "assistant"), [ANSWER]);
 }
 
 /// An attach while the assistant streams shows the in-flight partial.
@@ -269,18 +290,19 @@ async fn steer_lands_before_an_earlier_follow_up() {
     let order: Vec<String> = transcript
         .iter()
         .filter(|message| message["role"] != "toolResult")
-        .map(|message| {
-            format!(
-                "{}:{}",
-                message["role"].as_str().unwrap_or_default(),
-                text(message)
-            )
+        .map(|message| match message["role"].as_str() {
+            Some("custom") => format!(
+                "custom:{}",
+                message["customType"].as_str().unwrap_or_default()
+            ),
+            role => format!("{}:{}", role.unwrap_or_default(), text(message)),
         })
         .collect();
     assert_eq!(
         order,
         [
             "user:go",
+            "custom:harness_digest",
             "assistant:",
             "user:S",
             "assistant:second",
@@ -300,9 +322,15 @@ async fn abort_suspends_the_queue_and_resume_sends_it() {
         json!({ "responses": [{ "text": "never", "delayMs": 30_000 }, "resumed"] }),
     )
     .await;
+    let mut events = worker.events.subscribe();
     let response = worker.dispatch("prompt", &json!({ "message": "go" })).await;
     assert!(response.success, "prompt: {response:?}");
-    wait_busy(&worker, true).await;
+    // The generation requests the model right after it commits the digest:
+    // an earlier abort would leave the held `never` answer for the resume.
+    until(&mut events, |event| {
+        kind(event) == "message_end" && event["message"]["customType"] == "harness_digest"
+    })
+    .await;
     let queued = worker
         .dispatch("follow_up", &json!({ "message": "later" }))
         .await;
@@ -354,7 +382,9 @@ async fn suspended_inputs_survive_a_worker_restart() {
     let response = first.dispatch("prompt", &json!({ "message": "go" })).await;
     assert!(response.success, "prompt: {response:?}");
     wait_busy(&first, true).await;
-    let queued = first.dispatch("follow_up", &json!({ "message": "later" })).await;
+    let queued = first
+        .dispatch("follow_up", &json!({ "message": "later" }))
+        .await;
     assert!(queued.success, "follow_up: {queued:?}");
     let aborted = first.dispatch("abort", &json!({})).await;
     assert!(aborted.success, "abort: {aborted:?}");
@@ -367,7 +397,11 @@ async fn suspended_inputs_survive_a_worker_restart() {
         "second.recovery.jsonl",
         json!({ "responses": ["resumed"] }),
     );
-    create(&second, json!({ "cwd": dir.path().join("work"), "sessionPath": storage })).await;
+    create(
+        &second,
+        json!({ "cwd": dir.path().join("work"), "sessionPath": storage }),
+    )
+    .await;
     // The restarted worker's queue strip shows the suspended input: the
     // durable document seeded the cache.
     let snapshot = {
@@ -421,8 +455,15 @@ async fn an_input_pause_lease_holds_admissions_until_released() {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         super::session_snapshot(&core)
     };
-    assert_eq!(snapshot.follow_ups, ["held"], "the held strip: {snapshot:?}");
-    assert!(messages(&worker).await.is_empty(), "nothing reached the model");
+    assert_eq!(
+        snapshot.follow_ups,
+        ["held"],
+        "the held strip: {snapshot:?}"
+    );
+    assert!(
+        messages(&worker).await.is_empty(),
+        "nothing reached the model"
+    );
 
     // The release delivers the held input.
     let pause_id = acquired.data.expect("pauseId data")["pauseId"]
@@ -452,7 +493,10 @@ async fn an_input_pause_lease_holds_admissions_until_released() {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         super::session_snapshot(&core)
     };
-    assert!(snapshot.follow_ups.is_empty(), "the drained strip: {snapshot:?}");
+    assert!(
+        snapshot.follow_ups.is_empty(),
+        "the drained strip: {snapshot:?}"
+    );
 }
 
 /// A worker that dies mid-run (after a tool round, while the follow-up

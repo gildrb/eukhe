@@ -391,8 +391,11 @@ mod tests {
             .await;
         assert!(waited.success, "{waited:?}");
         let rows = worker_rows(&worker, "eukhe.custom").await;
-        assert_eq!(rows.len(), 1);
+        // The harness-digest row rides the turn's first request (the rows
+        // scan oldest-first: the notice row precedes it).
+        assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["customType"], json!("async_bash_completion"));
+        assert_eq!(rows[1]["customType"], json!("harness_digest"));
         assert_eq!(
             rows[0]["details"],
             json!({ "pid": 4321, "command": "sleep 1", "exitCode": 0 })
