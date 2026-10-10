@@ -203,6 +203,40 @@ async fn loopback_custom_models_omit_the_store_field() {
     assert_eq!(params.get("store"), Some(&json!(false)));
 }
 
+/// eukhe addition: a reasoning model on a loopback server sends its system
+/// prompt as `system` — vLLM/SGLang reject the `developer` role with a 400
+/// ("Supported message roles: system, user, assistant, tool").
+#[tokio::test]
+async fn loopback_reasoning_models_send_the_system_role() {
+    let system_role = |base_url: &str| {
+        let model = gpt_4o_mini_completions(&json!({
+            "provider": "elpis-fast",
+            "baseUrl": base_url,
+            "reasoning": true,
+        }));
+        async move {
+            let ctx = context(json!({
+                "systemPrompt": "You are helpful.",
+                "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }],
+            }));
+            simple_payload(&model, &ctx, None).await["messages"][0]["role"].clone()
+        }
+    };
+    assert_eq!(
+        system_role("http://127.0.0.1:18020/v1").await,
+        json!("system")
+    );
+    assert_eq!(
+        system_role("http://localhost:18020/v1").await,
+        json!("system")
+    );
+    // A non-loopback standard endpoint keeps the detected developer role.
+    assert_eq!(
+        system_role("http://10.0.0.7:18020/v1").await,
+        json!("developer")
+    );
+}
+
 #[tokio::test]
 async fn uses_conservative_openai_compatible_fields_for_cloudflare_ai_gateway_compat_models() {
     let model = cloudflare_model("workers-ai/@cf/moonshotai/kimi-k2.6");

@@ -88,9 +88,11 @@ pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
         provider == "prime-inference" || base_url.contains("api.pinference.ai");
 
     // eukhe addition: local OpenAI-compatible servers (llama.cpp, vLLM,
-    // SGLang) reject unknown fields such as `store` with a 400. Omitting it
-    // is correct for real OpenAI too, where the chat-completions default is
-    // already false.
+    // SGLang) reject unknown fields such as `store` and the `developer`
+    // role with a 400 ("Supported message roles: system, user, assistant,
+    // tool"). Omitting `store` and sending `system` is correct for real
+    // OpenAI too: the chat-completions `store` default is already false and
+    // reasoning models accept `system`.
     let is_loopback = [
         "//localhost",
         "//127.0.0.1",
@@ -150,7 +152,7 @@ pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
     ResolvedCompat {
         supports_store: !is_non_standard && !is_loopback,
         supports_developer_role: is_open_router_developer_role_model
-            || (!is_non_standard && !is_open_router),
+            || (!is_non_standard && !is_open_router && !is_loopback),
         supports_reasoning_effort: !is_grok
             && !is_zai
             && !is_moonshot
