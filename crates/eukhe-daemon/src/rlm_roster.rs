@@ -62,7 +62,7 @@ pub fn walk_passive_rlm_children(
     let mut children_by_parent: HashMap<PathBuf, Vec<&RlmLedgerEdge>> = HashMap::new();
     for edge in &edges {
         children_by_parent
-            .entry(canonical_session_path(std::path::Path::new(&edge.parent)))
+            .entry(walk_key(Path::new(&edge.parent)))
             .or_default()
             .push(edge);
     }
@@ -71,18 +71,18 @@ pub fn walk_passive_rlm_children(
         .filter_map(|root| {
             root.active_session_id
                 .as_ref()
-                .map(|id| (canonical_session_path(&root.session_file), id.clone()))
+                .map(|id| (walk_key(&root.session_file), id.clone()))
         })
         .collect();
     let mut visited: HashSet<PathBuf> = roots
         .iter()
-        .map(|root| canonical_session_path(&root.session_file))
+        .map(|root| walk_key(&root.session_file))
         .collect();
     // Roots in order (saved first, then residents); children are visited
     // in ledger order within each parent.
     let mut queue: Vec<PathBuf> = roots
         .iter()
-        .map(|root| canonical_session_path(&root.session_file))
+        .map(|root| walk_key(&root.session_file))
         .collect();
     let mut registry_cache: HashMap<PathBuf, Vec<LegacyRlmSubagentEntry>> = HashMap::new();
     let mut walked = Vec::new();
@@ -91,7 +91,7 @@ pub fn walk_passive_rlm_children(
             continue;
         };
         for edge in edges.iter().copied() {
-            let child = canonical_session_path(std::path::Path::new(&edge.child));
+            let child = walk_key(Path::new(&edge.child));
             if !visited.insert(child.clone()) {
                 continue;
             }
@@ -101,12 +101,12 @@ pub fn walk_passive_rlm_children(
                 queue.push(child);
                 continue;
             }
-            let Some(info) = read_session_info(&child) else {
+            let Some(info) = read_session_info(Path::new(&edge.child)) else {
                 continue;
             };
             let metadata = rlm_child_metadata(edge, &mut registry_cache);
             let parent_active_session_id = resident_paths
-                .get(&canonical_session_path(std::path::Path::new(&edge.parent)))
+                .get(&walk_key(Path::new(&edge.parent)))
                 .cloned();
             walked.push(PassiveRlmChild {
                 edge: edge.clone(),
@@ -119,6 +119,25 @@ pub fn walk_passive_rlm_children(
         }
     }
     Ok(walked)
+}
+
+/// The walk identity of a session path: its canonical path, except that a
+/// legacy `<id>.jsonl` whose durable storage `<id>/` exists (the first open
+/// imported it) is that storage. Ledger edges keep naming the legacy file
+/// they were written with, while the catalog and the registry name the
+/// storage once it exists; both must key one family.
+fn walk_key(path: &Path) -> PathBuf {
+    let canonical = canonical_session_path(path);
+    if canonical
+        .extension()
+        .is_some_and(|extension| extension == "jsonl")
+    {
+        let storage = canonical.with_extension("");
+        if storage.is_dir() {
+            return storage;
+        }
+    }
+    canonical
 }
 
 /// Lifecycle for an off-daemon session (TS `inactiveLifecycleForSession`):

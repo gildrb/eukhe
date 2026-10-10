@@ -82,6 +82,22 @@ impl ScriptedModels {
             },
         })
     }
+
+    /// Whether the script serves instead of `request`: the script serves
+    /// every turn of the session, whatever model the create named (the old
+    /// scripted engine ignored the selection), so a missing request or one
+    /// naming another provider (a scripted RLM child inheriting its
+    /// parent's off-catalog selector) runs on the scripted model, since
+    /// the script's collection holds no other provider to resolve it
+    /// against.
+    pub(crate) fn overrides(&self, request: Option<&ModelRequest>) -> bool {
+        request.is_none_or(|request| {
+            request
+                .provider
+                .as_deref()
+                .is_some_and(|requested| Some(requested) != self.model.provider.as_deref())
+        })
+    }
 }
 
 /// What the worker opens a session with.
@@ -167,22 +183,10 @@ impl HostedSession {
             // The agent dir's `models.json` composes over the script (its
             // models list and switch like the old registry's).
             compose_models_json(&scripted.models, agent_dir)?;
-            config.models = Some(scripted.models);
-            // The script serves every turn of the session, whatever model
-            // the create named (the old scripted engine ignored the
-            // selection): a request naming another provider (a scripted
-            // RLM child inheriting its parent's off-catalog selector)
-            // runs on the scripted model, since the script's collection
-            // holds no other provider to resolve it against.
-            let foreign = config.model.as_ref().is_none_or(|request| {
-                request
-                    .provider
-                    .as_deref()
-                    .is_some_and(|requested| Some(requested) != scripted.model.provider.as_deref())
-            });
-            if foreign {
+            if scripted.overrides(config.model.as_ref()) {
                 config.model = Some(scripted.model);
             }
+            config.models = Some(scripted.models);
         }
         let is_root = config.role.is_root();
         let session_id = config.session_id.clone();

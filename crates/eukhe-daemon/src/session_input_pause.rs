@@ -15,10 +15,14 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_durable::harness::AbortSubmissionResult;
 use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
-use crate::worker::Worker;
+use crate::worker::durable_host::bridge::inbox_previews;
+use crate::worker::durable_host::suspended::WithdrawnInput;
+use crate::worker::{mutate_withdrawn, Worker};
 
 /// One held pause: the session it gates, the owning client identity, and
 /// the lease key (the supervisor embeds `[connectionId, ownerClientId,
@@ -129,7 +133,10 @@ impl InputPauseTable {
 impl Worker {
     /// `acquire_session_input_pause`: the pause id wire object `{ pauseId
     /// }`, with the dedupe on the identical lease.
-    pub(crate) fn handle_acquire_session_input_pause(&self, payload: &Value) -> DaemonResponse {
+    pub(crate) async fn handle_acquire_session_input_pause(
+        &self,
+        payload: &Value,
+    ) -> DaemonResponse {
         if let Err(response) = self.require_created("acquire_session_input_pause") {
             return response;
         }
@@ -154,6 +161,9 @@ impl Worker {
         let pause_id = self
             .input_pauses
             .acquire(&active_session_id, &owner_client_id, lease_key);
+        if let Err(error) = self.hold_queued_inputs().await {
+            return response_failure(None, "acquire_session_input_pause", &error, None);
+        }
         response_success(
             None,
             "acquire_session_input_pause",
@@ -161,11 +171,55 @@ impl Worker {
         )
     }
 
+    /// Move the main conversation's queued inputs into the pause-held list:
+    /// the pause gates input that was queued before it too (TS keeps the
+    /// queue behind the admission gate), and a durable steer left in the
+    /// inbox would otherwise enter the running turn at its next boundary.
+    /// An input a run already placed is no longer queued and stays put.
+    async fn hold_queued_inputs(&self) -> Result<(), String> {
+        let Some(hosted) = self.session.get() else {
+            return Ok(());
+        };
+        let main = hosted.main().map_err(|error| error.to_string())?;
+        let inbox = inbox_previews(hosted.harness(), main.id(), &BACKGROUND_CONTEXT)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut withdrawn = Vec::new();
+        for input in inbox {
+            match hosted
+                .harness()
+                .abort_submission(input.id, Some(main.id()), &BACKGROUND_CONTEXT)
+                .await
+                .map_err(|error| error.to_string())?
+            {
+                AbortSubmissionResult::Aborted => withdrawn.push(input),
+                AbortSubmissionResult::AlreadyPlaced
+                | AbortSubmissionResult::Settled
+                | AbortSubmissionResult::NotFound => {}
+            }
+        }
+        if withdrawn.is_empty() {
+            return Ok(());
+        }
+        mutate_withdrawn(&hosted, &self.core, &self.events, move |mut state| {
+            state
+                .held
+                .extend(withdrawn.iter().map(WithdrawnInput::from));
+            (state, ())
+        })
+        .await?;
+        // A release that raced the withdrawal found nothing held yet.
+        self.admit_held_inputs().await
+    }
+
     /// `release_session_input_pause`: the TS outcome ladder - an unknown
     /// pause id answers the plain success, a foreign owner answers the
     /// ownership error, a correct release lifts the admission gate and
-    /// wakes the turn runner.
-    pub(crate) fn handle_release_session_input_pause(&self, payload: &Value) -> DaemonResponse {
+    /// admits the held inputs before it answers.
+    pub(crate) async fn handle_release_session_input_pause(
+        &self,
+        payload: &Value,
+    ) -> DaemonResponse {
         if let Err(response) = self.require_created("release_session_input_pause") {
             return response;
         }
@@ -187,11 +241,11 @@ impl Worker {
             .input_pauses
             .release(pause_id, &owner_client_id, &active_session_id)
         {
-            ReleaseOutcome::Released => {
+            ReleaseOutcome::Released => match self.admit_held_inputs().await {
                 // The gate lifted: inputs held while paused admit now.
-                self.resume_inputs_after_pause();
-                response_success(None, "release_session_input_pause", None)
-            }
+                Ok(()) => response_success(None, "release_session_input_pause", None),
+                Err(error) => response_failure(None, "release_session_input_pause", &error, None),
+            },
             ReleaseOutcome::Unknown => response_success(None, "release_session_input_pause", None),
             ReleaseOutcome::OwnedByAnotherClient => response_failure(
                 None,
@@ -211,7 +265,7 @@ impl Worker {
     }
 
     /// Admit the inputs the pause held (the durable store's `held` list)
-    /// once no pause remains.
+    /// once no pause remains, in the background (the detach path).
     fn resume_inputs_after_pause(&self) {
         if self.input_pauses.paused() {
             return;
@@ -233,6 +287,24 @@ impl Worker {
                 eprintln!("eukhe-daemon worker: resuming paused inputs failed: {error}");
             }
         });
+    }
+
+    /// Admit the held inputs now, once no pause remains.
+    async fn admit_held_inputs(&self) -> Result<(), String> {
+        if self.input_pauses.paused() {
+            return Ok(());
+        }
+        let Some(hosted) = self.session.get() else {
+            return Ok(());
+        };
+        crate::worker::drain_withdrawn(
+            &hosted,
+            &self.core,
+            &self.events,
+            crate::worker::WithdrawnList::Held,
+        )
+        .await
+        .map(|_| ())
     }
 }
 

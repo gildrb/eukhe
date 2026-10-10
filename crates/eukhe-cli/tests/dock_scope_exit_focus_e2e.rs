@@ -27,7 +27,6 @@
 //! `scope_back` (the flag the agents-view flow wires into the reopened
 //! run's options).
 
-use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -38,6 +37,11 @@ use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, 
 use eukhe_tui::interactive::{
     HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
+
+#[path = "support/legacy_fixture.rs"]
+mod legacy_fixture;
+
+use legacy_fixture::write_fixture;
 
 struct Supervisor {
     child: Child,
@@ -132,43 +136,6 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     panic!("supervisor socket never appeared");
 }
 
-/// One saved-session fixture: a session header whose `parentSession` and
-/// `rlmDepth` give the catalog the subagent linkage, a display name, and
-/// a user/assistant exchange.
-fn write_fixture(
-    dir: &Path,
-    id: &str,
-    name: &str,
-    parent: Option<&Path>,
-    rlm_depth: u64,
-    turns: &[(&str, &str)],
-) -> PathBuf {
-    let path = dir.join(format!("{id}.jsonl"));
-    let mut content = format!(
-        "{{\"type\":\"session\",\"version\":3,\"id\":\"{id}\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"cwd\":\"/tmp\""
-    );
-    if let Some(parent) = parent {
-        let _ = write!(content, ",\"parentSession\":\"{}\"", parent.display());
-    }
-    let _ = write!(content, ",\"rlmDepth\":{rlm_depth}}}");
-    content.push('\n');
-    let _ = writeln!(content,
-        "{{\"type\":\"session_info\",\"id\":\"{id}-info\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"name\":\"{name}\"}}"
-    );
-    for (index, (user, assistant)) in turns.iter().enumerate() {
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}u\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"user\",\"content\":\"{user}\",\"timestamp\":{}}}}}",
-            index * 1000
-        );
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}a\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{assistant}\"}}],\"timestamp\":{}}}}}",
-            index * 1000 + 1
-        );
-    }
-    std::fs::write(&path, content).expect("write fixture");
-    path
-}
-
 /// The interactive options for one fixture session; `restore_dock_focus`
 /// rides the scope-back reopen exactly the way the agents-view flow
 /// passes it.
@@ -232,7 +199,7 @@ async fn scope_exit_keeps_the_subagents_item(exit_key: &'static str) {
         "scope-exit-parent",
         "scope exit parent",
         None,
-        0,
+        Some(0),
         &[("dispatch the worker", "worker dispatched")],
     );
     let child_path = write_fixture(
@@ -240,7 +207,7 @@ async fn scope_exit_keeps_the_subagents_item(exit_key: &'static str) {
         "scope-exit-worker",
         "scope exit worker",
         Some(&parent_path),
-        1,
+        Some(1),
         &[("do the work", "work complete alpha")],
     );
     let ledger = eukhe_daemon::rlm_ledger::RlmSpawnLedger::new(&agent_dir, &session_dir, |_m| {});

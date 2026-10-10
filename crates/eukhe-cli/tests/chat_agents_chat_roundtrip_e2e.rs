@@ -9,7 +9,6 @@
 // future for a lint tick is churn with no correctness gain.
 #![allow(clippy::large_futures, clippy::too_many_lines)]
 
-use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -21,6 +20,11 @@ use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, 
 use eukhe_tui::interactive::{
     HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
+
+#[path = "support/legacy_fixture.rs"]
+mod legacy_fixture;
+
+use legacy_fixture::write_fixture;
 
 struct Supervisor {
     child: Child,
@@ -103,30 +107,6 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     panic!("supervisor socket never appeared");
 }
 
-/// One saved-session fixture: header, display name, and a user/assistant
-/// exchange.
-fn write_fixture(dir: &Path, id: &str, name: &str, turns: &[(&str, &str)]) -> PathBuf {
-    let path = dir.join(format!("{id}.jsonl"));
-    let mut content = format!(
-        "{{\"type\":\"session\",\"version\":3,\"id\":\"{id}\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"cwd\":\"/tmp\"}}\n"
-    );
-    let _ = writeln!(content,
-        "{{\"type\":\"session_info\",\"id\":\"{id}-info\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"name\":\"{name}\"}}"
-    );
-    for (index, (user, assistant)) in turns.iter().enumerate() {
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}u\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"user\",\"content\":\"{user}\",\"timestamp\":{}}}}}",
-            index * 1000
-        );
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}a\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{assistant}\"}}],\"timestamp\":{}}}}}",
-            index * 1000 + 1
-        );
-    }
-    std::fs::write(&path, content).expect("write fixture");
-    path
-}
-
 /// The scripted faux provider's script file (the `interactive_daemon_e2e`
 /// pattern): one scripted reply drives a REAL turn through the worker, so
 /// the transcript grows during the chat run.
@@ -192,6 +172,8 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
         &session_dir,
         "roundtrip-01",
         "roundtrip session",
+        None,
+        None,
         &[
             ("ship the feature", "shipped the feature"),
             ("audit the flow", "flow audit clean"),
@@ -323,6 +305,8 @@ async fn a_post_turn_reentry_renders_the_turn_rows() {
         &session_dir,
         "roundtrip-turn-01",
         "roundtrip turn session",
+        None,
+        None,
         &[
             ("ship the feature", "shipped the feature"),
             ("audit the flow", "flow audit clean"),

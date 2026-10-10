@@ -1,7 +1,8 @@
 //! The durable child host against a recording fake supervisor: keyed calls
 //! run once, a spawn creates under the requested id and finds a resident
 //! child again after a parent restart, a settled child reports its answer,
-//! reply flag, and usage, the task prompt lands as the parent's spawn
+//! reply flag, and usage, a restarted parent's resumed watch fails a child
+//! whose run was interrupted, the task prompt lands as the parent's spawn
 //! kickoff row, and `rlm.rename` routes self and child renames.
 
 use std::sync::{Arc, Mutex};
@@ -270,6 +271,79 @@ async fn keyed_calls_run_once_and_a_settled_child_reports() {
     assert_eq!(kills.len(), 1);
     assert_eq!(kills[0]["rlmLedgerDelete"], "user");
     assert_eq!(kills[0]["rlmChildId"], "sub-0192a000");
+}
+
+/// Write the child's display entry (`rlm-subagent.json`) with `status`.
+fn write_child_display(agent_dir: &std::path::Path, status: &str) {
+    let child_dir = agent_dir
+        .join("session-artifacts")
+        .join("parent-session")
+        .join("sub-0192a000");
+    std::fs::create_dir_all(&child_dir).unwrap();
+    std::fs::write(
+        child_dir.join("rlm-subagent.json"),
+        json!({
+            "type": "rlm_subagent",
+            "childId": "sub-0192a000",
+            "sessionName": "worker-a",
+            "sessionDir": child_dir.to_string_lossy(),
+            "status": status,
+        })
+        .to_string(),
+    )
+    .unwrap();
+}
+
+fn resumed_wait() -> RlmChildWaitRequest {
+    RlmChildWaitRequest {
+        session_id: CHILD_SESSION.to_owned(),
+        rlm_child_id: "sub-0192a000".to_owned(),
+        timeout_ms: 10,
+    }
+}
+
+/// A restarted parent's resumed watch (the host never spawned the child)
+/// that finds the child idle while its display entry still says `running`
+/// settles it as interrupted; the display stays `running`.
+#[tokio::test]
+async fn a_resumed_watch_fails_a_child_whose_run_was_interrupted() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    write_child_display(dir.path(), "running");
+    let sessions = host(&shared, dir.path()).await;
+    let observed = sessions.wait_settled(resumed_wait()).await.unwrap();
+    assert_eq!(
+        observed.state,
+        RlmChildRunState::Failed {
+            error: super::INTERRUPTED_ERROR.to_owned(),
+        }
+    );
+    let display = crate::rlm_ledger::read_rlm_subagent_display(
+        &dir.path()
+            .join("session-artifacts")
+            .join("parent-session")
+            .join("sub-0192a000"),
+    )
+    .unwrap();
+    assert_eq!(display.status, "running");
+}
+
+/// A resumed watch over a child whose display a settle already completed
+/// reports the settle (the run finished before the restart).
+#[tokio::test]
+async fn a_resumed_watch_settles_a_completed_child() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    write_child_display(dir.path(), "completed");
+    let sessions = host(&shared, dir.path()).await;
+    let observed = sessions.wait_settled(resumed_wait()).await.unwrap();
+    assert_eq!(
+        observed.state,
+        RlmChildRunState::Settled {
+            answer_preview: Some("the child final answer".to_owned()),
+            replied_since_task: false,
+        }
+    );
 }
 
 #[tokio::test]

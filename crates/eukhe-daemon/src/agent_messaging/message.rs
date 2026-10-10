@@ -77,12 +77,12 @@ impl AgentMessageController for LinkAgentMessageController {
         // The calling session's durable family identity (its own ids and
         // its recorded parent edge); never derived from names.
         let identity = self.family_identity();
-        // This session's resident children, keyed for the roster join.
-        // The registry is the same source `rlm.list_subagents` reads, so
-        // the family view and the RLM roster can never disagree on which
-        // children exist.
+        // This session's children, keyed for the roster join: the registry
+        // plus the durable children roster - the same sources
+        // `rlm.list_subagents` reads, so the family view and the RLM roster
+        // can never disagree on which children exist.
         let mut children = match &self.children {
-            Some(children) => children.child_identities().await,
+            Some(children) => children.family_child_identities().await?,
             None => Vec::new(),
         };
         let mut parent_member: Option<AgentFamilyMember> = None;

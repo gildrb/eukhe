@@ -363,6 +363,14 @@ pub type ParentModelSource =
 /// session core, so a parent renamed since `create` signs with its new name.
 pub type ParentNameSource = std::sync::Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
+/// Reads the parent session's durable children roster (the durable
+/// worker's `eukhe.rlm.children` document, the one `rlm.list_subagents`
+/// reads) as family identities: the durable path records its children
+/// there, never in the registry, and a restarted parent reads them back.
+pub type DurableChildrenSource = std::sync::Arc<
+    dyn Fn() -> futures::future::BoxFuture<'static, Result<Vec<RlmChildIdentity>>> + Send + Sync,
+>;
+
 /// Receives each `rlm_child_update` payload (a child's status or snapshot
 /// change) for the parent's ACP and wire surfaces.
 pub(crate) type ChildUpdateSink = std::sync::Arc<dyn Fn(Value) + Send + Sync>;
@@ -444,6 +452,9 @@ struct SupervisorChildSessionsInner {
     /// The parent's live session-name reader (the durable worker's core);
     /// `None` leaves the kickoff's `from` endpoint unnamed.
     parent_name: std::sync::Mutex<Option<ParentNameSource>>,
+    /// The parent's durable children reader (the durable worker's main
+    /// conversation); `None` leaves the family view to the registry.
+    durable_children: std::sync::Mutex<Option<DurableChildrenSource>>,
 }
 
 impl Clone for SupervisorChildSessions {
@@ -483,6 +494,7 @@ impl SupervisorChildSessions {
                 durable_calls: std::sync::Mutex::new(durable_host::DurableCalls::default()),
                 parent_model: std::sync::Mutex::new(None),
                 parent_name: std::sync::Mutex::new(None),
+                durable_children: std::sync::Mutex::new(None),
             }),
         }
     }
@@ -658,6 +670,17 @@ impl SupervisorChildSessions {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
     }
 
+    /// Wire the parent's durable children reader: the family view joins
+    /// the children the durable path recorded (a restarted parent's
+    /// passivated children included) beside the registry's.
+    pub fn set_durable_children_source(&self, source: DurableChildrenSource) {
+        *self
+            .inner
+            .durable_children
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
+    }
+
     /// Rebuild the children registry from the spawn ledger (a restarted
     /// parent lists its ledger children again).
     pub async fn reseed_from_ledger(&self) {
@@ -729,6 +752,35 @@ impl SupervisorChildSessions {
             });
         }
         identities
+    }
+
+    /// The `agent_message` / `agent_observe` family's children: the
+    /// registry's ([`Self::child_identities`]) plus the durable children
+    /// roster (the same document `rlm.list_subagents` reads on the durable
+    /// path), one identity per RLM child id with the registry's first.
+    ///
+    /// # Errors
+    ///
+    /// The durable children roster cannot be read.
+    pub async fn family_child_identities(&self) -> Result<Vec<RlmChildIdentity>> {
+        let mut identities = self.child_identities().await;
+        let source = self
+            .inner
+            .durable_children
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(source) = source {
+            for durable in source().await? {
+                if !identities
+                    .iter()
+                    .any(|known| known.rlm_child_id == durable.rlm_child_id)
+                {
+                    identities.push(durable);
+                }
+            }
+        }
+        Ok(identities)
     }
 
     /// Re-arm usage observation for one of this session's children after

@@ -27,7 +27,6 @@
 //! roster alone — while the saved catalog keeps every dead row resumable
 //! under the parent's collapsed tree.
 
-use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -37,6 +36,14 @@ use std::time::{Duration, Instant};
 use eukhe_daemon::rlm_ledger::{RlmSpawnInput, RlmSpawnLedger};
 use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, AgentsViewUiMode};
 use serde_json::{json, Value};
+
+#[path = "support/durable_store.rs"]
+mod durable_store;
+#[path = "support/legacy_fixture.rs"]
+mod legacy_fixture;
+
+use durable_store::legacy_storage;
+use legacy_fixture::write_fixture;
 
 struct Supervisor {
     child: Child,
@@ -132,42 +139,6 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
         std::thread::sleep(Duration::from_millis(20));
     }
     panic!("supervisor socket never appeared");
-}
-
-/// One saved-session fixture: a version-3 session header (the parent
-/// linkage for subagents), a display name, and a user/assistant exchange.
-fn write_fixture(
-    dir: &Path,
-    id: &str,
-    name: &str,
-    parent: Option<&Path>,
-    rlm_depth: u64,
-    turns: &[(&str, &str)],
-) -> PathBuf {
-    let path = dir.join(format!("{id}.jsonl"));
-    let mut content = format!(
-        "{{\"type\":\"session\",\"version\":3,\"id\":\"{id}\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"cwd\":\"/tmp\""
-    );
-    if let Some(parent) = parent {
-        let _ = write!(content, ",\"parentSession\":\"{}\"", parent.display());
-    }
-    let _ = write!(content, ",\"rlmDepth\":{rlm_depth}}}");
-    content.push('\n');
-    let _ = writeln!(content,
-        "{{\"type\":\"session_info\",\"id\":\"{id}-info\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"name\":\"{name}\"}}"
-    );
-    for (index, (user, assistant)) in turns.iter().enumerate() {
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}u\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"user\",\"content\":\"{user}\",\"timestamp\":{}}}}}",
-            index * 1000
-        );
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}a\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{assistant}\"}}],\"timestamp\":{}}}}}",
-            index * 1000 + 1
-        );
-    }
-    std::fs::write(&path, content).expect("write fixture");
-    path
 }
 
 /// The client the agents view stands in for: a JSONL protocol client that
@@ -278,18 +249,24 @@ impl Client {
 
 /// The rows of one roster snapshot whose summary carries the dead
 /// family's marker (a `rlmChildId` under the parent, or the parent's own
-/// session file).
+/// session).
 fn family_rows(roster: &[Value], parent_file: &Path, child_prefix: &str) -> usize {
     roster
         .iter()
         .filter(|entry| {
-            let summary = &entry["summary"];
-            summary["rlmChildId"]
+            entry["summary"]["rlmChildId"]
                 .as_str()
                 .is_some_and(|id| id.starts_with(child_prefix))
-                || summary["sessionFile"].as_str() == Some(&parent_file.to_string_lossy())
+                || is_parent_row(entry, parent_file)
         })
         .count()
+}
+
+/// Whether `entry` is the parent's own row. The resumed parent's session
+/// is the durable storage its legacy file imported into on the open
+/// (`<sessions>/flash-parent/`), so its row names that storage.
+fn is_parent_row(entry: &Value, parent_file: &Path) -> bool {
+    entry["summary"]["sessionFile"].as_str() == Some(&legacy_storage(parent_file).to_string_lossy())
 }
 
 fn roster_of(response: &Value) -> Vec<Value> {
@@ -392,7 +369,7 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
         "flash-parent",
         "flash parent",
         None,
-        0,
+        Some(0),
         &[("run the fleet drill", "the drill ran")],
     );
     let artifacts_dir = agent_dir.join("session-artifacts").join("flash-parent");
@@ -405,7 +382,7 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
             &format!("flash-child-{index:03}"),
             &format!("flash worker {index:03}"),
             Some(&parent_file),
-            1,
+            Some(1),
             &[("do the work", "work complete")],
         );
         ledger
@@ -498,9 +475,7 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
     );
     let passivated_parent = departed_roster
         .iter()
-        .find(|entry| {
-            entry["summary"]["sessionFile"].as_str() == Some(parent_file.to_string_lossy().as_ref())
-        })
+        .find(|entry| is_parent_row(entry, &parent_file))
         .unwrap_or_else(|| {
             panic!("the stopped parent's row stays in the roster (passivated): {departed}")
         });
@@ -614,7 +589,7 @@ async fn a_stopped_session_stays_visible_in_the_view() {
         "kept-session",
         "kept session",
         None,
-        0,
+        Some(0),
         &[("run the drill", "the drill ran")],
     );
 

@@ -26,7 +26,6 @@
 //! where the now-live resumed child renders per TS parity (a top-level
 //! runtime row keeping its persisted depth) and Enter re-opens it.
 
-use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -36,6 +35,11 @@ use std::time::{Duration, Instant};
 use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, AgentsViewUiMode};
 use eukhe_tui::interactive::SessionSelection;
 use eukhe_tui::interactive::UiMode;
+
+#[path = "support/legacy_fixture.rs"]
+mod legacy_fixture;
+
+use legacy_fixture::write_fixture;
 
 struct Supervisor {
     child: Child,
@@ -124,43 +128,6 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     panic!("supervisor socket never appeared");
 }
 
-/// One saved-session fixture: a session header whose `parentSession` and
-/// `rlmDepth` give the catalog the subagent linkage, a display name, and a
-/// user/assistant exchange.
-fn write_fixture(
-    dir: &Path,
-    id: &str,
-    name: &str,
-    parent: Option<&Path>,
-    rlm_depth: u64,
-    turns: &[(&str, &str)],
-) -> PathBuf {
-    let path = dir.join(format!("{id}.jsonl"));
-    let mut content = format!(
-        "{{\"type\":\"session\",\"version\":3,\"id\":\"{id}\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"cwd\":\"/tmp\""
-    );
-    if let Some(parent) = parent {
-        let _ = write!(content, ",\"parentSession\":\"{}\"", parent.display());
-    }
-    let _ = write!(content, ",\"rlmDepth\":{rlm_depth}}}");
-    content.push('\n');
-    let _ = writeln!(content,
-        "{{\"type\":\"session_info\",\"id\":\"{id}-info\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"name\":\"{name}\"}}"
-    );
-    for (index, (user, assistant)) in turns.iter().enumerate() {
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}u\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"user\",\"content\":\"{user}\",\"timestamp\":{}}}}}",
-            index * 1000
-        );
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}a\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{assistant}\"}}],\"timestamp\":{}}}}}",
-            index * 1000 + 1
-        );
-    }
-    std::fs::write(&path, content).expect("write fixture");
-    path
-}
-
 /// The first frame showing `marker` (the state before the plan's later
 /// keystrokes mutate it).
 fn first_frame_of(frames: &[String], marker: &str) -> String {
@@ -235,7 +202,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
         "orchestrator",
         "orchestrator chat",
         None,
-        0,
+        Some(0),
         &[("orchestrate the fleet", "children dispatched")],
     );
     let child_path = write_fixture(
@@ -243,7 +210,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
         "worker-a",
         "worker alpha",
         Some(&parent_path),
-        1,
+        Some(1),
         &[("do the work", "work complete alpha")],
     );
     let grandchild_path = write_fixture(
@@ -251,7 +218,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
         "worker-a2",
         "nested alpha child",
         Some(&child_path),
-        2,
+        Some(2),
         &[("dig deeper", "nested work complete")],
     );
 
@@ -494,7 +461,7 @@ async fn agents_view_fires_user_keybindings_from_settings() {
         "solo",
         "solo chat",
         None,
-        0,
+        Some(0),
         &[("hello", "ok")],
     );
 

@@ -240,7 +240,11 @@ pub trait RlmSubagentHost: Send + Sync {
     fn cancel(&self, request: RlmChildCancelRequest) -> RlmHostFuture<'_, ()>;
     /// Delete a child session.
     fn delete(&self, request: RlmChildDeleteRequest) -> RlmHostFuture<'_, ()>;
-    /// Live facts about this parent's children.
+    /// Live facts about this parent's children: one listing per child the
+    /// host spawned in this process. `rlm.list_subagents` addresses a
+    /// spawned child without a listing (spawned by an earlier process of
+    /// the session) by its durable session id instead of its recorded
+    /// routing id.
     fn list(&self) -> RlmHostFuture<'_, Vec<RlmChildListing>>;
     /// Rename this session or one direct child. The host owns name
     /// reservation across the agent family; a parent-directed rename marks

@@ -34,6 +34,23 @@ const UNKNOWN_SESSION: &str = "Unknown active session:";
 const NOT_OWN_FAMILY: &str =
     "rlm.rename can only rename the current session or one of its direct children";
 
+/// The settle error of a child whose run ended while its parent was down.
+const INTERRUPTED_ERROR: &str =
+    "RLM child run was interrupted: the child stopped mid-run while its parent session was down";
+
+/// Whether `child_dir`'s display entry names `child_id` and still says
+/// `running` (no settle completed it); a missing entry reads `false`.
+async fn display_running(child_dir: &Path, child_id: &str) -> Result<bool> {
+    let child_dir = child_dir.to_path_buf();
+    let child_id = child_id.to_owned();
+    let display = tokio::task::spawn_blocking(move || {
+        crate::rlm_ledger::read_rlm_subagent_display(&child_dir)
+            .is_some_and(|display| display.child_id == child_id && display.status == "running")
+    })
+    .await?;
+    Ok(display)
+}
+
 /// Keyed calls this process already served, and the children it spawned.
 #[derive(Default)]
 pub(super) struct DurableCalls {
@@ -46,6 +63,9 @@ pub(super) struct DurableCalls {
     /// Routing or durable ids of children that messaged this parent since
     /// their task was admitted (TS `_parentReplyCount`).
     replied: HashSet<String>,
+    /// Durable ids of children whose run this process saw in flight: a
+    /// resumed watch that later finds such a child idle saw it settle.
+    seen_running: HashSet<String>,
 }
 
 impl SupervisorChildSessionsInner {
@@ -424,6 +444,9 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             this.wait_for_child(&selector, Duration::from_millis(request.timeout_ms))
                 .await;
             let running = || async {
+                this.durable_calls()
+                    .seen_running
+                    .insert(request.session_id.clone());
                 durable::RlmChildObservation {
                     state: durable::RlmChildRunState::Running,
                     usage: this.child_usage(&request.session_id).await,
@@ -438,6 +461,30 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             if this.child_busy(&selector).await? {
                 return Ok(running().await);
             }
+            let child_dir = {
+                let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
+                this.child_session_path(&request.rlm_child_id, &identity)
+            };
+            // A watch this process did not start (the parent restarted
+            // mid-run: its death or the daemon's restart closed the child)
+            // that never saw the run in flight and finds the child idle
+            // while its display entry still says `running` saw the run end
+            // with no settle anyone observed: the run was interrupted, so
+            // the child settles as an error (TS relists such a child as
+            // `error`, never as completed).
+            let resumed = {
+                let calls = this.durable_calls();
+                !calls.spawned.contains_key(&request.session_id)
+                    && !calls.seen_running.contains(&request.session_id)
+            };
+            if resumed && display_running(&child_dir, &request.rlm_child_id).await? {
+                return Ok(durable::RlmChildObservation {
+                    state: durable::RlmChildRunState::Failed {
+                        error: INTERRUPTED_ERROR.to_owned(),
+                    },
+                    usage: this.child_usage(&request.session_id).await,
+                });
+            }
             let answer = this.child_answer(&selector).await.ok().flatten();
             let replied_since_task = {
                 let calls = this.durable_calls();
@@ -445,10 +492,6 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             };
             // The settled run completes the child's display entry, so a
             // restarted parent relists it as completed.
-            let child_dir = {
-                let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
-                this.child_session_path(&request.rlm_child_id, &identity)
-            };
             super::lifecycle::complete_child_display(child_dir, request.rlm_child_id.clone()).await;
             Ok(durable::RlmChildObservation {
                 state: durable::RlmChildRunState::Settled {

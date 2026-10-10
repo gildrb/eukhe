@@ -527,7 +527,17 @@ async fn list_subagents(children: Arc<Children>, call: HostCall) -> anyhow::Resu
             let listing = listings
                 .iter()
                 .find(|listing| listing.session_id == row.session_id);
-            entry(row, listing, now)
+            let mut entry = entry(row, listing, now);
+            // A spawned child the host has no live facts about was spawned
+            // by an earlier process of this session (a restarted parent):
+            // its recorded routing id named a worker that is gone, so the
+            // row carries the durable session id, the selector that
+            // reaches the child resident or not (TS relists a passive
+            // child by its session id).
+            if listing.is_none() && entry.active_session_id.is_some() {
+                entry.active_session_id = Some(row.session_id.clone());
+            }
+            entry
         })
         .collect();
     Ok(json!({ "subagents": subagents }))

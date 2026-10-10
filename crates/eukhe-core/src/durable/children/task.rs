@@ -355,8 +355,9 @@ async fn watch(
     // A settled child's return is claimed on the parent's ledger BEFORE
     // the commit that delivers its notice (TS records the return before
     // the notice triggers the parent's next turn): the child's last
-    // committed request, read from its ledger beside its storage; a child
-    // with no ledger returns nothing (an absent edge beats a wrong one).
+    // committed request, read from its ledger in its RLM session dir; a
+    // child with no ledger returns nothing (an absent edge beats a wrong
+    // one).
     let claim_child_return = {
         let settled = matches!(
             &observed,
@@ -374,11 +375,7 @@ async fn watch(
             let ledger = row
                 .session_dir
                 .as_deref()
-                .map(std::path::Path::new)
-                .map(|dir| {
-                    dir.join(row.session_id.as_str())
-                        .join(SEMANTIC_EDGES_LEDGER_FILENAME)
-                });
+                .map(|dir| std::path::Path::new(dir).join(SEMANTIC_EDGES_LEDGER_FILENAME));
             recorder.record_child_returned(
                 &session_id,
                 ledger.as_deref().and_then(last_committed_request_id),

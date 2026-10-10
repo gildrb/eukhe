@@ -209,7 +209,12 @@ impl Supervisor {
     }
 
     /// TS `requireAvailableWorkerClient`: the worker must be connected and
-    /// ready, and not stopping.
+    /// ready, and not stopping. Ready includes the session-create boundary
+    /// (a fresh create, or a replacement's create replay): a worker that
+    /// registered but has not finished opening its session refuses every
+    /// command, and a peer grant burns on first use, so the ticket waits
+    /// for the boundary like the supervisor's routed commands do (the
+    /// refusal sends the caller down that routed path).
     async fn require_available_worker_client(
         &self,
         resident: &std::sync::Arc<ResidentWorker>,
@@ -223,6 +228,9 @@ impl Supervisor {
                 "Session worker is {}",
                 effective_worker_state(connected, lifecycle, self.is_stopping(resident))
             ));
+        }
+        if !resident.route_state().session_ready {
+            return Err(anyhow!("Session worker is starting"));
         }
         Ok(())
     }
@@ -403,6 +411,24 @@ mod tests {
         assert_eq!(
             reachable.error.as_deref(),
             Some("Session worker is recovering")
+        );
+        // A connected, registered worker whose session create has not
+        // finished refuses the ticket: the grant would burn on a worker
+        // that refuses every command until its session opens.
+        let starting = tokenized("ccc333", "tok-c");
+        starting
+            .peer_transport_capable
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(1);
+        *starting.cmd_tx.lock().await = Some(cmd_tx);
+        supervisor.registry.insert(starting).await;
+        let starting = supervisor
+            .handle_get_worker_peer_transport("t5", "get_worker_peer_transport", "tok-a", "ccc333")
+            .await;
+        assert!(!starting.success, "{starting:?}");
+        assert_eq!(
+            starting.error.as_deref(),
+            Some("Session worker is starting")
         );
     }
 

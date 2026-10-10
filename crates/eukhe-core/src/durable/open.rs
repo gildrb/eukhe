@@ -175,19 +175,24 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         Some(models) => models.clone(),
         None => create_models(&config.agent_dir, cx).await?,
     };
-    // The session's semantic-edge recorder (the ACP request-id ledger):
-    // a durable storage keeps its ledger beside the session (a spawned
-    // child's dir is its RLM session dir), a memory storage keeps the
-    // recorder in memory-only mode (ids still mint and ride the wire).
+    // The session's semantic-edge recorder (the ACP request-id ledger) at
+    // the TS locations (`semanticEdgeLedgerPath`): a spawned child's in its
+    // RLM session dir (the dir its storage `<child-dir>/<session-id>/`
+    // sits in), a top-level session's in its session artifact dir
+    // (`<sessions>/../session-artifacts/<session-id>/`, the dir a
+    // `<sessions>/<session-id>` storage maps to). A memory storage keeps
+    // the recorder in memory-only mode (ids still mint and ride the wire).
     let parent = config.role.parent.clone();
-    let ledger_home = storage_dir.clone();
+    let ledger_path = storage_dir.as_deref().and_then(|dir| {
+        observe::semantic_edges::semantic_edge_ledger_path(
+            parent.as_ref().and(dir.parent()),
+            crate::session_engine::harness_digest::session_artifact_dir_for_log(dir).as_deref(),
+        )
+    });
     let semantic_edges = Arc::new(observe::semantic_edges::SemanticEdgeRecorder::open(
         observe::semantic_edges::SemanticEdgeIdentity {
             session_id: config.session_id.clone(),
-            ledger_path: observe::semantic_edges::semantic_edge_ledger_path(
-                parent.as_ref().and(ledger_home.as_deref()),
-                ledger_home.as_deref(),
-            ),
+            ledger_path,
             parent_session_id: parent.as_ref().map(|parent| parent.session_id.clone()),
             spawned_by_request_id: parent
                 .as_ref()

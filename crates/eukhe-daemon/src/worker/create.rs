@@ -199,6 +199,49 @@ fn new_session_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
+/// The legacy `<sessions>/<id>.jsonl` the open of `storage` imports (its
+/// storage directory does not exist yet), as `open_session` decides.
+fn legacy_import_source(session_id: &str, storage: &SessionStorage) -> Option<PathBuf> {
+    let SessionStorage::Jsonl { dir, .. } = storage else {
+        return None;
+    };
+    if dir.exists() {
+        return None;
+    }
+    let legacy = dir.parent()?.join(format!("{session_id}.jsonl"));
+    legacy.is_file().then_some(legacy)
+}
+
+/// Carry a just-imported legacy session's name into its storage: the
+/// import moves the transcript, while the name (the file's latest
+/// `session_info` row) is daemon metadata (`eukhe.daemon.session`), so a
+/// resumed session keeps the name its saved row showed.
+async fn adopt_legacy_session_name(
+    hosted: &HostedSession,
+    legacy: &Path,
+    cx: &Context,
+) -> Result<(), String> {
+    let content = tokio::fs::read_to_string(legacy)
+        .await
+        .map_err(|error| format!("read {}: {error}", legacy.display()))?;
+    let name = eukhe_core::session::parse_session_entries(&content)
+        .into_iter()
+        .rev()
+        .find_map(|entry| match entry {
+            eukhe_types::session::FileEntry::SessionInfo { payload, .. } => Some(payload.name),
+            _ => None,
+        })
+        .flatten()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty());
+    let Some(name) = name else {
+        return Ok(());
+    };
+    meta::set_session_name(hosted.harness(), Some(name), cx)
+        .await
+        .map_err(|error| error.to_string())
+}
+
 impl Worker {
     pub(super) async fn handle_create(&self, payload: &Value) -> DaemonResponse {
         // One create in flight at a time: a concurrent create joins this
@@ -468,6 +511,7 @@ impl Worker {
         let fail = |message: String| Box::new(response_failure(None, "create", &message, None));
         let (session_id, storage) = params.storage();
         let existed = params.reopens();
+        let imported_legacy = legacy_import_source(&session_id, &storage);
         let config = self
             .session_config(params, session_id, storage)
             .await
@@ -490,8 +534,29 @@ impl Worker {
             }
             Err(error) => return Err(fail(error.to_string())),
         };
-        if existed && (params.model.is_some() || params.thinking.is_some()) {
-            if let Err(error) = reconfigure_main(&hosted, params, cx).await {
+        if let Some(legacy) = &imported_legacy {
+            if let Err(error) = adopt_legacy_session_name(&hosted, legacy, cx).await {
+                let _ = hosted.close(cx).await;
+                return Err(fail(error));
+            }
+        }
+        // A scripted worker's open already put the script's model in place
+        // of a request it overrides (a replay's off-catalog selector), so
+        // the reopen reconfigures only a model the script can resolve.
+        let scripted = match self.scripted_models() {
+            Ok(scripted) => scripted,
+            Err(error) => {
+                let _ = hosted.close(cx).await;
+                return Err(fail(format!("invalid create script: {error}")));
+            }
+        };
+        let model = params.model.as_ref().filter(|request| {
+            !scripted
+                .as_ref()
+                .is_some_and(|s| s.overrides(Some(request)))
+        });
+        if existed && (model.is_some() || params.thinking.is_some()) {
+            if let Err(error) = reconfigure_main(&hosted, model, params.thinking, cx).await {
                 let _ = hosted.close(cx).await;
                 return Err(fail(error.to_string()));
             }
@@ -681,25 +746,26 @@ impl Worker {
 /// conversation (a new root takes them at creation).
 async fn reconfigure_main(
     hosted: &HostedSession,
-    params: &CreateParams,
+    model: Option<&ModelRequest>,
+    thinking: Option<ModelThinkingLevel>,
     cx: &Context,
 ) -> anyhow::Result<()> {
     let main = hosted.main()?;
     let mut change = AgentChange::default();
-    if let Some(request) = &params.model {
+    if let Some(request) = model {
         let settings = hosted.deps().settings.manager();
         let resolved = eukhe_core::durable::resolve_session_model(
             &hosted.deps().models,
             &settings,
             Some(request),
-            params.thinking,
+            thinking,
             cx,
         )
         .await?
         .ok_or_else(|| anyhow::anyhow!("Model \"{}\" not found", request.pattern))?;
         change.model = FieldChange::Set(resolved.model);
-        change.thinking_level = FieldChange::Set(params.thinking.unwrap_or(resolved.thinking));
-    } else if let Some(thinking) = params.thinking {
+        change.thinking_level = FieldChange::Set(thinking.unwrap_or(resolved.thinking));
+    } else if let Some(thinking) = thinking {
         change.thinking_level = FieldChange::Set(thinking);
     }
     main.configure(change, cx).await?;

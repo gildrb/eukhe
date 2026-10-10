@@ -1,11 +1,18 @@
 //! Session commands on an open eukhe session with faux script models.
 
+use std::sync::Arc;
+
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
-use eukhe_durable::harness::types::InputSubmissionDraft;
+use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft};
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::types::{EntryRecord, TaskOutcome};
-use eukhe_pi_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
+use eukhe_pi_ai::providers::faux::{
+    faux_assistant_message, FauxAssistantMessageOptions, FauxContentBlock, FauxResponseStep,
+};
+use eukhe_pi_ai::providers::faux_script::{
+    create_faux_script_models, parse_faux_script, FauxScriptProvider,
+};
 use eukhe_types::pi_ai::{Message, UserContent};
 use serde_json::{json, Value};
 
@@ -22,6 +29,7 @@ fn cx() -> &'static Context {
 struct Fixture {
     _dir: tempfile::TempDir,
     session: EukheSession,
+    provider: FauxScriptProvider,
 }
 
 /// An in-memory session on a faux script answering `responses` in order.
@@ -39,7 +47,7 @@ async fn open_with_settings(responses: &[Value], settings: &Value) -> Fixture {
     std::fs::write(agent_dir.join("settings.json"), settings.to_string()).expect("settings");
     let script = parse_faux_script(&json!({ "responses": responses }).to_string())
         .expect("the faux script parses");
-    let (models, _provider) = create_faux_script_models(script);
+    let (models, provider) = create_faux_script_models(script);
     let mut config = SessionConfig::new(
         &agent_dir,
         &cwd,
@@ -52,7 +60,11 @@ async fn open_with_settings(responses: &[Value], settings: &Value) -> Fixture {
         pattern: "faux-1".to_owned(),
     });
     let session = open_session(config, cx()).await.expect("the session opens");
-    Fixture { _dir: dir, session }
+    Fixture {
+        _dir: dir,
+        session,
+        provider,
+    }
 }
 
 impl Fixture {
@@ -257,13 +269,36 @@ async fn goal_start_submits_its_continuation_and_reports_the_goal() {
 
 #[tokio::test]
 async fn goal_pause_resume_and_clear_report_each_state() {
-    let fixture = open(&[
-        error_response("provider exploded"),
-        error_response("provider exploded again"),
-    ])
-    .await;
+    // An active goal whose run ends on a terminal provider failure fails
+    // right away (the goal observer; the old engine's
+    // `finish_for_terminal_message`), so the goal's first run holds its
+    // model request until the pause lands, then the abort ends it without
+    // a provider failure. The resumed continuation's run fails afterwards.
+    let fixture = open(&[]).await;
+    let requested = Arc::new(tokio::sync::Notify::new());
+    let request_seen = Arc::clone(&requested);
+    let held = FauxResponseStep::Factory(Arc::new(move |_context, options, _state, _model| {
+        let signal = options
+            .and_then(|options| options.stream.request.signal.clone())
+            .expect("the generation's abort signal");
+        request_seen.notify_one();
+        Box::pin(async move {
+            signal.cancelled().await;
+            Ok(faux_assistant_message(
+                Vec::<FauxContentBlock>::new(),
+                FauxAssistantMessageOptions::default(),
+            ))
+        })
+    }));
+    let failure = parse_faux_script(
+        &json!({ "responses": [error_response("provider exploded again")] }).to_string(),
+    )
+    .expect("the faux script parses")
+    .responses
+    .remove(0);
+    fixture.provider.set_responses(vec![held, failure]);
     fixture.run("/goal ship it").await;
-    fixture.idle().await;
+    requested.notified().await;
 
     let paused = fixture.run("/goal pause").await;
     assert_eq!(paused.error, None);
@@ -271,6 +306,12 @@ async fn goal_pause_resume_and_clear_report_each_state() {
         paused.goal.as_ref().map(|goal| goal.status),
         Some(GoalStatus::Paused)
     );
+    fixture
+        .session
+        .main()
+        .abort(ConversationAbortOptions::default(), cx())
+        .await
+        .expect("abort the held run");
 
     let resumed = fixture.run("/goal resume").await;
     assert_eq!(resumed.error, None);

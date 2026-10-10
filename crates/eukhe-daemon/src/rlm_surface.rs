@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use crate::rlm_children::{ParentIdentity, SupervisorChildSessions};
+use crate::rlm_children::{ParentIdentity, RlmChildIdentity, SupervisorChildSessions};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::children::{
     cancel_child, delete_inactive_child, list_children, read_max_depth_override,
@@ -69,6 +69,29 @@ pub(crate) async fn rlm_child_snapshots(
         .collect())
 }
 
+/// The hosted session's durable children as family identities: a child is
+/// addressable once it has a session (its live id, else its durable
+/// session id); a queued child without one is not.
+async fn durable_child_identities(hosted: &HostedSession) -> anyhow::Result<Vec<RlmChildIdentity>> {
+    let main = hosted.main()?;
+    let records = list_children(hosted.harness(), main.id(), cx()).await?;
+    Ok(records
+        .into_iter()
+        .filter_map(|record| {
+            let entry = record.entry;
+            let active_session_id = entry
+                .active_session_id
+                .or_else(|| entry.session_id.clone())?;
+            Some(RlmChildIdentity {
+                rlm_child_id: entry.rlm_child_id,
+                active_session_id,
+                session_id: entry.session_id,
+                session_name: entry.session_name,
+            })
+        })
+        .collect())
+}
+
 impl Worker {
     /// The supervisor-backed RLM child host sessions of this worker spawn
     /// children through (`SessionConfig::children`), built once and rebound
@@ -109,6 +132,20 @@ impl Worker {
                     .session_name
                     .clone()
                     .filter(|name| !name.is_empty())
+            }));
+            // The family view's durable children: the main conversation's
+            // children document (a restarted parent's passivated children
+            // included), which the durable path keeps instead of the
+            // registry.
+            let session = self.session.clone();
+            host.set_durable_children_source(Arc::new(move || {
+                let hosted = session.get();
+                Box::pin(async move {
+                    match hosted {
+                        Some(hosted) => durable_child_identities(&hosted).await,
+                        None => Ok(Vec::new()),
+                    }
+                })
             }));
             let context_tree = Arc::clone(&self.context_tree);
             host.set_delete_notifier(Arc::new(move |child_id| {

@@ -25,7 +25,6 @@
 //! child; Enter drills into the child's transcript (the ancestor carry); and
 //! the agents-back key returns from the child to the agents view.
 
-use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -35,6 +34,11 @@ use std::time::{Duration, Instant};
 use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, AgentsViewUiMode};
 use eukhe_tui::interactive::SessionSelection;
 use eukhe_tui::interactive::UiMode;
+
+#[path = "support/legacy_fixture.rs"]
+mod legacy_fixture;
+
+use legacy_fixture::{assistant_message, leaf_id, write_fixture};
 
 struct Supervisor {
     child: Child,
@@ -132,55 +136,33 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     panic!("supervisor socket never appeared");
 }
 
-/// One saved-session fixture: a session header whose `parentSession` and
-/// `rlmDepth` give the catalog the subagent linkage, a display name, and a
-/// user/assistant exchange.
-fn write_fixture(
-    dir: &Path,
-    id: &str,
-    name: &str,
-    parent: Option<&Path>,
-    rlm_depth: u64,
-    turns: &[(&str, &str)],
-) -> PathBuf {
-    let path = dir.join(format!("{id}.jsonl"));
-    let mut content = format!(
-        "{{\"type\":\"session\",\"version\":3,\"id\":\"{id}\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"cwd\":\"/tmp\""
-    );
-    if let Some(parent) = parent {
-        let _ = write!(content, ",\"parentSession\":\"{}\"", parent.display());
-    }
-    let _ = write!(content, ",\"rlmDepth\":{rlm_depth}}}");
-    content.push('\n');
-    let _ = writeln!(content,
-        "{{\"type\":\"session_info\",\"id\":\"{id}-info\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"name\":\"{name}\"}}"
-    );
-    for (index, (user, assistant)) in turns.iter().enumerate() {
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}u\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"user\",\"content\":\"{user}\",\"timestamp\":{}}}}}",
-            index * 1000
-        );
-        let _ = writeln!(content,
-            "{{\"type\":\"message\",\"id\":\"{id}-m{index}a\",\"timestamp\":\"2024-01-01T00:00:0{index}.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{assistant}\"}}],\"timestamp\":{}}}}}",
-            index * 1000 + 1
-        );
-    }
-    std::fs::write(&path, content).expect("write fixture");
-    path
-}
-
-/// One billed assistant turn appended to a fixture transcript: the
-/// usage-bearing row the own-usage fold reads.
+/// One billed assistant turn appended to a turnless fixture transcript
+/// (a child of its `session_info` root): the usage-bearing row the
+/// own-usage fold reads.
 fn append_billed_turn(path: &Path, id: &str, input: u64, output: u64, cost: f64) {
+    let stem = path
+        .file_stem()
+        .expect("the fixture's file stem")
+        .to_string_lossy();
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .open(path)
         .expect("open the fixture for its billed turn");
-    let _ = writeln!(
+    writeln!(
         file,
-        "{{\"type\":\"message\",\"id\":\"{id}\",\"timestamp\":\"2026-09-29T00:00:02.100Z\",\"message\":{{\"role\":\"assistant\",\"provider\":\"prime-inference\",\"model\":\"internal/glm-5.3-fast\",\"content\":[{{\"type\":\"text\",\"text\":\"work complete\"}}],\"stopReason\":\"stop\",\"timestamp\":2100,\"usage\":{{\"input\":{input},\"output\":{output},\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":{},\"cost\":{{\"input\":0.0,\"output\":{cost},\"cacheRead\":0.0,\"cacheWrite\":0.0,\"total\":{cost}}}}}}}}}",
-        input + output,
-    );
+        "{{\"type\":\"message\",\"id\":\"{id}\",\"parentId\":\"{}\",\"timestamp\":\"2026-09-29T00:00:02.100Z\",\"message\":{}}}",
+        leaf_id(&stem, 0),
+        assistant_message(
+            "work complete",
+            "prime-inference",
+            "internal/glm-5.3-fast",
+            input,
+            output,
+            cost,
+            2100
+        ),
+    )
+    .expect("append the billed turn");
 }
 
 /// The last frame showing `marker`.
@@ -258,7 +240,7 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
         "panel-nav-parent",
         "panel nav parent",
         None,
-        0,
+        Some(0),
         &[("dispatch the worker", "worker dispatched")],
     );
     let child_path = write_fixture(
@@ -266,7 +248,7 @@ async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
         "panel-nav-worker",
         "panel nav worker",
         Some(&parent_path),
-        1,
+        Some(1),
         &[("do the work", "work complete alpha")],
     );
     // The durable spawn edge: the roster surfaces the child as the parent's
@@ -444,7 +426,7 @@ async fn the_prompt_context_bills_a_passive_subagents_spend() {
         "title-bill-parent",
         "title bill parent",
         None,
-        0,
+        Some(0),
         &[],
     );
     let child_path = write_fixture(
@@ -452,7 +434,7 @@ async fn the_prompt_context_bills_a_passive_subagents_spend() {
         "title-bill-worker",
         "title bill worker",
         Some(&parent_path),
-        1,
+        Some(1),
         &[],
     );
     for (path, id, input, output, cost) in [
@@ -533,7 +515,7 @@ async fn the_prompt_context_bills_a_deleted_subagents_spend() {
         "title-del-parent",
         "title del parent",
         None,
-        0,
+        Some(0),
         &[],
     );
     let child_dir = agent_dir
@@ -546,7 +528,7 @@ async fn the_prompt_context_bills_a_deleted_subagents_spend() {
         "title-del-worker",
         "title del worker",
         Some(&parent_path),
-        1,
+        Some(1),
         &[],
     );
     // The billed turns: the parent $1.00, the deleted child $0.30.

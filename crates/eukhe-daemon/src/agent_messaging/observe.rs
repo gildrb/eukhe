@@ -69,32 +69,32 @@ impl LinkAgentObserveController {
         Ok((sessions, identity))
     }
 
-    /// This session's resident children's live active session ids (the
-    /// registry join; rows it owns are Children even before their durable
-    /// edges hydrate).
-    async fn registry_child_active_ids(&self) -> Vec<String> {
-        match &self.children {
+    /// This session's children's live active session ids (the registry and
+    /// durable-roster join; rows they own are Children even before their
+    /// durable edges hydrate).
+    async fn registry_child_active_ids(&self) -> anyhow::Result<Vec<String>> {
+        Ok(match &self.children {
             Some(children) => children
-                .child_identities()
-                .await
+                .family_child_identities()
+                .await?
                 .into_iter()
                 .map(|child| child.active_session_id)
                 .collect(),
             None => Vec::new(),
-        }
+        })
     }
 }
 
 impl AgentObserveController for LinkAgentObserveController {
     async fn list_agents(&self) -> anyhow::Result<Vec<AgentObserveSummary>> {
         let (sessions, identity) = self.roster_and_identity().await?;
-        let child_ids = self.registry_child_active_ids().await;
+        let child_ids = self.registry_child_active_ids().await?;
         Ok(summaries_from_roster(sessions, &identity, &child_ids))
     }
 
     async fn get_agent(&self, target: &str) -> anyhow::Result<Option<AgentObserveSummary>> {
         let (sessions, identity) = self.roster_and_identity().await?;
-        let child_ids = self.registry_child_active_ids().await;
+        let child_ids = self.registry_child_active_ids().await?;
         Ok(summaries_from_roster(sessions, &identity, &child_ids)
             .into_iter()
             .find(|summary| {

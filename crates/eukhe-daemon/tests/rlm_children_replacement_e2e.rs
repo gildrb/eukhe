@@ -94,6 +94,16 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Da
         // Hermetic agent dir: the ambient environment exports a real
         // agent dir; point every fallback at the test sandbox instead.
         .env("EUKHE_CODING_AGENT_DIR", agent_dir)
+        // The probe cell's `agent_message` global is the bundled
+        // `agent-message` skill. A cargo-built binary finds bundled skills
+        // through its source checkout only while it runs from inside it; a
+        // target dir outside the checkout (`CARGO_TARGET_DIR`) would boot
+        // the kernel without the skill. Point the package dir at the
+        // checkout so the skill resolves wherever the binary was built.
+        .env(
+            "EUKHE_PACKAGE_DIR",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
         .env_remove("PRIME_API_KEY")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
