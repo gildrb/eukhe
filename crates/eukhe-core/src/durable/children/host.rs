@@ -68,12 +68,16 @@ pub struct RlmChildSession {
     pub model: String,
 }
 
-/// Prompt a created child with its task, once per key.
+/// Prompt a created child with its task, once per key. The host admits the
+/// task as the parent's spawn kickoff (TS `spawnMessage`): an
+/// `agent_message` row from the parent labeled `[task from parent]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RlmChildPromptRequest {
     /// `rlm:<taskId>:prompt`.
     pub idempotency_key: String,
     pub session_id: String,
+    /// The child's roster id: the kickoff row's id is `spawn:<rlm_child_id>`.
+    pub rlm_child_id: String,
     pub prompt: String,
 }
 
@@ -185,6 +189,26 @@ pub struct RlmCreateSessionHandle {
     pub model: String,
 }
 
+/// What one `rlm.rename` renames (TS `renameAgentFamilySession`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RlmRenameTarget {
+    /// The calling session. `selector` is an explicit `session_id` the
+    /// parent registry could not resolve: the host renames itself only when
+    /// it names this session's routing id, else refuses. `None` when the
+    /// caller omitted it or named the durable session id.
+    Session { selector: Option<String> },
+    /// One direct child, by its durable session id.
+    Child { session_id: String },
+}
+
+/// Rename the calling session or one direct child (`rlm.rename`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RlmRenameRequest {
+    /// The normalized name (spawn-name rules already applied).
+    pub name: String,
+    pub target: RlmRenameTarget,
+}
+
 /// The supervisor child-session machinery the daemon supplies to a parent
 /// session.
 ///
@@ -215,6 +239,10 @@ pub trait RlmSubagentHost: Send + Sync {
     fn delete(&self, request: RlmChildDeleteRequest) -> RlmHostFuture<'_, ()>;
     /// Live facts about this parent's children.
     fn list(&self) -> RlmHostFuture<'_, Vec<RlmChildListing>>;
+    /// Rename this session or one direct child. The host owns name
+    /// reservation across the agent family; a parent-directed rename marks
+    /// the child's transcript notice with the parent.
+    fn rename(&self, request: RlmRenameRequest) -> RlmHostFuture<'_, ()>;
 }
 
 /// Host behavior for sessions with no child runtime: spawns and creates fail
@@ -263,5 +291,13 @@ impl RlmSubagentHost for NoRlmChildren {
 
     fn list(&self) -> RlmHostFuture<'_, Vec<RlmChildListing>> {
         Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn rename(&self, _request: RlmRenameRequest) -> RlmHostFuture<'_, ()> {
+        Box::pin(async {
+            anyhow::bail!(
+                "rlm.rename requires a daemon-backed session: this session has no RLM child runtime"
+            )
+        })
     }
 }

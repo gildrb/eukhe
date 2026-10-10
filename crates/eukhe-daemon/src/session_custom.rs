@@ -291,7 +291,10 @@ impl Worker {
 /// Write one wire custom row (`custom_message_value` shape) as an
 /// `eukhe.custom` entry on `conversation`: at once when idle, else at the
 /// next boundary.
-async fn write_custom_row(conversation: &Conversation, row: &Value) -> anyhow::Result<()> {
+pub(crate) async fn write_custom_row(
+    conversation: &Conversation,
+    row: &Value,
+) -> anyhow::Result<()> {
     let custom_type = row
         .get("customType")
         .and_then(Value::as_str)

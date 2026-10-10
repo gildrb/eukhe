@@ -152,6 +152,9 @@ pub struct Worker {
     pub(crate) park_notify: std::sync::Arc<tokio::sync::Notify>,
     /// Whole-session replacements are one serialized critical section.
     pub(crate) replacement_gate: tokio::sync::Mutex<()>,
+    /// Renames are one serialized critical section: the previous-name read,
+    /// the name write, and its `session_renamed` notice stay together.
+    pub(crate) rename_gate: tokio::sync::Mutex<()>,
     /// The chat memory root sessions share (`<agent-dir>/chat`), opened at
     /// the first root create.
     chat_memory: tokio::sync::OnceCell<eukhe_core::memory::Memory>,
@@ -317,6 +320,7 @@ impl Worker {
             create_gate: tokio::sync::Mutex::new(()),
             park_notify,
             replacement_gate: tokio::sync::Mutex::new(()),
+            rename_gate: tokio::sync::Mutex::new(()),
             chat_memory: tokio::sync::OnceCell::new(),
             rlm_children: std::sync::OnceLock::new(),
             model_refusal_telemetry,

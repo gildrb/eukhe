@@ -259,6 +259,7 @@ async fn prompt(
     let request = RlmChildPromptRequest {
         idempotency_key: format!("rlm:{task_id}:prompt"),
         session_id: identity.session_id.clone(),
+        rlm_child_id: identity.rlm_child_id.clone(),
         prompt: task.input.prompt.clone(),
     };
     let prompted = match services.host.prompt(request.clone()).await {

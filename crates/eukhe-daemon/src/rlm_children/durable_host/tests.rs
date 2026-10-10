@@ -1,13 +1,15 @@
 //! The durable child host against a recording fake supervisor: keyed calls
 //! run once, a spawn creates under the requested id and finds a resident
-//! child again after a parent restart, and a settled child reports its
-//! answer, reply flag, and usage.
+//! child again after a parent restart, a settled child reports its answer,
+//! reply flag, and usage, the task prompt lands as the parent's spawn
+//! kickoff row, and `rlm.rename` routes self and child renames.
 
 use std::sync::{Arc, Mutex};
 
 use eukhe_core::durable::children::{
     RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildIdentity, RlmChildPromptRequest,
-    RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest, RlmSubagentHost,
+    RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget,
+    RlmSubagentHost,
 };
 use eukhe_types::platform::transport::bind_transport;
 use serde_json::{json, Value};
@@ -57,7 +59,15 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
         "kill" if command["activeSessionId"] == "gone" => {
             response_failure(Some(id), command_type, "Unknown active session: gone", None)
         }
-        "prompt" | "wait_for_idle" | "abort" | "kill" => {
+        // A passivated child's spawn-time routing id resolves nowhere; its
+        // durable session id wakes it.
+        "rename" if command["activeSessionId"] == "child-passivated" => response_failure(
+            Some(id),
+            command_type,
+            "Unknown active session: child-passivated",
+            None,
+        ),
+        "prompt" | "wait_for_idle" | "abort" | "kill" | "rename" => {
             response_success(Some(id), command_type, None)
         }
         "get_state" => response_success(
@@ -211,6 +221,7 @@ async fn keyed_calls_run_once_and_a_settled_child_reports() {
     let prompt = RlmChildPromptRequest {
         idempotency_key: "rlm:7:prompt".to_owned(),
         session_id: CHILD_SESSION.to_owned(),
+        rlm_child_id: "sub-0192a000".to_owned(),
         prompt: "Investigate".to_owned(),
     };
     sessions.prompt(prompt.clone()).await.unwrap();
@@ -273,4 +284,120 @@ async fn deleting_a_child_no_worker_answers_is_a_no_op() {
         })
         .await
         .unwrap();
+}
+
+/// TS `spawnMessage`: the task prompt is admitted as the parent's
+/// `agent_message` row (`details.id` `spawn:<child id>`, the raw prompt as
+/// `details.message`, the parent endpoint with its live name, no `target`),
+/// and the model context is the `[task from parent]`-labeled task.
+#[tokio::test]
+async fn the_task_prompt_lands_as_the_parents_spawn_kickoff() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    let sessions = host(&shared, dir.path()).await;
+    sessions.set_parent_name_source(Arc::new(|| Some("orchestrator".to_owned())));
+    sessions.spawn(spawn_request()).await.unwrap();
+    sessions
+        .prompt(RlmChildPromptRequest {
+            idempotency_key: "rlm:7:prompt".to_owned(),
+            session_id: CHILD_SESSION.to_owned(),
+            rlm_child_id: "sub-0192a000".to_owned(),
+            prompt: "Investigate".to_owned(),
+        })
+        .await
+        .unwrap();
+    let prompts = commands_of(&shared, "prompt");
+    let [prompt] = prompts.as_slice() else {
+        panic!("one prompt: {prompts:?}");
+    };
+    assert_eq!(prompt["message"], "[task from parent]\n\nInvestigate");
+    let row = &prompt["customMessage"];
+    assert_eq!(row["role"], "custom");
+    assert_eq!(row["customType"], "agent_message");
+    assert_eq!(row["content"], "[task from parent]\n\nInvestigate");
+    assert_eq!(row["display"], true);
+    assert_eq!(
+        row["details"],
+        json!({
+            "id": "spawn:sub-0192a000",
+            "message": "Investigate",
+            "from": {
+                "activeSessionId": "parent-live",
+                "sessionId": "parent-session",
+                "sessionName": "orchestrator",
+            },
+            "fromRelationship": "parent",
+        })
+    );
+}
+
+/// `rlm.rename` over the supervisor: a self rename addresses this worker's
+/// own routing id (by an absent selector or the routing id itself) without
+/// a parent marker, a foreign selector is refused, and a child rename
+/// carries `renamedBy: "parent"`, waking a passivated child by its durable
+/// session id.
+#[tokio::test]
+async fn rename_routes_self_and_child_renames_through_the_supervisor() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    lock(&shared).resident.push(json!({
+        "activeSessionId": "child-passivated",
+        "sessionId": CHILD_SESSION,
+        "sessionName": "worker-a",
+    }));
+    let sessions = host(&shared, dir.path()).await;
+    sessions.spawn(spawn_request()).await.unwrap();
+
+    for selector in [None, Some("parent-live".to_owned())] {
+        sessions
+            .rename(RlmRenameRequest {
+                name: "lead".to_owned(),
+                target: RlmRenameTarget::Session { selector },
+            })
+            .await
+            .unwrap();
+    }
+    let refused = sessions
+        .rename(RlmRenameRequest {
+            name: "lead".to_owned(),
+            target: RlmRenameTarget::Session {
+                selector: Some("someone-else".to_owned()),
+            },
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        "rlm.rename can only rename the current session or one of its direct children"
+    );
+    sessions
+        .rename(RlmRenameRequest {
+            name: "bench-runner".to_owned(),
+            target: RlmRenameTarget::Child {
+                session_id: CHILD_SESSION.to_owned(),
+            },
+        })
+        .await
+        .unwrap();
+
+    let renames = commands_of(&shared, "rename");
+    let routed: Vec<(&str, &str, Option<&str>)> = renames
+        .iter()
+        .map(|command| {
+            (
+                command["activeSessionId"].as_str().unwrap_or_default(),
+                command["name"].as_str().unwrap_or_default(),
+                command["renamedBy"].as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        routed,
+        [
+            ("parent-live", "lead", None),
+            ("parent-live", "lead", None),
+            ("child-passivated", "bench-runner", Some("parent")),
+            (CHILD_SESSION, "bench-runner", Some("parent")),
+        ]
+    );
 }

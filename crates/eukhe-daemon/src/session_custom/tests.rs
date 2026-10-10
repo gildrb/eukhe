@@ -354,3 +354,64 @@ async fn reload_answers_success() {
     assert!(response.success, "failed: {response:?}");
     assert!(response.data.is_none());
 }
+
+/// TS #2529 `applyStateSessionName`: a rename that changed an existing name
+/// leaves the displayed `session_renamed` notice (with the ` by parent`
+/// suffix when the parent directed it); a first name, or a rename that keeps
+/// the name, leaves none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rename_leaves_a_displayed_notice_only_when_a_name_changed() {
+    // Created without a name: the first rename names the session.
+    let (_dir, worker) =
+        created_worker_with(SESSION, json!(["ack"]), json!({ "name": null })).await;
+    let rename = |extra: Value| {
+        let mut payload = json!({ "activeSessionId": SESSION });
+        if let (Some(payload), Some(extra)) = (payload.as_object_mut(), extra.as_object()) {
+            payload.extend(extra.clone());
+        }
+        let worker = std::sync::Arc::clone(&worker);
+        async move { worker.dispatch("rename", &payload).await }
+    };
+    let response = rename(json!({ "name": "first" })).await;
+    assert!(response.success, "rename failed: {response:?}");
+    assert!(
+        custom_rows(&worker).await.is_empty(),
+        "a first name leaves no notice"
+    );
+
+    let response = rename(json!({ "name": "bench-runner", "renamedBy": "parent" })).await;
+    assert!(response.success, "rename failed: {response:?}");
+    let rows = worker_rows(&worker, "eukhe.custom").await;
+    assert_eq!(rows.len(), 1, "one notice row: {rows:?}");
+    assert_eq!(rows[0]["customType"], "session_renamed");
+    assert_eq!(
+        rows[0]["content"],
+        json!([{ "type": "text", "text": "Session renamed `first` -> `bench-runner` by parent" }])
+    );
+    assert_eq!(rows[0]["display"], true, "the notice is displayed");
+
+    let response = rename(json!({ "name": "bench-runner" })).await;
+    assert!(response.success, "rename failed: {response:?}");
+    assert_eq!(
+        custom_rows(&worker).await.len(),
+        1,
+        "an unchanged name leaves no second notice"
+    );
+
+    let response = set_session_name(&worker, "solo").await;
+    assert!(response.success, "set_session_name failed: {response:?}");
+    let rows = custom_rows(&worker).await;
+    assert_eq!(
+        rows.last().map(|(_, content)| content.clone()),
+        Some(json!([{ "type": "text", "text": "Session renamed `bench-runner` -> `solo`" }]))
+    );
+}
+
+async fn set_session_name(worker: &Worker, name: &str) -> crate::protocol::DaemonResponse {
+    worker
+        .dispatch(
+            "set_session_name",
+            &json!({ "activeSessionId": SESSION, "name": name }),
+        )
+        .await
+}

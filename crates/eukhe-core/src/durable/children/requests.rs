@@ -1,7 +1,8 @@
 //! The `rlm.*` kernel host requests (port of `session_engine/rlm_host.rs`'s
 //! handlers) over the durable children registry: `rlm.run` (`rlm.spawn`),
 //! `rlm.create_session`, `rlm.find_models`, `rlm.list_subagents`,
-//! `rlm.delete_subagent`, `rlm.collect`, and `rlm.progress.note`.
+//! `rlm.delete_subagent`, `rlm.collect`, and `rlm.progress.note`
+//! (`rlm.rename` lives in [`super::rename`]).
 
 use std::future::Future;
 use std::sync::Arc;
@@ -68,9 +69,10 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
     handler!("rlm.list_subagents", list_subagents);
     handler!("rlm.delete_subagent", delete_subagent);
     handler!("rlm.collect", collect);
+    handler!("rlm.rename", super::rename::rename);
 }
 
-fn cx() -> Context {
+pub(super) fn cx() -> Context {
     BACKGROUND_CONTEXT.clone()
 }
 
@@ -79,7 +81,7 @@ pub(super) fn session_error(error: SessionError) -> anyhow::Error {
 }
 
 /// The conversation a request acts on: the calling tool's, else the root.
-fn conversation_of(call: &HostCall) -> ConversationId {
+pub(super) fn conversation_of(call: &HostCall) -> ConversationId {
     call.call
         .as_ref()
         .map_or(ROOT_CONVERSATION_ID, |api| api.conversation_id())
@@ -105,7 +107,7 @@ fn whole_ms(value: f64) -> u64 {
 }
 
 /// Commit through the conversation `conversation_id` of the open Harness.
-async fn commit<T, F, Fut>(
+pub(super) async fn commit<T, F, Fut>(
     harness: &Harness,
     conversation_id: ConversationId,
     change: F,
@@ -230,7 +232,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
 
 /// The spawn-name-unavailability error (TS
 /// `formatAgentSessionNameUnavailable`).
-fn spawn_name_unavailable(name: &str, depth: u32) -> String {
+pub(super) fn spawn_name_unavailable(name: &str, depth: u32) -> String {
     format!(
         "Agent name \"{name}\" is unavailable: an agent of that name already exists at depth {depth} under this parent"
     )

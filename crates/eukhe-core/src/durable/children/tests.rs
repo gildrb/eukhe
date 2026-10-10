@@ -43,7 +43,7 @@ use super::{
     Children, ChildrenConfig, RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildListing,
     RlmChildObservation, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
     RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
-    RlmHostFuture, RlmSubagentHost,
+    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSubagentHost,
 };
 use crate::durable::deps::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::durable::observe::rlm_usage::{
@@ -74,6 +74,9 @@ struct FakeState {
     deletes: Vec<RlmChildDeleteRequest>,
     outcomes: HashMap<String, RlmChildRunState>,
     usage: HashMap<String, Usage>,
+    renames: Vec<RlmRenameRequest>,
+    /// The error the next renames answer with (the host refused).
+    rename_error: Option<String>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -195,6 +198,20 @@ impl RlmSubagentHost for FakeHost {
 
     fn list(&self) -> RlmHostFuture<'_, Vec<RlmChildListing>> {
         Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn rename(&self, request: RlmRenameRequest) -> RlmHostFuture<'_, ()> {
+        let refused = {
+            let mut fake = lock(&self.state);
+            fake.renames.push(request);
+            fake.rename_error.clone()
+        };
+        Box::pin(async move {
+            match refused {
+                Some(error) => anyhow::bail!("{error}"),
+                None => Ok(()),
+            }
+        })
     }
 }
 
@@ -1188,6 +1205,190 @@ async fn delete_inactive_child_refuses_a_running_child_and_deletes_a_settled_one
             .collect::<Vec<_>>(),
         [format!("rlm:{task_id}:delete")]
     );
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// The last rename the host received.
+fn last_rename(host: &FakeHost) -> Option<RlmRenameRequest> {
+    lock(&host.state).renames.last().cloned()
+}
+
+/// `rlm.rename` (TS #2529): a self rename (no `session_id`, or the durable
+/// session id) goes to the host as the session target; a direct child is
+/// selected by id only, renamed at the host as the child target, and its
+/// registry row (roster, selectors) follows. The prompt request carries the
+/// child id the host's spawn kickoff row names.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rename_renames_the_session_and_direct_children_by_id() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let row = spawn_child(&opened, &setup).await;
+    eventually(|| async { !host.prompt_keys().is_empty() }).await;
+    let prompt = lock(&host.state).prompts[0].clone();
+    assert_eq!(prompt.rlm_child_id, row.rlm_child_id);
+    assert_eq!(prompt.prompt, PROMPT);
+
+    // Self: the name follows the spawn normalizer (trimmed).
+    let renamed = handle(&opened, "rlm.rename", json!({ "name": "  lead " }))
+        .await
+        .unwrap();
+    assert_eq!(renamed, json!({ "name": "lead" }));
+    let session_target = RlmRenameTarget::Session { selector: None };
+    assert_eq!(
+        last_rename(&host),
+        Some(RlmRenameRequest {
+            name: "lead".to_owned(),
+            target: session_target.clone(),
+        })
+    );
+    handle(
+        &opened,
+        "rlm.rename",
+        json!({ "name": "lead-2", "session_id": PARENT_SESSION_ID }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(last_rename(&host).unwrap().target, session_target);
+
+    // A direct child by every id selector: the host renames the child
+    // session, the registry row follows.
+    for (selector, name) in [
+        (row.rlm_child_id.clone(), "bench-runner"),
+        (row.session_id.clone(), "bench-runner-2"),
+        (format!("active-{}", row.rlm_child_id), "bench-runner-3"),
+    ] {
+        let renamed = handle(
+            &opened,
+            "rlm.rename",
+            json!({ "name": name, "session_id": format!("  {selector} ") }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(renamed, json!({ "name": name }));
+        assert_eq!(
+            last_rename(&host),
+            Some(RlmRenameRequest {
+                name: name.to_owned(),
+                target: RlmRenameTarget::Child {
+                    session_id: row.session_id.clone(),
+                },
+            })
+        );
+        let renamed_row = row_of(&opened.harness, row.task_id).await.unwrap();
+        assert_eq!(renamed_row.session_name, name);
+    }
+    let listed = handle(&opened, "rlm.list_subagents", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(listed["subagents"][0]["session_name"], "bench-runner-3");
+
+    // A child name never selects a rename target.
+    let recorded = lock(&host.state).renames.len();
+    let by_name = handle(
+        &opened,
+        "rlm.rename",
+        json!({ "name": "x", "session_id": "bench-runner-3" }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        by_name.to_string(),
+        "rlm.rename session_id \"bench-runner-3\" must be the full session id or a child handle, not a session name or id suffix"
+    );
+    assert_eq!(lock(&host.state).renames.len(), recorded);
+    // Neither a child nor the durable session id: the host decides whether
+    // the selector names this session.
+    handle(
+        &opened,
+        "rlm.rename",
+        json!({ "name": "x", "session_id": "parent-live" }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        last_rename(&host).unwrap().target,
+        RlmRenameTarget::Session {
+            selector: Some("parent-live".to_owned())
+        }
+    );
+
+    // Validation: the spawn normalizer, the broadcast guard, then the
+    // session id shape.
+    for (data, expected) in [
+        (json!({}), "rlm.rename name must be a string".to_owned()),
+        (
+            json!({ "name": "x".repeat(65) }),
+            "rlm.rename name must be at most 64 characters".to_owned(),
+        ),
+        (
+            json!({ "name": "all" }),
+            "Broadcast agent messaging is not supported".to_owned(),
+        ),
+        (
+            json!({ "name": "x", "session_id": "   " }),
+            "rlm.rename session_id must be a non-empty string".to_owned(),
+        ),
+        (
+            json!({ "name": "x", "session_id": 7 }),
+            "rlm.rename session_id must be a non-empty string".to_owned(),
+        ),
+    ] {
+        let error = handle(&opened, "rlm.rename", data).await.unwrap_err();
+        assert_eq!(error.to_string(), expected);
+    }
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// A child rename keeps sibling names unique (the spawn rule) and a host
+/// refusal leaves the child's registry name as it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rename_keeps_sibling_names_unique_and_restores_a_refused_rename() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let first = spawn_child(&opened, &setup).await;
+    let second = spawn_child(&opened, &setup).await;
+    assert_ne!(first.session_name, second.session_name);
+    eventually(|| async { host.prompt_keys().len() == 2 }).await;
+
+    let taken = handle(
+        &opened,
+        "rlm.rename",
+        json!({ "name": first.session_name, "session_id": second.rlm_child_id }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        taken.to_string(),
+        format!(
+            "Agent name \"{}\" is unavailable: an agent of that name already exists at depth 1 under this parent",
+            first.session_name
+        )
+    );
+    assert!(lock(&host.state).renames.is_empty());
+    // Renaming a child to its own name is no conflict.
+    handle(
+        &opened,
+        "rlm.rename",
+        json!({ "name": first.session_name, "session_id": first.rlm_child_id }),
+    )
+    .await
+    .unwrap();
+
+    lock(&host.state).rename_error = Some("Unknown active session: gone".to_owned());
+    let refused = handle(
+        &opened,
+        "rlm.rename",
+        json!({ "name": "renamed", "session_id": first.rlm_child_id }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refused.to_string(), "Unknown active session: gone");
+    let row = row_of(&opened.harness, first.task_id).await.unwrap();
+    assert_eq!(row.session_name, first.session_name);
     opened.root.wait_for_idle(cx()).await.unwrap();
     opened.harness.close(cx()).await.unwrap();
 }

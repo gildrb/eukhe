@@ -551,6 +551,7 @@ dependencies = [
  "eukhe-types",
  "filetime",
  "futures",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",

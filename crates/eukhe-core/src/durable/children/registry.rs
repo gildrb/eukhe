@@ -118,9 +118,14 @@ impl ChildRow {
     /// The selector set a child answers to: its child id, routing id,
     /// session name, or session id.
     pub(crate) fn matches(&self, target: &str) -> bool {
+        self.matches_id(target) || self.session_name == target
+    }
+
+    /// The id selectors only (the `rlm.rename` target resolution): a child
+    /// handle or full session id, never the name.
+    pub(crate) fn matches_id(&self, target: &str) -> bool {
         self.rlm_child_id == target
             || self.active_session_id.as_deref() == Some(target)
-            || self.session_name == target
             || self.session_id == target
     }
 

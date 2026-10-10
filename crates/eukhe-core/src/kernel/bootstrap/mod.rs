@@ -178,7 +178,7 @@ async fn ensure_kernel_python_uncached(
             let mut missing = Vec::new();
             if !has_eukhe_runtime(&python_str) {
                 missing.push(
-                    "a current eukhe-runtime with callable rlm.spawn, rlm.create_session, rlm.host_request, rlm.progress_note, and explicit harness CRUD methods".to_string(),
+                    "a current eukhe-runtime with callable rlm.spawn, rlm.create_session, rlm.host_request, rlm.progress_note, rlm.rename, and explicit harness CRUD methods".to_string(),
                 );
             }
             if missing.is_empty() {

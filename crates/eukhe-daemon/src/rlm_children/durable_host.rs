@@ -14,6 +14,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::PoisonError;
 
 use eukhe_core::durable::children as durable;
+use eukhe_core::session_engine::agent_messaging::{
+    create_agent_session_message_row, AgentFamilyRelationship, AgentSessionMessageRowPayload,
+};
 use eukhe_types::daemon::{DaemonCommand, PromptInput};
 use eukhe_types::pi_ai::{Usage, UsageCost};
 
@@ -21,11 +24,15 @@ use super::host::resolve_child_model_allowlisted;
 use super::{
     assert_thinking_supported, json, now_ms, Arc, Duration, Map, Path, PathBuf, Result,
     SupervisorChildSessions, SupervisorChildSessionsInner, Value, KILL_TIMEOUT_MS,
-    PROMPT_TIMEOUT_MS, STATE_TIMEOUT_MS, WATCH_SETTLE_GRACE_MS,
+    PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS, STATE_TIMEOUT_MS, WATCH_SETTLE_GRACE_MS,
 };
 
 /// The supervisor's error for a selector no resident worker answers.
 const UNKNOWN_SESSION: &str = "Unknown active session:";
+
+/// The `rlm.rename` refusal for a selector outside this session's family.
+const NOT_OWN_FAMILY: &str =
+    "rlm.rename can only rename the current session or one of its direct children";
 
 /// Keyed calls this process already served, and the children it spawned.
 #[derive(Default)]
@@ -139,6 +146,44 @@ impl SupervisorChildSessionsInner {
             .await
             .ok()?;
         stats_usage(&stats)
+    }
+
+    /// The spawn kickoff (TS `spawnMessage`): the task text labeled
+    /// `[task from parent]` (the model context, the label the child system
+    /// prompt promises) and the parent's `agent_message` row carrying it
+    /// (`details.id` `spawn:<child id>`, the raw task as `details.message`,
+    /// the parent endpoint as `from`, no `target`), so the child renders a
+    /// parent message instead of an unlabeled user row.
+    fn spawn_kickoff(&self, rlm_child_id: &str, prompt: &str) -> (String, Value) {
+        let content = format!("[task from parent]\n\n{prompt}");
+        let mut from = json!({ "activeSessionId": self.parent_active_session_id });
+        let session_id = self
+            .identity
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .session_id
+            .clone();
+        if let Some(session_id) = session_id {
+            from["sessionId"] = json!(session_id);
+        }
+        let name_source = self
+            .parent_name
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(name) = name_source.and_then(|source| source()) {
+            from["sessionName"] = json!(name);
+        }
+        let row = create_agent_session_message_row(&AgentSessionMessageRowPayload {
+            id: &format!("spawn:{rlm_child_id}"),
+            prompt: &content,
+            message: prompt,
+            from: &from,
+            from_relationship: Some(AgentFamilyRelationship::Parent),
+            target: None,
+            timestamp: now_ms(),
+        });
+        (content, row)
     }
 }
 
@@ -332,11 +377,15 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 return Ok(());
             }
             let key = request.idempotency_key.clone();
+            // The kickoff rides prompt admission as the parent's
+            // `agent_message` row; its content (the labeled task) is the
+            // model context.
+            let (content, kickoff) = this.spawn_kickoff(&request.rlm_child_id, &request.prompt);
             this.durable_command(&request.session_id, PROMPT_TIMEOUT_MS, |selector| {
                 DaemonCommand::Prompt {
                     id: None,
                     active_session_id: selector.to_owned(),
-                    message: request.prompt.clone(),
+                    message: content.clone(),
                     input: PromptInput {
                         content: None,
                         images: None,
@@ -345,7 +394,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         expand_prompt_templates: None,
                         source: Some(json!("rpc")),
                         agent_message_id: None,
-                        custom_message: None,
+                        custom_message: Some(kickoff.clone()),
                         queue_key: None,
                         prefix_messages: None,
                         // The child's submission dedupes by it: a rerun
@@ -502,6 +551,57 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 });
             }
             Ok(listings)
+        })
+    }
+
+    /// The rename is daemon-owned: the supervisor's live rename route
+    /// reserves the name across the agent family, wakes a passivated
+    /// target, and appends a child's RLM ledger rename. A parent-directed
+    /// rename carries `renamedBy: "parent"` so the child's transcript
+    /// notice names it; a self rename routes through the supervisor to this
+    /// very worker.
+    fn rename(&self, request: durable::RlmRenameRequest) -> durable::RlmHostFuture<'_, ()> {
+        let this = Arc::clone(&self.inner);
+        Box::pin(async move {
+            let rename = |selector: &str, renamed_by: Option<&str>| DaemonCommand::Rename {
+                id: None,
+                active_session_id: selector.to_owned(),
+                name: request.name.clone(),
+                renamed_by: renamed_by.map(str::to_owned),
+                rest: Map::default(),
+            };
+            match &request.target {
+                durable::RlmRenameTarget::Session { selector } => {
+                    if let Some(selector) = selector {
+                        let own_session_id = this
+                            .identity
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .session_id
+                            .clone();
+                        if *selector != this.parent_active_session_id
+                            && own_session_id.as_deref() != Some(selector.as_str())
+                        {
+                            anyhow::bail!("{NOT_OWN_FAMILY}");
+                        }
+                    }
+                    let own = this.parent_active_session_id.clone();
+                    this.command(&rename(&own, None), RENAME_TIMEOUT_MS)
+                        .await
+                        .map_err(|error| error.context(format!("rename session \"{own}\"")))?;
+                }
+                durable::RlmRenameTarget::Child { session_id } => {
+                    let parent = AgentFamilyRelationship::Parent.as_str();
+                    this.durable_command(session_id, RENAME_TIMEOUT_MS, |selector| {
+                        rename(selector, Some(parent))
+                    })
+                    .await
+                    .map_err(|error| {
+                        error.context(format!("rename RLM child session {session_id}"))
+                    })?;
+                }
+            }
+            Ok(())
         })
     }
 }

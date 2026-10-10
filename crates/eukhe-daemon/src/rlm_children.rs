@@ -86,6 +86,8 @@ const CREATE_TIMEOUT_MS: u64 = 120_000;
 const PROMPT_TIMEOUT_MS: u64 = 30_000;
 const STATE_TIMEOUT_MS: u64 = 30_000;
 const KILL_TIMEOUT_MS: u64 = 30_000;
+/// Budget for one session rename over the supervisor route (TS uses 30s).
+const RENAME_TIMEOUT_MS: u64 = 30_000;
 /// Grace over a collect budget passed to the worker `wait_for_idle`.
 const IDLE_WAIT_GRACE_MS: u64 = 5_000;
 /// Budget for one terminal-notice delivery over the supervisor route.
@@ -219,6 +221,8 @@ struct ChildRecord {
     /// Serializes usage emissions for this child (read, cursor advance,
     /// and sink delivery) without holding the record lock across them.
     emit_lock: std::sync::Arc<tokio::sync::Mutex<()>>,
+    /// Serializes parent-directed rename and delete for this child.
+    rename_lock: std::sync::Arc<tokio::sync::Mutex<()>>,
 }
 
 impl ChildRecord {
@@ -240,9 +244,14 @@ impl ChildRecord {
     }
 
     fn matches(&self, target: &str) -> bool {
+        self.matches_id(target) || self.session_name == target
+    }
+
+    /// The id selectors (the rename target resolution): every field a
+    /// child handle or full session id can carry — never the name.
+    fn matches_id(&self, target: &str) -> bool {
         self.rlm_child_id == target
             || self.active_session_id == target
-            || self.session_name == target
             || self.session_id.as_deref() == Some(target)
     }
 }
@@ -325,6 +334,11 @@ pub type DeleteNotifier = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 pub type ParentModelSource =
     std::sync::Arc<dyn Fn() -> futures::future::BoxFuture<'static, Option<String>> + Send + Sync>;
 
+/// Reads the parent session's live name at prompt time (the `sessionName`
+/// of the spawn kickoff's `from` endpoint): the worker answers from its
+/// session core, so a parent renamed since `create` signs with its new name.
+pub type ParentNameSource = std::sync::Arc<dyn Fn() -> Option<String> + Send + Sync>;
+
 struct SupervisorChildSessionsInner {
     link: Arc<SupervisorLink>,
     agent_dir: PathBuf,
@@ -398,6 +412,9 @@ struct SupervisorChildSessionsInner {
     /// The parent's live model reader (the durable worker's main
     /// conversation); `None` keeps the identity's model.
     parent_model: std::sync::Mutex<Option<ParentModelSource>>,
+    /// The parent's live session-name reader (the durable worker's core);
+    /// `None` leaves the kickoff's `from` endpoint unnamed.
+    parent_name: std::sync::Mutex<Option<ParentNameSource>>,
 }
 
 impl Clone for SupervisorChildSessions {
@@ -435,6 +452,7 @@ impl SupervisorChildSessions {
                 semantic_edges: std::sync::Mutex::new(None),
                 durable_calls: std::sync::Mutex::new(durable_host::DurableCalls::default()),
                 parent_model: std::sync::Mutex::new(None),
+                parent_name: std::sync::Mutex::new(None),
             }),
         }
     }
@@ -588,6 +606,16 @@ impl SupervisorChildSessions {
         *self
             .inner
             .parent_model
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
+    }
+
+    /// Wire the parent's live session-name reader: each durable kickoff
+    /// signs its `from` endpoint with the name it answers.
+    pub fn set_parent_name_source(&self, source: ParentNameSource) {
+        *self
+            .inner
+            .parent_name
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
     }
@@ -767,6 +795,7 @@ impl SupervisorChildSessions {
                 usage_watch_live: false,
                 usage_rearm: false,
                 emit_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+                rename_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             })));
     }
 

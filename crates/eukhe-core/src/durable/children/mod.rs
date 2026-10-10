@@ -14,6 +14,7 @@ mod host;
 mod notice;
 mod progress;
 mod registry;
+mod rename;
 mod requests;
 mod task;
 mod wire;
@@ -36,7 +37,8 @@ pub use host::{
     NoRlmChildren, RlmChildActivityKind, RlmChildCancelRequest, RlmChildDeleteRequest,
     RlmChildIdentity, RlmChildListing, RlmChildObservation, RlmChildPromptRequest,
     RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest,
-    RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmSubagentHost,
+    RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
+    RlmRenameTarget, RlmSubagentHost,
 };
 pub use registry::has_unsettled_children;
 pub use wire::{

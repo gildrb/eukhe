@@ -4,6 +4,8 @@
 use std::sync::Arc;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::session_engine::agent_messaging::AgentFamilyRelationship;
+use eukhe_core::session_engine::messages::SESSION_RENAMED_CUSTOM_TYPE;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
 use serde_json::{json, Value};
 
@@ -670,6 +672,16 @@ impl Worker {
         if name.trim().is_empty() {
             return response_failure(None, command, "Session name cannot be empty", None);
         }
+        // One rename at a time: the previous-name read, the name write, and
+        // its notice must not interleave with another rename's (the notice
+        // would name a contradicted history).
+        let _rename = self.rename_gate.lock().await;
+        let previous = self
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .session_name
+            .clone();
         if let Err(error) = meta::set_session_name(
             hosted.harness(),
             Some(name.to_string()),
@@ -690,6 +702,30 @@ impl Worker {
         // Every attached client re-reads the name.
         self.emit_worker_event(json!({ "type": "session_info_changed", "name": name }));
         self.push_roster_delta();
+        // TS #2529 `applyStateSessionName`: a rename that changed an
+        // existing name leaves the renamed session a displayed transcript
+        // notice (" by parent" when the parent session directed it); a
+        // first name leaves none. The notice is advisory: the name already
+        // committed, so a failed notice is reported, never the rename's.
+        if let Some(previous) = previous.filter(|previous| previous != name) {
+            let renamed_by_parent = payload.get("renamedBy").and_then(Value::as_str)
+                == Some(AgentFamilyRelationship::Parent.as_str());
+            let suffix = if renamed_by_parent { " by parent" } else { "" };
+            let notice = json!({
+                "customType": SESSION_RENAMED_CUSTOM_TYPE,
+                "content": format!("Session renamed `{previous}` -> `{name}`{suffix}"),
+                "display": true,
+                "timestamp": crate::util::now_ms(),
+            });
+            let written = async {
+                let main = hosted.main()?;
+                crate::session_custom::write_custom_row(&main, &notice).await
+            }
+            .await;
+            if let Err(error) = written {
+                eprintln!("eukhe-daemon worker: the session_renamed notice failed: {error:#}");
+            }
+        }
         response_success(
             None,
             command,

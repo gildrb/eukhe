@@ -100,6 +100,14 @@ impl Worker {
                         .map(|model| format!("{}/{}", model.provider, model.model_id))
                 })
             }));
+            let core = Arc::clone(&self.core);
+            host.set_parent_name_source(Arc::new(move || {
+                core.lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .session_name
+                    .clone()
+                    .filter(|name| !name.is_empty())
+            }));
             let context_tree = Arc::clone(&self.context_tree);
             host.set_delete_notifier(Arc::new(move |child_id| {
                 context_tree.invalidate_child(child_id);
