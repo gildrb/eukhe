@@ -24,9 +24,8 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use eukhe_core::prompts::layers::{
-    self, CORE_LAYER, OPINIONATED_LAYER, PER_MODEL_MAP, USAGE_LAYER,
-};
+use eukhe_core::prompts::layers::{self, CORE_LAYER, OPINIONATED_LAYER, USAGE_LAYER};
+use eukhe_core::prompts::model_prompts::MODEL_PROMPTS_TOML;
 use eukhe_core::prompts::system_prompt::{
     system_prompt_breakdown, BuildSystemPromptOptions, SegmentKind,
 };
@@ -77,7 +76,7 @@ fn static_layers_contain_no_dynamic_content() {
         ("core", CORE_LAYER),
         ("usage", USAGE_LAYER),
         ("opinionated", OPINIONATED_LAYER),
-        ("per-model", PER_MODEL_MAP),
+        ("model-prompts", MODEL_PROMPTS_TOML),
     ] {
         for marker in DYNAMIC_ONLY_MARKERS {
             assert!(
@@ -94,7 +93,7 @@ fn cached_prefix_is_stable_across_sessions() {
     let mut options = BuildSystemPromptOptions {
         cwd: "/first/cwd".to_string(),
         messages_path: Some("/first/session.jsonl".to_string()),
-        model: Some("mock/mock-1"),
+        model_prompt_extras: Some("model guidance."),
         skills: sorted_bundled_skills(),
         selected_tools: Some(vec!["ipython"]),
         ..Default::default()
@@ -120,9 +119,9 @@ fn cached_prefix_is_stable_across_sessions() {
     );
     assert_eq!(
         &first.assembled[..first.cached_prefix_len],
-        layers::static_prefix(
-            Some("mock/mock-1"),
-            eukhe_core::refinement::HarnessMemory::Harness
+        format!(
+            "{}\n\nmodel guidance.",
+            layers::static_prefix(eukhe_core::refinement::HarnessMemory::Harness)
         )
     );
 
@@ -576,7 +575,6 @@ fn generic_mcp_skill_renders_in_the_prompt_inventory() {
     let mut options = BuildSystemPromptOptions {
         cwd: "/w".to_string(),
         messages_path: Some("/log.jsonl".to_string()),
-        model: Some("mock/mock-1"),
         skills: sorted_bundled_skills(),
         selected_tools: Some(vec!["ipython"]),
         ..Default::default()

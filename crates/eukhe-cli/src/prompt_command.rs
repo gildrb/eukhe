@@ -60,7 +60,10 @@ pub fn run_prompt_command(args: &[String]) -> i32 {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     match assemble_breakdown(&cwd, parsed.model.as_deref()) {
-        Ok(breakdown) => {
+        Ok((breakdown, errors)) => {
+            for error in &errors {
+                eprintln!("Error: {error}");
+            }
             if parsed.json {
                 print_json(&breakdown);
             } else {
@@ -78,8 +81,9 @@ pub fn run_prompt_command(args: &[String]) -> i32 {
 fn assemble_breakdown(
     cwd: &std::path::Path,
     model: Option<&str>,
-) -> anyhow::Result<eukhe_core::prompts::SystemPromptBreakdown> {
+) -> anyhow::Result<(eukhe_core::prompts::SystemPromptBreakdown, Vec<String>)> {
     let agent_dir = get_agent_dir();
+    let model_prompts = eukhe_core::prompts::model_prompts::load_model_prompts(model, &agent_dir);
     // Every chat-memory session names the chat log (one path for all).
     let chat_log = eukhe_core::memory::chat_dir(&agent_dir)
         .display()
@@ -106,11 +110,11 @@ fn assemble_breakdown(
         system_prompt: None,
         ..ResourceLoaderOptions::new(cwd.to_path_buf(), agent_dir)
     })?;
-    Ok(eukhe_core::prompts::system_prompt::system_prompt_breakdown(
+    let breakdown = eukhe_core::prompts::system_prompt::system_prompt_breakdown(
         &eukhe_core::prompts::BuildSystemPromptOptions {
             cwd: cwd.display().to_string(),
             messages_path: Some(chat_log),
-            model,
+            model_prompt_extras: model_prompts.extras.as_deref(),
             custom_prompt: resources.system_prompt.clone(),
             context_files: resources
                 .agents_files
@@ -129,7 +133,8 @@ fn assemble_breakdown(
             memory: Some(eukhe_core::memory::MemoryRole::Root),
             ..Default::default()
         },
-    ))
+    );
+    Ok((breakdown, model_prompts.errors))
 }
 
 fn print_text(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {
@@ -224,7 +229,8 @@ mod tests {
     #[test]
     fn assembles_the_layered_prompt_for_a_directory() {
         let dir = tempfile::tempdir().unwrap();
-        let breakdown = assemble_breakdown(dir.path(), Some("mock/mock-1")).unwrap();
+        let (breakdown, errors) = assemble_breakdown(dir.path(), Some("mock/mock-1")).unwrap();
+        assert!(errors.is_empty());
         // The chat memory layer leads (`OptChat` sec. 7.2), then the harness.
         assert!(breakdown
             .assembled

@@ -94,10 +94,10 @@ Skills and subagent specs are created by two mechanisms:
     - The refinement event is always saved in the harness state's refinement history
     - A harness message is sent to the agent with the refinement result
 <!-- eukhe:harness-memory -->
-- Active memory management by the agent
+- Active memory management by the agent (the `rlm.harness.*` and `rlm.get_harness_state` calls are synchronous: call them without `await`)
 <!-- /eukhe:harness-memory -->
 <!-- eukhe:chat-memory -->
-- Active management by the agent
+- Active management by the agent (the `rlm.harness.*` calls are synchronous: call them without `await`)
 <!-- /eukhe:chat-memory -->
   - `refine.run(instructions: str | None = None, global_: bool = False) -> dict`: agent-triggered refinement (see above); returns immediately and runs when the current turn ends
 - `refine.status() -> dict`: whether a refinement is already pending for this turn or currently in flight

@@ -128,6 +128,7 @@ pub fn is_display_only_custom_type(custom_type: &str) -> bool {
             | COMPACTION_OUTCOME_CUSTOM_TYPE
             | REFINEMENT_OUTCOME_CUSTOM_TYPE
             | PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE
+            | crate::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE
     )
 }
 

@@ -195,6 +195,7 @@ fn classify_custom(custom_type: &str) -> CustomRow {
         | "refinement_outcome"
         | "compaction_outcome"
         | "provider_retry_outcome"
+        | "model_prompt_error"
         | "session_slash_command"
         | "session_slash_command_result"
         | "anthropic_subscription_warning_shown" => CustomRow::State,

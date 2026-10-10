@@ -61,6 +61,8 @@ pub const REFINEMENT_OUTCOME_CUSTOM_TYPE: &str = "refinement_outcome";
 /// episode instead of the per-attempt error rows TS keeps). Wire twin of
 /// `eukhe_core::session_engine::messages::PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE`.
 pub const PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE: &str = "provider_retry_outcome";
+/// Wire twin of `eukhe_core::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE`.
+pub const MODEL_PROMPT_ERROR_CUSTOM_TYPE: &str = "model_prompt_error";
 
 // ---------------------------------------------------------------------------
 // Row payloads (carried by ChatEntry variants)
@@ -216,6 +218,10 @@ pub fn custom_message_entries(message: &Value) -> Vec<ChatEntry> {
                 },
             }]
         }
+        MODEL_PROMPT_ERROR_CUSTOM_TYPE => vec![ChatEntry::Status {
+            text: content,
+            kind: crate::chat::StatusKind::Warning,
+        }],
         REFINEMENT_OUTCOME_CUSTOM_TYPE => refinement::refinement_outcome_entries(message, details),
         AGENT_MESSAGE_CUSTOM_TYPE => agent_message_entry(details).map_or_else(
             || vec![generic_panel_entry(custom_type, message)],
@@ -747,6 +753,24 @@ mod tests {
                         if skills == &vec!["websearch".to_string(), "edit".to_string()])
                     && boxed.body.as_deref() == Some("[python-skills-unavailable]\n\n- websearch: No module named 'websearch'")
         ));
+    }
+
+    #[test]
+    fn model_prompt_error_row_is_a_warning_status_line() {
+        let entries = decoded(&json!({
+            "role": "custom",
+            "customType": MODEL_PROMPT_ERROR_CUSTOM_TYPE,
+            "content": "[model-prompt-error]\n\nPer-model system prompt additions were not applied:\n- /x/model-prompts.toml: bad TOML",
+            "display": true,
+        }));
+        assert!(
+            matches!(
+                entries.as_slice(),
+                [ChatEntry::Status { text, kind: crate::chat::StatusKind::Warning }]
+                    if text.contains("[model-prompt-error]")
+            ),
+            "entries: {entries:?}"
+        );
     }
 
     #[test]

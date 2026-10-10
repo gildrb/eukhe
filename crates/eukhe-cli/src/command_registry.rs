@@ -326,7 +326,7 @@ repeated pastes. The compactor then summarizes them like any other messages.",
 and prints the per-layer breakdown (cached static layers, then the dynamic tail) followed by the full prompt text.",
     )
     .options(&[
-        "--model <selector>  Preview per-model instructions for a provider/id selector",
+        "--model <selector>  Preview the per-model additions (model-prompts.toml) for a selector",
         "--cwd <dir>         Assemble for this working directory (default: current)",
         "--json              Print segments and prompt as JSON",
     ]),

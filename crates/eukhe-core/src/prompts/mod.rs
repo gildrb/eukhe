@@ -2,8 +2,9 @@
 //!
 //! - the **cached static prefix** is the composition of the human-editable
 //!   layer files ([`layers`]): core harness description, mandatory usage,
-//!   opinionated guidelines, and the per-model map. It never varies per
-//!   session, so providers can cache it.
+//!   and opinionated guidelines, then the per-model additions from the
+//!   model-prompts TOML rule map ([`model_prompts`]). It never varies per
+//!   session for one model, so providers can cache it.
 //! - the **dynamic tail** carries everything session-specific (packages,
 //!   project context, skills inventory, MCP servers, environment, role) and
 //!   is appended after the static prefix, in that order.
@@ -13,6 +14,8 @@
 //! tests pin the boundary and the documented API surface.
 
 pub mod layers;
+
+pub mod model_prompts;
 
 pub mod system_prompt;
 

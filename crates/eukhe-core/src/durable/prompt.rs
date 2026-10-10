@@ -5,20 +5,30 @@
 //! joins its (never empty) segments.
 //!
 //! Inputs fixed for the session (resources, guidelines, role, memory, log
-//! path) are captured at construction; the model selector, vision
-//! capability, offered tools, working directory, and date come from each
-//! request's agent. The breakdown is cached per distinct request input.
+//! path, daemon availability) are captured at construction; the model
+//! selector, vision capability, offered tools, working directory, and date
+//! come from each request's agent. The breakdown is cached per distinct
+//! request input; a cache miss re-resolves the per-model additions
+//! (`model-prompts.toml`) for the request's model. At open, a broken rule
+//! map is reported once as a display-only `model_prompt_error` row.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_durable::harness::define::{define_extension, section};
-use eukhe_durable::harness::types::{Extension, PromptInput};
+use eukhe_durable::harness::types::{
+    Extension, PromptInput, SubmissionDraft, WriteSubmissionDraft,
+};
 use eukhe_pi_ai::models::Models;
 use eukhe_types::pi_ai::Modality;
 use futures::FutureExt;
 
-use super::deps::HostDeps;
+use super::deps::{HostDeps, OpenedSession};
+use super::rlm::CustomNotice;
 use crate::memory::MemoryRole;
+use crate::prompts::model_prompts::{
+    load_model_prompts, model_prompt_error_text, MODEL_PROMPT_ERROR_CUSTOM_TYPE,
+};
 use crate::prompts::system_prompt::{
     system_prompt_breakdown, today, BuildSystemPromptOptions, SystemPromptBreakdown,
 };
@@ -38,7 +48,7 @@ pub fn section_keys(memory: Option<MemoryRole>) -> Vec<&'static str> {
         "core",
         "usage",
         "opinionated",
-        "per-model",
+        "model-prompts",
         "packages",
     ];
     if memory.is_none() {
@@ -68,11 +78,16 @@ struct SessionPrompt {
     allow_recursion: Option<bool>,
     rlm_depth: u32,
     parent_agent: Option<String>,
+    /// No daemon child host: `rlm.spawn` errors and nothing wakes the
+    /// session after its turn.
+    daemonless: bool,
     generic_mcp_servers: Vec<String>,
     memory: Option<MemoryRole>,
     messages_path: Option<String>,
     session_cwd: String,
     models: Models,
+    /// Where `model-prompts.toml` and its files live.
+    agent_dir: PathBuf,
 }
 
 /// The inputs a request contributes.
@@ -118,16 +133,29 @@ impl PromptBuilder {
                 return Arc::clone(breakdown);
             }
         }
-        let breakdown = Arc::new(system_prompt_breakdown(&self.options(&request)));
+        let model_prompts = load_model_prompts(request.model.as_deref(), &self.session.agent_dir);
+        if !model_prompts.errors.is_empty() {
+            tracing::warn!(
+                errors = ?model_prompts.errors,
+                "per-model system prompt additions not applied"
+            );
+        }
+        let breakdown = Arc::new(system_prompt_breakdown(
+            &self.options(&request, model_prompts.extras.as_deref()),
+        ));
         *cache = Some((request, Arc::clone(&breakdown)));
         breakdown
     }
 
-    fn options<'a>(&'a self, request: &'a RequestPrompt) -> BuildSystemPromptOptions<'a> {
+    fn options<'a>(
+        &'a self,
+        request: &'a RequestPrompt,
+        model_prompt_extras: Option<&'a str>,
+    ) -> BuildSystemPromptOptions<'a> {
         let session = &self.session;
         BuildSystemPromptOptions {
             custom_prompt: session.custom_prompt.clone(),
-            model: request.model.as_deref(),
+            model_prompt_extras,
             vision_capable: request.vision_capable,
             selected_tools: Some(request.tools.iter().map(String::as_str).collect()),
             prompt_guidelines: Some(session.guidelines.clone()),
@@ -139,6 +167,7 @@ impl PromptBuilder {
             allow_recursion: session.allow_recursion,
             rlm_depth: Some(session.rlm_depth),
             rlm_parent_agent: session.parent_agent.as_deref(),
+            daemonless: session.daemonless,
             generic_mcp_servers: session.generic_mcp_servers.clone(),
             memory: session.memory,
         }
@@ -187,14 +216,17 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
                 .parent
                 .as_ref()
                 .and_then(|parent| parent.agent_name.clone()),
+            daemonless: deps.children.is_none(),
             generic_mcp_servers: deps.generic_mcp_servers.clone(),
             memory,
             messages_path,
             session_cwd: deps.cwd.display().to_string(),
             models: deps.models.clone(),
+            agent_dir: deps.agent_dir.clone(),
         },
         cache: Mutex::new(None),
     });
+    report_model_prompt_errors(deps);
     let sections = section_keys(memory)
         .into_iter()
         .map(|key| {
@@ -213,4 +245,49 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         sections,
         ..Extension::default()
     })
+}
+
+/// Report a broken model-prompts rule map once per open: a display-only
+/// `model_prompt_error` row on the root conversation (problems disable the
+/// additions whatever the model, so the selector does not matter). The row
+/// is submitted in the background, as the kernel boot notices are: a
+/// submission resumes scheduling, which a service start must not do.
+fn report_model_prompt_errors(deps: &Arc<HostDeps>) {
+    let errors = load_model_prompts(None, &deps.agent_dir).errors;
+    if errors.is_empty() {
+        return;
+    }
+    let notice = CustomNotice::new(
+        MODEL_PROMPT_ERROR_CUSTOM_TYPE,
+        model_prompt_error_text(&errors),
+        true,
+        None,
+    );
+    deps.add_service(Box::new(move |opened: OpenedSession| {
+        async move {
+            tokio::spawn(async move {
+                let cx = eukhe_chord::context::BACKGROUND_CONTEXT.clone();
+                let submitted = match notice.draft() {
+                    Ok(entry) => opened
+                        .root
+                        .submit(
+                            SubmissionDraft::Write(WriteSubmissionDraft {
+                                request_id: None,
+                                entry,
+                            }),
+                            &cx,
+                        )
+                        .await
+                        .map(drop)
+                        .map_err(anyhow::Error::from),
+                    Err(error) => Err(anyhow::Error::from(error)),
+                };
+                if let Err(error) = submitted {
+                    tracing::warn!(%error, "model prompt error notice not delivered");
+                }
+            });
+            Ok(None)
+        }
+        .boxed()
+    }));
 }

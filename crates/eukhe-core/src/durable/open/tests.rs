@@ -370,6 +370,14 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
                 FauxAssistantMessageOptions::default(),
             ))
         })]);
+    // A user rule map in the agent dir: its additions join the cached
+    // prefix for every model.
+    std::fs::write(
+        fixture.agent_dir.join("model-prompts.toml"),
+        "[[rule]]\nmatch = [\"*\"]\nfiles = [\"model.md\"]\n",
+    )
+    .expect("model prompts");
+    std::fs::write(fixture.agent_dir.join("model.md"), "Model guidance.\n").expect("model.md");
     let mut config = fixture.config(fixture.jsonl());
     config.model = Some(fixture.model().into());
     config.prompt = PromptConfig {
@@ -389,10 +397,9 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
 
     let deps = session.deps();
     let model = fixture.faux.get_model();
-    let selector = format!("{}/{}", model.provider, model.id);
     let expected = build_system_prompt(&BuildSystemPromptOptions {
         custom_prompt: deps.resources.system_prompt.clone(),
-        model: Some(&selector),
+        model_prompt_extras: Some("Model guidance."),
         vision_capable: Some(model.input.contains(&Modality::Image)),
         selected_tools: Some(tools.iter().map(String::as_str).collect()),
         prompt_guidelines: Some(deps.prompt.guidelines.clone()),
@@ -412,11 +419,15 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
         allow_recursion: Some(false),
         rlm_depth: Some(0),
         rlm_parent_agent: None,
+        // No daemon child host in this fixture.
+        daemonless: true,
         generic_mcp_servers: deps.generic_mcp_servers.clone(),
         memory: None,
     });
     assert!(expected.contains("Project instructions."));
     assert!(expected.contains("Appended."));
+    assert!(expected.contains("Model guidance."));
+    assert!(expected.contains("Subagents and completion notifications are unavailable"));
     assert_eq!(actual, expected);
     session.close(cx()).await.expect("close");
 }
@@ -430,7 +441,7 @@ fn section_keys_follow_the_breakdown_order() {
         for custom_prompt in [None, Some("Custom.".to_owned())] {
             let breakdown = system_prompt_breakdown(&BuildSystemPromptOptions {
                 custom_prompt,
-                model: Some("anthropic/claude-opus-4-5"),
+                model_prompt_extras: Some("Model guidance."),
                 vision_capable: Some(true),
                 selected_tools: Some(vec!["ipython"]),
                 prompt_guidelines: Some(vec!["Guide.".to_owned()]),
@@ -442,6 +453,7 @@ fn section_keys_follow_the_breakdown_order() {
                 allow_recursion: None,
                 rlm_depth: Some(1),
                 rlm_parent_agent: Some("parent"),
+                daemonless: true,
                 generic_mcp_servers: vec!["docs".to_owned()],
                 memory,
             });
