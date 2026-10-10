@@ -10,6 +10,7 @@
 use std::path::Path;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::thinking_level;
 use eukhe_core::models::{ModelAllowlistRefusal, SetModelSelectionError};
 use eukhe_core::settings::{SettingsManager, ThinkingLevelSetting};
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
@@ -221,10 +222,12 @@ pub(crate) async fn resolve_available_model(
 }
 
 /// Switch the main conversation to `model` in one `configure` commit: the
-/// model and the thinking level (`thinking` when given, else the current
-/// level), clamped to what the model supports (TS
-/// `_getThinkingLevelForModelSwitch`). Then the settings default model
-/// (TS `session.setModel` persists it so the next session starts here).
+/// model and the thinking level, clamped to what the model supports (TS
+/// `_getThinkingLevelForModelSwitch`: `thinking` when given; else, leaving
+/// a model that cannot think, the settings default level (else `medium`),
+/// so switching back restores the level saved while a reasoning model was
+/// active; else the current level). Then the settings default model (TS
+/// `session.setModel` persists it so the next session starts here).
 /// Returns the applied level once the event mirror shows the switch.
 pub(crate) async fn apply_model(
     hosted: &HostedSession,
@@ -233,13 +236,22 @@ pub(crate) async fn apply_model(
 ) -> Result<ModelThinkingLevel, String> {
     let main = hosted.main().map_err(|error| error.to_string())?;
     let cx = &BACKGROUND_CONTEXT;
-    let current = match thinking {
-        Some(level) => level,
-        None => {
-            main.agent(cx)
-                .await
-                .map_err(|error| error.to_string())?
-                .thinking_level
+    let deps = hosted.deps();
+    let current = if let Some(level) = thinking {
+        level
+    } else {
+        let agent = main.agent(cx).await.map_err(|error| error.to_string())?;
+        let current_thinks = agent
+            .model
+            .as_ref()
+            .and_then(|current| deps.models.get_model(&current.provider, &current.model_id))
+            .is_some_and(|current| current.reasoning);
+        if current_thinks {
+            agent.thinking_level
+        } else {
+            SettingsManager::create(&deps.cwd, &deps.agent_dir)
+                .get_default_thinking_level()
+                .map_or(ModelThinkingLevel::Medium, thinking_level)
         }
     };
     let level = clamp_thinking_level(model, current);
@@ -258,7 +270,6 @@ pub(crate) async fn apply_model(
     .map_err(|error| error.to_string())?;
     // The tier re-clamp and the roster push read the mirror.
     hosted.events_delivered().await;
-    let deps = hosted.deps();
     let mut settings = SettingsManager::create(&deps.cwd, &deps.agent_dir);
     if let Err(error) = settings.set_default_model_and_provider(&model.provider, &model.id) {
         // The switch itself landed; the default is best-effort like TS.

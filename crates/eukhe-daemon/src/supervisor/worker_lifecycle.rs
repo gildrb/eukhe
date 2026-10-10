@@ -256,6 +256,10 @@ impl Supervisor {
             "rlmDepth",
             "rlmMaxDepth",
             "parentSessionPath",
+            // A caller-chosen session id (a durable RLM child task derives
+            // it): the worker persists under it, so a rerun or a respawn
+            // reopens the same storage.
+            "sessionId",
             "models",
             // The scripted-parent verification seam: a dropped key leaves
             // spawned children scriptless.

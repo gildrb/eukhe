@@ -1,10 +1,10 @@
-//! End-to-end verifier for durable `thread_goal_state` persistence (the
-//! #238 durability gap): the worker session file must carry the
-//! `thread_goal_state` custom rows a started goal writes (TS
-//! `_persistGoalState`: one store with the transcript), and a worker
-//! killed mid-goal must rebuild with the goal rehydrated — the objective,
-//! usage counters, and the continuation count continuing from the durable
-//! rows, not from a fresh engine.
+//! End-to-end verifier for durable goal persistence (the #238 durability
+//! gap): the worker's session store must carry the goal a started goal
+//! writes (the `eukhe.goal` document, the old `thread_goal_state` rows'
+//! payload: one store with the transcript), and a worker killed mid-goal
+//! must rebuild with the goal rehydrated — the objective, usage counters,
+//! and the continuation count continuing from the durable document, not
+//! from a fresh engine.
 //!
 //! The flow (the f21 worker-recovery pattern): a faux-scripted session
 //! over the real agent engine starts a goal, runs work turns, compacts
@@ -43,7 +43,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-const GOAL_STATE_CUSTOM_TYPE: &str = "thread_goal_state";
+// The durable session storage reader the CLI e2e suites share.
+#[path = "../../eukhe-cli/tests/support/durable_store.rs"]
+mod durable_store;
+
 const OBJECTIVE: &str = "ship the goal-recovery port";
 
 struct Supervisor {
@@ -165,6 +168,22 @@ impl Client {
             }
             self.collect_event(&line);
         }
+    }
+
+    /// The responses for every id in `ids`, in whatever order they arrive,
+    /// collecting every session event on the way.
+    fn responses(&mut self, ids: &[&str]) -> Vec<(String, Value)> {
+        let deadline = Instant::now() + Duration::from_mins(5);
+        let mut answered = Vec::new();
+        while answered.len() < ids.len() {
+            assert!(Instant::now() < deadline, "no responses for {ids:?}");
+            let line = self.read_line();
+            match line.get("id").and_then(Value::as_str) {
+                Some(id) if ids.contains(&id) => answered.push((id.to_string(), line)),
+                _ => self.collect_event(&line),
+            }
+        }
+        answered
     }
 
     fn collect_event(&mut self, line: &Value) {
@@ -291,38 +310,36 @@ fn setup(name: &str) -> Harness {
 }
 
 impl Harness {
-    fn session_file(&self) -> PathBuf {
+    /// The session's durable storage (the only session in the dir).
+    fn storage_dir(&self) -> PathBuf {
         let session_dir = self.dir.path().join("agent").join("sessions");
-        std::fs::read_dir(&session_dir)
-            .expect("session dir readable")
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-            .expect("one session file")
+        let dirs = durable_store::session_dirs(&session_dir);
+        assert_eq!(dirs.len(), 1, "one session storage: {dirs:?}");
+        dirs[0].clone()
     }
 
-    /// The session file's `thread_goal_state` custom rows, in file order.
-    fn goal_state_rows(&self) -> Vec<Value> {
-        std::fs::read_to_string(self.session_file())
-            .expect("session file readable")
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-            .filter(|entry| {
-                entry.get("type").and_then(Value::as_str) == Some("custom")
-                    && entry.get("customType").and_then(Value::as_str)
-                        == Some(GOAL_STATE_CUSTOM_TYPE)
-            })
-            .collect()
-    }
-
-    /// The latest goal state re-read from the durable file.
+    /// The latest goal state re-read from the durable store: the main
+    /// conversation's `eukhe.goal` document (the old `thread_goal_state`
+    /// rows' payload; the durable store keeps the goal as one document
+    /// committed with each change, not as appended rows).
     fn latest_goal_row(&self) -> Value {
-        self.goal_state_rows()
-            .last()
-            .cloned()
-            .unwrap_or(Value::Null)["data"]
-            .clone()
+        use eukhe_core::durable::{read_main_transcript, read_session_document, SessionLocation};
+        let location = SessionLocation::Durable(self.storage_dir());
+        let cx = &eukhe_chord::context::BACKGROUND_CONTEXT;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let goal = runtime.block_on(async {
+            let main = read_main_transcript(&location, cx)
+                .await
+                .expect("transcript readable")
+                .main;
+            read_session_document(&location, &eukhe_core::durable::goals::GOAL_DOC, main, cx)
+                .await
+                .expect("goal document readable")
+        });
+        serde_json::to_value(goal).expect("goal JSON")
     }
 
     fn prompt(&mut self, id: &str, message: &str) {
@@ -408,6 +425,21 @@ impl Harness {
             .filter_map(|event| event["goal"]["continuationsUsed"].as_u64())
             .collect()
     }
+
+    /// Wait until a `goal_update` collected from event `since` on announces
+    /// a `continuationsUsed` above `count` (it may already have streamed
+    /// while a command's response was outstanding).
+    fn await_announced_count(&mut self, since: usize, count: u64) {
+        let minted = |event: &Value| {
+            event.get("type").and_then(Value::as_str) == Some("goal_update")
+                && event["goal"]["continuationsUsed"]
+                    .as_u64()
+                    .is_some_and(|used| used > count)
+        };
+        if !self.client.events[since..].iter().any(minted) {
+            self.wait_for_event("the goal loop's mint", minted);
+        }
+    }
 }
 
 /// The mid-goal worker kill + recovery: the goal must survive the rebuild
@@ -424,15 +456,18 @@ impl Harness {
 fn killed_mid_goal_worker_rehydrates_the_goal_with_counts() {
     let mut harness = setup("goal-recovery");
 
-    // A started goal persists: the session file carries the
-    // `thread_goal_state` custom row (TS one-store durability). The start
-    // turn's natural end mints the goal loop's next continuation (the
-    // ported hook), so the durable count is at least 1 by the time the
-    // prompt settles.
+    // A started goal persists: the store carries the `eukhe.goal`
+    // document (TS one-store durability). The start turn's natural end
+    // mints the goal loop's next continuation (the ported hook). The
+    // durable `/goal` command answers once the goal is set and its turn
+    // submitted, and the loop then continues in-run (`on_yield`), so the
+    // mint is awaited through its `goal_update` announcement.
+    let since = harness.client.events.len();
     harness.prompt_racing_the_loop("g1", &format!("/goal {OBJECTIVE}"));
-    // Pause immediately (the f18 battery pattern): the purge withdraws the
-    // queued continuation and the loop goes quiet; everything else runs
-    // against the paused driver.
+    harness.await_announced_count(since, 0);
+    // Pause right after the mint (the f18 battery pattern): the run ends at
+    // its next final answer and everything else runs against the paused
+    // driver.
     harness.prompt_racing_the_loop("g2", "/goal pause");
     harness.client.drain_events(Duration::from_secs(1));
     let goal = harness.latest_goal_row();
@@ -455,9 +490,11 @@ fn killed_mid_goal_worker_rehydrates_the_goal_with_counts() {
         "a paused goal consumed continuation slots: {goal}"
     );
 
-    // Resume, then pause again before the loop churns: the resumed driver
-    // runs its continuation turn and the pause keeps the queue quiet.
+    // Resume, then pause again once the resumed driver minted its
+    // continuation (announced; the loop runs in-run).
+    let since = harness.client.events.len();
     harness.prompt_racing_the_loop("r0", "/goal resume");
+    harness.await_announced_count(since, pre_seed_count);
     harness.prompt_racing_the_loop("r0p", "/goal pause");
     harness.client.drain_events(Duration::from_secs(1));
     let goal = harness.latest_goal_row();
@@ -511,7 +548,7 @@ fn killed_mid_goal_worker_rehydrates_the_goal_with_counts() {
     let state = harness.client.request("st1");
     assert_eq!(state["success"], true, "get_state failed: {state}");
     let worker_pid = state["data"]["workerPid"].as_u64().expect("worker pid");
-    let pre_kill_rows = harness.goal_state_rows().len();
+    let pre_kill_tokens = goal["tokensUsed"].as_u64().unwrap();
     let pre_kill_events = harness.client.events.len();
 
     // Kill the worker mid-goal.
@@ -612,26 +649,28 @@ fn killed_mid_goal_worker_rehydrates_the_goal_with_counts() {
     // keep growing with the objective and count intact (the rehydrated
     // mint's count continuation is pinned by the
     // `recovery_rebuild_rehydrates_the_goal_from_the_session_file` unit).
+    // The resumed turn runs in-run: its accounted answer is the one that
+    // mints, so the mint's announcement marks the accounting landed.
+    let since = harness.client.events.len();
     harness.prompt_racing_the_loop("rr", "/goal resume");
+    harness.await_announced_count(since, pre_kill_count);
     harness.prompt_racing_the_loop("rrp", "/goal pause");
     harness.client.drain_events(Duration::from_secs(1));
-    // The recovery mirrored the post-recovery accounting rows durably: the
-    // file's goal rows only grew.
-    assert!(
-        harness.goal_state_rows().len() > pre_kill_rows,
-        "the recovery wrote no new durable goal rows"
-    );
+    // The recovery mirrored the post-recovery accounting durably: the
+    // stored goal's usage grew past the pre-kill document (the durable
+    // store commits one goal document per change instead of appending
+    // `thread_goal_state` rows, so growth is the document's, not a count).
     let goal = harness.latest_goal_row();
+    assert!(
+        goal["tokensUsed"].as_u64().unwrap() > pre_kill_tokens,
+        "the recovery wrote no new durable goal accounting: {goal}"
+    );
     assert!(
         goal["continuationsUsed"].as_u64().unwrap() >= pre_kill_count,
         "a post-recovery turn reset the durable count: {goal}"
     );
     assert_eq!(goal["status"], "paused", "durable goal row: {goal}");
     assert_eq!(goal["objective"], OBJECTIVE);
-    assert!(
-        goal["tokensUsed"].as_u64().unwrap() > 0,
-        "usage accounting never continued: {goal}"
-    );
 
     // The post-recovery compact runs over the durable history (TS
     // one-store recovery, #243): the respawned session's branch is
@@ -663,16 +702,13 @@ fn killed_mid_goal_worker_rehydrates_the_goal_with_counts() {
     assert_eq!(idle["success"], true, "never went idle: {idle}");
     harness.client.drain_events(Duration::from_secs(1));
 
-    // The compaction walk saw the durable history: the durable file holds
+    // The compaction walk saw the durable history: the durable store holds
     // a second compaction entry, and the compact minted the owed
     // continuation off the rehydrated goal (the count grew past the
     // pre-compact value, durable and announced).
-    let compaction_rows = std::fs::read_to_string(harness.session_file())
-        .expect("session file readable")
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter(|line| line.contains("\"type\":\"compaction\""))
-        .count();
+    let compaction_rows = durable_store::read_transcript(&harness.storage_dir())
+        .of_kind("pi.compaction")
+        .len();
     assert!(
         compaction_rows >= 2,
         "the post-recovery compact never persisted a second compaction entry"
@@ -724,9 +760,42 @@ fn repeat_last_script_stays_answerable_once_the_goal_churn_empties_it() {
     });
 
     // The queue is dry from here on: the next prompt must still be served.
-    harness.prompt_racing_the_loop("x1", "keep working past the scripted depth");
-    // A quiet teardown: the pause withdraws the minted continuation, so
-    // the churn stops before the harness drops the supervisor.
-    harness.prompt_racing_the_loop("x2", "/goal pause");
+    // The durable goal loop continues in-run (`on_yield`), and pi-durable
+    // settles a run's input with the run's final answer, so a prompt sent
+    // while the goal is active settles only once the goal stops minting:
+    // observe the served reply first, then pause, then take both answers.
+    let prompt = "keep working past the scripted depth";
+    harness.client.send_command(
+        "x1",
+        &json!({
+            "type": "prompt_and_wait",
+            "activeSessionId": harness.session_id,
+            "message": prompt,
+        }),
+    );
+    harness.wait_for_event("the prompt's user message", |event| {
+        event.get("type").and_then(Value::as_str) == Some("message_end")
+            && event["message"]["role"] == "user"
+            && event["message"]["content"][0]["text"] == prompt
+    });
+    harness.wait_for_event("the prompt's reply", |event| {
+        event.get("type").and_then(Value::as_str) == Some("message_end")
+            && event["message"]["role"] == "assistant"
+    });
+    let reply = harness.client.events.last().expect("the reply")["message"].clone();
+    assert_ne!(reply["stopReason"], "error", "the reply failed: {reply}");
+    // A quiet teardown: the pause stops the minting, so the run ends at its
+    // next final answer and settles the prompt.
+    harness.client.send_command(
+        "x2",
+        &json!({
+            "type": "prompt_and_wait",
+            "activeSessionId": harness.session_id,
+            "message": "/goal pause",
+        }),
+    );
+    for (id, done) in harness.client.responses(&["x1", "x2"]) {
+        assert_eq!(done["success"], true, "prompt {id} failed: {done}");
+    }
     harness.client.drain_events(Duration::from_secs(1));
 }

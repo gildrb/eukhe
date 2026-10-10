@@ -171,7 +171,9 @@ impl Client {
             if line["type"] == "session_event" {
                 match line["event"]["type"].as_str() {
                     Some("message_end") => {
-                        final_text = line["event"]["message"]["content"]
+                        // pi-ai assistant content is a block array (the old
+                        // scripted engine emitted a plain string).
+                        final_text = line["event"]["message"]["content"][0]["text"]
                             .as_str()
                             .unwrap_or_default()
                             .to_string();
@@ -530,18 +532,21 @@ fn concurrent_creates_for_one_file_share_a_single_launch() {
     );
     assert_eq!(text, "first scripted");
 
-    // Exactly one session serves the file: the single launch.
+    // Exactly one session serves the file: the single launch. The legacy
+    // `<id>.jsonl` opens as its imported `<id>/` storage, the session file
+    // the worker registers.
     first.send_command("l1", &json!({ "type": "list", "all": true }));
     let listed = first.read_response("l1");
     let sessions = listed["data"]["sessions"]
         .as_array()
         .cloned()
         .unwrap_or_default();
+    let storage_dir = session_path.with_extension("");
     let for_file: Vec<&Value> = sessions
         .iter()
         .filter(|row| {
             row.get("sessionFile").and_then(Value::as_str)
-                == Some(session_path.to_string_lossy().as_ref())
+                == Some(storage_dir.to_string_lossy().as_ref())
         })
         .collect();
     assert_eq!(

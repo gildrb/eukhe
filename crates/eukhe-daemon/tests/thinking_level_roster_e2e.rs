@@ -36,6 +36,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::{read_main_transcript, SessionLocation};
 use serde_json::{json, Value};
 
 struct Supervisor {
@@ -344,14 +346,15 @@ fn setup(name: &str) -> Harness {
 }
 
 impl Harness {
-    /// The parent's session file (the child create's parentSessionPath).
+    /// The parent's session file (the child create's parentSessionPath):
+    /// its durable storage `<sessions>/<id>/`, which holds `main.jsonl`.
     fn session_file(&self) -> PathBuf {
         std::fs::read_dir(&self.session_dir)
             .expect("read session dir")
             .flatten()
             .map(|entry| entry.path())
-            .find(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-            .expect("the parent session file (create persists it)")
+            .find(|path| path.join("main.jsonl").is_file())
+            .expect("the parent session storage (create persists it)")
     }
 }
 
@@ -500,6 +503,7 @@ fn thinking_level_changes_reach_the_roster_push() {
             })
         })
     });
+    let raised_agent = persisted_agent(&session_file);
 
     // A model switch that clamps the level flushes the roster too: the
     // non-reasoning model forces `off`, and the push carries BOTH the new
@@ -534,20 +538,40 @@ fn thinking_level_changes_reach_the_roster_push() {
         "the switched parent stays idle in the roster push: {update}"
     );
 
-    // The durable row the raise persisted backs the saved surfaces (the
-    // agents view's saved-catalog rows read the same level).
-    let entries: Vec<Value> = std::fs::read_to_string(&session_file)
-        .expect("read session file")
-        .lines()
-        .map(|line| serde_json::from_str(line).expect("parse entry"))
-        .collect();
-    assert!(
-        entries
-            .iter()
-            .any(|entry| entry["type"] == "thinking_level_change"
-                && entry["thinkingLevel"] == json!("high")),
-        "the raise persisted its thinking_level_change row"
+    // The durable agent the switch persisted backs the saved surfaces (the
+    // agents view's saved-catalog rows read the same level). The durable
+    // session keeps the current choices in its `pi.agent` document rather
+    // than `thinking_level_change` history rows, so the raise's `high` was
+    // checked before the switch and the stored state now is the switched
+    // model at the clamped level.
+    let switched_agent = persisted_agent(&session_file);
+    assert_eq!(
+        (
+            &raised_agent["thinkingLevel"],
+            &switched_agent["model"],
+            &switched_agent["thinkingLevel"]
+        ),
+        (
+            &json!("high"),
+            &json!({ "provider": "battery", "modelId": "mock-2" }),
+            &json!("off")
+        ),
+        "the raise, then the switch, persisted the session's agent"
     );
+}
+
+/// The stored `pi.agent` choices of the durable session `storage` as JSON.
+fn persisted_agent(storage: &Path) -> Value {
+    let transcript = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime")
+        .block_on(read_main_transcript(
+            &SessionLocation::Durable(storage.to_path_buf()),
+            &BACKGROUND_CONTEXT,
+        ))
+        .expect("read the main transcript");
+    serde_json::to_value(&transcript.agent).expect("agent JSON")
 }
 
 /// An unchanged request answers success without a roster push: the flush

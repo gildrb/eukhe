@@ -169,9 +169,17 @@ pub struct Worker {
     /// The chat memory root sessions share (`<agent-dir>/chat`), opened at
     /// the first root create.
     chat_memory: tokio::sync::OnceCell<eukhe_core::memory::Memory>,
+    /// The create-config faux script's models, built at the first open:
+    /// every session this worker opens (create, replacements) consumes the
+    /// one script in order.
+    scripted_models: std::sync::OnceLock<durable_host::ScriptedModels>,
     /// The RLM child host (supervisor-backed), built once on first use.
     pub(crate) rlm_children:
         std::sync::OnceLock<std::sync::Arc<crate::rlm_children::SupervisorChildSessions>>,
+    /// This session's own summary as the kernel messaging controllers
+    /// read it (the sender identity block and the family edges),
+    /// published at every create and rename.
+    pub(crate) own_summary: Arc<Mutex<Option<Value>>>,
     /// The daemon model-allowlist refusal telemetry (`model refused`): one
     /// client per worker, deduplicated per (surface, selector).
     pub(crate) model_refusal_telemetry: Arc<crate::model_allowlist::ModelRefusalTelemetry>,
@@ -333,7 +341,9 @@ impl Worker {
             replacement_gate: tokio::sync::Mutex::new(()),
             rename_gate: tokio::sync::Mutex::new(()),
             chat_memory: tokio::sync::OnceCell::new(),
+            scripted_models: std::sync::OnceLock::new(),
             rlm_children: std::sync::OnceLock::new(),
+            own_summary: Arc::new(Mutex::new(None)),
             model_refusal_telemetry,
         }
     }

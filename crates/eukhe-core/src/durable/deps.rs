@@ -148,6 +148,14 @@ pub type SummaryDeltaSink = Arc<dyn Fn(&str) + Send + Sync>;
 pub type LateAgentMessageSink =
     Arc<dyn Fn(&str, crate::kernel::shared::KernelSentAgentMessage) + Send + Sync>;
 
+/// An MCP login surface: the UI the OAuth flow drives and its HTTP client
+/// (see [`crate::mcp::wire_begin_login`]).
+#[derive(Clone)]
+pub struct McpLogin {
+    pub ui: Arc<dyn crate::mcp::McpLoginUi>,
+    pub http: Arc<dyn crate::mcp::OAuthHttp>,
+}
+
 /// What an eukhe session opens with.
 #[derive(Clone)]
 pub struct SessionConfig {
@@ -173,6 +181,11 @@ pub struct SessionConfig {
     pub models: Option<Models>,
     /// Shared MCP manager (the daemon worker's); `None` builds one.
     pub mcp: Option<Arc<Mutex<crate::mcp::McpManager>>>,
+    /// The interactive login behind the session MCP manager's
+    /// `mcp.begin_login` host request (the daemon worker's browser login);
+    /// `None` leaves the request unregistered (TS registers it only when a
+    /// login is wired).
+    pub mcp_login: Option<McpLogin>,
     /// Harness clock (ms since the epoch); `None` uses the system clock.
     pub now: Option<Clock>,
     /// Turn-wait notifications (`OptChat` root-turn lease).
@@ -189,6 +202,12 @@ pub struct SessionConfig {
     /// Late kernel agent messages (the daemon's session event); `None`
     /// drops them.
     pub late_agent_message: Option<LateAgentMessageSink>,
+    /// Boot the main conversation's Python kernel in the background at open
+    /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`, the
+    /// daemon's sessions): honored for top-level sessions only (the TS
+    /// `rlmDepth === 0` gate), so subagents keep the lazy first-call start.
+    /// A resumed conversation with a namespace snapshot prewarms regardless.
+    pub prewarm_kernel: bool,
 }
 
 impl SessionConfig {
@@ -214,11 +233,13 @@ impl SessionConfig {
             prompt: PromptConfig::default(),
             models: None,
             mcp: None,
+            mcp_login: None,
             now: None,
             turn_wait: None,
             cron: None,
             extra_host_handlers: None,
             late_agent_message: None,
+            prewarm_kernel: false,
         }
     }
 }
@@ -320,6 +341,9 @@ impl HostRequestRegistry {
 pub struct OpenedSession {
     pub harness: Harness,
     pub root: Conversation,
+    /// The user-facing conversation at open (the root unless a fork or tree
+    /// move made another conversation the main).
+    pub main: Conversation,
     pub deps: Arc<HostDeps>,
 }
 
@@ -362,6 +386,8 @@ pub struct HostDeps {
     pub cron: Option<KernelCronWiring>,
     pub extra_host_handlers: Option<HostRequestHandlers>,
     pub late_agent_message: Option<LateAgentMessageSink>,
+    /// [`SessionConfig::prewarm_kernel`].
+    pub prewarm_kernel: bool,
     pub harness: HarnessCell,
     pub host_requests: HostRequestRegistry,
     services: Mutex<Vec<ServiceStart>>,
@@ -420,6 +446,7 @@ impl HostDeps {
             cron: config.cron.clone(),
             extra_host_handlers: config.extra_host_handlers.clone(),
             late_agent_message: config.late_agent_message.clone(),
+            prewarm_kernel: config.prewarm_kernel,
             harness: HarnessCell::default(),
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),

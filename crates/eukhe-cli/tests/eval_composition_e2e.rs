@@ -30,6 +30,11 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
+#[path = "support/durable_store.rs"]
+mod durable_store;
+
+use durable_store::{read_transcript, session_dirs, Transcript};
+
 fn isolated_home() -> tempfile::TempDir {
     tempfile::TempDir::new().unwrap()
 }
@@ -105,27 +110,22 @@ fn always_failing_verifier(home: &Path) -> PathBuf {
     script
 }
 
+/// The durable session storages the run left (`<sessions>/<id>/`).
 fn session_files(home: &Path) -> Vec<PathBuf> {
-    let dir = home.join(".eukhe/sessions");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-                .collect()
-        })
-        .unwrap_or_default();
-    files.sort();
-    files
+    session_dirs(&home.join(".eukhe/sessions"))
 }
 
-fn read_entries(path: &Path) -> Vec<Value> {
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| serde_json::from_str(line).unwrap())
+/// Whether the stored session holds an `autonomous_status` row.
+fn has_autonomous_status_row(transcript: &Transcript) -> bool {
+    !transcript.custom_rows("autonomous_status").is_empty()
+}
+
+/// The stored user prompts' texts, in order.
+fn durable_user_texts(transcript: &Transcript) -> Vec<String> {
+    transcript
+        .of_kind("pi.user")
+        .into_iter()
+        .filter_map(|entry| entry["model"].get(0).map(text_of))
         .collect()
 }
 
@@ -233,9 +233,11 @@ fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
         .count();
     assert_eq!(agent_ends, 1, "one run for the whole loop: {events:?}");
     assert_eq!(events.last().unwrap()["type"], "agent_end");
-    // The in-run ordering (the TS frame order): the continuation's user row
-    // pair is preceded by the continuation turn's `turn_start`, which
-    // follows the settled turn's `turn_end`.
+    // The in-run ordering, as pi-durable commits it: the `onYield`
+    // continuation's user entry lands in the settled answer's own commit
+    // (`generation/round.rs` `answer`), so its pair follows the answer's
+    // `message_end` and precedes that turn's `turn_end`; the continuation
+    // turn's `turn_start` follows with no run boundary between.
     let continuation_index = events
         .iter()
         .position(|event| {
@@ -244,36 +246,42 @@ fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
                 && text_of(&event["message"]).starts_with("[autonomous-continuation: gate-failed]")
         })
         .expect("the continuation's wire pair");
-    let preceding: Vec<&str> = events[..continuation_index]
+    let around: Vec<&str> = events[continuation_index - 2..=continuation_index + 2]
         .iter()
         .filter_map(|event| event.get("type").and_then(Value::as_str))
         .collect();
     assert_eq!(
-        preceding.iter().rev().take(3).copied().collect::<Vec<_>>(),
-        vec!["message_start", "turn_start", "turn_end"],
-        "turn_end -> turn_start -> the continuation row, events: {events:?}"
+        around,
+        vec![
+            "message_end",
+            "message_start",
+            "message_end",
+            "turn_end",
+            "turn_start"
+        ],
+        "the answer -> the continuation row -> turn_end -> turn_start, events: {events:?}"
+    );
+    assert_eq!(
+        text_of(&events[continuation_index - 2]["message"]),
+        "first attempt",
+        "the continuation follows the settled answer"
     );
 
     // The durable session rows: the continuation is a user entry, the stop
     // wrote no custom entry.
     let files = session_files(home.path());
-    assert_eq!(files.len(), 1, "one session file, got {files:?}");
-    let entries = read_entries(&files[0]);
-    let durable_continuations: Vec<&Value> = entries
+    assert_eq!(files.len(), 1, "one session storage, got {files:?}");
+    let transcript = read_transcript(&files[0]);
+    let users = durable_user_texts(&transcript);
+    let durable_continuations = users
         .iter()
-        .filter(|entry| {
-            entry["type"] == "message"
-                && entry["message"]["role"] == "user"
-                && text_of(&entry["message"]).starts_with("[autonomous-continuation: gate-failed]")
-        })
-        .collect();
-    assert_eq!(durable_continuations.len(), 1, "entries: {entries:?}");
+        .filter(|text| text.starts_with("[autonomous-continuation: gate-failed]"))
+        .count();
+    assert_eq!(durable_continuations, 1, "user entries: {users:?}");
     assert!(
-        !entries
-            .iter()
-            .any(|entry| entry["type"] == "custom_message"
-                && entry["customType"] == "autonomous_status"),
-        "entries: {entries:?}"
+        !has_autonomous_status_row(&transcript),
+        "entries: {:?}",
+        transcript.entries
     );
 }
 
@@ -325,13 +333,11 @@ fn verifier_gate_failure_exhausts_retries_and_exits_one() {
         "events: {events:?}"
     );
     let files = session_files(home.path());
-    let entries = read_entries(&files[0]);
+    let transcript = read_transcript(&files[0]);
     assert!(
-        !entries
-            .iter()
-            .any(|entry| entry["type"] == "custom_message"
-                && entry["customType"] == "autonomous_status"),
-        "entries: {entries:?}"
+        !has_autonomous_status_row(&transcript),
+        "entries: {:?}",
+        transcript.entries
     );
 }
 
@@ -360,21 +366,18 @@ fn text_mode_verifier_pass_prints_the_final_answer() {
     // The stop wrote no row (the TS shape); the continuation is the only
     // autonomous surface in the store.
     let files = session_files(home.path());
-    let entries = read_entries(&files[0]);
+    let transcript = read_transcript(&files[0]);
     assert!(
-        !entries
-            .iter()
-            .any(|entry| entry["type"] == "custom_message"
-                && entry["customType"] == "autonomous_status"),
-        "entries: {entries:?}"
+        !has_autonomous_status_row(&transcript),
+        "entries: {:?}",
+        transcript.entries
     );
+    let users = durable_user_texts(&transcript);
     assert!(
-        entries.iter().any(|entry| {
-            entry["type"] == "message"
-                && entry["message"]["role"] == "user"
-                && text_of(&entry["message"]).starts_with("[autonomous-continuation: gate-failed]")
-        }),
-        "entries: {entries:?}"
+        users
+            .iter()
+            .any(|text| text.starts_with("[autonomous-continuation: gate-failed]")),
+        "user entries: {users:?}"
     );
 }
 
@@ -405,21 +408,18 @@ fn autonomous_limit_without_gates_exits_one_without_a_row() {
         "stderr: {stderr}"
     );
     let files = session_files(home.path());
-    let entries = read_entries(&files[0]);
+    let transcript = read_transcript(&files[0]);
     assert!(
-        !entries
-            .iter()
-            .any(|entry| entry["type"] == "custom_message"
-                && entry["customType"] == "autonomous_status"),
-        "entries: {entries:?}"
+        !has_autonomous_status_row(&transcript),
+        "entries: {:?}",
+        transcript.entries
     );
+    let users = durable_user_texts(&transcript);
     assert!(
-        entries.iter().any(|entry| {
-            entry["type"] == "message"
-                && entry["message"]["role"] == "user"
-                && text_of(&entry["message"]).starts_with("[autonomous-continuation]")
-        }),
-        "entries: {entries:?}"
+        users
+            .iter()
+            .any(|text| text.starts_with("[autonomous-continuation]")),
+        "user entries: {users:?}"
     );
 }
 
@@ -434,12 +434,10 @@ fn plain_print_run_ignores_no_autonomous_flags() {
     assert_eq!(code, 0, "stderr: {stderr}");
     assert_eq!(stdout, "single answer\n");
     let files = session_files(home.path());
-    let entries = read_entries(&files[0]);
+    let transcript = read_transcript(&files[0]);
     assert!(
-        !entries
-            .iter()
-            .any(|entry| entry["type"] == "custom_message"
-                && entry["customType"] == "autonomous_status"),
-        "entries: {entries:?}"
+        !has_autonomous_status_row(&transcript),
+        "entries: {:?}",
+        transcript.entries
     );
 }

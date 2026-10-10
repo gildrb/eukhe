@@ -93,6 +93,15 @@ mod info;
 // The persisted scan-state sidecar.
 mod info_sidecar;
 
+// The durable-storage rows (`<sessions_dir>/<id>/`): the catalog's
+// SessionInfo read through read-only storage views.
+mod durable_info;
+
+pub(crate) use durable_info::{
+    block_on_storage, durable_storage_of, is_durable_storage, read_durable_session_info,
+    storage_modified,
+};
+
 pub(crate) use info::read_session_info_from;
 #[cfg(test)]
 use info::{

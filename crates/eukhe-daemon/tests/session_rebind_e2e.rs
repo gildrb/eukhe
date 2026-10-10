@@ -188,7 +188,9 @@ impl Client {
             if line["type"] == "session_event" {
                 match line["event"]["type"].as_str() {
                     Some("message_end") => {
-                        final_text = line["event"]["message"]["content"]
+                        // pi-ai assistant content is a block array (the old
+                        // scripted engine emitted a plain string).
+                        final_text = line["event"]["message"]["content"][0]["text"]
                             .as_str()
                             .unwrap_or_default()
                             .to_string();

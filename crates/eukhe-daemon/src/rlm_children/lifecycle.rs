@@ -4,8 +4,8 @@
 use super::{
     anyhow, compact_rlm_text, create_rlm_child_failure_message, create_rlm_child_terminal_notice,
     json, now_ms, Arc, ChildCloseReason, ChildRecord, Context, CustomMessage, DaemonCommand,
-    DaemonSessionLifecycle, Duration, Map, Mutex, ParentIdentity, Path, PromptInput, Result,
-    RlmChildTerminalNotice, SupervisorChildSessionsInner, Value, CREATE_TIMEOUT_MS,
+    DaemonSessionLifecycle, Duration, Map, Mutex, ParentIdentity, Path, PathBuf, PromptInput,
+    Result, RlmChildTerminalNotice, SupervisorChildSessionsInner, Value, CREATE_TIMEOUT_MS,
     IDLE_WAIT_GRACE_MS, KILL_TIMEOUT_MS, NOTICE_DELIVERY_TIMEOUT_MS, PROMPT_TIMEOUT_MS,
     RUNTIME_METADATA_PROMPT_MAX, STATE_TIMEOUT_MS, WATCH_MAX_UNREACHABLE_POLLS,
     WATCH_POLL_INTERVAL_MS, WATCH_SETTLE_GRACE_MS, WATCH_WAIT_SLICE_MS,
@@ -490,23 +490,7 @@ impl SupervisorChildSessionsInner {
                         .then(|| (record.session_dir.clone(), record.rlm_child_id.clone()))
                 };
                 if let Some((session_dir, child_id)) = completed {
-                    if let Err(error) = tokio::task::spawn_blocking(move || {
-                        let Some(mut display) =
-                            crate::rlm_ledger::read_rlm_subagent_display(Path::new(&session_dir))
-                        else {
-                            return Ok(());
-                        };
-                        if display.child_id != child_id || display.status != "running" {
-                            return Ok(());
-                        }
-                        display.status = "completed".to_string();
-                        crate::rlm_ledger::write_rlm_subagent_display(&display).map(|_| ())
-                    })
-                    .await
-                    .unwrap_or_else(|error| Err(anyhow!(error)))
-                    {
-                        eprintln!("eukhe-daemon: RLM child display completion failed: {error:#}");
-                    }
+                    complete_child_display(PathBuf::from(session_dir), child_id).await;
                 }
                 self.deliver_settle_notice(record).await;
                 // A settled child releases an owed goal continuation (TS
@@ -719,6 +703,30 @@ impl SupervisorChildSessionsInner {
                 "eukhe-daemon: RLM child terminal notice was not delivered to the parent session: {error:#}"
             );
         }
+    }
+}
+
+/// Complete a settled child's display entry (TS
+/// `completeRlmSubagentRuntime`): `rlm-subagent.json` in the per-child
+/// `session_dir` flips from `running` to `completed`, so a restarted parent
+/// relists the child as completed rather than interrupted. Only a
+/// successful run completes it; an entry naming another child or already
+/// past `running` is left alone. Failures are logged, never the settle's.
+pub(super) async fn complete_child_display(session_dir: PathBuf, child_id: String) {
+    let completed = tokio::task::spawn_blocking(move || {
+        let Some(mut display) = crate::rlm_ledger::read_rlm_subagent_display(&session_dir) else {
+            return Ok(());
+        };
+        if display.child_id != child_id || display.status != "running" {
+            return Ok(());
+        }
+        display.status = "completed".to_string();
+        crate::rlm_ledger::write_rlm_subagent_display(&display).map(|_| ())
+    })
+    .await
+    .unwrap_or_else(|error| Err(anyhow!(error)));
+    if let Err(error) = completed {
+        eprintln!("eukhe-daemon: RLM child display completion failed: {error:#}");
     }
 }
 

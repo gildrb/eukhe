@@ -1,12 +1,13 @@
 //! End-to-end verifier for the multi-steer tool-boundary batching (the
 //! product default, Kevin's spec): a long multi-tool-call turn parks
 //! several steering messages mid-run, and at the next tool-call boundary
-//! ALL of them co-deliver as ONE batched turn — one delivery
-//! `agent_start`, every steer row in lane order, ONE assistant reply
-//! addressing the whole batch — exactly like the abort path's armed
-//! batch (`abort_and_send_queued`, which stays untouched). The TS
-//! product's default (`steeringMode: "one-at-a-time"`) delivers one
-//! steer per boundary; the batched-at-the-boundary default is the
+//! ALL of them co-deliver as ONE batch — every steer row in lane order,
+//! ONE assistant reply addressing the whole batch (on the durable harness
+//! the batch joins the running run at that boundary) — exactly like the
+//! abort path's armed batch (`abort_and_send_queued`, which stays
+//! untouched). The TS product's default
+//! (`steeringMode: "one-at-a-time"`) delivers one steer per boundary; the
+//! batched-at-the-boundary default is the
 //! deliberate divergence (Kevin 2026-09-23: "if we have many messages in
 //! the steer queue, then ALL of them should be sent after the next tool
 //! call"), with "one-at-a-time" still selectable through the same
@@ -353,25 +354,39 @@ fn multi_steer_parked_mid_run_co_delivers_as_one_batched_turn() {
     }
     client.drain_events(Duration::from_secs(2));
 
-    // The tool boundary ended the long turn (the queued steer owns the
-    // stop hook) and the parked prefix delivered: the delivery window is
-    // everything after the long turn's first agent_end.
+    // Adapted to pi-durable: the tool boundary places the parked steers
+    // into the RUNNING run (its post-tools boundary; spec §6), where the
+    // old engine ended the long turn there and ran the batch as a new
+    // turn. So the long turn and the steer batch share the first run, and
+    // the follow-up (placed only at the run's final boundary) runs as its
+    // own: two agent_starts in all (not one per steer — the drip-feed),
+    // the steer rows before the first agent_end, the follow-up's row
+    // inside the second run.
     let types = event_types(&client.events);
+    let agent_starts: Vec<usize> = types
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| *t == "agent_start")
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(
+        agent_starts.len(),
+        2,
+        "the long run carrying the steer batch, then the follow-up's own run: {types:?}"
+    );
     let first_agent_end = types
         .iter()
         .position(|t| t == "agent_end")
-        .expect("the long turn settled");
-    let delivery = &types[first_agent_end + 1..];
-
-    // THE SPEC: one delivery agent_start for the whole batch (not one
-    // per steer — the drip-feed), then the follow-up's own turn.
-    let agent_starts: usize = delivery
-        .iter()
-        .filter(|t| *t == &"agent_start".to_string())
-        .count();
-    assert_eq!(
-        agent_starts, 2,
-        "the steer batch runs as ONE turn, the follow-up as its own: {delivery:?}"
+        .expect("the long run settled");
+    let steer_three_at =
+        row_index(&client.events, "user", "steer three").expect("steer three delivered");
+    let follow_up_row =
+        row_index(&client.events, "user", "follow up last").expect("the follow-up delivered");
+    assert!(
+        steer_three_at < first_agent_end
+            && first_agent_end < agent_starts[1]
+            && agent_starts[1] < follow_up_row,
+        "the batch rides the long run, the follow-up opens its own: {types:?}"
     );
 
     // The three steers co-delivered as consecutive user rows of the one
@@ -422,27 +437,36 @@ fn event_types(events: &[Value]) -> Vec<String> {
         .collect()
 }
 
+/// The (role, text) of one `message_end` row.
+fn row_of(event: &Value) -> Option<(String, String)> {
+    if event.get("type").and_then(Value::as_str) != Some("message_end") {
+        return None;
+    }
+    let message = event.get("message")?;
+    let role = message.get("role").and_then(Value::as_str)?;
+    let text = match message.get("content") {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
+    };
+    Some((role.to_string(), text))
+}
+
 /// The (role, text) of every `message_end` row, in wire order — the
 /// delivered-message trace (user rows and assistant replies).
 fn event_rows(events: &[Value]) -> Vec<(String, String)> {
-    events
-        .iter()
-        .filter(|event| event.get("type").and_then(Value::as_str) == Some("message_end"))
-        .filter_map(|event| {
-            let message = event.get("message")?;
-            let role = message.get("role").and_then(Value::as_str)?;
-            let text = match message.get("content") {
-                Some(Value::String(text)) => text.clone(),
-                Some(Value::Array(blocks)) => blocks
-                    .iter()
-                    .filter_map(|block| block.get("text").and_then(Value::as_str))
-                    .collect::<Vec<_>>()
-                    .join(""),
-                _ => String::new(),
-            };
-            Some((role.to_string(), text))
-        })
-        .collect()
+    events.iter().filter_map(row_of).collect()
+}
+
+/// The event index of the `message_end` row with this role and text.
+fn row_index(events: &[Value], role: &str, text: &str) -> Option<usize> {
+    events.iter().position(|event| {
+        row_of(event).is_some_and(|(row_role, row_text)| row_role == role && row_text == text)
+    })
 }
 
 /// The flat text of every delivered user/assistant row, in wire order —

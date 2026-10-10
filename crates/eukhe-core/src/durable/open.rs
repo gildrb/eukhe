@@ -165,7 +165,11 @@ impl Drop for EukheSession {
 /// Harness open fails.
 pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSession, OpenError> {
     let (storage, storage_dir) = open_storage(&config, cx).await?;
-    let settings = Arc::new(EukheSettings::new(&config.cwd, &config.agent_dir));
+    let settings = Arc::new(if config.memory.is_some() && config.role.is_root() {
+        EukheSettings::chat_memory_root(&config.cwd, &config.agent_dir)
+    } else {
+        EukheSettings::new(&config.cwd, &config.agent_dir)
+    });
     let manager = settings.manager();
     let models = match &config.models {
         Some(models) => models.clone(),
@@ -233,6 +237,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     let opened = async {
         let root = open_root(&harness, &config, &models, &manager, cx).await?;
         let main = main_conversation(&harness, cx).await?;
+        adopt_session_model(&main, &config, &models, &manager, cx).await?;
         Ok::<_, OpenError>((root, main))
     };
     let (root, main) = match opened.await {
@@ -255,6 +260,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         let started = start(OpenedSession {
             harness: harness.clone(),
             root: root.clone(),
+            main: session.main(),
             deps: Arc::clone(&deps),
         })
         .await;
@@ -379,6 +385,7 @@ async fn load_session_resources(
     let agent_dir = config.agent_dir.clone();
     let prompt = config.prompt.clone();
     let shared_mcp = config.mcp.clone();
+    let mcp_login = config.mcp_login.clone();
     tokio::task::spawn_blocking(move || {
         let (skill_overrides, persistent_servers, built_mcp) =
             crate::mcp::McpManager::prompt_gating(user_servers, &agent_dir);
@@ -410,10 +417,20 @@ async fn load_session_resources(
                     path: None,
                 });
         }
+        // A shared manager comes wired by its embedder; the session's own
+        // gets the configured login before the kernel registers its
+        // `mcp.*` host handlers.
+        let mcp = shared_mcp.unwrap_or_else(|| {
+            let built = Arc::new(Mutex::new(built_mcp));
+            if let Some(login) = mcp_login {
+                crate::mcp::wire_begin_login(&built, login.ui, login.http);
+            }
+            built
+        });
         Ok(SessionResources {
             resources,
             generic_mcp_servers,
-            mcp: shared_mcp.unwrap_or_else(|| Arc::new(Mutex::new(built_mcp))),
+            mcp,
             python_skills: kernel_skills.admitted,
         })
     })
@@ -425,7 +442,11 @@ async fn load_session_resources(
 
 /// The root conversation; a new one starts with the requested (or settings
 /// default) model and thinking level at the session's cwd. An existing root
-/// keeps its agent.
+/// keeps its agent, except that a root without a model (a legacy session
+/// imported without a `model_change`) takes the startup model, like the TS
+/// `createAgentSession` falls back to `findInitialModel` when the session
+/// restores none; its thinking level (the imported one, else the default)
+/// is kept, clamped to that model.
 async fn open_root(
     harness: &Harness,
     config: &SessionConfig,
@@ -434,6 +455,24 @@ async fn open_root(
     cx: &Context,
 ) -> Result<Conversation, OpenError> {
     if let Some(root) = harness.conversation(ROOT_CONVERSATION_ID, cx).await? {
+        let agent = root.agent(cx).await?;
+        if agent.model.is_none() {
+            let thinking = config.thinking.unwrap_or(agent.thinking_level);
+            let resolved =
+                resolve_session_model(models, manager, config.model.as_ref(), Some(thinking), cx)
+                    .await?;
+            if let Some(resolved) = resolved {
+                root.configure(
+                    AgentChange {
+                        model: FieldChange::Set(resolved.model),
+                        thinking_level: FieldChange::Set(resolved.thinking),
+                        ..AgentChange::default()
+                    },
+                    cx,
+                )
+                .await?;
+            }
+        }
         return Ok(root);
     }
     let resolved =
@@ -462,6 +501,45 @@ async fn open_root(
             cx,
         )
         .await?)
+}
+
+/// An existing main conversation without a model (a legacy file that never
+/// recorded one) takes the session model a new root would start with (TS
+/// resume: a session without a saved model falls back to the startup
+/// model). A model that does not resolve leaves it unset (logged): its run
+/// reports `no_model`, as before the fallback.
+///
+/// # Errors
+///
+/// Reading or configuring the conversation's agent fails.
+async fn adopt_session_model(
+    main: &Conversation,
+    config: &SessionConfig,
+    models: &eukhe_pi_ai::models::Models,
+    manager: &SettingsManager,
+    cx: &Context,
+) -> Result<(), OpenError> {
+    if main.agent(cx).await?.model.is_some() {
+        return Ok(());
+    }
+    match resolve_session_model(models, manager, config.model.as_ref(), None, cx).await {
+        Ok(Some(resolved)) => {
+            main.configure(
+                AgentChange {
+                    model: FieldChange::Set(resolved.model),
+                    ..AgentChange::default()
+                },
+                cx,
+            )
+            .await?;
+        }
+        Ok(None) => {}
+        Err(ModelsError::Cancelled) => return Err(ModelsError::Cancelled.into()),
+        Err(error) => {
+            tracing::warn!(%error, "the session has no model and none resolves");
+        }
+    }
+    Ok(())
 }
 
 async fn close_after_failure(harness: &Harness, cx: &Context) {

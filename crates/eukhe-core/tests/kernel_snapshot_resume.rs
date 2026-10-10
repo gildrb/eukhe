@@ -56,7 +56,20 @@ static FAUX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The kernel Python with eukhe-runtime installed (see
 /// `kernel_lifecycle.rs`); skipped with a note when absent.
+///
+/// The interpreter is handed to the engine as `EUKHE_KERNEL_PYTHON` (once,
+/// before any test of this binary touches a kernel): without it the
+/// engine's managed-venv path re-derives the venv from the runtime source,
+/// which a test binary built outside the source checkout
+/// (`CARGO_TARGET_DIR` elsewhere) cannot find.
 fn kernel_python() -> Option<PathBuf> {
+    static EXPORT: std::sync::Once = std::sync::Once::new();
+    let python = find_kernel_python()?;
+    EXPORT.call_once(|| std::env::set_var("EUKHE_KERNEL_PYTHON", &python));
+    Some(python)
+}
+
+fn find_kernel_python() -> Option<PathBuf> {
     if let Some(explicit) = std::env::var_os("EUKHE_CORE_KERNEL_PYTHON") {
         let explicit = PathBuf::from(explicit);
         assert!(

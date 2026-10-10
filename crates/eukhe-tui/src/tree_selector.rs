@@ -104,8 +104,8 @@ impl TreeSelector {
 
     /// Re-open helper (TS re-shows the selector with the same selection
     /// after a cancelled branch summary): move the cursor to `entry_id`.
-    pub fn set_initial_selection(&mut self, entry_id: Option<&str>) {
-        self.list.move_selection_to(entry_id);
+    pub fn set_initial_selection(&mut self, entry_id: &str) {
+        self.list.move_selection_to(Some(entry_id));
     }
 
     /// Apply a saved label locally (TS `updateNodeLabel`).

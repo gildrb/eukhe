@@ -38,9 +38,13 @@ use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, TypedEntryDraft};
+use eukhe_pi_ai::api::lazy::lazy_stream;
 use eukhe_pi_ai::api::{StreamFn, StreamSimpleFn};
+use eukhe_pi_ai::auth::AuthResolutionOverrides;
 use eukhe_pi_ai::models::Models;
-use eukhe_pi_ai::types::SimpleStreamOptions;
+use eukhe_pi_ai::types::{
+    ProviderRequestOptions, ProviderStreamOptions, SimpleStreamOptions, StreamOptions,
+};
 use eukhe_pi_ai::utils::event_stream::{
     create_assistant_message_event_stream, AssistantMessageEventStream,
 };
@@ -357,8 +361,11 @@ async fn run_request(
     }
 }
 
-/// The original stream function of `model`'s provider, options-free: a
-/// failover re-dispatch builds fresh options per provider contract (the
+/// The original stream function of `model`'s provider with the sibling's
+/// own auth: a failover re-dispatch resolves the candidate provider's
+/// credentials through the collection (the primary's request options carry
+/// the primary's key, and the original bypasses the collection's auth
+/// merge) and otherwise builds fresh options per provider contract (the
 /// provider-neutral defaults; API-specific keys ride `extra` on the full
 /// seam, which the sibling provider would not honor identically anyway).
 fn original_dispatch(inner: &Inner, model: &Model, simple: bool) -> OriginalDispatch {
@@ -368,19 +375,53 @@ fn original_dispatch(inner: &Inner, model: &Model, simple: bool) -> OriginalDisp
         .unwrap_or_else(poisoned)
         .get(&model.provider)
         .cloned();
-    Arc::new(
-        move |model: &Model, context: &TranscriptContext| match &original {
-            Some((stream, stream_simple)) if simple => {
-                stream_simple(model, context, SimpleStreamOptions::default())
+    let models = inner.models.clone();
+    Arc::new(move |model: &Model, context: &TranscriptContext| {
+        let Some((stream, stream_simple)) = original.clone() else {
+            return create_assistant_message_event_stream();
+        };
+        let models = models.clone();
+        let (mut request_model, context) = (model.clone(), context.clone());
+        lazy_stream(model, async move {
+            let mut request = ProviderRequestOptions::default();
+            // An unconfigured provider keeps default options: the provider
+            // itself surfaces its missing-credential failure.
+            if let Some(resolution) = models
+                .get_auth_for_model(&request_model, AuthResolutionOverrides::default())
+                .await?
+            {
+                if let Some(base_url) = resolution.auth.base_url.filter(|url| !url.is_empty()) {
+                    request_model.base_url = base_url;
+                }
+                request.api_key = resolution.auth.api_key;
+                request.headers = resolution.auth.headers;
+                request.env = resolution.env;
             }
-            Some((stream, _)) => stream(
-                model,
-                context,
-                eukhe_pi_ai::types::ProviderStreamOptions::default(),
-            ),
-            None => create_assistant_message_event_stream(),
-        },
-    )
+            let options = StreamOptions {
+                request,
+                ..StreamOptions::default()
+            };
+            Ok(if simple {
+                stream_simple(
+                    &request_model,
+                    &context,
+                    SimpleStreamOptions {
+                        stream: options,
+                        ..SimpleStreamOptions::default()
+                    },
+                )
+            } else {
+                stream(
+                    &request_model,
+                    &context,
+                    ProviderStreamOptions {
+                        stream: options,
+                        ..ProviderStreamOptions::default()
+                    },
+                )
+            })
+        })
+    })
 }
 
 /// Terminal failure: the quota-park seam, then the failure surfaces.

@@ -42,6 +42,22 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+// The durable session storage reader the CLI e2e suites share.
+#[path = "../../eukhe-cli/tests/support/durable_store.rs"]
+mod durable_store;
+
+/// The text of a stored custom row's content (a string or text blocks).
+fn row_text(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|block| block["text"].as_str())
+            .collect(),
+        _ => String::new(),
+    }
+}
+
 /// The compaction summarizer request marker (the fixed summarization
 /// system prompt rides the request's first message).
 const SUMMARIZER_MARKER: &str = "context summarization assistant";
@@ -64,8 +80,7 @@ impl Drop for Supervisor {
 /// request carrying the summarization prompt gets a 500 (the forced
 /// failed compaction); every other request is answered with the fixed
 /// reply. The per-request usage list makes the second turn's usage cross
-/// the compaction threshold (the f14-auto battery shape: 126010 tokens
-/// against a 500-token headroom).
+/// the compaction threshold (127910 tokens against a 500-token headroom).
 struct CompactionMock {
     requests: Arc<Mutex<Vec<Value>>>,
     fail_summarizer: Arc<AtomicBool>,
@@ -100,10 +115,6 @@ impl CompactionMock {
     fn url(&self) -> String {
         format!("http://127.0.0.1:{}/v1", self.port)
     }
-
-    fn request_count(&self) -> usize {
-        self.requests.lock().expect("mock lock").len()
-    }
 }
 
 fn chunk(delta: &Value, finish_reason: Option<&str>, usage: &Value) -> String {
@@ -129,10 +140,14 @@ fn small_usage() -> Value {
     })
 }
 
-/// The crossing turn's reported usage (the f14-auto battery shape).
+/// The crossing turn's reported usage. pi-durable compacts before a
+/// request once the context estimate exceeds `contextWindow -
+/// reserveTokens` (`127_500` here; no `4_096` estimate-error floor like
+/// the old engine's `119_808` ceiling), so the old f14-auto battery's
+/// `126_010` no longer crosses: `127_910` does.
 fn crossing_usage() -> Value {
     json!({
-        "prompt_tokens": 126_000, "completion_tokens": 10, "total_tokens": 126_010,
+        "prompt_tokens": 127_900, "completion_tokens": 10, "total_tokens": 127_910,
         "prompt_tokens_details": {"cached_tokens": 80},
     })
 }
@@ -354,6 +369,24 @@ impl Client {
         }
     }
 
+    /// Park broadcast events until one matches `probe`: the outcome row
+    /// lands after its compaction settles (the compaction observer appends
+    /// it), so the wait observes the event instead of a fixed drain.
+    fn wait_for_event(&mut self, budget: Duration, context: &str, probe: impl Fn(&Value) -> bool) {
+        let deadline = Instant::now() + budget;
+        loop {
+            self.drain_events(200);
+            if self.events.iter().any(&probe) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{context} never arrived; events: {:#?}",
+                self.events
+            );
+        }
+    }
+
     /// Read lines until the response for `id` arrives, parking broadcast
     /// events on the way.
     fn read_response(&mut self, id: &str) -> Value {
@@ -404,11 +437,10 @@ fn forced_failed_auto_compaction_records_the_durable_outcome_row() {
         .to_string(),
     )
     .expect("write models.json");
-    // The f14-auto battery settings shape: a tiny reserve (the 4_096
-    // estimate-error floor governs the headroom), so the combined
-    // input+output ceiling sits at 119_808 on the 128k window — the
-    // 126_010 crossing fires. A tiny keep-recent budget keeps the seeded
-    // turns summarizable.
+    // A tiny reserve: pi-durable's blocking threshold sits at 127_500 on
+    // the 128k window, so the 127_910 crossing fires before the next
+    // request. A tiny keep-recent budget keeps the seeded turns
+    // summarizable.
     std::fs::write(
         agent_dir.join("settings.json"),
         json!({ "compaction": {"enabled": true, "reserveTokens": 500, "keepRecentTokens": 10} })
@@ -458,10 +490,8 @@ fn forced_failed_auto_compaction_records_the_durable_outcome_row() {
     let seeded = client.read_response("p1");
     assert_eq!(seeded["success"], true, "seed prompt failed: {seeded}");
 
-    // The crossing turn reports 126010 tokens (over the 500-token
-    // headroom): the post-turn threshold check fires a compaction, and the
-    // mock fails its summarizer request.
-    mock.fail_summarizer.store(true, Ordering::SeqCst);
+    // The crossing turn reports 127910 tokens (over the 500-token
+    // headroom).
     client.send_command(
         "p2",
         &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "crossing turn"}),
@@ -471,16 +501,39 @@ fn forced_failed_auto_compaction_records_the_durable_outcome_row() {
         crossed["success"], true,
         "crossing prompt failed: {crossed}"
     );
-    let summarizer_index = 2; // turn 1, turn 2, then the compaction summarizer
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline && mock.request_count() <= summarizer_index {
-        std::thread::sleep(Duration::from_millis(50));
-    }
+
+    // pi-durable checks the threshold before each request, not at the
+    // settled crossing turn: the next prompt's preparation fires the
+    // blocking compaction, and the mock fails its summarizer request. The
+    // run then sends its request on the un-compacted context and answers.
+    mock.fail_summarizer.store(true, Ordering::SeqCst);
+    client.send_command(
+        "p3",
+        &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "compacting turn"}),
+    );
+    let compacting = client.read_response("p3");
+    assert_eq!(
+        compacting["success"], true,
+        "compacting prompt failed: {compacting}"
+    );
+    let summarizer_index = 2; // turn 1, turn 2, then turn 3's compaction summarizer
     assert!(
-        mock.request_count() > summarizer_index,
+        mock.requests
+            .lock()
+            .expect("mock lock")
+            .get(summarizer_index)
+            .is_some_and(is_summarizer_request),
         "the compaction summarizer request never arrived"
     );
-    client.drain_events(500);
+    client.wait_for_event(
+        Duration::from_mins(1),
+        "the failed threshold compaction_end",
+        |event| {
+            event["type"] == "compaction_end"
+                && event["reason"] == "threshold"
+                && event["errorMessage"].is_string()
+        },
+    );
 
     // The broadcast: the durable row's message pair, then the settled
     // compaction_end carrying the same failure message (TS
@@ -541,59 +594,48 @@ fn forced_failed_auto_compaction_records_the_durable_outcome_row() {
     assert_eq!(end_event["aborted"], false);
     assert_eq!(end_event["willRetry"], false);
 
-    // The durable session file carries the row (the TS
-    // appendCustomMessageEntryWithRollback shape: customType/content/
-    // display/details on a custom_message entry).
-    // The session file carries a session UUID, not the worker's active id.
-    let session_file = std::fs::read_dir(&session_dir)
-        .expect("list session dir")
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "jsonl")
-                && std::fs::read_to_string(path)
-                    .is_ok_and(|content| content.contains("compaction_outcome"))
-        })
-        .expect("the durable outcome row in the session file");
-    let persisted = std::fs::read_to_string(&session_file).expect("read session file");
-    let durable_row: Vec<&str> = persisted
-        .lines()
-        .filter(|line| line.contains("\"compaction_outcome\""))
-        .collect();
-    assert_eq!(durable_row.len(), 1, "exactly one durable outcome row");
-    let durable: Value = serde_json::from_str(durable_row[0]).expect("parse durable row");
-    assert_eq!(durable["type"], "custom_message");
-    assert_eq!(durable["customType"], "compaction_outcome");
-    assert_eq!(durable["content"], json!(failure_message));
+    // The durable session carries the row (an `eukhe.custom` entry with
+    // the TS appendCustomMessageEntryWithRollback fields: customType/
+    // content/display/details).
+    let dirs = durable_store::session_dirs(&session_dir);
+    assert_eq!(dirs.len(), 1, "one session storage: {dirs:?}");
+    let stored = durable_store::read_transcript(&dirs[0]);
+    let durable_rows = stored.custom_rows("compaction_outcome");
+    assert_eq!(durable_rows.len(), 1, "exactly one durable outcome row");
+    let durable = durable_rows[0];
+    assert_eq!(row_text(&durable["content"]), failure_message);
     assert_eq!(durable["display"], true);
     assert_eq!(
         durable["details"],
         json!({"reason": "threshold", "outcome": "failed"})
     );
 
-    // The next turn: recovery compaction succeeds (the mock serves the
-    // summarizer again), the turn runs on the rebuilt context, and the
-    // provider request NEVER contains the disclosure — the model-context
-    // exclusion that keeps the KV-cacheable prefix unaffected.
+    // The next turn runs, and no provider request after the failed
+    // compaction (the compacting turn's own request included) ever
+    // contains the disclosure — the model-context exclusion that keeps the
+    // KV-cacheable prefix unaffected.
     mock.fail_summarizer.store(false, Ordering::SeqCst);
-    let before_next = mock.request_count();
     client.send_command(
-        "p3",
+        "p4",
         &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "next turn"}),
     );
-    let next = client.read_response("p3");
+    let next = client.read_response("p4");
     assert_eq!(next["success"], true, "next prompt failed: {next}");
-    client.drain_events(500);
     let requests = mock.requests.lock().expect("mock lock").clone();
-    let next_turn_request = requests[before_next..]
+    let turn_requests: Vec<&Value> = requests[summarizer_index..]
         .iter()
-        .find(|body| !is_summarizer_request(body))
-        .expect("the next turn reached the provider")
-        .clone();
-    let serialized = serde_json::to_string(&next_turn_request).expect("serialize request");
+        .filter(|body| !is_summarizer_request(body))
+        .collect();
     assert!(
-        !serialized.contains("compaction_outcome") && !serialized.contains(failure_message),
-        "the disclosure never reaches the provider request"
+        turn_requests.len() >= 2,
+        "the compacting and next turns reached the provider: {}",
+        turn_requests.len()
     );
+    for request in turn_requests {
+        let serialized = serde_json::to_string(request).expect("serialize request");
+        assert!(
+            !serialized.contains("compaction_outcome") && !serialized.contains(failure_message),
+            "the disclosure never reaches the provider request"
+        );
+    }
 }

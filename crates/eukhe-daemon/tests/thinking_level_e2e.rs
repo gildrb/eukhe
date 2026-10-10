@@ -2,10 +2,10 @@
 //! daemon path: the `create` config's `thinking` flag (the TUI's
 //! `--thinking`) must reach the worker, clamp to the model's supported
 //! levels (`max` -> `high` for a reasoning model without xhigh/max maps),
-//! persist the effective level in the session JSONL, and apply it to every
-//! provider request — the hermetic reproduction of the owner's live
-//! `--thinking max` trial that previously recorded `off` and drew a
-//! provider 400 for the unsupported effort.
+//! persist the effective level in the session's durable `pi.agent`, and
+//! apply it to every provider request — the hermetic reproduction of the
+//! owner's live `--thinking max` trial that previously recorded `off` and
+//! drew a provider 400 for the unsupported effort.
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -39,6 +39,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::{read_main_transcript, SessionLocation};
 use serde_json::{json, Value};
 
 struct Supervisor {
@@ -375,44 +377,48 @@ impl Harness {
         done
     }
 
-    /// The persisted session JSONL entries.
-    fn session_entries(&self) -> Vec<Value> {
-        let files: Vec<PathBuf> = std::fs::read_dir(&self.session_dir)
+    /// The one durable session storage the create left
+    /// (`<sessions>/<id>/`, holding the main conversation's `main.jsonl`).
+    fn session_storage(&self) -> PathBuf {
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&self.session_dir)
             .expect("read session dir")
             .flatten()
             .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
+            .filter(|path| path.join("main.jsonl").is_file())
             .collect();
-        assert_eq!(files.len(), 1, "one session file, got {files:?}");
-        let text = std::fs::read_to_string(&files[0]).expect("read session file");
-        text.lines()
-            .map(|line| serde_json::from_str(line).expect("parse entry"))
-            .collect()
+        assert_eq!(dirs.len(), 1, "one session storage, got {dirs:?}");
+        dirs.remove(0)
     }
 
-    /// The recorded thinking level from the session's creation prefix.
+    /// The main conversation's stored `pi.agent` choices (model, thinking
+    /// level) as JSON.
+    fn persisted_agent(&self) -> Value {
+        let storage = SessionLocation::Durable(self.session_storage());
+        let transcript = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(read_main_transcript(&storage, &BACKGROUND_CONTEXT))
+            .expect("read the main transcript");
+        serde_json::to_value(&transcript.agent).expect("agent JSON")
+    }
+
+    /// The recorded thinking level of the session's agent.
     fn persisted_thinking_level(&self) -> String {
-        let entries = self.session_entries();
-        let level = entries
-            .iter()
-            .find(|entry| entry["type"] == "thinking_level_change")
-            .expect("thinking_level_change persisted");
-        level["thinkingLevel"]
+        let agent = self.persisted_agent();
+        agent["thinkingLevel"]
             .as_str()
-            .expect("level string")
+            .unwrap_or_else(|| panic!("thinking level persisted: {agent}"))
             .to_string()
     }
 
-    /// The persisted `model_change` pair.
-    fn persisted_model_change(&self) -> (String, String) {
-        let entries = self.session_entries();
-        let change = entries
-            .iter()
-            .find(|entry| entry["type"] == "model_change")
-            .expect("model_change persisted");
+    /// The recorded model of the session's agent.
+    fn persisted_model(&self) -> (String, String) {
+        let agent = self.persisted_agent();
+        let model = &agent["model"];
         (
-            change["provider"].as_str().expect("provider").to_string(),
-            change["modelId"].as_str().expect("modelId").to_string(),
+            model["provider"].as_str().expect("provider").to_string(),
+            model["modelId"].as_str().expect("modelId").to_string(),
         )
     }
 
@@ -470,11 +476,11 @@ fn interactive_thinking_max_clamps_to_effective_high_end_to_end() {
         harness.client.events
     );
 
-    // The session JSONL records the EFFECTIVE level (high, not the
+    // The session's agent records the EFFECTIVE level (high, not the
     // unsupported max, and not the old hardcoded off).
     assert_eq!(harness.persisted_thinking_level(), "high");
     assert_eq!(
-        harness.persisted_model_change(),
+        harness.persisted_model(),
         ("battery".to_string(), "mock-1".to_string())
     );
 
@@ -590,27 +596,23 @@ fn session_summaries_carry_the_thinking_level_for_both_session_kinds() {
         "the top-level summary carries the SetThinkingLevel level: {state}"
     );
 
-    // One prompt persists the durable rows (model_change + the new level).
+    // One prompt persists the durable rows (the model and the new level).
     let done = harness.prompt("p1", "persist the level");
     assert_eq!(done["success"], true, "turn failed: {done}");
 
     // A spawned subagent (the spawn task context carries its thinking
-    // level into the create): its summary carries it too.
-    let parent_info = {
-        let entries = harness.session_entries();
-        entries
-            .iter()
-            .find(|entry| entry["type"] == "session")
-            .expect("session header")
-            .clone()
-    };
-    let parent_session_id = parent_info["id"].as_str().expect("id").to_string();
-    let session_file = std::fs::read_dir(&harness.session_dir)
-        .expect("read session dir")
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-        .expect("session file");
+    // level into the create): its summary carries it too. The parent is
+    // the durable storage the top-level session reports.
+    let parent_session_id = state["data"]["sessionId"]
+        .as_str()
+        .expect("sessionId")
+        .to_string();
+    let session_file = PathBuf::from(state["data"]["sessionFile"].as_str().expect("sessionFile"));
+    assert_eq!(
+        session_file,
+        harness.session_storage(),
+        "the session file is its durable storage"
+    );
     let child_dir = harness.agent_dir.join("subagents");
     std::fs::create_dir_all(&child_dir).expect("child dir");
     harness.client.send_command(

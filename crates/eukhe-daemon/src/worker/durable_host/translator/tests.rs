@@ -274,6 +274,55 @@ fn a_run_opens_before_its_inputs_and_ends_with_its_messages() {
     assert_eq!(end["messages"], json!([user, answer]));
 }
 
+/// A run's end that starts the next run on a queued follow-up lists the
+/// placed input ahead of the ending run's `turn_end` / `run_end` (the
+/// durable entry order); on the wire the input opens the next run, and
+/// the ending run's `agent_end` keeps its own messages.
+#[test]
+fn a_handover_commit_opens_the_next_run_before_its_placed_input() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    let first = json!({ "role": "user", "content": "first", "timestamp": 2 });
+    translator.translate_batch(&[
+        event(json!({ "type": "message_start", "message": first })),
+        event(json!({ "type": "message_end", "entry": entry(4, "pi.user", Some(first.clone()), None) })),
+        event(json!({ "type": "run_start", "inputs": [1] })),
+        event(json!({ "type": "turn_start" })),
+    ]);
+    let answer = assistant(json!([{ "type": "text", "text": "hi" }]), "stop", 1);
+    let follow = json!({ "role": "user", "content": "follow", "timestamp": 6 });
+    let frames = translator.translate_batch(&[
+        event(json!({ "type": "message_end", "entry": entry(5, "pi.assistant", Some(answer.clone()), None) })),
+        event(json!({ "type": "message_start", "message": follow })),
+        event(json!({ "type": "message_end", "entry": entry(6, "pi.user", Some(follow.clone()), None) })),
+        event(json!({ "type": "turn_end" })),
+        event(json!({ "type": "run_end", "inputs": [1] })),
+        event(json!({ "type": "submission", "record": {
+            "id": 1, "conversationId": 1, "type": "input", "status": "done", "entry": 4, "answer": 5,
+        } })),
+        event(json!({ "type": "submission", "record": {
+            "id": 2, "conversationId": 1, "type": "input", "status": "placed", "entry": 6,
+        } })),
+        event(json!({ "type": "inbox_update", "items": [] })),
+        event(json!({ "type": "run_start", "inputs": [2] })),
+        event(json!({ "type": "turn_start" })),
+    ]);
+    assert_eq!(
+        types(&frames),
+        [
+            "message_start",
+            "message_end",
+            "turn_end",
+            "agent_end",
+            "agent_start",
+            "turn_start",
+            "message_start",
+            "message_end",
+        ]
+    );
+    assert_eq!(frames[3]["messages"], json!([first, answer]));
+    assert_eq!(frames[7]["message"], follow);
+}
+
 /// An input row (an `eukhe.custom` row with `input: true`) shows itself in
 /// the input's place: the user entry right after it emits no frames, and
 /// `agent_end` carries the row as the run's prompt row.
@@ -613,6 +662,75 @@ fn a_faulted_compaction_ends_with_its_failure() {
     );
 }
 
+/// An automatic compaction that ends without a summary holds its
+/// `compaction_end` until the observer's outcome row: the row's pair goes
+/// out first, then the end shaped by the row's outcome (TS
+/// `_endCompactionUnsuccessfully`).
+#[test]
+fn an_unsuccessful_automatic_compaction_ends_after_its_outcome_row() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    let outcome_row = |id: u64, content: &str, reason: &str, outcome: &str| {
+        let row = entry(
+            id,
+            "eukhe.custom",
+            None,
+            Some(
+                json!({ "customType": "compaction_outcome", "content": content,
+                         "display": true, "details": { "reason": reason, "outcome": outcome } }),
+            ),
+        );
+        event(json!({ "type": "entry_appended", "entry": row }))
+    };
+    for (task, reason) in [(9, "threshold"), (10, "overflow")] {
+        translator.translate(&event(json!({
+            "type": "compaction_start", "taskId": task, "reason": reason, "blocking": true,
+        })));
+        let frames = translator.translate(&event(json!({
+            "type": "compaction_end", "taskId": task, "reason": reason,
+        })));
+        assert!(frames.is_empty(), "held for the row: {frames:?}");
+    }
+    assert!(!translator.mirror().is_compacting());
+
+    let frames = translator.translate(&outcome_row(
+        5,
+        "Compaction cancelled",
+        "overflow",
+        "cancelled",
+    ));
+    assert_eq!(
+        types(&frames),
+        ["message_start", "message_end", "compaction_end"]
+    );
+    assert_eq!(
+        frames[2],
+        json!({ "type": "compaction_end", "reason": "overflow", "aborted": true, "willRetry": false })
+    );
+
+    let frames = translator.translate(&outcome_row(
+        6,
+        "Auto-compaction failed: boom",
+        "threshold",
+        "failed",
+    ));
+    assert_eq!(
+        frames[2],
+        json!({
+            "type": "compaction_end", "reason": "threshold", "aborted": false, "willRetry": false,
+            "errorMessage": "Auto-compaction failed: boom",
+        })
+    );
+
+    // With nothing held, a row is its pair alone.
+    let frames = translator.translate(&outcome_row(
+        7,
+        "Auto-compaction skipped: Already compacted",
+        "threshold",
+        "skipped",
+    ));
+    assert_eq!(types(&frames), ["message_start", "message_end"]);
+}
+
 #[test]
 fn turn_end_carries_a_generation_failure_of_its_turn() {
     let mut translator = translator(CoalesceMode::Immediate);
@@ -655,7 +773,15 @@ fn run_end_clears_the_live_state() {
     })));
     assert_eq!(translator.mirror().retry_attempt, Some(1));
     let frames = translator.translate(&event(json!({ "type": "run_end", "inputs": [3] })));
-    assert_eq!(frames, [json!({ "type": "agent_end", "messages": [] })]);
+    // The run ended inside the retry episode: it closes failed first.
+    assert_eq!(
+        frames,
+        [
+            json!({ "type": "auto_retry_end", "success": false, "attempt": 1,
+                    "finalError": "overloaded" }),
+            json!({ "type": "agent_end", "messages": [] }),
+        ]
+    );
     let mirror = translator.mirror();
     assert!(!mirror.is_streaming());
     assert!(mirror.partial.is_none());
@@ -664,23 +790,70 @@ fn run_end_clears_the_live_state() {
     assert!(!translator.has_parked());
 }
 
+/// The retry episode on the wire: every start carries the policy budget and
+/// the scheduled wait (the policy's ladder step pi-durable scheduled);
+/// pi-durable's per-wait end stays silent, and the episode closes once —
+/// recovered on the next settled answer, failed at the turn's end with the
+/// final error.
 #[test]
 fn auto_retry_frames() {
-    let mut translator = translator(CoalesceMode::Immediate);
-    let frames = translator.translate(&event(json!({
-        "type": "auto_retry_start", "attempt": 2, "at": 0.0, "errorMessage": "overloaded",
-    })));
+    let policy = RetryPolicySource::new(|| ConversationRetryPolicy {
+        enabled: true,
+        max_retries: 2,
+        base_delay_ms: 50.0,
+        max_agent_delay_ms: None,
+    });
+    let mut translator = translator(CoalesceMode::Immediate).with_retry_policy(policy);
+    let failed = |id: u64, error: &str| {
+        let mut message = assistant(json!([]), "error", 0);
+        message["errorMessage"] = json!(error);
+        event(
+            json!({ "type": "message_end", "entry": entry(id, "pi.assistant", Some(message), None) }),
+        )
+    };
+    // The second attempt's retry waits the ladder's second step (100 ms).
+    let frames = translator.translate_batch(&[
+        failed(4, "overloaded"),
+        event(json!({
+            "type": "auto_retry_start", "attempt": 2, "at": 0.0, "errorMessage": "overloaded",
+        })),
+    ]);
     assert_eq!(
-        frames,
-        [
-            json!({ "type": "auto_retry_start", "attempt": 2, "delayMs": 0, "errorMessage": "overloaded" })
-        ]
+        frames[2],
+        json!({ "type": "auto_retry_start", "attempt": 2, "delayMs": 100,
+                "errorMessage": "overloaded", "maxAttempts": 2 })
     );
     let frames = translator.translate(&event(json!({ "type": "auto_retry_end", "attempt": 2 })));
+    assert!(frames.is_empty(), "{frames:?}");
+    let answer = assistant(json!([{ "type": "text", "text": "ok" }]), "stop", 1);
+    let frames = translator.translate(&event(json!({
+        "type": "message_end", "entry": entry(5, "pi.assistant", Some(answer), None),
+    })));
     assert_eq!(
-        frames,
-        [json!({ "type": "auto_retry_end", "success": true, "attempt": 2 })]
+        frames.last(),
+        Some(&json!({ "type": "auto_retry_end", "success": true, "attempt": 1 }))
     );
+
+    // A second episode that gives up closes at the turn's end.
+    translator.translate_batch(&[
+        failed(6, "down"),
+        event(
+            json!({ "type": "auto_retry_start", "attempt": 1, "at": 0.0, "errorMessage": "down" }),
+        ),
+    ]);
+    translator.translate(&failed(7, "still down"));
+    let frames = translator.translate(&event(json!({ "type": "turn_end" })));
+    assert_eq!(
+        frames[0],
+        json!({ "type": "auto_retry_end", "success": false, "attempt": 1,
+                "finalError": "still down" })
+    );
+    // The turn_end carries the turn's terminal (failed) assistant message
+    // and its (empty) tool results, no separate error.
+    assert_eq!(frames[1]["type"], "turn_end");
+    assert_eq!(frames[1]["message"]["errorMessage"], "still down");
+    assert_eq!(frames[1]["toolResults"], json!([]));
+    assert_eq!(frames.len(), 2);
     assert_eq!(retry_delay_ms(2_500.0, 1_000.0), 1_500);
     assert_eq!(retry_delay_ms(1_000.0, 2_500.0), 0);
 }

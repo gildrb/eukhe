@@ -35,13 +35,11 @@ pub(crate) struct InputRequest {
 }
 
 impl InputRequest {
-    /// The prompt as TS `AgentSession.prompt` sends it: a text block, then
-    /// the images (an image-only prompt keeps no empty text block).
+    /// The prompt as TS `AgentSession.prompt` sends it: the text block
+    /// (empty for an image-only prompt), then the images.
     fn content(&self) -> UserContent {
         let mut blocks = Vec::with_capacity(self.images.len() + 1);
-        if !self.text.is_empty() || self.images.is_empty() {
-            blocks.push(UserContentBlock::Text(TextContent::new(self.text.clone())));
-        }
+        blocks.push(UserContentBlock::Text(TextContent::new(self.text.clone())));
         blocks.extend(self.images.iter().cloned().map(UserContentBlock::Image));
         UserContent::Blocks(blocks)
     }
@@ -173,6 +171,20 @@ pub(crate) fn injection_kind(
     }
     (row.get("customType").and_then(Value::as_str) == Some("heartbeat_prompt"))
         .then_some(super::session_core::InjectionKind::InjectedPrompt)
+}
+
+/// The failure text of a waited prompt that ended unanswered: the run's
+/// error (pi-durable settles a failed run `model_error` with the provider
+/// error text as its detail — the old engine answered that text), else the
+/// bare reason.
+fn unsettled_text(state: &eukhe_durable::types::SubmissionState) -> String {
+    state
+        .detail()
+        .and_then(eukhe_chord::json::JsonValue::as_str)
+        .filter(|detail| !detail.is_empty())
+        .or_else(|| state.reason())
+        .unwrap_or("Prompt did not complete")
+        .to_owned()
 }
 
 impl Worker {
@@ -343,12 +355,7 @@ impl Worker {
                 | SubmissionStatus::Queued
                 | SubmissionStatus::Placed => {
                     hosted.events_delivered().await;
-                    let reason = settled
-                        .record()
-                        .state
-                        .reason()
-                        .unwrap_or("Prompt did not complete")
-                        .to_string();
+                    let reason = unsettled_text(&settled.record().state);
                     response_failure(None, "prompt_and_wait", &reason, None)
                 }
             },

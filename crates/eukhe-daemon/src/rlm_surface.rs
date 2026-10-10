@@ -23,7 +23,9 @@ fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
 }
 
-/// The `get_rlm_children` snapshot of one child (TS `RlmChildAgentSnapshot`).
+/// The `get_rlm_children` snapshot of one child (TS `RlmChildAgentSnapshot`:
+/// its `status` is the raw run status, `done` where the kernel roster row
+/// reads `completed`).
 fn child_snapshot(record: &RlmChildRecord, parent_id: Option<&str>) -> Value {
     let entry = &record.entry;
     let mut snapshot = json!({
@@ -31,7 +33,7 @@ fn child_snapshot(record: &RlmChildRecord, parent_id: Option<&str>) -> Value {
         "activeSessionId": entry.active_session_id,
         "sessionName": entry.session_name,
         "label": entry.label,
-        "status": entry.status,
+        "status": record.run_status,
         "durationMs": entry.duration_ms,
         "sessionDir": entry.session_dir,
     });

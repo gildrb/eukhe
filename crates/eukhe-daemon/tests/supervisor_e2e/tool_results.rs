@@ -99,10 +99,10 @@ fn tool_result_entries_persisted_and_streamed() {
     );
     assert_eq!(tool_result_message["toolCallId"], "call-1");
     assert_eq!(tool_result_message["toolName"], "no-such-tool");
-    assert_eq!(
-        tool_result_message["content"][0]["text"],
-        "Tool no-such-tool not found"
-    );
+    // pi-durable's tool-not-found result text (the old engine answered
+    // `Tool no-such-tool not found`).
+    let not_found = "<harness>\n[error] Tool no-such-tool is not available\n</harness>";
+    assert_eq!(tool_result_message["content"][0]["text"], not_found);
     assert_eq!(tool_result_message["isError"], true);
 
     // The stats command counts the persisted entry.
@@ -114,35 +114,44 @@ fn tool_result_entries_persisted_and_streamed() {
     assert_eq!(stats["success"], true, "get_session_stats failed: {stats}");
     assert_eq!(stats["data"]["toolCalls"], 1, "stats: {stats}");
     assert_eq!(stats["data"]["toolResults"], 1, "stats: {stats}");
-    assert_eq!(stats["data"]["totalMessages"], 4, "stats: {stats}");
+    // user, harness digest (pi-durable commits it after the prompt's user
+    // entry), tool-call assistant, toolResult, follow-up assistant.
+    assert_eq!(stats["data"]["totalMessages"], 5, "stats: {stats}");
 
-    // The session file carries the entry in the TS envelope shape.
-    let session_file = std::path::PathBuf::from(
+    // The durable commit log carries the result: `sessionFile` names the
+    // session directory, read through the read-only durable reader (the
+    // TS `{type, id, parentId}` envelope has no durable counterpart; the
+    // entry is a model-context entry of the main conversation).
+    let storage = std::path::PathBuf::from(
         stats["data"]["sessionFile"]
             .as_str()
             .expect("session file in stats"),
     );
-    let entries: Vec<serde_json::Value> = std::fs::read_to_string(&session_file)
-        .expect("read session file")
-        .lines()
-        .map(|line| serde_json::from_str(line).expect("parse entry line"))
-        .collect();
-    let tool_result_entry = entries
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let transcript = runtime
+        .block_on(eukhe_core::durable::read_main_transcript(
+            &eukhe_core::durable::SessionLocation::Durable(storage),
+            &eukhe_chord::context::BACKGROUND_CONTEXT,
+        ))
+        .expect("read the durable transcript");
+    let persisted: Vec<serde_json::Value> = transcript
+        .entries
         .iter()
-        .find(|entry| entry["message"]["role"] == "toolResult")
-        .expect("toolResult entry on disk")
-        .clone();
-    assert_eq!(tool_result_entry["type"], "message");
-    assert!(tool_result_entry["id"]
-        .as_str()
-        .is_some_and(|id| id.len() == 8));
-    assert!(tool_result_entry["parentId"].as_str().is_some());
-    assert!(tool_result_entry["timestamp"].as_str().is_some());
-    assert_eq!(tool_result_entry["message"]["toolCallId"], "call-1");
+        .filter_map(|entry| entry.model.as_ref())
+        .flatten()
+        .map(|message| serde_json::to_value(message).expect("message JSON"))
+        .filter(|message| message["role"] == "toolResult")
+        .collect();
+    assert_eq!(persisted.len(), 1, "one toolResult on disk: {persisted:?}");
+    let tool_result = &persisted[0];
+    assert_eq!(tool_result["toolCallId"], "call-1");
     assert_eq!(
-        tool_result_entry["message"]["content"],
-        serde_json::json!([{ "type": "text", "text": "Tool no-such-tool not found" }])
+        tool_result["content"],
+        serde_json::json!([{ "type": "text", "text": not_found }])
     );
-    assert_eq!(tool_result_entry["message"]["isError"], true);
-    assert!(tool_result_entry["message"]["timestamp"].is_u64());
+    assert_eq!(tool_result["isError"], true);
+    assert!(tool_result["timestamp"].is_u64());
 }

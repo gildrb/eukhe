@@ -100,8 +100,8 @@ fn session_stats_and_header_match_live_daemon_goldens() {
     );
 
     // get_session_stats: the TS stats shape over the scripted turn. The
-    // scripted engine has no model, so `contextUsage` is omitted exactly like
-    // a TS session without a model context window.
+    // durable faux session has a model with a context window, so
+    // `contextUsage` rides last, like a TS session with a model.
     client.send_command(
         "st1",
         &serde_json::json!({ "type": "get_session_stats", "activeSessionId": session_id }),
@@ -110,22 +110,32 @@ fn session_stats_and_header_match_live_daemon_goldens() {
     assert_eq!(stats["success"], true, "get_session_stats failed: {stats}");
     let data = &stats["data"];
     assert_eq!(data["sessionId"], session_uuid.as_str());
-    assert!(data["sessionFile"]
-        .as_str()
-        .and_then(|path| Path::new(path).extension())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("jsonl")));
+    // Durable sessions are directories (`<sessionDir>/<id>/` holding the
+    // `main.jsonl` commit log), not `<id>.jsonl` files: `sessionFile` names
+    // that directory.
+    let session_file = Path::new(data["sessionFile"].as_str().expect("sessionFile"));
+    assert!(
+        session_file.is_dir(),
+        "sessionFile is the session directory"
+    );
+    assert!(session_file.join("main.jsonl").is_file());
     assert_eq!(data["userMessages"], 1);
     assert_eq!(data["assistantMessages"], 1);
     assert_eq!(data["toolCalls"], 0);
     assert_eq!(data["toolResults"], 0);
-    assert_eq!(data["totalMessages"], 2);
+    // pi-durable commits the harness digest (a `custom` message) right
+    // after the prompt's user entry: user, digest, assistant.
+    assert_eq!(data["totalMessages"], 3);
     assert_eq!(data["cost"], 0.0);
-    // Scripted usage block: input 120, output 8.
-    assert_eq!(data["tokens"]["input"], 120);
-    assert_eq!(data["tokens"]["output"], 8);
-    assert_eq!(data["tokens"]["cacheRead"], 0);
-    assert_eq!(data["tokens"]["cacheWrite"], 0);
-    assert_eq!(data["tokens"]["total"], 128);
+    // The faux provider's usage (engine-decided numbers): the total sums
+    // the parts.
+    let tokens = &data["tokens"];
+    let part = |key: &str| tokens[key].as_u64().expect("token count");
+    assert!(part("input") > 0 && part("output") > 0, "tokens: {tokens}");
+    assert_eq!(
+        part("total"),
+        part("input") + part("output") + part("cacheRead") + part("cacheWrite")
+    );
     let stats_keys: Vec<&str> = data
         .as_object()
         .expect("stats object")
@@ -134,7 +144,7 @@ fn session_stats_and_header_match_live_daemon_goldens() {
         .collect();
     // TS `SessionStats` key order (sessionFile, sessionId, userMessages,
     // assistantMessages, toolCalls, toolResults, totalMessages, tokens,
-    // cost): the JSON map preserves insertion order.
+    // cost, contextUsage): the JSON map preserves insertion order.
     assert_eq!(
         stats_keys,
         vec![
@@ -147,6 +157,7 @@ fn session_stats_and_header_match_live_daemon_goldens() {
             "totalMessages",
             "tokens",
             "cost",
+            "contextUsage",
         ]
     );
 

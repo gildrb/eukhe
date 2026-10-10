@@ -34,8 +34,8 @@ use super::entries::custom_entry_draft;
 use super::{HostDeps, OpenedSession, ServiceStop};
 
 pub use self::activity::{
-    kernel_bash_activity, kernel_factory_activity, release_settled_kernel, BashActivityAction,
-    BashActivityRequest, KernelActivityError,
+    kernel_bash_activity, kernel_factory_activity, release_settled_kernel, transfer_kernel,
+    BashActivityAction, BashActivityRequest, KernelActivityError,
 };
 pub use self::boundary::{BoundaryState, PendingRefine, BOUNDARY_DOC};
 pub use self::refine::{refine_now, RefineRequest};
@@ -135,9 +135,11 @@ pub(crate) fn background() -> Context {
 
 /// The `eukhe.rlm` extension of a session: the `ipython` tool, the
 /// run-boundary refinement hook, and the RLM host-request handlers (registered
-/// into `deps.host_requests` now). At open it prewarms the root kernel when
-/// a namespace snapshot exists; at close it disposes every kernel with a
-/// final snapshot.
+/// into `deps.host_requests` now). At open it prewarms the main
+/// conversation's kernel (the user-facing one: the root unless a fork or
+/// tree move made another conversation the main) when the session asks for
+/// it or a namespace snapshot exists; at close it disposes every kernel
+/// with a final snapshot.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let runtime = Arc::new(RlmRuntime {
@@ -152,7 +154,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let service_runtime = Arc::clone(&runtime);
     deps.add_service(Box::new(move |opened: OpenedSession| {
         async move {
-            service_runtime.kernels.prewarm(opened.root.id());
+            service_runtime.kernels.prewarm(opened.main.id());
             let stop: ServiceStop = Box::new(move || {
                 async move { service_runtime.kernels.dispose_all().await }.boxed()
             });

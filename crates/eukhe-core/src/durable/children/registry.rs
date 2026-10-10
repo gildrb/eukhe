@@ -216,6 +216,27 @@ pub async fn has_unsettled_children(
     Ok(state.children.values().any(|row| !row.settled))
 }
 
+/// The `eukhe.rlm.child` tasks of `conversation_id` that have not ended,
+/// in spawn order: the RLM quiescence barrier waits on each (a task's
+/// terminal commit sets its row's `settled` and submits its owed report).
+///
+/// # Errors
+///
+/// Document read failures.
+pub async fn unsettled_child_tasks(
+    reader: &(impl DocumentReader + ?Sized),
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<Vec<TaskId>> {
+    let state = read_children(reader, conversation_id, cx).await?;
+    Ok(state
+        .children
+        .values()
+        .filter(|row| !row.settled)
+        .map(ChildRow::task_id)
+        .collect())
+}
+
 /// The row of `task_id` inside a commit.
 pub(crate) async fn tx_row(
     tx: &Tx,

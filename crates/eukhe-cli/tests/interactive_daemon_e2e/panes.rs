@@ -4,9 +4,9 @@
 use super::*;
 
 /// `/name` and its `/rename` alias (TS `handleNameCommand`): the rename
-/// travels to the daemon, the session file persists the `session_info`
-/// entry (the #188/#194 rename machinery), and the no-argument form reports
-/// the current name.
+/// travels to the daemon, the session storage persists the name (the
+/// #188/#194 rename machinery), and the no-argument form reports the
+/// current name.
 #[tokio::test]
 async fn tui_renames_session_through_slash_command() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -53,29 +53,13 @@ async fn tui_renames_session_through_slash_command() {
         rendered.contains("Session name: my session"),
         "the /name report row rendered:\n{rendered}"
     );
-    // The #188/#194 persistence: the session file carries the session_info
-    // entry with the name.
-    let mut saw_name = false;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        for line in content.lines() {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
-                if value["type"] == "session_info" && value["name"] == "my session" {
-                    saw_name = true;
-                }
-            }
-        }
-    }
+    // The #188/#194 persistence: the session's storage carries the name
+    // (the `eukhe.daemon.session` document the rename commits).
     assert!(
-        saw_name,
-        "the session_info entry persisted (the /name arm reaches the rename machinery)"
+        session_dirs(&session_dir)
+            .iter()
+            .any(|storage| storage_contains(storage, "\"name\":\"my session\"")),
+        "the session name persisted (the /name arm reaches the rename machinery)"
     );
     // The daemon state reports the name (the summary the roster and the
     // agents view read).

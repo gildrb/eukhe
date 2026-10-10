@@ -2,12 +2,16 @@
 //! name (`rename` / `set_session_name`) and the once-per-session Anthropic
 //! warning marker. One session-scope document, `eukhe.daemon.session`.
 
+use std::path::Path;
+use std::sync::Arc;
+
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::documents::{DocDefinition, SessionDoc};
 use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::harness::Harness;
-use eukhe_durable::session::{SessionError, SessionResult};
+use eukhe_durable::session::{Session, SessionError, SessionResult};
+use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::types::DocumentReaderExt;
 use serde::{Deserialize, Serialize};
 
@@ -121,4 +125,57 @@ pub(crate) async fn mark_archived(harness: &Harness, cx: &Context) -> SessionRes
             cx,
         )
         .await
+}
+
+/// Make an archived session live again: a worker opening it (the wake of
+/// a killed session, a resume) clears the `kill` marker, as the old
+/// worker's create appended the `active` state row.
+///
+/// # Errors
+///
+/// The commit fails.
+pub(crate) async fn clear_archived(harness: &Harness, cx: &Context) -> SessionResult<()> {
+    harness
+        .commit(
+            move |tx| async move {
+                let draft = tx.doc(&SESSION_META_DOC, ()).await?;
+                if draft.get("archived")?.is_some() {
+                    draft.delete("archived")?;
+                }
+                Ok(())
+            },
+            cx,
+        )
+        .await
+}
+
+/// Record that a `kill` archived the session in the OFFLINE storage at
+/// `dir` (no worker hosts it; the caller holds its session lease): the
+/// supervisor's archived-state belt when the worker died before its own
+/// kill committed the marker.
+///
+/// # Errors
+///
+/// The storage cannot open, or the commit fails.
+pub(crate) async fn mark_storage_archived(dir: &Path, cx: &Context) -> anyhow::Result<()> {
+    let directory = dir
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("session storage path {} is not UTF-8", dir.display()))?;
+    let storage =
+        open_native_jsonl_storage(directory, cx, JsonlStorageOptions { fsync: true }).await?;
+    let session = Session::new(Arc::new(storage));
+    let committed = session
+        .commit(
+            move |tx| async move {
+                let draft = tx.doc(&SESSION_META_DOC, ()).await?;
+                assign_json(&draft, "archived", &JsonValue::Bool(true))?;
+                Ok(())
+            },
+            cx,
+        )
+        .await;
+    let closed = session.close(cx).await;
+    committed?;
+    closed?;
+    Ok(())
 }

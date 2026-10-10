@@ -342,7 +342,9 @@ impl Worker {
         )
     }
 
-    /// `get_session_header`: the session header (`{ header: ... }`).
+    /// `get_session_header`: the session header (`{ header: ... }`), in the
+    /// TS `SessionHeader` key order (`type`, `version`, `id`, `timestamp`,
+    /// `cwd`, `rlmDepth`); TS headers carry `rlmDepth` at every depth.
     fn handle_get_session_header(&self) -> DaemonResponse {
         if let Err(response) = self.require_created("get_session_header") {
             return response;
@@ -351,15 +353,14 @@ impl Worker {
             .core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut header = json!({
+        let header = json!({
             "type": "session",
+            "version": eukhe_core::session::CURRENT_SESSION_VERSION,
             "id": core.session_id,
             "timestamp": core.created_at,
             "cwd": core.cwd,
+            "rlmDepth": core.rlm_depth,
         });
-        if core.rlm_depth > 0 {
-            header["rlmDepth"] = json!(core.rlm_depth);
-        }
         response_success(
             None,
             "get_session_header",
@@ -704,6 +705,7 @@ impl Worker {
             core.session_name = Some(name.to_string());
             self.summary_locked(&core)
         };
+        self.publish_own_summary(&summary);
         // Every attached client re-reads the name.
         self.emit_worker_event(json!({ "type": "session_info_changed", "name": name }));
         self.push_roster_delta();

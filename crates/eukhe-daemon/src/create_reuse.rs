@@ -98,14 +98,15 @@ struct ReuseCandidates {
     stopping: Option<Arc<ResidentWorker>>,
 }
 
-/// The single-flight key for one session file (the registry's
-/// comparison rule: canonicalize when the path exists, keep the raw path
-/// otherwise — the file exists by construction here).
+/// The single-flight key for one session storage (the lease's comparison
+/// rule: the canonical path, or the canonical parent joined with the name
+/// while the storage directory does not exist yet — a legacy file's
+/// first open creates it mid-launch, and every opener must compute the
+/// same key before and after).
 fn canonical_opening_key(path: &Path) -> String {
-    path.canonicalize().map_or_else(
-        |_| path.to_string_lossy().to_string(),
-        |canonical| canonical.to_string_lossy().to_string(),
-    )
+    crate::lease::canonical_session_path(path)
+        .to_string_lossy()
+        .to_string()
 }
 
 /// Whether one resident's process is provably gone, identity-aware (the
@@ -134,11 +135,14 @@ async fn resident_process_alive(resident: &Arc<ResidentWorker>) -> bool {
     }
 }
 
-/// The create's target session file, resolved once for the whole open:
-/// the single-flight key and the reuse lookup share one resolution.
-/// `Ok(None)` for every create that does not address an existing file (a
-/// no-session create, a `continueRecent` create — the TS session manager
-/// resolves those worker-side — or a path the worker will create).
+/// The create's target session storage, resolved once for the whole open:
+/// the single-flight key and the reuse lookup share one resolution. A
+/// legacy `<id>.jsonl` path names the `<id>/` storage it imports into —
+/// the session file its worker registers — so a reopen of the legacy path
+/// finds the worker serving the imported session. `Ok(None)` for every
+/// create that does not address an existing session (a no-session
+/// create, a `continueRecent` create — the TS session manager resolves
+/// those worker-side — or a path the worker will create).
 fn create_target_file(command: &DaemonCommand) -> Result<Option<PathBuf>> {
     let DaemonCommand::Create {
         session_path,
@@ -155,7 +159,10 @@ fn create_target_file(command: &DaemonCommand) -> Result<Option<PathBuf>> {
         return Ok(None);
     };
     let path = crate::paths::expand_tilde(raw_path)?;
-    Ok(path.exists().then_some(path))
+    if !crate::worker::durable_host::session_exists(&path) {
+        return Ok(None);
+    }
+    Ok(Some(crate::worker::durable_host::storage_for_path(&path).1))
 }
 
 impl Supervisor {

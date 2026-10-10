@@ -33,6 +33,11 @@ use std::time::{Duration, Instant};
 use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, AgentsViewUiMode};
 use eukhe_tui::interactive::SessionSelection;
 
+#[path = "support/durable_store.rs"]
+mod durable_store;
+
+use durable_store::{legacy_storage, storage_contains};
+
 struct Supervisor {
     child: Child,
     #[allow(dead_code)]
@@ -326,8 +331,8 @@ async fn continue_recent_view_preselects_the_candidate_and_renders_the_notice() 
 /// `rename_saved_session` wire path — the supervisor's name reservation
 /// ladder and the offline catalog rename, which a unit test cannot
 /// exercise): the saved fixture row renames, the status reports TS's
-/// row, the final frame lists the new name, and the file on disk gains
-/// the `session_info` name entry.
+/// row, the final frame lists the new name, and the session's durable
+/// storage holds the new name.
 #[tokio::test]
 async fn rename_saved_session_renames_the_row_and_the_file() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -406,10 +411,15 @@ async fn rename_saved_session_renames_the_row_and_the_file() {
             .is_some_and(|frame| !frame.contains("gateway worker")),
         "the final frame dropped the old name:\n{rendered}"
     );
-    let content = std::fs::read_to_string(&path).expect("read fixture");
+    // The rename imported the legacy fixture into its durable storage
+    // (`<sessions>/ren-01/`) and committed the name to the session's
+    // `eukhe.daemon.session` document there; the legacy file stays as
+    // written.
+    let storage = legacy_storage(&path);
     assert!(
-        content.contains("\"name\":\"renamed agent\""),
-        "the fixture gained the session_info name entry:\n{content}"
+        storage_contains(&storage, "\"renamed agent\""),
+        "the session's storage {} holds the new name",
+        storage.display()
     );
     drop(supervisor);
 }

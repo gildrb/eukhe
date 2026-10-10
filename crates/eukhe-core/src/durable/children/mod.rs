@@ -40,7 +40,7 @@ pub use host::{
     RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
     RlmRenameTarget, RlmSubagentHost,
 };
-pub use registry::has_unsettled_children;
+pub use registry::{has_unsettled_children, unsettled_child_tasks};
 pub use wire::{
     RlmChildResult, RlmDeleteSubagentResult, RlmSpawnHandle, RlmSubagentActivity, RlmSubagentEntry,
 };

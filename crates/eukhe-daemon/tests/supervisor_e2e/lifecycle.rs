@@ -6,6 +6,9 @@ use std::path::Path;
 
 use super::*;
 
+/// The first scripted answer: long enough to stream in several paced chunks.
+const ANSWER: &str = "hello from scripted, streamed in several small pieces";
+
 #[test]
 fn supervisor_end_to_end_scripted_session_lifecycle() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -84,12 +87,15 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
     assert_eq!(list["success"], true, "list failed: {list}");
     assert_eq!(list["data"]["sessions"], serde_json::json!([]));
 
-    // Create a scripted session.
+    // Create a scripted session. pi-durable commits the in-flight partial
+    // at most every 100 ms (TS `streamResponse`'s throttle), so a paced,
+    // multi-chunk stream (`tokensPerSecond`) is what makes
+    // `message_update` publish.
     let script_path = dir.path().join("script.json");
     std::fs::write(
         &script_path,
-        serde_json::json!({ "responses": [
-            { "text": "hello from scripted", "delayMs": 30 },
+        serde_json::json!({ "tokensPerSecond": 20, "responses": [
+            { "text": ANSWER, "delayMs": 30 },
             { "text": "second turn" },
         ] })
         .to_string(),
@@ -197,8 +203,9 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
             Some("message_start") => saw_start = true,
             Some("message_update") => updates += 1,
             Some("message_end") => {
-                // The scripted engine emits plain-string content.
-                final_text = event["message"]["content"]
+                // pi-ai assistant content is a block array (the old scripted
+                // engine emitted a plain string).
+                final_text = event["message"]["content"][0]["text"]
                     .as_str()
                     .expect("final text")
                     .to_string();
@@ -209,7 +216,7 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
     }
     assert!(saw_start, "message_start streamed");
     assert!(updates > 0, "assistant updates streamed ({updates} seen)");
-    assert_eq!(final_text, "hello from scripted");
+    assert_eq!(final_text, ANSWER);
 
     // The final answer is queryable.
     client.send_command(
@@ -224,7 +231,7 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
         final_answer["success"], true,
         "get_last_assistant_text failed: {final_answer}"
     );
-    assert_eq!(final_answer["data"]["text"], "hello from scripted");
+    assert_eq!(final_answer["data"]["text"], ANSWER);
 
     // The session appears in list.
     client.send_command("l2", &serde_json::json!({ "type": "list" }));
@@ -275,10 +282,11 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
             Some("session_list_item") => {
                 items += 1;
                 let session = line["session"].clone();
+                // Durable sessions are directories holding the `main.jsonl`
+                // commit log, not `<id>.jsonl` files.
                 assert!(session["path"]
                     .as_str()
-                    .and_then(|path| Path::new(path).extension())
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("jsonl")));
+                    .is_some_and(|path| Path::new(path).join("main.jsonl").is_file()));
                 assert!(session["firstMessage"].is_string());
                 assert!(session["state"]["status"].is_string());
                 rows.push(session);

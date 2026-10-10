@@ -253,9 +253,10 @@ impl BashNotices {
 
 impl Worker {
     /// Wire this worker's kernel host seams into a session it opens: the
-    /// scheduled-jobs cron wiring (`rlm_heartbeat.*`) and the bash
-    /// completion notices (`bash.completed`/`bash.consumed`), merged into
-    /// the config's extra host handlers.
+    /// scheduled-jobs cron wiring (`rlm_heartbeat.*`), the bash
+    /// completion notices (`bash.completed`/`bash.consumed`), and the
+    /// agent messaging bridges (`agent_message.*`/`agent_observe.*`),
+    /// merged into the config's extra host handlers.
     pub(crate) fn wire_session_host(&self, config: &mut SessionConfig) {
         let storage_dir = match &config.storage {
             SessionStorage::Jsonl { dir, .. } => Some(dir.clone()),
@@ -270,6 +271,7 @@ impl Worker {
             .extra_host_handlers
             .get_or_insert_with(HostRequestHandlers::default);
         BashNotices::new(self.session.clone(), Arc::clone(&self.core)).register(handlers);
+        self.register_agent_messaging(handlers);
     }
 }
 

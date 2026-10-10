@@ -270,26 +270,63 @@ fn spawn_request(name: &str, prompt: &str) -> RlmSpawnRequest {
     }
 }
 
-/// The child's persisted session file (the per-child artifacts dir holds
-/// exactly one `.jsonl`).
-fn child_session_file(agent_dir: &Path, child_id: &str) -> PathBuf {
+/// The child's persisted session: the per-child artifacts dir holds
+/// exactly one durable storage directory (`<session-id>/`, holding the
+/// store's `main.jsonl`).
+fn child_session_storage(agent_dir: &Path, child_id: &str) -> PathBuf {
     let dir = agent_dir
         .join("session-artifacts")
         .join("parent-session-uuid")
         .join(child_id);
     wait_until(
         Duration::from_mins(1),
-        &format!("session file for {child_id}"),
+        &format!("session storage for {child_id}"),
         || {
             std::fs::read_dir(&dir)
                 .ok()?
                 .filter_map(std::result::Result::ok)
                 .map(|entry| entry.path())
-                .find(|path| {
-                    path.extension().and_then(|extension| extension.to_str()) == Some("jsonl")
-                })
+                .find(|path| path.join("main.jsonl").is_file())
         },
     )
+}
+
+/// A durable session's stored text: every file of its storage directory
+/// (the store's commit log and its document/entry sidecars), concatenated.
+fn storage_text(dir: &Path) -> String {
+    let mut text = String::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(content) = std::fs::read_to_string(&path) {
+                text.push_str(&content);
+            }
+        }
+    }
+    text
+}
+
+/// One resident child's transcript (`get_messages`) as JSON text, `None`
+/// while no resident roster row carries `name` or its worker cannot answer
+/// yet (mid-replacement).
+fn child_transcript(client: &mut Client, name: &str) -> Option<String> {
+    let active_session_id = roster_summaries(client, "tl")
+        .into_iter()
+        .find(|summary| summary["sessionName"] == json!(name))?["activeSessionId"]
+        .as_str()?
+        .to_string();
+    client.send_command(
+        "tm",
+        &json!({ "type": "get_messages", "activeSessionId": active_session_id }),
+    );
+    let messages = client.read_response("tm");
+    (messages["success"] == true).then(|| messages["data"]["messages"].to_string())
 }
 
 /// One child's worker pid, from its supervisor descriptor (the live process
@@ -397,23 +434,26 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
     // four fire now - kid-a's into a worker mid-replacement.
     children.notify_turn_done();
 
-    // Exactly-once: each child's session file carries its prompt marker
+    // Exactly-once: each child's transcript carries its prompt marker
     // exactly once. kid-a's prompt must survive the replacement (the
-    // budget covers the replacement window end to end).
+    // budget covers the replacement window end to end). The durable
+    // child persists the prompt in its storage directory twice over (the
+    // inbox submission and the transcript entry), so the transcript read
+    // is the exactly-once oracle; the storage is the archive oracle.
     for (child_id, name) in child_ids.iter().zip(names.iter()) {
         let marker = format!("marker-replacement-e2e-{}", name.trim_start_matches("kid-"));
-        let session_file = child_session_file(&agent_dir, child_id);
+        let storage = child_session_storage(&agent_dir, child_id);
         let deadline = Instant::now() + Duration::from_secs(150);
-        let content = loop {
-            let content = std::fs::read_to_string(&session_file).unwrap_or_default();
-            if content.matches(&marker).count() == 1 {
-                break content;
+        loop {
+            let transcript = child_transcript(&mut client, name).unwrap_or_default();
+            if transcript.matches(&marker).count() == 1 {
+                break;
             }
             if Instant::now() >= deadline {
                 let stderr = std::fs::read_to_string(agent_dir.join("supervisor.stderr"))
                     .unwrap_or_default();
                 let tail: Vec<&str> = stderr.lines().rev().take(80).collect();
-                let artifacts: Vec<PathBuf> = std::fs::read_dir(session_file.parent().unwrap())
+                let artifacts: Vec<PathBuf> = std::fs::read_dir(storage.parent().unwrap())
                     .map(|entries| {
                         entries
                             .filter_map(std::result::Result::ok)
@@ -422,14 +462,15 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
                     })
                     .unwrap_or_default();
                 panic!(
-                    "marker {marker} never landed for {name}\nsession file {session_file:?}: {content}\nartifacts dir: {artifacts:?}\nroster: {:?}\nsupervisor stderr tail (reversed): {tail:#?}",
+                    "marker {marker} never landed once for {name}\nsession storage {storage:?}: {transcript}\nartifacts dir: {artifacts:?}\nroster: {:?}\nsupervisor stderr tail (reversed): {tail:#?}",
                     roster_summaries(&mut client, "dump")
                 );
             }
             std::thread::sleep(Duration::from_millis(50));
-        };
+        }
+        let content = storage_text(&storage);
         assert!(
-            !content.contains("archived"),
+            !content.contains("\"archived\""),
             "no admitted child is torn down by the replacement: {content}"
         );
     }

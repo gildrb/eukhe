@@ -42,6 +42,9 @@ pub struct EukheSettings {
     cwd: PathBuf,
     agent_dir: PathBuf,
     paths: [PathBuf; 2],
+    /// Every queued follow-up joins the next run, whatever `followUpMode`
+    /// says ([`EukheSettings::chat_memory_root`]).
+    follow_ups_at_once: bool,
     loaded: Mutex<Loaded>,
 }
 
@@ -49,17 +52,30 @@ impl EukheSettings {
     /// Settings of a session working in `cwd`.
     #[must_use]
     pub fn new(cwd: impl Into<PathBuf>, agent_dir: impl Into<PathBuf>) -> Self {
-        let cwd = cwd.into();
-        let agent_dir = agent_dir.into();
+        Self::open(cwd.into(), agent_dir.into(), false)
+    }
+
+    /// Settings of a root session with chat memory: a root call is a run,
+    /// and a fresh call takes every queued message at once, joined into its
+    /// one request (`OptChat` §7), so the follow-up queue mode is `all`
+    /// whatever `followUpMode` says. The steering mode stays the setting's:
+    /// it also decides the steers a running call takes at a tool boundary.
+    #[must_use]
+    pub fn chat_memory_root(cwd: impl Into<PathBuf>, agent_dir: impl Into<PathBuf>) -> Self {
+        Self::open(cwd.into(), agent_dir.into(), true)
+    }
+
+    fn open(cwd: PathBuf, agent_dir: PathBuf, follow_ups_at_once: bool) -> Self {
         let paths = [
             agent_dir.join("settings.json"),
             cwd.join(CONFIG_DIR_NAME).join("settings.json"),
         ];
-        let loaded = load(&cwd, &agent_dir, &paths);
+        let loaded = load(&cwd, &agent_dir, &paths, follow_ups_at_once);
         Self {
             cwd,
             agent_dir,
             paths,
+            follow_ups_at_once,
             loaded: Mutex::new(loaded),
         }
     }
@@ -80,7 +96,12 @@ impl EukheSettings {
         let mut loaded = self.loaded.lock().unwrap_or_else(PoisonError::into_inner);
         let stamps = [stamp(&self.paths[0]), stamp(&self.paths[1])];
         if stamps != loaded.stamps {
-            *loaded = load(&self.cwd, &self.agent_dir, &self.paths);
+            *loaded = load(
+                &self.cwd,
+                &self.agent_dir,
+                &self.paths,
+                self.follow_ups_at_once,
+            );
         }
         loaded
     }
@@ -92,12 +113,16 @@ impl HarnessSettingsSource for EukheSettings {
     }
 }
 
-fn load(cwd: &Path, agent_dir: &Path, paths: &[PathBuf; 2]) -> Loaded {
+fn load(cwd: &Path, agent_dir: &Path, paths: &[PathBuf; 2], follow_ups_at_once: bool) -> Loaded {
     // Stamps are taken before the read: a write racing the read changes
     // the stamp again, and the next read reloads.
     let stamps = [stamp(&paths[0]), stamp(&paths[1])];
     let manager = SettingsManager::create(cwd, agent_dir);
-    let harness = Arc::new(harness_settings(&manager));
+    let mut harness = harness_settings(&manager);
+    if follow_ups_at_once {
+        harness.follow_up_mode = Some(QueueMode::All);
+    }
+    let harness = Arc::new(harness);
     Loaded {
         stamps,
         manager: Arc::new(manager),
@@ -291,6 +316,33 @@ mod tests {
         );
         let resolved = resolve_settings(Some(&settings.current()));
         assert_eq!(resolved.follow_up_mode, QueueMode::All);
+    }
+
+    /// A chat-memory root takes every queued follow-up into its next run
+    /// (`OptChat` §7) whatever `followUpMode` says, also after a reload;
+    /// the steering mode stays the setting's.
+    #[test]
+    fn a_chat_memory_root_takes_every_follow_up_at_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let agent = dir.path().join("agent");
+        let cwd = dir.path().join("cwd");
+        let settings = EukheSettings::chat_memory_root(&cwd, &agent);
+        let resolved = resolve_settings(Some(&settings.current()));
+        assert_eq!(resolved.steering_mode, QueueMode::All);
+        assert_eq!(resolved.follow_up_mode, QueueMode::All);
+
+        write(
+            &agent.join("settings.json"),
+            r#"{"steeringMode":"one-at-a-time","followUpMode":"one-at-a-time"}"#,
+        );
+        let resolved = resolve_settings(Some(&settings.current()));
+        assert_eq!(resolved.steering_mode, QueueMode::OneAtATime);
+        assert_eq!(resolved.follow_up_mode, QueueMode::All);
+        assert_eq!(
+            settings.manager().get_follow_up_mode(),
+            QueueModeSetting::OneAtATime,
+            "the setting itself reads back unchanged"
+        );
     }
 
     #[test]

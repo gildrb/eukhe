@@ -210,8 +210,8 @@ pub(crate) async fn read_entry(
 
 /// `abort_compaction`: abort every live compaction task of `conversation`
 /// (the manual run and the automatic threshold/overflow runs alike). Answers
-/// how many were aborted; none live is a success (the TS handler always
-/// replies success).
+/// the aborted tasks; none live is a success (the TS handler always replies
+/// success).
 ///
 /// # Errors
 ///
@@ -220,7 +220,7 @@ pub(crate) async fn abort_compactions(
     harness: &Harness,
     conversation: &Conversation,
     cx: &Context,
-) -> SessionResult<usize> {
+) -> SessionResult<Vec<TaskId>> {
     let live: LiveState = match harness.snapshot(&LIVE_DOC, conversation.id(), cx).await? {
         Some(value) => from_json(&JsonValue::Object(value))?,
         None => LiveState::default(),
@@ -234,7 +234,7 @@ pub(crate) async fn abort_compactions(
     for task in &tasks {
         harness.abort_task(*task, cx).await?;
     }
-    Ok(tasks.len())
+    Ok(tasks)
 }
 
 #[cfg(test)]

@@ -34,14 +34,16 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::cron::store::{AgentCronJobStore, CancelJobsFilter};
 
 use crate::lease::canonical_session_path;
 use crate::registry::ResidentWorker;
 use crate::rlm_ledger::RlmSpawnLedger;
 use crate::scheduled_jobs::session_artifact_dir;
-use crate::session_store::{read_session_info, SessionFile};
+use crate::session_store::{block_on_storage, durable_storage_of, read_session_info, SessionFile};
 use crate::supervisor::Supervisor;
+use crate::worker::durable_host::meta::mark_storage_archived;
 
 /// One tree member of a stopped root: its durable session id and file
 /// (TS `cancelScheduledJobsForSessionTree`'s `{ sessionId, sessionFile }`
@@ -185,12 +187,25 @@ pub(crate) fn cancel_scheduled_jobs_for_tree(
 }
 
 /// The killed session's `archived` state belt (TS `finalizeArchivedWorkerStop`
-/// -> `catalog.archive`): the worker's own close appends the state; when it
-/// died before its close wrote it, the supervisor appends it here so the
-/// wake scans and saved-catalog folds treat the file as archived. A file
-/// already archived (or unreadable) is a no-op.
-pub(crate) fn ensure_archived_state(root_session_file: &Path) -> Result<()> {
+/// -> `catalog.archive`): the worker's own close records the state; when it
+/// died before its close wrote it, the supervisor records it here so the
+/// wake scans and saved-catalog folds treat the session as archived. A
+/// durable storage takes the marker in its `eukhe.daemon.session` document
+/// under the session lease; a legacy file not imported yet appends the
+/// state row. A session already archived (or unreadable) is a no-op.
+pub(crate) fn ensure_archived_state(agent_dir: &Path, root_session_file: &Path) -> Result<()> {
     let path = canonical_session_path(root_session_file);
+    if let Some(dir) = durable_storage_of(&path) {
+        if read_session_info(&dir)
+            .and_then(|info| info.state)
+            .as_deref()
+            == Some("archived")
+        {
+            return Ok(());
+        }
+        let _lease = crate::lease::acquire_runtime_session_lease(&dir, agent_dir)?;
+        return block_on_storage(mark_storage_archived(&dir, &BACKGROUND_CONTEXT))?;
+    }
     if !path.is_file() {
         return Ok(());
     }
@@ -238,7 +253,7 @@ pub(crate) fn finalize_archived_stop(
     if covered {
         return (cancelled, cancel_error);
     }
-    let archive_error = ensure_archived_state(root_session_file).err();
+    let archive_error = ensure_archived_state(agent_dir, root_session_file).err();
     (cancelled, cancel_error.or(archive_error))
 }
 

@@ -139,24 +139,31 @@ impl Client {
     }
 }
 
+/// A message's text: a plain string, or its text blocks joined (pi-ai user
+/// and assistant content is a block array; the old scripted engine wrote
+/// plain strings).
+fn content_text(content: &serde_json::Value) -> String {
+    match content.as_str() {
+        Some(text) => text.to_string(),
+        None => content
+            .as_array()
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter_map(|b| b["text"].as_str())
+                    .collect::<String>()
+            })
+            .unwrap_or_default(),
+    }
+}
+
 /// The text of every message row in a `get_messages` response.
 fn message_texts(response: &serde_json::Value) -> Vec<String> {
     response["data"]["messages"]
         .as_array()
         .expect("messages")
         .iter()
-        .map(|message| match message["content"].as_str() {
-            Some(text) => text.to_string(),
-            None => message["content"]
-                .as_array()
-                .map(|blocks| {
-                    blocks
-                        .iter()
-                        .filter_map(|b| b["text"].as_str())
-                        .collect::<String>()
-                })
-                .unwrap_or_default(),
-        })
+        .map(|message| content_text(&message["content"]))
         .collect()
 }
 
@@ -190,14 +197,15 @@ fn session_tree_commands_over_the_supervisor_wire() {
     let script_path = dir.path().join("script.json");
     std::fs::write(
         &script_path,
+        // The branch summary is a model request on the session's models
+        // (TS `generateBranchSummary`): the durable faux answers it from
+        // the same in-order response queue as the turns.
         serde_json::json!({
             "responses": [
                 { "text": "first answer", "delayMs": 10 },
                 { "text": "second answer", "delayMs": 10 },
+                { "text": "explored the second branch", "delayMs": 10 },
             ],
-            "branchSummary": { "responses": [
-                { "summary": "explored the second branch", "delayMs": 10 },
-            ] },
         })
         .to_string(),
     )
@@ -242,7 +250,7 @@ fn session_tree_commands_over_the_supervisor_wire() {
         .find(|node| {
             node["entry"]["type"] == "message"
                 && node["entry"]["message"]["role"] == "user"
-                && node["entry"]["message"]["content"].as_str() == Some("first question")
+                && content_text(&node["entry"]["message"]["content"]) == "first question"
         })
         .expect("the first user message node");
     let first_user_id = entry_id(first_user).to_string();
@@ -258,7 +266,7 @@ fn session_tree_commands_over_the_supervisor_wire() {
         .find(|node| {
             node["entry"]["type"] == "message"
                 && node["entry"]["message"]["role"] == "user"
-                && node["entry"]["message"]["content"].as_str() == Some("second question")
+                && content_text(&node["entry"]["message"]["content"]) == "second question"
         })
         .expect("the second user message node");
     let second_user_id = entry_id(second_user).to_string();
@@ -379,26 +387,25 @@ fn session_tree_commands_over_the_supervisor_wire() {
         summarized["data"]["editorText"],
         serde_json::json!("first question")
     );
+    // The summary is the summarizer's answer under the TS
+    // `generateBranchSummary` preamble (no file operations to append).
     assert_eq!(
         summarized["data"]["summaryEntry"]["summary"],
-        serde_json::json!("explored the second branch")
+        serde_json::json!(
+            "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nexplored the second branch"
+        )
     );
-    // The branch_summary entry persisted to the session file.
-    let mut saw_branch_summary = false;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        saw_branch_summary |= content.contains("\"type\":\"branch_summary\"");
-    }
+    // The branch summary entry persisted to the session's commit log (the
+    // durable session is a storage directory; the entry is
+    // `eukhe.branch-summary`).
+    let session_file = created["data"]["sessionFile"]
+        .as_str()
+        .expect("the session's storage directory");
+    let log = std::fs::read_to_string(std::path::Path::new(session_file).join("main.jsonl"))
+        .expect("read the session's commit log");
     assert!(
-        saw_branch_summary,
-        "the branch_summary entry persisted to the session file"
+        log.contains("\"eukhe.branch-summary\""),
+        "the branch summary entry persisted to the session's commit log"
     );
 
     // Fork from the second user message: a new session file with the path
@@ -430,16 +437,17 @@ fn session_tree_commands_over_the_supervisor_wire() {
         !texts.iter().any(|text| text.contains("second question")),
         "the fork cut before the target message: {texts:?}"
     );
-    // The fork created a second session file.
-    let session_files: Vec<_> = std::fs::read_dir(&session_dir)
+    // The fork created a second session (a storage directory beside the
+    // original).
+    let sessions: Vec<_> = std::fs::read_dir(&session_dir)
         .expect("read session dir")
         .flatten()
-        .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("jsonl"))
+        .filter(|entry| entry.path().is_dir())
         .collect();
     assert!(
-        session_files.len() >= 2,
-        "the fork wrote a new session file: {} files",
-        session_files.len()
+        sessions.len() >= 2,
+        "the fork wrote a new session: {} sessions",
+        sessions.len()
     );
 }
 
@@ -618,7 +626,7 @@ fn session_tree_commands_over_the_direct_worker_link() {
             .find(|node| {
                 node["entry"]["type"] == "message"
                     && node["entry"]["message"]["role"] == role
-                    && node["entry"]["message"]["content"].as_str() == Some(content)
+                    && content_text(&node["entry"]["message"]["content"]) == content
             })
             .map_or_else(
                 || panic!("the {role} entry for {content}"),

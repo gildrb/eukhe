@@ -107,17 +107,19 @@ fn compaction_metas(updates: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-/// The threshold arm on the ACP turn path: a settled turn whose usage
-/// crosses the reserve headroom compacts at the boundary and publishes
-/// the `compaction` meta with the summarizer's text (TS `_checkCompaction`
-/// threshold arm, binary level).
+/// The threshold arm on the ACP turn path (pi-durable's pre-request
+/// check): a prompt whose context crosses the reserve headroom compacts
+/// before its request and publishes the `compaction` meta with the
+/// summarizer's text.
 ///
 /// Two turns over a 500-token combined ceiling (the f14 battery shape:
 /// the window minus the faux harness model's `4_096` per-request output
-/// budget and the reserve): the single-turn compaction skips (nothing
-/// before the turn to summarize — the skip publishes the empty payload,
-/// proving the arm ran), then the second turn's boundary compaction
-/// summarizes turn one and publishes its result.
+/// budget and the reserve). Turn one crosses it with only its own prompt
+/// in context: pi-durable finds nothing before the prompt to summarize and
+/// runs no compaction (no meta; the old engine's post-turn arm published a
+/// skip). Turn two's request crosses it again: the compaction summarizes
+/// turn one before turn two's answer, so the summary is the second
+/// scripted response.
 #[test]
 fn acp_threshold_auto_compaction_publishes_the_compaction_meta() {
     let script = json!({
@@ -126,8 +128,8 @@ fn acp_threshold_auto_compaction_publishes_the_compaction_meta() {
         "maxTokens": 4_096,
         "responses": [
             { "text": "turn one reply" },
-            { "text": "turn two reply" },
             { "text": "the auto summary" },
+            { "text": "turn two reply" },
         ]
     });
     let mut client = spawn_with_compaction_settings(
@@ -145,8 +147,8 @@ fn acp_threshold_auto_compaction_publishes_the_compaction_meta() {
         .unwrap()
         .to_string();
 
-    // Turn one crosses the headroom: the boundary arm ran and the
-    // single-turn skip published the empty payload.
+    // Turn one crosses the headroom with nothing before it to summarize:
+    // no compaction runs, and the turn answers.
     let prompt = client.request(
         "session/prompt",
         &json!({
@@ -157,13 +159,13 @@ fn acp_threshold_auto_compaction_publishes_the_compaction_meta() {
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
     assert_end_turn(&prompt_response);
     let metas = compaction_metas(&updates);
-    assert!(!metas.is_empty(), "the threshold arm ran: {updates:?}");
-    assert!(
-        metas
-            .iter()
-            .all(|meta| meta.as_object().is_some_and(serde_json::Map::is_empty)),
-        "the single-turn compaction skipped: {metas:?}"
-    );
+    assert!(metas.is_empty(), "nothing to compact yet: {metas:?}");
+    let answer: String = updates
+        .iter()
+        .filter(|update| update["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
+        .filter_map(|update| update["params"]["update"]["content"]["text"].as_str())
+        .collect();
+    assert_eq!(answer, "turn one reply");
 
     // Turn two's boundary: the compaction summarizes turn one and
     // publishes its result.

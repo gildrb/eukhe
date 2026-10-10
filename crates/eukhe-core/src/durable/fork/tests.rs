@@ -138,6 +138,49 @@ async fn forks_at_the_start_with_the_source_agent() {
 }
 
 #[tokio::test]
+async fn forks_a_conversation_other_than_the_main_one() {
+    let fixture = fixture();
+    let alpha = fixture.project("alpha");
+    let source_entries = fixture
+        .durable("source", &alpha, &["first", "second"])
+        .await;
+    let at = source_entries
+        .iter()
+        .find(|entry| entry.kind == "pi.assistant")
+        .expect("first answer")
+        .id;
+    // The source's main moves onto a fork at the first answer; the root
+    // keeps the abandoned second turn.
+    let session = fixture.open("source", &alpha).await;
+    let root = session.root().id();
+    fork_main_conversation(
+        session.harness(),
+        session.root(),
+        ForkPoint::Entry(at),
+        None,
+        cx(),
+    )
+    .await
+    .expect("in-place fork");
+    session.close(cx()).await.expect("close");
+
+    let new_dir = fixture.sessions.join("fork-1");
+    let forked = fork_session_conversation(
+        &SessionLocation::Durable(fixture.sessions.join("source")),
+        root,
+        ForkPoint::Latest,
+        None,
+        &new_dir,
+        cx(),
+    )
+    .await
+    .expect("fork");
+    let (main, texts, _) = opened_fork(&fixture, "fork-1", &alpha).await;
+    assert_eq!(main, forked.main);
+    assert_eq!(texts, ["first", "answer 1", "second", "answer 2"]);
+}
+
+#[tokio::test]
 async fn forks_a_legacy_file_without_importing_it_in_place() {
     let fixture = fixture();
     let beta = fixture.project("beta");

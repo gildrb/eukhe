@@ -308,6 +308,27 @@ fn await_receipt(receipt: &Path) -> String {
     }
 }
 
+/// A durable session's stored text: every file of its storage directory
+/// (the store's commit log and its document/entry sidecars), concatenated.
+fn storage_text(dir: &Path) -> String {
+    let mut text = String::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(content) = std::fs::read_to_string(&path) {
+                text.push_str(&content);
+            }
+        }
+    }
+    text
+}
+
 /// The kernel cell of the spawn turn: spawn one RLM child through the
 /// product `rlm.spawn` surface and record its child id.
 fn spawn_cell(receipt: &Path, error_receipt: &Path) -> String {
@@ -515,24 +536,24 @@ fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
     // The close is the shutdown-close shape (TS's in-process child dies
     // with its parent worker without a close; the Rust worker must be
     // told, and the `shutdown` reason keeps the child's resume entry):
-    // the child's session file keeps its live state and its scheduled
-    // jobs, so the wake model can still own reviving it later — it is
-    // NOT archived like a killed close (the stop lifecycle lane).
-    let child_session_file = {
+    // the child's session keeps its live state and its scheduled jobs, so
+    // the wake model can still own reviving it later — it is NOT archived
+    // like a killed close (the stop lifecycle lane). The durable child
+    // session is its storage directory (`<child-dir>/<session-id>/`), whose
+    // session document carries `archived` only after a killed close.
+    let child_storage = {
         let child_dir = agent_dir
             .join("session-artifacts")
             .join(parent_session_id)
             .join(&child_id);
-        let file = std::fs::read_dir(&child_dir)
+        std::fs::read_dir(&child_dir)
             .expect("child session dir")
             .filter_map(std::result::Result::ok)
             .map(|entry| entry.path())
-            .find(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"))
-            .expect("one child session file");
-        file
+            .find(|path| path.join("main.jsonl").is_file())
+            .expect("one child session storage")
     };
-    let child_session =
-        std::fs::read_to_string(&child_session_file).expect("read child session file");
+    let child_session = storage_text(&child_storage);
     assert!(
         !child_session.contains("\"archived\""),
         "the parent-death close keeps the child's resume entry (no archive): {child_session}"

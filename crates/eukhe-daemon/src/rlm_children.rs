@@ -1072,7 +1072,15 @@ impl SupervisorChildSessionsInner {
     /// The per-child session directory under the parent's artifacts tree
     /// (TS `_createChildRlmSessionDir`); the child session persists inside it.
     fn child_session_dir(&self, child_id: &str, identity: &ParentIdentity) -> Result<PathBuf> {
-        let base = match &identity.session_id {
+        let base = self.child_session_path(child_id, identity);
+        std::fs::create_dir_all(&base)
+            .with_context(|| format!("create RLM child session dir {}", base.display()))?;
+        Ok(base)
+    }
+
+    /// [`Self::child_session_dir`]'s path, without creating it.
+    fn child_session_path(&self, child_id: &str, identity: &ParentIdentity) -> PathBuf {
+        match &identity.session_id {
             Some(session_id) => self
                 .agent_dir
                 .join("session-artifacts")
@@ -1081,10 +1089,7 @@ impl SupervisorChildSessionsInner {
             // No persistent parent artifacts dir: an ephemeral temp dir, the
             // TS `_createEphemeralRlmSessionDir` fallback.
             None => std::env::temp_dir().join(format!("eukhe-rlm-{child_id}")),
-        };
-        std::fs::create_dir_all(&base)
-            .with_context(|| format!("create RLM child session dir {}", base.display()))?;
-        Ok(base)
+        }
     }
 }
 

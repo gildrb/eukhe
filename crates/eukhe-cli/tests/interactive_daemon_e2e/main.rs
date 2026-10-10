@@ -36,6 +36,11 @@ use std::time::{Duration, Instant};
 
 use eukhe_types::daemon::DaemonCommand;
 
+#[path = "../support/durable_store.rs"]
+mod durable_store;
+
+use durable_store::{read_transcript, session_dirs, storage_contains, try_read_transcript};
+
 /// A one-pixel PNG (the clipboard seam fixture image).
 const MINIMAL_PNG: &[u8] = &[
     137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
@@ -557,6 +562,21 @@ fn base_options(
         provider_auth: None,
         traces: None,
     }
+}
+
+/// Whether a session storage under `session_dir` holds a model message with
+/// a PNG image block (a submitted draft's attached image).
+fn a_session_persisted_a_png(session_dir: &Path) -> bool {
+    session_dirs(session_dir).iter().any(|storage| {
+        read_transcript(storage)
+            .entries
+            .iter()
+            .filter_map(|entry| entry["model"].as_array())
+            .flatten()
+            .filter_map(|message| message["content"].as_array())
+            .flatten()
+            .any(|block| block["type"] == "image" && block["mimeType"] == "image/png")
+    })
 }
 
 mod commands;

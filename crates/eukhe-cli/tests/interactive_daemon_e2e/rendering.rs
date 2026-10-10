@@ -340,8 +340,7 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
     let script_path = dir.path().join("script.json");
     let script = serde_json::json!({ "responses": [
         { "text": "first turn", "delayMs": 1500 },
-        { "text": "steered delivery" },
-        { "text": "followed up delivery" },
+        { "text": "queued delivery" },
     ]});
     std::fs::write(&script_path, script.to_string()).expect("write script");
 
@@ -418,15 +417,33 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
         rendered.contains("to browse and edit queued messages"),
         "the browse hint rendered:\n{rendered}"
     );
-    // The queued prompts delivered once the run went idle: their turns'
-    // scripted responses rendered, and the strip cleared.
+    // The queued prompts delivered once the slow turn ended: pi-durable's
+    // final boundary places the first steer and the first follow-up
+    // together (spec §6), so one request carries both prompts and its
+    // scripted response rendered, and the strip cleared.
     assert!(
-        rendered.contains("steered delivery"),
-        "the steering prompt delivered:\n{rendered}"
+        rendered.contains("queued delivery"),
+        "the queued prompts delivered:\n{rendered}"
     );
-    assert!(
-        rendered.contains("followed up delivery"),
-        "the follow-up prompt delivered:\n{rendered}"
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    // The harness digest rides as a user-role custom row; only the chat
+    // rows matter here.
+    let texts: Vec<String> = read_transcript(&storages[0])
+        .chat_texts()
+        .into_iter()
+        .filter(|text| !text.starts_with("[harness-digest]"))
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            "start the slow turn",
+            "first turn",
+            "steering prompt",
+            "follow-up prompt",
+            "queued delivery"
+        ],
+        "both parked prompts reached the one successor request in submit order"
     );
     let last = outcome.frames.last().expect("a final frame");
     assert!(
@@ -445,17 +462,16 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
 /// model. The pre-fix turn failed with "No models available" (the daemon
 /// fed the resolver the auth-scoped list; TS `resolveCliModel` uses
 /// `getAll()`), and a `/model` pick failed with "Model not found" leaving
-/// the status label stale. The fixed contract is TS parity: the flagged
-/// model resolves from the full catalog, the turn fails at the run-start
-/// auth validation with the TS login-guidance message
-/// (`_validateCanStartAgentRun`), and the pick of the unsigned provider
-/// never surfaces the dead-end "Model not found" — the daemon's typed
-/// refusal routes the sign-in flow (TS `ensureModelProviderConfigured`),
-/// which in this headless composition (no provider-auth hook) lands the TS
-/// external-config error; the failed pick keeps the label (nothing
-/// switched).
+/// the status label stale. The fixed contract: the flagged model resolves
+/// from the full catalog, the turn fails at the request's auth resolution
+/// (pi-ai's unconfigured-provider error), and the pick of the unsigned
+/// provider never surfaces the dead-end "Model not found" — the daemon's
+/// typed refusal routes the sign-in flow (TS
+/// `ensureModelProviderConfigured`), which in this headless composition (no
+/// provider-auth hook) lands the TS external-config error; the failed pick
+/// keeps the label (nothing switched).
 #[tokio::test]
-async fn tui_flagged_model_turn_reports_the_ts_preflight_error_without_credentials() {
+async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_credentials() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
@@ -536,9 +552,13 @@ async fn tui_flagged_model_turn_reports_the_ts_preflight_error_without_credentia
         !rendered.contains("Model not found: "),
         "the not-signed-in pick never surfaces the dead-end refusal (the typed sign-in class):\n{rendered}"
     );
+    // The durable session has no run-start credential preflight (TS
+    // `_validateCanStartAgentRun` lived in the old engine): the run starts
+    // and its request fails at pi-ai's auth resolution, which reports the
+    // unconfigured provider.
     assert!(
-        rendered.contains("No API key found for prime-inference"),
-        "the turn resolves the flagged model from the full catalog and fails at the run-start auth validation with the TS message:\n{rendered}"
+        rendered.contains("Provider is not configured: prime-inference"),
+        "the turn resolves the flagged model from the full catalog and fails at the request's auth resolution:\n{rendered}"
     );
     assert!(
         !rendered.contains("No models available"),

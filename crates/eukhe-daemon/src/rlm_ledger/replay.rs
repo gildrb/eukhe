@@ -168,11 +168,13 @@ pub(super) fn edge_key(child_id: &str, child: &str) -> String {
     )
 }
 
-/// One `live_edges` liveness pass: a recorded path that stats resolves as
-/// itself; a recorded path whose file moved resolves through its durable
-/// session id (the file-name stem) against the sessions dir and the
-/// session-artifacts tree the port writes. The per-pass cache keeps the
-/// artifact walk to at most one pass per ledger read.
+/// One `live_edges` liveness pass: a recorded path that stats as a session
+/// ([`is_session`]) resolves as itself; a legacy `<id>.jsonl` path whose
+/// session now lives in the sibling durable storage dir `<id>/` resolves
+/// to that dir; a recorded path whose session moved resolves through its
+/// durable session id (the file-name stem) against the sessions dir and
+/// the session-artifacts tree the port writes. The per-pass cache keeps
+/// the artifact walk to at most one pass per ledger read.
 pub(super) struct LivePathResolver {
     agent_dir: PathBuf,
     sessions_dir: PathBuf,
@@ -203,16 +205,26 @@ impl LivePathResolver {
 
     fn resolve_uncached(&mut self, recorded: &str) -> Option<PathBuf> {
         let recorded_path = Path::new(recorded);
-        if is_file(recorded_path) {
+        if is_session(recorded_path) {
             return Some(recorded_path.to_path_buf());
         }
         let id = recorded_path.file_stem()?.to_string_lossy().to_string();
         if id.is_empty() {
             return None;
         }
-        let sessions_candidate = self.sessions_dir.join(format!("{id}.jsonl"));
-        if is_file(&sessions_candidate) {
-            return Some(sessions_candidate);
+        // A legacy file path imported into its sibling storage dir.
+        if let Some(storage) = recorded_path.parent().map(|parent| parent.join(&id)) {
+            if is_session(&storage) {
+                return Some(storage);
+            }
+        }
+        for candidate in [
+            self.sessions_dir.join(format!("{id}.jsonl")),
+            self.sessions_dir.join(&id),
+        ] {
+            if is_session(&candidate) {
+                return Some(candidate);
+            }
         }
         let index = self
             .artifact_index
@@ -221,11 +233,13 @@ impl LivePathResolver {
     }
 }
 
-/// The session files under the artifacts tree, keyed by their durable
-/// session id (the file-name stem): `<agent-dir>/session-artifacts/
-/// <parent-session-id>/sub-<id>/<child>.jsonl`, one level per session id.
-/// Non-session `.jsonl` sidecars (semantic edges, harness state) key by
-/// their own stems and never collide with session-id lookups.
+/// The sessions under the artifacts tree, keyed by their durable session
+/// id: `<agent-dir>/session-artifacts/<parent-session-id>/sub-<id>/`
+/// holds each child as a legacy `<child>.jsonl` file (keyed by its stem)
+/// or a durable storage dir `<child>/` (keyed by its name), one level per
+/// session id. Non-session `.jsonl` sidecars (semantic edges, harness
+/// state) key by their own stems and never collide with session-id
+/// lookups.
 fn artifact_session_index(agent_dir: &Path) -> HashMap<String, PathBuf> {
     let mut index = HashMap::new();
     let root = agent_dir.join(crate::context_tree_children::RLM_SESSION_ARTIFACTS_DIR);
@@ -242,10 +256,15 @@ fn artifact_session_index(agent_dir: &Path) -> HashMap<String, PathBuf> {
             };
             for file in files.flatten() {
                 let path = file.path();
-                if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
-                    if let Some(stem) = path.file_stem() {
-                        index.insert(stem.to_string_lossy().to_string(), path);
-                    }
+                let key = if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+                    path.file_stem()
+                } else if is_storage_dir(&path) {
+                    path.file_name()
+                } else {
+                    None
+                };
+                if let Some(key) = key {
+                    index.insert(key.to_string_lossy().to_string(), path);
                 }
             }
         }
@@ -325,4 +344,16 @@ pub(super) fn file_identity(path: &Path) -> Result<Option<FileIdentity>> {
 
 pub(super) fn is_file(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_file())
+}
+
+/// A durable session's storage dir: a directory holding the store's
+/// `main.jsonl` commit log.
+fn is_storage_dir(path: &Path) -> bool {
+    is_file(&path.join("main.jsonl"))
+}
+
+/// Whether `path` names a live session: a legacy session file, or a
+/// durable storage dir (the `sessionFile` a durable worker reports).
+pub(super) fn is_session(path: &Path) -> bool {
+    is_file(path) || is_storage_dir(path)
 }

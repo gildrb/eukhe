@@ -30,7 +30,7 @@ use tempfile::TempDir;
 use crate::durable::{
     open_session, EukheSession, HostCall, HostCallHandler, SessionConfig, SessionStorage,
 };
-use crate::kernel::state_snapshot::snapshot_path_in;
+use crate::kernel::state_snapshot::manifest_path_in;
 
 /// The kernel Python with eukhe-runtime installed, handed to the sessions'
 /// kernels; `None` skips the test.
@@ -106,6 +106,11 @@ impl Fixture {
     }
 
     async fn open(&self) -> EukheSession {
+        self.open_configured(|_| {}).await
+    }
+
+    /// Open with `configure` applied to the config last.
+    async fn open_configured(&self, configure: impl FnOnce(&mut SessionConfig)) -> EukheSession {
         let mut config = SessionConfig::new(
             self.dir.path().join("agent"),
             self.dir.path().join("work"),
@@ -123,11 +128,14 @@ impl Fixture {
             }
             .into(),
         );
+        configure(&mut config);
         open_session(config, cx()).await.expect("session opens")
     }
 
-    fn snapshot_file(&self, conversation: ConversationId) -> PathBuf {
-        snapshot_path_in(
+    /// The namespace snapshot manifest of `conversation`'s kernel (written
+    /// after its payload).
+    fn manifest_file(&self, conversation: ConversationId) -> PathBuf {
+        manifest_path_in(
             self.storage()
                 .join("kernels")
                 .join(conversation.to_string()),
@@ -358,11 +366,25 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
     let pid = result_text(&results(&entries(&session).await)[0])
         .trim()
         .to_owned();
-    // The debounced auto-snapshot after the successful cell.
-    let snapshot = fixture.snapshot_file(root);
-    wait_for("the kernel namespace snapshot", || {
-        let exists = snapshot.exists();
-        async move { exists }
+    // The debounced auto-snapshot after the successful cell. Its manifest
+    // must list `x`: a fresh boot's bootstrap schedules its own debounced
+    // snapshot, and when the cell's enqueue lags past that debounce (a
+    // loaded machine) a skills-only payload lands first. The cell's own
+    // snapshot then queues behind the blocking cell below and never
+    // lands before the crash, so a bare "the file exists" check would let
+    // the reopened kernel revive a namespace without `x`.
+    let manifest = fixture.manifest_file(root);
+    wait_for("the kernel namespace snapshot holding x", || {
+        let saved_x = std::fs::read_to_string(&manifest)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|manifest| {
+                manifest["savedNames"]
+                    .as_array()
+                    .map(|names| names.iter().any(|name| name == "x"))
+            })
+            .unwrap_or(false);
+        async move { saved_x }
     })
     .await;
 
@@ -739,4 +761,161 @@ async fn kernel_factory_run_is_preflighted_before_the_kernel() {
         "{unknown:?}"
     );
     session.close(cx()).await.expect("close");
+}
+
+/// The root conversation's kernel in the session's pool, when one was
+/// created (never creates one).
+fn root_kernel(session: &EukheSession) -> Option<super::kernels::ConversationKernel> {
+    session
+        .deps()
+        .rlm_kernels
+        .get()
+        .and_then(std::sync::Weak::upgrade)
+        .and_then(|pool| pool.existing(session.root().id()))
+}
+
+async fn wait_for_prewarmed_boot(session: &EukheSession) -> i32 {
+    wait_for("the prewarmed kernel boot", || {
+        let running =
+            root_kernel(session).is_some_and(|kernel| kernel.provisioner.has_running_kernel());
+        async move { running }
+    })
+    .await;
+    root_kernel(session)
+        .and_then(|kernel| kernel.provisioner.manager())
+        .and_then(|manager| manager.process_id())
+        .expect("the prewarmed kernel's pid")
+}
+
+fn process_alive(pid: i32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .expect("kill runs")
+        .success()
+}
+
+/// The daemon's prewarm (TS `prewarmIpythonKernel`): a top-level session
+/// that asks for it boots its kernel at open with no `ipython` call, so a
+/// compaction with no tool use still lands the hidden `ipython_state`
+/// notice (the old engine's `kernel_prewarm` contract on the durable pool).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prewarmed_root_boots_at_open_and_its_compaction_lands_the_state_notice() {
+    if kernel_python().is_none() {
+        return;
+    }
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    // A tiny keep window so the short conversation still finds a cut.
+    std::fs::write(
+        fixture.dir.path().join("agent").join("settings.json"),
+        r#"{"compaction":{"keepRecentTokens":1}}"#,
+    )
+    .expect("settings file");
+    let session = fixture
+        .open_configured(|config| config.prewarm_kernel = true)
+        .await;
+    wait_for_prewarmed_boot(&session).await;
+
+    // Plain text turns (no tool use), then the summarizer's reply.
+    fixture.faux.set_responses(vec![
+        text("history one noted"),
+        text("history two noted"),
+        text("the compaction summary"),
+    ]);
+    for prompt in ["history turn one", "history turn two"] {
+        let id = submit(&session, prompt).await;
+        assert_eq!(settle(&session, id).await, SubmissionStatus::Done);
+    }
+    assert!(results(&entries(&session).await).is_empty(), "no tool use");
+    session.root().compact(None, cx()).await.expect("compact");
+    session.root().wait_for_idle(cx()).await.expect("idle");
+
+    let notice = || async {
+        entries(&session).await.into_iter().find(|entry| {
+            entry.kind == "eukhe.custom"
+                && entry
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("customType"))
+                    .and_then(JsonValue::as_str)
+                    == Some("ipython_state")
+        })
+    };
+    wait_for("the post-compaction ipython_state notice", || async {
+        notice().await.is_some()
+    })
+    .await;
+    let row = notice().await.expect("the notice row");
+    let Some(Message::User(message)) = row.model.as_ref().and_then(|model| model.first()) else {
+        panic!("the notice reaches the model: {row:?}");
+    };
+    let text = match &message.content {
+        UserContent::Text(text) => text.clone(),
+        UserContent::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|block| match block {
+                UserContentBlock::Text(text) => Some(text.text.as_str()),
+                UserContentBlock::Image(_) => None,
+            })
+            .collect(),
+    };
+    assert!(text.contains("[python-state]"), "{text}");
+    assert!(
+        text.contains("Your Python kernel persisted through compaction"),
+        "{text}"
+    );
+    session.close(cx()).await.expect("close");
+}
+
+/// The TS depth gate: a subagent session keeps the lazy first-call start
+/// despite the prewarm flag, and a fresh root without the flag (and
+/// without a snapshot) stays lazy too. The prewarm decision is made while
+/// the session opens (a firing prewarm creates the conversation's kernel
+/// before `open_session` returns), so an empty pool right after open is
+/// conclusive.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subagents_and_unflagged_roots_stay_lazy() {
+    let fixture = Fixture::new();
+    let subagent = fixture
+        .open_configured(|config| {
+            config.prewarm_kernel = true;
+            config.role.rlm_depth = 1;
+        })
+        .await;
+    assert!(
+        root_kernel(&subagent).is_none(),
+        "a depth-1 session must not prewarm"
+    );
+    subagent.close(cx()).await.expect("close");
+
+    let fixture = Fixture::new();
+    let unflagged = fixture.open().await;
+    assert!(
+        root_kernel(&unflagged).is_none(),
+        "a fresh root without the flag stays lazy"
+    );
+    unflagged.close(cx()).await.expect("close");
+}
+
+/// Closing a session takes its prewarmed kernel process down (the old
+/// engine's `kernel_teardown` prewarm contract on the durable pool).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn closing_a_session_kills_its_prewarmed_kernel_process() {
+    if kernel_python().is_none() {
+        return;
+    }
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    let session = fixture
+        .open_configured(|config| config.prewarm_kernel = true)
+        .await;
+    let pid = wait_for_prewarmed_boot(&session).await;
+    assert!(process_alive(pid), "the prewarmed kernel {pid} runs");
+    session.close(cx()).await.expect("close");
+    wait_for("the prewarmed kernel process to exit", || {
+        let alive = process_alive(pid);
+        async move { !alive }
+    })
+    .await;
 }

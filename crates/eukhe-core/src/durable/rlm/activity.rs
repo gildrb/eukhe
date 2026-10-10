@@ -87,6 +87,18 @@ pub async fn release_settled_kernel(deps: &HostDeps, conversation: ConversationI
     }
 }
 
+/// Move `from`'s kernel onto `to` when the session's main conversation
+/// moves between them (TS `navigateTree` rebuilds the branch in place and
+/// the session's kernel stays warm): the same process and namespace serve
+/// `to`, and its final snapshot lands in `to`'s directory. `false` when
+/// `from` had no kernel or the session closed.
+pub async fn transfer_kernel(deps: &HostDeps, from: ConversationId, to: ConversationId) -> bool {
+    match deps.rlm_kernels.get().and_then(std::sync::Weak::upgrade) {
+        Some(pool) => pool.transfer(from, to).await,
+        None => false,
+    }
+}
+
 /// The manager's "Kernel is not running" (a kernel that died since the
 /// lookup) stays the definitive refusal; anything else is a failure.
 fn classify(error: anyhow::Error) -> KernelActivityError {

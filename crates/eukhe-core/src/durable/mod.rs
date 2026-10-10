@@ -22,13 +22,14 @@ mod open;
 pub mod optchat;
 mod prompt;
 mod registry;
+mod retry_outcome;
 pub mod rlm;
 mod session_commands;
 mod settings;
 
 pub use deps::{
     HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry, LateAgentMessageSink,
-    ModelRequest, OpenedSession, ParentLink, PromptConfig, ServiceStart, ServiceStop,
+    McpLogin, ModelRequest, OpenedSession, ParentLink, PromptConfig, ServiceStart, ServiceStop,
     SessionConfig, SessionRole, SessionStorage, SummaryDeltaSink, TurnWait, TurnWaitSink,
 };
 pub use discovery::{
@@ -43,13 +44,18 @@ pub use entries::{
     CUSTOM_STATE_ENTRY,
 };
 pub use env::env_factory;
-pub use fork::{fork_main_conversation, fork_session, ForkError, ForkPoint, ForkedSession};
+pub use fork::{
+    fork_main_conversation, fork_session, fork_session_conversation, ForkError, ForkPoint,
+    ForkedSession,
+};
 pub use import::{import_legacy_session, ImportError, ImportReport};
 pub use main_conversation::{
     main_conversation, main_conversation_id, set_main_conversation, SessionState, SESSION_DOC,
 };
 pub use models::provider::{ProviderRuntime, ProviderWireEvent};
-pub use models::{create_models, resolve_session_model, ModelsError, ResolvedModel};
+pub use models::{
+    compose_models_json, create_models, resolve_session_model, ModelsError, ResolvedModel,
+};
 pub use open::{open_session, EukheSession, OpenError};
 pub use prompt::{section_keys, PROMPT_EXTENSION};
 pub use registry::create_eukhe_registry;

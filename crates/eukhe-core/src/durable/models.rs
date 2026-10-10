@@ -215,6 +215,27 @@ async fn build_models(
     Ok(models)
 }
 
+/// `<agent_dir>/models.json` composed over the providers already in
+/// `models` (the scripted faux verification seam's collection), plus the
+/// custom providers it defines: a `models.json` faux-api model streams
+/// through the registered scripted provider, as it did through the old
+/// registry. A missing file changes nothing.
+///
+/// # Errors
+///
+/// [`ModelsError::ModelsJson`] when `models.json` is unreadable or invalid.
+pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Result<(), ModelsError> {
+    let base = models
+        .get_providers()
+        .iter()
+        .map(|provider| eukhe_pi_ai::models::Provider::clone(provider))
+        .collect();
+    for provider in compose::compose_providers(base, &agent_dir.join("models.json"))? {
+        models.set_provider(provider);
+    }
+    Ok(())
+}
+
 /// Model + thinking of a new root conversation, as eukhe's daemon resolves
 /// a fresh session (`AgentSessionEngine::resolve_registry_model` and
 /// `effective_thinking`):
@@ -594,6 +615,83 @@ mod tests {
                 base_url: None,
             }
         );
+    }
+
+    /// eukhe's thinking capability rule (#2858): a model whose map
+    /// addresses a level can think even with `reasoning: false`, for
+    /// models.json models and built-in catalog models alike; an all-null
+    /// map claims nothing.
+    #[tokio::test]
+    async fn a_map_addressed_level_makes_a_model_thinking_capable() {
+        let dir = tempfile::tempdir().unwrap();
+        let models = battery_models(
+            dir.path(),
+            r#"{ "providers": { "battery": {
+                "baseUrl": "http://127.0.0.1:9/v1",
+                "api": "openai-completions",
+                "apiKey": "TEST_KEY",
+                "models": [
+                    { "id": "map-model", "reasoning": false,
+                      "thinkingLevelMap": { "off": null, "xhigh": "xhigh" } },
+                    { "id": "null-map", "thinkingLevelMap": { "off": null } },
+                ]
+            } } }"#,
+        )
+        .await;
+        let levels = |provider: &str, id: &str| {
+            eukhe_pi_ai::models::get_supported_thinking_levels(
+                &models.get_model(provider, id).unwrap(),
+            )
+        };
+        assert_eq!(
+            levels("battery", "map-model"),
+            [
+                ModelThinkingLevel::Minimal,
+                ModelThinkingLevel::Low,
+                ModelThinkingLevel::Medium,
+                ModelThinkingLevel::High,
+                ModelThinkingLevel::Xhigh,
+            ]
+        );
+        assert_eq!(levels("battery", "null-map"), [ModelThinkingLevel::Off]);
+        assert!(
+            models
+                .get_model("openai", "gpt-5.3-chat-latest")
+                .unwrap()
+                .reasoning
+        );
+    }
+
+    /// The faux verification seam: `models.json` composes over the scripted
+    /// provider, so a models.json faux-api model is listed next to the
+    /// scripted model.
+    #[tokio::test]
+    async fn models_json_composes_over_a_faux_script_collection() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("models.json"),
+            r#"{ "providers": { "faux": { "api": "faux", "baseUrl": "http://localhost:0",
+                "apiKey": "sk-faux",
+                "models": [ { "id": "plain-model", "api": "faux", "baseUrl": "http://localhost:0" } ]
+            } } }"#,
+        )
+        .unwrap();
+        let script = eukhe_pi_ai::providers::faux_script::parse_faux_script_value(
+            &json!({ "responses": ["scripted"] }),
+        )
+        .unwrap();
+        let (models, provider) =
+            eukhe_pi_ai::providers::faux_script::create_faux_script_models(script);
+        compose_models_json(&models, dir.path()).unwrap();
+        let mut ids: Vec<String> = models
+            .get_models(Some("faux"))
+            .into_iter()
+            .map(|model| model.id)
+            .collect();
+        let mut expected = vec![provider.get_model().id, "plain-model".to_owned()];
+        ids.sort();
+        expected.sort();
+        assert_eq!(ids, expected);
     }
 
     /// Upstream #755 (configured max tokens clamped to a 32000 default

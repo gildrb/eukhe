@@ -420,12 +420,18 @@ pub(super) struct SessionInfoEntry<'a> {
     usage: Option<crate::session_usage::ScanUsage>,
 }
 
-/// Read a session file's list metadata (TS `readSessionInfo` over the
-/// resumable per-file scan states): an unchanged file answers from the
-/// cached fold, a grown file folds ONLY its appended entries after the
-/// prefix-tail check, and a rewritten file rescans from the top.
+/// Read a session's list metadata. A durable storage (the `<id>/`
+/// directory, also named by the `<id>.jsonl` it was imported from) reads
+/// through its storage views; a legacy file not imported yet folds TS
+/// `readSessionInfo` over the resumable per-file scan states: an unchanged
+/// file answers from the cached fold, a grown file folds ONLY its appended
+/// entries after the prefix-tail check, and a rewritten file rescans from
+/// the top.
 #[must_use]
 pub fn read_session_info(path: &Path) -> Option<SessionInfo> {
+    if let Some(dir) = super::durable_storage_of(path) {
+        return super::durable_info::read_durable_session_info_blocking(&dir);
+    }
     let mut file = fs::File::open(path).ok()?;
     read_session_info_from(&mut file, path)
 }

@@ -15,6 +15,7 @@
 //! partial when it flushes ([`EventTranslator::flush`], the worker's 50 ms
 //! timer).
 
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eukhe_chord::json::JsonValue;
@@ -24,14 +25,15 @@ use eukhe_core::durable::{
 };
 use eukhe_core::session_engine::refine::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
-use eukhe_durable::harness::types::{AgentState, CompactionReason};
+use eukhe_durable::harness::types::{AgentState, CompactionReason, ConversationRetryPolicy};
 use eukhe_durable::harness::usage::UsageState;
 use eukhe_durable::harness::{
     AgentEvent, MessageChange, PathSegment, QueuedItem, SnapshotEvent, ToolOutputUpdate,
     ToolSlotStatus,
 };
-use eukhe_durable::types::{EntryRecord, SubmissionId, TaskId};
-use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, Usage};
+use eukhe_durable::types::{EntryId, EntryRecord, SubmissionId, TaskId};
+use eukhe_pi_ai::utils::retry::RetryDelay;
+use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, StopReason, Usage};
 use serde_json::{json, Map, Value};
 
 use super::wire_messages::{
@@ -171,6 +173,33 @@ struct Failure {
     message: String,
 }
 
+/// The `compact` command's claim on its manual compaction: the run's
+/// `compaction_start` carries the command's instructions, and its
+/// `compaction_end` is the command's frame (the `CompactionResult` its
+/// response carries, or the abort), emitted by whichever side settles last.
+#[derive(Debug, Default)]
+struct ManualClaim {
+    instructions: Option<String>,
+    /// The claimed task, bound at the first manual `compaction_start`.
+    task_id: Option<TaskId>,
+    /// The claimed task's `compaction_end` arrived before the command's frame.
+    ended: bool,
+    /// The command's end frame, waiting for the task's `compaction_end`.
+    end_frame: Option<Value>,
+}
+
+/// Where [`EventTranslator::settle_manual_compaction`] placed the `compact`
+/// command's `compaction_end` frame.
+#[derive(Debug, PartialEq)]
+pub enum ManualSettle {
+    /// The claimed task already ended: the caller emits the frame now.
+    Emit(Value),
+    /// The claimed task's `compaction_end` emits the frame.
+    Deferred,
+    /// No compaction task started: nothing of the run reached the wire.
+    NoTask,
+}
+
 /// Translates one conversation's agent events into wire session events.
 #[derive(Debug)]
 pub struct EventTranslator {
@@ -179,6 +208,8 @@ pub struct EventTranslator {
     parked: Option<Parked>,
     /// A generation failure since the last turn boundary.
     turn_error: Option<String>,
+    /// Where the current turn's messages start in `run_messages`.
+    turn_from: usize,
     summaries: Vec<PlacedSummary>,
     /// Tool and compaction failures not reported yet.
     failures: Vec<Failure>,
@@ -186,18 +217,64 @@ pub struct EventTranslator {
     failures_prescanned: bool,
     /// The running run's messages, carried by its `agent_end`.
     run_messages: Vec<Value>,
+    /// The `compact` command's manual run ([`Self::claim_manual_compaction`]).
+    manual_claim: Option<ManualClaim>,
+    /// Threshold/overflow compactions that ended without a summary, oldest
+    /// first: their `compaction_end` waits for the `compaction_outcome`
+    /// row the eukhe compaction observer appends once the task settled (TS
+    /// `_endCompactionUnsuccessfully` broadcasts the disclosure row first,
+    /// then the end event shaped by its outcome).
+    held_ends: Vec<CompactionReason>,
+    /// The open retry episode (TS `auto_retry_start` ... `auto_retry_end`).
+    retry_episode: Option<RetryEpisode>,
+    /// The session's retry policy: the wire's `maxAttempts` and `delayMs`.
+    retry_policy: Option<RetryPolicySource>,
+}
+
+/// One retry episode: pi-durable pairs every retry wait with its own
+/// `AutoRetryEnd` when the next attempt starts, while the wire (TS) closes
+/// the whole episode once — recovered on the next settled answer, failed at
+/// the turn's end.
+#[derive(Debug, Default)]
+struct RetryEpisode {
+    /// Retry starts so far (the durable retries plus provider switches).
+    retries: u64,
+    /// The newest failed attempt's error.
+    final_error: Option<String>,
+}
+
+/// The session's resolved retry policy (settings `retry`), read when a
+/// retry starts.
+#[derive(Clone)]
+pub struct RetryPolicySource(Arc<dyn Fn() -> ConversationRetryPolicy + Send + Sync>);
+
+impl RetryPolicySource {
+    #[must_use]
+    pub fn new(read: impl Fn() -> ConversationRetryPolicy + Send + Sync + 'static) -> Self {
+        Self(Arc::new(read))
+    }
+}
+
+impl std::fmt::Debug for RetryPolicySource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("RetryPolicySource")
+    }
 }
 
 /// A batch's events in emit order: a run start (with its own `TurnStart`)
 /// moves ahead of the inputs placed in the same commit, so `agent_start` /
-/// `turn_start` precede the user message frames (TS order).
+/// `turn_start` precede the user message frames (TS order). The placed
+/// inputs are the block right before the run start (a start on an idle
+/// conversation) and every entry a submission of the batch points at: a
+/// run's end places the next run's inputs in its own commit, where the
+/// durable events list them ahead of the ending run's `TurnEnd` /
+/// `RunEnd` — on the wire they open the next run.
 fn run_start_first(events: &[AgentEvent]) -> Vec<&AgentEvent> {
-    let mut ordered: Vec<&AgentEvent> = events.iter().collect();
     let Some(start) = events
         .iter()
         .position(|event| matches!(event, AgentEvent::RunStart { .. }))
     else {
-        return ordered;
+        return events.iter().collect();
     };
     let mut to = start;
     while to > 0
@@ -217,7 +294,39 @@ fn run_start_first(events: &[AgentEvent]) -> Vec<&AgentEvent> {
     } else {
         start + 1
     };
-    ordered[to..end].rotate_right(end - start);
+    let placed: Vec<EntryId> = events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEvent::Submission { record } => record.state.entry(),
+            _ => None,
+        })
+        .collect();
+    let placed_entry = |event: Option<&AgentEvent>| match event {
+        Some(AgentEvent::MessageEnd { entry } | AgentEvent::EntryAppended { entry }) => {
+            placed.contains(&entry.id)
+        }
+        _ => false,
+    };
+    // A message's start goes with its end.
+    let moves = |index: usize| {
+        index >= to
+            || placed_entry(events.get(index))
+            || (matches!(events[index], AgentEvent::MessageStart { .. })
+                && placed_entry(events.get(index + 1)))
+    };
+    let mut ordered = Vec::with_capacity(events.len());
+    ordered.extend(
+        (0..start)
+            .filter(|&index| !moves(index))
+            .map(|index| &events[index]),
+    );
+    ordered.extend(&events[start..end]);
+    ordered.extend(
+        (0..start)
+            .filter(|&index| moves(index))
+            .map(|index| &events[index]),
+    );
+    ordered.extend(&events[end..]);
     ordered
 }
 
@@ -229,16 +338,62 @@ impl EventTranslator {
             mode,
             parked: None,
             turn_error: None,
+            turn_from: 0,
             summaries: Vec::new(),
             failures: Vec::new(),
             failures_prescanned: false,
             run_messages: Vec::new(),
+            manual_claim: None,
+            held_ends: Vec::new(),
+            retry_episode: None,
+            retry_policy: None,
         }
+    }
+
+    /// Report every retry start's `maxAttempts` and scheduled `delayMs`
+    /// from `policy`.
+    #[must_use]
+    pub fn with_retry_policy(mut self, policy: RetryPolicySource) -> Self {
+        self.retry_policy = Some(policy);
+        self
     }
 
     #[must_use]
     pub fn mirror(&self) -> &ConversationMirror {
         &self.mirror
+    }
+
+    /// Claim the next manual compaction for the `compact` command: its
+    /// `compaction_start` carries `instructions`, and its `compaction_end`
+    /// is the frame [`Self::settle_manual_compaction`] provides.
+    pub fn claim_manual_compaction(&mut self, instructions: Option<String>) {
+        self.manual_claim = Some(ManualClaim {
+            instructions,
+            ..ManualClaim::default()
+        });
+    }
+
+    /// Settle the claim with the command's `compaction_end` frame.
+    /// `task_started` says the run certainly started a task (it completed
+    /// or was aborted); otherwise only a bound claim proves one.
+    pub fn settle_manual_compaction(
+        &mut self,
+        end_frame: Value,
+        task_started: bool,
+    ) -> ManualSettle {
+        let Some(claim) = self.manual_claim.as_mut() else {
+            return ManualSettle::NoTask;
+        };
+        if claim.ended {
+            self.manual_claim = None;
+            return ManualSettle::Emit(end_frame);
+        }
+        if claim.task_id.is_some() || task_started {
+            claim.end_frame = Some(end_frame);
+            return ManualSettle::Deferred;
+        }
+        self.manual_claim = None;
+        ManualSettle::NoTask
     }
 
     /// Apply one commit's batch in order. Unlike event-by-event
@@ -333,10 +488,11 @@ impl EventTranslator {
                 at,
                 error_message,
             } => self.retry_start(*attempt, *at, error_message, &mut out),
-            AgentEvent::AutoRetryEnd { attempt } => {
+            AgentEvent::AutoRetryEnd { .. } => {
+                // The wait ended and the next attempt starts; the episode
+                // stays open until an answer settles or the turn ends.
                 self.flush_into(&mut out);
                 self.mirror.retry_attempt = None;
-                out.push(json!({ "type": "auto_retry_end", "success": true, "attempt": attempt }));
             }
             AgentEvent::AgentChanged { agent } => self.mirror.agent = agent.clone(),
             AgentEvent::UsageChanged { usage } => self.mirror.usage = usage.clone(),
@@ -352,7 +508,18 @@ impl EventTranslator {
                 if !self.mirror.compactions.iter().any(|(id, _)| id == task_id) {
                     self.mirror.compactions.push((*task_id, *reason));
                 }
-                out.push(json!({ "type": "compaction_start", "reason": reason }));
+                let mut frame = json!({ "type": "compaction_start", "reason": reason });
+                if let Some(claim) = self.manual_claim.as_mut() {
+                    if claim.task_id.is_none() && *reason == CompactionReason::Manual {
+                        claim.task_id = Some(*task_id);
+                    }
+                    if claim.task_id == Some(*task_id) {
+                        if let Some(instructions) = &claim.instructions {
+                            frame["customInstructions"] = Value::from(instructions.as_str());
+                        }
+                    }
+                }
+                out.push(frame);
             }
             AgentEvent::CompactionEnd { task_id, reason } => {
                 self.compaction_end(*task_id, *reason, &mut out);
@@ -365,18 +532,44 @@ impl EventTranslator {
 
     /// The run's messages ride its `agent_end` (TS `agent_end {messages}`:
     /// the run's new messages, prompt included): every `message_end` from
-    /// the `agent_start` on.
+    /// the `agent_start` on. A `turn_end` carries its turn's terminal
+    /// assistant message and the tool results after it (TS `turn_end
+    /// {message, toolResults}`); its separate `error` stays only for a turn
+    /// that failed without an assistant message to carry the failure.
     fn collect_run_messages(&mut self, out: &mut [Value]) {
         for frame in out {
             match frame.get("type").and_then(Value::as_str) {
-                Some("agent_start") => self.run_messages.clear(),
+                Some("agent_start") => {
+                    self.run_messages.clear();
+                    self.turn_from = 0;
+                }
+                Some("turn_start") => self.turn_from = self.run_messages.len(),
                 Some("message_end") => {
                     if let Some(message) = frame.get("message") {
                         self.run_messages.push(message.clone());
                     }
                 }
+                Some("turn_end") => {
+                    let turn = self.run_messages.get(self.turn_from..).unwrap_or_default();
+                    if let Some(at) = turn
+                        .iter()
+                        .rposition(|message| message["role"] == "assistant")
+                    {
+                        let results: Vec<Value> = turn[at + 1..]
+                            .iter()
+                            .filter(|message| message["role"] == "toolResult")
+                            .cloned()
+                            .collect();
+                        frame["message"] = turn[at].clone();
+                        frame["toolResults"] = Value::Array(results);
+                        if let Some(fields) = frame.as_object_mut() {
+                            fields.remove("error");
+                        }
+                    }
+                }
                 Some("agent_end") => {
                     frame["messages"] = Value::Array(std::mem::take(&mut self.run_messages));
+                    self.turn_from = 0;
                 }
                 _ => {}
             }
@@ -393,6 +586,7 @@ impl EventTranslator {
                 out.push(json!({ "type": "agent_start" }));
             }
             AgentEvent::RunEnd { .. } => {
+                self.end_failed_episode(out);
                 out.push(json!({ "type": "agent_end", "messages": [] }));
                 self.mirror.run = None;
                 self.mirror.partial = None;
@@ -404,6 +598,7 @@ impl EventTranslator {
                 out.push(json!({ "type": "turn_start" }));
             }
             AgentEvent::TurnEnd => {
+                self.end_failed_episode(out);
                 let mut frame = json!({ "type": "turn_end" });
                 if let Some(error) = self.turn_error.take() {
                     frame["error"] = Value::from(error);
@@ -442,21 +637,98 @@ impl EventTranslator {
         // new message.
         self.mirror.partial = None;
         self.mirror.retry_attempt = Some(attempt);
-        out.push(json!({
+        let episode = self.retry_episode.get_or_insert_with(RetryEpisode::default);
+        episode.retries += 1;
+        episode.final_error = Some(error_message.to_owned());
+        // The scheduled wait (TS `delayMs`): pi-durable schedules the
+        // policy's ladder step for this attempt (`at` = commit time + that
+        // step), the same `retry_delay_ms` computed here; without a policy,
+        // the wait left from now.
+        let mut frame = json!({
             "type": "auto_retry_start",
             "attempt": attempt,
-            "delayMs": retry_delay_ms(at, now_ms()),
             "errorMessage": error_message,
+        });
+        match &self.retry_policy {
+            Some(source) => {
+                let policy = (source.0)();
+                let step = eukhe_pi_ai::utils::retry::retry_delay_ms(
+                    RetryDelay {
+                        base_delay_ms: policy.base_delay_ms,
+                        max_agent_delay_ms: policy.max_agent_delay_ms,
+                    },
+                    u32::try_from(attempt).unwrap_or(u32::MAX),
+                );
+                frame["delayMs"] = Value::from(retry_delay_ms(step, 0.0));
+                frame["maxAttempts"] = Value::from(policy.max_retries);
+            }
+            None => frame["delayMs"] = Value::from(retry_delay_ms(at, now_ms())),
+        }
+        out.push(frame);
+    }
+
+    /// The failed close of an open retry episode at the turn's end (TS
+    /// `auto_retry_end {success: false, attempt, finalError}`).
+    fn end_failed_episode(&mut self, out: &mut Vec<Value>) {
+        let Some(episode) = self.retry_episode.take() else {
+            return;
+        };
+        out.push(json!({
+            "type": "auto_retry_end",
+            "success": false,
+            "attempt": episode.retries,
+            "finalError": episode.final_error.unwrap_or_else(|| "Unknown error".to_owned()),
         }));
     }
 
     /// A provider failover event of the session's provider runtime (the
     /// old engine's backup-switch `auto_retry_*` vocabulary the durable
     /// Harness itself does not emit): flushed after any parked update,
-    /// like the harness's own retry frames.
+    /// like the harness's own retry frames. A switch joins the open retry
+    /// episode; a successful switch's end closes it.
     pub fn provider_event(&mut self, event: &ProviderWireEvent, out: &mut Vec<Value>) {
         self.flush_into(out);
+        match event {
+            ProviderWireEvent::AutoRetryStart { error_message, .. } => {
+                let episode = self.retry_episode.get_or_insert_with(RetryEpisode::default);
+                episode.retries += 1;
+                episode.final_error = Some(error_message.clone());
+            }
+            ProviderWireEvent::AutoRetryEnd { .. } => self.retry_episode = None,
+        }
         out.push(provider_wire_frame(event));
+    }
+
+    /// A settled assistant message inside an open retry episode: a failed
+    /// attempt records its error (a retry or the turn's end follows), a
+    /// settled answer closes the episode recovered, and an abort leaves it
+    /// to the turn's end.
+    fn settle_retry_episode(&mut self, message: &AssistantMessage, out: &mut Vec<Value>) {
+        match message.stop_reason {
+            StopReason::Error => {
+                if let Some(episode) = self.retry_episode.as_mut() {
+                    episode.final_error = Some(
+                        message
+                            .error_message
+                            .clone()
+                            .filter(|error| !error.is_empty())
+                            .unwrap_or_else(|| "Unknown error".to_owned()),
+                    );
+                }
+            }
+            StopReason::Aborted => {}
+            StopReason::Stop
+            | StopReason::Length
+            | StopReason::ToolUse
+            | StopReason::Pending
+            | StopReason::Deferred => {
+                if let Some(episode) = self.retry_episode.take() {
+                    out.push(json!({
+                        "type": "auto_retry_end", "success": true, "attempt": episode.retries,
+                    }));
+                }
+            }
+        }
     }
 
     /// The parked `message_update` (built from the CURRENT partial), if any;
@@ -483,6 +755,10 @@ impl EventTranslator {
         self.parked = None;
         self.turn_error = None;
         self.summaries.clear();
+        // A snapshot replaces the conversation's state: an episode it
+        // interrupted closes with no frame (the snapshot's own retry state
+        // stands for it).
+        self.retry_episode = None;
         if !self.failures_prescanned {
             self.failures.clear();
         }
@@ -569,6 +845,7 @@ impl EventTranslator {
                     "type": "message_end",
                     "message": assistant_wire_message(message),
                 }));
+                self.settle_retry_episode(message, out);
             }
             self.mirror.partial = None;
         } else if kind == COMPACTION_ENTRY.kind() {
@@ -724,12 +1001,46 @@ impl EventTranslator {
     }
 
     /// A committed non-assistant message: its pair, then the
-    /// `compaction_end` a reported overflow outcome row stands for.
+    /// `compaction_end` an outcome row stands for (a reported overflow, or
+    /// a held automatic end).
     fn shown_message(&mut self, message: &Value, out: &mut Vec<Value>) {
         self.message_pair(message, out);
-        if let Some(frame) = reported_overflow_end(message) {
+        if let Some(frame) =
+            reported_overflow_end(message).or_else(|| self.settle_held_end(message))
+        {
             out.push(frame);
         }
+    }
+
+    /// The held `compaction_end` an automatic compaction's outcome row
+    /// settles (oldest of the row's reason), shaped like TS
+    /// `_endCompactionUnsuccessfully`: a skip carries the row text with the
+    /// `warning` severity, a failure the row text, a cancel `aborted` alone.
+    fn settle_held_end(&mut self, message: &Value) -> Option<Value> {
+        let details = &message["details"];
+        if message["customType"] != "compaction_outcome" || details["reported"] == true {
+            return None;
+        }
+        let text = content_text(&message["content"])?;
+        let (aborted, error_message, error_severity) = match details["outcome"].as_str()? {
+            "skipped" => (false, Some(text.as_str()), Some("warning")),
+            "failed" => (false, Some(text.as_str()), None),
+            "cancelled" => (true, None, None),
+            _ => return None,
+        };
+        let reason = details["reason"].as_str()?;
+        let index = self
+            .held_ends
+            .iter()
+            .position(|held| json!(held) == reason)?;
+        self.held_ends.remove(index);
+        Some(crate::compaction::compaction_end_unsuccessful(
+            reason,
+            aborted,
+            error_message,
+            error_severity,
+            None,
+        ))
     }
 
     fn compaction_end(&mut self, task_id: TaskId, reason: CompactionReason, out: &mut Vec<Value>) {
@@ -748,6 +1059,29 @@ impl EventTranslator {
             .iter()
             .position(|failure| failure.kind == COMPACTION_TASK && failure.task_id == task_id)
             .map(|index| self.failures.remove(index));
+        if let Some(claim) = self
+            .manual_claim
+            .as_mut()
+            .filter(|claim| claim.task_id == Some(task_id))
+        {
+            // The `compact` command reports its own run's end (the result
+            // its response carries, or the abort).
+            match claim.end_frame.take() {
+                Some(frame) => {
+                    out.push(frame);
+                    self.manual_claim = None;
+                }
+                None => claim.ended = true,
+            }
+            return;
+        }
+        if summary.is_none() && reason != CompactionReason::Manual {
+            // An automatic compaction that skipped, failed, or was aborted:
+            // the observer's outcome row reports it (`settle_held_end`),
+            // its text the end's error message.
+            self.held_ends.push(reason);
+            return;
+        }
         let mut frame = json!({
             "type": "compaction_end",
             "reason": reason,
@@ -779,14 +1113,7 @@ fn reported_overflow_end(message: &Value) -> Option<Value> {
     if !reported {
         return None;
     }
-    let text = match &message["content"] {
-        Value::String(text) => text.clone(),
-        Value::Array(blocks) => blocks
-            .iter()
-            .filter_map(|block| block["text"].as_str())
-            .collect(),
-        _ => return None,
-    };
+    let text = content_text(&message["content"])?;
     Some(json!({
         "type": "compaction_end",
         "reason": "overflow",
@@ -795,6 +1122,20 @@ fn reported_overflow_end(message: &Value) -> Option<Value> {
         "willRetry": false,
         "errorMessage": text,
     }))
+}
+
+/// The text of a custom message's content (a string or text blocks).
+fn content_text(content: &Value) -> Option<String> {
+    match content {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(blocks) => Some(
+            blocks
+                .iter()
+                .filter_map(|block| block["text"].as_str())
+                .collect(),
+        ),
+        _ => None,
+    }
 }
 
 /// `refine_complete` of a committed refinement audit row: every applied
@@ -1027,9 +1368,9 @@ fn tool_call_arguments(
         .unwrap_or_else(|| Value::Object(Map::new()))
 }
 
-/// Milliseconds until `at` (Unix ms), never negative.
-fn retry_delay_ms(at: f64, now: f64) -> u64 {
-    Duration::try_from_secs_f64((at - now).max(0.0) / 1000.0).map_or(0, |delay| {
+/// Milliseconds from `from` until `at` (Unix ms), never negative.
+fn retry_delay_ms(at: f64, from: f64) -> u64 {
+    Duration::try_from_secs_f64((at - from).max(0.0) / 1000.0).map_or(0, |delay| {
         u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)
     })
 }

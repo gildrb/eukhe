@@ -42,6 +42,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+// The durable session storage reader the CLI e2e suites share.
+#[path = "../../eukhe-cli/tests/support/durable_store.rs"]
+mod durable_store;
+
 /// The compaction summarizer request marker (the fixed summarization
 /// system prompt rides the request's first message).
 const SUMMARIZER_MARKER: &str = "context summarization assistant";
@@ -70,8 +74,7 @@ impl Drop for Supervisor {
 /// reply; the compaction summarizer request streams the scripted summary
 /// in multiple content chunks (the live delta source). The per-request
 /// usage list makes the second turn's usage cross the compaction
-/// threshold (the f14-auto battery shape: `126_010` tokens against a
-/// 500-token headroom).
+/// threshold (`127_910` tokens against a 500-token headroom).
 struct CompactionMock {
     requests: Arc<Mutex<Vec<Value>>>,
     port: u16,
@@ -98,10 +101,6 @@ impl CompactionMock {
     fn url(&self) -> String {
         format!("http://127.0.0.1:{}/v1", self.port)
     }
-
-    fn request_count(&self) -> usize {
-        self.requests.lock().expect("mock lock").len()
-    }
 }
 
 fn chunk(delta: &Value, finish_reason: Option<&str>, usage: &Value) -> String {
@@ -127,10 +126,14 @@ fn small_usage() -> Value {
     })
 }
 
-/// The crossing turn's reported usage (the f14-auto battery shape).
+/// The crossing turn's reported usage. pi-durable compacts before a
+/// request once the context estimate exceeds `contextWindow -
+/// reserveTokens` (`127_500` here; no `4_096` estimate-error floor like
+/// the old engine's `119_808` ceiling), so the old f14-auto battery's
+/// `126_010` no longer crosses: `127_910` does.
 fn crossing_usage() -> Value {
     json!({
-        "prompt_tokens": 126_000, "completion_tokens": 10, "total_tokens": 126_010,
+        "prompt_tokens": 127_900, "completion_tokens": 10, "total_tokens": 127_910,
         "prompt_tokens_details": {"cached_tokens": 80},
     })
 }
@@ -412,11 +415,10 @@ fn threshold_compaction_streams_summary_deltas_to_attached_clients() {
         .to_string(),
     )
     .expect("write models.json");
-    // The f14-auto battery settings shape: a tiny reserve (the 4_096
-    // estimate-error floor governs the headroom), so the combined
-    // input+output ceiling sits at 119_808 on the 128k window — the
-    // 126_010 crossing fires. A tiny keep-recent budget keeps the seeded
-    // turns summarizable.
+    // A tiny reserve: pi-durable's blocking threshold sits at `127_500` on
+    // the 128k window, so the `127_910` crossing fires before the next
+    // request. A tiny keep-recent budget keeps the seeded turns
+    // summarizable.
     std::fs::write(
         agent_dir.join("settings.json"),
         json!({ "compaction": {"enabled": true, "reserveTokens": 500, "keepRecentTokens": 10} })
@@ -466,15 +468,9 @@ fn threshold_compaction_streams_summary_deltas_to_attached_clients() {
     let seeded = client.read_response("p1");
     assert_eq!(seeded["success"], true, "seed prompt failed: {seeded}");
 
-    // The crossing turn reports `126_010` tokens (over the 500-token
-    // headroom): the post-turn threshold check fires a compaction, and
-    // the mock streams the summarizer summary chunk by chunk. The turn's
-    // user message is big on purpose: the 10-token keep-recent budget
-    // then cuts AT the big user message's own boundary — a non-split cut
-    // with the seed turn as the summarizable history (the interactive
-    // e2e's same shape: a mid-turn cut would be a split-turn compaction
-    // whose turn-prefix call does not stream, a different test shape
-    // than this single-history-chunk script).
+    // The crossing turn reports `127_910` tokens (over the 500-token
+    // headroom). Its user message is big on purpose (the old engine cut
+    // at that message's boundary for a non-split cut; harmless here).
     client.send_command(
         "p2",
         &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": format!("crossing turn {}", "x".repeat(4_000))}),
@@ -484,13 +480,26 @@ fn threshold_compaction_streams_summary_deltas_to_attached_clients() {
         crossed["success"], true,
         "crossing prompt failed: {crossed}"
     );
-    let summarizer_index = 2; // turn 1, turn 2, then the compaction summarizer
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline && mock.request_count() <= summarizer_index {
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    // pi-durable checks the threshold before each request, not at the
+    // settled crossing turn: the next prompt's preparation fires the
+    // blocking compaction, and the mock streams the summarizer summary
+    // chunk by chunk (pi-durable makes no separate turn-prefix call).
+    client.send_command(
+        "p3",
+        &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "compacting turn"}),
+    );
+    let compacting = client.read_response("p3");
+    assert_eq!(
+        compacting["success"], true,
+        "compacting prompt failed: {compacting}"
+    );
+    let summarizer_index = 2; // turn 1, turn 2, then turn 3's compaction summarizer
     assert!(
-        mock.request_count() > summarizer_index,
+        mock.requests
+            .lock()
+            .expect("mock lock")
+            .get(summarizer_index)
+            .is_some_and(is_summarizer_request),
         "the compaction summarizer request never arrived"
     );
     client.drain_events(500);
@@ -548,26 +557,22 @@ fn threshold_compaction_streams_summary_deltas_to_attached_clients() {
         FULL_SUMMARY
     );
 
-    // The delta frames are ephemeral: the durable session file carries
-    // the compaction entry but never a delta frame.
-    let session_file = std::fs::read_dir(&session_dir)
-        .expect("list session dir")
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "jsonl")
-                && std::fs::read_to_string(path)
-                    .is_ok_and(|content| content.contains("\"type\":\"compaction\""))
-        })
-        .expect("the durable compaction entry in the session file");
-    let persisted = std::fs::read_to_string(&session_file).expect("read session file");
+    // The delta frames are ephemeral: the durable session carries the
+    // compaction entry but never a delta frame.
+    let dirs = durable_store::session_dirs(&session_dir);
+    assert_eq!(dirs.len(), 1, "one session storage: {dirs:?}");
+    let stored = durable_store::read_transcript(&dirs[0]);
+    let compactions = stored.of_kind("pi.compaction");
+    assert_eq!(compactions.len(), 1, "the durable compaction entry");
+    let persisted = serde_json::to_string(&stored.entries).expect("serialize entries");
     assert!(
         !persisted.contains("compaction_summary_delta"),
         "the streamed deltas never persist: {persisted}"
     );
     assert!(
-        persisted.contains(FULL_SUMMARY),
+        serde_json::to_string(compactions[0])
+            .expect("serialize compaction")
+            .contains(FULL_SUMMARY),
         "the durable compaction entry carries the summary"
     );
 }

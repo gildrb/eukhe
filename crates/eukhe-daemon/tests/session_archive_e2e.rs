@@ -248,11 +248,22 @@ fn write_fixture(sessions_dir: &Path, name: &str) -> String {
     id
 }
 
-/// Backdate a file's mtime (the age rule keys on it).
+/// Backdate a session's mtime (the age rule keys on it): a legacy file's
+/// own, or every file of a durable storage directory (its recency is its
+/// newest file).
 fn age_days(path: &Path, days: u64) {
     let seconds = days * 24 * 60 * 60;
     let mtime = filetime::FileTime::from_unix_time(seconds as i64, 0);
-    filetime::set_file_mtime(path, mtime).expect("set mtime");
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path).expect("storage dir") {
+            let file = entry.expect("storage entry").path();
+            if file.is_file() {
+                filetime::set_file_mtime(&file, mtime).expect("set mtime");
+            }
+        }
+    } else {
+        filetime::set_file_mtime(path, mtime).expect("set mtime");
+    }
 }
 
 /// An active scheduled job pinning one session file (the disk analogue of
@@ -456,11 +467,13 @@ fn an_archived_session_resumes_through_the_wake() {
     };
     drop(first);
 
-    // Phase 2: backdate the saved file past the default age rule and
-    // restart the supervisor; its boot sweep archives the session.
-    let saved = sessions.join(format!("{session_id}.jsonl"));
+    // Phase 2: backdate the saved session past the default age rule and
+    // restart the supervisor; its boot sweep archives the session. The
+    // session is its durable storage directory (`<sessions>/<id>/`; the
+    // old engine wrote `<id>.jsonl`).
+    let saved = sessions.join(&session_id);
     assert!(
-        saved.is_file(),
+        saved.is_dir(),
         "killed session saved at {}",
         saved.display()
     );
@@ -470,12 +483,9 @@ fn an_archived_session_resumes_through_the_wake() {
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     wait_until(Duration::from_secs(10), || {
-        archive
-            .join(format!("{session_id}.jsonl"))
-            .is_file()
-            .then_some(())
+        archive.join(&session_id).is_dir().then_some(())
     });
-    assert!(!saved.is_file(), "aged session left the sessions dir");
+    assert!(!saved.exists(), "aged session left the sessions dir");
 
     // Phase 3: the resume. Sending by name falls back to the archive,
     // restores the file into the sessions dir, wakes its worker, and the
@@ -493,8 +503,8 @@ fn an_archived_session_resumes_through_the_wake() {
         .expect("woken active id")
         .to_string();
 
-    // The restored file is live again and the turn ran.
-    wait_until(Duration::from_secs(10), || saved.is_file().then_some(()));
+    // The restored session is live again and the turn ran.
+    wait_until(Duration::from_secs(10), || saved.is_dir().then_some(()));
     wait_until(Duration::from_secs(30), || {
         client.send_command(
             "gm1",
@@ -506,7 +516,7 @@ fn an_archived_session_resumes_through_the_wake() {
         text.contains("archive reply").then_some(text)
     });
     assert!(
-        !archive.join(format!("{session_id}.jsonl")).is_file(),
+        !archive.join(&session_id).exists(),
         "restore left the archive"
     );
 }

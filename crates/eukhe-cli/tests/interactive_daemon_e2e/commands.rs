@@ -157,13 +157,12 @@ async fn tui_attaches_prompts_streams_lists_and_switches() {
     );
     client.close();
 
-    // The session files are on disk (reattach survives a TUI restart).
-    let persisted = std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-        .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("jsonl"))
-        .count();
-    assert_eq!(persisted, 2, "two session files persisted");
+    // The session storages are on disk (reattach survives a TUI restart).
+    assert_eq!(
+        session_dirs(&session_dir).len(),
+        2,
+        "two session storages persisted"
+    );
     drop(supervisor);
 }
 
@@ -400,40 +399,33 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         "the fuzzy best match for /goa rendered selected:\n{rendered}"
     );
 
-    // The durable rows persisted: the session file carries the echo and
-    // result custom entries for both executions.
-    let mut saw_echo = false;
-    let mut saw_result = false;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        saw_echo |= content.contains("\"session_slash_command\"");
-        saw_result |= content.contains("\"session_slash_command_result\"");
-    }
+    // The durable rows persisted: the session's storage carries the echo
+    // and result custom entries.
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let transcript = read_transcript(&storages[0]);
     assert!(
-        saw_echo,
-        "the session file persisted the session_slash_command rows"
+        !transcript.custom_rows("session_slash_command").is_empty(),
+        "the session persisted the session_slash_command rows: {:?}",
+        transcript.entries
     );
     assert!(
-        saw_result,
-        "the session file persisted the session_slash_command_result rows"
+        !transcript
+            .custom_rows("session_slash_command_result")
+            .is_empty(),
+        "the session persisted the session_slash_command_result rows: {:?}",
+        transcript.entries
     );
     drop(supervisor);
 }
 
 /// The `/model` picker + `/effort` surface, end to end through the daemon:
 /// a models.json custom model lists in the picker (name label), Enter
-/// applies it through the daemon `set_model` command (durable `model_change`
-/// row + the TS `Model: <id>` confirm row), and `/effort` on a model without
-/// reasoning reports the TS unsupported note (the thinking-level plumbing:
-/// the worker reports the model's supported levels, the client treats an
-/// `off`-only list as no thinking).
+/// applies it through the daemon `set_model` command (the session's
+/// durable agent model + the TS `Model: <id>` confirm row), and `/effort`
+/// on a model without reasoning reports the TS unsupported note (the
+/// thinking-level plumbing: the worker reports the model's supported
+/// levels, the client treats an `off`-only list as no thinking).
 #[tokio::test]
 async fn tui_model_picker_applies_and_effort_reports() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -566,27 +558,16 @@ async fn tui_model_picker_applies_and_effort_reports() {
         "the /effort command reported the TS unsupported-model note:\n{rendered}"
     );
 
-    // The durable rows persisted: the creation-prefix `model_change` plus
-    // the switch's own row (TS `appendModelChange` runs on every switch,
-    // even to the current model).
-    let mut model_changes = 0;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        model_changes += content
-            .lines()
-            .filter(|line| line.contains(r#""type":"model_change""#))
-            .count();
-    }
-    assert!(
-        model_changes >= 2,
-        "the set_model switch persisted its model_change row (saw {model_changes})"
+    // The switch persisted: the session's durable agent (`pi.agent`) holds
+    // the picked model (the durable session keeps the current choice in
+    // that document instead of `model_change` history rows).
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let agent = read_transcript(&storages[0]).agent;
+    assert_eq!(
+        agent["model"],
+        serde_json::json!({ "provider": "test-provider", "modelId": "mock-1" }),
+        "the set_model switch persisted the picked model: {agent}"
     );
     // The ctrl+l pick kept the editor's own text: the final frame's prompt
     // row still carries it (an apply-side clear would leave it empty).
@@ -705,27 +686,15 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
         "a map-addressable model must not report the unsupported-model note:\n{rendered}"
     );
 
-    // The durable `thinking_level_change` row persisted for the applied
-    // level (TS `appendThinkingLevelChange` on an effective change).
-    let mut level_changes = 0;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        level_changes += content
-            .lines()
-            .filter(|line| line.contains(r#""type":"thinking_level_change""#))
-            .filter(|line| line.contains("xhigh"))
-            .count();
-    }
-    assert!(
-        level_changes >= 1,
-        "the thinking_level_change row persisted at xhigh (saw {level_changes})"
+    // The applied level persisted: the session's durable agent (`pi.agent`)
+    // holds xhigh (the durable session keeps the current choice in that
+    // document instead of `thinking_level_change` history rows).
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let agent = read_transcript(&storages[0]).agent;
+    assert_eq!(
+        agent["thinkingLevel"], "xhigh",
+        "the applied level persisted on the session's agent: {agent}"
     );
     drop(supervisor);
 }
@@ -1062,8 +1031,8 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
 /// to the first user message, a fork from it, and a clone at the leaf.
 /// Exercises the full loop the TS `/tree` surface owns: the `get_session_tree`
 /// fetch, the selector pane, the "Summarize branch?" choice, `navigate_tree`
-/// (branch move + transcript rebuild + editor text restore), `fork` (new
-/// session file), and the leaf no-op.
+/// (branch move + transcript rebuild + editor text restore), `fork` (a
+/// forked conversation in the session's storage), and the leaf no-op.
 #[tokio::test]
 async fn tui_session_tree_navigates_forks_and_clones() {
     use crossterm::event::{KeyCode, KeyModifiers};
@@ -1227,16 +1196,19 @@ async fn tui_session_tree_navigates_forks_and_clones() {
         settled.contains("first answer"),
         "the moved branch kept the target path:\n{settled}"
     );
-    // The fork created a second session file.
-    let session_files: Vec<_> = std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-        .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("jsonl"))
-        .collect();
+    // The daemon's durable fork forks the main conversation inside the
+    // session's storage (branch_navigation: the storage and the session id
+    // stay), so the second tree carries both branches under the shared
+    // first turn: the fork's active branch first, the source's after it.
+    assert_eq!(
+        session_dirs(&session_dir).len(),
+        1,
+        "the fork stays in the session's storage"
+    );
     assert!(
-        session_files.len() >= 2,
-        "the fork wrote a new session file: {} files",
-        session_files.len()
+        rendered.contains("|- * user: second question")
+            && rendered.contains("`- user: second question"),
+        "the tree lists the fork's branch and the source's branch:\n{rendered}"
     );
     drop(supervisor);
 }

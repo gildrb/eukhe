@@ -508,16 +508,19 @@ async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
         rendered.contains("hello full flow"),
         "the completed flow released the pane and the first turn ran:\n{rendered}"
     );
-    // The default-model apply's round trip: the scripted engine refuses
-    // live model switches by design (Engine::switch_model returns false
-    // for the harness), so the daemon's refusal row is the proof the
+    // The default-model apply's round trip: a faux-script session's model
+    // collection serves only the scripted faux provider (plus any
+    // models.json models), never the bundled Prime Inference catalog, so
+    // the daemon refuses the GLM switch — the refusal row is the proof the
     // apply REQUEST reached it and its failure surfaced like TS's
-    // applySelectedModel error path — the flow still completes and the
-    // marker still writes (the readiness probe reads the registry, not
-    // the session).
+    // applySelectedModel error path. The flow still completes and the
+    // marker still writes (the readiness probe reads the registry, not the
+    // session).
     assert!(
-        rendered.contains("This session does not support model switching"),
-        "the apply round-tripped and the scripted engine's refusal surfaced:\n{rendered}"
+        rendered.contains(
+            "the daemon rejected the set_model request: Model not found: prime-inference/z-ai/glm-5.3"
+        ),
+        "the apply round-tripped and the daemon's refusal surfaced:\n{rendered}"
     );
     // The connected provider's status row shows the store outcome.
     assert!(

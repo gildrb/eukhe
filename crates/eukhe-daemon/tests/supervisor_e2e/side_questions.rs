@@ -12,27 +12,38 @@ fn side_questions_start_abort_and_events_scripted() {
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({
+            "retry": { "enabled": true, "maxRetries": 2, "baseDelayMs": 5 },
+        })
+        .to_string(),
+    )
+    .expect("write settings.json");
     let _daemon = spawn_daemon(&socket, &agent_dir);
     let (mut client, _hello) = Client::connect(&socket);
 
-    // Create a scripted session whose side-question script fails once
-    // transiently (retried with fast delays), then answers after a delay long
-    // enough to observe the in-flight guards and the abort.
+    // Create a scripted session whose side question fails once transiently
+    // (retried with the session's retry policy, fast delays from
+    // settings.json), then answers and stays in flight long enough to
+    // observe the guards and the abort. Durable faux serves one queue per
+    // worker in call order (side-question attempts included) and holds a
+    // `delayMs` before the first delta, not after the text as the old
+    // scripted engine did: the in-flight window is a paced thinking block
+    // streamed after the answer text (`tokensPerSecond`).
     let script_path = dir.path().join("script.json");
     std::fs::write(
         &script_path,
         serde_json::json!({
-            "responses": [],
-            "sideQuestion": {
-                "responses": [
-                    { "error": "stream failed once", "kind": "server_error", "status": 500 },
-                    { "text": "the side answer", "delayMs": 1500 },
-                ],
-                "retry": {
-                    "enabled": true, "maxRetries": 2,
-                    "baseDelayMs": 5, "maxRetryDelayMs": 1000,
-                },
-            },
+            "tokensPerSecond": 20,
+            "responses": [
+                { "content": [], "stopReason": "error", "errorMessage": "500 stream failed once" },
+                { "content": [
+                    { "type": "text", "text": "the side answer" },
+                    { "type": "thinking", "thinking": "still thinking ".repeat(30) },
+                ] },
+                "the side answer",
+            ],
         })
         .to_string(),
     )
@@ -180,7 +191,7 @@ fn side_questions_start_abort_and_events_scripted() {
     assert_eq!(cancelled["answer"], partial_answer);
 
     // A cancelled run is gone: the same id starts again and this time
-    // completes (the script replays from the top, fresh conversation).
+    // completes (the next queued faux response, fresh conversation).
     client.send_command(
         "sq2",
         &serde_json::json!({

@@ -51,6 +51,24 @@ impl Transcript {
             .collect()
     }
 
+    /// The text of every user and assistant message, in order (the chat
+    /// rows, without the custom rows such as the harness digest).
+    pub fn chat_texts(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter_map(|entry| entry["model"].as_array())
+            .flatten()
+            .filter(|message| message["role"] == "user" || message["role"] == "assistant")
+            .filter_map(|message| match &message["content"] {
+                serde_json::Value::String(text) => Some(text.clone()),
+                serde_json::Value::Array(blocks) => blocks
+                    .iter()
+                    .find_map(|block| block["text"].as_str().map(str::to_owned)),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The entries of `kind` (`pi.user`, `pi.assistant`, `eukhe.custom`, ...).
     pub fn of_kind(&self, kind: &str) -> Vec<&serde_json::Value> {
         self.entries
@@ -75,22 +93,62 @@ impl Transcript {
 ///
 /// When the storage cannot be read.
 pub fn read_transcript(dir: &Path) -> Transcript {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime");
-    let transcript = runtime
-        .block_on(read_main_transcript(
-            &SessionLocation::Durable(dir.to_path_buf()),
-            &BACKGROUND_CONTEXT,
-        ))
-        .unwrap_or_else(|error| panic!("read {}: {error}", dir.display()));
-    Transcript {
+    load_transcript(dir).unwrap_or_else(|error| panic!("read {}: {error}", dir.display()))
+}
+
+/// The main transcript of the durable storage `dir`, `None` while it cannot
+/// be read (not created yet), for a poll that waits on a live session.
+pub fn try_read_transcript(dir: &Path) -> Option<Transcript> {
+    load_transcript(dir).ok()
+}
+
+/// The durable storage a legacy session file imports into on its first
+/// open (`<sessions>/<stem>/`).
+pub fn legacy_storage(file: &Path) -> PathBuf {
+    SessionLocation::Legacy(file.to_path_buf()).storage_dir()
+}
+
+/// Whether one of the durable storage `dir`'s JSONL files carries `needle`
+/// (a document value the transcript read does not surface, such as the
+/// `eukhe.daemon.session` name).
+pub fn storage_contains(dir: &Path, needle: &str) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut entries| {
+        entries.any(|entry| {
+            entry.is_ok_and(|entry| {
+                let path = entry.path();
+                path.extension()
+                    .is_some_and(|extension| extension == "jsonl")
+                    && std::fs::read_to_string(&path).is_ok_and(|content| content.contains(needle))
+            })
+        })
+    })
+}
+
+/// The read runs its own runtime on a scoped thread, so async tests (whose
+/// runtime already drives the calling thread) can read too.
+fn load_transcript(dir: &Path) -> Result<Transcript, String> {
+    let transcript = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("runtime")
+                    .block_on(read_main_transcript(
+                        &SessionLocation::Durable(dir.to_path_buf()),
+                        &BACKGROUND_CONTEXT,
+                    ))
+            })
+            .join()
+            .expect("the transcript read thread")
+    })
+    .map_err(|error| error.to_string())?;
+    Ok(Transcript {
         agent: serde_json::to_value(&transcript.agent).expect("agent JSON"),
         entries: transcript
             .entries
             .iter()
             .map(|entry| serde_json::to_value(entry).expect("entry JSON"))
             .collect(),
-    }
+    })
 }

@@ -883,47 +883,42 @@ async fn family_edges_never_cross_families_end_to_end() {
         assert_eq!(row.session_name, kid_name);
         // The spawn row can settle in the admission-to-turn-pop window (the
         // watcher's stability re-check), before the child's first turn
-        // writes its session file; the durable artifact is the proof, so
-        // wait for it (bounded) before reading.
+        // writes its session; the durable artifact is the proof, so wait
+        // for it (bounded) before reading.
         let kid_session_id = row.session_id.clone().expect("child persisted id");
         // The per-child artifact dir IS the rlm child id (it already
-        // carries the "sub-" prefix); do not prefix it again.
+        // carries the "sub-" prefix); do not prefix it again. The durable
+        // kid session is its storage directory (`<session-id>/`, holding
+        // the store's `main.jsonl`), not a `<session-id>.jsonl` file.
         let artifact_dir = agent_dir
             .join("session-artifacts")
             .join(session)
             .join(&handle.rlm_child_id);
-        let expected_file = artifact_dir.join(format!("{kid_session_id}.jsonl"));
+        let expected_storage = artifact_dir.join(&kid_session_id);
         let artifact_deadline = Instant::now() + Duration::from_secs(15);
-        while !expected_file.is_file() {
+        while !expected_storage.join("main.jsonl").is_file() {
             assert!(
                 Instant::now() < artifact_deadline,
-                "kid session file never appeared: {}",
-                expected_file.display()
+                "kid session storage never appeared: {}",
+                expected_storage.display()
             );
             std::thread::sleep(Duration::from_millis(50));
         }
-        // The kid's own session file (the grandchild's durable parent
-        // edge): the spawn's per-child artifact dir holds exactly one.
-        let kid_files: Vec<std::fs::DirEntry> = std::fs::read_dir(
-            agent_dir
-                .join("session-artifacts")
-                .join(session)
-                .join(&handle.rlm_child_id),
-        )
-        .expect("kid artifact dir")
-        .flatten()
-        // The semantic-edge ledger rides the same dir (TS: the child's
-        // rlm session dir owns it); only the durable session row counts.
-        .filter(|entry| {
-            entry.path().extension().and_then(|ext| ext.to_str()) == Some("jsonl")
-                && entry.file_name().to_string_lossy() != "semantic-edges.jsonl"
-        })
-        .collect();
-        assert_eq!(kid_files.len(), 1, "one kid session file: {kid_files:?}");
+        // The kid's own session (the grandchild's durable parent edge):
+        // the spawn's per-child artifact dir holds exactly one. The
+        // semantic-edge ledger rides the same dir (TS: the child's rlm
+        // session dir owns it); only the durable session counts.
+        let kid_sessions: Vec<std::path::PathBuf> = std::fs::read_dir(&artifact_dir)
+            .expect("kid artifact dir")
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.join("main.jsonl").is_file())
+            .collect();
+        assert_eq!(kid_sessions.len(), 1, "one kid session: {kid_sessions:?}");
         kids.push((
             row.active_session_id.clone().expect("child active id"),
             row.session_id.clone().expect("child persisted id"),
-            kid_files[0].path().to_string_lossy().to_string(),
+            kid_sessions[0].to_string_lossy().to_string(),
         ));
     }
     let (kid_a_active, kid_a_session, kid_a_file) = &kids[0];

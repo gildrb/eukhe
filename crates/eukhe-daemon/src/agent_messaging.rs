@@ -237,6 +237,47 @@ mod observe;
 pub use message::LinkAgentMessageController;
 pub(crate) use observe::LinkAgentObserveController;
 
+impl crate::worker::Worker {
+    /// Register the kernel `agent_message.*` and `agent_observe.*` host
+    /// handlers of a session this worker opens: the family roster and the
+    /// delivery go over the supervisor link, the sender identity is this
+    /// worker's published own summary, and the family joins this worker's
+    /// RLM child registry (built by `rlm_subagent_host` before the seams
+    /// are wired). A worker without a supervisor registers none: there is
+    /// nobody to reach.
+    pub(crate) fn register_agent_messaging(
+        &self,
+        handlers: &mut eukhe_core::kernel::HostRequestHandlers,
+    ) {
+        if self.config.supervisor_socket_path.as_os_str().is_empty() {
+            return;
+        }
+        let link = Arc::new(SupervisorLink::new(
+            self.config.supervisor_socket_path.clone(),
+        ));
+        let children = self.rlm_children.get().cloned();
+        let sender = Arc::new(LinkAgentMessageController::new(
+            Arc::clone(&link),
+            self.config.active_session_id.clone(),
+            self.config.token.clone(),
+            Arc::clone(&self.own_summary),
+            children.clone(),
+        ));
+        let observer = Arc::new(LinkAgentObserveController::new(
+            link,
+            self.config.active_session_id.clone(),
+            Arc::clone(&self.own_summary),
+            children,
+        ));
+        eukhe_core::session_engine::agent_messaging::register_agent_message_host_handlers(
+            sender, handlers,
+        );
+        eukhe_core::session_engine::agent_messaging::register_agent_observe_host_handlers(
+            observer, handlers,
+        );
+    }
+}
+
 // The controller test battery moved to the child module at the same tree
 // position (agent_messaging::controller_tests); the #[cfg(test)] decl
 // rides at the facade tail.

@@ -221,14 +221,15 @@ fn message_texts(client: &mut Client, id: &str, session_id: &str) -> Vec<String>
         .collect()
 }
 
-/// The session-dir files' concatenated content (the durable transcripts).
+/// The sessions' concatenated commit logs (the durable transcripts: each
+/// session is a storage directory with its `main.jsonl` commit log).
 fn session_dir_text(session_dir: &std::path::Path) -> String {
     std::fs::read_dir(session_dir)
         .expect("read session dir")
         .flatten()
-        .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("jsonl"))
+        .filter(|entry| entry.path().is_dir())
         .map(|entry| {
-            let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
+            let content = session_file_text(&entry.path().to_string_lossy());
             format!("--- {} ---\n{content}", entry.path().display())
         })
         .collect::<Vec<_>>()
@@ -247,8 +248,12 @@ fn the_fork_is_a_fully_detached_session() {
     let script_a = dir.path().join("script-a.json");
     std::fs::write(
         &script_a,
+        // The durable faux consumes one scripted response per model
+        // request, in order across the worker's sessions (no repeat of the
+        // last answer): the original's turn, then the fork's.
         serde_json::json!({ "responses": [
             { "text": "original turn one", "delayMs": 10 },
+            { "text": "fork turn answer", "delayMs": 10 },
         ] })
         .to_string(),
     )
@@ -465,13 +470,11 @@ fn the_fork_is_a_fully_detached_session() {
         "the fork received the original's message: {fork_texts:?}\nsession files: {texts}"
     );
     assert!(
-        !fork_file_text(&fork_file).contains("message for the original"),
+        !session_file_text(&fork_file).contains("message for the original"),
         "the fork's file received the original's message"
     );
     assert!(
-        std::fs::read_to_string(&original_file)
-            .unwrap_or_default()
-            .contains("message for the original"),
+        session_file_text(&original_file).contains("message for the original"),
         "the original's message must reach the original's file"
     );
 
@@ -485,13 +488,11 @@ fn the_fork_is_a_fully_detached_session() {
         "the original received the fork's message: {original_texts:?}"
     );
     assert!(
-        !std::fs::read_to_string(&original_file)
-            .unwrap_or_default()
-            .contains("message for the fork"),
+        !session_file_text(&original_file).contains("message for the fork"),
         "the original's file received the fork's message"
     );
     assert!(
-        fork_file_text(&fork_file).contains("message for the fork"),
+        session_file_text(&fork_file).contains("message for the fork"),
         "the fork's own message must reach the fork's file"
     );
 
@@ -504,8 +505,10 @@ fn the_fork_is_a_fully_detached_session() {
         "the fork's own message must appear in the fork's transcript: {fork_texts:?}"
     );
     assert!(
-        fork_texts.iter().any(|text| text.contains("original turn one")),
-        "the fork's turn must answer on the fork's transcript (the replacement restarts the script): {fork_texts:?}"
+        fork_texts
+            .iter()
+            .any(|text| text.contains("fork turn answer")),
+        "the fork's turn must answer on the fork's transcript: {fork_texts:?}"
     );
 
     // THE VISIBILITY PIN: the roster carries BOTH sessions, each owned by
@@ -566,9 +569,7 @@ fn the_fork_is_a_fully_detached_session() {
         "the stale id answers the unknown-session failure: {stale}"
     );
     assert!(
-        !std::fs::read_to_string(&original_file)
-            .unwrap_or_default()
-            .contains("must not reach the original"),
+        !session_file_text(&original_file).contains("must not reach the original"),
         "the stale id's message must not reach the original"
     );
     assert!(
@@ -579,9 +580,10 @@ fn the_fork_is_a_fully_detached_session() {
     );
 }
 
-/// One session file's content.
-fn fork_file_text(path: &str) -> String {
-    std::fs::read_to_string(path).unwrap_or_default()
+/// One session's durable commit log (`<storage>/main.jsonl`; the
+/// `sessionFile` the daemon reports is the storage directory).
+fn session_file_text(path: &str) -> String {
+    std::fs::read_to_string(std::path::Path::new(path).join("main.jsonl")).unwrap_or_default()
 }
 
 /// Wait until the supervisor socket accepts connections (a restarted
@@ -845,7 +847,7 @@ fn a_restart_after_a_failed_identity_persist_serves_the_moved_session() {
         .to_string();
     client_c.scripted_turn("p3", &reopened_id, "message for the original");
     assert!(
-        !fork_file_text(&fork_file).contains("message for the original"),
+        !session_file_text(&fork_file).contains("message for the original"),
         "the original's message never reaches the fork's file"
     );
 
@@ -859,9 +861,7 @@ fn a_restart_after_a_failed_identity_persist_serves_the_moved_session() {
         "the fork's own message reaches its transcript: {fork_texts:?}"
     );
     assert!(
-        !std::fs::read_to_string(&original_file)
-            .unwrap_or_default()
-            .contains("message for the fork"),
+        !session_file_text(&original_file).contains("message for the fork"),
         "the fork's message never reaches the original's file"
     );
 }

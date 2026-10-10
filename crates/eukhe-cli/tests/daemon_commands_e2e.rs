@@ -509,7 +509,10 @@ fn rust_daemon_cli_commands_end_to_end() {
     );
     assert_eq!(session.len(), 12, "short active id: {session}");
 
-    // Golden: single-row table shape (header from the TS binary).
+    // Golden: single-row table shape (header from the TS binary). The
+    // durable faux engine runs the script on the registered `faux/faux-1`
+    // model, so the model cell shows it (the old scripted engine had no
+    // model and left the cell blank).
     let list = run_cli(
         &cli,
         dir.path(),
@@ -520,7 +523,7 @@ fn rust_daemon_cli_commands_end_to_end() {
     assert_eq!(
         normalize(&stdout(&list)),
         "name id status age model messages clients\n\
-         parity <timestamp> idle <time> 0 0\n",
+         parity <timestamp> idle <time> faux/faux-1 0 0\n",
         "table shape must match the TS golden"
     );
 

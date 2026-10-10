@@ -39,6 +39,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+// The durable session storage reader the CLI e2e suites share.
+#[path = "../../eukhe-cli/tests/support/durable_store.rs"]
+mod durable_store;
+
 struct Supervisor {
     child: Child,
     #[allow(dead_code)]
@@ -374,6 +378,17 @@ impl Client {
             }
         }
     }
+
+    /// Collect session events until one matching `found` arrived (each line
+    /// read is bounded by `read_line`'s own deadline).
+    fn wait_for_event(&mut self, what: &str, found: impl Fn(&Value) -> bool) {
+        let deadline = Instant::now() + Duration::from_mins(2);
+        while !self.events.iter().any(&found) {
+            assert!(Instant::now() < deadline, "never observed {what}");
+            let line = self.read_line();
+            self.collect_event(&line);
+        }
+    }
 }
 
 /// Shared harness: supervisor + models.json + fast retry settings + a
@@ -550,8 +565,9 @@ fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
         .expect("error message")
         .contains("mock provider overloaded"));
     assert_eq!(starts[1]["attempt"], 2);
-    // Each retry start's delay sits in the ±20% jitter band around its
-    // ladder step (50ms then 100ms: [40, 70] and [80, 140]).
+    // Each retry start's delay sits around its ladder step (50ms then
+    // 100ms: [40, 70] and [80, 140]). pi-durable schedules the step exactly
+    // (no jitter, unlike the old engine's ±20%); the band stays as headroom.
     let jitter_band = |base: u64| (base * 4 / 5, base * 7 / 5);
     for (start, base) in starts.iter().zip([50u64, 100u64]) {
         let delay = start["delayMs"].as_u64().expect("delayMs");
@@ -647,13 +663,17 @@ fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
 
 /// The 429-storm simulation (operator ruling 2026-09-23): a provider that
 /// rate-limits with `Retry-After` gets retried with bounded exponential
-/// backoff — requests cap at initial + maxRetries (never spam), the
-/// server-requested wait is honored (jittered band), the Retry-After
-/// wait wins over the tiny base delay, and the episode leaves exactly ONE
-/// durable outcome row while the per-attempt failures still persist and
-/// stream (full transcript fidelity; the TUI collapses the rows).
+/// backoff — requests cap at initial + maxRetries (never spam), and the
+/// episode leaves exactly ONE durable outcome row while the per-attempt
+/// failures still persist and stream (full transcript fidelity; the TUI
+/// collapses the rows).
+///
+/// pi-durable decides the waits: its generation retry schedules the
+/// policy's exponential ladder (`baseDelayMs * 2^(attempt-1)`, no jitter)
+/// and does not read `Retry-After`, so the old engine's honored-and-
+/// jittered server wait ([800, 1400] ms here) is not the durable shape.
 #[test]
-fn storm_429_caps_requests_honors_retry_after_and_leaves_one_outcome_row() {
+fn storm_429_caps_requests_and_leaves_one_outcome_row() {
     let (_dir, mock, _supervisor, mut client, session_id) = setup_with_rejection(
         "storm429",
         2,
@@ -699,7 +719,7 @@ fn storm_429_caps_requests_honors_retry_after_and_leaves_one_outcome_row() {
         .iter()
         .filter(|event| event.get("type").and_then(Value::as_str) == Some("auto_retry_start"))
         .collect();
-    for start in &starts {
+    for (start, base) in starts.iter().zip([50u64, 100]) {
         assert!(
             start["errorMessage"]
                 .as_str()
@@ -707,12 +727,13 @@ fn storm_429_caps_requests_honors_retry_after_and_leaves_one_outcome_row() {
                 .contains("Too many concurrent requests"),
             "the 429 text: {start}"
         );
-        // The server-requested wait (Retry-After: 1s) wins over the 50ms
-        // base delay; the jittered wait stays in [800, 1400]ms.
+        // The policy ladder (50 ms, then 100 ms; see the doc above), with
+        // rounding headroom.
         let delay = start["delayMs"].as_u64().expect("delayMs");
+        let (low, high) = (base * 4 / 5, base * 7 / 5);
         assert!(
-            (800..=1400).contains(&delay),
-            "Retry-After jittered delay {delay} outside [800, 1400]"
+            (low..=high).contains(&delay),
+            "ladder delay {delay} outside [{low}, {high}]"
         );
     }
     let end = client
@@ -847,48 +868,53 @@ fn goal_continuation_refuses_after_the_402_corpse() {
         }),
     );
     let done = client.request("g1");
-    // The goal command arms the goal and its initial continuation row
-    // runs inside the same prompt: the run settles with the 402 error.
-    assert_eq!(done["success"], false, "the goal turn fails: {done}");
+    // The durable `/goal` command answers once the goal is set and its
+    // continuation submitted: the goal loop runs in-run (pi-durable's
+    // `on_yield` continuation), so a waited answer would only come when
+    // the whole goal ends. The old engine settled the command with the
+    // first turn's error; here the turn's failure is observed after it.
+    assert_eq!(done["success"], true, "the goal command answers: {done}");
+    let is_outcome_start = |event: &Value| {
+        event.get("type").and_then(Value::as_str) == Some("message_start")
+            && event["message"]["role"] == "custom"
+            && event["message"]["customType"] == "provider_retry_outcome"
+    };
+    client.wait_for_event("the goal turn's disclosure row", is_outcome_start);
+    client.drain_events(Duration::from_secs(1));
+    let failure = client
+        .events
+        .iter()
+        .find(|event| {
+            event.get("type").and_then(Value::as_str) == Some("message_end")
+                && event["message"]["role"] == "assistant"
+                && event["message"]["stopReason"] == "error"
+        })
+        .expect("the goal turn's failed assistant message_end");
     assert!(
-        done["error"]
+        failure["message"]["errorMessage"]
             .as_str()
             .expect("error text")
             .contains("Insufficient balance"),
-        "the failure is the turn's 402: {done}"
+        "the failure is the turn's 402: {failure}"
     );
-    client.drain_events(Duration::from_secs(1));
 
     // The single failed continuation turn: ONE provider request (the
     // 402 is permanent), NO re-minted continuation after it.
     assert_eq!(mock.count(), 1, "no continuation loop: one request total");
 
-    // The durable goal state: the errored turn finished the goal.
-    let session_dir = dir.path().join("agent").join("sessions");
-    let session_file = std::fs::read_dir(&session_dir)
-        .expect("session dir readable")
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-        .expect("one session file");
-    let goal_rows: Vec<Value> = std::fs::read_to_string(&session_file)
-        .expect("session file readable")
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-        .filter(|entry| {
-            entry.get("type").and_then(Value::as_str) == Some("custom")
-                && entry.get("customType").and_then(Value::as_str) == Some("thread_goal_state")
-        })
-        .collect();
-    let latest = goal_rows.last().expect("at least one goal row");
+    // The durable goal state: the errored turn finished the goal. The
+    // durable store keeps the goal as the main conversation's `eukhe.goal`
+    // document (the old `thread_goal_state` rows' payload).
+    let storage = durable_store::session_dirs(&dir.path().join("agent").join("sessions"));
+    assert_eq!(storage.len(), 1, "one session storage: {storage:?}");
+    let latest = stored_goal(&storage[0]);
     assert_eq!(
-        latest["data"]["status"], "error",
+        latest["status"], "error",
         "the goal finished on the errored turn: {latest}"
     );
-    assert_eq!(latest["data"]["active"], false);
+    assert_eq!(latest["active"], false);
     assert!(
-        latest["data"]["lastError"]
+        latest["lastError"]
             .as_str()
             .expect("last error text")
             .contains("Insufficient balance"),
@@ -899,11 +925,7 @@ fn goal_continuation_refuses_after_the_402_corpse() {
     let outcome_rows = client
         .events
         .iter()
-        .filter(|event| {
-            event.get("type").and_then(Value::as_str) == Some("message_start")
-                && event["message"]["role"] == "custom"
-                && event["message"]["customType"] == "provider_retry_outcome"
-        })
+        .filter(|event| is_outcome_start(event))
         .count();
     assert_eq!(
         outcome_rows, 1,
@@ -916,6 +938,28 @@ fn goal_continuation_refuses_after_the_402_corpse() {
     // remain durable (the transcript's full fidelity) — the CONTEXT
     // effect is asserted by the one-request count above (a re-minted
     // continuation would have re-prompted).
+}
+
+/// The main conversation's stored `eukhe.goal` document in the durable
+/// storage `dir`.
+fn stored_goal(dir: &Path) -> Value {
+    use eukhe_core::durable::{read_main_transcript, read_session_document, SessionLocation};
+    let location = SessionLocation::Durable(dir.to_path_buf());
+    let cx = &eukhe_chord::context::BACKGROUND_CONTEXT;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let goal = runtime.block_on(async {
+        let main = read_main_transcript(&location, cx)
+            .await
+            .expect("transcript readable")
+            .main;
+        read_session_document(&location, &eukhe_core::durable::goals::GOAL_DOC, main, cx)
+            .await
+            .expect("goal document readable")
+    });
+    serde_json::to_value(goal).expect("goal JSON")
 }
 
 /// A direct-transport client (thin-supervisor stage 2): ticket from the: ticket from the
@@ -1194,81 +1238,54 @@ fn provider_failure_recovered_by_retry_settles_the_turn() {
         "recovered reply"
     );
 
-    // One `agent_end` per agent run (TS parity: the `messages` payload
-    // carries the run's whole message set, and a retried turn restarts its
-    // runs on the wire with their own `agent_start`/`turn_start` frames).
-    // The initial run carries the accepted rows plus its failed assistant
-    // row; each retry run carries only its own messages (the failed row
-    // left the loop context first, TS `messages.slice(0, -1)`).
+    // One `agent_end` per agent run, carrying the run's whole message set.
+    // pi-durable retries inside the run (its generation's attempt loop:
+    // the failed attempts stay in the run, the next attempt starts after
+    // the backoff without a run boundary), so the recovered episode is ONE
+    // run — not TS's restarted run per retry with its own
+    // `agent_start`/`turn_start` and `messages.slice(0, -1)` payloads.
     let agent_ends: Vec<&Value> = client
         .events
         .iter()
         .filter(|event| event.get("type").and_then(Value::as_str) == Some("agent_end"))
         .collect();
-    assert_eq!(agent_ends.len(), 3, "one agent_end per run: {types:?}");
-    let roles_of = |frame: &Value| -> Vec<String> {
-        frame["messages"]
-            .as_array()
-            .map(|messages| {
-                messages
-                    .iter()
-                    .map(|message| message["role"].as_str().unwrap_or_default().to_string())
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    // The session has the chat memory (no faux script), which turns the
-    // harness digest off: the run carries the prompt and its error row.
+    assert_eq!(agent_ends.len(), 1, "one run for the episode: {types:?}");
+    let messages = agent_ends[0]["messages"]
+        .as_array()
+        .expect("agent_end carries the run's messages");
     assert_eq!(
-        roles_of(agent_ends[0]),
-        ["user", "assistant"],
-        "the initial run's message set: {agent_ends:?}"
+        messages.first().map(|message| &message["role"]),
+        Some(&json!("user")),
+        "the run opens with the prompt: {messages:?}"
+    );
+    // The run's attempts in order: both failed rows, then the recovered
+    // answer (full fidelity: the failures stay in the run's message set).
+    let attempts: Vec<&Value> = messages
+        .iter()
+        .filter(|message| message["role"] == "assistant")
+        .collect();
+    let stop_reasons: Vec<&Value> = attempts
+        .iter()
+        .map(|message| &message["stopReason"])
+        .collect();
+    assert_eq!(
+        stop_reasons,
+        [&json!("error"), &json!("error"), &json!("stop")],
+        "the run's attempts: {messages:?}"
     );
     assert_eq!(
-        agent_ends[0]["messages"][1]["stopReason"],
-        json!("error"),
-        "the initial run ends on the error row"
-    );
-    assert_eq!(
-        roles_of(agent_ends[1]),
-        ["assistant"],
-        "the first retry carries only its own messages: {agent_ends:?}"
-    );
-    assert_eq!(
-        agent_ends[1]["messages"][0]["stopReason"],
-        json!("error"),
-        "the first retry failed too"
-    );
-    assert_eq!(
-        roles_of(agent_ends[2]),
-        ["assistant"],
-        "the second retry carries only its own messages: {agent_ends:?}"
-    );
-    assert_eq!(
-        agent_ends[2]["messages"][0]["content"][0]["text"],
+        attempts[2]["content"][0]["text"],
         json!("recovered reply"),
-        "the recovered run's settled row"
+        "the recovered attempt's settled row"
     );
-    // The two retry runs re-opened on the wire: three `agent_start` frames
-    // (the worker's run-opening frame plus the two forwarded run starts)
-    // and three `turn_start` frames, each retry pair after the prior run's
-    // `agent_end`.
     assert_eq!(
         types.iter().filter(|t| *t == "agent_start").count(),
-        3,
-        "one agent_start per run: {types:?}"
+        1,
+        "one agent_start for the run: {types:?}"
     );
     assert_eq!(
         types.iter().filter(|t| *t == "turn_start").count(),
-        3,
-        "the run-opening turn_start plus the two retry runs': {types:?}"
-    );
-    // No bare synthesized frame trails the runs: every `agent_end` on the
-    // wire carries the messages payload.
-    assert!(
-        agent_ends
-            .iter()
-            .all(|event| event.get("messages").is_some()),
-        "no bare agent_end frames: {agent_ends:?}"
+        1,
+        "one turn_start: the retries stay in the turn: {types:?}"
     );
 }

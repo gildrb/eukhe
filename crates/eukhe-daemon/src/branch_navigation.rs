@@ -6,13 +6,15 @@
 //! The tree is the session's user-facing conversations ([`tree`]). Moving
 //! the leaf (`navigate_tree`) makes another conversation the main one: the
 //! conversation that already ends at the new leaf, else a fork of the
-//! target's conversation at it (`fork_main_conversation`). `fork` always
-//! forks. Either way the moved-to conversation is shown on the wire
-//! (`Worker::show_conversation`); the storage, the session id, and the
-//! kernels of other conversations stay. Branch summaries are
-//! `eukhe.branch-summary` entries written into the moved-to conversation
-//! ([`summary`]); labels live in the `eukhe.daemon.labels` document
-//! ([`labels`]).
+//! target's conversation at it (`fork_main_conversation`). The moved-to
+//! conversation is shown on the wire (`Worker::show_conversation`); the
+//! storage, the session id, and the session's kernel stay (the kernel
+//! follows the main conversation). `fork` of a persisted session writes
+//! the fork into a new storage that replaces the live session (the
+//! session-navigation replacement flow); an in-memory session forks in
+//! place. Branch summaries are `eukhe.branch-summary` entries written into
+//! the moved-to conversation ([`summary`]); labels live in the
+//! `eukhe.daemon.labels` document ([`labels`]).
 
 mod labels;
 mod summary;
@@ -20,11 +22,15 @@ mod summary;
 mod tests;
 mod tree;
 
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use eukhe_chord::context::{AbortController, Context, BACKGROUND_CONTEXT};
-use eukhe_core::durable::{fork_main_conversation, ForkPoint};
+use eukhe_core::durable::rlm::{release_settled_kernel, transfer_kernel};
+use eukhe_core::durable::{
+    fork_main_conversation, fork_session_conversation, ForkPoint, SessionLocation,
+};
 use eukhe_core::session_engine::branch_summarization::collect_entries_for_branch_summary;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness};
@@ -33,6 +39,7 @@ use eukhe_durable::types::{ConversationId, EntryId, EntryRecord};
 use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
+use crate::session_navigation::PreparedReplacement;
 use crate::worker::durable_host::bridge::{QueuedInput, QueuedMode};
 use crate::worker::{HostedSession, SessionSlot, Worker};
 use summary::{SummaryOutcome, SummaryRequest};
@@ -468,6 +475,9 @@ impl Worker {
         let moved = move_main(hosted, &tree, main.id(), point, cx)
             .await
             .map_err(text)?;
+        // A tree move is no replacement: the session's kernel follows the
+        // main conversation, warm (TS `navigateTree` keeps it).
+        transfer_kernel(hosted.deps(), main.id(), moved.id()).await;
         let summary_entry = match branch_summary {
             Some(branch_summary) => Some(
                 summary::write_summary(&moved, point.summary_from_id(), branch_summary, cx)
@@ -508,6 +518,14 @@ impl Worker {
     /// running turn is aborted and its queued inputs dropped (TS disposes
     /// the replaced runtime's queue); a bad entry fails before anything
     /// moves.
+    ///
+    /// A persisted session forks into a new storage beside it (TS
+    /// `createBranchedSession` writes a new session file) that replaces the
+    /// live session under the worker's address: a new session id, the
+    /// original untouched, its kernel disposed and the fork's started cold.
+    /// The fork stays complete on disk when its replacement fails. An
+    /// in-memory session forks its main conversation in place (TS
+    /// non-persisted branching); the fork's kernel starts cold there too.
     pub(crate) async fn handle_fork(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "fork";
         let hosted = match self.hosted(COMMAND) {
@@ -515,57 +533,122 @@ impl Worker {
             Err(response) => return response,
         };
         let _replacement_gate = self.replacement_gate.lock().await;
-        match self.fork(&hosted, payload, &BACKGROUND_CONTEXT).await {
-            Ok(selected_text) => {
-                let mut data = json!({ "cancelled": false });
-                if let Some(selected_text) = selected_text {
-                    data["selectedText"] = json!(selected_text);
+        let cx = &BACKGROUND_CONTEXT;
+        let (point, selected_text) = match fork_point(&hosted, payload, cx).await {
+            Ok(resolved) => resolved,
+            Err(error) => return response_failure(None, COMMAND, &error, None),
+        };
+        let mut response = match hosted.storage_dir() {
+            Some(storage_dir) => {
+                match self
+                    .fork_into_session(&hosted, storage_dir, point, cx)
+                    .await
+                {
+                    Ok(prepared) => self.replace_session_locked(COMMAND, prepared).await,
+                    Err(response) => response,
                 }
-                response_success(None, COMMAND, Some(data))
             }
-            Err(error) => response_failure(None, COMMAND, &error, None),
+            None => match self.fork_in_place(&hosted, point, cx).await {
+                Ok(()) => response_success(None, COMMAND, Some(json!({ "cancelled": false }))),
+                Err(error) => response_failure(None, COMMAND, &error, None),
+            },
+        };
+        if let (true, Some(selected_text), Some(data)) =
+            (response.success, selected_text, response.data.as_mut())
+        {
+            data["selectedText"] = json!(selected_text);
         }
+        response
     }
 
-    async fn fork(
+    /// Settle the live run, then fork `point` of the session at
+    /// `storage_dir` into a new storage beside it: the replacement the
+    /// fork's prepare phase hands over.
+    #[allow(clippy::result_large_err)] // the error is the wire response itself
+    async fn fork_into_session(
         &self,
         hosted: &HostedSession,
-        payload: &Value,
+        storage_dir: &Path,
+        point: MovePoint,
         cx: &Context,
-    ) -> Result<Option<String>, String> {
-        const INVALID: &str = "Invalid entry ID for forking";
-        let entry_id = payload
-            .get("entryId")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let at = payload.get("position").and_then(Value::as_str) == Some("at");
-        let harness = hosted.harness();
-        let main = hosted.main().map_err(text_of)?;
-        let tree = SessionTree::load(harness, main.id(), cx)
+    ) -> Result<PreparedReplacement, DaemonResponse> {
+        const COMMAND: &str = "fork";
+        let fail = |error: String| response_failure(None, COMMAND, &error, None);
+        let main = hosted.main().map_err(|error| fail(text_of(error)))?;
+        self.interrupt_main(&main, cx)
             .await
-            .map_err(text_of)?;
-        let Some(target) = parse_entry_id(entry_id).and_then(|id| tree.entry(id)) else {
-            return Err(INVALID.to_owned());
-        };
-        let (point, selected_text) = if at {
-            (MovePoint::at(&target.record), None)
-        } else {
-            let text = user_entry_text(&target.record).ok_or_else(|| INVALID.to_owned())?;
-            (
-                MovePoint::before(harness, &target.record, cx)
-                    .await
-                    .map_err(text_of)?,
-                Some(text),
-            )
-        };
+            .map_err(|error| fail(text_of(error)))?;
+        let sessions_dir = storage_dir.parent().ok_or_else(|| {
+            fail(format!(
+                "Session storage {} has no parent",
+                storage_dir.display()
+            ))
+        })?;
+        let forked_dir = sessions_dir.join(uuid::Uuid::now_v7().to_string());
+        fork_session_conversation(
+            &SessionLocation::Durable(storage_dir.to_path_buf()),
+            point.source,
+            point.fork_point(),
+            None,
+            &forked_dir,
+            cx,
+        )
+        .await
+        .map_err(|error| fail(format!("{error:#}")))?;
+        self.navigation
+            .prepare_fork(forked_dir, &self.config.agent_dir)
+    }
+
+    /// An in-memory session's fork: the fork becomes the main conversation
+    /// and is shown; the replaced main conversation's kernel is disposed.
+    async fn fork_in_place(
+        &self,
+        hosted: &HostedSession,
+        point: MovePoint,
+        cx: &Context,
+    ) -> Result<(), String> {
+        let main = hosted.main().map_err(text_of)?;
         self.interrupt_main(&main, cx).await.map_err(text_of)?;
         let forked = fork_main(hosted, point, cx).await.map_err(text_of)?;
+        release_settled_kernel(hosted.deps(), main.id()).await;
         self.show_conversation(hosted, &forked)
             .await
             .map_err(text_of)?;
         self.push_roster_delta();
-        Ok(selected_text)
+        Ok(())
     }
+}
+
+/// Resolve the fork target of a `fork` payload: the move point and, for a
+/// fork before a user message, its text. A missing entry, or a `before`
+/// fork of a non-user entry, is the TS invalid-entry error.
+async fn fork_point(
+    hosted: &HostedSession,
+    payload: &Value,
+    cx: &Context,
+) -> Result<(MovePoint, Option<String>), String> {
+    const INVALID: &str = "Invalid entry ID for forking";
+    let entry_id = payload
+        .get("entryId")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let at = payload.get("position").and_then(Value::as_str) == Some("at");
+    let harness = hosted.harness();
+    let main = hosted.main().map_err(text_of)?;
+    let tree = SessionTree::load(harness, main.id(), cx)
+        .await
+        .map_err(text_of)?;
+    let Some(target) = parse_entry_id(entry_id).and_then(|id| tree.entry(id)) else {
+        return Err(INVALID.to_owned());
+    };
+    if at {
+        return Ok((MovePoint::at(&target.record), None));
+    }
+    let text = user_entry_text(&target.record).ok_or_else(|| INVALID.to_owned())?;
+    let point = MovePoint::before(harness, &target.record, cx)
+        .await
+        .map_err(text_of)?;
+    Ok((point, Some(text)))
 }
 
 // A `map_err` adapter: the error is consumed by the conversion.

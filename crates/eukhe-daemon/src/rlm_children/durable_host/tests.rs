@@ -235,6 +235,7 @@ async fn keyed_calls_run_once_and_a_settled_child_reports() {
     let observed = sessions
         .wait_settled(RlmChildWaitRequest {
             session_id: CHILD_SESSION.to_owned(),
+            rlm_child_id: "sub-0192a000".to_owned(),
             timeout_ms: 10,
         })
         .await

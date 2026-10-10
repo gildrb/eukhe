@@ -93,7 +93,7 @@ fn classify_from(exe: Option<&Path>, own_exe: Option<&Path>) -> HolderFlavor {
         return HolderFlavor::AnotherProcess;
     };
     if let Some(own) = own_exe {
-        if exe == own {
+        if exe == own || in_own_cargo_profile(exe, own) {
             return HolderFlavor::ThisBuild;
         }
     }
@@ -127,6 +127,21 @@ fn classify_from(exe: Option<&Path>, own_exe: Option<&Path>) -> HolderFlavor {
         }
     }
     HolderFlavor::AnotherProcess
+}
+
+/// Whether `exe` lies under the cargo profile directory this process runs
+/// from: a build under a custom `CARGO_TARGET_DIR` has no `target`
+/// component, but its binaries (the daemon in `<dir>/<profile>/`, a test
+/// or example in `<dir>/<profile>/deps/`) share the profile directory.
+fn in_own_cargo_profile(exe: &Path, own: &Path) -> bool {
+    let Some(profile_dir) = own.parent() else {
+        return false;
+    };
+    let is_profile = profile_dir
+        .file_name()
+        .map(|name| name.to_string_lossy().to_lowercase())
+        .is_some_and(|name| matches!(name.as_str(), "debug" | "release" | "bench" | "test"));
+    is_profile && exe.starts_with(profile_dir)
 }
 
 /// The user-facing refusal for a session file a live foreign process
@@ -506,7 +521,8 @@ Session: rs01ab";
 
     /// The classification matrix: this build's own exe, an installed
     /// `eukhe` binary (including an unlinked procfs image), a cargo dev
-    /// build under `/target/`, and the shapes that stay anonymous.
+    /// build under `/target/` or in this build's own profile dir, and the
+    /// shapes that stay anonymous.
     #[test]
     fn the_holder_classification_matrix() {
         let own = Path::new("/Users/k/.local/bin/eukhe");
@@ -547,6 +563,25 @@ Session: rs01ab";
         );
         assert_eq!(
             classify_from(Some(Path::new("/usr/local/bin/node")), Some(own)),
+            HolderFlavor::AnotherProcess
+        );
+        // A custom CARGO_TARGET_DIR (no `target` component): a test binary
+        // in this daemon's own profile dir is this build...
+        let dev_own = Path::new("/tmp/build-out/debug/eukhe-daemon");
+        assert_eq!(
+            classify_from(
+                Some(Path::new("/tmp/build-out/debug/deps/hold_refusal_e2e-1a2b")),
+                Some(dev_own)
+            ),
+            HolderFlavor::ThisBuild
+        );
+        // ...but a non-profile own dir (an installed binary) claims nothing
+        // for its siblings.
+        assert_eq!(
+            classify_from(
+                Some(Path::new("/usr/local/bin/node")),
+                Some(Path::new("/usr/local/bin/eukhe-daemon"))
+            ),
             HolderFlavor::AnotherProcess
         );
     }

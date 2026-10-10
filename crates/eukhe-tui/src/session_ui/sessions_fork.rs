@@ -46,7 +46,12 @@ impl SessionUi {
             self.tree_filter_mode,
         ) {
             Some(mut selector) => {
-                selector.set_initial_selection(initial_selected);
+                // A fresh open keeps the list's own preselection (the
+                // current leaf, TS `initialSelectedId ?? currentLeafId`);
+                // only a re-open moves the cursor.
+                if let Some(entry_id) = initial_selected {
+                    selector.set_initial_selection(entry_id);
+                }
                 view.tree_selector = Some(selector);
             }
             None => self.note("No entries in session", view),

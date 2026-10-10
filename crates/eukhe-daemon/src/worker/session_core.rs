@@ -83,6 +83,9 @@ pub(crate) struct SessionCore {
     pub(crate) rlm_child_id: Option<String>,
     pub(crate) parent_active_session_id: Option<String>,
     pub(crate) parent_session_id: Option<String>,
+    /// The parent's session file (create `parentSessionPath`): the
+    /// subagent's file-bound parent edge (summary `parentSessionPath`).
+    pub(crate) parent_session_path: Option<String>,
     /// The create command's `childScript` (scripted RLM children).
     pub(crate) child_script: Option<String>,
     /// The service-tier preference (`None` = settings default "auto").
@@ -91,6 +94,10 @@ pub(crate) struct SessionCore {
     pub(crate) active_service_tier: Option<eukhe_types::ai::ServiceTier>,
     /// The scoped model list `{ model, thinkingLevel? }` the cycler uses.
     pub(crate) scoped_models: Vec<Value>,
+    /// The create command's prompt inputs (`systemPrompt`,
+    /// `appendSystemPrompt`, `skills`, `promptTemplates`); a replacement
+    /// session keeps them, like the TS runtime config.
+    pub(crate) prompt: eukhe_core::durable::PromptConfig,
 }
 
 impl SessionCore {
@@ -122,10 +129,12 @@ impl SessionCore {
             rlm_child_id: None,
             parent_active_session_id: None,
             parent_session_id: None,
+            parent_session_path: None,
             child_script: None,
             service_tier: None,
             active_service_tier: None,
             scoped_models: Vec::new(),
+            prompt: eukhe_core::durable::PromptConfig::default(),
         }
     }
 

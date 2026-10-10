@@ -276,20 +276,8 @@ async fn tui_prompt_stash_survives_the_agents_view_handoff() {
 
     // The persisted user message carries the image content: the fresh
     // chat's registry held the image only through the stash hydrate.
-    let mut persisted_with_image = false;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                persisted_with_image |= text.contains("image/png");
-            }
-        }
-    }
     assert!(
-        persisted_with_image,
+        a_session_persisted_a_png(&session_dir),
         "the restored draft attached the stashed image bytes on submit"
     );
 
@@ -435,27 +423,11 @@ async fn tui_prompt_stash_restores_a_pasted_image_with_the_draft() {
         "the restored draft carries its image marker:\n{rendered}"
     );
     // The persisted user message carries the image content: the restored
-    // marker attached the stashed bytes on submit. The create response's
-    // id is the active session id, so scan the session dir for the image
-    // content (only session A received the draft).
-    let mut persisted_with_image = String::new();
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                if text.contains("image/png") {
-                    persisted_with_image = text;
-                    break;
-                }
-            }
-        }
-    }
+    // marker attached the stashed bytes on submit (only session A received
+    // the draft).
     assert!(
-        !persisted_with_image.is_empty(),
-        "the submitted restored draft attached the pasted image: no session file carries image content"
+        a_session_persisted_a_png(&session_dir),
+        "the submitted restored draft attached the pasted image: no session carries image content"
     );
     drop(supervisor);
 }
@@ -613,20 +585,8 @@ async fn tui_ctrl_s_stashes_and_restores_the_prompt_draft() {
         "the restored draft submitted after the manual round-trip"
     );
     client.close();
-    let mut persisted_with_image = false;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                persisted_with_image |= text.contains("image/png");
-            }
-        }
-    }
     assert!(
-        persisted_with_image,
+        a_session_persisted_a_png(&session_dir),
         "the restored draft attached the stashed image bytes on submit"
     );
     drop(supervisor);
@@ -956,8 +916,7 @@ async fn tui_ctrl_s_during_queue_browse_stashes_the_draft_and_keeps_the_parked_m
         "engine": "faux",
         "responses": [
             { "text": "the slow turn reply", "delayMs": 8000 },
-            { "text": "steered delivery" },
-            { "text": "followed up delivery" },
+            { "text": "queued delivery" },
             { "text": "browse draft reply", "delayMs": 10 },
         ],
     });
@@ -1085,14 +1044,27 @@ async fn tui_ctrl_s_during_queue_browse_stashes_the_draft_and_keeps_the_parked_m
     }
     // Both parked prompts delivered after the turn: the stash + the
     // empty Enter deleted nothing, and nothing submitted early.
+    // pi-durable's final boundary places the first steer and the first
+    // follow-up together, so one request carries both and answers once.
     let rendered = frames.join("\n");
     assert!(
-        rendered.contains("steered delivery"),
-        "the steering prompt delivered:\n{rendered}"
+        rendered.contains("queued delivery"),
+        "the parked prompts delivered:\n{rendered}"
     );
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let texts = read_transcript(&storages[0]).message_texts();
+    let position = |text: &str| texts.iter().position(|candidate| candidate == text);
+    let (Some(steer), Some(follow_up), Some(answer)) = (
+        position("steering prompt"),
+        position("follow-up prompt"),
+        position("queued delivery"),
+    ) else {
+        panic!("the parked follow-up survived the stash and the empty Enter: {texts:?}");
+    };
     assert!(
-        rendered.contains("followed up delivery"),
-        "the parked follow-up survived the stash and the empty Enter:\n{rendered}"
+        steer < follow_up && follow_up < answer,
+        "both parked prompts reached the one successor request: {texts:?}"
     );
     // The stash held the pre-browse draft, not the browsed parked
     // text: the restore returns it.

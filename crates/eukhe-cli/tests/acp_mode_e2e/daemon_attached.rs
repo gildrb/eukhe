@@ -26,6 +26,8 @@ fn acp_daemon_attached_default_session_persists_and_resumes() {
     let sessions = live_sessions(&socket);
     assert_eq!(sessions.len(), 1, "{sessions:?}");
     let active_session_id = sessions[0]["activeSessionId"].clone();
+    // The durable storage is a directory (`<sessions>/<id>/`, pi-durable's
+    // layout); its main transcript holds the turn.
     let session_file = sessions[0]["sessionFile"]
         .as_str()
         .unwrap_or_else(|| panic!("a saved session: {sessions:?}"))
@@ -36,9 +38,11 @@ fn acp_daemon_attached_default_session_persists_and_resumes() {
             .is_some_and(|dir| dir.ends_with(".eukhe/sessions")),
         "the session is saved in the session dir: {session_file}"
     );
-    assert!(std::fs::read_to_string(&session_file)
-        .unwrap()
-        .contains("Name a river."));
+    let texts =
+        |dir: &str| durable_store::read_transcript(std::path::Path::new(dir)).message_texts();
+    assert!(texts(&session_file)
+        .iter()
+        .any(|text| text == "Name a river."));
     let descriptor = worker_descriptor(&home_path);
     assert_eq!(descriptor["telemetryDisabled"], json!(true), "{descriptor}");
     assert!(
@@ -88,8 +92,12 @@ fn acp_daemon_attached_default_session_persists_and_resumes() {
         sessions[0]["activeSessionId"], active_session_id,
         "--resume binds the live worker"
     );
-    let saved = std::fs::read_to_string(&session_file).unwrap();
-    assert!(saved.contains("Name a river.") && saved.contains("Name a mountain."));
+    let saved = texts(&session_file);
+    assert!(
+        saved.iter().any(|text| text == "Name a river.")
+            && saved.iter().any(|text| text == "Name a mountain."),
+        "{saved:?}"
+    );
 }
 
 #[test]
@@ -108,7 +116,7 @@ fn acp_daemon_attached_resident_eof_mid_turn_cancels_the_prompt() {
     client.wait_update("agent_message_chunk", TIMEOUT);
     let session = live_sessions(&socket).remove(0);
     let active_session_id = session["activeSessionId"].clone();
-    let session_file = session["sessionFile"]
+    let session_dir = session["sessionFile"]
         .as_str()
         .unwrap_or_else(|| panic!("a saved session: {session}"))
         .to_string();
@@ -128,11 +136,16 @@ fn acp_daemon_attached_resident_eof_mid_turn_cancels_the_prompt() {
         "a resident session survives EOF: {sessions:?}"
     );
     assert_eq!(sessions[0]["activeSessionId"], active_session_id);
-    let saved = std::fs::read_to_string(&session_file).unwrap();
-    assert!(saved.contains("a slow question"), "{saved}");
+    // The durable storage is a directory: its main transcript holds the
+    // prompt and no answer.
+    let saved = durable_store::read_transcript(std::path::Path::new(&session_dir)).message_texts();
     assert!(
-        !saved.contains(answer),
-        "the EOF cancelled the running prompt: {saved}"
+        saved.iter().any(|text| text == "a slow question"),
+        "{saved:?}"
+    );
+    assert!(
+        !saved.iter().any(|text| text.contains(answer)),
+        "the EOF cancelled the running prompt: {saved:?}"
     );
 }
 

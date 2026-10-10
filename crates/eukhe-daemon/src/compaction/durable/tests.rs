@@ -80,6 +80,6 @@ async fn abort_with_no_live_compaction_is_a_no_op() {
     let aborted = abort_compactions(session.harness(), &root, cx())
         .await
         .unwrap();
-    assert_eq!(aborted, 0);
+    assert!(aborted.is_empty());
     session.close(cx()).await.unwrap();
 }

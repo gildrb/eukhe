@@ -8,10 +8,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_core::autonomous::AgentAutonomousConfig;
+use eukhe_core::durable::goals::{autonomous_state, configure_autonomous};
 use eukhe_core::durable::{
-    ModelRequest, ParentLink, SessionConfig, SessionRole, SessionStorage, TurnWait,
+    McpLogin, ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole, SessionStorage,
+    TurnWait,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
+use eukhe_pi_ai::providers::faux_script::FauxScriptError;
 use eukhe_types::pi_ai::ModelThinkingLevel;
 use serde_json::{json, Value};
 
@@ -36,6 +40,8 @@ pub(crate) struct CreateParams {
     pub(crate) rlm_child_id: Option<String>,
     pub(crate) parent_active_session_id: Option<String>,
     pub(crate) parent_session_id: Option<String>,
+    /// The parent's session file (`parentSessionPath`, RLM children).
+    pub(crate) parent_session_path: Option<String>,
     pub(crate) child_script: Option<String>,
     pub(crate) model_patterns: Option<Vec<String>>,
     /// The create payload's `executionMode` (the telemetry execution mode
@@ -46,6 +52,12 @@ pub(crate) struct CreateParams {
     /// `spawnedByRequestId`, in the create config): reaches the child's
     /// semantic-edge ledger registration.
     pub(crate) spawned_by_request_id: Option<String>,
+    /// The create config's prompt inputs (`systemPrompt`,
+    /// `appendSystemPrompt`, `skills`, `promptTemplates`).
+    pub(crate) prompt: PromptConfig,
+    /// The create config's autonomous flags (TS `createAgentSession`
+    /// applies them to the startup session).
+    pub(crate) autonomous: Option<AgentAutonomousConfig>,
 }
 
 impl CreateParams {
@@ -99,6 +111,29 @@ impl CreateParams {
                 .and_then(Value::as_str)
                 .map(str::to_string)
         };
+        let strings = |key: &str| -> Result<Vec<String>, String> {
+            match payload.get(key) {
+                None | Some(Value::Null) => Ok(Vec::new()),
+                Some(value) => serde_json::from_value(value.clone())
+                    .map_err(|error| format!("Invalid {key}: {error}")),
+            }
+        };
+        let append_system_prompt = strings("appendSystemPrompt")?;
+        let prompt = PromptConfig {
+            custom_system_prompt: text(Some(payload), "systemPrompt"),
+            append_system_prompt: (!append_system_prompt.is_empty())
+                .then(|| append_system_prompt.join("\n\n")),
+            additional_skill_paths: strings("skills")?,
+            additional_prompt_paths: strings("promptTemplates")?,
+            ..PromptConfig::default()
+        };
+        let autonomous = match payload.get("autonomous") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                serde_json::from_value(value.clone())
+                    .map_err(|error| format!("Invalid autonomous: {error}"))?,
+            ),
+        };
         Ok(Self {
             session_path,
             no_session,
@@ -113,6 +148,7 @@ impl CreateParams {
             rlm_child_id: text(metadata, "rlmChildId"),
             parent_active_session_id: text(metadata, "parentActiveSessionId"),
             parent_session_id: text(metadata, "parentSessionId"),
+            parent_session_path: text(Some(payload), "parentSessionPath"),
             child_script: text(Some(payload), "childScript"),
             model_patterns: payload
                 .get("models")
@@ -127,6 +163,8 @@ impl CreateParams {
             execution_mode: text(Some(payload), "executionMode")
                 .filter(|mode| !mode.trim().is_empty()),
             spawned_by_request_id: text(Some(payload), "spawnedByRequestId"),
+            prompt,
+            autonomous,
         })
     }
 
@@ -200,15 +238,19 @@ impl Worker {
         if let Err(error) = self.bind_scheduled_jobs().await {
             return response_failure(None, "create", &error.to_string(), None);
         }
-        let (summary, busy) = {
+        let summary = {
             let core = self
                 .core
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            (self.summary_locked(&core), core.is_busy())
+            self.summary_locked(&core)
         };
-        // The revival evidence: a resumed run is live work again.
-        let _ = self.record_recovery(busy, "create");
+        // The revival evidence (TS `hasLiveSessionWork`: an active session
+        // counts): a created session is live work until its first run
+        // settles, so a hard kill before that settle (supervisor and
+        // worker both) revives it on the next boot; the run-end record
+        // flips the journal to idle.
+        let _ = self.record_recovery(true, "create");
         if let Some(registration) = &self.registration {
             registration.notify_session_created(summary.session_id.clone());
         }
@@ -227,13 +269,44 @@ impl Worker {
             let _ = registry.refresh_available_models().await;
         });
         let mut data = serde_json::to_value(&summary).unwrap_or(Value::Null);
-        // The durable compaction resumes with the session itself, so a
-        // supervisor-declared interrupted compaction needs no disclosure
-        // row: the record is consumed.
         if payload.get("interruptedCompaction").is_some() {
-            data["interruptedCompactionPersisted"] = json!(true);
+            // A failed abort keeps the supervisor's record pending: the
+            // next replacement retries it.
+            let persisted = match self.abort_interrupted_compaction(&cx).await {
+                Ok(()) => true,
+                Err(error) => {
+                    eprintln!(
+                        "eukhe-daemon worker: landing the interrupted compaction's abort failed: {error:#}"
+                    );
+                    false
+                }
+            };
+            data["interruptedCompactionPersisted"] = json!(persisted);
         }
         response_success(None, "create", Some(data))
+    }
+
+    /// A supervisor-declared interrupted compaction: the user aborted it
+    /// while the worker was wedged (the supervisor acknowledged and
+    /// journaled the abort), but the durable compaction task resumed with
+    /// the reopened session. The abort lands now: every live compaction of
+    /// the main conversation is aborted and awaited, and the observer's
+    /// `cancelled` outcome row is committed before the reply consumes the
+    /// record. No live compaction (it settled before the wedge) leaves
+    /// nothing to disclose.
+    async fn abort_interrupted_compaction(&self, cx: &Context) -> anyhow::Result<()> {
+        let hosted = self
+            .session
+            .get()
+            .ok_or_else(|| anyhow::anyhow!("the created session is not installed"))?;
+        let main = hosted.main()?;
+        let aborted =
+            crate::compaction::durable::abort_compactions(hosted.harness(), &main, cx).await?;
+        for task in aborted {
+            hosted.harness().wait_for_task(task, cx).await?;
+        }
+        hosted.deps().observers_settled().await;
+        Ok(())
     }
 
     /// The eukhe session config for `params` (cwd, id, storage, role,
@@ -267,16 +340,29 @@ impl Worker {
         };
         config.model.clone_from(&params.model);
         config.thinking = params.thinking;
+        // The parent's session file is its durable storage directory (the
+        // summary's `sessionFile`): the supervisor's spawn ledger and the
+        // child's parent binding key on it.
+        let session_file = match &config.storage {
+            SessionStorage::Jsonl { dir, .. } => Some(dir.to_string_lossy().into_owned()),
+            SessionStorage::Memory => None,
+        };
+        config.prompt = params.prompt.clone();
         config.children = self.rlm_subagent_host(crate::rlm_children::ParentIdentity {
             rlm_depth: config.role.rlm_depth,
             rlm_max_depth: config.role.rlm_max_depth,
             model: None,
             cwd: Some(params.cwd.clone()),
             session_id: Some(config.session_id.clone()),
-            session_file: None,
+            session_file,
             thinking: params.thinking.map(|level| level.as_str().to_owned()),
             child_script: params.child_script.clone(),
         });
+        // The daemon's sessions prewarm their kernel at open (the old
+        // engine's `prewarm_ipython_kernel: Some(true)`, TS
+        // `createDefaultRuntimeFactory`); the core gates it to top-level
+        // sessions.
+        config.prewarm_kernel = true;
         let scripted = self.config.script.is_some();
         if !scripted && config.role.is_root() {
             config.memory = Some(self.chat_memory().await?);
@@ -321,7 +407,15 @@ impl Worker {
                 }),
             );
         }));
-        // The kernel host seams: scheduled-jobs cron wiring, bash notices.
+        // The kernel's `mcp.begin_login` host request: the worker runs the
+        // OAuth login (browser + local callback) and persists the
+        // endpoint-bound credential the shared auth store gates on.
+        config.mcp_login = Some(McpLogin {
+            ui: Arc::new(crate::mcp_login::WorkerMcpLoginUi::from_env()),
+            http: Arc::new(eukhe_core::mcp::ReqwestOAuthHttp::new()),
+        });
+        // The kernel host seams: scheduled-jobs cron wiring, bash notices,
+        // agent messaging (after `children`: it joins that registry).
         self.wire_session_host(&mut config);
         Ok(config)
     }
@@ -340,6 +434,23 @@ impl Worker {
             })
             .await
             .cloned()
+    }
+
+    /// The worker's faux script models (`None` without a create script),
+    /// built at the first open and shared by every later one.
+    ///
+    /// # Errors
+    ///
+    /// The script is malformed.
+    fn scripted_models(&self) -> Result<Option<durable_host::ScriptedModels>, FauxScriptError> {
+        let Some(script) = &self.config.script else {
+            return Ok(None);
+        };
+        if let Some(scripted) = self.scripted_models.get() {
+            return Ok(Some(scripted.clone()));
+        }
+        let parsed = durable_host::ScriptedModels::parse(script)?;
+        Ok(Some(self.scripted_models.get_or_init(|| parsed).clone()))
     }
 
     /// Open the session `params` names: lease, legacy import, Harness open,
@@ -361,9 +472,12 @@ impl Worker {
             .session_config(params, session_id, storage)
             .await
             .map_err(|error| fail(format!("{error:#}")))?;
+        let scripted = self
+            .scripted_models()
+            .map_err(|error| fail(format!("invalid create script: {error}")))?;
         let request = HostRequest {
             config,
-            script: self.config.script.clone(),
+            scripted,
             telemetry_disabled: self.config.telemetry_disabled,
             execution_mode: params.execution_mode.clone(),
         };
@@ -378,6 +492,12 @@ impl Worker {
         };
         if existed && (params.model.is_some() || params.thinking.is_some()) {
             if let Err(error) = reconfigure_main(&hosted, params, cx).await {
+                let _ = hosted.close(cx).await;
+                return Err(fail(error.to_string()));
+            }
+        }
+        if let Some(autonomous) = &params.autonomous {
+            if let Err(error) = enable_autonomous(&hosted, autonomous, cx).await {
                 let _ = hosted.close(cx).await;
                 return Err(fail(error.to_string()));
             }
@@ -404,6 +524,11 @@ impl Worker {
                 meta::set_session_name(hosted.harness(), Some(name.trim().to_string()), cx).await?;
             }
             let session_meta = meta::read_session_meta(hosted.harness(), cx).await?;
+            // Opening a killed session makes it live again (the old
+            // create's `active` state row).
+            if session_meta.archived {
+                meta::clear_archived(hosted.harness(), cx).await?;
+            }
             let main = hosted.main()?;
             // The withdrawn inputs survive the restart: the durable
             // store seeds the caches (resume, clear, and mutations read
@@ -431,7 +556,10 @@ impl Worker {
                 core.parent_active_session_id
                     .clone_from(&params.parent_active_session_id);
                 core.parent_session_id.clone_from(&params.parent_session_id);
+                core.parent_session_path
+                    .clone_from(&params.parent_session_path);
                 core.child_script.clone_from(&params.child_script);
+                core.prompt = params.prompt.clone();
                 core.scoped_models = self.resolve_scoped_models(params);
                 let settings = eukhe_core::settings::SettingsManager::create(
                     &params.cwd,
@@ -470,6 +598,7 @@ impl Worker {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         core.created = true;
         core.shutdown_requested = false;
+        self.publish_own_summary(&self.summary_locked(&core));
         // A fresh session parks immediately: the idle-passivation loop
         // arms from here.
         self.park_notify.notify_one();
@@ -574,6 +703,27 @@ async fn reconfigure_main(
         change.thinking_level = FieldChange::Set(thinking);
     }
     main.configure(change, cx).await?;
+    Ok(())
+}
+
+/// The create config's autonomous flags on the main conversation (TS
+/// `createAgentSession` parity, the rpc startup seed's rule): enable with
+/// the given limits unless the session already runs autonomously (a
+/// reopened session keeps its counters).
+async fn enable_autonomous(
+    hosted: &HostedSession,
+    config: &AgentAutonomousConfig,
+    cx: &Context,
+) -> anyhow::Result<()> {
+    let main = hosted.main()?;
+    if !autonomous_state(hosted.harness(), main.id(), cx)
+        .await?
+        .enabled
+    {
+        // The startup flags set the state only (no `autonomous_status`
+        // row, TS `createAgentSession({ autonomous })`).
+        configure_autonomous(hosted.harness(), main.id(), config.clone(), cx).await?;
+    }
     Ok(())
 }
 

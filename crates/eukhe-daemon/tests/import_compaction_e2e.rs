@@ -54,6 +54,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+// The durable session storage reader the CLI e2e suites share.
+#[path = "../../eukhe-cli/tests/support/durable_store.rs"]
+mod durable_store;
+
 struct Supervisor {
     child: Child,
     #[allow(dead_code)]
@@ -312,32 +316,24 @@ fn grown_fixture(dir: &Path, turns: usize) -> PathBuf {
     fixture
 }
 
-/// The durable session rows of `type`, re-read from the session dir's
-/// imported copy (the `.jsonl` file: the store writes an
-/// `.info-cache.json` sidecar with the same stem beside it, and the
-/// directory order decides nothing).
-fn session_rows(harness: &Harness, type_: &str) -> Vec<Value> {
-    let session_dir = harness.dir.path().join("agent").join("sessions");
-    let file = std::fs::read_dir(&session_dir)
-        .expect("session dir readable")
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "jsonl")
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with("grown-import"))
-        })
-        .expect("the imported session's copy in the session dir");
-    std::fs::read_to_string(file)
-        .expect("session file readable")
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-        .filter(|entry| entry.get("type").and_then(Value::as_str) == Some(type_))
-        .collect()
+/// The imported session's durable main transcript: `import_jsonl` copies
+/// the fixture to `<sessions>/grown-import.jsonl`, and the open imports
+/// that legacy file into the durable storage `<sessions>/grown-import/`
+/// the session runs on (the copy itself is never written again).
+fn imported_transcript(harness: &Harness) -> durable_store::Transcript {
+    durable_store::read_transcript(
+        &harness
+            .dir
+            .path()
+            .join("agent")
+            .join("sessions")
+            .join("grown-import"),
+    )
+}
+
+/// A durable entry id (a JSON number) as the wire's string form.
+fn entry_id(value: &Value) -> Option<String> {
+    value.as_u64().map(|id| id.to_string())
 }
 
 /// The compact runs on the imported session: the imported rows seed the
@@ -369,17 +365,26 @@ fn imported_session_compacts() {
     // The imported transcript is the session the compact walks: every
     // row the TS loader keeps must persist, the assistant and tool-result
     // rows included (a lossy parse drops two of every three rows here).
-    let rows = session_rows(&harness, "message");
-    assert_eq!(rows.len(), 3600, "the imported rows persist: {rows:?}");
+    // The durable import lands them as `pi.user` / `pi.assistant` /
+    // `pi.tool-result` entries of the storage the session runs on.
+    let transcript = imported_transcript(&harness);
+    for kind in ["pi.user", "pi.assistant", "pi.tool-result"] {
+        assert_eq!(
+            transcript.of_kind(kind).len(),
+            1200,
+            "the imported {kind} rows persist"
+        );
+    }
     assert!(
-        rows.iter().any(|row| row["message"]["role"] == "assistant"
-            && row["message"]["stopReason"] == "tool_calls"),
-        "the foreign-shape assistant rows survive the import: {rows:?}"
-    );
-    assert!(
-        rows.iter().any(|row| row["message"]["role"] == "toolResult"
-            && row["message"].get("toolName").is_none()),
-        "the tool results without toolName survive the import: {rows:?}"
+        transcript
+            .of_kind("pi.assistant")
+            .iter()
+            .all(|entry| entry["model"][0]["content"]
+                .as_array()
+                .is_some_and(|blocks| blocks.iter().any(|block| block["text"]
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("Running the tool for task"))))),
+        "the foreign-shape assistant rows survive the import with their content"
     );
 
     // A turn on the imported session (the perf-wave repro: the provider
@@ -412,29 +417,44 @@ fn imported_session_compacts() {
     // The cut must sit INSIDE the imported transcript (a walk that lost the
     // imported rows has no history to summarize and refuses as too short).
     // The cut may split a turn (an assistant row is a valid cut point when
-    // its trailing tool result stays kept), so any fixture row id past the
-    // first turn proves the walk traversed the imported rows.
+    // its trailing tool result stays kept). The durable import renumbers
+    // the legacy rows (pi-durable entry ids are storage-assigned numbers,
+    // so `firstKeptEntryId` is a durable id, not the fixture's `u<N>`):
+    // the kept entry must be an imported row past the first turn and
+    // before the post-import prompt.
     let first_kept = compact["data"]["firstKeptEntryId"]
         .as_str()
-        .unwrap_or_default();
-    let kept_turn: Option<u32> = first_kept
-        .strip_prefix(|c: char| c == 'u' || c == 'a' || c == 't')
-        .and_then(|index| index.parse().ok());
+        .unwrap_or_default()
+        .to_owned();
+    let transcript = imported_transcript(&harness);
+    let position_of =
+        |predicate: &dyn Fn(&Value) -> bool| transcript.entries.iter().position(predicate);
+    let kept_at = position_of(&|entry| entry_id(&entry["id"]).as_deref() == Some(&first_kept))
+        .unwrap_or_else(|| panic!("the kept entry is in the transcript: {compact}"));
+    let first_turn_end = position_of(&|entry| {
+        entry["kind"] == "pi.tool-result" && entry["model"][0]["toolCallId"] == "call-0"
+    })
+    .expect("the first imported turn's tool result");
+    let prompt_at = position_of(&|entry| {
+        entry["kind"] == "pi.user"
+            && entry["model"][0]["content"][0]["text"] == "one turn on the imported session"
+    })
+    .expect("the post-import prompt");
     assert!(
-        kept_turn.is_some_and(|turn| turn > 0),
+        first_turn_end < kept_at && kept_at < prompt_at,
         "the cut keeps the recent tail of the imported transcript: {compact}"
     );
 
-    // The compaction landed durably on the imported session's file.
-    let compactions = session_rows(&harness, "compaction");
+    // The compaction landed durably on the imported session's storage.
+    let compactions = transcript.of_kind("pi.compaction");
     assert_eq!(
         compactions.len(),
         1,
-        "the durable compaction row: {compactions:?}"
+        "the durable compaction entry: {compactions:?}"
     );
     assert_eq!(
-        compactions[0]["firstKeptEntryId"].as_str(),
+        entry_id(&compactions[0]["head"]),
         Some(first_kept),
-        "the durable row records the same cut: {compactions:?}"
+        "the durable entry records the same cut: {compactions:?}"
     );
 }

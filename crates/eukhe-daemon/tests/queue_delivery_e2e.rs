@@ -1,7 +1,7 @@
 //! End-to-end verifier for the queued-input delivery projection: a busy
-//! session parks steering/follow-up prompts, the runner drains them one
-//! item per turn, and every pickup must reach attached clients as a
-//! `session_action_update` BEFORE the delivered item's turn starts (TS
+//! session parks steering/follow-up prompts, the busy run's end delivers
+//! them into the next run, and every pickup must reach attached clients
+//! as a `session_action_update` BEFORE the delivered run starts (TS
 //! `_pumpSessionInputs` emits the queue update at the action's
 //! `preparing` transition). A delivered message that stays in the
 //! projection for the duration of its own turn renders as a stale
@@ -592,26 +592,22 @@ fn queue_pickup_projection_reaches_clients_before_the_delivered_turn_starts() {
     // answer; release it and watch the boundary drain the lane.
     mock.release_busy_turn();
 
-    // Everything drains: three model requests (turn one + the steers'
-    // ONE batched turn — the product default co-delivers the parked
-    // steering prefix, Kevin's batch spec — + the follow-up's own turn).
-    let deadline = Instant::now() + Duration::from_mins(1);
-    while Instant::now() < deadline {
-        if mock.count() >= 3 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    // Everything drains in two model requests: turn one, then ONE run for
+    // the whole parked queue. Adapted to pi-durable: at a run's end the
+    // final boundary places the queued steers AND follow-ups into the next
+    // run together (spec §6; the old turn runner drained the steering lane
+    // as its own turn first), and a chat-memory root takes every queued
+    // follow-up at once (`OptChat` §7), so steers and follow-up share the
+    // one fresh call.
+    wait_for_run_ends(&mut client, 2, "turn one and the delivered queue's run");
     client.drain_events(Duration::from_secs(2));
     assert_eq!(
-        mock.count(),
-        3,
-        "turn one, the steers' one batched turn, the follow-up's: {:?}",
-        mock.request_log()
+        mock.request_log(),
+        ["#1: turn one", "#2: steer A\n\nsteer B\n\nfollow C"],
+        "turn one, then the whole queue's one run"
     );
 
-    // Delivery order: steering lane first (both steers as the one batched
-    // turn), the follow-up lane behind it.
+    // Delivery order: steering lane first, the follow-up lane behind it.
     let user_messages: Vec<String> = client
         .events
         .iter()
@@ -630,15 +626,16 @@ fn queue_pickup_projection_reaches_clients_before_the_delivered_turn_starts() {
     assert_eq!(
         user_messages,
         ["turn one", "steer A", "steer B", "follow C"],
-        "the queue drains in lane order, one item per turn"
+        "the queue drains in lane order"
     );
 
     // The pickup projection: the delivered batch leaves the queue
     // projection BEFORE its turn starts (TS emits at the `preparing`
     // transition). A delivered message that stays projected for the whole
     // turn renders as a stale strip row and poisons browse-edit addresses.
-    // Under the batched default BOTH steers leave the projection in the
-    // one pickup update ahead of the one batched turn.
+    // The steers and the follow-up are picked up together (above), so
+    // all three leave the projection in the one pickup update ahead of
+    // the one delivered run, which it shows `preparing`.
     let agent_starts: Vec<usize> = client
         .events
         .iter()
@@ -648,25 +645,48 @@ fn queue_pickup_projection_reaches_clients_before_the_delivered_turn_starts() {
         .collect();
     assert_eq!(
         agent_starts.len(),
-        3,
-        "turn one, the steers' one batched turn, the follow-up's: {agent_starts:?}, events: {:?}",
+        2,
+        "turn one, the delivered queue's run: {agent_starts:?}, events: {:?}",
         event_types(&client.events)
     );
     let parked_at = parked[0];
     let batch_start = agent_starts[1];
-    let follow_c_start = agent_starts[2];
-    assert!(
-        action_updates_with(&client.events[..batch_start], &[], &["follow C"])
+    let pickup = action_updates_with(&client.events[..batch_start], &[], &[])
+        .into_iter()
+        .find(|index| *index > parked_at)
+        .unwrap_or_else(|| {
+            panic!(
+                "the queue's pickup must project before the delivered run starts (events: {:?})",
+                event_types(&client.events)
+            )
+        });
+    assert_eq!(
+        client.events[pickup]["actions"]["active"],
+        json!({ "kind": "turn", "phase": "preparing", "label": "steer A" }),
+        "the pickup projects the delivery's Starting row"
+    );
+}
+
+/// Drain until `runs` runs ended (`agent_end` frames): the observable
+/// readiness of a drained queue.
+fn wait_for_run_ends(client: &mut Client, runs: usize, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        client.drain_events(Duration::from_millis(400));
+        let ended = client
+            .events
             .iter()
-            .any(|index| *index > parked_at),
-        "the steer batch's pickup must project before the batched turn starts (events: {:?})",
-        event_types(&client.events)
-    );
-    assert!(
-        !action_updates_with(&client.events[..follow_c_start], &[], &[]).is_empty(),
-        "follow C's pickup must project before its turn starts (events: {:?})",
-        event_types(&client.events)
-    );
+            .filter(|event| event.get("type").and_then(Value::as_str) == Some("agent_end"))
+            .count();
+        if ended >= runs {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{what} never ended ({ended} of {runs} runs ended); events: {:?}",
+            event_types(&client.events)
+        );
+    }
 }
 
 #[test]
@@ -712,27 +732,22 @@ fn multi_item_queue_delivers_every_item_in_lane_order() {
     // answer; release it so the boundary drains deterministically.
     mock.release_busy_turn();
 
-    // Three calls run (chat memory, OptChat spec §7: queued texts are
-    // taken all at once and joined with a blank line): the starter, ONE
-    // fresh call for the parked steering lane, then ONE fresh call for the
-    // follow-up lane behind it.
-    let expected_requests = [
-        "#1: turn zero",
-        "#2: steer one\n\nsteer two\n\nsteer three",
-        "#3: follow one\n\nfollow two\n\nfollow three",
-    ];
-    let deadline = Instant::now() + Duration::from_secs(90);
-    while Instant::now() < deadline {
-        if mock.count() >= expected_requests.len() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    // Two calls run (chat memory, OptChat spec §7: a fresh call takes the
+    // queued texts all at once, joined with a blank line): the starter,
+    // then ONE fresh call for the whole parked queue. Adapted to
+    // pi-durable: at a run's end the final boundary places the queued
+    // steers and follow-ups into the next run together (spec §6), where
+    // the old turn runner ran the steering lane's call ahead of a second
+    // call for the follow-up lane; the steering rows still lead.
+    wait_for_run_ends(&mut client, 2, "the starter and the queue's call");
     client.drain_events(Duration::from_secs(2));
     assert_eq!(
         mock.request_log(),
-        expected_requests,
-        "the starter, the steers' one call, the follow-ups' one call"
+        [
+            "#1: turn zero",
+            "#2: steer one\n\nsteer two\n\nsteer three\n\nfollow one\n\nfollow two\n\nfollow three",
+        ],
+        "the starter, then the whole queue's one call"
     );
     let user_messages: Vec<String> = client
         .events

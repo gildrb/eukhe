@@ -13,6 +13,7 @@ mod autonomous;
 mod docs;
 mod hooks;
 mod host;
+mod observer;
 mod ops;
 mod state;
 mod watch;
@@ -26,13 +27,14 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::Extension;
 
 pub use autonomous::{
-    autonomous_state, set_autonomous, AutonomousChange, AutonomousDocState, AutonomousStop,
-    WorktreeSnapshot,
+    autonomous_state, configure_autonomous, set_autonomous, AutonomousChange, AutonomousDocState,
+    AutonomousStop, WorktreeSnapshot,
 };
 pub use docs::{AUTONOMOUS_DOC, GOAL_DOC};
 pub use ops::{
-    clear_goal, complete_goal, goal_state, import_legacy_goal, is_goal_nudge, pause_goal,
-    resume_goal, seed_initial_goal, start_goal, withdraw_queued_goal_contexts,
+    clear_goal, complete_goal, continue_goal_after_compaction, goal_state, import_legacy_goal,
+    is_goal_nudge, pause_goal, resume_goal, seed_initial_goal, start_goal,
+    withdraw_queued_goal_contexts,
 };
 pub use state::{
     creation_elapsed_seconds, owns_continuation_wakeup, served, terminal_provider_failure,
@@ -48,11 +50,13 @@ use crate::durable::{HarnessCell, HostRequestRegistry};
 /// The extension's name.
 pub const GOALS_EXTENSION: &str = "eukhe.goals";
 
-/// The goal extension of one session: the `pi.generation` hooks, and the
+/// The goal extension of one session: the `pi.generation` hooks, the
 /// `goal.get` / `goal.create` / `goal.complete` host requests registered in
-/// `deps.host_requests`. Autonomous gates run in the session cwd.
+/// `deps.host_requests`, and the run-end failure observer. Autonomous gates
+/// run in the session cwd.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
+    observer::install(deps);
     goals_extension(
         deps.harness.clone(),
         Arc::new(ShellGateRunner::new(deps.cwd.clone())),

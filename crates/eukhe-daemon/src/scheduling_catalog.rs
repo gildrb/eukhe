@@ -193,8 +193,10 @@ impl Supervisor {
             if !include_inactive && !matches!(job.status, JobStatus::Active | JobStatus::Paused) {
                 continue;
             }
+            // The session still exists: its storage directory, or a
+            // legacy file not imported yet.
             let session_file = Path::new(&job.session_file);
-            if !session_file.is_file() {
+            if !session_file.exists() {
                 continue;
             }
             let Some(info) = read_session_info(session_file) else {

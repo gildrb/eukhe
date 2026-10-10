@@ -231,7 +231,10 @@ fn is_request_type_literal(literal: &str) -> bool {
 
 /// Scan the eukhe-core sources for every host-request type the session engine
 /// registers: `handlers.register("<type>", ...)` literals plus
-/// `for request_type in [ "<type>", ... ]` loop tables.
+/// `for request_type in [ "<type>", ... ]` loop tables. Test-only modules
+/// (`tests.rs` files and `tests/` directories, compiled under
+/// `#[cfg(test)]`) register probe handlers that are not product surface, so
+/// the scan skips them.
 fn registered_host_requests() -> BTreeSet<String> {
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut found = BTreeSet::new();
@@ -242,11 +245,14 @@ fn registered_host_requests() -> BTreeSet<String> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
+            let is_test_module = path.file_stem().and_then(|stem| stem.to_str()) == Some("tests");
             if path.is_dir() {
-                stack.push(path);
+                if !is_test_module {
+                    stack.push(path);
+                }
                 continue;
             }
-            if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            if path.extension().and_then(|ext| ext.to_str()) != Some("rs") || is_test_module {
                 continue;
             }
             let source = std::fs::read_to_string(&path).expect("read source");

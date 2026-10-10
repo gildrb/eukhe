@@ -346,6 +346,7 @@ async fn watch(
     let observed = tokio::select! {
         observed = services.host.wait_settled(RlmChildWaitRequest {
             session_id: identity.session_id.clone(),
+            rlm_child_id: identity.rlm_child_id.clone(),
             timeout_ms: WATCH_WAIT_SLICE_MS,
         }) => observed,
         reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),

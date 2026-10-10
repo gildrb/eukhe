@@ -252,23 +252,14 @@ fn worker_descriptor_of(agent_dir: &Path, socket: &Path, session_id: &str) -> (P
     (found, pid)
 }
 
-/// The session file's latest `session_state` status.
+/// The session's catalog state (`archived` after a kill, else `active`):
+/// the durable storage (`<sessions>/<id>/`) keeps it in its session
+/// document, which the catalog reader folds (the old test scanned the
+/// `session_state` rows of a `<id>.jsonl` file).
 fn session_state(session_file: &Path) -> String {
-    let mut state = String::new();
-    for line in std::fs::read_to_string(session_file)
-        .expect("session file readable")
-        .lines()
-    {
-        let Ok(entry) = serde_json::from_str::<Value>(line.trim()) else {
-            continue;
-        };
-        if entry.get("type").and_then(Value::as_str) == Some("session_state") {
-            if let Some(status) = entry["state"]["status"].as_str() {
-                state = status.to_string();
-            }
-        }
-    }
-    state
+    eukhe_daemon::session_store::read_session_info(session_file)
+        .and_then(|info| info.state)
+        .unwrap_or_default()
 }
 
 /// A hung session worker — one that ignores the routed kill and the stop's

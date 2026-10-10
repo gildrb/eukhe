@@ -183,6 +183,10 @@ async fn decide(
     if let Some(headers) = options_extra.headers {
         options.options.stream.request.headers = Some(headers);
     }
+    // `abort_compaction` (a task abort) cancels the in-flight summarizer,
+    // like pi-durable's own summarize phase.
+    let signal = cx.abort_signal();
+    options.options.stream.request.signal.clone_from(&signal);
     trace(
         "compact.summarizer_request",
         &json!({ "maxTokens": max_tokens }),
@@ -205,6 +209,9 @@ async fn decide(
     });
     let reply = stream.result().await;
     let _ = drain.await;
+    if let Some(signal) = &signal {
+        signal.throw_if_aborted().map_err(SessionError::Aborted)?;
+    }
     // The old engine's failure label ("Summarization failed"): an error
     // stop bubbles out of the hook and fails the compaction task.
     if reply.stop_reason == StopReason::Error {

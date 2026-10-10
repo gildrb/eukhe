@@ -19,7 +19,7 @@ use eukhe_durable::types::{ConversationId, DocumentReader, EntryDraft, TypedEntr
 use eukhe_types::pi_ai::{UserContent, UserContentBlock};
 
 use super::docs::{open_doc, read_doc, write_doc, GOAL_DOC};
-use super::state::{completed, new_goal, paused, resumed, served, stamp};
+use super::state::{completed, mint_after_backoff, new_goal, paused, resumed, served, stamp, Mint};
 use crate::autonomous::now_millis;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::goals::{
@@ -335,6 +335,55 @@ pub async fn resume_goal(
         .await?;
     }
     Ok(goal)
+}
+
+/// The post-compaction goal continuation (old
+/// `mint_post_compaction_goal_continuation`; TS `compact()`'s `didCompact`
+/// and active-goal branch): the manual compaction aborted the running
+/// turn, which ends an active goal's in-run loop, so the compaction mints
+/// one continuation slot and submits its context as a follow-up. Writes
+/// nothing when the goal does not own the wakeup or queued user input owns
+/// the next boundary. Returns the minted goal.
+///
+/// # Errors
+///
+/// Read, commit, or submission failures.
+pub async fn continue_goal_after_compaction(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<Option<GoalState>> {
+    if user_input_queued(harness, conversation_id, cx).await? {
+        return Ok(None);
+    }
+    let conversation = conversation_of(harness, conversation_id, cx).await?;
+    withdraw_queued_goal_contexts(harness, conversation_id, cx).await?;
+    let (goal, text) = update_goal(
+        &conversation,
+        |current, _| {
+            Ok(match mint_after_backoff(current) {
+                Mint::Continue(next) => Some((next, Some(GoalContextKind::Continuation))),
+                Mint::Refuse(change) => change.map(|next| (next, None)),
+                Mint::Backoff { state, .. } => Some((state, None)),
+            })
+        },
+        cx,
+    )
+    .await?;
+    let (Some(text), Some(goal_id), Some(updated_at)) =
+        (text, goal.goal_id.clone(), goal.updated_at)
+    else {
+        return Ok(None);
+    };
+    submit_goal_context(
+        &conversation,
+        format!("goal:{goal_id}:compaction:{updated_at}"),
+        text,
+        WhenBusy::FollowUp,
+        cx,
+    )
+    .await?;
+    Ok(Some(goal))
 }
 
 /// `/goal clear`: drop the goal. Returns whether a goal was cleared.

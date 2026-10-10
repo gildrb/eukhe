@@ -31,9 +31,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use eukhe_core::autonomous::AgentAutonomousConfig;
-use eukhe_core::durable::goals::{
-    autonomous_state, seed_initial_goal, set_autonomous, AutonomousChange,
-};
+use eukhe_core::durable::goals::{autonomous_state, configure_autonomous, seed_initial_goal};
 use serde_json::Value;
 use tokio::io::AsyncBufReadExt;
 
@@ -198,7 +196,7 @@ async fn seed_startup_state(
     }
     if let Some(config) = autonomous_config {
         if !autonomous_state(opened.harness(), main, &cx).await?.enabled {
-            set_autonomous(opened.harness(), main, AutonomousChange::On(config), &cx).await?;
+            configure_autonomous(opened.harness(), main, config, &cx).await?;
         }
     }
     Ok(())

@@ -13,37 +13,38 @@ fn compaction_commands_scripted_session() {
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    // A small keep window so the two short turns leave history before the
+    // kept tail: the durable manual compaction skips a session whose cut
+    // finds nothing to summarize (TS `CompactionSkippedError`).
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({
+            "compaction": { "enabled": true, "reserveTokens": 500, "keepRecentTokens": 10 },
+        })
+        .to_string(),
+    )
+    .expect("write settings.json");
     let _daemon = spawn_daemon(&socket, &agent_dir);
     let golden: serde_json::Value =
         serde_json::from_str(include_str!("../goldens/compaction-live-ts.json"))
             .expect("golden fixture");
     let (mut client, _hello) = Client::connect(&socket);
 
-    // A scripted session whose compaction script runs: (1) a success with a
-    // delay long enough to observe the in-flight state and abort it,
-    // (2) the TS nothing-to-compact skip, then (3) replay from the top.
+    // Durable compaction summarizes through the session model: the faux
+    // queue serves the two turns, then (1) a summary held long enough to
+    // observe the in-flight state and abort it, then (2) the summary the
+    // second compaction commits. `delayMs` holds the stream before its
+    // first delta.
     let script_path = dir.path().join("script.json");
     std::fs::write(
         &script_path,
         serde_json::json!({
-            "responses": [{ "text": "one turn" }],
-            "compaction": { "responses": [
-                // Run 1 (aborted mid-delay), run 2 (success), run 3 (skip).
-                {
-                    "summary": "first summary",
-                    "firstKeptEntryId": "",
-                    "tokensBefore": 4321,
-                    "details": { "readFiles": ["a.rs"], "modifiedFiles": [] },
-                    "delayMs": 1500,
-                },
-                {
-                    "summary": "second summary",
-                    "firstKeptEntryId": "",
-                    "tokensBefore": 5000,
-                    "details": { "readFiles": ["a.rs"], "modifiedFiles": [] },
-                },
-                { "error": "Session is too short to compact -- try again once it grows", "skipped": true },
-            ] },
+            "responses": [
+                { "text": "one turn ".repeat(20) },
+                { "text": "two turn ".repeat(20) },
+                { "text": "first summary", "delayMs": 1500 },
+                { "text": "second summary" },
+            ],
         })
         .to_string(),
     )
@@ -80,15 +81,43 @@ fn compaction_commands_scripted_session() {
         serde_json::json!(true)
     );
 
-    // One scripted turn so the session has content.
+    // Compacting the still-empty session reports the TS nothing-to-compact
+    // skip. (Durable runs a fresh compact after a committed summary as
+    // `Already compacted`, so the too-short skip is exercised up front.)
     client.send_command(
-        "p1",
-        &serde_json::json!({ "type": "prompt", "activeSessionId": session_id, "message": "hi" }),
+        "cp-skip",
+        &serde_json::json!({ "type": "compact", "activeSessionId": session_id }),
     );
-    let (prompt_ack, mut turn_lines) = client.read_response_and_lines("p1");
-    assert_eq!(prompt_ack["success"], true, "prompt failed");
-    // The turn_end event may precede the prompt reply (TS order).
-    let _ = client.take_session_event(&mut turn_lines, "turn_end");
+    let (skipped, mut cp3_lines) = client.read_response_and_lines("cp-skip");
+    assert_eq!(skipped["success"], false, "skip must fail: {skipped}");
+    assert_eq!(skipped["error"], golden["compact"]["skippedError"]);
+    let end_skipped = client.take_session_event(&mut cp3_lines, "compaction_end");
+    let golden_skipped = &golden["compactionEndSkipped"];
+    assert_eq!(end_skipped["type"], golden_skipped["type"]);
+    assert_eq!(end_skipped["reason"], golden_skipped["reason"]);
+    assert_eq!(end_skipped["aborted"], golden_skipped["aborted"]);
+    assert_eq!(end_skipped["willRetry"], golden_skipped["willRetry"]);
+    assert_eq!(end_skipped["errorMessage"], golden_skipped["errorMessage"]);
+    assert_eq!(
+        end_skipped["errorSeverity"],
+        golden_skipped["errorSeverity"]
+    );
+    assert!(
+        end_skipped.get("result").is_none(),
+        "skip carries no result"
+    );
+
+    // Two scripted turns so the session has history before the kept tail.
+    for (id, message) in [("p1", "hi"), ("p2", "again")] {
+        client.send_command(
+            id,
+            &serde_json::json!({ "type": "prompt", "activeSessionId": session_id, "message": message }),
+        );
+        let (prompt_ack, mut turn_lines) = client.read_response_and_lines(id);
+        assert_eq!(prompt_ack["success"], true, "prompt failed");
+        // The turn_end event may precede the prompt reply (TS order).
+        let _ = client.take_session_event(&mut turn_lines, "turn_end");
+    }
 
     // Unknown session selector fails with the TS routing error.
     client.send_command(
@@ -201,20 +230,28 @@ fn compaction_commands_scripted_session() {
         .map(String::as_str)
         .collect();
     data_keys.sort_unstable();
+    // pi-durable's compaction entry carries no file-op `details`, so the
+    // key is absent (TS's `undefined` under JSON serialization); the rest
+    // of the TS key set holds.
     let mut golden_keys: Vec<&str> = golden["compact"]["successResponse"]["dataKeys"]
         .as_array()
         .expect("golden data keys")
         .iter()
         .filter_map(|v| v.as_str())
+        .filter(|key| *key != "details")
         .collect();
     golden_keys.sort_unstable();
     assert_eq!(data_keys, golden_keys, "CompactionResult key set");
     assert_eq!(data["summary"], serde_json::json!("second summary"));
-    assert_eq!(data["tokensBefore"], serde_json::json!(5000));
-    assert_eq!(
-        data["details"],
-        serde_json::json!({ "readFiles": ["a.rs"], "modifiedFiles": [] })
+    // Durable estimates `tokensBefore` over the pre-summary context (the
+    // old scripted engine echoed a scripted number).
+    assert!(
+        data["tokensBefore"]
+            .as_u64()
+            .is_some_and(|tokens| tokens > 0),
+        "tokensBefore: {data}"
     );
+    assert!(data.get("details").is_none(), "no durable file-op details");
     assert!(
         data.get("usage").is_none(),
         "usage never rides the compact response (TS parity)"
@@ -248,7 +285,7 @@ fn compaction_commands_scripted_session() {
     let messages = messages["data"]["messages"].as_array().expect("messages");
     assert_eq!(messages[0]["role"], serde_json::json!("compactionSummary"));
     assert_eq!(messages[0]["summary"], serde_json::json!("second summary"));
-    assert_eq!(messages[0]["tokensBefore"], serde_json::json!(5000));
+    assert_eq!(messages[0]["tokensBefore"], data["tokensBefore"]);
     assert!(
         messages[0]["retainedMessageCount"]
             .as_u64()
@@ -275,31 +312,6 @@ fn compaction_commands_scripted_session() {
     assert_eq!(
         reattached["data"]["snapshot"]["state"]["compactionCount"],
         serde_json::json!(1)
-    );
-
-    // Third compact: the script's third entry reports the TS
-    // nothing-to-compact skip.
-    client.send_command(
-        "cp3",
-        &serde_json::json!({ "type": "compact", "activeSessionId": session_id }),
-    );
-    let (skipped, mut cp3_lines) = client.read_response_and_lines("cp3");
-    assert_eq!(skipped["success"], false, "skip must fail: {skipped}");
-    assert_eq!(skipped["error"], golden["compact"]["skippedError"]);
-    let end_skipped = client.take_session_event(&mut cp3_lines, "compaction_end");
-    let golden_skipped = &golden["compactionEndSkipped"];
-    assert_eq!(end_skipped["type"], golden_skipped["type"]);
-    assert_eq!(end_skipped["reason"], golden_skipped["reason"]);
-    assert_eq!(end_skipped["aborted"], golden_skipped["aborted"]);
-    assert_eq!(end_skipped["willRetry"], golden_skipped["willRetry"]);
-    assert_eq!(end_skipped["errorMessage"], golden_skipped["errorMessage"]);
-    assert_eq!(
-        end_skipped["errorSeverity"],
-        golden_skipped["errorSeverity"]
-    );
-    assert!(
-        end_skipped.get("result").is_none(),
-        "skip carries no result"
     );
 
     // set_auto_compaction: success without data; the flag lands in the

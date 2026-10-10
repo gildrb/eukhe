@@ -419,9 +419,8 @@ fn a_detached_bash_completion_wakes_the_idle_session_across_a_supervisor_restart
         }),
     );
     assert_eq!(started["success"], true, "first turn failed: {started}");
-    let session_file = agent_dir
-        .join("sessions")
-        .join(format!("{session_id}.jsonl"));
+    // The session's durable storage (`<sessions>/<id>/`).
+    let session_file = agent_dir.join("sessions").join(&session_id);
     assert!(
         supervisor
             .child
@@ -460,9 +459,8 @@ fn a_detached_bash_completion_wakes_the_idle_session_across_a_supervisor_restart
         "the bash-done notice never landed: {messages}"
     );
     // The durable row: the async-bash-completion custom entry persisted.
-    let file = std::fs::read_to_string(&session_file).expect("session file");
     assert!(
-        file.contains("async_bash_completion"),
+        session_rows_containing(&session_file, "async_bash_completion") > 0,
         "the async_bash_completion row never persisted"
     );
 
@@ -527,9 +525,7 @@ fn a_heartbeat_keeps_firing_across_a_supervisor_restart() {
         .as_str()
         .expect("session id")
         .to_string();
-    let session_file = agent_dir
-        .join("sessions")
-        .join(format!("{session_id}.jsonl"));
+    let session_file = agent_dir.join("sessions").join(&session_id);
     let heartbeat = client.request(
         "hb",
         &json!({
@@ -659,9 +655,7 @@ fn a_boot_fires_the_adopted_worker_due_job_and_never_resurrects_the_killed_sibli
     }
     let (wake_active, wake_session) = created_ids[0].clone();
     let (dead_active, dead_session) = created_ids[1].clone();
-    let wake_file = agent_dir
-        .join("sessions")
-        .join(format!("{wake_session}.jsonl"));
+    let wake_file = agent_dir.join("sessions").join(&wake_session);
 
     // The wake lane carries the due heartbeat; the dead lane is wire-
     // killed (its jobs cancel and its file archives — the stop gates).
@@ -733,8 +727,29 @@ fn a_boot_fires_the_adopted_worker_due_job_and_never_resurrects_the_killed_sibli
     );
 }
 
-fn session_rows_containing(session_file: &Path, needle: &str) -> usize {
-    std::fs::read_to_string(session_file).map_or(0, |content| {
-        content.lines().filter(|line| line.contains(needle)).count()
-    })
+/// The main-conversation entries of a durable session storage whose JSON
+/// carries `needle`, read through the read-only view a live worker
+/// tolerates (sessions are `<sessions>/<id>/` storages; the old test
+/// counted the lines of a `<id>.jsonl` file). A storage not written yet
+/// counts nothing.
+fn session_rows_containing(storage: &Path, needle: &str) -> usize {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("reader runtime");
+    let location = eukhe_core::durable::SessionLocation::Durable(storage.to_path_buf());
+    runtime
+        .block_on(eukhe_core::durable::read_main_transcript(
+            &location,
+            &eukhe_chord::context::BACKGROUND_CONTEXT,
+        ))
+        .map_or(0, |transcript| {
+            transcript
+                .entries
+                .iter()
+                .filter(|entry| {
+                    serde_json::to_string(entry).is_ok_and(|json| json.contains(needle))
+                })
+                .count()
+        })
 }

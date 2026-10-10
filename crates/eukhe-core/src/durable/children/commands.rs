@@ -56,11 +56,26 @@ pub async fn delete_inactive_child(
 pub struct RlmChildRecord {
     /// The roster row (no live host overlay).
     pub entry: RlmSubagentEntry,
+    /// The raw run status (TS `RlmChildRunStatus`, the `get_rlm_children`
+    /// snapshot's): `queued` | `running` | `done` | `error` | `cancelled`,
+    /// where the roster row's status reads `completed` for `done`.
+    pub run_status: &'static str,
     /// The child's resolved `provider/id` model, once spawned.
     pub model: Option<String>,
     /// The child task ended: its run settled and any owed report was
     /// submitted.
     pub settled: bool,
+}
+
+impl RlmChildRecord {
+    fn of(row: &ChildRow, now: f64) -> Self {
+        Self {
+            entry: entry(row, None, now),
+            run_status: row.status.collect_status(),
+            model: row.model.clone(),
+            settled: row.settled,
+        }
+    }
 }
 
 /// The live children of `conversation_id`, in spawn order.
@@ -79,11 +94,7 @@ pub async fn list_children(
         .children
         .values()
         .filter(|row| !row.is_deleted())
-        .map(|row| RlmChildRecord {
-            entry: entry(row, None, now),
-            model: row.model.clone(),
-            settled: row.settled,
-        })
+        .map(|row| RlmChildRecord::of(row, now))
         .collect())
 }
 
@@ -102,11 +113,7 @@ pub async fn find_child(
         .await
         .map_err(session_error)?;
     let row = live_row(&state, target)?;
-    Ok(row.map(|row| RlmChildRecord {
-        entry: entry(row, None, now_ms()),
-        model: row.model.clone(),
-        settled: row.settled,
-    }))
+    Ok(row.map(|row| RlmChildRecord::of(row, now_ms())))
 }
 
 /// The live row `target` selects (TS selector errors on ambiguity).

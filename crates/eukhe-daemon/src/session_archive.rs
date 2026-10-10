@@ -2,12 +2,15 @@
 //! directory (roadmap: the directory must not grow forever).
 //!
 //! Sessions the sweep retires MOVE (never delete) to
-//! `<agent-dir>/sessions-archive`, mirroring the sessions-dir layout one file
-//! per `<uuid>.jsonl`. Two independent rules (settings `sessionArchive*`,
-//! defaults 30 days / 200 sessions; each can be off):
+//! `<agent-dir>/sessions-archive`, mirroring the sessions-dir layout: a
+//! durable storage `<id>/` (with the legacy `<id>.jsonl` it was imported
+//! from, when still beside it) or a legacy `<id>.jsonl` never imported.
+//! Two independent rules (settings `sessionArchive*`, defaults 30 days /
+//! 200 sessions; each can be off):
 //!
-//! - age: a session untouched for `maxAgeDays` days (file mtime) archives;
-//! - count: beyond `maxSessions` files, the oldest by mtime archive.
+//! - age: a session untouched for `maxAgeDays` days (file mtime; a
+//!   storage's newest file) archives;
+//! - count: beyond `maxSessions` sessions, the oldest by mtime archive.
 //!
 //! Protected sessions (resident workers, sessions with active scheduled
 //! jobs) are never archived; the count rule counts them toward the cap but
@@ -30,7 +33,7 @@ use anyhow::{anyhow, Context, Result};
 use eukhe_core::settings::SessionArchivePolicy;
 
 use crate::lease::canonical_session_path;
-use crate::session_store::session_file_name;
+use crate::session_store::{is_durable_storage, session_file_name, storage_modified};
 
 /// Archive directory name under the agent dir.
 pub const ARCHIVE_DIR_NAME: &str = "sessions-archive";
@@ -118,14 +121,14 @@ pub fn sweep_sessions(
         .with_context(|| format!("create archive dir {}", archive_dir.display()))?;
     let mut archived = Vec::new();
     for candidate in doomed {
-        let destination = archive_dir.join(session_file_name(&candidate.session_id));
-        if destination.exists() {
-            // A same-id file already archived: leave the live file alone
+        let moves = session_moves(&candidate.path, &candidate.session_id, archive_dir);
+        if moves.iter().any(|(_, destination)| destination.exists()) {
+            // A same-id session already archived: leave the live one alone
             // rather than clobber history; the id is not a duplicate in
             // practice, so this only guards a corrupted archive.
             continue;
         }
-        match move_file(&candidate.path, &destination) {
+        match move_all(&moves) {
             Ok(()) => archived.push(candidate.session_id.clone()),
             Err(error) => {
                 // A failed move leaves the session in place; the sweep
@@ -140,22 +143,62 @@ pub fn sweep_sessions(
     Ok(archived)
 }
 
+/// The moves that carry one session from its directory into `target_dir`:
+/// a durable storage `<id>/` with the legacy `<id>.jsonl` it was imported
+/// from (when that file is still beside it), or a legacy file alone.
+fn session_moves(path: &Path, session_id: &str, target_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
+    let Some(parent) = path.parent() else {
+        return Vec::new();
+    };
+    let storage = parent.join(session_id);
+    let legacy = parent.join(session_file_name(session_id));
+    let mut moves = Vec::with_capacity(2);
+    if is_durable_storage(&storage) {
+        moves.push((storage, target_dir.join(session_id)));
+        if legacy.is_file() {
+            moves.push((legacy, target_dir.join(session_file_name(session_id))));
+        }
+    } else {
+        moves.push((
+            path.to_path_buf(),
+            target_dir.join(session_file_name(session_id)),
+        ));
+    }
+    moves
+}
+
+/// Run every move of one session; the storage goes first, so a failure
+/// leaves at most the imported legacy file behind (the storage is the
+/// session).
+fn move_all(moves: &[(PathBuf, PathBuf)]) -> Result<()> {
+    for (source, destination) in moves {
+        move_path(source, destination)?;
+    }
+    Ok(())
+}
+
 /// Restore an archived session into the sessions directory (the resume
-/// path): returns the restored file path.
+/// path): returns the restored session path (the storage directory, or
+/// the legacy file of a session never imported).
 pub fn restore_session(
     archive_dir: &Path,
     sessions_dir: &Path,
     session_id: &str,
 ) -> Result<PathBuf> {
-    let source = archive_dir.join(session_file_name(session_id));
-    if !source.is_file() {
+    let storage = archive_dir.join(session_id);
+    let legacy = archive_dir.join(session_file_name(session_id));
+    let source = if is_durable_storage(&storage) {
+        storage
+    } else if legacy.is_file() {
+        legacy
+    } else {
         return Err(anyhow!(
             "archived session \"{session_id}\" not found in {}",
             archive_dir.display()
         ));
-    }
-    let destination = sessions_dir.join(session_file_name(session_id));
-    if destination.exists() {
+    };
+    let moves = session_moves(&source, session_id, sessions_dir);
+    if moves.iter().any(|(_, destination)| destination.exists()) {
         return Err(anyhow!(
             "session \"{session_id}\" already exists in {}",
             sessions_dir.display()
@@ -163,24 +206,50 @@ pub fn restore_session(
     }
     fs::create_dir_all(sessions_dir)
         .with_context(|| format!("create sessions dir {}", sessions_dir.display()))?;
-    move_file(&source, &destination)?;
-    Ok(destination)
+    move_all(&moves)?;
+    Ok(moves.into_iter().next().map_or_else(
+        || sessions_dir.join(session_id),
+        |(_, destination)| destination,
+    ))
 }
 
-/// Rename with a copy+delete fallback (rename fails across filesystems).
-fn move_file(source: &Path, destination: &Path) -> Result<()> {
-    if let Ok(()) = fs::rename(source, destination) {
-        Ok(())
+/// Rename with a copy+delete fallback (rename fails across filesystems);
+/// a directory copies recursively.
+fn move_path(source: &Path, destination: &Path) -> Result<()> {
+    if fs::rename(source, destination).is_ok() {
+        return Ok(());
+    }
+    if source.is_dir() {
+        copy_dir(source, destination)?;
+        fs::remove_dir_all(source).with_context(|| format!("remove {}", source.display()))?;
     } else {
         fs::copy(source, destination)
             .with_context(|| format!("copy {} -> {}", source.display(), destination.display()))?;
         fs::remove_file(source).with_context(|| format!("remove {}", source.display()))?;
-        Ok(())
     }
+    Ok(())
 }
 
-/// One candidate per valid session file directly under the sessions dir
-/// (the archive layout never nests; subdirectories are not sessions).
+fn copy_dir(source: &Path, destination: &Path) -> Result<()> {
+    fs::create_dir_all(destination).with_context(|| format!("create {}", destination.display()))?;
+    for entry in fs::read_dir(source).with_context(|| format!("read {}", source.display()))? {
+        let entry = entry.with_context(|| format!("read {}", source.display()))?;
+        let from = entry.path();
+        let to = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&from, &to)?;
+        } else {
+            fs::copy(&from, &to)
+                .with_context(|| format!("copy {} -> {}", from.display(), to.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// One candidate per session directly under the sessions dir (the archive
+/// layout never nests): every durable storage `<id>/` (recency: its newest
+/// file) and every legacy file with a valid first-line `session` header
+/// whose storage does not exist yet.
 fn collect_candidates(
     sessions_dir: &Path,
     protected: &HashSet<PathBuf>,
@@ -191,22 +260,43 @@ fn collect_candidates(
     let mut candidates = Vec::new();
     for entry in read.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let Some(modified) = fs::metadata(&path).and_then(|m| m.modified()).ok() else {
+        let Ok(file_type) = entry.file_type() else {
             continue;
         };
-        // A session file is a valid first-line `session` header with an id.
-        let Some(header) = crate::session_store::read_session_header(&path) else {
-            continue;
+        let candidate = if file_type.is_dir() {
+            if entry.file_name().to_string_lossy().starts_with('.') || !is_durable_storage(&path) {
+                continue;
+            }
+            let Some(modified) = storage_modified(&path) else {
+                continue;
+            };
+            SweepCandidate {
+                protected: protected.contains(&canonical_session_path(&path)),
+                session_id: entry.file_name().to_string_lossy().into_owned(),
+                path,
+                modified,
+            }
+        } else {
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl")
+                || is_durable_storage(&path.with_extension(""))
+            {
+                continue;
+            }
+            let Some(modified) = fs::metadata(&path).and_then(|m| m.modified()).ok() else {
+                continue;
+            };
+            // A session file is a valid first-line `session` header with an id.
+            let Some(header) = crate::session_store::read_session_header(&path) else {
+                continue;
+            };
+            SweepCandidate {
+                protected: protected.contains(&canonical_session_path(&path)),
+                session_id: header.id,
+                path,
+                modified,
+            }
         };
-        candidates.push(SweepCandidate {
-            protected: protected.contains(&canonical_session_path(&path)),
-            session_id: header.id,
-            path,
-            modified,
-        });
+        candidates.push(candidate);
     }
     Ok(candidates)
 }
@@ -456,6 +546,47 @@ mod tests {
         assert!(restore_session(&archive, &sessions, id).is_err());
         // A missing id is a typed miss.
         assert!(restore_session(&archive, &sessions, "missing").is_err());
+    }
+
+    #[test]
+    fn a_durable_storage_archives_with_its_imported_file_and_restores() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let sessions = dir.path().join("sessions");
+        let archive = dir.path().join("archive");
+        let id = "55555555-5555-5555-5555-555555555555";
+        // A durable storage plus the legacy file it was imported from.
+        let storage = sessions.join(id);
+        fs::create_dir_all(&storage).expect("storage dir");
+        fs::write(storage.join("main.jsonl"), "{}\n").expect("commit log");
+        let legacy = write_session(&sessions, id);
+        set_mtime_days_ago(&storage.join("main.jsonl"), 40);
+        // The imported file is the storage's: one candidate, the storage.
+        let doomed = sweep_sessions(
+            &sessions,
+            &archive,
+            &HashSet::new(),
+            &policy(Some(30), None),
+            SystemTime::now(),
+        )
+        .expect("sweep");
+        assert_eq!(doomed, vec![id]);
+        assert!(
+            archive.join(id).join("main.jsonl").is_file(),
+            "storage archived"
+        );
+        assert!(
+            archive.join(session_file_name(id)).is_file(),
+            "import source archived"
+        );
+        assert!(
+            !storage.exists() && !legacy.exists(),
+            "both left the sessions dir"
+        );
+
+        let restored = restore_session(&archive, &sessions, id).expect("restore");
+        assert_eq!(restored, storage);
+        assert!(storage.join("main.jsonl").is_file() && legacy.is_file());
+        assert!(!archive.join(id).exists(), "left the archive");
     }
 
     /// A minimal valid session file: the `session` header line carries the

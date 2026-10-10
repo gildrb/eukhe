@@ -240,6 +240,12 @@ fn wait_until<T>(deadline: Duration, mut probe: impl FnMut() -> Option<T>) -> T 
     }
 }
 
+/// A durable session's storage directory: it holds the store's
+/// `main.jsonl` commit log.
+fn is_durable_storage(path: &Path) -> bool {
+    path.join("main.jsonl").is_file()
+}
+
 fn spawn_request(name: &str, prompt: &str) -> RlmSpawnRequest {
     RlmSpawnRequest {
         prompt: prompt.to_string(),
@@ -285,20 +291,17 @@ async fn rlm_children_spawn_roster_collect_delete_end_to_end() {
     assert_eq!(handle.session_dir, expected_dir.to_string_lossy());
     // TS child-session layout: the child persists inside its per-child
     // directory under the parent's session-artifacts tree, alongside the
-    // per-child display file the passive roster reads for hydration.
-    let child_files: Vec<std::fs::DirEntry> = std::fs::read_dir(&expected_dir)
+    // per-child display file the passive roster reads for hydration. On
+    // the durable harness the session is its storage directory
+    // (`<child-dir>/<session-id>/`, holding the store's `main.jsonl`)
+    // instead of one `<session-id>.jsonl` file.
+    let child_sessions: Vec<PathBuf> = std::fs::read_dir(&expected_dir)
         .expect("child session dir")
         .filter_map(std::result::Result::ok)
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|extension| extension.to_str())
-                == Some("jsonl")
-        })
+        .map(|entry| entry.path())
+        .filter(|path| is_durable_storage(path))
         .collect();
-    assert_eq!(child_files.len(), 1, "one session file in the child dir");
-    assert!(child_files[0].path().to_string_lossy().ends_with(".jsonl"));
+    assert_eq!(child_sessions.len(), 1, "one session in the child dir");
     let display: Value = serde_json::from_str(
         &std::fs::read_to_string(expected_dir.join("rlm-subagent.json")).expect("display file"),
     )
@@ -311,19 +314,10 @@ async fn rlm_children_spawn_roster_collect_delete_end_to_end() {
         display["model"],
         json!({ "provider": "scripted", "modelId": "faux-1" })
     );
-    // The child session header records the recursion identity (TS parity:
-    // parentSession + rlmDepth on child sessions).
-    let header: Value = {
-        let content =
-            std::fs::read_to_string(child_files[0].path()).expect("read child session file");
-        let first = content.lines().next().expect("header line");
-        serde_json::from_str(first).expect("parse header")
-    };
     assert_eq!(
-        header["parentSession"],
-        agent_dir.join("parent.jsonl").to_string_lossy().to_string()
+        display["sessionFile"],
+        child_sessions[0].to_string_lossy().to_string()
     );
-    assert_eq!(header["rlmDepth"], 1);
 
     // The supervisor roster shows the child as a depth-1 subagent session.
     let roster_summary = wait_until(Duration::from_secs(10), || {
@@ -338,6 +332,17 @@ async fn rlm_children_spawn_roster_collect_delete_end_to_end() {
     });
     assert_eq!(roster_summary["rlmDepth"], 1);
     assert_eq!(roster_summary["sessionName"], "worker-a");
+    // The child records the recursion identity (TS parity: parentSession
+    // + rlmDepth on child sessions; the durable storage has no header
+    // line, so the child's summary carries them).
+    assert_eq!(
+        roster_summary["parentSessionPath"],
+        agent_dir.join("parent.jsonl").to_string_lossy().to_string()
+    );
+    assert_eq!(
+        roster_summary["sessionFile"],
+        child_sessions[0].to_string_lossy().to_string()
+    );
 
     // The parent roster settles with the child's answer preview.
     let entries = {
@@ -506,10 +511,12 @@ async fn rlm_create_session_spawns_a_prompted_depth_zero_session() {
         .await
         .expect("create session");
     assert_eq!(handle.name, "root-b");
-    assert!(Path::new(&handle.session_file)
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("jsonl")));
-    assert!(Path::new(&handle.session_file).exists());
+    // The durable session is its storage directory (`<sessions>/<id>/`,
+    // holding the store's `main.jsonl`), not a `<id>.jsonl` file.
+    assert!(
+        is_durable_storage(Path::new(&handle.session_file)),
+        "{handle:?}"
+    );
     assert_eq!(handle.model, "scripted/faux-1");
 
     // A depth-0 resident session, not a subagent roster row.

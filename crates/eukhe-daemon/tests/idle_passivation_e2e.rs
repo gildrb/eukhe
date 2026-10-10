@@ -451,38 +451,57 @@ async fn a_settled_child_passivates_stays_listable_and_revives_by_agent_message(
     .await
     .expect("the send must wake the passivated child and deliver");
     // The send woke a fresh worker for the child's session (a new pid
-    // serves the replayed file); the delivery's receipt arrives before
+    // serves the replayed session); the delivery's receipt arrives before
     // the delivered turn writes its rows, so the wake's proof is the
-    // message's row itself landing in the child's session file (the
-    // revived worker serves the SAME file — its fresh routing id
-    // differs, so only a woken worker writes it).
+    // message itself landing in the child's durable storage (the revived
+    // worker serves the SAME storage — its fresh routing id differs, so
+    // only a woken worker writes it). The durable child session is its
+    // storage directory (`<child-dir>/<session-id>/`).
     let deadline = Instant::now() + Duration::from_secs(15);
-    let child_file = {
+    let child_storage = {
         let roster = children
             .list_subagents()
             .await
-            .expect("roster for the file after");
+            .expect("roster for the storage after");
         let row = roster
             .iter()
             .find(|row| row.active_session_id.as_deref() == Some(child_active_session_id.as_str()))
             .expect("the child row after");
-        std::path::Path::new(&row.session_dir).join(format!(
-            "{}.jsonl",
-            row.session_id.clone().expect("the child's session id")
-        ))
+        std::path::Path::new(&row.session_dir)
+            .join(row.session_id.clone().expect("the child's session id"))
     };
     loop {
-        let grown = std::fs::read_to_string(&child_file).unwrap_or_default();
+        let grown = storage_text(&child_storage);
         if grown.contains(revive_prompt) {
             break;
         }
         assert!(
             Instant::now() < deadline,
-            "the send never delivered the message into the child's session file ({child_file:?}, tail: {:?}, receipt: {revived:?})",
-            grown.lines().rev().take(3).collect::<Vec<_>>().join(" | ")
+            "the send never delivered the message into the child's session ({child_storage:?}, receipt: {revived:?})"
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// A durable session's stored text: every file of its storage directory
+/// (the store's commit log and its document/entry sidecars), concatenated.
+fn storage_text(dir: &Path) -> String {
+    let mut text = String::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(content) = std::fs::read_to_string(&path) {
+                text.push_str(&content);
+            }
+        }
+    }
+    text
 }
 
 /// The root active ids of the persisted worker descriptors (the
@@ -648,8 +667,9 @@ async fn a_parent_rename_after_a_revival_and_second_passivation_reaches_the_chil
             row.session_dir,
         )
     };
-    let child_file =
-        std::path::Path::new(&child_session_dir).join(format!("{child_session_id}.jsonl"));
+    // The durable child session is its storage directory
+    // (`<child-dir>/<session-id>/`).
+    let child_storage = std::path::Path::new(&child_session_dir).join(&child_session_id);
 
     // THE FIRST PASSIVATION (same ask as the settled-child test).
     let child_token =
@@ -750,26 +770,13 @@ async fn a_parent_rename_after_a_revival_and_second_passivation_reaches_the_chil
     });
     assert_eq!(applied, "renamed-lane");
 
-    // The durable oracle: the child's session file carries the new name's
-    // `session_info` row (only a woken worker writes it), and the
+    // The durable oracle: the child's session carries the new name (its
+    // session document's `name`, written only by a woken worker), and the
     // parent's registry row follows the applied name.
-    let entries = std::fs::read_to_string(&child_file).unwrap_or_default();
-    let named = entries
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .any(|entry| {
-            entry.get("type").and_then(Value::as_str) == Some("session_info")
-                && entry.get("name").and_then(Value::as_str) == Some("renamed-lane")
-        });
+    let entries = storage_text(&child_storage);
     assert!(
-        named,
-        "the woken child must carry the renamed session_info row (tail: {:?})",
-        entries
-            .lines()
-            .rev()
-            .take(3)
-            .collect::<Vec<_>>()
-            .join(" | ")
+        entries.contains("\"renamed-lane\""),
+        "the woken child must carry the renamed session name ({child_storage:?})"
     );
     let row = children
         .list_subagents()

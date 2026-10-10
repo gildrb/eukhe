@@ -138,13 +138,18 @@ async fn the_refused_open_renders_both_ways_out_as_the_notice_panel() {
     // The foreign holder: this test process takes the runtime lease, the
     // role the other product's daemon worker plays on the shared session
     // store (the same recipe as the print-mode guard's foreign-holder
-    // test). The lease-enable env is consumed at the acquire itself.
+    // test). A durable worker leases the session's storage directory (the
+    // legacy file's import target, `<sessions>/held-session/`), so that is
+    // the lease the holder takes. The lease-enable env is consumed at the
+    // acquire itself.
     std::env::set_var(eukhe_daemon::lease::SESSION_LEASES_ENABLED_ENV, "1");
     std::env::set_var(
         eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV,
         "foreign01ab3c",
     );
-    let holder = eukhe_daemon::lease::acquire_session_lease(Some(&session_path), &agent_dir)
+    let storage =
+        eukhe_core::durable::SessionLocation::from_path(session_path.clone()).storage_dir();
+    let holder = eukhe_daemon::lease::acquire_session_lease(Some(&storage), &agent_dir)
         .expect("lease acquire probe")
         .expect("the lease must be held");
     std::env::remove_var(eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV);

@@ -30,6 +30,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "../support/durable_store.rs"]
+mod durable_store;
+
 /// The child plus the tempdir it runs in: the tempdir must outlive the
 /// child process (its cwd), so it is held on the struct.
 struct AcpChild {

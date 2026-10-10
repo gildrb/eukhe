@@ -31,6 +31,11 @@ use std::time::{Duration, Instant};
 
 use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, AgentsViewUiMode};
 
+#[path = "support/durable_store.rs"]
+mod durable_store;
+
+use durable_store::{legacy_storage, try_read_transcript};
+
 struct Supervisor {
     child: Child,
     #[allow(dead_code)]
@@ -387,7 +392,8 @@ async fn reply_to_live_session_delivers_the_prompt() {
 /// The reply composer against a SAVED row: the space arm shows the
 /// resume placeholder, Enter resumes the fixture into a live session
 /// (`create` with the session path) and delivers the reply, and the
-/// fixture file on disk gains the reply's user message.
+/// fixture's durable storage (imported on that open) gains the reply's
+/// user message.
 #[tokio::test]
 async fn reply_to_saved_session_resumes_and_sends() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -435,20 +441,24 @@ async fn reply_to_saved_session_resumes_and_sends() {
         rendered.contains("Reply sent"),
         "the resume's status rendered:\n{rendered}"
     );
-    // The fixture file carries the reply: the resumed session appended
-    // the user message to the SAME durable file (the turn persists
-    // behind the send's ack — poll until it lands).
-    let mut content = String::new();
+    // The fixture's session carries the reply: its first open imported the
+    // legacy file into its durable storage (`<sessions>/resume-01/`), and
+    // the resumed session appended the user message there (the turn
+    // persists behind the send's ack — poll until it lands).
+    let storage = legacy_storage(&fixture);
+    let mut texts = Vec::new();
     let reply_persisted = (0..50).any(|attempt| {
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(200));
         }
-        content = std::fs::read_to_string(&fixture).unwrap_or_default();
-        content.contains("resume me")
+        texts = try_read_transcript(&storage)
+            .map(|transcript| transcript.message_texts())
+            .unwrap_or_default();
+        texts.iter().any(|text| text == "resume me")
     });
     assert!(
         reply_persisted,
-        "the resumed session's file holds the reply:\n{content}"
+        "the resumed session's storage holds the reply: {texts:?}"
     );
     // The resumed session is live on the daemon.
     let list = ask(&supervisor.socket, &serde_json::json!({ "type": "list" }))
@@ -462,10 +472,10 @@ async fn reply_to_saved_session_resumes_and_sends() {
         session
             .get("sessionFile")
             .and_then(serde_json::Value::as_str)
-            == Some(fixture.to_string_lossy().as_ref())
+            == Some(storage.to_string_lossy().as_ref())
     });
     assert!(
         live_for_fixture,
-        "the fixture resumed into a live session (list: {list:?})"
+        "the fixture resumed into a live session on its storage (list: {list:?})"
     );
 }

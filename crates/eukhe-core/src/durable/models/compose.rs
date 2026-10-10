@@ -37,7 +37,57 @@ fn models_json_error(error: String, path: &Path) -> ModelsError {
 
 /// The built-in providers with `models_json` composed over them, plus the
 /// custom providers it defines. A missing file leaves the built-ins as is.
+/// Every provider's models then follow eukhe's thinking capability rule
+/// ([`with_map_addressed_reasoning`]).
 pub(super) fn compose_providers(
+    builtins: Vec<Provider>,
+    models_json: &Path,
+) -> Result<Vec<Provider>, ModelsError> {
+    compose_layers(builtins, models_json).map(|providers| {
+        providers
+            .into_iter()
+            .map(with_map_addressed_reasoning)
+            .collect()
+    })
+}
+
+/// eukhe's thinking capability rule (#2858, `eukhe_types::ai::supports_thinking`):
+/// a model whose thinking-level map addresses a level (maps it to a wire
+/// value) can think even when its coarse `reasoning` flag is false (the
+/// catalog ships `gpt-5.3-chat-latest` as `reasoning: false` with an
+/// addressable `xhigh`). pi-ai reads only the flag, so the provider's models
+/// carry the flag set: the supported levels, the clamp, and the request
+/// reasoning controls then follow the map.
+fn with_map_addressed_reasoning(mut provider: Provider) -> Provider {
+    fn normalize(mut model: Model) -> Model {
+        model.reasoning = model.reasoning
+            || model
+                .thinking_level_map
+                .as_ref()
+                .is_some_and(|map| map.values().any(Option::is_some));
+        model
+    }
+    let get_models = Arc::clone(&provider.get_models);
+    provider.get_models =
+        Arc::new(move || get_models().map(|models| models.into_iter().map(normalize).collect()));
+    if let Some(get_all_models) = provider.get_all_models.take() {
+        provider.get_all_models = Some(Arc::new(move || {
+            get_all_models().map(|models| {
+                models
+                    .into_iter()
+                    .map(|model| match model {
+                        AnyModel::Chat(model) => AnyModel::Chat(normalize(model)),
+                        AnyModel::Image(_) | AnyModel::Classifier(_) => model,
+                    })
+                    .collect()
+            })
+        }));
+    }
+    provider
+}
+
+/// [`compose_providers`] before the capability rule.
+fn compose_layers(
     builtins: Vec<Provider>,
     models_json: &Path,
 ) -> Result<Vec<Provider>, ModelsError> {

@@ -23,7 +23,17 @@ const IPYTHON_TOOL_NAME: &str = "ipython";
 pub struct WireMappingState {
     next_assistant_message_sequence: u64,
     active_assistant_message_id: Option<String>,
+    /// The active assistant message's text and thinking already published
+    /// as chunks, each concatenated across its blocks.
+    published: PublishedChunks,
     active_bash_run_id: Option<String>,
+}
+
+/// What one assistant message has published so far.
+#[derive(Debug, Default)]
+struct PublishedChunks {
+    text: String,
+    thinking: String,
 }
 
 impl WireMappingState {
@@ -31,6 +41,7 @@ impl WireMappingState {
         self.next_assistant_message_sequence += 1;
         let id = format!("eukhe-assistant-{}", self.next_assistant_message_sequence);
         self.active_assistant_message_id = Some(id.clone());
+        self.published = PublishedChunks::default();
         id
     }
 
@@ -39,6 +50,73 @@ impl WireMappingState {
             .clone()
             .unwrap_or_else(|| self.start_assistant_message())
     }
+
+    /// The chunks for the text and thinking `message` carries beyond what
+    /// its deltas published, in content-block order. The durable Harness
+    /// commits the in-flight partial at most every 100 ms, so a fast
+    /// answer can arrive whole on its `message_start`/`message_end` with no
+    /// delta at all; the client still sees every word exactly once. A
+    /// message whose published run is not a prefix of its content (a
+    /// replaced partial) publishes nothing more.
+    fn unpublished_chunks(&mut self, message: &Value) -> Vec<AcpSessionUpdate> {
+        let Some(blocks) = message.get("content").and_then(Value::as_array) else {
+            return Vec::new();
+        };
+        let mut text = String::new();
+        let mut thinking = String::new();
+        let mut pieces = Vec::new();
+        for block in blocks {
+            let (run, published, is_text) = match block.get("type").and_then(Value::as_str) {
+                Some("text") => (&mut text, self.published.text.len(), true),
+                Some("thinking") => (&mut thinking, self.published.thinking.len(), false),
+                _ => continue,
+            };
+            let field = if is_text { "text" } else { "thinking" };
+            let Some(content) = block.get(field).and_then(Value::as_str) else {
+                continue;
+            };
+            let start = published.max(run.len());
+            run.push_str(content);
+            if run.len() > start && run.is_char_boundary(start) {
+                pieces.push((is_text, run[start..].to_owned()));
+            }
+        }
+        if pieces.is_empty()
+            || !text.starts_with(self.published.text.as_str())
+            || !thinking.starts_with(self.published.thinking.as_str())
+        {
+            return Vec::new();
+        }
+        self.published = PublishedChunks { text, thinking };
+        let message_id = self.message_started();
+        pieces
+            .into_iter()
+            .map(|(is_text, delta)| {
+                let message_id = message_id.clone();
+                let content = TextBlock::new(delta);
+                if is_text {
+                    AcpSessionUpdate::AgentMessageChunk {
+                        message_id,
+                        content,
+                    }
+                } else {
+                    AcpSessionUpdate::AgentThoughtChunk {
+                        message_id,
+                        content,
+                    }
+                }
+            })
+            .collect()
+    }
+}
+
+/// Whether `event` carries an assistant message.
+fn is_assistant(event: &Value) -> bool {
+    event
+        .get("message")
+        .and_then(|message| message.get("role"))
+        .and_then(Value::as_str)
+        == Some("assistant")
 }
 
 /// The assistant stop reason carried by one `message_end` event: the
@@ -73,23 +151,17 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
         .unwrap_or_default();
     match event_type {
         "message_start" => {
-            if event
-                .get("message")
-                .and_then(|message| message.get("role"))
-                .and_then(Value::as_str)
-                == Some("assistant")
-            {
-                state.start_assistant_message();
+            if !is_assistant(event) {
+                return Vec::new();
             }
-            Vec::new()
+            state.start_assistant_message();
+            event
+                .get("message")
+                .map(|message| state.unpublished_chunks(message))
+                .unwrap_or_default()
         }
         "message_update" => {
-            let message = event.get("message");
-            if message
-                .and_then(|message| message.get("role"))
-                .and_then(Value::as_str)
-                != Some("assistant")
-            {
+            if !is_assistant(event) {
                 return Vec::new();
             }
             let stream = event.get("assistantMessageEvent");
@@ -98,34 +170,45 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             if delta.is_empty() {
-                return Vec::new();
+                // A delta-less update (a block end, a replaced message) may
+                // still carry text no delta published.
+                return event
+                    .get("message")
+                    .map(|message| state.unpublished_chunks(message))
+                    .unwrap_or_default();
             }
             let message_id = state.message_started();
             match stream
                 .and_then(|stream| stream.get("type"))
                 .and_then(Value::as_str)
             {
-                Some("thinking_delta") => vec![AcpSessionUpdate::AgentThoughtChunk {
-                    message_id,
-                    content: TextBlock::new(delta),
-                }],
-                Some("text_delta") => vec![AcpSessionUpdate::AgentMessageChunk {
-                    message_id,
-                    content: TextBlock::new(delta),
-                }],
+                Some("thinking_delta") => {
+                    state.published.thinking.push_str(delta);
+                    vec![AcpSessionUpdate::AgentThoughtChunk {
+                        message_id,
+                        content: TextBlock::new(delta),
+                    }]
+                }
+                Some("text_delta") => {
+                    state.published.text.push_str(delta);
+                    vec![AcpSessionUpdate::AgentMessageChunk {
+                        message_id,
+                        content: TextBlock::new(delta),
+                    }]
+                }
                 _ => Vec::new(),
             }
         }
         "message_end" => {
-            if event
-                .get("message")
-                .and_then(|message| message.get("role"))
-                .and_then(Value::as_str)
-                == Some("assistant")
-            {
-                state.active_assistant_message_id = None;
+            if !is_assistant(event) {
+                return Vec::new();
             }
-            Vec::new()
+            let chunks = event
+                .get("message")
+                .map(|message| state.unpublished_chunks(message))
+                .unwrap_or_default();
+            state.active_assistant_message_id = None;
+            chunks
         }
         "tool_execution_start" => {
             let tool_call_id = event
@@ -534,6 +617,72 @@ mod tests {
             serde_json::to_value(&updates[0]).unwrap()["sessionUpdate"],
             "agent_message_chunk"
         );
+    }
+
+    /// The durable Harness throttles partial commits, so an answer may
+    /// arrive whole on `message_start`/`message_end`: the text no delta
+    /// published goes out as chunks, once, in block order.
+    #[test]
+    fn unstreamed_assistant_text_maps_to_chunks_once() {
+        let mut state = WireMappingState::default();
+        let chunk = |update: &AcpSessionUpdate| {
+            let value = serde_json::to_value(update).unwrap();
+            (
+                value["sessionUpdate"].as_str().unwrap().to_owned(),
+                value["content"]["text"].as_str().unwrap().to_owned(),
+                value["messageId"].as_str().unwrap().to_owned(),
+            )
+        };
+        let message = |thinking: &str, text: &str| {
+            json!({
+                "role": "assistant",
+                "content": [
+                    { "type": "thinking", "thinking": thinking },
+                    { "type": "text", "text": text },
+                ],
+            })
+        };
+        let owned =
+            |kind: &str, text: &str, id: &str| (kind.to_owned(), text.to_owned(), id.to_owned());
+        let start = wire_updates(
+            &json!({ "type": "message_start", "message": message("pl", "AC") }),
+            &mut state,
+        );
+        assert_eq!(
+            start.iter().map(chunk).collect::<Vec<_>>(),
+            [
+                owned("agent_thought_chunk", "pl", "eukhe-assistant-1"),
+                owned("agent_message_chunk", "AC", "eukhe-assistant-1"),
+            ]
+        );
+        let update = wire_updates(
+            &json!({
+                "type": "message_update",
+                "message": message("pl", "ACP"),
+                "assistantMessageEvent": { "type": "text_delta", "delta": "P" },
+            }),
+            &mut state,
+        );
+        assert_eq!(update.len(), 1);
+        let end = wire_updates(
+            &json!({ "type": "message_end", "message": message("pl", "ACP-OK") }),
+            &mut state,
+        );
+        assert_eq!(
+            end.iter().map(chunk).collect::<Vec<_>>(),
+            [owned("agent_message_chunk", "-OK", "eukhe-assistant-1")]
+        );
+        // A fully published message adds nothing and takes no message id.
+        let end = wire_updates(
+            &json!({ "type": "message_end", "message": message("pl", "ACP-OK") }),
+            &mut state,
+        );
+        assert!(end.is_empty());
+        let next = wire_updates(
+            &json!({ "type": "message_start", "message": message("", "B") }),
+            &mut state,
+        );
+        assert_eq!(chunk(&next[0]).2, "eukhe-assistant-2");
     }
 
     #[test]

@@ -11,6 +11,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+// The durable session storage reader the CLI e2e suites share.
+#[path = "../../eukhe-cli/tests/support/durable_store.rs"]
+mod durable_store;
+
 struct Supervisor {
     child: Child,
     #[allow(dead_code)]
@@ -249,21 +253,12 @@ impl Harness {
         self.client.drain_events(Duration::from_secs(1));
     }
 
-    /// The session file's JSONL entries (the only session in the dir).
-    fn session_entries(&self) -> Vec<Value> {
+    /// The session's durable main transcript (the only session in the dir).
+    fn transcript(&self) -> durable_store::Transcript {
         let session_dir = self.dir.path().join("agent").join("sessions");
-        let file = std::fs::read_dir(&session_dir)
-            .expect("session dir readable")
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-            .expect("one session file");
-        std::fs::read_to_string(&file)
-            .expect("session file readable")
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| serde_json::from_str(line).expect("session entry parses"))
-            .collect()
+        let dirs = durable_store::session_dirs(&session_dir);
+        assert_eq!(dirs.len(), 1, "one session storage: {dirs:?}");
+        durable_store::read_transcript(&dirs[0])
     }
 
     /// The wire events of one kind: `message_end` frames carrying the role.
@@ -279,11 +274,18 @@ impl Harness {
             .collect()
     }
 
-    /// The durable `custom_message` entries of one `customType`.
-    fn custom_entries(&self, custom_type: &str) -> Vec<Value> {
-        self.session_entries()
+    /// The texts of the durable `eukhe.custom` rows of one `customType`: a
+    /// model-visible row carries its content as its model message, a
+    /// display-only one in `data.content`.
+    fn custom_texts(&self, custom_type: &str) -> Vec<String> {
+        self.transcript()
+            .of_kind("eukhe.custom")
             .into_iter()
-            .filter(|entry| entry["type"] == "custom_message" && entry["customType"] == custom_type)
+            .filter(|entry| entry["data"]["customType"] == custom_type)
+            .map(|entry| match entry["model"].get(0) {
+                Some(message) => text_of(message),
+                None => text_of(&entry["data"]),
+            })
             .collect()
     }
 }
@@ -303,27 +305,23 @@ fn text_of(message: &Value) -> String {
     }
 }
 
-/// The durable `message` entries of one role, in order.
+/// The durable message entries of one role (`pi.user`, `pi.assistant`), in
+/// order.
 fn durable_messages(harness: &Harness, role: &str) -> Vec<String> {
     harness
-        .session_entries()
+        .transcript()
+        .of_kind(&format!("pi.{role}"))
         .into_iter()
-        .filter(|entry| entry["type"] == "message" && entry["message"]["role"] == role)
-        .map(|entry| text_of(&entry["message"]))
+        .filter_map(|entry| entry["model"].get(0).map(text_of))
         .collect()
 }
 
-/// The durable `custom_message` rows whose content starts with `prefix`.
-fn durable_autonomous_rows(harness: &Harness, prefix: &str) -> Vec<Value> {
+/// The durable `autonomous_status` row texts that start with `prefix`.
+fn durable_autonomous_rows(harness: &Harness, prefix: &str) -> Vec<String> {
     harness
-        .custom_entries("autonomous_status")
+        .custom_texts("autonomous_status")
         .into_iter()
-        .filter(|entry| {
-            entry["content"]
-                .as_str()
-                .unwrap_or_default()
-                .starts_with(prefix)
-        })
+        .filter(|text| text.starts_with(prefix))
         .collect()
 }
 
@@ -389,9 +387,11 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
             .any(|text| text.starts_with("[autonomous-continuation: gate-failed]")),
         "durable user rows: {durable_users:?}"
     );
-    // The in-run ordering (the TS frame order): the continuation's user
-    // row pair is preceded by the continuation turn's `turn_start`, which
-    // follows the settled turn's `turn_end` with no run boundary between.
+    // The in-run ordering, as pi-durable commits it: the `onYield`
+    // continuation's user entry lands in the settled answer's own commit
+    // (`generation/round.rs` `answer`), so its pair follows the answer's
+    // `message_end` and precedes that turn's `turn_end`; the continuation
+    // turn's `turn_start` follows with no run boundary between.
     let continuation_index = harness
         .client
         .events
@@ -402,15 +402,26 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
                 && text_of(&event["message"]).starts_with("[autonomous-continuation: gate-failed]")
         })
         .expect("the continuation's wire pair");
-    let preceding: Vec<&str> = harness.client.events[..continuation_index]
+    let around: Vec<&str> = harness.client.events[continuation_index - 2..=continuation_index + 2]
         .iter()
         .filter_map(|event| event.get("type").and_then(Value::as_str))
         .collect();
     assert_eq!(
-        preceding.iter().rev().take(3).copied().collect::<Vec<_>>(),
-        vec!["message_start", "turn_start", "turn_end"],
-        "turn_end -> turn_start -> the continuation row, events: {:?}",
+        around,
+        vec![
+            "message_end",
+            "message_start",
+            "message_end",
+            "turn_end",
+            "turn_start"
+        ],
+        "the answer -> the continuation row -> turn_end -> turn_start, events: {:?}",
         harness.client.events
+    );
+    assert_eq!(
+        text_of(&harness.client.events[continuation_index - 2]["message"]),
+        "first attempt",
+        "the continuation follows the settled answer"
     );
     assert!(
         durable_autonomous_rows(&harness, "[autonomous-stop:").is_empty(),
@@ -418,14 +429,9 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
     );
     assert!(
         harness
-            .custom_entries("autonomous_status")
-            .into_iter()
-            .all(|entry| {
-                entry["content"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .starts_with("[autonomous-status:")
-            }),
+            .custom_texts("autonomous_status")
+            .iter()
+            .all(|text| text.starts_with("[autonomous-status:")),
         "the only autonomous_status rows are the command's, events: {:?}",
         harness.client.events
     );
@@ -471,14 +477,9 @@ fn autonomous_limit_reached_stops_the_run_without_a_row() {
     );
     assert!(
         harness
-            .custom_entries("autonomous_status")
-            .into_iter()
-            .all(|entry| {
-                entry["content"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .starts_with("[autonomous-status:")
-            }),
+            .custom_texts("autonomous_status")
+            .iter()
+            .all(|text| text.starts_with("[autonomous-status:")),
         "the only autonomous_status rows are the command's, events: {:?}",
         harness.client.events
     );

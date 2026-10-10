@@ -13,10 +13,33 @@ use super::{
     Value, Worker,
 };
 
+use eukhe_durable::harness::usage::UsageState;
 use eukhe_types::pi_ai::Model;
 use serde_json::json;
 
+use crate::session_usage::SessionUsageSummary;
 use crate::types::SessionSummary;
+
+/// TS `sessionUsageSummaryFrom` over the shown conversation's own spend
+/// (`pi.usage`: its entries, summarization attempts, and tool results):
+/// `inputTokens` folds cache reads and writes in; absent when the session
+/// recorded no billable work.
+fn usage_summary(usage: &UsageState) -> Option<SessionUsageSummary> {
+    let (mut input_tokens, mut output_tokens, mut cost) = (0u64, 0u64, 0.0);
+    for usage in usage.models.values().chain(usage.tools.values()) {
+        input_tokens = input_tokens
+            .saturating_add(usage.input)
+            .saturating_add(usage.cache_read)
+            .saturating_add(usage.cache_write);
+        output_tokens = output_tokens.saturating_add(usage.output);
+        cost += usage.cost.total;
+    }
+    (input_tokens > 0 || output_tokens > 0 || cost != 0.0).then_some(SessionUsageSummary {
+        input_tokens,
+        output_tokens,
+        cost,
+    })
+}
 
 /// The shown conversation's model as the wire carries it (`state.model`,
 /// summary `model`): the catalog model when the session's Models knows it,
@@ -86,6 +109,16 @@ impl Worker {
         summary.worker_instance_id = (!self.config.worker_instance_id.is_empty())
             .then(|| self.config.worker_instance_id.clone());
         summary
+    }
+
+    /// Publish `summary` as this session's own summary (the kernel
+    /// messaging controllers' sender block and family edges).
+    pub(crate) fn publish_own_summary(&self, summary: &SessionSummary) {
+        *self
+            .own_summary
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            serde_json::to_value(summary).ok();
     }
 
     /// Push one roster delta from a command arm.
@@ -433,11 +466,13 @@ pub(crate) fn session_summary(
         created: core.created_at.clone(),
         modified: last_activity_at,
         first_message: view.and_then(first_message),
-        parent_session_path: None,
+        parent_session_path: core.parent_session_path.clone(),
         parent_active_session_id: core.parent_active_session_id.clone(),
         parent_session_id: core.parent_session_id.clone(),
         rlm_child_id: core.rlm_child_id.clone(),
-        usage: view.map(|view| json!(view.translator.mirror().usage)),
+        usage: view
+            .and_then(|view| usage_summary(&view.translator.mirror().usage))
+            .map(|usage| json!(usage)),
         worker_state: Some("ready".to_string()),
         worker_pid: Some(std::process::id()),
         roster_delta_sequence: None,

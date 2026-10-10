@@ -292,6 +292,27 @@ fn await_receipt(receipt: &Path) -> String {
     }
 }
 
+/// A durable session's stored text: every file of its storage directory
+/// (the store's commit log and its document/entry sidecars), concatenated.
+fn storage_text(dir: &Path) -> String {
+    let mut text = String::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(content) = std::fs::read_to_string(&path) {
+                text.push_str(&content);
+            }
+        }
+    }
+    text
+}
+
 /// The kernel cell of the spawn turn: spawn one RLM child through the
 /// product `rlm.spawn` surface and record its child id.
 fn spawn_cell(receipt: &Path, error_receipt: &Path) -> String {
@@ -510,22 +531,23 @@ fn new_session_closes_the_spawned_child_and_empties_the_roster() {
         "the replacement session's roster must start empty: {rows:?}"
     );
     // The close is a plain stop (TS `closeSessionOnce("replaced")`
-    // archives the child session): the child's session file records it.
-    let child_session_file = {
+    // archives the child session): the child's session records it. The
+    // durable child session is its storage directory
+    // (`<child-dir>/<session-id>/`), whose session document carries
+    // `archived` after the close.
+    let child_storage = {
         let child_dir = agent_dir
             .join("session-artifacts")
             .join(parent_session_id)
             .join(&child_id);
-        let file = std::fs::read_dir(&child_dir)
+        std::fs::read_dir(&child_dir)
             .expect("child session dir")
             .filter_map(std::result::Result::ok)
             .map(|entry| entry.path())
-            .find(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"))
-            .expect("one child session file");
-        file
+            .find(|path| path.join("main.jsonl").is_file())
+            .expect("one child session storage")
     };
-    let child_session =
-        std::fs::read_to_string(&child_session_file).expect("read child session file");
+    let child_session = storage_text(&child_storage);
     assert!(
         child_session.contains("\"archived\""),
         "the closed child's session must be archived: {child_session}"
@@ -717,12 +739,14 @@ fn restart_relists_child(delay_ms: u64, display_status: &str) {
         .as_str()
         .expect("child session id")
         .to_string();
-    let child_file = agent_dir
+    // The durable child session is its storage directory
+    // (`<child-dir>/<session-id>/`), beside the child's display entry.
+    let child_storage = agent_dir
         .join("session-artifacts")
         .join(parent_session_id)
         .join(&child_id)
-        .join(format!("{child_session_id}.jsonl"));
-    let display_file = child_file.parent().unwrap().join("rlm-subagent.json");
+        .join(&child_session_id);
+    let display_file = child_storage.parent().unwrap().join("rlm-subagent.json");
     if delay_ms > 0 {
         wait_until(&mut client, Duration::from_secs(30), |client| {
             let rows = rlm_children_rows(client, "g-running", &parent_id);
@@ -814,13 +838,13 @@ fn restart_relists_child(delay_ms: u64, display_status: &str) {
     // (c) wake oracle
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        let content = std::fs::read_to_string(&child_file).unwrap_or_default();
+        let content = storage_text(&child_storage);
         if content.contains("boot-ping") {
             break;
         }
         assert!(
             Instant::now() < deadline,
-            "the send never woke the child into its session file: {content}"
+            "the send never woke the child into its session: {content}"
         );
         std::thread::sleep(Duration::from_millis(100));
     }

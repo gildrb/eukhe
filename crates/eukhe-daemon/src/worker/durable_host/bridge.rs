@@ -24,7 +24,7 @@ use futures::FutureExt as _;
 use serde_json::{json, Value};
 use tokio::task::JoinHandle;
 
-use super::translator::{CoalesceMode, EventTranslator};
+use super::translator::{CoalesceMode, EventTranslator, RetryPolicySource};
 use crate::worker::{EventPump, SessionCore};
 
 /// How often a parked `message_update` flushes.
@@ -138,6 +138,7 @@ impl EventBridge {
         harness: &Harness,
         conversation_id: ConversationId,
         provider_events: Option<tokio::sync::broadcast::Receiver<ProviderWireEvent>>,
+        retry_policy: RetryPolicySource,
         sink: BridgeSink,
     ) -> SessionResult<Self> {
         let (cx, cancel) = with_cancel(&BACKGROUND_CONTEXT);
@@ -148,7 +149,8 @@ impl EventBridge {
             let mut core = lock(&sink.core);
             let view = ShownView {
                 epoch,
-                translator: EventTranslator::new(stream.snapshot(), CoalesceMode::Coalesced),
+                translator: EventTranslator::new(stream.snapshot(), CoalesceMode::Coalesced)
+                    .with_retry_policy(retry_policy),
                 inbox,
                 active: None,
                 goal: Value::Null,
@@ -228,7 +230,12 @@ fn listener(
     })
 }
 
-/// Translate one batch into wire events under the core lock.
+/// Translate one batch into wire events under the core lock. The queue
+/// projection rides the frames it describes (TS #2063): a live pickup's
+/// projection (its rows gone from the lanes, the action `preparing`) goes
+/// out right before the delivered run's first frame, every later phase
+/// change right after the frame that moved it, and whatever else changed
+/// projects after the batch.
 fn apply_batch(
     sink: &BridgeSink,
     epoch: u64,
@@ -237,40 +244,43 @@ fn apply_batch(
 ) {
     let changes = {
         let mut core = lock(&sink.core);
-        let (frames, live_ids) = {
+        let (steps, changes) = {
             let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
                 return;
             };
             let frames = view.translator.translate_batch(batch);
             // An inbox read answers what this batch picked up: the rows
-            // that disappeared. A pickup while a run is live arms the
-            // projection's active action (the strip's Starting row); the
-            // ids no longer queued leave the rider provenance.
-            let live_ids = inbox.map(|inbox| {
-                let picked_up: Vec<QueuedInput> = view
-                    .inbox
-                    .iter()
-                    .filter(|before| !inbox.iter().any(|after| after.id == before.id))
-                    .cloned()
-                    .collect();
-                let ids = inbox.iter().map(|item| item.id).collect::<Vec<_>>();
-                view.active = next_active(view.active.take(), &picked_up, &frames, view.is_busy());
-                view.inbox = inbox;
-                ids
-            });
-            if live_ids.is_none() {
-                view.active = next_active(view.active.take(), &[], &frames, view.is_busy());
-            }
-            (frames, live_ids)
+            // that disappeared.
+            let armed = inbox
+                .as_ref()
+                .and_then(|inbox| armed_pickup(&view.inbox, inbox, view.is_busy()));
+            let changes = run_changes(&frames);
+            (plan_batch(view.active.take(), frames, armed), changes)
         };
-        if let Some(ids) = live_ids {
-            core.injected.retain(|id, _| ids.contains(id));
+        let mut inbox = inbox;
+        for step in steps {
+            match step {
+                Step::Frame(frame) => {
+                    crate::worker::emit_event_locked(&mut core, &sink.events, frame);
+                }
+                Step::Inbox => {
+                    if let Some(inbox) = inbox.take() {
+                        // The ids no longer queued leave the rider provenance.
+                        core.injected
+                            .retain(|id, _| inbox.iter().any(|item| item.id == *id));
+                        if let Some(view) = core.view.as_mut() {
+                            view.inbox = inbox;
+                        }
+                    }
+                }
+                Step::Project(active) => {
+                    if let Some(view) = core.view.as_mut() {
+                        view.active = active;
+                    }
+                    crate::worker::emit_action_update_locked(&mut core, &sink.events);
+                }
+            }
         }
-        let changes = run_changes(&frames);
-        for frame in frames {
-            crate::worker::emit_event_locked(&mut core, &sink.events, frame);
-        }
-        crate::worker::emit_action_update_locked(&mut core, &sink.events);
         changes
     };
     for change in changes {
@@ -278,54 +288,132 @@ fn apply_batch(
     }
 }
 
-/// The active action after one batch (TS #2063's projection, the old turn
-/// runner's phase ladder): a pickup of queue-visible rows while a run is
-/// live arms the action at `preparing` with the delivery's compact label,
-/// the turn's first user row moves it to `committing`, its first
-/// assistant frame to `running`, and a run end clears it (a follow-up may
-/// end one run and start the next in one batch — the live run after the
-/// batch decides). Phases only advance.
-fn next_active(
-    active: Option<crate::types::SessionActionActive>,
-    picked_up: &[QueuedInput],
-    frames: &[Value],
+/// One step of a batch's emission ([`plan_batch`]).
+#[derive(Debug, PartialEq)]
+enum Step {
+    /// A wire frame.
+    Frame(Value),
+    /// Apply the batch's inbox read: the lanes lose the picked-up rows.
+    Inbox,
+    /// Project the queue with this active action.
+    Project(Option<crate::types::SessionActionActive>),
+}
+
+/// The active action a batch's pickup arms (the strip's Starting row):
+/// `preparing`, labeled with the compact text of the first row that left
+/// the inbox (`before` -> `after`) while a run is live. Rows that
+/// disappear with no run live were withdrawn (an abort), not picked up.
+fn armed_pickup(
+    before: &[QueuedInput],
+    after: &[QueuedInput],
     run_live: bool,
 ) -> Option<crate::types::SessionActionActive> {
-    let run_ended = frames
-        .iter()
-        .any(|frame| frame.get("type").and_then(Value::as_str) == Some("agent_end"));
-    let mut active = if run_ended { None } else { active };
-    if !picked_up.is_empty() && run_live {
-        active = Some(crate::types::SessionActionActive {
-            kind: "turn".to_string(),
-            phase: "preparing".to_string(),
-            label: picked_up
-                .first()
-                .map(|input| super::super::compact_action_label(&input.text)),
-        });
+    if !run_live {
+        return None;
     }
+    let picked = before
+        .iter()
+        .find(|row| !after.iter().any(|kept| kept.id == row.id))?;
+    Some(crate::types::SessionActionActive {
+        kind: "turn".to_string(),
+        phase: "preparing".to_string(),
+        label: Some(super::super::compact_action_label(&picked.text)),
+    })
+}
+
+/// One batch's emission (TS #2063's projection, the old turn runner's
+/// phase ladder): the inbox read applies at the pickup frame
+/// ([`pickup_frame`]) when `armed` (a live pickup), else after the frames;
+/// the active action is `armed` from the pickup on, moves by every frame
+/// ([`step_active`]), and projects at the pickup, after each frame that
+/// moved it, and once more at the batch end.
+fn plan_batch(
+    mut active: Option<crate::types::SessionActionActive>,
+    frames: Vec<Value>,
+    mut armed: Option<crate::types::SessionActionActive>,
+) -> Vec<Step> {
+    let count = frames.len();
+    let pickup_at = if armed.is_some() {
+        pickup_frame(&frames)
+    } else {
+        count
+    };
+    let mut steps = Vec::with_capacity(count + 4);
+    for (index, frame) in frames.into_iter().enumerate() {
+        if index == pickup_at {
+            steps.push(Step::Inbox);
+            active = armed.take();
+            steps.push(Step::Project(active.clone()));
+        }
+        let moved = step_active(&mut active, &frame);
+        steps.push(Step::Frame(frame));
+        if moved {
+            steps.push(Step::Project(active.clone()));
+        }
+    }
+    if pickup_at == count {
+        steps.push(Step::Inbox);
+        if armed.is_some() {
+            active = armed;
+        }
+    }
+    steps.push(Step::Project(active));
+    steps
+}
+
+fn frame_type(frame: &Value) -> Option<&str> {
+    frame.get("type").and_then(Value::as_str)
+}
+
+fn frame_role(frame: &Value) -> Option<&str> {
+    frame
+        .get("message")
+        .and_then(|message| message.get("role"))
+        .and_then(Value::as_str)
+}
+
+/// Where a live pickup projects: before the delivered run's `agent_start`
+/// (a run's end starts the next run on its picked-up inputs in one
+/// commit), else, for inputs placed into the running run at a tool
+/// boundary, before their first user row.
+fn pickup_frame(frames: &[Value]) -> usize {
+    frames
+        .iter()
+        .rposition(|frame| frame_type(frame) == Some("agent_start"))
+        .or_else(|| {
+            frames
+                .iter()
+                .position(|frame| frame_role(frame) == Some("user"))
+        })
+        .unwrap_or(frames.len())
+}
+
+/// Move the active action by one wire frame: a run end clears it, the
+/// delivered turn's first user row moves it to `committing`, its first
+/// assistant frame to `running`; phases only advance. Answers whether it
+/// moved.
+fn step_active(active: &mut Option<crate::types::SessionActionActive>, frame: &Value) -> bool {
+    if frame_type(frame) == Some("agent_end") {
+        return active.take().is_some();
+    }
+    let Some(active) = active.as_mut() else {
+        return false;
+    };
     let phase_rank = |phase: &str| match phase {
         "running" => 2,
         "committing" => 1,
         _ => 0,
     };
-    if let Some(active) = active.as_mut() {
-        for frame in frames {
-            let role = frame
-                .get("message")
-                .and_then(|message| message.get("role"))
-                .and_then(Value::as_str);
-            let phase = match role {
-                Some("user") => "committing",
-                Some("assistant") => "running",
-                _ => continue,
-            };
-            if phase_rank(phase) > phase_rank(&active.phase) {
-                active.phase = phase.to_string();
-            }
-        }
+    let phase = match frame_role(frame) {
+        Some("user") => "committing",
+        Some("assistant") => "running",
+        _ => return false,
+    };
+    if phase_rank(phase) <= phase_rank(&active.phase) {
+        return false;
     }
-    active
+    active.phase = phase.to_string();
+    true
 }
 
 /// The run boundaries one batch's wire frames carry, in order: a run's
@@ -466,8 +554,9 @@ pub async fn inbox_previews(
         .collect())
 }
 
-/// The queue-strip text of one input: its text blocks joined; an
-/// image-only input previews as `[image]`.
+/// The queue-strip text of one input: its non-empty text blocks joined; an
+/// image-only input (an empty text block, then the images) previews as
+/// `[image]`.
 pub(crate) fn content_preview(content: &UserContent) -> String {
     match content {
         UserContent::Text(text) => text.clone(),
@@ -475,11 +564,16 @@ pub(crate) fn content_preview(content: &UserContent) -> String {
             let texts: Vec<&str> = blocks
                 .iter()
                 .filter_map(|block| match block {
-                    UserContentBlock::Text(text) => Some(text.text.as_str()),
+                    UserContentBlock::Text(text) => {
+                        Some(text.text.as_str()).filter(|text| !text.is_empty())
+                    }
                     UserContentBlock::Image(_) => None,
                 })
                 .collect();
-            if texts.is_empty() && !blocks.is_empty() {
+            let has_image = blocks
+                .iter()
+                .any(|block| matches!(block, UserContentBlock::Image(_)));
+            if texts.is_empty() && has_image {
                 "[image]".to_owned()
             } else {
                 texts.join("\n")
@@ -507,62 +601,120 @@ mod tests {
         json!({ "type": kind, "message": { "role": role } })
     }
 
-    /// TS #2063's ladder: a queue-visible pickup arms the action at
-    /// `preparing` with the delivery's compact label, the turn's user row
-    /// moves it to `committing`, its first assistant frame to `running`,
-    /// and the run end clears it. Phases only advance.
+    fn active(phase: &str, label: &str) -> crate::types::SessionActionActive {
+        crate::types::SessionActionActive {
+            kind: "turn".to_owned(),
+            phase: phase.to_owned(),
+            label: Some(label.to_owned()),
+        }
+    }
+
+    /// TS #2063's ladder, projected where a client renders it: a run's end
+    /// starts the follow-up's run in one commit, and the pickup projects
+    /// `preparing` (lanes already without the row, compact label) right
+    /// before the delivered run's `agent_start`, `committing` right after
+    /// its user row, `running` right after its first assistant frame, and
+    /// the run end clears it. Phases only advance.
     #[test]
-    fn the_active_action_walks_the_phase_ladder() {
-        let picked_up = vec![queued(7, QueuedMode::Steer, "please  do the thing")];
-        // The pickup batch carries the run start and the user row: the
-        // phase lands on `committing`, the label is the compact preview.
-        let armed = next_active(
-            None,
-            &picked_up,
-            &[
-                json!({ "type": "agent_start" }),
-                message_frame("message_start", "user"),
-            ],
-            true,
-        )
-        .expect("armed");
-        assert_eq!(armed.kind, "turn");
-        assert_eq!(armed.phase, "committing");
-        assert_eq!(armed.label.as_deref(), Some("please do the thing"));
+    fn the_active_action_walks_the_phase_ladder_at_its_frames() {
+        let before = [queued(7, QueuedMode::FollowUp, "please  do the thing")];
+        let armed = armed_pickup(&before, &[], true);
+        assert_eq!(armed, Some(active("preparing", "please do the thing")));
+        let pickup = [
+            message_frame("message_end", "assistant"),
+            json!({ "type": "turn_end" }),
+            json!({ "type": "agent_end" }),
+            json!({ "type": "agent_start" }),
+            json!({ "type": "turn_start" }),
+            message_frame("message_start", "user"),
+            message_frame("message_end", "user"),
+        ];
+        let committing = Some(active("committing", "please do the thing"));
+        assert_eq!(
+            plan_batch(None, pickup.to_vec(), armed.clone()),
+            vec![
+                Step::Frame(pickup[0].clone()),
+                Step::Frame(pickup[1].clone()),
+                Step::Frame(pickup[2].clone()),
+                Step::Inbox,
+                Step::Project(armed),
+                Step::Frame(pickup[3].clone()),
+                Step::Frame(pickup[4].clone()),
+                Step::Frame(pickup[5].clone()),
+                Step::Project(committing.clone()),
+                Step::Frame(pickup[6].clone()),
+                Step::Project(committing.clone()),
+            ]
+        );
 
         // The first assistant frame runs it; a later user row never moves
         // it back.
-        let running = next_active(
-            Some(armed),
-            &[],
-            &[
-                message_frame("message_start", "assistant"),
-                message_frame("message_end", "user"),
-            ],
-            true,
-        )
-        .expect("still armed");
-        assert_eq!(running.phase, "running");
+        let streaming = [
+            message_frame("message_start", "assistant"),
+            message_frame("message_end", "user"),
+        ];
+        let running = Some(active("running", "please do the thing"));
+        assert_eq!(
+            plan_batch(committing, streaming.to_vec(), None),
+            vec![
+                Step::Frame(streaming[0].clone()),
+                Step::Project(running.clone()),
+                Step::Frame(streaming[1].clone()),
+                Step::Inbox,
+                Step::Project(running.clone()),
+            ]
+        );
 
         // The run end clears it.
+        let end = json!({ "type": "agent_end" });
         assert_eq!(
-            next_active(Some(running), &[], &[json!({ "type": "agent_end" })], false),
-            None
+            plan_batch(running, vec![end.clone()], None),
+            vec![
+                Step::Frame(end),
+                Step::Project(None),
+                Step::Inbox,
+                Step::Project(None),
+            ]
+        );
+    }
+
+    /// Steers placed into the running run at a tool boundary start no run:
+    /// their pickup projects right before their first user row.
+    #[test]
+    fn a_mid_run_pickup_projects_before_its_first_user_row() {
+        let armed = Some(active("preparing", "steer"));
+        let frames = [
+            json!({ "type": "tool_execution_end" }),
+            message_frame("message_end", "toolResult"),
+            message_frame("message_start", "user"),
+        ];
+        let committing = Some(active("committing", "steer"));
+        assert_eq!(
+            plan_batch(None, frames.to_vec(), armed.clone()),
+            vec![
+                Step::Frame(frames[0].clone()),
+                Step::Frame(frames[1].clone()),
+                Step::Inbox,
+                Step::Project(armed),
+                Step::Frame(frames[2].clone()),
+                Step::Project(committing.clone()),
+                Step::Project(committing),
+            ]
         );
     }
 
     /// A withdrawal is not a pickup: rows that disappear while no run is
-    /// live (an abort withdrew them) never arm the action.
+    /// live (an abort withdrew them) never arm the action, and the lanes
+    /// update after the batch's frames.
     #[test]
     fn a_withdrawal_without_a_live_run_never_arms() {
+        let before = [queued(1, QueuedMode::FollowUp, "x")];
+        assert_eq!(armed_pickup(&before, &[], false), None);
+        assert_eq!(armed_pickup(&before, &before, true), None);
+        let end = json!({ "type": "agent_end" });
         assert_eq!(
-            next_active(
-                None,
-                &[queued(1, QueuedMode::FollowUp, "x")],
-                &[json!({ "type": "agent_end" })],
-                false
-            ),
-            None
+            plan_batch(None, vec![end.clone()], None),
+            vec![Step::Frame(end), Step::Inbox, Step::Project(None)]
         );
     }
 
@@ -570,13 +722,7 @@ mod tests {
     #[test]
     fn the_active_label_caps_at_160_chars() {
         let long = "word ".repeat(60);
-        let armed = next_active(
-            None,
-            &[queued(1, QueuedMode::Steer, &long)],
-            &[json!({ "type": "agent_start" })],
-            true,
-        )
-        .expect("armed");
+        let armed = armed_pickup(&[queued(1, QueuedMode::Steer, &long)], &[], true).expect("armed");
         let label = armed.label.expect("label");
         assert_eq!(label.chars().count(), 160);
         assert!(label.ends_with("..."));

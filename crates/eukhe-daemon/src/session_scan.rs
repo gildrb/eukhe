@@ -1,19 +1,24 @@
-//! The saved-session roster scan (`list_sessions`): the listing loop gated
-//! by a bounded first-line header read (the `isValidSessionFile`
-//! precedent). A file whose complete first line is a parseable record that
-//! is not the `session` header is skipped without its fold (the TS
-//! `acc.invalid` arm); an unparseable or blank first line leaves the fold
-//! to decide (TS never invalidates on a parse failure). The rows stay the
-//! fold's own values: a perf-only reshape, the row contract is the fold's
-//! (now the #2713 resumable scan: the gate runs first, then
-//! `read_session_info`).
+//! The saved-session roster scan (`list_sessions`) over a sessions
+//! directory's durable storages (`<id>/`, read through their read-only
+//! views) and its legacy `<id>.jsonl` files not imported yet. A legacy
+//! file's listing loop is gated by a bounded first-line header read (the
+//! `isValidSessionFile` precedent): a file whose complete first line is a
+//! parseable record that is not the `session` header is skipped without
+//! its fold (the TS `acc.invalid` arm); an unparseable or blank first line
+//! leaves the fold to decide (TS never invalidates on a parse failure).
+//! The rows stay the fold's own values: a perf-only reshape, the row
+//! contract is the fold's (now the #2713 resumable scan: the gate runs
+//! first, then `read_session_info`).
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+
 use crate::session_store::{
-    parse_session_header_line, read_first_line_bounded_from, read_session_info_from, SessionInfo,
+    is_durable_storage, parse_session_header_line, read_durable_session_info,
+    read_first_line_bounded_from, read_session_info_from, storage_modified, SessionInfo,
     SESSION_LIST_HEADER_READ_MAX_BYTES,
 };
 
@@ -86,13 +91,54 @@ fn roster_session_info(path: &Path) -> Option<SessionInfo> {
     }
 }
 
-/// List every valid session file in a directory, most recently modified first
-/// (port of `SessionManager.listAll`): the directory read supplies the rows'
-/// identity keys (entry order, mtime), the bounded header gate skips foreign
-/// files without their fold, and the rich-field fold runs sequentially -
-/// a measured parallel fold loses to cross-core cacheline/futex costs on a
-/// loaded multi-core box (425ms vs 137ms over 1412 files), so the fold stays
-/// the loop the scan replaced.
+/// One roster candidate of a sessions directory.
+enum RosterItem {
+    /// `<id>.jsonl`, not imported yet: the legacy fold.
+    Legacy(PathBuf),
+    /// `<id>/` holding a durable storage: the storage views.
+    Durable(PathBuf),
+}
+
+/// The roster candidates of a sessions directory with their recency (a
+/// legacy file's mtime, a storage's newest file mtime): every durable
+/// storage (hidden directories are not sessions) and every legacy file
+/// whose `<stem>/` storage does not exist (an imported file is the
+/// storage's row).
+fn roster_items(session_dir: &Path) -> Vec<(RosterItem, SystemTime)> {
+    let Ok(read) = fs::read_dir(session_dir) else {
+        return Vec::new();
+    };
+    read.flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let file_type = entry.file_type().ok()?;
+            if file_type.is_dir() {
+                let hidden = entry.file_name().to_string_lossy().starts_with('.');
+                if hidden || !is_durable_storage(&path) {
+                    return None;
+                }
+                let modified = storage_modified(&path)?;
+                return Some((RosterItem::Durable(path), modified));
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl")
+                || is_durable_storage(&path.with_extension(""))
+            {
+                return None;
+            }
+            let modified = fs::metadata(&path).and_then(|m| m.modified()).ok()?;
+            Some((RosterItem::Legacy(path), modified))
+        })
+        .collect()
+}
+
+/// List every session of a directory, most recently modified first (port
+/// of `SessionManager.listAll`): the durable storages and the legacy files
+/// not imported yet. The directory read supplies the rows' identity keys
+/// (entry order, mtime), the bounded header gate skips foreign files
+/// without their fold, and the rich-field fold runs sequentially - a
+/// measured parallel fold loses to cross-core cacheline/futex costs on a
+/// loaded multi-core box (425ms vs 137ms over 1412 files), so the fold
+/// stays the loop the scan replaced.
 #[must_use]
 pub fn list_sessions(session_dir: &Path) -> Vec<SessionInfo> {
     list_sessions_with(session_dir, |_, _, _| true)
@@ -100,34 +146,58 @@ pub fn list_sessions(session_dir: &Path) -> Vec<SessionInfo> {
 
 /// [`list_sessions`] with the saved-catalog stream's per-file callback (TS
 /// `listSessionsFromDir`'s `onSession`): `on_row` receives every row as its
-/// own file's fold completes - the file's scan index and the scan's file
+/// own session's fold completes - the session's scan index and the scan's
 /// total ride along (TS `onProgress`'s counts) - so a slow directory's rows
 /// reach the client DURING the scan instead of after it. The metadata pass
 /// runs first, so the scan order (newest first) is known before any fold:
 /// the stream's first row is the newest session (the agents view's entry
 /// anchor), where TS streams readdir order and only sorts at the end.
 /// `false` stops the scan (the stream consumer is gone).
+///
+/// The folds run on one reader thread with its own current-thread runtime
+/// (the storage views are async) and hand each row over as it lands.
 pub fn list_sessions_with(
     session_dir: &Path,
     mut on_row: impl FnMut(usize, usize, &SessionInfo) -> bool,
 ) -> Vec<SessionInfo> {
-    let Ok(read) = fs::read_dir(session_dir) else {
-        return Vec::new();
-    };
-    let mut files: Vec<(std::path::PathBuf, SystemTime)> = read
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-        .filter_map(|path| {
-            let modified = fs::metadata(&path).and_then(|m| m.modified()).ok()?;
-            Some((path, modified))
-        })
-        .collect();
-    files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
-    let total = files.len();
+    let mut items = roster_items(session_dir);
+    items.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+    let total = items.len();
     let mut infos = Vec::new();
-    for (index, (path, _)) in files.into_iter().enumerate() {
-        if let Some(info) = roster_session_info(&path) {
+    if total == 0 {
+        return infos;
+    }
+    std::thread::scope(|scope| {
+        // A rendezvous channel: the reader folds one row ahead at most,
+        // so a stopped scan stops the reads.
+        let (rows, received) = std::sync::mpsc::sync_channel::<(usize, Option<SessionInfo>)>(0);
+        scope.spawn(move || {
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    eprintln!("eukhe-daemon: starting the session roster reader failed: {error}");
+                    return;
+                }
+            };
+            for (index, (item, _)) in items.into_iter().enumerate() {
+                let info = match item {
+                    RosterItem::Legacy(path) => roster_session_info(&path),
+                    RosterItem::Durable(dir) => {
+                        runtime.block_on(read_durable_session_info(&dir, &BACKGROUND_CONTEXT))
+                    }
+                };
+                if rows.send((index, info)).is_err() {
+                    break;
+                }
+            }
+        });
+        for (index, info) in received {
+            let Some(info) = info else {
+                continue;
+            };
             // `false` stops the scan: the stream consumer is gone (the
             // connection loop dropped its channel), so the remaining
             // folds serve nobody - the scan returns the rows it has.
@@ -136,7 +206,7 @@ pub fn list_sessions_with(
             }
             infos.push(info);
         }
-    }
+    });
     infos
 }
 

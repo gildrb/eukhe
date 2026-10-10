@@ -12,6 +12,7 @@ use eukhe_durable::harness::types::ConversationAbortOptions;
 use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
+use crate::worker::durable_host::translator::ManualSettle;
 use crate::worker::{emit_worker_event_with, EventPump, SessionCore, SessionSlot, Worker};
 use durable::{abort_compactions, run_manual_compaction, ManualCompactionError};
 
@@ -20,8 +21,10 @@ fn cx() -> &'static Context {
 }
 
 /// The worker's `compact` / `abort_compaction` commands over the hosted
-/// durable session. The `compaction_start`/`compaction_end` frames of a run
-/// come from the event bridge (the task's `pi.live` status); only a skip,
+/// durable session. The `compaction_start` frame of a run comes from the
+/// event bridge (the task's `pi.live` status) carrying the command's
+/// instructions; its `compaction_end` is this command's (the TS
+/// `CompactionResult` the response carries, or the abort), and a skip,
 /// which starts no task, emits its frame pair here.
 pub(crate) struct CompactionManager {
     session: SessionSlot,
@@ -45,7 +48,8 @@ impl CompactionManager {
     /// `compact` (TS `session.compact(customInstructions)`): abort the
     /// running turn, run one manual compaction, and answer the TS
     /// `CompactionResult`; skips, aborts, and failures answer the session's
-    /// error message exactly like the TS daemon catch.
+    /// error message exactly like the TS daemon catch. A compaction that
+    /// compacted continues an active goal (the abort ended its in-run loop).
     pub(crate) async fn run(&self, custom_instructions: Option<String>) -> DaemonResponse {
         let Some(hosted) = self.session.get() else {
             return response_failure(None, "compact", "Session is still initializing", None);
@@ -62,6 +66,11 @@ impl CompactionManager {
                 return response_failure(None, "compact", &error.to_string(), None);
             }
         }
+        // The claim ties the run's task frames to this command.
+        if let Some(view) = self.core.lock().unwrap().view.as_mut() {
+            view.translator
+                .claim_manual_compaction(custom_instructions.clone());
+        }
         let outcome = run_manual_compaction(
             hosted.harness(),
             hosted.deps(),
@@ -70,36 +79,88 @@ impl CompactionManager {
             cx(),
         )
         .await;
+        let instructions = custom_instructions.as_deref();
         match outcome {
-            Ok(result) => response_success(None, "compact", Some(result)),
+            Ok(result) => {
+                self.settle(
+                    compaction_end_success("manual", &result, false, instructions),
+                    true,
+                );
+                // The abort before the compaction ended an active goal's
+                // in-run loop: a compaction that compacted continues it.
+                if let Err(error) = eukhe_core::durable::goals::continue_goal_after_compaction(
+                    hosted.harness(),
+                    main.id(),
+                    cx(),
+                )
+                .await
+                {
+                    eprintln!(
+                        "eukhe-daemon: the post-compaction goal continuation failed: {error}"
+                    );
+                }
+                response_success(None, "compact", Some(result))
+            }
             Err(ManualCompactionError::Skipped(message)) => {
-                // A skip starts no task, so the bridge sees nothing: the TS
-                // run still announced its start and the warning end.
-                let instructions = custom_instructions.as_deref();
-                emit_worker_event_with(
-                    &self.core,
-                    &self.events,
-                    compaction_start_event("manual", instructions),
+                let end = compaction_end_unsuccessful(
+                    "manual",
+                    false,
+                    Some(message),
+                    Some("warning"),
+                    instructions,
                 );
-                emit_worker_event_with(
-                    &self.core,
-                    &self.events,
-                    compaction_end_unsuccessful(
-                        "manual",
-                        false,
-                        Some(message),
-                        Some("warning"),
-                        instructions,
-                    ),
-                );
+                // A skip before the task starts reaches the bridge as
+                // nothing: the TS run still announced its start and the
+                // warning end.
+                if !self.settle(end.clone(), false) {
+                    emit_worker_event_with(
+                        &self.core,
+                        &self.events,
+                        compaction_start_event("manual", instructions),
+                    );
+                    emit_worker_event_with(&self.core, &self.events, end);
+                }
                 response_failure(None, "compact", message, None)
             }
             Err(ManualCompactionError::Aborted) => {
+                self.settle(
+                    compaction_end_unsuccessful("manual", true, None, Some("error"), instructions),
+                    true,
+                );
                 response_failure(None, "compact", durable::COMPACTION_CANCELLED, None)
             }
             Err(ManualCompactionError::Failed(error)) => {
+                self.settle(
+                    compaction_end_unsuccessful(
+                        "manual",
+                        false,
+                        Some(&error),
+                        Some("error"),
+                        instructions,
+                    ),
+                    false,
+                );
                 response_failure(None, "compact", &error, None)
             }
+        }
+    }
+
+    /// Settle this command's claim with its `compaction_end` frame,
+    /// emitting it now when the claimed task already ended (else the
+    /// task's end emits it). `false` when no task started: nothing of the
+    /// run reached the wire.
+    fn settle(&self, end: Value, task_started: bool) -> bool {
+        let settled = match self.core.lock().unwrap().view.as_mut() {
+            Some(view) => view.translator.settle_manual_compaction(end, task_started),
+            None => ManualSettle::NoTask,
+        };
+        match settled {
+            ManualSettle::Emit(frame) => {
+                emit_worker_event_with(&self.core, &self.events, frame);
+                true
+            }
+            ManualSettle::Deferred => true,
+            ManualSettle::NoTask => false,
         }
     }
 

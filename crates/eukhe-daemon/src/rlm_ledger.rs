@@ -39,8 +39,8 @@ use crate::util::now_iso;
 mod replay;
 
 use replay::{
-    canonicalize_dir, edge_key, file_identity, is_file, parse_ledger_line, sole_edge_by_child_id,
-    LedgerRecord, LivePathResolver, ReplaySnapshot, ReplayState,
+    canonicalize_dir, edge_key, file_identity, is_session, parse_ledger_line,
+    sole_edge_by_child_id, LedgerRecord, LivePathResolver, ReplaySnapshot, ReplayState,
 };
 
 // The legacy-registry concern (the pre-ledger per-parent registry
@@ -457,7 +457,7 @@ impl RlmSpawnLedger {
             // keeps that transcript and no row anywhere bills it, so the
             // bucket is the only surface that keeps its spend.
             let child_file = Path::new(&child);
-            if child_file.is_file()
+            if is_session(child_file)
                 && child_file.parent() == Some(self.canonical_sessions_dir.as_path())
             {
                 continue;
@@ -615,8 +615,8 @@ impl RlmSpawnLedger {
     }
 
     /// Whether the given spawn edge is still live (not tombstoned, and
-    /// both its child and parent transcripts present - the same
-    /// reconciliation `live_edges` applies) - the seed arms' per-write
+    /// both its child and parent sessions present - files or durable
+    /// storage dirs, the same reconciliation `live_edges` applies) - the seed arms' per-write
     /// liveness revalidation: an edge deleted (or a file removed) while
     /// a seed was mid-read never writes its row. The child id is
     /// matched together with the child path: ids can be shared by
@@ -631,8 +631,8 @@ impl RlmSpawnLedger {
                     edge.child_id == child_id
                         && edge.deleted.is_none()
                         && canonical_session_path(Path::new(&edge.child)) == child
-                        && is_file(Path::new(&edge.child))
-                        && is_file(Path::new(&edge.parent))
+                        && is_session(Path::new(&edge.child))
+                        && is_session(Path::new(&edge.parent))
                 })
             })
     }

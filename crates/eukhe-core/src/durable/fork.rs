@@ -108,6 +108,37 @@ pub async fn fork_session(
     new_dir: &Path,
     cx: &Context,
 ) -> Result<ForkedSession, ForkError> {
+    fork_into(source, None, at, cwd, new_dir, cx).await
+}
+
+/// [`fork_session`] of the source's conversation `conversation` instead of
+/// its main one (`at` is a point of that conversation); the fork still
+/// becomes the copy's main conversation.
+///
+/// # Errors
+///
+/// As [`fork_session`]; also when `conversation` does not exist.
+pub async fn fork_session_conversation(
+    source: &SessionLocation,
+    conversation: ConversationId,
+    at: ForkPoint,
+    cwd: Option<&Path>,
+    new_dir: &Path,
+    cx: &Context,
+) -> Result<ForkedSession, ForkError> {
+    fork_into(source, Some(conversation), at, cwd, new_dir, cx).await
+}
+
+/// The shared body of the session forks: fork `conversation` (`None`: the
+/// main one) of a copy of `source` into `new_dir`.
+async fn fork_into(
+    source: &SessionLocation,
+    conversation: Option<ConversationId>,
+    at: ForkPoint,
+    cwd: Option<&Path>,
+    new_dir: &Path,
+    cx: &Context,
+) -> Result<ForkedSession, ForkError> {
     let exists = tokio::fs::try_exists(new_dir)
         .await
         .map_err(io("inspect", new_dir))?;
@@ -122,7 +153,7 @@ pub async fn fork_session(
         .map_err(io("create", &parent))?;
     let forked = async {
         populate(source, &staging, cx).await?;
-        let main = fork_storage(&staging, at, cwd, cx).await?;
+        let main = fork_storage(&staging, conversation, at, cwd, cx).await?;
         tokio::fs::rename(&staging, new_dir)
             .await
             .map_err(io("move fork into", new_dir))?;
@@ -327,10 +358,11 @@ async fn copy_dir_contents(
     Ok(())
 }
 
-/// Open the copied storage in `dir` (nothing is resumed), fork its main
-/// conversation, and close it.
+/// Open the copied storage in `dir` (nothing is resumed), fork
+/// `conversation` (`None`: its main conversation), and close it.
 async fn fork_storage(
     dir: &Path,
+    conversation: Option<ConversationId>,
     at: ForkPoint,
     cwd: Option<&Path>,
     cx: &Context,
@@ -342,8 +374,14 @@ async fn fork_storage(
         open_native_jsonl_storage(directory, cx, JsonlStorageOptions { fsync: true }).await?;
     let harness = Harness::open(Arc::new(storage), harness_options(), cx).await?;
     let forked = async {
-        let main = main_conversation(&harness, cx).await?;
-        fork_main_conversation(&harness, &main, at, cwd, cx).await
+        let source = match conversation {
+            Some(id) => harness
+                .conversation(id, cx)
+                .await?
+                .ok_or_else(|| SessionError::error(format!("Conversation {id} does not exist")))?,
+            None => main_conversation(&harness, cx).await?,
+        };
+        fork_main_conversation(&harness, &source, at, cwd, cx).await
     }
     .await;
     // Close even when the fork failed; the fork error wins.

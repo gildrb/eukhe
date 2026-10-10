@@ -41,6 +41,29 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+// The durable session storage reader the CLI e2e suites share.
+#[path = "../../eukhe-cli/tests/support/durable_store.rs"]
+mod durable_store;
+
+/// The text of a stored custom row's content (a string or text blocks).
+fn row_text(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|block| block["text"].as_str())
+            .collect(),
+        _ => String::new(),
+    }
+}
+
+/// The session's durable main transcript (the only storage in the dir).
+fn transcript(session_dir: &Path) -> durable_store::Transcript {
+    let dirs = durable_store::session_dirs(session_dir);
+    assert_eq!(dirs.len(), 1, "one session storage: {dirs:?}");
+    durable_store::read_transcript(&dirs[0])
+}
+
 /// The compaction summarizer request marker (the fixed summarization
 /// system prompt rides the request's first message).
 const SUMMARIZER_MARKER: &str = "context summarization assistant";
@@ -63,8 +86,8 @@ impl Drop for Supervisor {
 /// summarization prompt sleeps before its response, so the client-side
 /// abort lands mid-compaction (the dropped request kills the connection;
 /// the mock thread exits on its failed write). The per-request usage list
-/// makes the second turn's usage cross the compaction threshold (the
-/// f14-auto battery shape: 126010 tokens against a 500-token headroom).
+/// makes the second turn's usage cross the compaction threshold (127910
+/// tokens against a 500-token headroom).
 struct CompactionMock {
     requests: Arc<Mutex<Vec<Value>>>,
     hold_summarizer: Arc<AtomicBool>,
@@ -128,10 +151,14 @@ fn small_usage() -> Value {
     })
 }
 
-/// The crossing turn's reported usage (the f14-auto battery shape).
+/// The crossing turn's reported usage. pi-durable compacts before a
+/// request once the context estimate exceeds `contextWindow -
+/// reserveTokens` (`127_500` here; no `4_096` estimate-error floor like
+/// the old engine's `119_808` ceiling), so the old f14-auto battery's
+/// `126_010` no longer crosses: `127_910` does.
 fn crossing_usage() -> Value {
     json!({
-        "prompt_tokens": 126_000, "completion_tokens": 10, "total_tokens": 126_010,
+        "prompt_tokens": 127_900, "completion_tokens": 10, "total_tokens": 127_910,
         "prompt_tokens_details": {"cached_tokens": 80},
     })
 }
@@ -431,11 +458,10 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
         .to_string(),
     )
     .expect("write models.json");
-    // The f14-auto battery settings shape: a tiny reserve (the 4_096
-    // estimate-error floor governs the headroom), so the combined
-    // input+output ceiling sits at 119_808 on the 128k window — the
-    // 126_010 crossing fires. A tiny keep-recent budget keeps the seeded
-    // turns summarizable.
+    // A tiny reserve: pi-durable's blocking threshold sits at 127_500 on
+    // the 128k window, so the 127_910 crossing fires before the next
+    // request. A tiny keep-recent budget keeps the seeded turns
+    // summarizable.
     std::fs::write(
         agent_dir.join("settings.json"),
         json!({ "compaction": {"enabled": true, "reserveTokens": 500, "keepRecentTokens": 10} })
@@ -485,15 +511,28 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
     let seeded = client.read_response("p1");
     assert_eq!(seeded["success"], true, "seed prompt failed: {seeded}");
 
-    // The crossing turn reports 126010 tokens (over the 500-token
-    // headroom): the post-turn threshold check fires a compaction whose
-    // summarizer request the mock holds in flight.
-    mock.hold_summarizer.store(true, Ordering::SeqCst);
+    // The crossing turn reports 127910 tokens (over the 500-token
+    // headroom).
     client.send_command(
         "p2",
         &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "crossing turn"}),
     );
-    let summarizer_index = 2; // turn 1, turn 2, then the compaction summarizer
+    let crossed = client.read_response("p2");
+    assert_eq!(
+        crossed["success"], true,
+        "crossing prompt failed: {crossed}"
+    );
+
+    // pi-durable checks the threshold before each request, not at the
+    // settled crossing turn: the next prompt's preparation fires the
+    // blocking compaction whose summarizer request the mock holds in
+    // flight.
+    mock.hold_summarizer.store(true, Ordering::SeqCst);
+    client.send_command(
+        "p3",
+        &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "compacting turn"}),
+    );
+    let summarizer_index = 2; // turn 1, turn 2, then turn 3's compaction summarizer
     let deadline = Instant::now() + Duration::from_mins(1);
     while Instant::now() < deadline && mock.request_count() <= summarizer_index {
         std::thread::sleep(Duration::from_millis(50));
@@ -502,6 +541,9 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
         mock.request_count() > summarizer_index,
         "the compaction summarizer request never arrived"
     );
+    assert!(is_summarizer_request(
+        &mock.requests.lock().expect("mock lock")[summarizer_index]
+    ));
 
     // Abort the in-flight compaction from a second attached client (TS
     // `abortCompaction` on the wire; the TUI interrupt key sends the same
@@ -522,11 +564,12 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
     assert_eq!(aborted["command"], "abort_compaction");
 
     // The turn completes after the cancelled compaction (TS: the aborted
-    // arm records the outcome and returns without stalling the loop).
-    let crossed = client.read_response("p2");
+    // arm records the outcome and returns without stalling the loop;
+    // pi-durable's run then sends its request on the un-compacted context).
+    let compacting = client.read_response("p3");
     assert_eq!(
-        crossed["success"], true,
-        "crossing prompt failed: {crossed}"
+        compacting["success"], true,
+        "compacting prompt failed: {compacting}"
     );
     // The run's trailing frames can land well after the response (the
     // supervisor's event forwarding lags under parallel load), so wait
@@ -597,7 +640,15 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
         .expect("the aborted compaction_end broadcast");
     assert!(
         compaction_end_index > row_end,
-        "the end event follows the disclosure pair"
+        "the end event follows the disclosure pair: {:#?}",
+        client
+            .events
+            .iter()
+            .map(|event| format!(
+                "{} {} {}",
+                event["type"], event["message"]["customType"], event["aborted"]
+            ))
+            .collect::<Vec<_>>()
     );
     let end_event = client.events[compaction_end_index].clone();
     // Aborts carry no error message or severity (TS: the row owns the
@@ -606,34 +657,17 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
     assert!(end_event.get("errorSeverity").is_none(), "{end_event}");
     assert_eq!(end_event["willRetry"], false);
 
-    // The durable session file carries exactly the cancelled row and no
+    // The durable session carries exactly the cancelled row and no
     // compaction entry (an aborted run never commits).
-    let session_file = std::fs::read_dir(&session_dir)
-        .expect("list session dir")
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "jsonl")
-                && std::fs::read_to_string(path)
-                    .is_ok_and(|content| content.contains("compaction_outcome"))
-        })
-        .expect("the durable outcome row in the session file");
-    let persisted = std::fs::read_to_string(&session_file).expect("read session file");
+    let stored = transcript(&session_dir);
     assert!(
-        !persisted.contains("\"type\":\"compaction\"")
-            && !persisted.contains("\"type\": \"compaction\""),
+        stored.of_kind("pi.compaction").is_empty(),
         "the aborted compaction never commits an entry"
     );
-    let durable_rows: Vec<&str> = persisted
-        .lines()
-        .filter(|line| line.contains("\"compaction_outcome\""))
-        .collect();
+    let durable_rows = stored.custom_rows("compaction_outcome");
     assert_eq!(durable_rows.len(), 1, "exactly one durable outcome row");
-    let durable: Value = serde_json::from_str(durable_rows[0]).expect("parse durable row");
-    assert_eq!(durable["type"], "custom_message");
-    assert_eq!(durable["customType"], "compaction_outcome");
-    assert_eq!(durable["content"], "Compaction cancelled");
+    let durable = durable_rows[0];
+    assert_eq!(row_text(&durable["content"]), "Compaction cancelled");
     assert_eq!(
         durable["details"],
         json!({"reason": "threshold", "outcome": "cancelled"})
@@ -644,10 +678,10 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
     mock.hold_summarizer.store(false, Ordering::SeqCst);
     let before_next = mock.request_count();
     client.send_command(
-        "p3",
+        "p4",
         &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "next turn"}),
     );
-    let next = client.read_response("p3");
+    let next = client.read_response("p4");
     assert_eq!(next["success"], true, "next prompt failed: {next}");
     client.drain_events(500);
     let requests = mock.requests.lock().expect("mock lock").clone();
@@ -807,17 +841,29 @@ fn wedged_worker_abort_acks_immediately_and_declares_terminal() {
     let attached = client.read_response("a1");
     assert_eq!(attached["success"], true, "attach failed: {attached}");
 
-    // Seed turn, then the crossing turn whose summarizer the mock holds.
+    // Seed turn, the crossing turn, then the next prompt whose
+    // pre-request threshold compaction (pi-durable checks the threshold
+    // before each request, not at the settled crossing turn) runs the
+    // summarizer the mock holds.
     client.send_command(
         "p1",
         &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "seed turn"}),
     );
     let seeded = client.read_response("p1");
     assert_eq!(seeded["success"], true, "seed prompt failed: {seeded}");
-    mock.hold_summarizer.store(true, Ordering::SeqCst);
     client.send_command(
         "p2",
         &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "crossing turn"}),
+    );
+    let crossed = client.read_response("p2");
+    assert_eq!(
+        crossed["success"], true,
+        "crossing prompt failed: {crossed}"
+    );
+    mock.hold_summarizer.store(true, Ordering::SeqCst);
+    client.send_command(
+        "p3",
+        &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": "compacting turn"}),
     );
     let summarizer_index = 2;
     let deadline = Instant::now() + Duration::from_mins(1);
@@ -932,39 +978,34 @@ fn wedged_worker_abort_acks_immediately_and_declares_terminal() {
     // Kill the frozen worker: the supervisor relaunches it, and the create
     // replay discloses the aborted run — the same durable
     // `compaction_outcome` row the worker's own auto-abort arms persist.
+    // On the durable path the compaction task resumes with the reopened
+    // session; the replay lands the journaled abort on it, so the row is
+    // the observer's `cancelled` row.
     signal(pid, "-KILL");
     let deadline = Instant::now() + Duration::from_secs(90);
-    let durable = loop {
-        let row = std::fs::read_dir(&session_dir)
-            .expect("list session dir")
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.extension()
-                    .is_some_and(|extension| extension == "jsonl")
-            })
-            .find_map(|path| {
-                let content = std::fs::read_to_string(&path).ok()?;
-                content
-                    .lines()
-                    .find(|line| line.contains("\"compaction_outcome\""))
-                    .map(str::to_string)
-            });
-        if let Some(row) = row {
-            break serde_json::from_str::<Value>(&row).expect("parse durable row");
-        }
+    // Readiness: the storage's raw log carries the row; then read it
+    // through the durable reader.
+    while !durable_store::session_dirs(&session_dir).iter().any(|dir| {
+        std::fs::read_to_string(dir.join("main.jsonl"))
+            .is_ok_and(|content| content.contains("\"compaction_outcome\""))
+    }) {
         assert!(
             Instant::now() < deadline,
             "the replacement never replayed the cancelled outcome row"
         );
         std::thread::sleep(Duration::from_millis(100));
-    };
-    assert_eq!(durable["type"], "custom_message");
-    assert_eq!(durable["customType"], "compaction_outcome");
-    assert_eq!(durable["content"], "Compaction cancelled");
+    }
+    let stored = transcript(&session_dir);
+    let rows = stored.custom_rows("compaction_outcome");
+    assert_eq!(rows.len(), 1, "exactly one durable outcome row: {rows:?}");
+    assert_eq!(row_text(&rows[0]["content"]), "Compaction cancelled");
     assert_eq!(
-        durable["details"],
+        rows[0]["details"],
         json!({"reason": "threshold", "outcome": "cancelled"})
+    );
+    assert!(
+        stored.of_kind("pi.compaction").is_empty(),
+        "the aborted compaction never commits an entry"
     );
 
     // The replay consumed the record: the journal drops it, so a later

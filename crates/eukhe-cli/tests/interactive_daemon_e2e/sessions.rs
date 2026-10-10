@@ -167,6 +167,7 @@ fn subscription_options(
     session: eukhe_tui::interactive::SessionSelection,
 ) -> eukhe_tui::interactive::InteractiveOptions {
     let mut options = base_options(supervisor, dir, session_dir);
+    options.script_path = None;
     options.model_selection = eukhe_tui::interactive::ModelSelection {
         provider: Some("anthropic".to_string()),
         model: Some("claude-test".to_string()),
@@ -197,18 +198,12 @@ async fn tui_anthropic_warning_warns_once_then_a_fresh_process_reattaches_silent
     std::fs::create_dir_all(&session_dir).expect("session dir");
     let supervisor = spawn_supervisor(dir.path());
 
-    // The scripted model fixture (the harness's opt-in `model` knob): the
-    // session reports an Anthropic model, so the startup detection arm's
-    // provider gate passes and the fake credential resolves the warning.
-    let script = serde_json::json!({
-        "responses": [],
-        "model": { "id": "claude-test", "provider": "anthropic", "reasoning": false },
-    });
-    std::fs::write(
-        dir.path().join("script.json"),
-        serde_json::to_string(&script).expect("script json"),
-    )
-    .expect("script.json");
+    // The session runs on an Anthropic model, so the startup detection
+    // arm's provider gate passes and the fake credential resolves the
+    // warning. No faux script: the durable faux provider always registers
+    // as provider `faux`, so the flagged `anthropic/claude-test` resolves
+    // from the real catalog (the provider's template; no turn runs, so no
+    // credential is ever needed).
 
     // Run one: the fresh session warns once and marks the gate.
     let options = subscription_options(
@@ -232,6 +227,7 @@ async fn tui_anthropic_warning_warns_once_then_a_fresh_process_reattaches_silent
     let outcome = run_headless_bounded(options, plan)
         .await
         .expect("interactive run one");
+
     let rendered = outcome.frames.join("\n");
     assert!(
         rendered.contains(E2E_SUBSCRIPTION_WARNING),
@@ -239,25 +235,15 @@ async fn tui_anthropic_warning_warns_once_then_a_fresh_process_reattaches_silent
     );
     let session = outcome.active_session_id.clone();
 
-    // The gate is durable: the marker row landed in the session file, and
-    // the daemon's `get_state` serves it open.
-    let file = session_dir.join(format!("{}.jsonl", outcome.session_id));
-    let persisted = std::fs::read_to_string(&file).unwrap_or_else(|_| {
-        let listing = std::fs::read_dir(&session_dir).map_or_else(
-            |error| format!("unreadable: {error}"),
-            |entries| {
-                entries
-                    .filter_map(std::result::Result::ok)
-                    .map(|entry| entry.file_name().to_string_lossy().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            },
-        );
-        panic!("the session file {} ({listing})", file.display())
-    });
+    // The gate is durable: the marker landed in the session's storage (the
+    // `eukhe.daemon.session` document's `anthropicWarningShown`), and the
+    // daemon's `get_state` serves it open.
+    let storage = session_dir.join(&outcome.session_id);
     assert!(
-        persisted.contains("anthropic_subscription_warning_shown"),
-        "the marker row reached the session file:\n{persisted}"
+        storage_contains(&storage, "\"anthropicWarningShown\":true"),
+        "the marker reached the session storage {}: {:?}",
+        storage.display(),
+        session_dirs(&session_dir)
     );
     let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
         .await
@@ -449,27 +435,22 @@ async fn tui_bare_launch_opens_a_fresh_session_when_a_newer_saved_one_exists_for
         after, poisoned_bytes,
         "the bare launch never wrote to the saved session file"
     );
-    // A fresh session file appeared next to it.
-    let new_files: Vec<std::path::PathBuf> = std::fs::read_dir(&session_dir)
-        .expect("read sessions dir")
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-        .filter(|path| path != &poisoned_path)
-        .collect();
+    // A fresh session storage appeared next to it (the saved file was
+    // never imported).
+    let storages = session_dirs(&session_dir);
     assert_eq!(
-        new_files.len(),
+        storages.len(),
         1,
-        "exactly one fresh session file was created: {new_files:?}"
+        "exactly one fresh session storage was created: {storages:?}"
     );
     assert_eq!(
-        new_files[0]
-            .file_stem()
-            .and_then(|stem| stem.to_str())
+        storages[0]
+            .file_name()
+            .and_then(|name| name.to_str())
             .map(str::to_string),
         Some(outcome.session_id),
-        "the created file belongs to the opened session ({})",
-        new_files[0].display()
+        "the created storage belongs to the opened session ({})",
+        storages[0].display()
     );
     drop(supervisor);
 }
@@ -477,8 +458,8 @@ async fn tui_bare_launch_opens_a_fresh_session_when_a_newer_saved_one_exists_for
 /// The backgrounded submit keeps the WIRE in submit order (the ordered
 /// submit worker): two back-to-back submissions — the first starting its
 /// turn, the second arriving while the first's round trip is still in
-/// flight — reach the daemon in submit order, so the session file's
-/// first mention of each prompt is first-then-second and both scripted
+/// flight — reach the daemon in submit order, so the session transcript
+/// holds the first prompt before the second and both scripted
 /// turns render. A per-submit task would schedule the two wire writes
 /// independently; the ordered channel pins the order the blocked loop
 /// and TS's single-threaded event loop guaranteed.
@@ -555,29 +536,20 @@ async fn tui_two_back_to_back_submits_reach_the_daemon_in_order() {
         rendered.contains("second scripted reply"),
         "the queued second turn rendered:\n{rendered}"
     );
-    // The daemon received the two prompts in submit order: the session
-    // file mentions "first submit" before "second submit" (the queue
-    // admission and message rows all carry the wire order).
-    let mut first_index = None;
-    let mut second_index = None;
-    for entry in std::fs::read_dir(&session_dir)
-        .expect("read session dir")
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        first_index = first_index.or_else(|| content.find("first submit"));
-        second_index = second_index.or_else(|| content.find("second submit"));
-    }
-    let (Some(first_index), Some(second_index)) = (first_index, second_index) else {
-        panic!("the session file persisted both prompts:\n{rendered}");
+    // The daemon received the two prompts in submit order: the session's
+    // transcript holds "first submit" before "second submit".
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let texts = read_transcript(&storages[0]).message_texts();
+    let position = |prompt: &str| texts.iter().position(|text| text == prompt);
+    let (Some(first_index), Some(second_index)) =
+        (position("first submit"), position("second submit"))
+    else {
+        panic!("the session persisted both prompts: {texts:?}\n{rendered}");
     };
     assert!(
         first_index < second_index,
-        "the daemon received the prompts in submit order"
+        "the daemon received the prompts in submit order: {texts:?}"
     );
     drop(supervisor);
 }
@@ -699,22 +671,18 @@ async fn tui_submit_outlived_by_switch_stays_silent_on_the_new_session() {
     );
     // The daemon still ran the outlived submit's turn for the
     // switched-away session: the submitted prompt was never lost. The
-    // reply lands ~400ms in, so poll the session file for it.
+    // reply lands ~400ms in, so poll the session storages for it.
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut ran = false;
     while Instant::now() < deadline {
-        let mut content = String::new();
-        for entry in std::fs::read_dir(&session_dir)
-            .expect("read session dir")
-            .flatten()
-        {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                content.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
-            }
-        }
-        if content.contains("for a") && content.contains("a turn reply") {
-            ran = true;
+        ran = session_dirs(&session_dir).iter().any(|storage| {
+            try_read_transcript(storage).is_some_and(|transcript| {
+                let texts = transcript.message_texts();
+                texts.iter().any(|text| text == "for a")
+                    && texts.iter().any(|text| text == "a turn reply")
+            })
+        });
+        if ran {
             break;
         }
         tokio::time::sleep(Duration::from_millis(200)).await;

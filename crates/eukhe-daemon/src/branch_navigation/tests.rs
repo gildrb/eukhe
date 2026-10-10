@@ -262,11 +262,13 @@ async fn navigate_tree_writes_the_branch_summary() {
 
 /// `fork`: `position: "at"` keeps the history through the entry; the
 /// default forks before a user message and answers its text; a non-user
-/// entry is not a fork point.
+/// entry is not a fork point. A persisted session forks into a new storage
+/// (a new session id) that replaces the live session; the fork inherits the
+/// entries (and their ids) through the fork point.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fork_continues_on_a_fork() {
-    let (_dir, worker) = created_worker(&["one", "two"]).await;
-    let [_, _, assistant1, user2, assistant2] = two_turns(&worker).await;
+    let (_dir, worker) = created_worker(&["one", "two", "three"]).await;
+    let [_, _, assistant1, _, _] = two_turns(&worker).await;
     let state_before = command(&worker, "get_state", json!({})).await;
 
     let at = command(
@@ -278,16 +280,23 @@ async fn fork_continues_on_a_fork() {
     assert_eq!(at, json!({ "cancelled": false }));
     let tree = command(&worker, "get_session_tree", json!({})).await;
     assert_eq!(tree["leafId"], json!(assistant1));
-    // Same storage, same session id: the fork is a conversation of it.
+    // A new storage, a new session id.
     let state_after = command(&worker, "get_state", json!({})).await;
-    assert_eq!(state_after["sessionId"], state_before["sessionId"]);
+    assert_ne!(state_after["sessionId"], state_before["sessionId"]);
 
-    let back = command(&worker, "navigate_tree", json!({ "targetId": assistant2 })).await;
-    assert_eq!(back["cancelled"], false);
-    let before = command(&worker, "fork", json!({ "entryId": user2 })).await;
+    // A turn on the fork, then a fork before its user message.
+    prompt(&worker, "third").await;
+    let tree = command(&worker, "get_session_tree", json!({})).await;
+    let user3 = shape(&tree)
+        .into_iter()
+        .rev()
+        .find(|node| node.1 == "user")
+        .expect("the fork's user message")
+        .2;
+    let before = command(&worker, "fork", json!({ "entryId": user3 })).await;
     assert_eq!(
         before,
-        json!({ "cancelled": false, "selectedText": "second" })
+        json!({ "cancelled": false, "selectedText": "third" })
     );
     let tree = command(&worker, "get_session_tree", json!({})).await;
     assert_eq!(tree["leafId"], json!(assistant1));

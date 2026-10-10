@@ -26,10 +26,12 @@ use eukhe_core::durable::observe::telemetry::{
     SessionTelemetry, SkillCounts, TelemetryWiring,
 };
 use eukhe_core::durable::{
-    open_session, EukheSession, HostDeps, ModelRequest, OpenError, SessionConfig, SessionStorage,
+    compose_models_json, open_session, EukheSession, HostDeps, ModelRequest, ModelsError,
+    OpenError, SessionConfig, SessionStorage,
 };
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
+use eukhe_pi_ai::models::Models;
 use eukhe_pi_ai::providers::faux_script::{
     create_faux_script_models, parse_faux_script_value, FauxScriptError,
 };
@@ -46,21 +48,49 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) enum HostError {
     #[error(transparent)]
     Lease(anyhow::Error),
-    #[error("invalid create script: {0}")]
-    Script(#[from] FauxScriptError),
+    #[error(transparent)]
+    Models(#[from] ModelsError),
     #[error(transparent)]
     Open(#[from] OpenError),
     #[error(transparent)]
     Session(#[from] SessionError),
 }
 
+/// A create-config faux script (`script`) as the model collection every
+/// session of the worker shares: its responses are consumed in order across
+/// the worker's sessions (a replacement continues the script where the
+/// replaced session left it, like the old engine the worker kept).
+#[derive(Clone)]
+pub(crate) struct ScriptedModels {
+    models: Models,
+    model: ModelRequest,
+}
+
+impl ScriptedModels {
+    /// # Errors
+    ///
+    /// The script is malformed.
+    pub(crate) fn parse(script: &serde_json::Value) -> Result<Self, FauxScriptError> {
+        let parsed = parse_faux_script_value(script)?;
+        let pattern = parsed.model.id.clone();
+        let (models, provider) = create_faux_script_models(parsed);
+        Ok(Self {
+            models,
+            model: ModelRequest {
+                provider: Some(provider.get_model().provider),
+                pattern,
+            },
+        })
+    }
+}
+
 /// What the worker opens a session with.
 pub(crate) struct HostRequest {
     /// The eukhe session config (cwd, id, storage, role, model, memory...).
     pub(crate) config: SessionConfig,
-    /// A create-config faux script (`script`): the session's models become
-    /// the scripted faux provider and its model the scripted one.
-    pub(crate) script: Option<serde_json::Value>,
+    /// The worker's faux script models: the session's models become them
+    /// and its model the scripted one.
+    pub(crate) scripted: Option<ScriptedModels>,
     /// The create command's telemetry opt-out ("1" = disabled; the
     /// session installs no telemetry subscriber).
     pub(crate) telemetry_disabled: Option<bool>,
@@ -103,8 +133,8 @@ impl HostedSession {
     ///
     /// # Errors
     ///
-    /// The lease is held by a live process, the script is malformed, or
-    /// the session cannot be opened.
+    /// The lease is held by a live process, or the session cannot be
+    /// opened.
     pub(crate) async fn open(
         request: HostRequest,
         agent_dir: &Path,
@@ -112,7 +142,7 @@ impl HostedSession {
     ) -> Result<Self, HostError> {
         let HostRequest {
             mut config,
-            script,
+            scripted,
             telemetry_disabled,
             execution_mode,
         } = request;
@@ -133,16 +163,25 @@ impl HostedSession {
             }
             None => None,
         };
-        if let Some(script) = script {
-            let parsed = parse_faux_script_value(&script)?;
-            let model_id = parsed.model.id.clone();
-            let (models, provider) = create_faux_script_models(parsed);
-            config.models = Some(models);
-            if config.model.is_none() {
-                config.model = Some(ModelRequest {
-                    provider: Some(provider.get_model().provider),
-                    pattern: model_id,
-                });
+        if let Some(scripted) = scripted {
+            // The agent dir's `models.json` composes over the script (its
+            // models list and switch like the old registry's).
+            compose_models_json(&scripted.models, agent_dir)?;
+            config.models = Some(scripted.models);
+            // The script serves every turn of the session, whatever model
+            // the create named (the old scripted engine ignored the
+            // selection): a request naming another provider (a scripted
+            // RLM child inheriting its parent's off-catalog selector)
+            // runs on the scripted model, since the script's collection
+            // holds no other provider to resolve it against.
+            let foreign = config.model.as_ref().is_none_or(|request| {
+                request
+                    .provider
+                    .as_deref()
+                    .is_some_and(|requested| Some(requested) != scripted.model.provider.as_deref())
+            });
+            if foreign {
+                config.model = Some(scripted.model);
             }
         }
         let is_root = config.role.is_root();
@@ -261,8 +300,21 @@ impl HostedSession {
             .provider_runtime
             .get()
             .map(|runtime| runtime.subscribe());
-        let started =
-            EventBridge::start(&self.harness, conversation.id(), provider_events, sink).await?;
+        // The retry starts report the live policy (`retry.*`, pi-durable's
+        // defaults when unset), resolved like the Harness resolves it and
+        // re-read per start.
+        let settings = Arc::clone(&self.deps().settings);
+        let retry_policy = translator::RetryPolicySource::new(move || {
+            eukhe_durable::harness::agent::resolve_settings(Some(&settings.harness())).retry
+        });
+        let started = EventBridge::start(
+            &self.harness,
+            conversation.id(),
+            provider_events,
+            retry_policy,
+            sink,
+        )
+        .await?;
         *lock(&self.bridge) = Some(started);
         Ok(())
     }
@@ -466,7 +518,7 @@ mod telemetry_tests {
         let open = |session_id: &str, telemetry_disabled| {
             let request = HostRequest {
                 config: fixture.config(session_id),
-                script: None,
+                scripted: None,
                 telemetry_disabled,
                 execution_mode: Some("interactive".to_owned()),
             };

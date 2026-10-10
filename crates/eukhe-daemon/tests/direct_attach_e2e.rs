@@ -460,8 +460,11 @@ fn direct_attach_ticket_streams_across_supervisor_kill9() {
         }
     };
     assert!(saw_message_start, "the kill happened mid-stream");
+    // pi-ai assistant content is a block array (the old scripted engine
+    // emitted a plain string).
     assert_eq!(
-        event["event"]["message"]["content"], "turn-1",
+        event["event"]["message"]["content"],
+        json!([{ "type": "text", "text": "turn-1" }]),
         "the in-flight turn completed over the direct socket with the supervisor dead"
     );
     // The full event lifecycle still arrived: turn_end follows.
@@ -520,11 +523,13 @@ fn direct_attach_ticket_streams_across_supervisor_kill9() {
         }),
     );
     assert_eq!(attach2["success"], true, "reattach failed: {attach2}");
+    // user, harness digest (pi-durable commits it after the prompt's user
+    // entry), assistant.
     assert_eq!(
         attach2["data"]["snapshot"]["messages"]
             .as_array()
             .map(Vec::len),
-        Some(2),
+        Some(3),
         "the snapshot carries the persisted first turn: {attach2}"
     );
 
@@ -550,7 +555,11 @@ fn direct_attach_ticket_streams_across_supervisor_kill9() {
             break event["event"]["message"]["content"].clone();
         }
     };
-    assert_eq!(answer, "turn-2", "second scripted turn completed");
+    assert_eq!(
+        answer,
+        json!([{ "type": "text", "text": "turn-2" }]),
+        "second scripted turn completed"
+    );
 
     // Shutdown: the restarted supervisor takes the adopted worker down.
     client2.send_command("sd", &json!({ "type": "shutdown" }));

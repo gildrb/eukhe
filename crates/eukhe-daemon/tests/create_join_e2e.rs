@@ -1,12 +1,12 @@
 //! Concurrent-create join e2e (TS `openingSessions` parity): two `create`
 //! commands racing on the worker's own socket must join the first create
-//! instead of both initializing the session — duplicating creation-prefix
-//! rows and overwriting the initialized core state. The race window is the
-//! session-model restore's awaits (the `spawn_blocking` file scan), so the
-//! driver runs the real engine (no script) and pads the session file until
-//! the scan holds the first create open long enough for the second to land.
-//! The join keeps the session file at exactly one creation prefix and one
-//! `session_state` row, and both creates answer the created summary.
+//! instead of both initializing the session — importing and opening the
+//! storage twice. The race window is the open's awaits (the legacy import
+//! of the padded session file), so the driver runs the real engine (no
+//! script) and pads the file until the import holds the first create open
+//! long enough for the second to land.
+//! The join imports the legacy session file into its durable storage
+//! exactly once, and both creates answer the created summary.
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -236,11 +236,10 @@ fn write_models_json(agent_dir: &Path) {
     .expect("write models.json");
 }
 
-/// The session file the two racing creates both open: it pins the battery
-/// model (the restore reads the pin) and carries filler messages so the
-/// `spawn_blocking` scan of `saved_model_from_session_file` holds the first
-/// create open long enough for the second create to land inside the
-/// window the created check guards.
+/// The legacy session file the two racing creates both open: it pins the
+/// battery model (the import carries the pin) and carries filler messages
+/// so the first open's legacy import holds the create open long enough for
+/// the second create to land inside the window the create gate guards.
 fn write_padded_session_file(dir: &Path) -> PathBuf {
     let mut session =
         eukhe_daemon::session_store::SessionFile::create(dir.to_str().expect("utf8 dir"), None, 0);
@@ -315,27 +314,30 @@ fn concurrent_creates_join_the_first_create() {
         std::thread::sleep(Duration::from_millis(20));
     }
 
-    // The join contract: exactly one creation prefix. A raced double
-    // initialization appends the thinking level (and the active-state
-    // row) twice.
-    let store =
-        eukhe_daemon::session_store::SessionFile::open(&session_path).expect("reopen session file");
-    let entries = store.entries();
-    let thinking_rows = entries
+    // The join contract: the session opened exactly once. On the durable
+    // host the legacy file imports into its `<id>/` storage on the first
+    // open and the legacy rows are never rewritten (no `session_state` or
+    // `thinking_level_change` rows are appended to the jsonl), so a raced
+    // double open shows in the imported storage: every padded message
+    // lands exactly once on the main conversation.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let transcript = runtime
+        .block_on(eukhe_core::durable::read_main_transcript(
+            &eukhe_core::durable::SessionLocation::Legacy(session_path),
+            &eukhe_chord::context::BACKGROUND_CONTEXT,
+        ))
+        .expect("read the imported session storage");
+    let user_rows = transcript
+        .entries
         .iter()
-        .filter(|entry| entry.type_ == "thinking_level_change")
-        .count();
-    let state_rows = entries
-        .iter()
-        .filter(|entry| entry.type_ == "session_state")
+        .filter(|entry| entry.kind == "pi.user")
         .count();
     assert_eq!(
-        thinking_rows, 1,
-        "a joined create writes the creation prefix exactly once"
-    );
-    assert_eq!(
-        state_rows, 1,
-        "a joined create marks the session active exactly once"
+        user_rows, 2_000,
+        "a joined create imports the session exactly once"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

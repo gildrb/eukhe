@@ -9,8 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::goals::{
-    autonomous_state, goal_state, seed_initial_goal, set_autonomous, AutonomousChange,
-    NO_PROGRESS_CAP_REASON,
+    autonomous_state, configure_autonomous, goal_state, seed_initial_goal, NO_PROGRESS_CAP_REASON,
 };
 use eukhe_core::durable::{classify_session_command, execute_session_command, EukheSession};
 use eukhe_core::session::discovery::SessionSelectorError;
@@ -502,14 +501,14 @@ async fn drive_prompts(
 ) -> Result<Option<String>, String> {
     let harness = session.harness();
     let config = &options.config;
-    // The CLI autonomous flags enable the run on the main conversation; a
-    // run without flags keeps the session's state (`/autonomous` rewrites
-    // it live).
+    // The CLI autonomous flags enable the run on the main conversation (no
+    // status row, as TS `createAgentSession({ autonomous })`); a run without
+    // flags keeps the session's state (`/autonomous` rewrites it live).
     if let Some(autonomous) = &config.autonomous {
-        set_autonomous(
+        configure_autonomous(
             harness,
             conversation.id(),
-            AutonomousChange::On(autonomous_runtime_config(autonomous)),
+            autonomous_runtime_config(autonomous),
             cx,
         )
         .await

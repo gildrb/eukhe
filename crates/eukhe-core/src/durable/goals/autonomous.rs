@@ -298,6 +298,41 @@ pub async fn set_autonomous(
     change: AutonomousChange,
     cx: &Context,
 ) -> SessionResult<AgentAutonomousStatus> {
+    apply_autonomous(harness, conversation_id, change, /*announce*/ true, cx).await
+}
+
+/// Enable the autonomous run from a session's startup configuration (the
+/// CLI `--autonomous*` flags; TS `createAgentSession({ autonomous })`): the
+/// state only, no `autonomous_status` row. Returns the new status.
+///
+/// # Errors
+///
+/// Read or commit failures, or no such conversation.
+pub async fn configure_autonomous(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    config: AgentAutonomousConfig,
+    cx: &Context,
+) -> SessionResult<AgentAutonomousStatus> {
+    apply_autonomous(
+        harness,
+        conversation_id,
+        AutonomousChange::On(config),
+        /*announce*/ false,
+        cx,
+    )
+    .await
+}
+
+/// Apply `change` in one commit; `announce` appends its `autonomous_status`
+/// row.
+async fn apply_autonomous(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    change: AutonomousChange,
+    announce: bool,
+    cx: &Context,
+) -> SessionResult<AgentAutonomousStatus> {
     conversation_of(harness, conversation_id, cx)
         .await?
         .commit(
@@ -318,16 +353,18 @@ pub async fn set_autonomous(
                 let next = AutonomousDocState::from_runtime(&state, last_stop);
                 write_doc(&draft, &next)?;
                 let status = next.status();
-                let details = serde_json::to_value(&status)
-                    .map_err(|error| SessionError::error(error.to_string()))?;
-                let entry = custom_entry_draft(
-                    AUTONOMOUS_STATUS_CUSTOM_TYPE,
-                    UserContent::Text(format_autonomous_status(&status)),
-                    /*display*/ true,
-                    Some(details),
-                    now_millis(),
-                )?;
-                tx.append_entry(conversation_id, entry).await?;
+                if announce {
+                    let details = serde_json::to_value(&status)
+                        .map_err(|error| SessionError::error(error.to_string()))?;
+                    let entry = custom_entry_draft(
+                        AUTONOMOUS_STATUS_CUSTOM_TYPE,
+                        UserContent::Text(format_autonomous_status(&status)),
+                        /*display*/ true,
+                        Some(details),
+                        now_millis(),
+                    )?;
+                    tx.append_entry(conversation_id, entry).await?;
+                }
                 Ok(status)
             },
             cx,

@@ -92,7 +92,9 @@ struct Settled {
     conversation_id: ConversationId,
     /// The task's durable id (its idempotency key).
     task_id: String,
-    reason: CompactionOutcomeReason,
+    /// `None` for a manual compaction: its outcome reports on the event
+    /// (the old `compact()`), so only the kernel notice follows its summary.
+    reason: Option<CompactionOutcomeReason>,
     outcome: SettledOutcome,
 }
 
@@ -334,6 +336,18 @@ fn settle_of(record: &TaskRecord, seen: &Mutex<Vec<String>>) -> Option<Settled> 
     if record.kind != super::COMPACTION_ENTRY_KIND {
         return None;
     }
+    let input: Value = serde_json::from_str(&record.input.to_string()).ok()?;
+    let reason = match input.get("reason").and_then(Value::as_str) {
+        Some("threshold") => Some(CompactionOutcomeReason::Threshold),
+        Some("overflow") => Some(CompactionOutcomeReason::Overflow),
+        // Manual compactions report on the event only (the old `compact()`).
+        _ => None,
+    };
+    let eukhe_durable::types::TaskState::Terminal { outcome } = &record.state else {
+        return None;
+    };
+    // Seen only once terminal: the task's pending and running publications
+    // come first and must not consume its idempotency key.
     let task_id = record.id.to_string();
     {
         let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
@@ -342,16 +356,6 @@ fn settle_of(record: &TaskRecord, seen: &Mutex<Vec<String>>) -> Option<Settled> 
         }
         seen.push(task_id.clone());
     }
-    let input: Value = serde_json::from_str(&record.input.to_string()).ok()?;
-    let reason = match input.get("reason").and_then(Value::as_str) {
-        Some("threshold") => CompactionOutcomeReason::Threshold,
-        Some("overflow") => CompactionOutcomeReason::Overflow,
-        // Manual compactions report on the event only (the old `compact()`).
-        _ => return None,
-    };
-    let eukhe_durable::types::TaskState::Terminal { outcome } = &record.state else {
-        return None;
-    };
     let outcome = match outcome {
         TaskOutcome::Completed { result } => {
             let placed = serde_json::from_str::<Value>(&result.to_string())
@@ -378,6 +382,9 @@ fn settle_of(record: &TaskRecord, seen: &Mutex<Vec<String>>) -> Option<Settled> 
         // settles through this observer.
         TaskOutcome::Orphaned { .. } => return None,
     };
+    if reason.is_none() && !matches!(outcome, SettledOutcome::Summarized) {
+        return None;
+    }
     Some(Settled {
         conversation_id: record.conversation_id,
         task_id,
@@ -396,6 +403,13 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
         .ok_or_else(|| anyhow::anyhow!("the session is closed"))?;
     let cx = BACKGROUND_CONTEXT.clone();
     let Some(conversation) = harness.conversation(event.conversation_id, &cx).await? else {
+        return Ok(());
+    };
+    let Some(reason) = event.reason else {
+        // A manual compaction: the kernel survived it too (the old
+        // `compact()` ends with `_syncKernelStateAfterCompaction` on every
+        // trigger), so its persistence notice lands.
+        notice_surviving_kernel(deps, &conversation, &cx).await;
         return Ok(());
     };
     match event.outcome {
@@ -427,7 +441,7 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
                 &event.task_id,
                 super::summary::outcome_message(
                     &format!("Auto-compaction skipped: {message}"),
-                    event.reason,
+                    reason,
                     CompactionOutcomeKind::Skipped,
                 ),
                 &cx,
@@ -440,7 +454,7 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
                 &event.task_id,
                 super::summary::outcome_message(
                     &format!("Auto-compaction failed: {message}"),
-                    event.reason,
+                    reason,
                     CompactionOutcomeKind::Failed,
                 ),
                 &cx,
@@ -453,7 +467,7 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
                 &event.task_id,
                 super::summary::outcome_message(
                     "Compaction cancelled",
-                    event.reason,
+                    reason,
                     CompactionOutcomeKind::Cancelled,
                 ),
                 &cx,

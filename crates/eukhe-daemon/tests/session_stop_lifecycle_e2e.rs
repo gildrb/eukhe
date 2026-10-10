@@ -235,10 +235,10 @@ fn create_session(
 }
 
 impl Session {
+    /// The session's durable storage (`<sessions>/<id>/`; the old engine
+    /// wrote a `<id>.jsonl` file).
     fn session_file(&self) -> PathBuf {
-        self.agent_dir
-            .join("sessions")
-            .join(format!("{}.jsonl", self.session_id))
+        self.agent_dir.join("sessions").join(&self.session_id)
     }
 
     fn scheduled_jobs_path(&self) -> PathBuf {
@@ -248,43 +248,47 @@ impl Session {
             .join("scheduled-jobs.json")
     }
 
-    /// The latest `session_state` status of the session file.
+    /// The session's catalog state (`archived` after a kill, else
+    /// `active`), folded from the storage's session document by the
+    /// catalog reader (the old test scanned `session_state` rows).
     fn session_state(&self) -> String {
-        let mut state = String::new();
-        for line in std::fs::read_to_string(self.session_file())
-            .expect("session file readable")
-            .lines()
-        {
-            let Ok(entry) = serde_json::from_str::<Value>(line.trim()) else {
-                continue;
-            };
-            if entry.get("type").and_then(Value::as_str) == Some("session_state") {
-                if let Some(status) = entry["state"]["status"].as_str() {
-                    state = status.to_string();
-                }
-            }
-        }
-        state
+        eukhe_daemon::session_store::read_session_info(&self.session_file())
+            .and_then(|info| info.state)
+            .unwrap_or_default()
     }
 
-    /// The session file's `thread_goal_state` custom rows (the durable goal
-    /// record the continuation loop writes).
-    fn goal_state_rows(&self) -> usize {
-        std::fs::read_to_string(self.session_file())
-            .expect("session file readable")
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-            .filter(|entry| {
-                entry.get("type").and_then(Value::as_str) == Some("custom")
-                    && entry.get("customType").and_then(Value::as_str) == Some("thread_goal_state")
-            })
-            .count()
+    /// The main conversation's `eukhe.goal` document as JSON (the durable
+    /// goal record the continuation loop writes; the old engine appended
+    /// `thread_goal_state` rows), read through the read-only storage view.
+    fn goal_record(&self) -> Option<String> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("reader runtime");
+        let location = eukhe_core::durable::SessionLocation::Durable(self.session_file());
+        let cx = &eukhe_chord::context::BACKGROUND_CONTEXT;
+        runtime.block_on(async {
+            let main = eukhe_core::durable::read_main_transcript(&location, cx)
+                .await
+                .expect("session storage readable")
+                .main;
+            eukhe_core::durable::read_session_document(
+                &location,
+                &eukhe_core::durable::goals::GOAL_DOC,
+                main,
+                cx,
+            )
+            .await
+            .expect("goal document readable")
+            .map(|goal| serde_json::to_string(&goal).expect("goal json"))
+        })
     }
 
+    /// The storage's commit count: every commit appends one marker line to
+    /// its `main.jsonl` (the old test counted the session file's rows).
     fn file_rows(&self) -> usize {
-        std::fs::read_to_string(self.session_file())
-            .expect("session file readable")
+        std::fs::read_to_string(self.session_file().join("main.jsonl"))
+            .expect("session storage readable")
             .lines()
             .filter(|line| !line.trim().is_empty())
             .count()
@@ -371,8 +375,8 @@ fn kill_cancels_goal_and_heartbeat_and_no_wake_revives_the_session() {
     );
     assert_eq!(started["success"], true, "goal start failed: {started}");
     assert!(
-        a.goal_state_rows() > 0,
-        "the started goal persisted its row"
+        a.goal_record().is_some(),
+        "the started goal persisted its record"
     );
     let heartbeat = client.request(
         "a-hb",
@@ -426,7 +430,7 @@ fn kill_cancels_goal_and_heartbeat_and_no_wake_revives_the_session() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert_eq!(a.session_state(), "archived");
-    let goal_rows_at_kill = a.goal_state_rows();
+    let goal_at_kill = a.goal_record();
     let file_rows_at_kill = a.file_rows();
 
     // The crash window: both workers hard-crash with the supervisor, with
@@ -536,8 +540,8 @@ fn kill_cancels_goal_and_heartbeat_and_no_wake_revives_the_session() {
     // the kill (a revived goal loop would have written more rows), and
     // no new file rows landed after the kill.
     assert_eq!(
-        a.goal_state_rows(),
-        goal_rows_at_kill,
+        a.goal_record(),
+        goal_at_kill,
         "the stopped session's goal churned on"
     );
     assert_eq!(

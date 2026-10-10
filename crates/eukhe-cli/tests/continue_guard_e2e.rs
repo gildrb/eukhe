@@ -276,13 +276,14 @@ fn print_continue_refuses_an_active_daemon_session() {
     );
 }
 
-/// A session file held by a live FOREIGN lease holder -- this test process
+/// A session held by a live FOREIGN lease holder -- this test process
 /// stands in for the other product's holder on the shared session store --
 /// refuses `--resume` with the session-hold refusal. No daemon runs: the
 /// roster probe has nothing to answer, and the guard's lease probe is what
-/// must catch a holder no roster of this product's daemon can see. The
-/// guard runs before the file is opened, so the file itself only has to
-/// exist (the resume selector names it directly).
+/// must catch a holder no roster of this product's daemon can see. A
+/// durable session is leased on its storage directory (a legacy
+/// `<id>.jsonl` opens as the sibling `<id>/` storage), so the holder takes
+/// that lease; the guard runs before the legacy file is imported.
 #[test]
 fn print_resume_refuses_a_foreign_lease_holder() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -302,7 +303,21 @@ fn print_resume_refuses_a_foreign_lease_holder() {
         ),
     ];
     let session_path = sessions.join("foreign-held.jsonl");
-    std::fs::write(&session_path, "{}\n").expect("session file");
+    std::fs::write(
+        &session_path,
+        format!(
+            "{}\n",
+            json!({
+                "type": "session",
+                "version": 3,
+                "id": "foreign-held",
+                "timestamp": "2026-09-24T00:00:00Z",
+                "cwd": dir.path().to_string_lossy(),
+            })
+        ),
+    )
+    .expect("session file");
+    let storage_dir = sessions.join("foreign-held");
 
     // The foreign holder: this test process takes the runtime lease, in
     // exactly the role the other product's daemon worker plays on the
@@ -313,7 +328,7 @@ fn print_resume_refuses_a_foreign_lease_holder() {
         eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV,
         "foreign01ab3c",
     );
-    let holder = eukhe_daemon::lease::acquire_session_lease(Some(&session_path), &agent_dir)
+    let holder = eukhe_daemon::lease::acquire_session_lease(Some(&storage_dir), &agent_dir)
         .expect("lease acquire probe")
         .expect("the lease must be held");
     std::env::remove_var(eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV);
@@ -327,7 +342,7 @@ fn print_resume_refuses_a_foreign_lease_holder() {
     // take-over `kill` of this test process's pid with the holder-image
     // annotation (the pid-reuse guard: the refusal names what the kill
     // would hit, here this test binary), and the session footer (the
-    // `{}\n` fixture file carries no name, so no paren).
+    // fixture session carries no name, so no paren).
     let holder_image = std::env::current_exe()
         .expect("own exe")
         .file_name()

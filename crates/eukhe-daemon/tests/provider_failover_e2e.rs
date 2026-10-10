@@ -1,10 +1,17 @@
 //! End-to-end verifier for provider failover: a daemon worker session whose
 //! model is served by two configured providers. When the primary provider
-//! exhausts its quick retries, the turn must re-route to the next configured
-//! provider serving the same model (the `reason: "backup"` retry event),
-//! succeed there, and restore the primary (`restoredModel`). With every
-//! provider failing, the chain walks all candidates and surfaces the final
-//! failure like the single-provider loop does.
+//! fails, the turn must re-route to the next configured provider serving
+//! the same model (the `reason: "backup"` retry event), succeed there, and
+//! restore the primary (`restoredModel`). With every provider failing, the
+//! chain walks all candidates and surfaces the final failure like the
+//! single-provider loop does.
+//!
+//! Durable composition: pi-durable's generation owns the quick retries (it
+//! re-issues the whole request after a backoff), and eukhe's provider
+//! runtime sits under it, inside one request — so the switch to the backup
+//! happens within the failed request, immediately, and a pi-durable retry
+//! re-issues the request to the primary again (where the switch repeats).
+//! The old engine quick-retried on the primary first and switched after.
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -325,9 +332,10 @@ fn setup(
         .to_string(),
     )
     .expect("write models.json");
-    // A fast quick-retry policy (one retry on the primary) and a fast
-    // failover policy (one retry per provider) so the test asserts the
-    // chain, not the delays.
+    // A fast quick-retry policy (one pi-durable retry of the request) and a
+    // failover switch budget of one (`retry.failover.maxRetries`; its
+    // per-provider retry budget is pi-durable's `retry.maxRetries` on the
+    // durable path) so the test asserts the chain, not the delays.
     std::fs::write(
         agent_dir.join("settings.json"),
         json!({
@@ -401,31 +409,23 @@ fn provider_failure_fails_over_to_the_next_provider_and_recovers() {
     assert_eq!(done["success"], true, "prompt must succeed: {done}");
     client.drain_events(Duration::from_secs(1));
 
-    // The primary got the initial request plus one quick retry; the
-    // failover switch routed the re-issued turn to the backup, which
-    // answered it.
-    assert_eq!(primary.count(), 2, "primary requests: initial + 1 retry");
+    // Durable composition (see the module doc): the runtime switches inside
+    // the primary's failed request, so the backup answers that same
+    // request and pi-durable never retries — one primary request, no quick
+    // retry before the switch (the old engine retried the primary first).
+    assert_eq!(primary.count(), 1, "primary requests: the failed initial");
     assert_eq!(backup.count(), 1, "backup served the switched turn");
 
-    // The retry progression: one quick retry on the primary, then the
-    // provider switch (reason "backup", the backup reference, no delay).
+    // The retry progression: the provider switch (reason "backup", the
+    // backup reference, no delay) within the switch budget of 1.
     let starts = retry_starts(&client.events);
-    assert_eq!(starts.len(), 2, "events: {:?}", client.events);
+    assert_eq!(starts.len(), 1, "events: {:?}", client.events);
     assert_eq!(starts[0]["attempt"], 1);
     assert_eq!(starts[0]["maxAttempts"], 1);
-    // The quick retry's wait sits in the ±20% jitter band around the
-    // 50ms base delay ([40, 70] with rounding headroom).
-    let delay = starts[0]["delayMs"].as_u64().expect("delayMs");
-    assert!(
-        (40..=70).contains(&delay),
-        "jittered delay {delay} outside [40, 70]"
-    );
-    assert_eq!(starts[0].get("reason"), None, "quick retry has no reason");
-    assert_eq!(starts[1]["attempt"], 2);
-    assert_eq!(starts[1]["reason"], "backup");
-    assert_eq!(starts[1]["backupModel"], "prime-backup/mock-1");
-    assert_eq!(starts[1]["delayMs"], 0);
-    assert!(starts[1]["errorMessage"]
+    assert_eq!(starts[0]["reason"], "backup");
+    assert_eq!(starts[0]["backupModel"], "prime-backup/mock-1");
+    assert_eq!(starts[0]["delayMs"], 0);
+    assert!(starts[0]["errorMessage"]
         .as_str()
         .expect("error message")
         .contains("mock provider overloaded"));
@@ -433,7 +433,7 @@ fn provider_failure_fails_over_to_the_next_provider_and_recovers() {
     // The loop settles with the primary restored.
     let end = retry_end(&client.events);
     assert_eq!(end["success"], true);
-    assert_eq!(end["attempt"], 2);
+    assert_eq!(end["attempt"], 1);
     assert_eq!(end["restoredModel"], "prime-inference/mock-1");
 
     // The switched turn's assistant message reached the transcript.
@@ -498,25 +498,43 @@ fn every_provider_failing_surfaces_the_final_error() {
     assert_eq!(done["success"], false, "prompt must fail: {done}");
     client.drain_events(Duration::from_secs(1));
 
-    // Both providers got their budget: initial + one retry each.
+    // Both providers got their budget: pi-durable's initial request and its
+    // one retry, each switching from the primary to the backup.
     assert_eq!(primary.count(), 2);
     assert_eq!(backup.count(), 2);
 
-    // The chain walked the only candidate, then surfaced the failure.
+    // Durable composition (module doc): the switch comes first inside each
+    // request, the pi-durable quick retry between the two requests — the
+    // old engine's order was quick retry, switch, quick retry.
     let starts = retry_starts(&client.events);
     assert_eq!(starts.len(), 3, "events: {:?}", client.events);
-    assert_eq!(starts[0].get("reason"), None);
-    assert_eq!(starts[1]["reason"], "backup");
-    assert_eq!(starts[1]["backupModel"], "prime-backup/mock-1");
+    assert_eq!(starts[0]["reason"], "backup");
+    assert_eq!(starts[0]["backupModel"], "prime-backup/mock-1");
     assert_eq!(
-        starts[2].get("reason"),
+        starts[1].get("reason"),
         None,
-        "the backup quick-retries too"
+        "the quick retry has no reason"
+    );
+    assert_eq!(starts[1]["attempt"], 1);
+    assert_eq!(starts[1]["maxAttempts"], 1);
+    // pi-durable schedules the policy's ladder step exactly (50 ms, no
+    // jitter); the band leaves rounding headroom.
+    let delay = starts[1]["delayMs"].as_u64().expect("delayMs");
+    assert!(
+        (40..=70).contains(&delay),
+        "quick retry delay {delay} outside [40, 70]"
+    );
+    assert_eq!(
+        starts[2]["reason"], "backup",
+        "the retried request switches too"
     );
 
+    // The episode closes once, failed: its attempt is the episode's retry
+    // count (two switches plus the quick retry; the old engine numbered
+    // the walk 4).
     let end = retry_end(&client.events);
     assert_eq!(end["success"], false);
-    assert_eq!(end["attempt"], 4);
+    assert_eq!(end["attempt"], 3);
     assert!(end["finalError"]
         .as_str()
         .expect("final error")

@@ -2,6 +2,8 @@
 //! snapshot directories under the session storage, the boot notices
 //! (`ipython_state_restored`, `python_skills_unavailable`) a boot owes the
 //! model, and the per-request host dispatch with the durable call context.
+//! A tree move hands the main conversation's kernel to the conversation it
+//! moves to ([`KernelPool::transfer`]).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,7 +24,7 @@ use crate::kernel::shared::{
     host_request_unavailable, HostHandlerFuture, HostRequestHandlers, HostRequestPayload,
     KernelHostDispatch, KernelHostRequest, KernelShutdownOptions,
 };
-use crate::kernel::state_snapshot::{snapshot_path_in, RestoreResult};
+use crate::kernel::state_snapshot::{manifest_path_in, snapshot_path_in, RestoreResult};
 use crate::session_engine::{skills_unavailable_notice, state_restore_notice};
 
 /// Bound on the background MCP settle after a prewarm boot (one wedged
@@ -62,6 +64,10 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 pub(crate) struct ConversationKernel {
     pub(crate) provisioner: IpythonKernelProvisioner,
     notices: Arc<Mutex<Vec<CustomNotice>>>,
+    /// Where the provisioner writes its namespace snapshot: the directory
+    /// of the conversation that created it (a kernel moved to another
+    /// conversation keeps writing there until it is disposed).
+    snapshot_dir: Option<PathBuf>,
 }
 
 impl ConversationKernel {
@@ -185,7 +191,7 @@ impl KernelPool {
                 session_id: Some(deps.session_id.clone()),
                 host_handlers: HostRequestHandlers::with_dispatch(dispatch),
                 python_skills: deps.python_skills.clone(),
-                snapshot_dir,
+                snapshot_dir: snapshot_dir.clone(),
                 on_restore: Some(on_restore),
                 on_unavailable_skills: Some(on_unavailable_skills),
                 ..IpythonKernelProvisionerOptions::default()
@@ -194,23 +200,27 @@ impl KernelPool {
         let kernel = ConversationKernel {
             provisioner,
             notices,
+            snapshot_dir,
         };
         kernels.insert(conversation_id, kernel.clone());
         Ok(kernel)
     }
 
-    /// Boot `conversation_id`'s kernel in the background when its snapshot
-    /// exists (a resumed session revives its namespace before the first
-    /// turn), then settle the generic MCP servers and hand the boot notices
-    /// to the conversation as write submissions (placed at once when idle,
-    /// otherwise at the next boundary).
+    /// Boot `conversation_id`'s kernel in the background when the session
+    /// asks for a prewarm ([`HostDeps::prewarm_kernel`], top-level sessions
+    /// only: the TS `prewarmIpythonKernel && rlmDepth === 0` gate) or its
+    /// snapshot exists (a resumed session revives its namespace before the
+    /// first turn, at any depth), then settle the generic MCP servers and
+    /// hand the boot notices to the conversation as write submissions
+    /// (placed at once when idle, otherwise at the next boundary).
     pub(crate) fn prewarm(self: &Arc<Self>, conversation_id: ConversationId) {
         let Some(deps) = self.deps.upgrade() else {
             return;
         };
+        let configured = deps.prewarm_kernel && deps.role.is_root();
         let has_snapshot = Self::snapshot_dir(&deps, conversation_id)
             .is_some_and(|dir| snapshot_path_in(&dir).exists());
-        if !has_snapshot {
+        if !configured && !has_snapshot {
             return;
         }
         let Ok(kernel) = self.kernel(conversation_id, deps.cwd.clone()) else {
@@ -244,16 +254,10 @@ impl KernelPool {
     /// Dispose every kernel, flushing a final namespace snapshot (session
     /// close).
     pub(crate) async fn dispose_all(&self) {
-        let kernels: Vec<ConversationKernel> =
-            lock(&self.kernels).drain().map(|(_, k)| k).collect();
-        for kernel in kernels {
-            kernel
-                .provisioner
-                .dispose(Some(KernelShutdownOptions {
-                    snapshot: true,
-                    drain_host_requests: true,
-                }))
-                .await;
+        let kernels: Vec<(ConversationId, ConversationKernel)> =
+            lock(&self.kernels).drain().collect();
+        for (conversation_id, kernel) in kernels {
+            dispose(conversation_id, &kernel).await;
         }
     }
 
@@ -268,15 +272,89 @@ impl KernelPool {
         let Some(kernel) = lock(&self.kernels).remove(&conversation_id) else {
             return false;
         };
-        kernel
-            .provisioner
-            .dispose(Some(KernelShutdownOptions {
-                snapshot: true,
-                drain_host_requests: true,
-            }))
-            .await;
+        dispose(conversation_id, &kernel).await;
         true
     }
+
+    /// Move `from`'s kernel onto `to`, process and namespace intact (the
+    /// session's main conversation moved between them). A kernel `to`
+    /// already had is disposed without a snapshot: the moved kernel's
+    /// namespace is the conversation's now. `false` when `from` had no
+    /// kernel.
+    pub(crate) async fn transfer(&self, from: ConversationId, to: ConversationId) -> bool {
+        if from == to {
+            return lock(&self.kernels).contains_key(&from);
+        }
+        let displaced = {
+            let mut kernels = lock(&self.kernels);
+            let Some(kernel) = kernels.remove(&from) else {
+                return false;
+            };
+            kernels.insert(to, kernel)
+        };
+        if let Some(displaced) = displaced {
+            displaced
+                .provisioner
+                .dispose(Some(KernelShutdownOptions {
+                    snapshot: false,
+                    drain_host_requests: true,
+                }))
+                .await;
+        }
+        true
+    }
+}
+
+/// Dispose `kernel`, held under `conversation_id`, with a final namespace
+/// snapshot, and move that snapshot into `conversation_id`'s directory when
+/// the kernel was created by another conversation (the next kernel of
+/// `conversation_id` revives it; the creator's directory keeps nothing of
+/// it).
+async fn dispose(conversation_id: ConversationId, kernel: &ConversationKernel) {
+    kernel
+        .provisioner
+        .dispose(Some(KernelShutdownOptions {
+            snapshot: true,
+            drain_host_requests: true,
+        }))
+        .await;
+    let Some(written) = &kernel.snapshot_dir else {
+        return;
+    };
+    let Some(owner) = written
+        .parent()
+        .map(|kernels| kernels.join(conversation_id.to_string()))
+    else {
+        return;
+    };
+    if owner == *written {
+        return;
+    }
+    if let Err(error) = relocate_snapshot(written, &owner).await {
+        tracing::warn!(
+            %error,
+            from = %written.display(),
+            to = %owner.display(),
+            "moving a kernel snapshot to its conversation failed"
+        );
+    }
+}
+
+/// Move the snapshot payload and manifest in `from` (when written) into
+/// `to`.
+async fn relocate_snapshot(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    tokio::fs::create_dir_all(to).await?;
+    for (source, target) in [
+        (snapshot_path_in(from), snapshot_path_in(to)),
+        (manifest_path_in(from), manifest_path_in(to)),
+    ] {
+        match tokio::fs::rename(&source, &target).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 async fn submit_notice(

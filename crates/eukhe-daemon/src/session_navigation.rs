@@ -2,7 +2,9 @@
 //! `switch_session`, and `import_jsonl` (TS daemon-mode cases over
 //! `AgentSessionRuntime.newSession` / `switchSession` / `importFromJsonl`).
 //! All three replace the worker's hosted session with another durable
-//! session (the TS runtime's replacement path).
+//! session (the TS runtime's replacement path); a persisted session's
+//! `fork` (`branch_navigation`) replaces it with the forked copy the same
+//! way.
 //!
 //! Replacement order (TS parity): the replacement target is prepared and
 //! validated first — a missing switch target, a missing import file, a
@@ -65,7 +67,9 @@ struct LiveIdentity {
     rlm_child_id: Option<String>,
     parent_active_session_id: Option<String>,
     parent_session_id: Option<String>,
+    parent_session_path: Option<String>,
     child_script: Option<String>,
+    prompt: eukhe_core::durable::PromptConfig,
 }
 
 impl SessionNavigation {
@@ -91,7 +95,9 @@ impl SessionNavigation {
             rlm_child_id: core.rlm_child_id.clone(),
             parent_active_session_id: core.parent_active_session_id.clone(),
             parent_session_id: core.parent_session_id.clone(),
+            parent_session_path: core.parent_session_path.clone(),
             child_script: core.child_script.clone(),
+            prompt: core.prompt.clone(),
         })
     }
 
@@ -145,6 +151,26 @@ impl SessionNavigation {
         let location = SessionLocation::from_path(path.clone());
         self.prepare_existing(COMMAND, live, &location, payload, agent_dir, cx)
             .await
+    }
+
+    /// `fork`'s prepare phase for a persisted session (TS
+    /// `AgentSessionRuntime.fork` onto the branched session file): the
+    /// fork already written at `forked` replaces the live session, in the
+    /// live cwd, keeping the live RLM identity.
+    #[allow(clippy::result_large_err)] // the error is the wire response itself
+    pub(crate) fn prepare_fork(
+        &self,
+        forked: PathBuf,
+        agent_dir: &Path,
+    ) -> Result<PreparedReplacement, DaemonResponse> {
+        const COMMAND: &str = "fork";
+        let live = self.live(COMMAND)?;
+        let session_dir = sessions_dir_of(Some(&forked), agent_dir)
+            .map_err(|error| response_failure(None, COMMAND, &error, None))?;
+        Ok(PreparedReplacement {
+            params: replacement_params(live, Some(forked), false, session_dir, None),
+            agent_cwd: None,
+        })
     }
 
     /// `import_jsonl`'s prepare phase (TS `importFromJsonl`): copy the input
@@ -279,8 +305,9 @@ fn sessions_dir_of(storage_dir: Option<&Path>, agent_dir: &Path) -> Result<PathB
 }
 
 /// The create parameters of a replacement: the target, in `cwd` (else the
-/// live cwd), keeping the live RLM identity; no explicit model, thinking
-/// level, name, or scoped-model patterns (the session's own state wins).
+/// live cwd), keeping the live RLM identity and prompt inputs; no explicit
+/// model, thinking level, name, scoped-model patterns, or autonomous flags
+/// (the session's own state wins).
 fn replacement_params(
     live: LiveIdentity,
     session_path: Option<PathBuf>,
@@ -302,10 +329,13 @@ fn replacement_params(
         rlm_child_id: live.rlm_child_id,
         parent_active_session_id: live.parent_active_session_id,
         parent_session_id: live.parent_session_id,
+        parent_session_path: live.parent_session_path,
         child_script: live.child_script,
         model_patterns: None,
         execution_mode: None,
         spawned_by_request_id: None,
+        prompt: live.prompt,
+        autonomous: None,
     }
 }
 
@@ -338,10 +368,20 @@ impl Worker {
             // A prepare failure never touched the live session.
             Err(response) => return response,
         };
-        let cx = BACKGROUND_CONTEXT.clone();
         // One replacement at a time: open, retire, and install are one
         // serialized critical section.
         let _replacement_gate = self.replacement_gate.lock().await;
+        self.replace_session_locked(command, prepared).await
+    }
+
+    /// The replacement flow's open, retire, and install phases; the caller
+    /// holds the replacement gate.
+    pub(crate) async fn replace_session_locked(
+        &self,
+        command: &'static str,
+        prepared: PreparedReplacement,
+    ) -> DaemonResponse {
+        let cx = BACKGROUND_CONTEXT.clone();
         let live = self.session.get();
         let same_storage = live
             .as_deref()

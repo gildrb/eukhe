@@ -443,6 +443,13 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 let calls = this.durable_calls();
                 calls.replied.contains(&selector) || calls.replied.contains(&request.session_id)
             };
+            // The settled run completes the child's display entry, so a
+            // restarted parent relists it as completed.
+            let child_dir = {
+                let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
+                this.child_session_path(&request.rlm_child_id, &identity)
+            };
+            super::lifecycle::complete_child_display(child_dir, request.rlm_child_id.clone()).await;
             Ok(durable::RlmChildObservation {
                 state: durable::RlmChildRunState::Settled {
                     // `child_answer` already compacts it for the roster.

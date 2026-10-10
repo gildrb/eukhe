@@ -85,6 +85,9 @@ pub struct RlmChildPromptRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RlmChildWaitRequest {
     pub session_id: String,
+    /// The child's roster id: a settled run completes the child's display
+    /// entry (`rlm-subagent.json`) in its per-child directory.
+    pub rlm_child_id: String,
     /// The long-poll budget; returning earlier with `Running` is allowed.
     pub timeout_ms: u64,
 }

@@ -13,7 +13,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-const GOAL_STATE_CUSTOM_TYPE: &str = "thread_goal_state";
+// The durable session storage reader the CLI e2e suites share.
+#[path = "../../eukhe-cli/tests/support/durable_store.rs"]
+mod durable_store;
+
 const OBJECTIVE: &str = "ship the goal-branch-reload port";
 
 struct Supervisor {
@@ -231,14 +234,35 @@ fn setup(name: &str) -> Harness {
 }
 
 impl Harness {
-    fn session_file(&self) -> PathBuf {
+    /// The session's durable storage (the only session in the dir).
+    fn storage_dir(&self) -> PathBuf {
         let session_dir = self.dir.path().join("agent").join("sessions");
-        std::fs::read_dir(&session_dir)
-            .expect("session dir readable")
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-            .expect("one session file")
+        let dirs = durable_store::session_dirs(&session_dir);
+        assert_eq!(dirs.len(), 1, "one session storage: {dirs:?}");
+        dirs[0].clone()
+    }
+
+    /// The main conversation's stored `eukhe.goal` document (the old
+    /// `thread_goal_state` rows' payload: the durable store keeps the goal
+    /// as a rewindable document that follows the branch, not as rows).
+    fn stored_goal(&self) -> Value {
+        use eukhe_core::durable::{read_main_transcript, read_session_document, SessionLocation};
+        let location = SessionLocation::Durable(self.storage_dir());
+        let cx = &eukhe_chord::context::BACKGROUND_CONTEXT;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let goal = runtime.block_on(async {
+            let main = read_main_transcript(&location, cx)
+                .await
+                .expect("transcript readable")
+                .main;
+            read_session_document(&location, &eukhe_core::durable::goals::GOAL_DOC, main, cx)
+                .await
+                .expect("goal document readable")
+        });
+        serde_json::to_value(goal).expect("goal JSON")
     }
 
     fn prompt(&mut self, id: &str, message: &str) {
@@ -291,21 +315,10 @@ impl Harness {
         if let Some(status) = wire {
             return status;
         }
-        std::fs::read_to_string(self.session_file())
-            .expect("session file readable")
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-            .filter(|entry| {
-                entry.get("type").and_then(Value::as_str) == Some("custom_message")
-                    && entry.get("customType").and_then(Value::as_str)
-                        == Some("session_slash_command_result")
-            })
-            .filter_map(|entry| {
-                entry
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
+        durable_store::read_transcript(&self.storage_dir())
+            .custom_rows("session_slash_command_result")
+            .into_iter()
+            .filter_map(|row| row["content"].as_str().map(str::to_string))
             .next_back()
             .unwrap_or_default()
     }
@@ -458,22 +471,12 @@ fn navigate_tree_moves_follow_the_branchs_goal_state() {
         format!("Goal paused: {OBJECTIVE}")
     );
 
-    // The durable rows on the abandoned branch survived the round trip
-    // untouched: the reload reads, it never rewrites.
-    let rows = std::fs::read_to_string(harness.session_file())
-        .expect("session file readable")
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-        .filter(|entry| {
-            entry.get("type").and_then(Value::as_str) == Some("custom")
-                && entry.get("customType").and_then(Value::as_str) == Some(GOAL_STATE_CUSTOM_TYPE)
-        })
-        .collect::<Vec<_>>();
+    // The stored goal survived the round trip untouched: the reload reads,
+    // it never rewrites.
+    let goal = harness.stored_goal();
     assert!(
-        rows.iter().any(|row| row["data"]["status"] == "paused"
-            && row["data"]["objective"].as_str() == Some(OBJECTIVE)),
-        "the abandoned branch lost its goal rows: {rows:?}"
+        goal["status"] == "paused" && goal["objective"].as_str() == Some(OBJECTIVE),
+        "the abandoned branch lost its goal: {goal}"
     );
 }
 

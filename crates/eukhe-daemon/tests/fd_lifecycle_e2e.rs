@@ -378,22 +378,14 @@ fn worker_fd_count_stable_across_prompts() {
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
 
+    // The durable faux provider consumes one scripted response per model
+    // request and fails past the end (the old scripted engine repeated
+    // its last answer), so the script carries one answer per prompt.
     let script_path = dir.path().join("script.json");
+    let responses = vec![serde_json::json!({ "text": "turn answer" }); PROMPTS];
     std::fs::write(
         &script_path,
-        serde_json::json!({ "responses": [
-            { "text": "turn answer" },
-            { "text": "turn answer" },
-            { "text": "turn answer" },
-            { "text": "turn answer" },
-            { "text": "turn answer" },
-            { "text": "turn answer" },
-            { "text": "turn answer" },
-            { "text": "turn answer" },
-            { "text": "turn answer" },
-            { "text": "turn answer" },
-        ] })
-        .to_string(),
+        serde_json::json!({ "responses": responses }).to_string(),
     )
     .expect("write script");
 
@@ -706,9 +698,14 @@ fn supervisor_restart_loop_leaves_no_orphan_workers() {
 
     let baseline = fd_snapshot(supervisor_pid);
 
-    // Corrupt the durable session file, then kill the worker: every create
-    // replay from here fails (SessionFile::open rejects the file).
-    std::fs::write(&session_file, "not valid jsonl\n").expect("corrupt session file");
+    // Corrupt the durable session storage's commit log, then kill the
+    // worker: every create replay from here fails (a complete malformed
+    // line in `main.jsonl` is a storage corruption the open rejects).
+    std::fs::write(
+        std::path::Path::new(&session_file).join("main.jsonl"),
+        "not valid jsonl\n",
+    )
+    .expect("corrupt session file");
     let _ = std::process::Command::new("kill")
         .args(["-9", &pid.to_string()])
         .status()
