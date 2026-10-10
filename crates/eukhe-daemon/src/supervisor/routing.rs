@@ -16,11 +16,17 @@ pub(super) enum WakeRoute {
 }
 
 pub(crate) const ROUTE_TIMEOUT_MS: u64 = 30_000;
+/// The per-worker budget of a supervisor roster read (`get_summary` for
+/// the session list, the heartbeat catalog scan): one wedged worker costs
+/// this much, never the whole route timeout.
+pub(crate) const SUMMARY_TIMEOUT_MS: u64 = 5_000;
 /// The route failure for a worker whose command channel is gone (never
 /// connected, or the writer pump broke on a dead socket): the request did
 /// not leave the supervisor, so the replacement-aware route may retry it
 /// against the next connection without risking a duplicate landing.
 pub(crate) const WORKER_NOT_CONNECTED: &str = "Session worker is not connected";
+/// TS daemon-worker-client.ts:98 reports this when the worker socket closes.
+pub(crate) const WORKER_SOCKET_CLOSED: &str = "Daemon worker socket closed";
 
 /// Resolve a pending request whose frame provably never reached the worker
 /// (a failed frame write, or a request still queued when the writer pump
@@ -236,7 +242,7 @@ impl Supervisor {
                 Err(anyhow!(WORKER_NOT_CONNECTED))
             }
             Ok(Ok(reply)) => Ok(reply),
-            Ok(Err(_)) => Err(anyhow!("Session worker dropped the request")),
+            Ok(Err(_)) => Err(anyhow!(WORKER_SOCKET_CLOSED)),
             Err(_) => {
                 // A timed-out request's reply slot must not sit in the
                 // pending map forever (a wedged worker never answers, and

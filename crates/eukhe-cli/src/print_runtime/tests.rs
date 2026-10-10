@@ -336,3 +336,96 @@ fn print_mode_mcp_manager_resolves_declared_catalog_sources() {
         "the dropped source no longer resolves"
     );
 }
+
+/// Runtime shutdown cancels the task blocking a pending writer; the print
+/// lease must stay held until that blocking writer finishes, on the
+/// success, error, and unwinding paths alike.
+#[test]
+fn print_lease_outlives_runtime_writers_on_every_return_path() {
+    #[derive(Clone, Copy)]
+    enum Outcome {
+        Success,
+        Error,
+        Panic,
+    }
+    struct Fixture {
+        session_path: std::path::PathBuf,
+        agent_dir: std::path::PathBuf,
+        outcome: Outcome,
+    }
+    struct UnblockWriter(std::sync::mpsc::Sender<()>);
+    impl Drop for UnblockWriter {
+        fn drop(&mut self) {
+            let _ = self.0.send(());
+        }
+    }
+    for outcome in [Outcome::Success, Outcome::Error, Outcome::Panic] {
+        let home = tempfile::TempDir::new().unwrap();
+        let fixture = Fixture {
+            session_path: home.path().join("session.jsonl"),
+            agent_dir: home.path().join("agent"),
+            outcome,
+        };
+        let held_at_write = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let writer_observation = Arc::clone(&held_at_write);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_print_runtime(&fixture, |fixture, lease| {
+                Box::pin(async move {
+                    *lease = Some(
+                        eukhe_daemon::lease::acquire_runtime_session_lease(
+                            &fixture.session_path,
+                            &fixture.agent_dir,
+                        )
+                        .unwrap(),
+                    );
+                    // An async task parked forever: only the runtime drop
+                    // cancels it, and its drop unblocks the writer.
+                    let (cancel_tx, cancel_rx) = std::sync::mpsc::channel();
+                    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+                    tokio::spawn(async move {
+                        let _unblock = UnblockWriter(cancel_tx);
+                        let _ = ready_tx.send(());
+                        std::future::pending::<()>().await;
+                    });
+                    ready_rx.await.unwrap();
+                    let session_path = fixture.session_path.clone();
+                    let agent_dir = fixture.agent_dir.clone();
+                    let (writer_ready_tx, writer_ready_rx) = tokio::sync::oneshot::channel();
+                    tokio::task::spawn_blocking(move || {
+                        let _ = writer_ready_tx.send(());
+                        cancel_rx.recv().unwrap();
+                        writer_observation.store(
+                            eukhe_daemon::lease::live_lease_owner(&agent_dir, &session_path)
+                                .is_some(),
+                            std::sync::atomic::Ordering::SeqCst,
+                        );
+                        std::fs::write(&session_path, "writer settled\n").unwrap();
+                    });
+                    writer_ready_rx.await.unwrap();
+                    match fixture.outcome {
+                        Outcome::Success => Ok(0),
+                        Outcome::Error => Err("failed after lease acquisition".to_string()),
+                        Outcome::Panic => panic!("unwind after lease acquisition"),
+                    }
+                })
+            })
+        }));
+        match outcome {
+            Outcome::Success => assert_eq!(result.unwrap(), Ok(0)),
+            Outcome::Error => assert_eq!(
+                result.unwrap(),
+                Err("failed after lease acquisition".to_string())
+            ),
+            Outcome::Panic => assert!(result.is_err()),
+        }
+        assert!(held_at_write.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(
+            std::fs::read_to_string(&fixture.session_path).unwrap(),
+            "writer settled\n"
+        );
+        assert!(
+            eukhe_daemon::lease::live_lease_owner(&fixture.agent_dir, &fixture.session_path)
+                .is_none()
+        );
+    }
+}

@@ -38,10 +38,11 @@ pub(crate) struct AgentRoster {
     bucket_applied_ticket: u64,
     /// The stale-delta gate of one worker: a single bounded slot naming
     /// the worker's CURRENT process generation (`instance`) and the
-    /// newest sequence applied from it. The Rust supervisor link dials
-    /// one socket per request, so deltas and pulls arrive unordered and
-    /// the gates drop a delayed older snapshot instead of letting it
-    /// overwrite a newer one. The slot is bounded (one entry per
+    /// newest sequence applied from it. A worker's push consumer
+    /// serializes its deltas, but a delta still races an authoritative
+    /// pull (the link dials one socket per request), so the gates drop a
+    /// delayed older snapshot instead of letting it overwrite a newer
+    /// one. The slot is bounded (one entry per
     /// worker, dropped on stop): a replacement registers a new instance
     /// and restarts its counter, and [`AgentRoster::note_worker_generation`]
     /// flips the slot to the replacement — every frame or pull of the
@@ -147,6 +148,9 @@ impl AgentRoster {
     /// other pull, so a delayed zero-counter snapshot never overwrites
     /// a newer delta's state and a predecessor's zero-counter answer
     /// never overwrites the replacement's row.
+    /// The worker captures the counter and state under one core lock: at
+    /// equal counters the pull follows the push snapshot and has the newer
+    /// content.
     pub(crate) fn accept_roster_pull(
         &mut self,
         worker_id: &str,

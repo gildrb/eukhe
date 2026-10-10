@@ -37,21 +37,30 @@ impl Supervisor {
             // kill stop, shutdown for the resumable per-session stop. A
             // failed connect degrades to the dead-worker finalize below.
             resident.intentional_stop.store(true, Ordering::SeqCst);
-            if self
-                .connect_worker(resident, worker_connect_deadline())
-                .await
-                .is_ok()
-            {
+            // TS stopWorker(force) bounds the graceful IPC leg to one
+            // second before process escalation. Auth and stop share that
+            // budget: the ordinary route's 30s timeout begins only AFTER
+            // auth and cannot bound a silent listener in the auth phase.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+            if matches!(
+                self.connect_worker_for_stop(resident, deadline).await,
+                Ok(())
+            ) {
                 let command = if kill_stop { "kill" } else { "shutdown" };
-                let _ = self
-                    .route_command_typed(
-                        resident,
-                        command,
-                        json!({}),
-                        ROUTE_TIMEOUT_MS,
-                        RouteAdmission::SupervisorInternal,
-                    )
-                    .await;
+                let remaining_ms = deadline
+                    .saturating_duration_since(tokio::time::Instant::now())
+                    .as_millis() as u64;
+                if remaining_ms > 0 {
+                    let _ = self
+                        .route_command_typed(
+                            resident,
+                            command,
+                            json!({}),
+                            remaining_ms,
+                            RouteAdmission::SupervisorInternal,
+                        )
+                        .await;
+                }
             }
         }
         // TS `scheduleWorkerStopFinalization`: the interrupted stop's
@@ -287,17 +296,17 @@ impl Supervisor {
         if let Some(runtime_metadata) = &runtime_metadata {
             durable_rest.insert("runtimeMetadata".to_string(), runtime_metadata.clone());
         }
+        let recovery_journal_path = self.descriptor_dir.join(format!(
+            "{worker_id}{}",
+            crate::journal::RECOVERY_JOURNAL_SUFFIX
+        ));
         let descriptor = DaemonWorkerDescriptor {
             version: 2,
             worker_id: worker_id.clone(),
             pid: 0,
             process_start_id: None,
             socket_path: worker_socket.to_string_lossy().to_string(),
-            recovery_journal_path: self
-                .descriptor_dir
-                .join(format!("{worker_id}.recovery.jsonl"))
-                .to_string_lossy()
-                .to_string(),
+            recovery_journal_path: recovery_journal_path.to_string_lossy().to_string(),
             orphan_process_journal_path: None,
             supervisor_socket_path: self.options.socket_path.to_string_lossy().to_string(),
             authentication_token: uuid::Uuid::new_v4().to_string(),
@@ -331,6 +340,9 @@ impl Supervisor {
         // self-registers on boot, and the registration handler must find its
         // identity in the registry (registration races the create replay).
         self.registry.insert(Arc::clone(&resident)).await;
+        // An owner whose last connection closed before this insert was
+        // missed by its disconnect scan; the arm checks the owner itself.
+        self.schedule_owned_worker_cleanup(&resident).await;
         let deadline = self.connect_deadline();
         // A failed launch never leaves its half-registered resident behind:
         // a later stale-id rebind (or resolve) must not select a worker
@@ -384,6 +396,8 @@ impl Supervisor {
                 let _ = child.kill().await;
                 self.registry.remove(&worker_id).await;
                 // The half-launched worker's descriptor dies with the launch.
+                // A failed kill is not proof of death, so its recovery
+                // journal is preserved.
                 let _ = std::fs::remove_file(&descriptor_path);
                 return Err(error);
             }
@@ -834,12 +848,13 @@ impl Supervisor {
     /// session lease, so every open of its session then refuses with
     /// `Session is already active in <its id>`.
     pub(super) async fn retire_worker_after_stop(self: &Arc<Self>, resident: &Arc<ResidentWorker>) {
-        let (pid, start_id, worker_socket) = {
+        let (pid, start_id, worker_socket, recovery_journal_path) = {
             let descriptor = resident.descriptor.lock().await;
             (
                 descriptor.pid as u32,
                 descriptor.process_start_id.clone(),
                 std::path::PathBuf::from(&descriptor.socket_path),
+                descriptor.recovery_journal_path.clone(),
             )
         };
         // An unobservable identity never receives the escalation's
@@ -853,7 +868,7 @@ impl Supervisor {
         let alive_unverified = (start_id.is_none()
             || crate::lease::get_process_start_id(pid).is_none())
             && crate::lease::is_process_alive(pid).unwrap_or(false);
-        match crate::boot_reap::stop_process(pid, start_id).await {
+        match crate::boot_reap::stop_process(pid, start_id.clone()).await {
             crate::boot_reap::ReapOutcome::Survived => {
                 self.log_line(&format!(
                     "session worker {} survived the shutdown escalation; descriptor tombstoned for the next boot",
@@ -876,6 +891,17 @@ impl Supervisor {
                 if crate::boot_reap::is_unix_socket_file(&worker_socket) {
                     let _ = std::fs::remove_file(&worker_socket);
                 }
+                // Metadata retirement treats failed liveness probes as
+                // gone. Journal deletion needs positive owner-death
+                // evidence: an unobservable process may still be writing
+                // durable work.
+                if recovery_journal_owner_is_gone(
+                    crate::lease::is_process_alive(pid).ok(),
+                    start_id.as_deref(),
+                    crate::lease::get_process_start_id(pid).as_deref(),
+                ) {
+                    let _ = std::fs::remove_file(&recovery_journal_path);
+                }
                 let _ = std::fs::remove_file(&resident.descriptor_path);
                 // The identity-pending side record dies with the
                 // descriptor it shadows (an orphaned pending would
@@ -886,6 +912,23 @@ impl Supervisor {
                 let _ = crate::descriptor::clear_identity_pending(&resident.descriptor_path);
             }
         }
+    }
+}
+
+/// A dead process or a verified replacement identity proves the old writer
+/// is gone. Failed probes and missing live identities preserve the journal.
+fn recovery_journal_owner_is_gone(
+    process_alive: Option<bool>,
+    expected_start_id: Option<&str>,
+    current_start_id: Option<&str>,
+) -> bool {
+    match process_alive {
+        Some(false) => true,
+        Some(true) => match (expected_start_id, current_start_id) {
+            (Some(expected), Some(current)) => expected != current,
+            _ => false,
+        },
+        None => false,
     }
 }
 
@@ -957,5 +1000,99 @@ impl Supervisor {
             .worker_connect_budget
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(budget);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn supervisor_in(dir: &Path) -> Arc<Supervisor> {
+        let agent_dir = dir.join("agent");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        Arc::new(
+            Supervisor::new(crate::supervisor::SupervisorOptions {
+                socket_path: dir.join("daemon.sock"),
+                agent_dir,
+            })
+            .expect("supervisor"),
+        )
+    }
+
+    fn reaped_pid() -> u32 {
+        let mut child = std::process::Command::new("true")
+            .spawn()
+            .expect("spawn true");
+        let pid = child.id();
+        let _ = child.wait();
+        pid
+    }
+
+    #[test]
+    fn recovery_journal_retirement_requires_positive_owner_death_evidence() {
+        for (alive, expected, current, gone) in [
+            (Some(false), None, None, true),
+            (Some(true), Some("old"), Some("new"), true),
+            (Some(true), Some("same"), Some("same"), false),
+            (Some(true), None, Some("current"), false),
+            (Some(true), Some("expected"), None, false),
+            (Some(true), None, None, false),
+            (None, Some("old"), Some("new"), false),
+            (None, None, None, false),
+        ] {
+            assert_eq!(
+                recovery_journal_owner_is_gone(alive, expected, current),
+                gone,
+                "liveness={alive:?}, expected={expected:?}, current={current:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_provably_gone_retire_removes_the_recovery_journal() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let supervisor = supervisor_in(dir.path());
+        let descriptor_dir = supervisor.descriptor_dir.clone();
+        std::fs::create_dir_all(&descriptor_dir).expect("descriptor dir");
+        let pid = reaped_pid();
+        let journal_path = descriptor_dir.join("w-gone.recovery.jsonl");
+        std::fs::write(&journal_path, "{}\n").expect("journal");
+        let unowned_journal = descriptor_dir.join("w-unowned.recovery.jsonl");
+        let unknown_journal = descriptor_dir.join("w-unknown.recovery.jsonl");
+        let retained = b"{\"queued\":\"durable work\"}\n";
+        std::fs::write(&unowned_journal, retained).expect("unowned journal");
+        std::fs::write(&unknown_journal, retained).expect("unknown journal");
+        std::fs::write(descriptor_dir.join("w-unknown.json"), "not json")
+            .expect("unverifiable descriptor");
+        let descriptor: DaemonWorkerDescriptor = serde_json::from_value(json!({
+            "version": 2,
+            "workerId": "w-gone",
+            "pid": pid,
+            "socketPath": "/tmp/w-gone.sock",
+            "recoveryJournalPath": journal_path.to_string_lossy(),
+            "supervisorSocketPath": supervisor.options.socket_path.to_string_lossy(),
+            "authenticationToken": "token",
+            "rootActiveSessionId": "w-gone",
+            "createdAt": "2026-10-07T00:00:00Z",
+            "updatedAt": "2026-10-07T00:00:00Z",
+            "lifecycle": "ready",
+            "createCommand": {},
+            "consecutiveFailures": 0,
+        }))
+        .expect("descriptor");
+        let descriptor_path = descriptor_dir.join("w-gone.json");
+        persist_worker(&descriptor_path, &descriptor).expect("descriptor persisted");
+        let resident =
+            ResidentWorker::new("w-gone".to_string(), descriptor, descriptor_path.clone());
+
+        supervisor.retire_worker_after_stop(&resident).await;
+
+        assert!(
+            !journal_path.exists(),
+            "the journal dies with the descriptor"
+        );
+        assert!(!descriptor_path.exists());
+        assert_eq!(std::fs::read(unowned_journal).unwrap(), retained);
+        assert_eq!(std::fs::read(unknown_journal).unwrap(), retained);
     }
 }

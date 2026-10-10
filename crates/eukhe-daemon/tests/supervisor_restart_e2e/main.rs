@@ -363,8 +363,7 @@ fn wait_for_busy_journal_evidence(agent_dir: &Path, socket: &Path, session_id: &
         }
         assert!(
             Instant::now() < deadline,
-            "busy journal evidence never landed for {session_id}: {}",
-            journal_path.display()
+            "busy journal evidence never landed"
         );
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -426,9 +425,10 @@ fn distinct(values: Vec<String>) -> Vec<String> {
 }
 
 // The restart regression families live in the child modules at the same
-// tree position (supervisor_restart_e2e::{plain_boot, restart, revival});
-// every child's use-super glob resolves through this root's harness, and
-// the ONE test binary stays one CI shard unit.
+// tree position (supervisor_restart_e2e::{boot_cleanup, plain_boot,
+// restart, revival}); every child's use-super glob resolves through this
+// root's harness, and the ONE test binary stays one CI shard unit.
+mod boot_cleanup;
 mod plain_boot;
 mod restart;
 mod revival;

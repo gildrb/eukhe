@@ -89,6 +89,17 @@ pub struct Worker {
     /// successor's socket at the same path is never unlinked. `None` until
     /// `serve` binds.
     pub(crate) bound_socket_identity: std::sync::Mutex<Option<crate::socket::SocketIdentity>>,
+    /// The bound-listener close handshake (the TS graceful-shutdown
+    /// sequence, daemon-mode.ts:8011-8018: `server.close()` is awaited
+    /// FIRST, the socket cleanup runs after): an exiting path requests
+    /// the close, the accept loop drops the listener it owns, and the
+    /// exit proceeds only once the bind is provably released - which is
+    /// what makes the exit cleanup's liveness probe sound (a live
+    /// listener at the path afterwards can only be a successor's).
+    pub(crate) listener_close_requested: tokio::sync::Notify,
+    /// The accept loop's confirmation that it dropped the bound
+    /// listener; see [`Worker::listener_close_requested`].
+    pub(crate) listener_closed: tokio::sync::Notify,
     /// Supervisor self-registration handle; `None` for standalone workers.
     registration: Option<RegistrationHandle>,
     /// Live connections authenticated as the supervisor role (disarms the
@@ -224,7 +235,6 @@ impl Worker {
         ));
         let worker_token = std::env::var(WORKER_TOKEN_ENV).unwrap_or_default();
         let roster_delta_sequence = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let roster_push_order = std::sync::Arc::new(std::sync::Mutex::new(()));
         let input_pauses = crate::session_input_pause::InputPauseTable::new();
         let herdr_slot =
             std::sync::Arc::new(std::sync::Mutex::new(crate::herdr::HerdrReporter::default()));
@@ -245,7 +255,6 @@ impl Worker {
             worker_token: worker_token.clone(),
             worker_instance_id: config.worker_instance_id.clone(),
             roster_delta_sequence: std::sync::Arc::clone(&roster_delta_sequence),
-            roster_push_order,
         });
         crate::roster_activity::spawn_roster_activity_watch(&events, roster_pushes.clone());
         // The park loop: the settled-child kernel release and the idle
@@ -289,6 +298,8 @@ impl Worker {
         Worker {
             config,
             bound_socket_identity: std::sync::Mutex::new(None),
+            listener_close_requested: tokio::sync::Notify::new(),
+            listener_closed: tokio::sync::Notify::new(),
             registration,
             supervisor_claims,
             core,
@@ -425,16 +436,52 @@ impl Worker {
         )
     }
 
-    /// The durable tail of a successful close: the resume entry and the
-    /// worker's own socket cleanup (the bind-time identity guards a
-    /// successor's socket at the same path).
-    fn finish_close(&self) {
+    /// Close the bound listener, then clean up the socket path: the TS
+    /// graceful-shutdown sequence (daemon-mode.ts:8011-8018 awaits
+    /// `server.close()` FIRST and runs `cleanupSocketPath()` after). The
+    /// accept loop drops the listener it owns on the close request and
+    /// confirms, so the cleanup below probes the path with the owner's
+    /// listener provably closed - a live listener at the path can only
+    /// be a successor's, and even a poisoned bind-time capture (a
+    /// replacement landing in the bind->capture window) never unlinks
+    /// the successor's live socket. The still-ours direction is
+    /// unchanged: the worker's own closed file passes the probe dead and
+    /// the identity gate unlinks exactly what it captured, so a respawn
+    /// does not wait out the stale-socket path.
+    ///
+    /// The close confirmation is awaited UNCONDITIONALLY: a bound-flag
+    /// check cannot close the check-then-act window between `serve`'s
+    /// bind and the flag store (an exit landing exactly there would
+    /// skip the wait and leave this worker's own dead socket behind -
+    /// the refusal-exit variant of the stale-file bug). `serve` instead
+    /// confirms exactly once on every path: after the accept loop drops
+    /// the listener, or - with no listener - on the prepare/bind error
+    /// returns. An exit that fires before the bind therefore waits out
+    /// the whole setup and then unlinks only what the identity gate
+    /// still owns, and a booting `serve` never strands a waiting exit
+    /// path on a handshake that will not come. The parked confirmation
+    /// also orders the identity read for the exits that fire inside
+    /// `serve`'s setup (the registration-refusal exit racing the
+    /// bind->capture gap): the capture precedes the accept loop's arm,
+    /// which precedes this confirmation, so a bound listener's own
+    /// cleanup always reads a captured identity, never the gap's
+    /// `None`.
+    pub(crate) async fn close_listener_then_cleanup_socket(&self) {
+        self.listener_close_requested.notify_one();
+        self.listener_closed.notified().await;
+        let expected_identity = self.bound_socket_identity.lock().unwrap().clone();
+        crate::socket::cleanup_socket_path_after_close(&self.config.socket_path, expected_identity);
+    }
+
+    /// The durable tail of a successful close: the resume entry, then the
+    /// listener close and the worker's own socket cleanup (see
+    /// [`Worker::close_listener_then_cleanup_socket`]). Already-accepted
+    /// connections keep their own sockets, so the routed `shutdown` reply
+    /// still reaches the supervisor after this tail.
+    async fn finish_close(&self) {
         // Shutdown keeps the resume entry, like the TS close path.
         let _ = self.record_recovery(false, "shutdown");
-        crate::socket::cleanup_socket_path(
-            &self.config.socket_path,
-            self.bound_socket_identity.lock().unwrap().clone(),
-        );
+        self.close_listener_then_cleanup_socket().await;
     }
 
     /// The refused-registration self-heal: the supervisor definitively
@@ -446,7 +493,7 @@ impl Worker {
             std::process::id()
         );
         let _ = self.handle_shutdown().await;
-        self.finish_close();
+        self.finish_close().await;
         std::process::exit(0)
     }
 }

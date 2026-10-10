@@ -192,6 +192,8 @@ pub(crate) struct ResidentWorker {
     /// `compaction_start`, cleared by the forwarded `compaction_end`, so
     /// an `abort_compaction` never needs the worker's own answer.
     pub(crate) compaction: crate::compaction_supervision::CompactionSupervision,
+    /// The pending owner-disconnect stop (TS `ownerCleanupTimer`).
+    pub(crate) owner_cleanup: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 /// The last-good heartbeats rows a worker answered with, tagged with the
@@ -245,6 +247,7 @@ impl ResidentWorker {
             identity_quarantined: AtomicBool::new(false),
             connection_epoch: AtomicU64::new(0),
             compaction: crate::compaction_supervision::CompactionSupervision::default(),
+            owner_cleanup: std::sync::Mutex::new(None),
         })
     }
 
@@ -483,6 +486,15 @@ pub(crate) struct SessionRegistry {
     adoption_locks: Mutex<HashMap<String, Arc<AdoptionLock>>>,
 }
 
+pub(crate) fn canonical_session_file_string(session_file: &str) -> String {
+    std::path::Path::new(session_file)
+        .canonicalize()
+        .map_or_else(
+            |_| session_file.to_string(),
+            |path| path.to_string_lossy().to_string(),
+        )
+}
+
 impl SessionRegistry {
     pub(crate) fn new() -> Self {
         SessionRegistry {
@@ -542,6 +554,55 @@ impl SessionRegistry {
             .next()
     }
 
+    /// Every owned session file (raw descriptor spelling), skipping
+    /// quarantined identities. The roster-scan callers canonicalize the
+    /// list in the blocking pool instead of under the registry walk.
+    pub(crate) async fn session_files(&self) -> Vec<String> {
+        let mut files = Vec::new();
+        for resident in self.list().await {
+            // The boot-reconciliation quarantine: an unreconciled persisted
+            // identity never serves a by-file reuse.
+            if resident.identity_quarantined() {
+                continue;
+            }
+            let owned = resident
+                .descriptor
+                .lock()
+                .await
+                .session_file
+                .clone()
+                .unwrap_or_default();
+            if !owned.is_empty() {
+                files.push(owned);
+            }
+        }
+        files
+    }
+
+    /// Check current descriptor paths without touching the filesystem. The scan
+    /// canonicalizes existing owners in the blocking pool; this catches workers
+    /// registered while that scan was in flight.
+    pub(crate) async fn owns_session_file_path(
+        &self,
+        session_file: &str,
+        canonical_file: &str,
+    ) -> bool {
+        for resident in self.list().await {
+            if resident.identity_quarantined() {
+                continue;
+            }
+            let descriptor = resident.descriptor.lock().await;
+            if descriptor
+                .session_file
+                .as_deref()
+                .is_some_and(|owned| owned == session_file || owned == canonical_file)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Every resident registered for one session file, insertion order
     /// unspecified (TS `findWorkerBySessionFile`'s match loop, plural): a
     /// replacement window can briefly hold the retiring and the incoming
@@ -551,12 +612,7 @@ impl SessionRegistry {
         &self,
         session_file: &str,
     ) -> Vec<Arc<ResidentWorker>> {
-        let target = std::path::Path::new(session_file)
-            .canonicalize()
-            .map_or_else(
-                |_| session_file.to_string(),
-                |path| path.to_string_lossy().to_string(),
-            );
+        let target = canonical_session_file_string(session_file);
         let mut matches = Vec::new();
         for resident in self.list().await {
             // The boot-reconciliation quarantine: an unreconciled
@@ -574,11 +630,7 @@ impl SessionRegistry {
                 .session_file
                 .clone()
                 .unwrap_or_default();
-            let owned = std::path::Path::new(&owned)
-                .canonicalize()
-                .map(|path| path.to_string_lossy().to_string())
-                .unwrap_or(owned);
-            if owned == target {
+            if canonical_session_file_string(&owned) == target {
                 matches.push(resident);
             }
         }

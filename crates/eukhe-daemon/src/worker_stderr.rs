@@ -64,13 +64,14 @@ pub(crate) fn open_for_spawn(log_path: &Path) -> Result<File> {
         .write(true)
         .open(log_path)
         .with_context(|| format!("open worker stderr log {}", log_path.display()))?;
-    prune_retained(logs_dir, log_path);
+    prune_retained(logs_dir, log_path, worker_stderr_log_name);
     Ok(file)
 }
 
-/// Keep only the newest [`RETAINED_FILES`] worker stderr logs (by modified
-/// time) and delete the rest: worker ids are minted per launch, so without
-/// the prune every session a daemon ever hosted would leave a log behind.
+/// Keep only the newest [`RETAINED_FILES`] logs whose name `matches` (by
+/// modified time) and delete the rest: worker ids are minted per launch
+/// and socket paths accumulate, so without the prune every session a
+/// daemon ever hosted would leave a log behind. Returns the deletion count.
 /// The just-opened log (`keep`) is spared if coarse-mtime ties sort it
 /// into the deletion window: the child holds its descriptor, but a later
 /// tail read opens by pathname. Logs younger than
@@ -79,9 +80,9 @@ pub(crate) fn open_for_spawn(log_path: &Path) -> Result<File> {
 /// one spawn's fresh log from another spawn's prune. Deletion of the rest
 /// is best-effort (a live worker's file may be open; an unlinked file
 /// keeps receiving the child's writes until it exits).
-fn prune_retained(logs_dir: &Path, keep: &Path) {
+fn prune_retained(logs_dir: &Path, keep: &Path, matches: impl Fn(&str) -> bool) -> usize {
     let Ok(entries) = std::fs::read_dir(logs_dir) else {
-        return;
+        return 0;
     };
     let mut logs: Vec<(std::time::SystemTime, PathBuf)> = entries
         .filter_map(std::result::Result::ok)
@@ -89,7 +90,7 @@ fn prune_retained(logs_dir: &Path, keep: &Path) {
         .filter(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("worker-") && name.ends_with(".stderr.log"))
+                .is_some_and(&matches)
         })
         .filter_map(|path| {
             let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok()?;
@@ -106,7 +107,7 @@ fn prune_retained(logs_dir: &Path, keep: &Path) {
         })
         .collect();
     if logs.len() <= RETAINED_FILES {
-        return;
+        return 0;
     }
     logs.sort_by_key(|(modified, _)| *modified);
     let excess = logs.len() - RETAINED_FILES;
@@ -121,6 +122,30 @@ fn prune_retained(logs_dir: &Path, keep: &Path) {
         let _ = std::fs::remove_file(path);
         deleted += 1;
     }
+    deleted
+}
+
+fn worker_stderr_log_name(name: &str) -> bool {
+    name.starts_with("worker-") && name.ends_with(".stderr.log")
+}
+
+/// A per-socket supervisor log (`<socket-name>.<hash8>.log`, see
+/// [`crate::paths::daemon_log_path`]) or its one rotated generation.
+fn socket_log_name(name: &str) -> bool {
+    let stem = name
+        .strip_suffix(".log.1")
+        .or_else(|| name.strip_suffix(".log"))
+        .unwrap_or("");
+    stem.rsplit_once('.')
+        .is_some_and(|(_, hash)| hash.len() == 8 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// The boot prune of supervisor logs left by other socket paths: the
+/// newest [`RETAINED_FILES`] stay, and this supervisor's own log is spared.
+/// Returns the deletion count.
+pub(crate) fn prune_socket_logs(agent_dir: &Path, socket_path: &Path) -> usize {
+    let keep = crate::paths::daemon_log_path(socket_path, agent_dir);
+    prune_retained(&crate::paths::logs_dir(agent_dir), &keep, socket_log_name)
 }
 
 /// Read the last [`TAIL_BYTES`] of a worker stderr log, dropping the
@@ -332,7 +357,7 @@ mod tests {
         // must spare it from the deletion window instead of unlinking it
         // while the worker still holds its descriptor.
         let keep = logs_dir.join("worker-000.stderr.log");
-        prune_retained(&logs_dir, &keep);
+        prune_retained(&logs_dir, &keep, worker_stderr_log_name);
         let mut remaining: Vec<String> = std::fs::read_dir(&logs_dir)
             .expect("read logs dir")
             .filter_map(std::result::Result::ok)
@@ -372,6 +397,46 @@ mod tests {
     }
 
     #[test]
+    fn socket_log_retention_keeps_the_newest_and_spares_foreign_logs() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let agent_dir = dir.path().join("agent");
+        let logs_dir = agent_dir.join("logs");
+        std::fs::create_dir_all(&logs_dir).expect("logs dir");
+        for index in 0..(RETAINED_FILES + 6) {
+            let path = write_log(&logs_dir, &format!("one.sock.{index:08x}.log"), "line\n");
+            backdate(&path, index as i64);
+        }
+        let rotated = write_log(&logs_dir, "other.sock.abcdef01.log.1", "line\n");
+        backdate(&rotated, 0);
+        let fresh = write_log(&logs_dir, "fresh.sock.abcdef01.log", "line\n");
+        let socket = dir.path().join("daemon.sock");
+        let keep = crate::paths::daemon_log_path(&socket, &agent_dir);
+        std::fs::write(&keep, "supervisor started\n").expect("keep log");
+        let foreign = write_log(&logs_dir, "worker-009.stderr.log", "worker\n");
+        let jsonl = write_log(&logs_dir, "agent.jsonl", "{}\n");
+
+        assert_eq!(
+            prune_socket_logs(&agent_dir, &socket),
+            7,
+            "the oldest socket logs past the cap are pruned, the rotation included"
+        );
+        let remaining_socket_logs = std::fs::read_dir(&logs_dir)
+            .expect("read logs dir")
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| socket_log_name(&entry.file_name().to_string_lossy()))
+            .count();
+        assert_eq!(
+            remaining_socket_logs,
+            RETAINED_FILES + 2,
+            "the newest RETAINED_FILES aged logs plus the fresh log and the keep survive"
+        );
+        assert!(keep.exists());
+        assert!(fresh.exists());
+        assert!(foreign.exists());
+        assert!(jsonl.exists());
+    }
+
+    #[test]
     fn prune_spares_a_fresh_burst_of_launches() {
         let dir = tempfile::tempdir().expect("temp dir");
         let logs_dir = dir.path().join("logs");
@@ -385,7 +450,7 @@ mod tests {
                 "worker died\n",
             );
         }
-        prune_retained(&logs_dir, Path::new("absent-keep"));
+        prune_retained(&logs_dir, Path::new("absent-keep"), worker_stderr_log_name);
         let fresh = std::fs::read_dir(&logs_dir).expect("read logs dir").count();
         assert_eq!(fresh, RETAINED_FILES + 6, "a fresh burst is not pruned");
         // The burst ages past the window: the same prune collapses it to
@@ -393,7 +458,7 @@ mod tests {
         for index in 0..(RETAINED_FILES + 6) {
             backdate(&logs_dir.join(format!("worker-{index:03}.stderr.log")), 0);
         }
-        prune_retained(&logs_dir, Path::new("absent-keep"));
+        prune_retained(&logs_dir, Path::new("absent-keep"), worker_stderr_log_name);
         let aged = std::fs::read_dir(&logs_dir).expect("read logs dir").count();
         assert_eq!(aged, RETAINED_FILES, "an aged burst collapses to the cap");
     }

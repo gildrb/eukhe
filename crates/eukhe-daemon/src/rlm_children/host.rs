@@ -177,6 +177,7 @@ impl RlmSubagentHost for SupervisorChildSessions {
             let prompt = request.prompt.clone();
             let child_active_session_id = created.active_session_id.clone();
             let child_session_file = created.session_file.clone();
+            let child_log_id = child_id.clone();
             // Capture the current turn boundary before detaching: spawn
             // admission happens mid-turn, so the parent's continuation
             // request (already issued for this turn's tool result) is
@@ -216,7 +217,7 @@ impl RlmSubagentHost for SupervisorChildSessions {
                     };
                     if let Err(retry_error) = retried {
                         eprintln!(
-                            "eukhe-daemon: RLM child task prompt failed for {child_active_session_id}: {error:#}; retry failed: {retry_error:#}"
+                            "eukhe-daemon: RLM child task prompt failed for {child_log_id}: {error:#}; retry failed: {retry_error:#}"
                         );
                         let _ = watcher_this
                             .kill_child(&child_active_session_id, ChildCloseReason::Killed)

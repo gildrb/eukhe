@@ -125,8 +125,7 @@ impl DaemonLink {
                         }
                     }
                     "response" => {
-                        let Ok(response) = serde_json::from_value::<DaemonResponse>(value.clone())
-                        else {
+                        let Ok(response) = serde_json::from_value::<DaemonResponse>(value) else {
                             continue;
                         };
                         let _ = frame_tx.send(LinkFrame::Response(response));

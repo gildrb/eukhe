@@ -47,7 +47,7 @@ impl crate::mode::Runtime for PrintRuntime {
         match options.app_mode {
             // Runtime failures print themselves and exit non-zero; the typed
             // MissingSubsystem channel stays reserved for unwired subsystems.
-            AppMode::Print | AppMode::Json => match run_on_runtime(print_mode_main(options)) {
+            AppMode::Print | AppMode::Json => match run_print_mode(options) {
                 Ok(code) => Ok(code),
                 Err(message) => {
                     eprintln!("Error: {message}");
@@ -306,21 +306,59 @@ pub(crate) fn render_selector_error(error: &SessionSelectorError) -> String {
     )
 }
 
+/// Print/json mode on its own runtime, the session lease owned outside it.
+fn run_print_mode(options: &RunOptions) -> Result<i32, String> {
+    with_print_runtime(options, |options, lease| {
+        Box::pin(print_mode_main(options, lease))
+    })
+}
+
+/// Own the print lease through runtime shutdown, including errors and
+/// unwinding: the runtime drop joins blocking writers and cancels the
+/// async tasks still holding the session (a detached host request, an
+/// event stream the close never reached), and only then does the lease
+/// release. The operation seam lets the regression exercise a writer
+/// pending at shutdown.
+fn with_print_runtime<Ctx>(
+    context: &Ctx,
+    run: impl for<'a> FnOnce(
+        &'a Ctx,
+        &'a mut Option<eukhe_daemon::lease::SessionLease>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<i32, String>> + 'a>>,
+) -> Result<i32, String> {
+    // Declared before the runtime so unwinding also drops the runtime (and
+    // stops its tasks) before the lease releases.
+    let mut lease = None;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?;
+    let result = runtime.block_on(run(context, &mut lease));
+    drop(runtime);
+    drop(lease);
+    result
+}
+
 /// Print/json mode: open the selected session, run every prompt, print the
-/// result, close the session.
-async fn print_mode_main(options: &RunOptions) -> Result<i32, String> {
+/// result, close the session. The opened session's lease moves into
+/// `lease`, which the caller releases after the runtime stops.
+async fn print_mode_main(
+    options: &RunOptions,
+    lease: &mut Option<eukhe_daemon::lease::SessionLease>,
+) -> Result<i32, String> {
     // Every headless mode discloses immediately.
     crate::telemetry_notice::print_if_due(&options.config);
     let cx = &*BACKGROUND_CONTEXT;
-    let opened = open_headless_session(
+    let mut opened = open_headless_session(
         options,
         HeadlessTarget::Selected,
         Some(stderr_turn_wait()),
         cx,
     )
     .await?;
+    *lease = opened.lease.take();
     let result = run_prompts(&opened, options, cx).await;
-    let HeadlessSession { session, lease, .. } = opened;
+    let HeadlessSession { session, .. } = opened;
     // Every other holder (the event stream, the prompt loop) is gone.
     if let Ok(session) = Arc::try_unwrap(session) {
         session
@@ -328,8 +366,6 @@ async fn print_mode_main(options: &RunOptions) -> Result<i32, String> {
             .await
             .map_err(|error| format!("{error:#}"))?;
     }
-    // The lease outlives the writer it guards.
-    drop(lease);
     result
 }
 

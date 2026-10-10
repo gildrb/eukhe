@@ -281,7 +281,6 @@ pub(crate) struct RosterPushContext {
     pub(crate) worker_token: String,
     pub(crate) worker_instance_id: String,
     pub(crate) roster_delta_sequence: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    pub(crate) roster_push_order: std::sync::Arc<std::sync::Mutex<()>>,
 }
 
 /// Whether the session's provider runtime is quota-parked (the durable
@@ -298,57 +297,54 @@ fn quota_parked(session: &SessionSlot) -> bool {
 
 /// The worker's roster-delta push: the fresh session summary rides the
 /// supervisor link with the worker's monotonic counter (the supervisor's
-/// stale-delta gate drops delayed older snapshots).
-pub(crate) fn push_roster_delta(context: &RosterPushContext) {
+/// stale-delta gate drops delayed older snapshots). The push queue's one
+/// consumer awaits each request, so a wedged supervisor holds at most one
+/// roster connection open and pushes never reorder.
+pub(crate) async fn push_roster_delta(context: &RosterPushContext) {
     if std::env::var_os("EUKHE_WORKER_DISABLE_ROSTER_PUSH").is_some() {
         return;
     }
     if context.worker_token.is_empty() || context.roster_link.socket_path().as_os_str().is_empty() {
         return;
     }
-
-    let _order = context
-        .roster_push_order
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let mut summary = {
+    // A pull may race this push, but both read the counter with their core
+    // snapshot held: an equal-counter pull was captured after this push.
+    let command = {
         let core = context
             .core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        session_summary(
+        let mut summary = session_summary(
             &core,
             &thinking_level(&core),
             model_metadata(&core, &context.session),
             context.user_bash.is_running(),
             quota_parked(&context.session),
-        )
-    };
-    summary.roster_delta_sequence = Some(
-        context
+        );
+        // The embedded counter is the pre-stamp value: every sequence
+        // stamped before the snapshot is at or below it.
+        summary.roster_delta_sequence = Some(
+            context
+                .roster_delta_sequence
+                .load(std::sync::atomic::Ordering::SeqCst),
+        );
+        let summary = serde_json::to_value(&summary).unwrap_or(Value::Null);
+        let sequence_value = context
             .roster_delta_sequence
-            .load(std::sync::atomic::Ordering::SeqCst),
-    );
-    let summary = serde_json::to_value(&summary).unwrap_or(Value::Null);
-    let link = std::sync::Arc::clone(&context.roster_link);
-    let worker_token = context.worker_token.clone();
-    let worker_instance_id = context.worker_instance_id.clone();
-    let sequence_value = context
-        .roster_delta_sequence
-        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        + 1;
-    tokio::spawn(async move {
-        let command = json!({
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        json!({
             "type": "worker_roster_delta",
-            "workerToken": worker_token,
+            "workerToken": context.worker_token,
             "summary": summary,
             "sequence": sequence_value,
-            "workerInstanceId": worker_instance_id,
-        });
-        let _ = link
-            .request(command, std::time::Duration::from_secs(10))
-            .await;
-    });
+            "workerInstanceId": context.worker_instance_id,
+        })
+    };
+    let _ = context
+        .roster_link
+        .request(command, std::time::Duration::from_secs(10))
+        .await;
 }
 
 /// Messages the transcript shows (attach `messages` rows).

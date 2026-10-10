@@ -53,8 +53,11 @@ pub use options::SupervisorOptions;
 pub(crate) use clients::client_command_payload;
 
 // The routing consts and refusal string keep their crate::supervisor::* paths stable
-// (external callers: supervisor_parent_death, create_reuse, prompt_admission).
-pub(crate) use routing::{client_route_timeout, ROUTE_TIMEOUT_MS, WORKER_NOT_CONNECTED};
+// (external callers: supervisor_parent_death, create_reuse, prompt_admission,
+// scheduling_catalog).
+pub(crate) use routing::{
+    client_route_timeout, ROUTE_TIMEOUT_MS, SUMMARY_TIMEOUT_MS, WORKER_NOT_CONNECTED,
+};
 
 // probe_worker_socket/worker_connect_deadline are called only by the supervision sibling
 // module and this facade's in-file tests (through the module's pub(super) fns); the
@@ -152,6 +155,10 @@ pub struct Supervisor {
     /// connections' per-connection queues here instead of waking every
     /// connection's ring arm; broadcast-class events keep the ring above.
     pub(crate) session_subscribers: subscribers::SessionSubscribers,
+    /// Live client connections: connection id -> the connection's
+    /// effective client id (TS `this.clients` + `protocolClientId`).
+    pub(crate) client_connections:
+        std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<String>>>>,
     /// The supervisor's agent roster (classified entries; the roster arms
     /// live in `supervisor_roster.rs`).
     pub(crate) roster: std::sync::Mutex<crate::agent_roster::AgentRoster>,
@@ -288,6 +295,7 @@ impl Supervisor {
             registry: SessionRegistry::new(),
             events,
             session_subscribers: subscribers::SessionSubscribers::new(),
+            client_connections: std::sync::Mutex::new(std::collections::HashMap::new()),
             roster: std::sync::Mutex::new(crate::agent_roster::AgentRoster::new()),
             last_published_roster: std::sync::Mutex::new(std::collections::HashMap::new()),
             pending_registration_seeds: std::sync::Mutex::new(Vec::new()),
@@ -390,6 +398,7 @@ impl Supervisor {
                     self.options.socket_path.display()
                 )
             })?;
+        socket::bind_capture_gap().await;
         // Capture the bound file's identity before anything can replace
         // it (TS daemon-supervisor.ts:879, between `listen` and
         // `restrictDaemonSocketPath`): the exit cleanup below compares
@@ -511,11 +520,34 @@ impl Supervisor {
             });
         }
 
-        accept_loop::serve(&self, &*listener).await?;
-        socket::cleanup_socket_path(
-            &self.options.socket_path,
-            self.bound_socket_identity.lock().unwrap().clone(),
-        );
+        // Boot housekeeping, off the executor: dead-owner lease dirs and
+        // aged socket logs go. Journals without verifiable ownership stay
+        // intact: a missing descriptor does not prove that no worker still
+        // needs them.
+        {
+            let supervisor = Arc::clone(&self);
+            tokio::task::spawn_blocking(move || {
+                let leases = crate::lease::reclaim_dead_owner_leases(&supervisor.options.agent_dir);
+                let logs = crate::worker_stderr::prune_socket_logs(
+                    &supervisor.options.agent_dir,
+                    &supervisor.options.socket_path,
+                );
+                if leases + logs > 0 {
+                    supervisor.log_line(&format!(
+                        "boot cleanup: removed {leases} dead-owner lease dir(s), {logs} old socket log(s)"
+                    ));
+                }
+            });
+        }
+        accept_loop::serve(&self, listener).await?;
+        // The accept loop OWNED the listener, so its return already
+        // closed it (TS daemon-supervisor.ts:7436-7491 awaits the
+        // "daemon server" close step before the "daemon socket" cleanup
+        // step): the cleanup below probes the path with the owner's
+        // listener provably closed, so a successor's live socket at the
+        // path survives even a poisoned bind-time capture.
+        let expected_identity = self.bound_socket_identity.lock().unwrap().clone();
+        socket::cleanup_socket_path_after_close(&self.options.socket_path, expected_identity);
         self.flush_telemetry_on_exit().await;
         Ok(())
     }

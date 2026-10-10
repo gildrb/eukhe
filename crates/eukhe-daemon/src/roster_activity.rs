@@ -153,7 +153,7 @@ impl RosterPushQueue {
                 consumer
                     .pending
                     .store(false, std::sync::atomic::Ordering::SeqCst);
-                crate::worker::push_roster_delta(&context);
+                crate::worker::push_roster_delta(&context).await;
             }
         });
         Self { inner: Some(state) }
@@ -341,7 +341,6 @@ mod tests {
             worker_token: "token".to_string(),
             worker_instance_id: "instance".to_string(),
             roster_delta_sequence: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            roster_push_order: Arc::new(Mutex::new(())),
         });
         for _ in 0..50 {
             queue.push();
