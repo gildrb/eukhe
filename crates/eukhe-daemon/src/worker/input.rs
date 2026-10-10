@@ -377,6 +377,15 @@ impl Worker {
         )
         .await;
         hosted.events_delivered().await;
+        // A successful `/refine` surfaces `refine_complete` through its
+        // committed audit row; a failed run commits no audit, so the
+        // failure event (TS `refine_failed`) is emitted here.
+        if let Some(error) = outcome.refinement_failed {
+            self.emit_worker_event(serde_json::json!({
+                "type": "refine_failed",
+                "error": error,
+            }));
+        }
         match outcome.error {
             Some(error) => response_failure(None, command, &error, None),
             None => response_success(None, command, None),

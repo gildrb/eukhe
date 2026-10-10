@@ -520,6 +520,28 @@ fn custom_entries_go_out_as_a_message_pair() {
     assert!(frames.is_empty());
 }
 
+/// A committed refinement audit row (`eukhe.refinement` custom state)
+/// surfaces as `refine_complete` carrying the refinement result.
+#[test]
+fn a_refinement_audit_row_goes_out_as_refine_complete() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    let result = json!({
+        "summary": "one edit",
+        "appliedEdits": [{ "action": "create", "kind": "memory", "id": "m1", "applied": true }],
+    });
+    let audit = entry(
+        8,
+        "eukhe.custom-state",
+        None,
+        Some(json!({ "customType": "eukhe.refinement", "data": result })),
+    );
+    let frames = translator.translate(&event(json!({ "type": "entry_appended", "entry": audit })));
+    assert_eq!(
+        frames,
+        [json!({ "type": "refine_complete", "result": result })]
+    );
+}
+
 #[test]
 fn compaction_end_reports_the_placed_summary() {
     let answer = entry(

@@ -93,6 +93,9 @@ pub struct SessionCommandOutcome {
     pub goal: Option<GoalState>,
     /// `/autonomous`: the resulting status.
     pub autonomous: Option<AgentAutonomousStatus>,
+    /// `/refine`: the refinement run's own failure (TS `refine_failed`;
+    /// a usage error never ran a refinement and leaves it `None`).
+    pub refinement_failed: Option<String>,
 }
 
 /// Classify `text` as a session command through the builtin slash-command
@@ -127,7 +130,9 @@ pub async fn execute_session_command(
         SessionCommandName::Compact => {
             execute_compact(conversation, command, &mut outcome, cx).await
         }
-        SessionCommandName::Refine => execute_refine(session, conversation, command, cx).await,
+        SessionCommandName::Refine => {
+            execute_refine(session, conversation, command, &mut outcome, cx).await
+        }
         SessionCommandName::Goal => {
             execute_goal(session, conversation, command, &mut outcome, cx).await
         }
@@ -264,6 +269,7 @@ async fn execute_refine(
     session: &EukheSession,
     conversation: &Conversation,
     command: &SessionCommand,
+    outcome: &mut SessionCommandOutcome,
     cx: &Context,
 ) -> Result<(), String> {
     let options = parse_refine_command_options(&command.args)?;
@@ -272,9 +278,14 @@ async fn execute_refine(
         global: options.global,
         rollback_id: options.rollback_id,
     };
-    let result = refine_now(session.deps(), conversation, request, cx)
-        .await
-        .map_err(|error| format!("{error:#}"))?;
+    let result = match refine_now(session.deps(), conversation, request, cx).await {
+        Ok(result) => result,
+        Err(error) => {
+            let message = format!("{error:#}");
+            outcome.refinement_failed = Some(message.clone());
+            return Err(message);
+        }
+    };
     let applied = result
         .applied_edits
         .iter()

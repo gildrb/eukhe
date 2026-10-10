@@ -36,7 +36,7 @@ pub use ops::{
 };
 pub use state::{
     creation_elapsed_seconds, owns_continuation_wakeup, served, terminal_provider_failure,
-    turn_produced_no_output,
+    turn_produced_no_output, NO_PROGRESS_CAP_REASON,
 };
 pub use watch::{watch_goal_updates, GoalUpdates};
 

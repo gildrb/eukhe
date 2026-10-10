@@ -263,6 +263,8 @@ impl Worker {
         .await;
         match refined {
             Ok(result) => {
+                // The committed audit row carries `refine_complete` through
+                // the event bridge; answer once it reached the wire.
                 hosted.events_delivered().await;
                 response_success(
                     None,
@@ -270,7 +272,16 @@ impl Worker {
                     Some(serde_json::to_value(&result).unwrap_or(Value::Null)),
                 )
             }
-            Err(error) => response_failure(None, "refine", &format!("{error:#}"), None),
+            Err(error) => {
+                // A failed refinement commits nothing: the failure event
+                // (TS `refine_failed`) is the worker's to emit.
+                let error = format!("{error:#}");
+                self.emit_worker_event(json!({
+                    "type": "refine_failed",
+                    "error": error,
+                }));
+                response_failure(None, "refine", &error, None)
+            }
         }
     }
 

@@ -141,6 +141,13 @@ pub type TurnWaitSink = Arc<dyn Fn(TurnWait) + Send + Sync>;
 /// never gate the compaction.
 pub type SummaryDeltaSink = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// Receives an agent message the kernel reports after its `ipython` cell
+/// settled (TS `onLateSentAgentMessage`), with the id of the tool call that
+/// ran the cell. The daemon worker surfaces it as the
+/// `ipython_sent_agent_message` session event.
+pub type LateAgentMessageSink =
+    Arc<dyn Fn(&str, crate::kernel::shared::KernelSentAgentMessage) + Send + Sync>;
+
 /// What an eukhe session opens with.
 #[derive(Clone)]
 pub struct SessionConfig {
@@ -179,6 +186,9 @@ pub struct SessionConfig {
     /// bridges); handlers registered in [`HostRequestRegistry`] win on
     /// collisions.
     pub extra_host_handlers: Option<HostRequestHandlers>,
+    /// Late kernel agent messages (the daemon's session event); `None`
+    /// drops them.
+    pub late_agent_message: Option<LateAgentMessageSink>,
 }
 
 impl SessionConfig {
@@ -208,6 +218,7 @@ impl SessionConfig {
             turn_wait: None,
             cron: None,
             extra_host_handlers: None,
+            late_agent_message: None,
         }
     }
 }
@@ -350,6 +361,7 @@ pub struct HostDeps {
     pub turn_wait: Option<TurnWaitSink>,
     pub cron: Option<KernelCronWiring>,
     pub extra_host_handlers: Option<HostRequestHandlers>,
+    pub late_agent_message: Option<LateAgentMessageSink>,
     pub harness: HarnessCell,
     pub host_requests: HostRequestRegistry,
     services: Mutex<Vec<ServiceStart>>,
@@ -400,6 +412,7 @@ impl HostDeps {
             turn_wait: config.turn_wait.clone(),
             cron: config.cron.clone(),
             extra_host_handlers: config.extra_host_handlers.clone(),
+            late_agent_message: config.late_agent_message.clone(),
             harness: HarnessCell::default(),
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),

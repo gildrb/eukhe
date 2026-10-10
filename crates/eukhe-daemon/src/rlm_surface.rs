@@ -112,6 +112,27 @@ impl Worker {
             host.set_delete_notifier(Arc::new(move |child_id| {
                 context_tree.invalidate_child(child_id);
             }));
+            // Every child admission, settle, cancel, and delete surfaces as
+            // a `rlm_child_update` session event (the ACP adapter maps it to
+            // the namespaced `_meta.subagents` update), stamped with this
+            // session's own RLM node id as the parent.
+            let core = Arc::clone(&self.core);
+            let events = Arc::clone(&self.events);
+            host.set_child_update_sink(Arc::new(move |mut child| {
+                let parent_id = core
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .rlm_child_id
+                    .clone();
+                if let Some(parent_id) = parent_id {
+                    child["parentId"] = json!(parent_id);
+                }
+                crate::worker::emit_worker_event_with(
+                    &core,
+                    &events,
+                    json!({ "type": "rlm_child_update", "child": child }),
+                );
+            }));
             host
         });
         host.set_identity(identity);

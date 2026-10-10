@@ -250,6 +250,40 @@ fn print_mode_resume_appends_to_the_same_session_file() {
     assert!(transcript.message_texts().contains(&"second".to_owned()));
 }
 
+/// The goal cap's text-mode end state: the capped run exits 1 with the
+/// reason, and a later resume of the capped session answers normally — the
+/// persisted cap never swallows a run. The seeded goal's continuation runs
+/// first (three empty turns: two backoff wakes, then the cap), then the
+/// prompt answers. The empty turns are factory steps (`delayMs`), stamped
+/// when served, so the goal judges them as its own turns.
+#[test]
+fn print_mode_goal_cap_reports_the_reason_and_exits_one() {
+    let home = isolated_home();
+    let empty = serde_json::json!({ "text": "", "delayMs": 1 });
+    let script = serde_json::json!({ "responses": [empty, empty, empty, "the prompt's answer"] });
+    let (stdout, stderr, code) = run_in_home(
+        home.path(),
+        &["--goal", "finish the work", "-p", "work"],
+        &script,
+    );
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(
+        stderr.ends_with("Goal continuation cap reached: consecutive turns made no progress\n"),
+        "stderr: {stderr}"
+    );
+    assert_eq!(stdout, "the prompt's answer\n");
+
+    let session_id = storage_id(&session_files(home.path())[0]);
+    let script = serde_json::json!({ "responses": ["follow-up answer"] });
+    let (stdout, stderr, code) = run_in_home(
+        home.path(),
+        &["--resume", &session_id[..8], "-p", "next"],
+        &script,
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "follow-up answer\n");
+}
+
 #[test]
 fn print_mode_continue_recent_reuses_the_latest_session() {
     let home = isolated_home();

@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::goals::{
-    autonomous_state, seed_initial_goal, set_autonomous, AutonomousChange,
+    autonomous_state, goal_state, seed_initial_goal, set_autonomous, AutonomousChange,
+    NO_PROGRESS_CAP_REASON,
 };
 use eukhe_core::durable::{classify_session_command, execute_session_command, EukheSession};
 use eukhe_core::session::discovery::SessionSelectorError;
@@ -419,6 +420,12 @@ async fn run_prompts(
     let json_mode = options.app_mode == AppMode::Json;
     let conversation = session.main();
     let harness = session.harness();
+    // The goal's write stamp before this invocation: a cap reached now
+    // reports, a cap persisted by an earlier run never swallows this one.
+    let goal_updated_at_start = goal_state(harness, conversation.id(), cx)
+        .await
+        .map_err(|error| format!("{error:#}"))?
+        .updated_at;
     let events = if json_mode {
         println!("{}", session_header(opened));
         Some(JsonEvents::start(session, &conversation, cx).await?)
@@ -443,6 +450,18 @@ async fn run_prompts(
     // stderr with exit 1, a settled answer to stdout) and the trailing
     // compaction outcomes to stderr.
     if !json_mode {
+        // The no-progress cap ends the goal in this invocation: the reason
+        // on stderr, exit 1.
+        let goal = goal_state(harness, conversation.id(), cx)
+            .await
+            .map_err(|error| format!("{error:#}"))?;
+        if goal.status == eukhe_types::goal::GoalStatus::Error
+            && goal.last_error.as_deref() == Some(NO_PROGRESS_CAP_REASON)
+            && goal.updated_at != goal_updated_at_start
+        {
+            eprintln!("{NO_PROGRESS_CAP_REASON}");
+            exit_code = 1;
+        }
         let result = select_terminal_result(&conversation, cx).await?;
         if let Some(primary) = result.primary {
             match primary.failure() {

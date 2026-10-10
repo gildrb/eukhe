@@ -476,6 +476,7 @@ async fn local_refine_without_a_session_directory_fails() {
     let error =
         "Local harness refinement requires a session directory; use global refinement instead.";
     assert_eq!(outcome.error.as_deref(), Some(error));
+    assert_eq!(outcome.refinement_failed.as_deref(), Some(error));
     assert_eq!(
         fixture.command_rows().await,
         vec![echo("/refine"), failure("/refine", error)]
@@ -489,6 +490,8 @@ async fn refine_rollback_without_an_id_fails_with_the_usage() {
     let outcome = fixture.run("/refine rollback").await;
     let error = "Usage: /refine rollback <refinement-id>";
     assert_eq!(outcome.error.as_deref(), Some(error));
+    // A usage error never ran a refinement.
+    assert_eq!(outcome.refinement_failed, None);
     assert_eq!(
         fixture.command_rows().await,
         vec![echo("/refine rollback"), failure("/refine rollback", error)]
@@ -502,6 +505,7 @@ async fn global_refine_records_its_rows_and_the_applied_count() {
     let fixture = open(&[json!(plan)]).await;
     let outcome = fixture.run("/refine --global").await;
     assert_eq!(outcome.error, None);
+    assert_eq!(outcome.refinement_failed, None);
     let rows = fixture
         .rows(&[
             SESSION_SLASH_COMMAND_CUSTOM_TYPE,

@@ -287,6 +287,17 @@ fn initialize_params() -> Value {
 
 const TIMEOUT: Duration = Duration::from_mins(1);
 
+/// Assert a settled turn's stop reason, printing the whole response
+/// envelope on mismatch: an `internal_error`'s failure text (the
+/// `eukhe turn failed: <failure>` message) is otherwise lost — the
+/// `stopReason: null` arms of `assert_eq!` show only the null.
+fn assert_end_turn(response: &Value) {
+    assert_eq!(
+        response["result"]["stopReason"], "end_turn",
+        "the turn's response envelope: {response}"
+    );
+}
+
 /// `initialize` + `session/new` on a daemon-attached child; the ACP session id.
 fn initialize_and_new_session(client: &mut AcpChild) -> String {
     let init = client.request("initialize", &initialize_params());
@@ -397,3 +408,4 @@ fn kernel_python() -> Option<std::path::PathBuf> {
 mod compaction_rlm;
 mod daemon_attached;
 mod protocol;
+mod stop_close;

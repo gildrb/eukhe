@@ -29,7 +29,8 @@ use super::kernels::ConversationKernel;
 use super::RlmRuntime;
 use crate::kernel::cancellation::AbortSignal as KernelAbortSignal;
 use crate::kernel::shared::{
-    ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment, StreamCallback, StreamName,
+    ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment, LateSentAgentMessageCallback,
+    StreamCallback, StreamName,
 };
 use crate::kernel::KernelBootstrapProgressHandler;
 use crate::kernel::ReplKernelManager;
@@ -139,6 +140,14 @@ async fn execute(
             }
         })
     };
+    // An agent message the kernel reports after this cell settled reaches
+    // the embedding's sink with this call's id (TS
+    // `onLateSentAgentMessage`).
+    let on_late_sent_agent_message = runtime.deps.late_agent_message.as_ref().map(|sink| {
+        let sink = Arc::clone(sink);
+        let call_id = api.call_id().to_owned();
+        Arc::new(move |message| sink(&call_id, message)) as LateSentAgentMessageCallback
+    });
     let executed = manager
         .execute(
             &code,
@@ -146,6 +155,7 @@ async fn execute(
                 signal,
                 on_stream: Some(on_stream),
                 call: Some(Arc::clone(&api)),
+                on_late_sent_agent_message,
                 ..ExecuteOptions::default()
             },
         )

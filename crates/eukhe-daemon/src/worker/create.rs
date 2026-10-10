@@ -305,6 +305,22 @@ impl Worker {
                 json!({ "type": "compaction_summary_delta", "delta": delta }),
             );
         }));
+        // An agent message the kernel reports after its cell settled (TS
+        // `ipython_sent_agent_message`; the ACP adapter maps it to the
+        // namespaced `_meta.agentMessage` update).
+        let late_core = Arc::clone(&self.core);
+        let late_events = Arc::clone(&self.events);
+        config.late_agent_message = Some(Arc::new(move |tool_call_id: &str, message| {
+            emit_worker_event_with(
+                &late_core,
+                &late_events,
+                json!({
+                    "type": "ipython_sent_agent_message",
+                    "toolCallId": tool_call_id,
+                    "message": eukhe_core::sent_agent_message_json(&message),
+                }),
+            );
+        }));
         // The kernel host seams: scheduled-jobs cron wiring, bash notices.
         self.wire_session_host(&mut config);
         Ok(config)

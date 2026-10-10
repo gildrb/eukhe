@@ -323,11 +323,13 @@ async fn restore_actions_refuses_the_reserved_child_status_kinds() {
 }
 
 /// `refine` runs on the main conversation: a local refinement of a
-/// session without storage answers the durable refiner's refusal.
+/// session without storage answers the durable refiner's refusal, and the
+/// failure surfaces as one `refine_failed` session event.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn refine_surfaces_the_refinement_failure() {
     let (_dir, worker) =
         created_worker_with(SESSION, json!(["ack"]), json!({ "noSession": true })).await;
+    let mut subscription = worker.events.subscribe();
     let response = worker
         .dispatch(
             "refine",
@@ -335,11 +337,21 @@ async fn refine_surfaces_the_refinement_failure() {
         )
         .await;
     assert!(!response.success);
+    let expected =
+        "Local harness refinement requires a session directory; use global refinement instead.";
+    assert_eq!(response.error.as_deref(), Some(expected));
+    let mut failures = Vec::new();
+    while let Ok(frame) = subscription.try_recv() {
+        if frame.outbound_type == "session_event" {
+            let event: Value = serde_json::from_slice(&frame.payload).unwrap();
+            if event["event"]["type"] == "refine_failed" {
+                failures.push(event["event"].clone());
+            }
+        }
+    }
     assert_eq!(
-        response.error.as_deref(),
-        Some(
-            "Local harness refinement requires a session directory; use global refinement instead."
-        )
+        failures,
+        vec![json!({ "type": "refine_failed", "error": expected })]
     );
 }
 

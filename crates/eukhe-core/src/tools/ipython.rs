@@ -73,6 +73,7 @@ pub struct ExecuteResult {
 /// The wire form of one sent agent message (TS `KernelSentAgentMessage`):
 /// `id`, `message`, `deliveryStatus`, `receiverRole` when present, and the
 /// `target` endpoint (`sessionName` only when present).
+#[must_use]
 pub fn sent_agent_message_json(
     sent: &crate::kernel::shared::KernelSentAgentMessage,
 ) -> serde_json::Value {

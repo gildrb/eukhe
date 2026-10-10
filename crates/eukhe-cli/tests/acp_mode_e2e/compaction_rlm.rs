@@ -155,7 +155,7 @@ fn acp_threshold_auto_compaction_publishes_the_compaction_meta() {
         }),
     );
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
-    assert_eq!(prompt_response["result"]["stopReason"], "end_turn");
+    assert_end_turn(&prompt_response);
     let metas = compaction_metas(&updates);
     assert!(!metas.is_empty(), "the threshold arm ran: {updates:?}");
     assert!(
@@ -175,7 +175,7 @@ fn acp_threshold_auto_compaction_publishes_the_compaction_meta() {
         }),
     );
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
-    assert_eq!(prompt_response["result"]["stopReason"], "end_turn");
+    assert_end_turn(&prompt_response);
     let metas = compaction_metas(&updates);
     let ran = metas
         .iter()
@@ -186,6 +186,45 @@ fn acp_threshold_auto_compaction_publishes_the_compaction_meta() {
         })
         .unwrap_or_else(|| panic!("the compaction ran and published: {metas:?}"));
     assert!(ran["tokensBefore"].as_u64().unwrap() > 0);
+}
+
+/// A settled turn's response implies the next prompt is admissible: the
+/// turn releases the session's single-prompt slot before its reply
+/// leaves, so a client that prompts again the instant it reads the
+/// response is admitted. Twenty back-to-back prompts keep every
+/// settle-to-next-admission window covered.
+#[test]
+fn acp_settled_prompt_immediately_admits_the_next_prompt() {
+    let script = json!({
+        "engine": "faux",
+        "contextWindow": 128_000,
+        "responses": (0..30)
+            .map(|index| json!({ "text": format!("settled turn reply {index}") }))
+            .collect::<Vec<_>>(),
+    });
+    let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
+    let init = client.request("initialize", &initialize_params());
+    let _ = client.wait_response(init, TIMEOUT);
+    let new = client.request("session/new", &json!({ "mcpServers": [] }));
+    let (new_response, _) = client.wait_response(new, TIMEOUT);
+    let session_id = new_response["result"]["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for turn in 0..20 {
+        let prompt = client.request(
+            "session/prompt",
+            &json!({
+                "sessionId": session_id,
+                "prompt": [{ "type": "text", "text": format!("settled turn {turn}") }],
+            }),
+        );
+        let (prompt_response, _) = client.wait_response(prompt, TIMEOUT);
+        assert_eq!(
+            prompt_response["result"]["stopReason"], "end_turn",
+            "turn {turn}: the settled turn raced the next prompt's admission: {prompt_response}"
+        );
+    }
 }
 
 /// The overflow arm on the ACP turn path: a provider context-overflow

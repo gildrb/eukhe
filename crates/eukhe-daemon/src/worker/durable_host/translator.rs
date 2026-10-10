@@ -19,8 +19,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eukhe_chord::json::JsonValue;
 use eukhe_core::durable::{
-    CustomEntryData, ProviderWireEvent, BASH_ENTRY, BRANCH_SUMMARY_ENTRY, CUSTOM_ENTRY,
+    CustomEntryData, CustomStateData, ProviderWireEvent, BASH_ENTRY, BRANCH_SUMMARY_ENTRY,
+    CUSTOM_ENTRY, CUSTOM_STATE_ENTRY,
 };
+use eukhe_core::session_engine::refine::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::types::{AgentState, CompactionReason};
 use eukhe_durable::harness::usage::UsageState;
@@ -296,6 +298,9 @@ impl EventTranslator {
                     if let Some(message) = entry_wire_message(entry) {
                         self.message_pair(&message, &mut out);
                     }
+                } else if let Some(frame) = refine_complete_frame(entry) {
+                    self.flush_into(&mut out);
+                    out.push(frame);
                 }
                 self.mirror.entries.push(entry.clone());
             }
@@ -748,6 +753,24 @@ impl EventTranslator {
         }
         out.push(frame);
     }
+}
+
+/// `refine_complete` of a committed refinement audit row: every applied
+/// refinement (the `refine` command, `/refine`, a kernel-requested
+/// boundary refinement, the compact-trigger auto-refine) commits one
+/// `eukhe.refinement` custom-state row carrying the `RefinementResult`.
+fn refine_complete_frame(entry: &EntryRecord) -> Option<Value> {
+    if entry.kind != CUSTOM_STATE_ENTRY.kind() {
+        return None;
+    }
+    let data = entry_data::<CustomStateData>(entry)?;
+    if data.custom_type != REFINEMENT_AUDIT_CUSTOM_TYPE {
+        return None;
+    }
+    Some(json!({
+        "type": "refine_complete",
+        "result": data.data.unwrap_or(Value::Null),
+    }))
 }
 
 /// `message_start` of a streamed assistant message.

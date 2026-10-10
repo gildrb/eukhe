@@ -7,6 +7,7 @@
 //! `agent_begin/end`, `session_action_update`) map to nothing, exactly like
 //! the TS switch's default arm.
 
+use serde::Deserialize as _;
 use serde_json::{json, Value};
 
 use super::meta::{eukhe_meta, EukheCompactionMeta, EukheSessionMeta};
@@ -40,15 +41,15 @@ impl WireMappingState {
     }
 }
 
-/// The newest assistant stop reason carried by a `message_end` event (the
-/// transport reads it after the turn for the stop-reason response); also
-/// captures an error message on a failed turn.
+/// The assistant stop reason carried by one `message_end` event: the
+/// transport keeps the newest one and reads it after the turn for the
+/// stop-reason response.
 pub struct AssistantStop {
-    pub stop_reason: Option<String>,
+    pub stop_reason: Option<eukhe_types::ai::StopReason>,
 }
 
-/// Extract the assistant stop/error fields from one wire event, when the
-/// event settles an assistant message.
+/// Extract the assistant stop reason from one wire event, when the event
+/// settles an assistant message.
 pub fn assistant_stop(event: &Value) -> Option<AssistantStop> {
     if event.get("type").and_then(Value::as_str) != Some("message_end") {
         return None;
@@ -60,8 +61,7 @@ pub fn assistant_stop(event: &Value) -> Option<AssistantStop> {
     Some(AssistantStop {
         stop_reason: message
             .get("stopReason")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+            .and_then(|value| eukhe_types::ai::StopReason::deserialize(value).ok()),
     })
 }
 
@@ -282,6 +282,118 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                             .and_then(Value::as_u64),
                         summary: result
                             .and_then(|result| result.get("summary"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    }),
+                    ..Default::default()
+                }),
+            }]
+        }
+        "rlm_child_update" => {
+            let child = event.get("child");
+            vec![AcpSessionUpdate::SessionInfoUpdate {
+                meta: eukhe_meta(&EukheSessionMeta {
+                    subagents: Some(vec![super::meta::EukheSubagentMeta {
+                        id: child
+                            .and_then(|child| child.get("id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        session_name: child
+                            .and_then(|child| child.get("sessionName"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        status: child
+                            .and_then(|child| child.get("status"))
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        model: child
+                            .and_then(|child| child.get("model"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        depth: None,
+                        token_count: child
+                            .and_then(|child| child.get("tokenCount"))
+                            .and_then(Value::as_u64),
+                        error: child
+                            .and_then(|child| child.get("error"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    }]),
+                    ..Default::default()
+                }),
+            }]
+        }
+        "refine_complete" => {
+            let result = event.get("result");
+            let changes = result
+                .and_then(|result| result.get("appliedEdits"))
+                .and_then(Value::as_array)
+                .map(|edits| {
+                    edits
+                        .iter()
+                        .filter(|edit| edit.get("applied") == Some(&json!(true)))
+                        .filter_map(|edit| {
+                            let action = edit.get("action").and_then(Value::as_str)?;
+                            let kind = edit.get("kind").and_then(Value::as_str)?;
+                            let id = edit.get("id").and_then(Value::as_str)?;
+                            Some(format!("{action} {kind}:{id}"))
+                        })
+                        .collect::<Vec<String>>()
+                });
+            vec![AcpSessionUpdate::SessionInfoUpdate {
+                meta: eukhe_meta(&EukheSessionMeta {
+                    refinement: Some(super::meta::EukheRefinementMeta {
+                        status: "complete".to_string(),
+                        summary: result
+                            .and_then(|result| result.get("summary"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        changes,
+                        error: None,
+                    }),
+                    ..Default::default()
+                }),
+            }]
+        }
+        "refine_failed" => {
+            vec![AcpSessionUpdate::SessionInfoUpdate {
+                meta: eukhe_meta(&EukheSessionMeta {
+                    refinement: Some(super::meta::EukheRefinementMeta {
+                        status: "failed".to_string(),
+                        summary: None,
+                        changes: None,
+                        error: event
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    }),
+                    ..Default::default()
+                }),
+            }]
+        }
+        "ipython_sent_agent_message" => {
+            let message = event.get("message");
+            vec![AcpSessionUpdate::SessionInfoUpdate {
+                meta: eukhe_meta(&EukheSessionMeta {
+                    agent_message: Some(super::meta::EukheAgentMessageMeta {
+                        tool_call_id: event
+                            .get("toolCallId")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        target: message
+                            .and_then(|message| message.get("target"))
+                            .and_then(|target| {
+                                target
+                                    .get("sessionName")
+                                    .or_else(|| target.get("sessionId"))
+                            })
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        delivery_status: message
+                            .and_then(|message| message.get("deliveryStatus"))
                             .and_then(Value::as_str)
                             .map(str::to_string),
                     }),
@@ -531,10 +643,10 @@ mod tests {
     fn assistant_stop_reason_is_captured_from_message_end() {
         let stop = assistant_stop(&json!({
             "type": "message_end",
-            "message": { "role": "assistant", "stopReason": "end_turn" },
+            "message": { "role": "assistant", "stopReason": "length" },
         }))
         .expect("assistant message_end");
-        assert_eq!(stop.stop_reason.as_deref(), Some("end_turn"));
+        assert_eq!(stop.stop_reason, Some(eukhe_types::ai::StopReason::Length));
         assert!(assistant_stop(&json!({
             "type": "message_end",
             "message": { "role": "user" },
@@ -577,5 +689,167 @@ mod tests {
         );
         let value = serde_json::to_value(&updates[0]).unwrap();
         assert_eq!(value["content"][0]["content"]["text"], "a");
+    }
+
+    fn namespaced(update: &AcpSessionUpdate) -> Value {
+        update.to_bare_value()["_meta"][super::super::meta::EUKHE_META_NAMESPACE].clone()
+    }
+
+    #[test]
+    fn rlm_child_update_maps_to_the_subagents_meta() {
+        let mut state = WireMappingState::default();
+        let updates = wire_updates(
+            &json!({
+                "type": "rlm_child_update",
+                "child": {
+                    "id": "child-1",
+                    "parentId": "node-1",
+                    "activeSessionId": "child-live",
+                    "sessionName": "worker-a",
+                    "model": "z-ai/glm-5.3-flash",
+                    "label": "run the lane task",
+                    "status": "running",
+                    "durationMs": 500,
+                    "sessionDir": "/sessions/child-1",
+                },
+            }),
+            &mut state,
+        );
+        let value = updates[0].to_bare_value();
+        assert_eq!(value["sessionUpdate"], "session_info_update");
+        assert_eq!(
+            namespaced(&updates[0])["subagents"],
+            json!([{
+                "id": "child-1",
+                "sessionName": "worker-a",
+                "status": "running",
+                "model": "z-ai/glm-5.3-flash",
+            }])
+        );
+        let updates = wire_updates(
+            &json!({
+                "type": "rlm_child_update",
+                "child": {
+                    "id": "child-2",
+                    "status": "cancelled",
+                    "error": "Deleted by parent orchestrator",
+                },
+            }),
+            &mut state,
+        );
+        assert_eq!(
+            namespaced(&updates[0])["subagents"],
+            json!([{
+                "id": "child-2",
+                "status": "cancelled",
+                "error": "Deleted by parent orchestrator",
+            }])
+        );
+    }
+
+    #[test]
+    fn refine_complete_maps_the_applied_edits_changes() {
+        let mut state = WireMappingState::default();
+        let updates = wire_updates(
+            &json!({
+                "type": "refine_complete",
+                "result": {
+                    "id": "ref-1",
+                    "summary": "applied 2 edits",
+                    "appliedEdits": [
+                        { "action": "create", "kind": "memory", "id": "x", "applied": true },
+                        { "action": "update", "kind": "skill", "id": "y", "applied": true },
+                        { "action": "delete", "kind": "prompt", "id": "z", "applied": false },
+                    ],
+                },
+            }),
+            &mut state,
+        );
+        assert_eq!(
+            namespaced(&updates[0])["refinement"],
+            json!({
+                "status": "complete",
+                "summary": "applied 2 edits",
+                "changes": ["create memory:x", "update skill:y"],
+            })
+        );
+        let updates = wire_updates(
+            &json!({
+                "type": "refine_complete",
+                "result": { "id": "ref-2", "summary": "no edits" },
+            }),
+            &mut state,
+        );
+        assert_eq!(
+            namespaced(&updates[0])["refinement"],
+            json!({ "status": "complete", "summary": "no edits" })
+        );
+    }
+
+    #[test]
+    fn refine_failed_maps_the_error_meta() {
+        let mut state = WireMappingState::default();
+        let updates = wire_updates(
+            &json!({ "type": "refine_failed", "error": "Summarization failed: no responses" }),
+            &mut state,
+        );
+        assert_eq!(
+            namespaced(&updates[0])["refinement"],
+            json!({ "status": "failed", "error": "Summarization failed: no responses" })
+        );
+    }
+
+    #[test]
+    fn ipython_sent_agent_message_maps_the_target_fallback() {
+        let mut state = WireMappingState::default();
+        let updates = wire_updates(
+            &json!({
+                "type": "ipython_sent_agent_message",
+                "toolCallId": "t7",
+                "message": {
+                    "id": "agentmsg_1",
+                    "message": "Ping.",
+                    "deliveryStatus": "delivered",
+                    "target": {
+                        "activeSessionId": "peer-live",
+                        "sessionId": "peer-session",
+                        "sessionName": "Worker",
+                    },
+                },
+            }),
+            &mut state,
+        );
+        assert_eq!(
+            namespaced(&updates[0])["agentMessage"],
+            json!({
+                "toolCallId": "t7",
+                "target": "Worker",
+                "deliveryStatus": "delivered",
+            })
+        );
+        let updates = wire_updates(
+            &json!({
+                "type": "ipython_sent_agent_message",
+                "toolCallId": "t8",
+                "message": {
+                    "id": "agentmsg_2",
+                    "message": "Ping.",
+                    "deliveryStatus": "queued",
+                    "target": {
+                        "activeSessionId": "peer-live",
+                        "sessionId": "peer-session",
+                    },
+                },
+            }),
+            &mut state,
+        );
+        assert_eq!(
+            namespaced(&updates[0])["agentMessage"],
+            json!({
+                "toolCallId": "t8",
+                "target": "peer-session",
+                "deliveryStatus": "queued",
+            })
+        );
     }
 }

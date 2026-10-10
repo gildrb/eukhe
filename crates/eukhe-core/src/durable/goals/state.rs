@@ -21,7 +21,7 @@ pub(crate) const CONTINUATION_NO_PROGRESS_CAP: u32 = 3;
 pub(crate) const CONTINUATION_NO_PROGRESS_BACKOFF_BASE_MS: u64 = 10_000;
 
 /// The terminal reason of a goal whose continuations stopped making progress.
-pub(crate) const NO_PROGRESS_CAP_REASON: &str =
+pub const NO_PROGRESS_CAP_REASON: &str =
     "Goal continuation cap reached: consecutive turns made no progress";
 
 /// The default reason of a failed assistant response.
