@@ -377,7 +377,14 @@ pub struct HostDeps {
     /// The `eukhe.rlm` kernel pool, set when the extension installs (the
     /// daemon's out-of-band kernel lanes, [`super::rlm::kernel_bash_activity`]).
     pub(crate) rlm_kernels: OnceLock<Weak<super::rlm::KernelPool>>,
+    /// Resolves once the `eukhe.compaction` observer serviced every commit
+    /// published before the call; set when the observer starts.
+    pub(crate) compaction_barrier: OnceLock<ObserverBarrier>,
 }
+
+/// A barrier through a commit observer's queue.
+pub(crate) type ObserverBarrier =
+    Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync>;
 
 /// The services `open_session` resolves before building [`HostDeps`].
 pub(crate) struct ResolvedServices {
@@ -418,6 +425,7 @@ impl HostDeps {
             services: Mutex::new(Vec::new()),
             provider_runtime: std::sync::OnceLock::new(),
             rlm_kernels: OnceLock::new(),
+            compaction_barrier: OnceLock::new(),
             semantic_edges: services.semantic_edges,
         }
     }
@@ -429,6 +437,15 @@ impl HostDeps {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(start);
+    }
+
+    /// Wait until the session's commit observers serviced every commit
+    /// published so far (their disclosure rows, e.g. a run's reported
+    /// overflow outcome, are committed). Immediate before they start.
+    pub async fn observers_settled(&self) {
+        if let Some(barrier) = self.compaction_barrier.get() {
+            barrier().await;
+        }
     }
 
     pub(crate) fn take_services(&self) -> Vec<ServiceStart> {

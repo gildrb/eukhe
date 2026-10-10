@@ -113,12 +113,14 @@ pub(crate) async fn run_manual_compaction(
     if select_cut(&view, keep_recent).is_none() {
         return Err(ManualCompactionError::Skipped(TOO_SHORT_TO_COMPACT));
     }
-    // The context estimate before the summary (TS `tokensBefore`).
-    let tokens_before = estimate_context(&view, &[]);
     let task = conversation
         .compact(instructions, cx)
         .await
         .map_err(|error| ManualCompactionError::session(&error))?;
+    // The context estimate before the summary (TS `tokensBefore`), over the
+    // view read above: computed after the task commit, so the
+    // `compaction_start` frame never waits on it.
+    let tokens_before = estimate_context(&view, &[]);
     let settled = harness
         .wait_for_task(task, cx)
         .await

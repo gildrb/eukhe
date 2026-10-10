@@ -16,18 +16,31 @@
 //! - and it arms the compact-trigger auto-refine (the old
 //!   `_scheduleAutoRefineAfterCompaction`), serviced once the conversation
 //!   is idle.
+//!
+//! It also watches a context-overflow error that ends a run (no compaction
+//! task created in the same commit): after the run's one overflow
+//! compaction it appends the reported-failure row (the old engine's
+//! `_checkCompaction` reported state, keyed `overflow:<entry id>`); with
+//! nothing to cut it appends the skip row.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
+use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
+use eukhe_durable::harness::agent::resolve_settings;
+use eukhe_durable::harness::types::CompactionReason;
 use eukhe_durable::harness::types::{SubmissionDraft, WriteSubmissionDraft};
 use eukhe_durable::harness::Conversation;
+use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{
-    CommitChange, CommitPublication, ConversationId, LatestFork, TaskOutcome, TaskRecord,
+    CommitChange, CommitPublication, ConversationId, EntryId, EntryRecord, LatestFork, TaskOutcome,
+    TaskRecord,
 };
+use eukhe_pi_ai::utils::overflow::is_context_overflow;
+use eukhe_types::pi_ai::{Message, StopReason};
 use eukhe_types::session::CustomMessage;
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
@@ -36,6 +49,10 @@ use serde_json::Value;
 use super::super::{custom_entry_draft, OpenedSession};
 use super::{CompactionRuntime, HostDeps, COMPACTION_ENTRY_KIND};
 use crate::session_engine::messages::{CompactionOutcomeKind, CompactionOutcomeReason};
+
+/// The reported failure of a run whose one overflow compaction did not make
+/// the retried request fit (the old engine's `_checkCompaction` text).
+pub const OVERFLOW_RECOVERY_FAILED: &str = "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.";
 
 static OUTCOMES_DOC: ConversationDoc<OutcomesState> = match ConversationDoc::define(
     DocDefinition {
@@ -56,6 +73,18 @@ static OUTCOMES_DOC: ConversationDoc<OutcomesState> = match ConversationDoc::def
 pub struct OutcomesState {
     /// The task ids whose settle already produced its outcome row.
     pub recorded: HashMap<String, bool>,
+}
+
+/// One commit fact the observer services.
+enum Observed {
+    Settled(Settled),
+    /// A context-overflow error ended the run of `conversation_id`.
+    OverflowEnded {
+        conversation_id: ConversationId,
+        entry_id: EntryId,
+    },
+    /// Everything queued before it was serviced.
+    Barrier(tokio::sync::oneshot::Sender<()>),
 }
 
 /// One settled compaction the observer services.
@@ -86,8 +115,30 @@ pub(crate) fn start(
     opened: OpenedSession,
 ) -> futures::future::BoxFuture<'static, SessionResult<Option<super::super::ServiceStop>>> {
     async move {
-        let (events, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<Settled>();
+        let (events, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<Observed>();
         let listener_seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let barrier_events = events.clone();
+        let (barrier_harness, barrier_root) = (opened.harness.clone(), opened.root.id());
+        let barrier: super::super::deps::ObserverBarrier = Arc::new(move || {
+            let events = barrier_events.clone();
+            let harness = barrier_harness.clone();
+            async move {
+                // A commit publishes to its listeners in turn on the session
+                // line: a waiter woken by that publication may run before
+                // this listener queued its fact. One line read passes it.
+                if let Err(error) = harness.conversation(barrier_root, &BACKGROUND_CONTEXT).await {
+                    tracing::debug!(target: "eukhe.compaction", "observer barrier read failed: {error:#}");
+                }
+                let (done, settled) = tokio::sync::oneshot::channel();
+                // A stopped observer has nothing left to service.
+                if events.send(Observed::Barrier(done)).is_ok() {
+                    let _ = settled.await;
+                }
+            }
+            .boxed()
+        });
+        // One observer per session: a second start keeps the first barrier.
+        let _ = runtime.deps.compaction_barrier.set(barrier);
         let listener_events = events;
         let listener_runtime = Arc::clone(&runtime);
         let commits = opened.harness.subscribe_commits(Arc::new(
@@ -96,7 +147,7 @@ pub(crate) fn start(
                     match change {
                         CommitChange::Task(record) => {
                             if let Some(settled) = settle_of(record, &listener_seen) {
-                                let _ = listener_events.send(settled);
+                                let _ = listener_events.send(Observed::Settled(settled));
                             }
                         }
                         // One settled assistant turn appended: the review
@@ -104,6 +155,12 @@ pub(crate) fn start(
                         // `message_end` increment).
                         CommitChange::Entry(entry) if entry.kind == "pi.assistant" => {
                             listener_runtime.autorefine.note_settled_turn();
+                            if overflow_ends_run(entry, publication) {
+                                let _ = listener_events.send(Observed::OverflowEnded {
+                                    conversation_id: entry.conversation_id,
+                                    entry_id: entry.id,
+                                });
+                            }
                         }
                         _ => {}
                     }
@@ -125,11 +182,17 @@ pub(crate) fn start(
                 tokio::select! {
                     event = event_rx.recv() => {
                         let Some(event) = event else { break };
-                        if let Err(error) = handle(&service_runtime, event).await {
-                            tracing::warn!(target: "eukhe.compaction", "compaction settle handling failed: {error:#}");
-                        }
+                        service(&service_runtime, event).await;
                     }
-                    () = task_close.notified() => break,
+                    () = task_close.notified() => {
+                        // A session close stops the service right after a
+                        // run settles (print mode): the facts its last
+                        // commits queued still get their rows.
+                        while let Ok(event) = event_rx.try_recv() {
+                            service(&service_runtime, event).await;
+                        }
+                        break;
+                    }
                 }
             }
         });
@@ -145,6 +208,124 @@ pub(crate) fn start(
         Ok(Some(stop))
     }
     .boxed()
+}
+
+/// Service one observed fact; a failure is logged (the row is a
+/// disclosure, never a reason to fail the session).
+async fn service(runtime: &Arc<CompactionRuntime>, event: Observed) {
+    let handled = match event {
+        Observed::Settled(settled) => handle(runtime, settled).await,
+        Observed::OverflowEnded {
+            conversation_id,
+            entry_id,
+        } => report_overflow(runtime, conversation_id, entry_id).await,
+        Observed::Barrier(done) => {
+            // The waiter may have given up; nothing to report then.
+            let _ = done.send(());
+            Ok(())
+        }
+    };
+    if let Err(error) = handled {
+        tracing::warn!(target: "eukhe.compaction", "compaction settle handling failed: {error:#}");
+    }
+}
+
+/// Whether `entry` is a context-overflow error that ends its run: no
+/// `pi.compaction` task starts in the same commit (the generation's one
+/// overflow compaction appends the error together with its task).
+fn overflow_ends_run(entry: &EntryRecord, publication: &CommitPublication) -> bool {
+    let overflowed = entry
+        .model
+        .as_deref()
+        .and_then(<[Message]>::first)
+        .and_then(Message::as_assistant)
+        .is_some_and(|message| {
+            message.stop_reason == StopReason::Error && is_context_overflow(message, None)
+        });
+    overflowed
+        && !publication.changes.iter().any(|change| {
+            matches!(change, CommitChange::Task(record)
+                if record.kind == super::COMPACTION_ENTRY_KIND
+                    && !matches!(record.state, eukhe_durable::types::TaskState::Terminal { .. }))
+        })
+}
+
+/// The reported outcome of a run that ended on a context overflow: the
+/// failed-recovery row when the run already compacted for an overflow
+/// (pi-durable retries once), else the skip row when compaction is enabled
+/// (nothing to cut). Disabled compaction reports nothing.
+async fn report_overflow(
+    runtime: &Arc<CompactionRuntime>,
+    conversation_id: ConversationId,
+    entry_id: EntryId,
+) -> anyhow::Result<()> {
+    let deps = &runtime.deps;
+    if !resolve_settings(Some(&deps.settings.harness()))
+        .compaction
+        .enabled
+    {
+        return Ok(());
+    }
+    let harness = deps
+        .harness
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("the session is closed"))?;
+    let cx = BACKGROUND_CONTEXT.clone();
+    let Some(conversation) = harness.conversation(conversation_id, &cx).await? else {
+        return Ok(());
+    };
+    let recovered_once = run_compacted_for_overflow(&conversation, entry_id, &cx).await?;
+    let (text, kind) = if recovered_once {
+        (
+            OVERFLOW_RECOVERY_FAILED.to_owned(),
+            CompactionOutcomeKind::Failed,
+        )
+    } else {
+        (
+            format!(
+                "Auto-compaction skipped: {}",
+                skip_message(deps, &conversation, &cx).await
+            ),
+            CompactionOutcomeKind::Skipped,
+        )
+    };
+    let mut row = super::summary::outcome_message(&text, CompactionOutcomeReason::Overflow, kind);
+    if let Some(details) = row.details.as_mut().and_then(Value::as_object_mut) {
+        details.insert("reported".to_owned(), Value::Bool(true));
+    }
+    outcome_row(&conversation, &format!("overflow:{entry_id}"), row, &cx).await
+}
+
+/// Whether an overflow compaction sits between the run's prompt (the
+/// newest user entry before `entry_id`) and `entry_id`.
+async fn run_compacted_for_overflow(
+    conversation: &Conversation,
+    entry_id: EntryId,
+    cx: &Context,
+) -> anyhow::Result<bool> {
+    let mut cursor = None;
+    loop {
+        let page = conversation
+            .entries(ConversationEntryQuery::default(), 64, cursor, cx)
+            .await?;
+        for entry in page.items {
+            if entry.id >= entry_id {
+                continue;
+            }
+            if entry.kind == USER_ENTRY.kind() {
+                return Ok(false);
+            }
+            if let Some(compaction) = COMPACTION_ENTRY.narrow(entry)? {
+                if compaction.data().reason == CompactionReason::Overflow {
+                    return Ok(true);
+                }
+            }
+        }
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => return Ok(false),
+        }
+    }
 }
 
 /// The settle of one task record, when it is a terminal `pi.compaction`
@@ -323,18 +504,20 @@ async fn outcome_row(
         .commit(
             move |tx| async move {
                 let draft = tx.doc(&OUTCOMES_DOC, conversation_id).await?;
-                let mut state: OutcomesState = match draft.get("recorded")? {
+                // The document root is `OutcomesState`: its `recorded` key
+                // holds the task-id map.
+                let mut recorded: HashMap<String, bool> = match draft.get("recorded")? {
                     Some(item) => eukhe_chord::json::from_json(&item.to_value()?)?,
-                    None => OutcomesState::default(),
+                    None => HashMap::new(),
                 };
-                if state.recorded.remove(task_id.as_str()).is_some() {
+                if recorded.contains_key(task_id.as_str()) {
                     // Already recorded: this settle is a replay.
                     return Ok(());
                 }
-                state.recorded.insert(task_id.clone(), true);
+                recorded.insert(task_id.clone(), true);
                 draft.set(
                     "recorded",
-                    eukhe_chord::json::to_json(&state)
+                    eukhe_chord::json::to_json(&recorded)
                         .map_err(eukhe_durable::session::SessionError::other)?,
                 )?;
                 tx.append_entry(conversation_id, draft_entry).await?;

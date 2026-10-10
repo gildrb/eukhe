@@ -32,6 +32,11 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+/// The lane of the RPC children: plain children share it; the timed
+/// children (wall-clock frame-visibility oracles) take it alone, so sibling
+/// children never starve their budgets under a parallel test run.
+static CHILD_LANE: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
 /// The child plus the tempdir it runs in: the tempdir must outlive the
 /// child process (its cwd), so it is held on the struct.
 struct RpcChild {
@@ -50,6 +55,8 @@ struct RpcChild {
     /// read on a live pipe blocks until exit; the sibling ACP harness
     /// reads post-kill).
     drain_stderr_on_drop: bool,
+    /// The shared [`CHILD_LANE`], released after the Drop reaps the child.
+    _lane: std::sync::RwLockReadGuard<'static, ()>,
 }
 
 impl RpcChild {
@@ -62,6 +69,9 @@ impl RpcChild {
     /// provider entry + key to pass the registry's configured-auth gate,
     /// the same shape the daemon harness seeds).
     fn spawn_seeded(args: &[&str], script: &Value, models: Option<Value>) -> RpcChild {
+        let shared_lane = CHILD_LANE
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let home = tempfile::TempDir::new().unwrap();
         if let Some(models) = models {
             let agent_dir = home.path().join("agent");
@@ -105,6 +115,7 @@ impl RpcChild {
             home,
             spawn_stderr: Some(stderr),
             drain_stderr_on_drop: false,
+            _lane: shared_lane,
         }
     }
 
@@ -1229,6 +1240,8 @@ struct TimedRpcChild {
     /// Held so the tempdir (the child's cwd) outlives the child process:
     /// the Drop reaps the child before the field drops.
     _home: tempfile::TempDir,
+    /// [`CHILD_LANE`] alone, released after the Drop reaps the child.
+    _lane: std::sync::RwLockWriteGuard<'static, ()>,
 }
 
 impl TimedRpcChild {
@@ -1242,6 +1255,9 @@ impl TimedRpcChild {
     /// holds the child's stdout pipe unread (a full pipe blocks the
     /// writer task mid-write) until `begin_reading` starts the drain.
     fn spawn_stalled(fixture: &std::path::Path, script: &Value) -> TimedRpcChild {
+        let exclusive_lane = CHILD_LANE
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let home = tempfile::TempDir::new().unwrap();
         let bin = env!("CARGO_BIN_EXE_eukhe");
         let mut child = Command::new(bin)
@@ -1275,6 +1291,7 @@ impl TimedRpcChild {
             pending_stdout: Some(stdout),
             next_id: 0,
             _home: home,
+            _lane: exclusive_lane,
         }
     }
 
@@ -1400,10 +1417,12 @@ fn rpc_compact_flushes_the_start_frame_before_the_pipeline() {
     assert_eq!(response["success"], true, "the response: {response}");
     let result = &response["data"];
     let summary = result["summary"].as_str().expect("the summary");
+    // One summarizer call: pi-durable cuts at entry boundaries, so no
+    // turn-prefix summary is composed (the second scripted answer stays
+    // unused).
     assert!(
-        summary.contains("corpus history summary: the scale corpus ran")
-            && summary.contains("corpus turn-prefix summary: the final marker"),
-        "the split-turn compaction composes both summarizer answers: {summary}"
+        summary.contains("corpus history summary: the scale corpus ran"),
+        "the summarizer's answer: {summary}"
     );
     assert!(
         result["tokensBefore"].is_number(),
@@ -1420,7 +1439,7 @@ fn rpc_compact_flushes_the_start_frame_before_the_pipeline() {
     }
     let (start_at, cs_event) = cs.expect("the compaction_start event");
     let (end_at, _) = ce.expect("the compaction_end event");
-    assert_eq!(cs_event["reason"], "requested");
+    assert_eq!(cs_event["reason"], "manual");
     assert!(
         cs_event.get("result").is_none(),
         "compaction_start carries no result (TS shape)"
@@ -1600,5 +1619,5 @@ fn rpc_prompt_admitted_compact_frames_flush_after_the_response() {
         start_at < end_at,
         "compaction_end (at {end_at}) must follow compaction_start (at {start_at})"
     );
-    assert_eq!(seen[start_at]["reason"], "requested");
+    assert_eq!(seen[start_at]["reason"], "manual");
 }

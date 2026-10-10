@@ -161,7 +161,9 @@ fn the_session_header_carries_the_ts_fields_in_order() {
 fn image_prompts_carry_the_text_then_the_images() {
     assert_eq!(
         user_content("plain", Vec::new()),
-        UserContent::Text("plain".to_owned())
+        UserContent::Blocks(vec![UserContentBlock::Text(
+            eukhe_types::pi_ai::TextContent::new("plain")
+        )])
     );
     let image = ImageContent {
         data: "aGk=".to_owned(),

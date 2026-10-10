@@ -500,9 +500,9 @@ fn print_mode_overflow_retry_recovers_the_turn() {
     );
 }
 
-/// A skipped overflow recovery (nothing compactable) surfaces the warning
-/// row on stderr and exits 0 — the TS text-mode contract where the dropped
-/// error turn leaves no primary answer (verified against the TS binary).
+/// An overflow with nothing compactable ends the run on the provider error
+/// (pi-durable keeps the error turn): stderr carries the error, then the
+/// skip warning row, exit 1.
 #[test]
 fn print_mode_overflow_skip_surfaces_the_warning_row() {
     let home = isolated_home();
@@ -514,15 +514,11 @@ fn print_mode_overflow_skip_surfaces_the_warning_row() {
     );
     let script = serde_json::json!({ "responses": [overflow_error(0)] });
     let (stdout, stderr, code) = run_in_home(home.path(), &["-p", "overflow probe"], &script);
-    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(code, 1, "stderr: {stderr}");
     assert!(stdout.is_empty(), "stdout: {stdout}");
     assert_eq!(
         stderr,
-        "Auto-compaction skipped: Session is too short to compact -- try again once it grows\n"
-    );
-    assert!(
-        !stderr.contains("No response produced."),
-        "the TS text mode stays silent without a primary: {stderr}"
+        "prompt is too long: 213462 tokens > 200000 maximum\nAuto-compaction skipped: Session is too short to compact -- try again once it grows\n"
     );
 }
 
@@ -633,10 +629,10 @@ fn print_mode_overflow_json_streams_the_compaction_events() {
     );
 }
 
-/// The stale-overflow recovery across runs (the `--continue` shape,
-/// verified against the TS binary): a run with compaction disabled leaves
-/// the overflow error in the session; the resumed run's pre-turn arm
-/// compacts before the admitted prompt, which then answers normally.
+/// The overflow recovery across runs (the `--continue` shape): a run with
+/// compaction disabled leaves the overflow error in the session; in the
+/// resumed run the prompt's request overflows again, the one overflow
+/// compaction runs, and the retried request answers normally.
 #[test]
 fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
     let home = isolated_home();
@@ -656,11 +652,12 @@ fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
     assert_eq!(code, 1, "stderr: {stderr}");
     assert!(stdout.is_empty());
 
-    // Run two: the resumed session with compaction enabled — the pre-turn
-    // arm compacts the stale overflow before the prompt runs.
+    // Run two: the resumed session with compaction enabled: the request
+    // overflows, compacts, and retries.
     write_compaction_settings(home.path(), &compactable_settings());
     let script = serde_json::json!({
         "responses": [
+            overflow_error(0),
             {"text": "the stale recovery summary"},
             {"text": "recovered after the resume"},
             // The compact-trigger auto-refine review the recovered turn's
@@ -679,7 +676,7 @@ fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
     assert_eq!(
         read_transcript(&files[0]).of_kind("pi.compaction").len(),
         1,
-        "the pre-turn recovery compacted"
+        "the overflow recovery compacted"
     );
 }
 
@@ -689,9 +686,11 @@ fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
 // json stream over the same scripted faux provider).
 // ---------------------------------------------------------------------------
 
-/// The harness digest pair (TS commit-time injection): the fresh session's
-/// first turn streams the digest's `message_start`/`message_end` pair as a
-/// `custom` message between `turn_start` and the user message pair.
+/// The harness digest pair: the fresh session's first request commits the
+/// digest (eukhe.digest delivery, after the prompt's user entry) and streams
+/// its `message_start`/`message_end` pair as a `custom` message between the
+/// user pair and the assistant. The request itself places it ahead of the
+/// prompt.
 #[test]
 fn print_mode_json_streams_the_harness_digest_pair() {
     let home = isolated_home();
@@ -711,28 +710,24 @@ fn print_mode_json_streams_the_harness_digest_pair() {
                 && event["message"]["customType"] == "harness_digest"
         })
         .expect("the digest message_start event");
-    // The pair rides the first turn: after turn_start, before the user pair.
-    let turn_start_at = events
+    // The pair rides the first turn: after the user pair, before the answer.
+    let user_end_at = events
         .iter()
-        .position(|event| event["type"] == "turn_start")
-        .expect("turn_start");
-    let user_at = events
-        .iter()
-        .position(|event| event["type"] == "message_start" && event["message"]["role"] == "user")
+        .position(|event| event["type"] == "message_end" && event["message"]["role"] == "user")
         .expect("the user message pair");
-    assert!(turn_start_at < digest_at && digest_at < user_at);
-    // The TS wire shape: the framed text content, display false, the raw
-    // digest in details.
+    let assistant_at = events
+        .iter()
+        .position(|event| {
+            event["type"] == "message_start" && event["message"]["role"] == "assistant"
+        })
+        .expect("the assistant message");
+    assert!(user_end_at < digest_at && digest_at < assistant_at);
+    // The wire shape: the framed text (one text block, as the model sees
+    // it), display false, the raw digest in details.
     let digest = &events[digest_at]["message"];
-    assert!(digest["content"].is_string());
-    assert!(digest["content"]
-        .as_str()
-        .unwrap()
-        .starts_with("[harness-digest]"));
-    assert!(digest["content"]
-        .as_str()
-        .unwrap()
-        .ends_with("</harness_state>"));
+    let framed = digest["content"][0]["text"].as_str().expect("a text block");
+    assert!(framed.starts_with("[harness-digest]"));
+    assert!(framed.ends_with("</harness_state>"));
     assert_eq!(digest["display"], false);
     assert!(digest["details"]["digest"].is_string());
     assert!(digest["details"]["digest"]
@@ -754,14 +749,17 @@ fn print_mode_json_streams_the_harness_digest_pair() {
     );
 }
 
-/// The streaming deltas (TS `message_update`): between the assistant's
-/// `message_start` and `message_end`, the wire carries the slim
-/// `assistantMessageEvent` deltas (`partial` never rides the wire) and the
-/// partial assistant message accumulating per delta.
+/// The streaming deltas: pi-durable commits the in-flight partial at most
+/// every 100 ms (TS `streamResponse`'s throttle), so between the
+/// assistant's `message_start` (the first committed partial) and its
+/// `message_end`, each `message_update` carries the accumulated partial and
+/// the text appended since the previous frame; `partial` never rides the
+/// wire. A slow stream makes the throttle publish.
 #[test]
 fn print_mode_json_streams_the_message_update_deltas() {
+    const ANSWER: &str = "a streamed answer that takes a while to arrive in many small pieces";
     let home = isolated_home();
-    let script = serde_json::json!({ "responses": ["a streamed answer"] });
+    let script = serde_json::json!({ "tokensPerSecond": 20, "responses": [ANSWER] });
     let (stdout, stderr, code) = run_in_home(home.path(), &["--mode", "json", "-p", "hi"], &script);
     assert_eq!(code, 0, "stderr: {stderr}");
     let events: Vec<serde_json::Value> = stdout
@@ -784,26 +782,29 @@ fn print_mode_json_streams_the_message_update_deltas() {
         .filter(|event| event["type"] == "message_update")
         .collect();
     assert!(!updates.is_empty(), "the stream carries the deltas");
-    // The delta protocol: text_start, text_delta..., text_end, each with
-    // the content index, and no nested `partial` copy on the wire.
-    assert_eq!(updates[0]["assistantMessageEvent"]["type"], "text_start");
-    let last = updates.last().unwrap();
-    assert_eq!(last["assistantMessageEvent"]["type"], "text_end");
-    assert_eq!(
-        last["assistantMessageEvent"]["content"],
-        "a streamed answer"
-    );
+    let text = |event: &serde_json::Value| {
+        event["message"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    // The deltas rebuild each frame's partial from the start's.
+    let mut rebuilt = text(&events[start_at]);
     for update in &updates {
-        assert_eq!(update["assistantMessageEvent"]["contentIndex"], 0);
-        assert!(update["assistantMessageEvent"].get("partial").is_none());
         assert_eq!(update["message"]["role"], "assistant");
+        assert!(update["assistantMessageEvent"].get("partial").is_none());
+        if update["assistantMessageEvent"]["type"] == "text_delta" {
+            rebuilt.push_str(update["assistantMessageEvent"]["delta"].as_str().unwrap());
+        }
+        assert_eq!(rebuilt, text(update));
+        assert!(
+            ANSWER.starts_with(&rebuilt),
+            "a prefix of the answer: {rebuilt:?}"
+        );
     }
-    // The partial message accumulates: the first delta's message is the
-    // empty partial; the end delta carries the full text.
-    assert_eq!(updates[0]["message"]["content"][0]["text"], "");
-    assert_eq!(last["message"]["content"][0]["text"], "a streamed answer");
+    assert_eq!(text(&events[end_at]), ANSWER);
     // The event field order matches the TS stream (`MessageUpdateEvent`:
-    // type, message, assistantMessageEvent) — the JSON map preserves
+    // type, message, assistantMessageEvent) -- the JSON map preserves
     // insertion order, so this is the wire byte order.
     let keys: Vec<&str> = updates[0]
         .as_object()
@@ -814,10 +815,11 @@ fn print_mode_json_streams_the_message_update_deltas() {
     assert_eq!(keys, ["type", "message", "assistantMessageEvent"]);
 }
 
-/// The threshold compaction arm (TS `_checkCompaction` Case 3): a settled
-/// turn whose usage crosses the reserve headroom streams the
-/// `compaction_start`/`compaction_end` pair with the `threshold` reason,
-/// the client-facing result, and `willRetry: false`.
+/// The threshold compaction (pi-durable's pre-request check): a prompt whose
+/// context crosses the reserve headroom compacts before its request, so the
+/// `compaction_start`/`compaction_end` pair with the `threshold` reason, the
+/// client-facing result, and `willRetry: false` streams inside that run,
+/// between its user message and the answer.
 #[test]
 fn print_mode_json_streams_the_threshold_compaction_pair() {
     let home = isolated_home();
@@ -836,8 +838,8 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
         "contextWindow": 24000,
         "responses": [
             {"text": "seed reply"},
-            {"text": "crossing reply"},
             {"text": "the compaction summary"},
+            {"text": "crossing reply"},
         ]
     });
     let first = "seed turn".to_string();
@@ -861,13 +863,19 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
         events[start_at],
         serde_json::json!({ "type": "compaction_start", "reason": "threshold" })
     );
-    // The pair fires at the crossing turn's settled boundary (TS
-    // `agent_end` order): after the second run ends, with no third run.
-    let last_agent_end = events
+    // The pair runs inside the crossing run: after its user message, before
+    // its answer.
+    let last_user_end = events
         .iter()
-        .rposition(|event| event["type"] == "agent_end")
-        .expect("the last agent_end");
-    assert!(last_agent_end < start_at);
+        .rposition(|event| event["type"] == "message_end" && event["message"]["role"] == "user")
+        .expect("the crossing user message");
+    let answer_at = events
+        .iter()
+        .rposition(|event| {
+            event["type"] == "message_start" && event["message"]["role"] == "assistant"
+        })
+        .expect("the crossing answer");
+    assert!(last_user_end < start_at);
     assert_eq!(
         events
             .iter()
@@ -880,7 +888,7 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
         .iter()
         .position(|event| event["type"] == "compaction_end")
         .expect("the compaction_end event");
-    assert!(start_at < end_at);
+    assert!(start_at < end_at && end_at < answer_at);
     assert_eq!(events[end_at]["reason"], "threshold");
     assert_eq!(
         events[end_at]["result"]["summary"],

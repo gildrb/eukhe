@@ -263,14 +263,15 @@ async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData,
     }
 }
 
-/// One requested-compaction frame in the TS key order, omitting the
+/// One manual-compaction frame (pi-durable's `manual` reason, as the
+/// translated compaction events carry it) in the TS key order, omitting the
 /// optional fields that are absent (TS `JSON.stringify`'s `undefined`
 /// handling): `compaction_start {type, reason, customInstructions?}` and
 /// `compaction_end {type, reason, result?, aborted, willRetry,
 /// customInstructions?}`.
 #[must_use]
 pub fn compaction_frame(kind: &str, instructions: Option<&str>, result: Option<&Value>) -> Value {
-    let mut frame = json!({ "type": kind, "reason": "requested" });
+    let mut frame = json!({ "type": kind, "reason": "manual" });
     if kind != "compaction_start" {
         if let Some(result) = result {
             frame["result"] = result.clone();
@@ -383,12 +384,12 @@ mod tests {
         let start = compaction_frame("compaction_start", Some("focus"), None);
         assert_eq!(
             serde_json::to_string(&start).unwrap(),
-            r#"{"type":"compaction_start","reason":"requested","customInstructions":"focus"}"#
+            r#"{"type":"compaction_start","reason":"manual","customInstructions":"focus"}"#
         );
         let end = compaction_frame("compaction_end", None, None);
         assert_eq!(
             serde_json::to_string(&end).unwrap(),
-            r#"{"type":"compaction_end","reason":"requested","aborted":false,"willRetry":false}"#
+            r#"{"type":"compaction_end","reason":"manual","aborted":false,"willRetry":false}"#
         );
     }
 }

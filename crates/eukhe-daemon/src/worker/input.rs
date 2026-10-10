@@ -35,12 +35,11 @@ pub(crate) struct InputRequest {
 }
 
 impl InputRequest {
+    /// The prompt as TS `AgentSession.prompt` sends it: a text block, then
+    /// the images (an image-only prompt keeps no empty text block).
     fn content(&self) -> UserContent {
-        if self.images.is_empty() {
-            return UserContent::Text(self.text.clone());
-        }
         let mut blocks = Vec::with_capacity(self.images.len() + 1);
-        if !self.text.is_empty() {
+        if !self.text.is_empty() || self.images.is_empty() {
             blocks.push(UserContentBlock::Text(TextContent::new(self.text.clone())));
         }
         blocks.extend(self.images.iter().cloned().map(UserContentBlock::Image));

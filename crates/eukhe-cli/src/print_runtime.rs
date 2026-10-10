@@ -393,10 +393,9 @@ fn prompts(options: &RunOptions) -> impl Iterator<Item = (&str, Vec<ImageContent
         )
 }
 
+/// The prompt as TS `AgentSession.prompt` sends it: a text block, then the
+/// images.
 fn user_content(prompt: &str, images: Vec<ImageContent>) -> UserContent {
-    if images.is_empty() {
-        return UserContent::Text(prompt.to_owned());
-    }
     let mut blocks = vec![UserContentBlock::Text(
         eukhe_types::pi_ai::TextContent::new(prompt),
     )];
@@ -433,6 +432,9 @@ async fn run_prompts(
         None
     };
     let failure = drive_prompts(session, &conversation, options, cx).await;
+    // The run's disclosure rows (a reported overflow outcome) commit from
+    // the compaction observer after the run settles: both modes report them.
+    session.deps().observers_settled().await;
     if let Some(events) = events {
         events.finish().await;
     }

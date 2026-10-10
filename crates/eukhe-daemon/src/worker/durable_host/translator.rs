@@ -296,7 +296,7 @@ impl EventTranslator {
             AgentEvent::EntryAppended { entry } => {
                 if entry.kind == CUSTOM_ENTRY.kind() {
                     if let Some(message) = entry_wire_message(entry) {
-                        self.message_pair(&message, &mut out);
+                        self.shown_message(&message, &mut out);
                     }
                 } else if let Some(frame) = refine_complete_frame(entry) {
                     self.flush_into(&mut out);
@@ -590,7 +590,7 @@ impl EventTranslator {
         } else if kind != BASH_ENTRY.kind() && kind != BRANCH_SUMMARY_ENTRY.kind() {
             // Bash runs and branch summaries are shown by their features' own events.
             if let Some(message) = entry_wire_message(entry) {
-                self.message_pair(&message, out);
+                self.shown_message(&message, out);
             }
         }
         self.mirror.entries.push(entry.clone());
@@ -723,6 +723,15 @@ impl EventTranslator {
         }
     }
 
+    /// A committed non-assistant message: its pair, then the
+    /// `compaction_end` a reported overflow outcome row stands for.
+    fn shown_message(&mut self, message: &Value, out: &mut Vec<Value>) {
+        self.message_pair(message, out);
+        if let Some(frame) = reported_overflow_end(message) {
+            out.push(frame);
+        }
+    }
+
     fn compaction_end(&mut self, task_id: TaskId, reason: CompactionReason, out: &mut Vec<Value>) {
         self.flush_into(out);
         self.mirror.compactions.retain(|(id, _)| *id != task_id);
@@ -747,12 +756,45 @@ impl EventTranslator {
                 "tokensBefore": summary.tokens_before,
             })),
             "aborted": false,
+            // pi-durable re-issues the request after a summarized overflow
+            // compaction.
+            "willRetry": reason == CompactionReason::Overflow && summary.is_some(),
         });
         if let (None, Some(failure)) = (&summary, failure) {
             frame["errorMessage"] = Value::from(failure.message);
         }
         out.push(frame);
     }
+}
+
+/// The `compaction_end` that reports a run's failed overflow recovery,
+/// after its `compaction_outcome` row (the old engine's `_checkCompaction`
+/// reported state: no result, no retry, the row's text as the error).
+fn reported_overflow_end(message: &Value) -> Option<Value> {
+    let details = &message["details"];
+    let reported = message["customType"] == "compaction_outcome"
+        && details["reported"] == true
+        && details["reason"] == "overflow"
+        && details["outcome"] == "failed";
+    if !reported {
+        return None;
+    }
+    let text = match &message["content"] {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|block| block["text"].as_str())
+            .collect(),
+        _ => return None,
+    };
+    Some(json!({
+        "type": "compaction_end",
+        "reason": "overflow",
+        "result": Value::Null,
+        "aborted": false,
+        "willRetry": false,
+        "errorMessage": text,
+    }))
 }
 
 /// `refine_complete` of a committed refinement audit row: every applied

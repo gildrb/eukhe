@@ -217,7 +217,10 @@ async fn get_session_context_matches_the_ts_context_shape() {
         .filter_map(|message| message["role"].as_str())
         .collect();
     assert_eq!(roles, vec!["user", "custom", "assistant"], "{context}");
-    assert_eq!(context["messages"][0]["content"], json!("hello"));
+    assert_eq!(
+        context["messages"][0]["content"],
+        json!([{ "type": "text", "text": "hello" }])
+    );
 }
 
 /// `get_system_prompt` renders exactly the prompt the next request sends:

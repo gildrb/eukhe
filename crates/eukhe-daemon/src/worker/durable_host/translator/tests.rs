@@ -581,6 +581,7 @@ fn compaction_end_reports_the_placed_summary() {
         [json!({
             "type": "compaction_end", "reason": "threshold",
             "result": { "summary": "SUMMARY", "tokensBefore": 1234 }, "aborted": false,
+            "willRetry": false,
         })]
     );
     assert!(!translator.mirror().is_compacting());
@@ -601,7 +602,7 @@ fn a_faulted_compaction_ends_with_its_failure() {
         frames,
         [json!({
             "type": "compaction_end", "reason": "manual", "result": null, "aborted": false,
-            "errorMessage": "boom",
+            "willRetry": false, "errorMessage": "boom",
         })]
     );
 }
