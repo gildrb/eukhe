@@ -96,12 +96,24 @@ impl Worker {
     pub(crate) fn connection_state_locked(&self, core: &SessionCore) -> AgentConnectionState {
         let mirror = core.view.as_ref().map(|view| view.translator.mirror());
         let settings = self.session_settings(core);
+        let model = model_metadata(core, &self.session);
+        // TS `createAgentConnectionState` carries `contextUsage:
+        // session.getContextUsage()` in every attach snapshot, so the
+        // client's first frame reads the tray's context usage off the
+        // snapshot instead of blocking on a `get_session_stats`
+        // round-trip. The same mirror estimate `get_session_stats` serves:
+        // `None` without a model context window.
+        let context_usage = mirror
+            .zip(crate::state_getters::model_context_window(model.as_ref()))
+            .map(|(mirror, window)| {
+                crate::state_getters::mirror_context_usage(&mirror.entries, window)
+            });
         AgentConnectionState {
             is_streaming: core.is_busy(),
             is_compacting: core.is_compacting(),
             active_session_id: Some(core.active_session_id.clone()),
             cwd: core.cwd.clone(),
-            model: model_metadata(core, &self.session),
+            model,
             thinking_level: thinking_level(core),
             service_tier: crate::setting_switches::service_tier_wire_name(
                 core.active_service_tier
@@ -143,7 +155,7 @@ impl Worker {
                 .map_or(Value::Null, |view| view.goal.clone()),
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
-            context_usage: None,
+            context_usage,
         }
     }
 

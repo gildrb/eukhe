@@ -60,19 +60,11 @@
 //! 250ms -- measured: the raced suspend's teardown waits to ~250ms on a
 //! silent pty and lands at its dispatch on every answered class).
 //!
-//! DIVERGENCE FROM TS (the shift-modified printable bug class): this port
-//! never arms modifyOtherKeys mode 2 and instead resets it
-//! (`\x1b[>4;0m`) at every surface start. TS parses the resulting
-//! `CSI 27;<mods>;<key>~` sequences itself (keys.ts
-//! `parseModifyOtherKeysSequence`), but crossterm 0.28 has no case for
-//! them and drops the whole pending input buffer on the parse error
-//! (`Parser::advance` clears on `Err`) -- a terminal in mode 2 (a sticky
-//! mode any other pane or process may have armed) makes shift-modified
-//! printables like `shift+=` vanish entirely. The reset returns such
-//! terminals to legacy encodings (shift+= arrives as the produced `+`),
-//! and the kitty path covers the enhanced-reporting surface crossterm
-//! can parse (kitty CSI-u with shifted alternates resolves to the
-//! produced character in crossterm's own parser).
+//! We reset modifyOtherKeys mode 2 at each surface start to keep legacy
+//! printable-key behavior. Some terminals (Ghostty without Kitty flags)
+//! still emit modifyOtherKeys (`CSI 27;<mods>;<key>~`) for modified
+//! control keys such as Shift+Enter; the vendored crossterm parser and
+//! the sequence guard both accept those reports.
 //!
 //! Every mode-flag transition is serialized (a module-wide lock pairs each
 //! flag write with its escape write), and the force-quit exit path marks

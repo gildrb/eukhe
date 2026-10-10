@@ -124,6 +124,45 @@ async fn get_context_tree_matches_the_ts_root_node() {
     );
 }
 
+/// The attach snapshot's state carries the tray's context usage (TS
+/// `createAgentConnectionState`'s `contextUsage`), the same estimate
+/// `get_session_stats` serves and `get_context_tree` derives through the
+/// Harness, so the client's first frame needs no stats round-trip.
+#[tokio::test]
+async fn the_attach_state_carries_the_stats_context_usage() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created_worker(dir.path(), ack_script()).await;
+    let usage_of = |worker: &Worker| {
+        let core = worker
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        serde_json::to_value(worker.connection_state_locked(&core)).expect("state")["contextUsage"]
+            .clone()
+    };
+    let fresh = usage_of(&worker);
+    assert_eq!(fresh["tokens"], 0, "{fresh}");
+    assert!(fresh["contextWindow"]
+        .as_u64()
+        .is_some_and(|window| window > 0));
+
+    let answered = worker
+        .dispatch("prompt_and_wait", &json!({ "message": "hello there" }))
+        .await;
+    assert!(answered.success, "prompt: {answered:?}");
+    let state_usage = usage_of(&worker);
+    assert!(
+        state_usage["tokens"]
+            .as_u64()
+            .is_some_and(|tokens| tokens > 0),
+        "{state_usage}"
+    );
+    let stats = get(&worker, "get_session_stats", &json!({})).await;
+    assert_eq!(stats["contextUsage"], state_usage);
+    let tree = get(&worker, "get_context_tree", &json!({})).await;
+    assert_eq!(tree["contextUsage"], state_usage);
+}
+
 /// `get_commands` / `get_resource_snapshot`: the TS loader shapes over the
 /// session's loaded resources.
 #[tokio::test]

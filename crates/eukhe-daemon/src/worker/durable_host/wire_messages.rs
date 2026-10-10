@@ -58,15 +58,26 @@ pub fn assistant_wire_message(message: &AssistantMessage) -> Value {
 /// only.
 #[must_use]
 pub fn transcript_messages(entries: &[EntryRecord]) -> Vec<Value> {
+    transcript_messages_of(entries)
+}
+
+/// [`transcript_messages`] over any in-order run of entries (an active
+/// context selected out of the mirror).
+pub(crate) fn transcript_messages_of<'a>(
+    entries: impl IntoIterator<Item = &'a EntryRecord>,
+) -> Vec<Value> {
+    let entries = entries.into_iter();
     let mut context_tokens = 0;
-    let mut messages = Vec::with_capacity(entries.len());
-    for (index, entry) in entries.iter().enumerate() {
-        if entry.kind.as_str() == USER_ENTRY.kind()
-            && entries[..index].last().is_some_and(|row| {
+    let mut messages = Vec::with_capacity(entries.size_hint().0);
+    let mut previous: Option<&EntryRecord> = None;
+    for entry in entries {
+        let covered = entry.kind.as_str() == USER_ENTRY.kind()
+            && previous.is_some_and(|row| {
                 row.kind.as_str() == CUSTOM_ENTRY.kind()
                     && entry_data::<CustomEntryData>(row).is_some_and(|data| data.input)
-            })
-        {
+            });
+        previous = Some(entry);
+        if covered {
             continue;
         }
         if let Some(message) = entry_wire_message_with(entry, context_tokens) {

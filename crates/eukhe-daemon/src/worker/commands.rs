@@ -365,8 +365,8 @@ impl Worker {
         )
     }
 
-    /// `get_session_stats`: message counts and the main conversation's
-    /// cumulative usage (`pi.usage`).
+    /// `get_session_stats`: message counts, the main conversation's
+    /// cumulative usage (`pi.usage`), and the tray's context usage.
     fn handle_get_session_stats(&self) -> DaemonResponse {
         if let Err(response) = self.require_created("get_session_stats") {
             return response;
@@ -419,7 +419,7 @@ impl Worker {
             cache_write += usage.cache_write;
             cost += usage.cost.total;
         }
-        let stats = json!({
+        let mut stats = json!({
             "sessionFile": core.session_file(),
             "sessionId": core.session_id,
             "userMessages": count("user"),
@@ -436,6 +436,15 @@ impl Worker {
             },
             "cost": cost,
         });
+        // The tray's context usage, the estimate the attach snapshot
+        // carries; omitted without a model context window (TS sessions
+        // without a model).
+        if let Some(window) = crate::state_getters::model_context_window(
+            super::model_metadata(&core, &self.session).as_ref(),
+        ) {
+            stats["contextUsage"] =
+                crate::state_getters::mirror_context_usage(&mirror.entries, window);
+        }
         response_success(None, "get_session_stats", Some(stats))
     }
 

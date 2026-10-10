@@ -12,6 +12,7 @@ use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::models::ModelRegistry;
 use eukhe_durable::harness::types::PromptInput;
 use eukhe_durable::harness::Conversation;
+use eukhe_durable::types::EntryRecord;
 use eukhe_pi_ai::auth::AuthOperationOptions;
 use eukhe_pi_ai::utils::transcript::get_current_system_message;
 use eukhe_types::pi_ai::IndexMap;
@@ -20,7 +21,7 @@ use serde_json::{json, Value};
 
 use crate::context_tree_cache::WalkRequest;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
-use crate::worker::durable_host::wire_messages::transcript_messages;
+use crate::worker::durable_host::wire_messages::{transcript_messages, transcript_messages_of};
 use crate::worker::{model_metadata, HostedSession, Worker};
 
 impl Worker {
@@ -77,11 +78,7 @@ impl Worker {
                 core.rlm_child_id.clone(),
             )
         };
-        let context_window = model
-            .as_ref()
-            .and_then(|model| model.get("contextWindow"))
-            .and_then(Value::as_u64)
-            .filter(|window| *window > 0);
+        let context_window = model_context_window(model.as_ref());
         let main = match hosted.main() {
             Ok(main) => main,
             Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
@@ -339,6 +336,35 @@ async fn context_messages(conversation: &Conversation, cx: &Context) -> Result<V
         .await
         .map_err(|error| error.to_string())?;
     Ok(transcript_messages(&view.entries))
+}
+
+/// The positive `contextWindow` of a wire model (`model_metadata`), or
+/// None when the model or its window is unknown.
+pub(crate) fn model_context_window(model: Option<&Value>) -> Option<u64> {
+    model
+        .and_then(|model| model.get("contextWindow"))
+        .and_then(Value::as_u64)
+        .filter(|window| *window > 0)
+}
+
+/// The tray's context usage off the shown conversation's event mirror (the
+/// attach snapshot's `state.contextUsage` and `get_session_stats`): the
+/// estimate `get_context_tree` computes, over the same active entries the
+/// Harness derives (the newest head marker, then the visible non-head
+/// entries from its head on), without a Harness read, so the attach can
+/// fill it under the core lock it already holds.
+pub(crate) fn mirror_context_usage(entries: &[EntryRecord], context_window: u64) -> Value {
+    let messages =
+        match entries.iter().rev().find(|entry| entry.head.is_some()) {
+            None => transcript_messages_of(entries),
+            Some(marker) => {
+                let start = marker.head;
+                transcript_messages_of(std::iter::once(marker).chain(entries.iter().filter(
+                    |entry| entry.head.is_none() && start.is_none_or(|start| entry.id >= start),
+                )))
+            }
+        };
+    context_usage(&messages, context_window)
 }
 
 /// TS `estimateContextTokens` over `messages` against `context_window`:
