@@ -41,7 +41,7 @@ use crate::refinement::executor::{
 use crate::refinement::{
     append_global_refinement, get_global_harness_state_dir, get_local_harness_state_dir,
     infer_refinement_result_scope, load_global_refinement_history, load_harness_state,
-    merge_harness_states, merge_refinement_history, save_harness_state, HarnessMemory,
+    merge_harness_states, merge_refinement_history, update_harness_state, HarnessMemory,
     HarnessScope, RefinementResult,
 };
 use crate::session_engine::refine::{
@@ -308,22 +308,21 @@ pub(crate) async fn refine(
 
     let target_scope = plan.rollback_scope.unwrap_or(requested_scope);
     let target_dir = scope_dir(target_scope)?;
-    let mut state = load_harness_state(&target_dir, target_scope);
     // The factory opt-in resolves immediately before the apply, after the
     // planning request: a setting changed during the request decides.
     let agent_dir = deps.agent_dir.clone();
     let factory_enabled =
         tokio::task::spawn_blocking(move || crate::refinement::factory_enabled(&agent_dir)).await?;
-    let mut result = apply_refinement_plan(
-        &mut state,
-        plan,
-        &options,
-        Some(baseline_state),
-        factory_enabled,
-    );
-    result.harness_state_path = save_harness_state(&target_dir, &state)?
-        .to_string_lossy()
-        .to_string();
+    // The re-read, apply, and save run under the harness-state lock the
+    // kernel's `HarnessState` writer takes too, so a concurrent kernel write
+    // is never lost between the reload and the save.
+    let (mut result, state_path) = tokio::task::spawn_blocking(move || {
+        update_harness_state(&target_dir, target_scope, |state| {
+            apply_refinement_plan(state, plan, &options, Some(baseline_state), factory_enabled)
+        })
+    })
+    .await??;
+    result.harness_state_path = state_path.to_string_lossy().to_string();
     if target_scope == HarnessScope::Global {
         append_global_refinement(&global_harness_dir, &result)?;
     }

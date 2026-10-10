@@ -155,9 +155,8 @@ impl SessionManager {
 /// (`window::append_cached`'s per-row sync) is never regressed by the
 /// rewrite that replaces it — a non-synced rename onto the destination can
 /// zero the file on a hard crash, the window TS tolerates through
-/// repair-on-open. Disclosed in the atomic-write durability audit: the
-/// session family keeps its fsync; every other `atomic_write` family site
-/// is TS-default (no fsync).
+/// repair-on-open. The other durable-class files opt into the same sync
+/// through `settings::storage::atomic_write_with`.
 pub(super) fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
     let temp = PathBuf::from(format!("{}.tmp{}", path.display(), std::process::id()));
     {

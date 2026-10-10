@@ -916,7 +916,9 @@ fn cancel_wake_job(inner: &Inner, job_id: &str) {
         .iter()
         .any(|job| job.id == job_id && job.status == JobStatus::Active)
     {
-        let _ = store.cancel(job_id, now_millis());
+        if let Err(error) = store.cancel(job_id, now_millis()) {
+            tracing::warn!(%error, "quota park wake-job cancel failed");
+        }
     }
 }
 

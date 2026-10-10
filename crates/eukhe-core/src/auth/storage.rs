@@ -258,8 +258,14 @@ impl AuthStorageBackend for FileAuthStorageBackend {
             // The replace lands on the symlink's target (TS
             // `realpathIfPresentSync`): an auth.json linked to a shared
             // document stays linked, and the shared file is updated.
+            // Credentials are a durable class: the temp is synced before
+            // the rename and the parent directory after it.
             let target = super::super::settings::storage::realpath_if_present(&self.auth_path)?;
-            super::super::settings::storage::atomic_write(&target, &next)?;
+            super::super::settings::storage::atomic_write_with(
+                &target,
+                &next,
+                super::super::settings::storage::AtomicWriteOptions { fsync: true },
+            )?;
         }
         drop(guard);
         Ok(())
@@ -331,11 +337,12 @@ mod tests {
         assert!(data.credential("prime-inference").is_some());
     }
 
-    /// Per-call-site served-path oracle (auth-storage.ts:206/:250 pass only
-    /// `{ mode: 0o600 }`): the auth save goes through the real `with_lock`
-    /// writer and takes NO fsync branch, landing the exact document bytes.
+    /// Per-call-site served-path oracle: the auth save goes through the
+    /// real `with_lock` writer and takes exactly one fsync branch (a
+    /// credential lost to a crash forces a re-login), landing the exact
+    /// document bytes.
     #[test]
-    fn auth_write_takes_the_ts_default_no_sync() {
+    fn auth_write_takes_exactly_one_fsync() {
         let dir = tempfile::tempdir().unwrap();
         let backend = FileAuthStorageBackend::new(dir.path().join("auth.json"));
         let document = r#"{ "prime-inference": { "type": "api_key", "key": "sk" } }"#;
@@ -345,8 +352,8 @@ mod tests {
             .unwrap();
         assert_eq!(
             crate::settings::storage::opt_in_fsync_calls(),
-            before,
-            "the TS-default auth write must not sync"
+            before + 1,
+            "the auth write must flush the temp file before the rename"
         );
         assert_eq!(
             fs::read_to_string(dir.path().join("auth.json")).unwrap(),

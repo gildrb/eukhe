@@ -219,7 +219,7 @@ impl Worker {
             .store()
             .cancel(&job_id, crate::util::now_ms())
         {
-            Some(job) => {
+            Ok(Some(job)) => {
                 self.scheduled.remove_queued_heartbeat_follow_up(&job).await;
                 self.scheduled.wake().await;
                 response_success(
@@ -228,12 +228,13 @@ impl Worker {
                     Some(json!({ "job": serde_json::to_value(&job).unwrap_or(Value::Null) })),
                 )
             }
-            None => response_failure(
+            Ok(None) => response_failure(
                 None,
                 "cron_cancel",
                 &format!("No cron job found: {job_id}"),
                 None,
             ),
+            Err(error) => response_failure(None, "cron_cancel", &error.to_string(), None),
         }
     }
 
@@ -365,20 +366,20 @@ impl Worker {
             self.bind_store_artifact(&core);
         }
         let outcome = match payload.get("action").and_then(Value::as_str) {
-            Some("pause") => Ok(self
+            Some("pause") => self
                 .scheduled
                 .store()
-                .pause_heartbeat(&active_session_id, now)),
+                .pause_heartbeat(&active_session_id, now),
             Some("resume") => self
                 .scheduled
                 .store()
                 .resume_heartbeat(&active_session_id, now),
             // TS `updateHeartbeatForState`: anything but pause/resume
             // clears the heartbeat.
-            _ => Ok(self
+            _ => self
                 .scheduled
                 .store()
-                .clear_heartbeat(&active_session_id, now)),
+                .clear_heartbeat(&active_session_id, now),
         };
         let outcome = match outcome {
             Ok(job) => job,

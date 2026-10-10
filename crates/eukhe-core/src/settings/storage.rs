@@ -278,7 +278,7 @@ impl SettingsStorage for FileSettingsStorage {
                 }
             }
             if let Some(content) = next {
-                atomic_write(path, &content)?;
+                atomic_write_with(path, &content, AtomicWriteOptions { fsync: true })?;
             }
         }
         drop(held);
@@ -299,16 +299,16 @@ impl SettingsStorage for FileSettingsStorage {
 /// OFF, exactly like the TS reference.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AtomicWriteOptions {
-    /// fsync the temp file before the rename (TS
-    /// `WriteFileAtomicOptions.fsync`; opt-in, default off).
+    /// fsync the temp file before the rename and the parent directory
+    /// after it (TS `WriteFileAtomicOptions.fsync`; opt-in, default off).
     pub fsync: bool,
 }
 
 // Test-only served-path counter: how many times this thread took the
 // opt-in fsync branch of `atomic_write_with`. The per-call-site durability
 // tests assert their writer's delta through the real write path (0 for the
-// TS-default no-sync sites, exactly 1 for the opted-in cron state write) —
-// the anti-vacuity pattern: the oracle fails loudly if a site's durability
+// regenerable no-sync sites, exactly 1 for the durable-class writes) — the
+// anti-vacuity pattern: the oracle fails loudly if a site's durability
 // binding flips.
 #[cfg(test)]
 thread_local! {
@@ -324,22 +324,21 @@ pub(crate) fn opt_in_fsync_calls() -> usize {
 
 /// Atomic write: temp file + rename, private mode like `writeFileAtomicSync`.
 ///
-/// The TS default durability: NO fsync. `writeFileAtomicSync`'s `fsync` is
-/// opt-in (atomic-file.ts: `if (options.fsync) fsyncSync(descriptor)`) and
-/// every non-journal TS call site passes only `{mode}` — the crash window is
-/// the one TS ships: the atomic rename still means a reader never sees a
-/// torn file, and a hard crash leaves either the previous file (before the
-/// rename) or the new file (after it). Sites whose crash-safety genuinely
-/// needs the pre-rename fsync opt in through [`atomic_write_with`] — the
-/// audit is per call site, never blanket.
+/// The default durability: NO fsync. The atomic rename still means a reader
+/// never sees a torn file, and a hard crash leaves either the previous file
+/// (before the rename) or the new file (after it). That is the right class
+/// for regenerable files (caches, mirrors); files whose loss costs the user
+/// state (credentials, settings, cron state, the MCP registry, the harness
+/// state) opt in through [`atomic_write_with`] — the audit is per call
+/// site, never blanket.
 pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
     atomic_write_with(path, content, AtomicWriteOptions::default())
 }
 
 /// [`atomic_write`] with explicit [`AtomicWriteOptions`]: the TS
-/// `writeFileAtomicSync(path, data, options)` shape. The opt-in this port's
-/// call sites use is `fsync: true` — the durability the TS cron state keeps
-/// (cron-jobs.ts `writeJobsState` passes `{ mode: 0o600, fsync: true }`).
+/// `writeFileAtomicSync(path, data, options)` shape. `fsync: true` syncs the
+/// temp file before the rename and the parent directory after it, so the
+/// new content survives a power loss once this returns.
 pub fn atomic_write_with(path: &Path, content: &str, options: AtomicWriteOptions) -> Result<()> {
     let temp = PathBuf::from(format!("{}.tmp{}", path.display(), std::process::id()));
     {
@@ -355,6 +354,15 @@ pub fn atomic_write_with(path: &Path, content: &str, options: AtomicWriteOptions
         }
     }
     std::fs::rename(&temp, path)?;
+    if options.fsync {
+        // A durable write also syncs the directory entry: without it a
+        // crash after the rename can resurrect the previous file.
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        crate::platform::fs::sync_directory(parent)?;
+    }
     Ok(())
 }
 
@@ -496,12 +504,11 @@ mod tests {
         assert_eq!(names, ["state.json".to_string()]);
     }
 
-    /// Per-call-site served-path oracle (settings-manager.ts:390 passes only
-    /// `{ mode: 0o600 }`): the settings write goes through the real
-    /// `with_lock` writer and takes NO fsync branch, landing the exact
-    /// document bytes.
+    /// Per-call-site served-path oracle: the settings write goes through
+    /// the real `with_lock` writer and takes exactly one fsync branch (user
+    /// settings are not regenerable), landing the exact document bytes.
     #[test]
-    fn settings_write_takes_the_ts_default_no_sync() {
+    fn settings_write_takes_exactly_one_fsync() {
         let dir = tempfile::tempdir().unwrap();
         let storage = FileSettingsStorage::new(dir.path().join("cwd"), dir.path().join("agent"));
         let document = "{ \"defaultProvider\": \"prime-inference\" }";
@@ -509,7 +516,11 @@ mod tests {
         storage
             .with_lock(SettingsScope::Global, &mut |_| Some(document.to_string()))
             .unwrap();
-        assert_eq!(opt_in_fsync_calls(), before);
+        assert_eq!(
+            opt_in_fsync_calls(),
+            before + 1,
+            "the settings write must flush the temp file before the rename"
+        );
         let path = dir.path().join("agent").join("settings.json");
         assert_eq!(fs::read_to_string(&path).unwrap(), document);
     }

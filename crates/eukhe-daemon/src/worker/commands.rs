@@ -563,10 +563,15 @@ impl Worker {
         self.side_questions
             .abort_all_and_settle(super::SIDE_QUESTION_SETTLE_TIMEOUT)
             .await;
-        match reason {
+        // The store cancel is durable, so the stopped session's own
+        // heartbeats can never revive it; a failed cancel fails the kill.
+        let cancel_result = match reason {
             KillCloseReason::Killed => self.cancel_session_scheduled_jobs().await,
             KillCloseReason::Replaced => self.cancel_session_rlm_heartbeats().await,
-            KillCloseReason::Shutdown => {}
+            KillCloseReason::Shutdown => Ok(()),
+        };
+        if let Err(error) = cancel_result {
+            return response_failure(None, "kill", &error.to_string(), None);
         }
         // TS `closeSessionOnce(reason)` cascades the close to the session's
         // resident RLM children with the same reason before its own close.

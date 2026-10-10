@@ -35,7 +35,12 @@ impl Worker {
     /// Bind the live session's schedule catalog (TS `rebindCronJobsToState`):
     /// the artifact partition, the job rebind, the scheduler start. Runs at
     /// create and after every session replacement.
-    pub(crate) async fn bind_scheduled_jobs(&self) {
+    ///
+    /// # Errors
+    ///
+    /// Returns the bind failure: the artifact directory or the durable job
+    /// rebind could not be written.
+    pub(crate) async fn bind_scheduled_jobs(&self) -> anyhow::Result<()> {
         let binding = {
             let core = self
                 .core
@@ -44,8 +49,9 @@ impl Worker {
             crate::scheduled_jobs::live_binding(&core)
         };
         if let Some((binding, artifact_dir)) = binding {
-            self.scheduled.bind_session(binding, artifact_dir).await;
+            self.scheduled.bind_session(binding, artifact_dir).await?;
         }
+        Ok(())
     }
 
     /// Wait until the main conversation is idle (no live run, nothing

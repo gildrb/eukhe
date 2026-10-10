@@ -730,6 +730,66 @@ async fn a_failed_import_leaves_nothing_behind() {
     assert_eq!(std::fs::read_to_string(&legacy).unwrap(), headless);
 }
 
+/// A crash mid-append left the legacy file's last row unterminated and cut
+/// inside a multi-byte character: the import skips the torn row (an
+/// uncommitted append) and imports every complete one, leaving the legacy
+/// bytes untouched.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_torn_utf_8_tail_is_skipped_not_fatal() {
+    let complete = jsonl(&[
+        header(),
+        user("u1", None, "hi", 1),
+        assistant("a1", Some("u1"), "one", 2),
+    ]);
+    let torn_row = user("u2", Some("a1"), "€uro", 3).to_string();
+    let euro = torn_row.find('€').unwrap();
+    let mut bytes = complete.clone().into_bytes();
+    // Cut after the euro sign's first byte: the tail is invalid UTF-8.
+    bytes.extend_from_slice(&torn_row.as_bytes()[..=euro]);
+    assert!(std::str::from_utf8(&bytes).is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    let legacy = dir.path().join("legacy.jsonl");
+    std::fs::write(&legacy, &bytes).unwrap();
+    let storage = dir.path().join("new");
+    let report = import_legacy_session(&legacy, &storage, &cx())
+        .await
+        .unwrap();
+    assert_eq!(report.leaf_id.as_deref(), Some("a1"));
+    assert_eq!(report.entries, 2);
+    assert_eq!(std::fs::read(&legacy).unwrap(), bytes);
+    let (harness, root) = reopen(&storage).await;
+    assert_eq!(
+        root.context(&cx()).await.unwrap().messages,
+        old_context(&complete)
+    );
+    harness.close(&cx()).await.unwrap();
+}
+
+/// Invalid UTF-8 inside a complete (newline-terminated) row is corruption,
+/// not a torn append: the import fails and leaves nothing behind.
+#[tokio::test(flavor = "multi_thread")]
+async fn invalid_utf_8_in_a_complete_row_fails_the_import() {
+    let mut bytes = jsonl(&[header()]).into_bytes();
+    bytes.extend_from_slice(b"{\"type\":\"message\",\"x\":\"\xff\"}\n");
+    bytes.extend_from_slice(jsonl(&[user("u1", None, "hi", 1)]).as_bytes());
+    let dir = tempfile::tempdir().unwrap();
+    let legacy = dir.path().join("legacy.jsonl");
+    std::fs::write(&legacy, &bytes).unwrap();
+    let storage = dir.path().join("new");
+    let error = import_legacy_session(&legacy, &storage, &cx())
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        ImportError::Io {
+            action: "decode legacy session",
+            ..
+        }
+    ));
+    assert!(!storage.exists());
+}
+
 #[test]
 fn a_parent_cycle_ends_the_branch_walk() {
     let content = jsonl(&[

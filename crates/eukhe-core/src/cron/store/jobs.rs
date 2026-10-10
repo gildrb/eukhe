@@ -64,13 +64,17 @@ impl AgentCronJobStore {
         };
         let mut jobs = self.read_jobs();
         jobs.push(job.clone());
-        self.write_jobs(&jobs);
+        self.write_jobs(&jobs)?;
         Ok(job)
     }
 
     /// Bind jobs stored for a session file to a live session id on restore, or
     /// move a live session's jobs to a new file when it switches.
-    pub fn rebind_session_jobs(&self, input: &SessionBinding) -> Vec<AgentCronJob> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
+    pub fn rebind_session_jobs(&self, input: &SessionBinding) -> anyhow::Result<Vec<AgentCronJob>> {
         let target_session_file = resolve_path(&input.session_file);
         let mut rebound_jobs = Vec::new();
         let jobs: Vec<AgentCronJob> = self
@@ -101,11 +105,18 @@ impl AgentCronJobStore {
             })
             .collect();
         if !rebound_jobs.is_empty() {
-            self.write_jobs(&jobs);
+            self.write_jobs(&jobs)?;
         }
-        rebound_jobs
+        Ok(rebound_jobs)
     }
-    pub fn cancel_jobs_for_session(&self, input: &CancelJobsFilter, now: u64) -> Vec<AgentCronJob> {
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
+    pub fn cancel_jobs_for_session(
+        &self,
+        input: &CancelJobsFilter,
+        now: u64,
+    ) -> anyhow::Result<Vec<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
         let target_session_file = input.session_file.as_ref().map(|file| resolve_path(file));
         let mut cancelled = Vec::new();
@@ -138,11 +149,14 @@ impl AgentCronJobStore {
             })
             .collect();
         if !cancelled.is_empty() {
-            self.write_jobs(&jobs);
+            self.write_jobs(&jobs)?;
         }
-        cancelled
+        Ok(cancelled)
     }
-    pub fn cancel(&self, id: &str, now: u64) -> Option<AgentCronJob> {
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
+    pub fn cancel(&self, id: &str, now: u64) -> anyhow::Result<Option<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
         let mut cancelled = None;
         let jobs: Vec<AgentCronJob> = self
@@ -163,9 +177,9 @@ impl AgentCronJobStore {
             })
             .collect();
         if cancelled.is_some() {
-            self.write_jobs(&jobs);
+            self.write_jobs(&jobs)?;
         }
-        cancelled
+        Ok(cancelled)
     }
 
     /// Record one run: bump counters, roll `nextRunAt`, complete one-shots.
@@ -219,13 +233,17 @@ impl AgentCronJobStore {
             })
             .collect();
         if updated.is_some() {
-            self.write_jobs(&jobs);
+            self.write_jobs(&jobs)?;
         }
         Ok(updated)
     }
 
     /// Record a skipped run: roll `nextRunAt`, stamp `lastSkippedAt`.
-    pub fn record_skip_result(&self, id: &str, now: u64) -> Option<AgentCronJob> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
+    pub fn record_skip_result(&self, id: &str, now: u64) -> anyhow::Result<Option<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
         let mut updated = None;
         let jobs: Vec<AgentCronJob> = self
@@ -250,9 +268,9 @@ impl AgentCronJobStore {
             })
             .collect();
         if updated.is_some() {
-            self.write_jobs(&jobs);
+            self.write_jobs(&jobs)?;
         }
-        updated
+        Ok(updated)
     }
 
     /// Push a job's next run later, never earlier (the scheduler's
@@ -265,7 +283,11 @@ impl AgentCronJobStore {
     /// the write are one atomic state mutation — a read-modify-write over
     /// the merged jobs would race a concurrent cancel and could write a
     /// stale active copy back over it.
-    pub fn defer_next_run(&self, id: &str, until_ms: u64) -> Option<AgentCronJob> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
+    pub fn defer_next_run(&self, id: &str, until_ms: u64) -> anyhow::Result<Option<AgentCronJob>> {
         let until_iso = iso_from_millis(until_ms);
         let mut updated = None;
         self.mutate_states(|state| {
@@ -289,8 +311,8 @@ impl AgentCronJobStore {
                 })
                 .collect();
             Vec::new()
-        });
-        updated
+        })?;
+        Ok(updated)
     }
 
     pub fn due(&self, now: u64) -> Vec<AgentCronJob> {
@@ -301,7 +323,15 @@ impl AgentCronJobStore {
     }
 
     /// Atomically claim due jobs: advance their schedule and record dispatches.
-    pub fn claim_due(&self, due_at: u64, claimed_at: u64) -> Vec<AgentCronDispatch> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
+    pub fn claim_due(
+        &self,
+        due_at: u64,
+        claimed_at: u64,
+    ) -> anyhow::Result<Vec<AgentCronDispatch>> {
         self.mutate_states(|state| claim_due_in_state(state, due_at, claimed_at))
     }
 
@@ -328,8 +358,7 @@ impl AgentCronJobStore {
     ///
     /// # Errors
     ///
-    /// The current implementation never returns `Err`; the updated job (or
-    /// `None`) is always wrapped in `Ok`.
+    /// Returns an error when the state lock or write fails.
     pub fn record_dispatch_result(
         &self,
         dispatch_id: &str,
@@ -386,32 +415,38 @@ impl AgentCronJobStore {
                 })
                 .collect();
             Vec::new()
-        });
+        })?;
         Ok(updated)
     }
 
-    pub fn recover_interrupted_dispatches(&self, now: u64) -> Vec<AgentCronJob> {
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
+    pub fn recover_interrupted_dispatches(&self, now: u64) -> anyhow::Result<Vec<AgentCronJob>> {
         let mut recovered = Vec::new();
         self.mutate_states(|state| {
             recover_interrupted_in_state(state, now, &mut recovered, None);
             Vec::new()
-        });
-        recovered
+        })?;
+        Ok(recovered)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
     pub fn recover_interrupted_dispatches_by_id(
         &self,
         dispatch_ids: &[String],
         now: u64,
-    ) -> Vec<AgentCronJob> {
+    ) -> anyhow::Result<Vec<AgentCronJob>> {
         let mut recovered = Vec::new();
         let dispatch_ids: std::collections::HashSet<String> =
             dispatch_ids.iter().cloned().collect();
         self.mutate_states(|state| {
             recover_interrupted_in_state(state, now, &mut recovered, Some(&dispatch_ids));
             Vec::new()
-        });
-        recovered
+        })?;
+        Ok(recovered)
     }
 
     pub fn get_due_job(&self, id: &str, now: u64) -> Option<AgentCronJob> {
@@ -449,11 +484,28 @@ mod tests {
         let due = store.due(now + 600_000);
         assert!(due.iter().any(|found| found.id == job.id));
         // Cancel.
-        let cancelled = store.cancel(&job.id, now + 1).unwrap();
+        let cancelled = store.cancel(&job.id, now + 1).unwrap().unwrap();
         assert_eq!(cancelled.status, JobStatus::Cancelled);
         assert_eq!(store.list()[0].status, JobStatus::Cancelled);
         // Empty prompt rejected.
         assert!(store.create(&input("  ", "every 10m", now)).is_err());
+    }
+
+    #[test]
+    fn cancel_does_not_ack_when_state_lock_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("jobs.json");
+        let store = AgentCronJobStore::new(path.clone());
+        let now = 1_700_000_000_000;
+        let job = store.create(&input("tick", "every 10m", now)).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let held =
+            crate::platform::lock_dir::LockDir::acquire(&path, std::time::Duration::from_secs(30))
+                .unwrap();
+        assert!(store.cancel(&job.id, now + 1).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        drop(held);
+        assert_eq!(store.list(), vec![job]);
     }
 
     #[test]
@@ -463,9 +515,9 @@ mod tests {
         let now = 1_700_000_000_000;
         let job = store.create(&input("tick", "every 10m", now)).unwrap();
         // Not due yet.
-        assert!(store.claim_due(now, now).is_empty());
+        assert!(store.claim_due(now, now).unwrap().is_empty());
         // Due later: claim advances the schedule and records a dispatch.
-        let dispatches = store.claim_due(now + 600_000, now + 600_000);
+        let dispatches = store.claim_due(now + 600_000, now + 600_000).unwrap();
         assert_eq!(dispatches.len(), 1);
         assert_eq!(dispatches[0].job.id, job.id);
         assert_eq!(
@@ -489,9 +541,11 @@ mod tests {
         assert_eq!(updated.run_count, 1);
         assert!(store.get_claimed_job(&job.id).is_none());
         // Interrupted dispatches recover with an error stamp.
-        let second = store.claim_due(now + 1_200_000, now + 1_200_000);
+        let second = store.claim_due(now + 1_200_000, now + 1_200_000).unwrap();
         assert_eq!(second.len(), 1);
-        let recovered = store.recover_interrupted_dispatches(now + 1_300_000);
+        let recovered = store
+            .recover_interrupted_dispatches(now + 1_300_000)
+            .unwrap();
         assert_eq!(recovered.len(), 1);
         assert_eq!(
             recovered[0].last_error.as_deref(),
@@ -541,6 +595,28 @@ mod tests {
     }
 
     #[test]
+    fn claim_due_skips_while_the_state_lock_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentCronJobStore::new(dir.path().join("jobs.json"));
+        let now = 1_700_000_000_000;
+        let job = store.create(&input("tick", "every 10m", now)).unwrap();
+        let path = store.require_file_path();
+        let before = std::fs::read(&path).unwrap();
+        {
+            let _held = crate::platform::lock_dir::LockDir::acquire(
+                &path,
+                std::time::Duration::from_secs(30),
+            )
+            .unwrap();
+            assert!(store.claim_due(now + 600_000, now + 600_000).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+        let dispatches = store.claim_due(now + 600_000, now + 600_000).unwrap();
+        assert_eq!(dispatches.len(), 1);
+        assert_eq!(dispatches[0].job.id, job.id);
+    }
+
+    #[test]
     fn defer_next_run_pushes_only_later() {
         let dir = tempfile::TempDir::new().unwrap();
         let store = AgentCronJobStore::new(dir.path().join("jobs.json"));
@@ -548,7 +624,10 @@ mod tests {
         let job = store.create(&input("tick", "every 10m", now)).unwrap();
         let scheduled_next = now + 600_000;
         // A deadline before the schedule does not pull the run earlier.
-        assert!(store.defer_next_run(&job.id, now + 60_000).is_none());
+        assert!(store
+            .defer_next_run(&job.id, now + 60_000)
+            .unwrap()
+            .is_none());
         let current = store.list().pop().expect("job kept");
         assert_eq!(
             crate::cron::parse_iso_millis(current.next_run_at.as_deref().unwrap()),
@@ -556,13 +635,19 @@ mod tests {
         );
         // A deadline after the schedule defers the run to it.
         let deferred = now + 900_000;
-        let updated = store.defer_next_run(&job.id, deferred).expect("deferred");
+        let updated = store
+            .defer_next_run(&job.id, deferred)
+            .unwrap()
+            .expect("deferred");
         assert_eq!(
             crate::cron::parse_iso_millis(updated.next_run_at.as_deref().unwrap()),
             Some(deferred)
         );
         // An already-later nextRunAt wins over an earlier deadline.
-        assert!(store.defer_next_run(&job.id, now + 120_000).is_none());
+        assert!(store
+            .defer_next_run(&job.id, now + 120_000)
+            .unwrap()
+            .is_none());
         let current = store.list().pop().expect("job kept");
         assert_eq!(
             crate::cron::parse_iso_millis(current.next_run_at.as_deref().unwrap()),
@@ -572,6 +657,9 @@ mod tests {
         // the jobs file merges on `updatedAt` freshness (last writer with
         // the newer stamp wins), so a stale stamp would lose the cancel.
         store.cancel(&job.id, now_millis()).unwrap();
-        assert!(store.defer_next_run(&job.id, now + 2_000_000).is_none());
+        assert!(store
+            .defer_next_run(&job.id, now + 2_000_000)
+            .unwrap()
+            .is_none());
     }
 }

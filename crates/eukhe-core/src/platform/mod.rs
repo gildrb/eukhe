@@ -4,12 +4,14 @@
 //! branch on `cfg` themselves.
 
 pub mod browser;
+pub mod fs;
 pub mod local_time;
 pub mod lock_dir;
 pub mod perms;
 pub mod process;
 pub mod shell;
 
+pub use fs::fsync;
 pub use local_time::{local_time, parse_utc_iso, LocalTime};
 pub use lock_dir::LockDir;
 pub use perms::{

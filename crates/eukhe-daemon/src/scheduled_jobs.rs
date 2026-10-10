@@ -29,6 +29,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use anyhow::Context as _;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::WhenBusy;
 use eukhe_durable::types::SubmissionStatus;
@@ -142,7 +143,7 @@ impl QueueHooks {
     /// The failed-runnable cancel (TS
     /// `cancelScheduledJobsForSessionFile`): the store cancels the dead
     /// session's whole job set by file, so the artifact never re-fires.
-    fn cancel_jobs_for_dead_target(&self, job: &AgentCronJob) {
+    fn cancel_jobs_for_dead_target(&self, job: &AgentCronJob) -> anyhow::Result<()> {
         self.store.cancel_jobs_for_session(
             &CancelJobsFilter {
                 active_session_id: None,
@@ -150,7 +151,8 @@ impl QueueHooks {
                 session_file: Some(job.session_file.clone()),
             },
             crate::util::now_ms(),
-        );
+        )?;
+        Ok(())
     }
 
     /// `removeQueuedHeartbeatFollowUp` (TS daemon-mode): withdraw the
@@ -212,7 +214,7 @@ impl AgentCronSchedulerHooks for QueueHooks {
         // longer live (killed or deleted) cancels the session's jobs and
         // skips, so a fire can never revive a stopped session.
         if self.persisted_target_gone(job).await {
-            self.cancel_jobs_for_dead_target(job);
+            self.cancel_jobs_for_dead_target(job)?;
             return Ok(Some("skipped"));
         }
         if should_defer_heartbeat_cron_job(job, &self.activity()) {
@@ -318,28 +320,29 @@ impl ScheduledJobs {
     /// Bind the live session (TS `rebindCronJobsToState`): register the
     /// session's artifact partition, move its stored jobs onto the live
     /// ids, and start (or wake) the scheduler.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the artifact directory cannot be created or
+    /// the job rebind cannot take the cron state lock or write the state.
     pub(crate) async fn bind_session(
         &self,
         binding: SessionBinding,
         artifact_dir: Option<PathBuf>,
-    ) {
+    ) -> anyhow::Result<()> {
         if let Some(dir) = artifact_dir {
-            if let Err(error) = std::fs::create_dir_all(&dir) {
-                eprintln!(
-                    "eukhe-daemon worker: creating the session artifact dir {} failed: {error}",
-                    dir.display()
-                );
-            }
+            std::fs::create_dir_all(&dir)
+                .with_context(|| format!("creating the session artifact dir {}", dir.display()))?;
             self.store
                 .register_session_artifact(&binding.session_id, &dir);
         }
         if !binding.session_file.is_empty() {
-            self.store.rebind_session_jobs(&binding);
+            self.store.rebind_session_jobs(&binding)?;
         }
         let mut guard = self.scheduler.lock().await;
         if let Some(scheduler) = guard.as_ref() {
             scheduler.wake().await;
-            return;
+            return Ok(());
         }
         let scheduler = Arc::new(AgentCronScheduler::new(
             Arc::clone(&self.store),
@@ -347,6 +350,7 @@ impl ScheduledJobs {
         ));
         scheduler.start().await;
         *guard = Some(scheduler);
+        Ok(())
     }
 
     /// Re-arm the timer after a catalog mutation (TS `cronScheduler.wake`).
@@ -449,13 +453,13 @@ impl Worker {
     /// cancelled heartbeat's queued fire withdraws
     /// (`removeQueuedHeartbeatFollowUp`), and the scheduler re-arms. The
     /// cancel is durable, so the stopped session's own heartbeats can
-    /// never revive it.
-    pub(crate) async fn cancel_session_scheduled_jobs(&self) {
+    /// never revive it; a failed store write surfaces to the caller.
+    pub(crate) async fn cancel_session_scheduled_jobs(&self) -> anyhow::Result<()> {
         let (active_session_id, session_id, session_file) = {
             let core = lock(&self.core);
             self.bind_store_artifact(&core);
             let Some(session_file) = core.session_file() else {
-                return;
+                return Ok(());
             };
             (
                 core.active_session_id.clone(),
@@ -470,20 +474,22 @@ impl Worker {
                 session_file: Some(session_file),
             },
             crate::util::now_ms(),
-        );
+        )?;
         for job in &cancelled {
             self.scheduled.remove_queued_heartbeat_follow_up(job).await;
         }
         if !cancelled.is_empty() {
             self.scheduled.wake().await;
         }
+        Ok(())
     }
 
     /// TS `cancelSubagentRlmHeartbeats(state)` (the replaced close of a
     /// subagent): only the subagent's RLM heartbeat jobs cancel; the plain
     /// cron jobs survive the replacement. A top-level session cancels
-    /// nothing here (the TS `kind !== "subagent"` gate).
-    pub(crate) async fn cancel_session_rlm_heartbeats(&self) {
+    /// nothing here (the TS `kind !== "subagent"` gate). A failed store
+    /// write surfaces to the caller.
+    pub(crate) async fn cancel_session_rlm_heartbeats(&self) -> anyhow::Result<()> {
         let (is_subagent, active_session_id) = {
             let core = lock(&self.core);
             self.bind_store_artifact(&core);
@@ -493,18 +499,19 @@ impl Worker {
             )
         };
         if !is_subagent {
-            return;
+            return Ok(());
         }
         let cancelled = self
             .scheduled
             .store()
-            .cancel_rlm_heartbeats_for_session(&active_session_id, crate::util::now_ms());
+            .cancel_rlm_heartbeats_for_session(&active_session_id, crate::util::now_ms())?;
         for job in &cancelled {
             self.scheduled.remove_queued_heartbeat_follow_up(job).await;
         }
         if !cancelled.is_empty() {
             self.scheduled.wake().await;
         }
+        Ok(())
     }
 
     /// TS `cancelScheduledJobsForSessionFile` (the saved-session delete's
@@ -532,14 +539,16 @@ impl Worker {
         self.scheduled
             .store()
             .register_session_artifact(&session_id, &dir);
-        self.scheduled.store().cancel_jobs_for_session(
+        if let Err(error) = self.scheduled.store().cancel_jobs_for_session(
             &CancelJobsFilter {
                 active_session_id: None,
                 session_id: None,
                 session_file: Some(session_file.to_string_lossy().to_string()),
             },
             crate::util::now_ms(),
-        );
+        ) {
+            eprintln!("failed to cancel deleted session jobs: {error}");
+        }
     }
 }
 

@@ -489,7 +489,6 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     };
     file.write_all(bytes)?;
     file.flush()?;
-    file.sync_all()?;
     std::fs::rename(&temp, path)
 }
 

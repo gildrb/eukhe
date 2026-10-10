@@ -104,11 +104,20 @@ impl AgentCronJobStore {
         };
         let mut jobs = existing;
         jobs.push(job.clone());
-        self.write_jobs(&jobs);
+        self.write_jobs(&jobs)?;
         Ok(job)
     }
-    pub fn pause_heartbeat(&self, active_session_id: &str, now: u64) -> Option<AgentCronJob> {
-        let current = self.get_heartbeat(active_session_id)?;
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
+    pub fn pause_heartbeat(
+        &self,
+        active_session_id: &str,
+        now: u64,
+    ) -> anyhow::Result<Option<AgentCronJob>> {
+        let Some(current) = self.get_heartbeat(active_session_id) else {
+            return Ok(None);
+        };
         let now_iso = iso_from_millis(now);
         let mut paused = None;
         let jobs: Vec<AgentCronJob> = self
@@ -128,8 +137,8 @@ impl AgentCronJobStore {
                 paused_job
             })
             .collect();
-        self.write_jobs(&jobs);
-        paused
+        self.write_jobs(&jobs)?;
+        Ok(paused)
     }
 
     /// Resume the heartbeat for a session, recomputing its next run time.
@@ -169,12 +178,21 @@ impl AgentCronJobStore {
                 resumed_job
             })
             .collect();
-        self.write_jobs(&jobs);
+        self.write_jobs(&jobs)?;
         Ok(resumed)
     }
 
-    pub fn clear_heartbeat(&self, active_session_id: &str, now: u64) -> Option<AgentCronJob> {
-        let current = self.get_heartbeat(active_session_id)?;
+    /// # Errors
+    ///
+    /// Returns an error when the state lock or write fails.
+    pub fn clear_heartbeat(
+        &self,
+        active_session_id: &str,
+        now: u64,
+    ) -> anyhow::Result<Option<AgentCronJob>> {
+        let Some(current) = self.get_heartbeat(active_session_id) else {
+            return Ok(None);
+        };
         let now_iso = iso_from_millis(now);
         let mut cleared = None;
         let jobs: Vec<AgentCronJob> = self
@@ -194,8 +212,8 @@ impl AgentCronJobStore {
                 cleared_job
             })
             .collect();
-        self.write_jobs(&jobs);
-        cleared
+        self.write_jobs(&jobs)?;
+        Ok(cleared)
     }
 
     /// Apply a pause, stop, or resume management action to a heartbeat job.
@@ -269,10 +287,10 @@ impl AgentCronJobStore {
                     }
                 })
                 .collect();
-            self.write_jobs(&jobs);
+            self.write_jobs(&jobs)?;
             return Ok(Some(updated_job));
         }
-        self.write_jobs(&jobs);
+        self.write_jobs(&jobs)?;
         Ok(Some(updated_job))
     }
 }
@@ -281,6 +299,25 @@ impl AgentCronJobStore {
 mod tests {
     use super::*;
     use crate::cron::store::input;
+
+    #[test]
+    fn pause_does_not_ack_when_state_lock_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("jobs.json");
+        let store = AgentCronJobStore::new(path.clone());
+        let now = 1_700_000_000_000;
+        let heartbeat = store
+            .create_heartbeat(&input("continue", "every 5m", now))
+            .unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let held =
+            crate::platform::lock_dir::LockDir::acquire(&path, std::time::Duration::from_secs(30))
+                .unwrap();
+        assert!(store.pause_heartbeat("live-1", now + 1).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        drop(held);
+        assert_eq!(store.get_heartbeat("live-1"), Some(heartbeat));
+    }
 
     #[test]
     fn heartbeat_lifecycle() {
@@ -292,7 +329,7 @@ mod tests {
             .unwrap();
         assert_eq!(store.get_heartbeat("live-1").unwrap().id, heartbeat.id);
         // Pause clears nextRunAt.
-        let paused = store.pause_heartbeat("live-1", now + 1).unwrap();
+        let paused = store.pause_heartbeat("live-1", now + 1).unwrap().unwrap();
         assert_eq!(paused.status, JobStatus::Paused);
         assert_eq!(paused.next_run_at, None);
         // Resume recomputes nextRunAt.
@@ -309,7 +346,7 @@ mod tests {
         let cancelled_first = jobs.iter().find(|job| job.id != second.id).unwrap();
         assert_eq!(cancelled_first.status, JobStatus::Cancelled);
         // Clear cancels.
-        let cleared = store.clear_heartbeat("live-1", now + 4).unwrap();
+        let cleared = store.clear_heartbeat("live-1", now + 4).unwrap().unwrap();
         assert_eq!(cleared.status, JobStatus::Cancelled);
         // One-shot schedules are rejected for heartbeats.
         assert!(store

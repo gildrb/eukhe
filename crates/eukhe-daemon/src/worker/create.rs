@@ -195,7 +195,11 @@ impl Worker {
             return *response;
         }
         self.rebind_herdr_reporter(payload);
-        self.bind_scheduled_jobs().await;
+        // A failed durable rebind fails the create: the session's stored
+        // jobs would otherwise keep targeting stale live ids unannounced.
+        if let Err(error) = self.bind_scheduled_jobs().await {
+            return response_failure(None, "create", &error.to_string(), None);
+        }
         let (summary, busy) = {
             let core = self
                 .core

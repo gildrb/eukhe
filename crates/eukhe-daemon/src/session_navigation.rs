@@ -392,7 +392,9 @@ impl Worker {
             return retag(*response, command);
         }
         self.reseed_service_tier_for_replacement();
-        self.bind_scheduled_jobs().await;
+        if let Err(error) = self.bind_scheduled_jobs().await {
+            return response_failure(None, command, &error.to_string(), None);
+        }
         self.push_roster_delta();
         let (busy, session_ref) = {
             let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);

@@ -97,10 +97,15 @@ pub async fn import_legacy_session(
     storage_dir: &Path,
     cx: &Context,
 ) -> Result<ImportReport, ImportError> {
-    let content = tokio::fs::read_to_string(legacy)
+    let bytes = tokio::fs::read(legacy)
         .await
         .map_err(io("read legacy session", legacy))?;
-    let plan = plan_import(&content)?;
+    let content = legacy_text(&bytes).map_err(|error| ImportError::Io {
+        action: "decode legacy session",
+        path: legacy.to_owned(),
+        source: std::io::Error::new(std::io::ErrorKind::InvalidData, error),
+    })?;
+    let plan = plan_import(content)?;
     let exists = tokio::fs::try_exists(storage_dir)
         .await
         .map_err(io("inspect", storage_dir))?;
@@ -167,12 +172,32 @@ fn staging_dir(storage_dir: &Path) -> Result<(PathBuf, PathBuf), ImportError> {
     Ok((parent, staging))
 }
 
+/// The legacy file as text. A crash mid-append can leave an unterminated
+/// last line cut inside a multi-byte character; that torn tail is an
+/// uncommitted row (the parser skips it as malformed JSON anyway), so it
+/// is dropped instead of failing the whole import. Invalid UTF-8 inside a
+/// complete line is still an error.
+fn legacy_text(bytes: &[u8]) -> Result<&str, std::str::Utf8Error> {
+    let error = match std::str::from_utf8(bytes) {
+        Ok(text) => return Ok(text),
+        Err(error) => error,
+    };
+    let complete = bytes
+        .iter()
+        .rposition(|&byte| byte == b'\n')
+        .map_or(0, |index| index + 1);
+    if error.valid_up_to() < complete {
+        return Err(error);
+    }
+    std::str::from_utf8(&bytes[..complete])
+}
+
 /// Flush the directory entry of the renamed storage.
 async fn sync_dir(dir: &Path) -> Result<(), ImportError> {
     let dir = dir.to_owned();
     let synced = tokio::task::spawn_blocking({
         let dir = dir.clone();
-        move || std::fs::File::open(&dir).and_then(|file| file.sync_all())
+        move || crate::platform::fs::sync_directory(&dir)
     })
     .await
     .map_err(|join| ImportError::Io {

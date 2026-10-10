@@ -7,14 +7,16 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
-use eukhe_durable::harness::ConversationEntryQuery;
+use eukhe_durable::harness::{ConversationEntryQuery, SubmissionHandle};
+use eukhe_durable::types::SubmissionStatus;
 use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
 use eukhe_pi_ai::providers::faux::{
     faux_assistant_message, faux_provider, faux_text, FauxAssistantMessageOptions,
-    FauxProviderHandle, RegisterFauxProviderOptions,
+    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
-use eukhe_types::pi_ai::{StopReason, UserContent};
+use eukhe_types::pi_ai::{AssistantMessage, StopReason, UserContent};
 use tempfile::TempDir;
+use tokio::sync::Notify;
 
 use crate::durable::{open_session, EukheSession, SessionConfig, SessionStorage};
 
@@ -84,19 +86,11 @@ impl Fixture {
 
     /// Queue one assistant reply.
     fn reply(&self, text: &str) {
-        self.faux.append_responses(vec![faux_assistant_message(
-            vec![faux_text(text)],
-            FauxAssistantMessageOptions {
-                stop_reason: Some(StopReason::Stop),
-                ..FauxAssistantMessageOptions::default()
-            },
-        )
-        .into()]);
+        self.faux.append_responses(vec![stop_message(text).into()]);
     }
 
-    /// One user turn answered by `text`, settled.
-    async fn turn(&self, session: &EukheSession, prompt: &str, reply_text: &str) {
-        self.reply(reply_text);
+    /// Submit one user prompt without waiting for its run.
+    async fn submit(&self, session: &EukheSession, prompt: &str) -> SubmissionHandle {
         session
             .root()
             .submit(
@@ -108,9 +102,26 @@ impl Fixture {
                 cx(),
             )
             .await
-            .unwrap();
+            .unwrap()
+    }
+
+    /// One user turn answered by `text`, settled.
+    async fn turn(&self, session: &EukheSession, prompt: &str, reply_text: &str) {
+        self.reply(reply_text);
+        self.submit(session, prompt).await;
         session.root().wait_for_idle(cx()).await.unwrap();
     }
+}
+
+/// A `stop` assistant reply carrying `text`.
+fn stop_message(text: &str) -> AssistantMessage {
+    faux_assistant_message(
+        vec![faux_text(text)],
+        FauxAssistantMessageOptions {
+            stop_reason: Some(StopReason::Stop),
+            ..FauxAssistantMessageOptions::default()
+        },
+    )
 }
 
 /// The model text of the newest `pi.compaction` entry, when one exists.
@@ -205,5 +216,53 @@ async fn a_second_compaction_summarizes_in_update_mode_over_the_previous_summary
     // head battery in `head` covers the parse itself).
     let text = newest_summary_text(&session).await.expect("second summary");
     assert!(text.contains("updated summary"), "newest summary: {text}");
+    session.close(cx()).await.unwrap();
+}
+
+/// The eukhe summary runs inside the durable compaction task, outside every
+/// session lock: while the summarizer is still answering, the transcript
+/// reads and a user prompt runs to completion; the summary lands once the
+/// summarizer answers.
+#[tokio::test(flavor = "multi_thread")]
+async fn input_and_reads_proceed_while_the_summary_is_in_flight() {
+    let fixture = Fixture::new();
+    let session = fixture.open().await;
+    fixture.turn(&session, "one", "answer one").await;
+    let reached = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let (gate_reached, gate_release) = (Arc::clone(&reached), Arc::clone(&release));
+    fixture
+        .faux
+        .append_responses(vec![FauxResponseStep::Factory(Arc::new(
+            move |_, _, _, _| {
+                let (reached, release) = (Arc::clone(&gate_reached), Arc::clone(&gate_release));
+                Box::pin(async move {
+                    reached.notify_one();
+                    release.notified().await;
+                    Ok(stop_message("gated summary"))
+                })
+            },
+        ))]);
+    session.root().compact(None, cx()).await.unwrap();
+    reached.notified().await;
+
+    let page = session
+        .root()
+        .entries(ConversationEntryQuery::default(), 64, None, cx())
+        .await
+        .unwrap();
+    assert!(!page.items.is_empty());
+    fixture.reply("answer two");
+    let input = fixture.submit(&session, "two").await;
+    assert_eq!(
+        input.wait(cx()).await.unwrap().state.status(),
+        SubmissionStatus::Done
+    );
+    assert_eq!(newest_summary_text(&session).await, None);
+
+    release.notify_one();
+    session.root().wait_for_idle(cx()).await.unwrap();
+    let text = newest_summary_text(&session).await.expect("summary placed");
+    assert!(text.contains("gated summary"), "summary: {text}");
     session.close(cx()).await.unwrap();
 }
