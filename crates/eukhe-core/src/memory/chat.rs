@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use super::store::{Loaded, MessageMeta, NodeRecord};
 use super::view::{flatten, line_text, NodeTexts, Part, View};
-use super::{labeled, Kind, JOBS, NODE};
+use super::{labeled, Kind, JOBS, NODE, VIEW};
 
 /// The built nodes by part.
 #[derive(Debug, Default)]
@@ -97,7 +97,7 @@ impl Chat {
         }
         for i in 0..total {
             chat.view.append(i, &chat.nodes);
-            chat.view.fit(i + 1, &chat.nodes);
+            chat.view.fit(i + 1, VIEW, &chat.nodes);
         }
         chat
     }
@@ -138,7 +138,7 @@ impl Chat {
         let id = self.total();
         self.messages.push(meta);
         self.view.append(id, &self.nodes);
-        self.view.fit(self.total(), &self.nodes);
+        self.view.fit(self.total(), VIEW, &self.nodes);
         id
     }
 
@@ -149,7 +149,7 @@ impl Chat {
         self.busy.remove(&part);
         self.note_ready_parent(part);
         self.view.part_built(part, &self.nodes);
-        self.view.fit(self.total(), &self.nodes);
+        self.view.fit(self.total(), VIEW, &self.nodes);
     }
 
     /// The parent of a built part becomes ready once its sibling is built.
