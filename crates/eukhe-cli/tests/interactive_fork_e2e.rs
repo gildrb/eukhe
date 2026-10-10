@@ -41,6 +41,11 @@ use serde_json::{json, Map, Value};
 
 use eukhe_types::daemon::DaemonCommand;
 
+#[path = "support/durable_store.rs"]
+mod durable_store;
+
+use durable_store::{read_transcript, session_dirs};
+
 /// The parent hands the child its launch through this env var; unset, the
 /// test passes trivially (a plain `cargo test` runs only the parent).
 const CHILD_ENV: &str = "EUKHE_INTERACTIVE_FORK_CHILD";
@@ -302,22 +307,9 @@ async fn daemon_roster(socket: &Path) -> Vec<(PathBuf, String)> {
         .unwrap_or_default()
 }
 
-fn read_entries(path: &Path) -> Vec<Value> {
-    std::fs::read_to_string(path)
-        .expect("read session file")
-        .lines()
-        .map(serde_json::from_str)
-        .collect::<Result<_, _>>()
-        .expect("valid session entries")
-}
-
-fn session_files(dir: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(dir)
-        .expect("read sessions dir")
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-        .collect()
+/// The storage's commit log: a session's bytes on disk.
+fn commit_log(storage: &Path) -> Vec<u8> {
+    std::fs::read(storage.join("main.jsonl")).expect("read the commit log")
 }
 
 /// Non-blocking reader over the pty master, collecting the raw byte stream
@@ -418,11 +410,15 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
         "the seed run failed: {}",
         String::from_utf8_lossy(&seeded.stderr)
     );
-    let files = session_files(&session_dir);
-    assert_eq!(files.len(), 1, "one source session file");
-    let source = files.into_iter().next().expect("the source file");
-    let source_entries = read_entries(&source);
-    let source_id = source_entries[0]["id"].as_str().expect("id").to_string();
+    // Durable sessions are storage directories (`<sessions>/<id>/`).
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one source session storage");
+    let source = storages.into_iter().next().expect("the source storage");
+    let source_id = source
+        .file_name()
+        .expect("storage name")
+        .to_string_lossy()
+        .to_string();
 
     // Host the source on a live worker: the fork must work on a session
     // the daemon already owns (the copy never touches the hosted file).
@@ -430,19 +426,18 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
     // response names that id (the file's own id stays on disk).
     let active_source = make_session_active(&socket, &source, &cwd).await;
     assert!(!active_source.is_empty(), "the source hosts on a worker");
-    let source_before = std::fs::read(&source).expect("read source");
+    let source_before = commit_log(&source);
 
     // The interactive launch child: the same entry point the binary calls,
     // on a pty, forking the hosted source by its id. The interactive seam
     // reads EUKHE_FAUX_SCRIPT as a script FILE path (it rides the
     // create config to the daemon worker).
-    // The scripted engine indexes responses by the session's prompt
-    // ordinal (message_count / 2): the fork's copied exchange occupies
-    // index 0, so the first LIVE turn on the fork runs at index 1.
+    // The faux provider pops its queued responses in order, so the first
+    // LIVE turn on the fork takes the first response.
     let fork_script = dir.path().join("script-fork.json");
     std::fs::write(
         &fork_script,
-        json!({ "responses": ["copied exchange slot", "forkfollowanswer"] }).to_string(),
+        json!({ "responses": ["forkfollowanswer"] }).to_string(),
     )
     .expect("write fork script");
     let outcome = dir.path().join("outcome");
@@ -522,38 +517,33 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
         }
     };
 
-    let fork_entries = read_entries(&fork_file);
     // The roster row hosts the fork under the daemon's own worker id
-    // (every create does, saved files included); the fork file's own
-    // header id stays on disk and is a fresh one.
+    // (every create does, saved files included); the fork is a fresh
+    // storage under its own session id. A durable fork copies the source
+    // storage and forks its conversation there, so no header line points
+    // back at the source.
     assert!(!fork_id.is_empty(), "the fork hosts under a worker id");
     assert_ne!(
-        fork_entries[0]["id"].as_str(),
-        Some(source_id.as_str()),
-        "the fork header carries the new id"
+        fork_file
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string()),
+        Some(source_id.clone()),
+        "the fork carries a new session id"
     );
+    let fork = read_transcript(&fork_file);
     assert_eq!(
-        fork_entries[0]["parentSession"].as_str(),
-        Some(source.display().to_string().as_str()),
-        "the fork header parents at the source"
-    );
-    assert_eq!(
-        fork_entries[0]["cwd"].as_str(),
+        fork.agent["cwd"].as_str(),
         Some(cwd.display().to_string().as_str()),
         "the fork adopts the launch cwd"
     );
     // The branch copied the source's exchange.
-    let texts: Vec<&str> = fork_entries
-        .iter()
-        .filter(|entry| entry["type"] == "message")
-        .filter_map(|entry| entry["message"]["content"][0]["text"].as_str())
-        .collect();
+    let texts = fork.chat_texts();
     assert!(
-        texts.contains(&"seedphrase4fork tell me"),
+        texts.iter().any(|text| text == "seedphrase4fork tell me"),
         "the copied user row rides the fork: {texts:?}"
     );
     assert!(
-        texts.contains(&"seedonlyanswer"),
+        texts.iter().any(|text| text == "seedonlyanswer"),
         "the copied assistant row rides the fork: {texts:?}"
     );
 
@@ -581,8 +571,11 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
 
     // The source is untouched and both sessions stay hosted (resident
     // sessions outlive the client).
-    let source_after = std::fs::read(&source).expect("read source");
-    assert_eq!(source_before, source_after, "the source file is unchanged");
+    let source_after = commit_log(&source);
+    assert_eq!(
+        source_before, source_after,
+        "the source storage is unchanged"
+    );
     let roster = daemon_roster(&socket).await;
     let canonical: Vec<_> = roster
         .iter()

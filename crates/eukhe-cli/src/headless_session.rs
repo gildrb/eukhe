@@ -229,6 +229,18 @@ pub(crate) async fn fork_into_fresh(
     cx: &Context,
 ) -> Result<(String, PathBuf, Option<SessionLease>), String> {
     if let SessionLocation::Legacy(file) = source {
+        // A FIFO (or any other non-regular file) blocks the header read
+        // forever; a missing file falls through to the empty-or-invalid
+        // error below.
+        let non_regular = tokio::fs::metadata(file)
+            .await
+            .is_ok_and(|metadata| !metadata.is_file());
+        if non_regular {
+            return Err(format!(
+                "Cannot fork: source session file is not a regular file: {}",
+                file.display()
+            ));
+        }
         if eukhe_core::session::manager::read_session_header(file).is_none() {
             return Err(format!(
                 "Cannot fork: source session file is empty or invalid: {}",
@@ -243,6 +255,30 @@ pub(crate) async fn fork_into_fresh(
         .await
         .map_err(|error| format!("{error:#}"))?;
     Ok((session_id, dir, lease))
+}
+
+/// The session a `--fork <selector>` names (a path, a local or a global
+/// session id prefix; a leading `~` expands against the home dir). Every
+/// resolution shape forks -- a GLOBAL session is exactly what `--fork` is
+/// for (another project's session copied into this cwd).
+///
+/// # Errors
+///
+/// The selector error, with the browse hint.
+pub(crate) async fn resolve_fork_source(
+    options: &RunOptions,
+    selector: &str,
+    cx: &Context,
+) -> Result<SessionLocation, String> {
+    let expanded = crate::config::expand_tilde_path(selector);
+    let selector = expanded.to_string_lossy();
+    let resolved = resolve_session(&selector, &options.config.cwd, &sessions_dir(options), cx)
+        .await
+        .map_err(|error| crate::print_runtime::render_selector_error(&error))?;
+    Ok(match resolved {
+        ResolvedListing::Path(location) => location,
+        ResolvedListing::Local(listing) | ResolvedListing::Global(listing) => listing.location,
+    })
 }
 
 /// The CLI flag selection (TS `createSessionManager`: noSession -> fork ->
@@ -261,15 +297,7 @@ pub(crate) async fn select(options: &RunOptions, cx: &Context) -> Result<Selecti
     // Every resolution shape forks -- a GLOBAL session is exactly what
     // --fork is for (another project's session copied into this cwd).
     if let Some(selector) = &options.session.fork {
-        let expanded = crate::config::expand_tilde_path(selector);
-        let selector = expanded.to_string_lossy();
-        let resolved = resolve_session(&selector, cwd, &sessions_dir, cx)
-            .await
-            .map_err(|error| crate::print_runtime::render_selector_error(&error))?;
-        let source = match resolved {
-            ResolvedListing::Path(location) => location,
-            ResolvedListing::Local(listing) | ResolvedListing::Global(listing) => listing.location,
-        };
+        let source = resolve_fork_source(options, selector, cx).await?;
         return Ok(Selection::Fork { source });
     }
     let cwd_override = options.session.cwd_from_flag.then(|| cwd.clone());

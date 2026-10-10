@@ -14,7 +14,6 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::config;
 use crate::mode::RunOptions;
-use eukhe_core::session::discovery::{resolve_session_path, ResolvedSession};
 use eukhe_tui::interactive::{InteractiveOptions, ModelSelection, SessionSelection, UiMode};
 
 // The daemon-ensure concern (the socket probe, the stale-daemon shutdown,
@@ -534,7 +533,7 @@ fn build_tui_options(
     // daemon opens the fork -- never the source -- through the create
     // `sessionPath` (TS `getInteractiveDaemonSessionPath`).
     let session = match &options.session.fork {
-        Some(selector) => fork_startup_selection(selector, &config.cwd, session_dir.as_deref())?,
+        Some(selector) => fork_startup_selection(options, selector)?,
         None => session_selection(&options.session, session_dir.as_deref()),
     };
     // The chat markdown code-block indent reads the effective settings on
@@ -687,50 +686,33 @@ fn session_selection(
 }
 
 /// TS `createSessionManager`'s fork arm for the interactive launch: resolve
-/// the selector, copy the source into a fresh session file client-side
-/// ([`eukhe_core::session::manager::SessionManager::fork_from`], the same
-/// copy print mode uses), and hand the daemon the fork -- never the source --
-/// as the create `sessionPath` (TS `getInteractiveDaemonSessionPath`). Every
-/// resolution shape forks: a GLOBAL session is exactly what `--fork` is for
-/// (a different project's session copied into this cwd). No daemon-active
-/// guard applies: the copy reads the source and writes a brand-new file, so
-/// a session a live worker already hosts forks fine (TS parity).
+/// the selector and fork the source into a fresh session storage
+/// client-side (the same fork print mode runs), then hand the daemon the
+/// fork -- never the source -- as the create `sessionPath` (TS
+/// `getInteractiveDaemonSessionPath`). No daemon-active guard applies: the
+/// fork reads the source and writes a brand-new storage, so a session a
+/// live worker already hosts forks fine (TS parity). The fork's lease drops
+/// here: the daemon worker takes the storage's lease when it opens it.
 ///
 /// # Errors
 ///
-/// Returns the TS startup failures: a selector that matches nothing (with
-/// the browse hint), and the `forkFrom` contract failures (an empty or
-/// headerless source file). A leading `~` in the selector expands against
-/// the home dir ([`crate::config::expand_tilde_path`]), the resume
-/// selector's convention.
-fn fork_startup_selection(
-    selector: &str,
-    cwd: &Path,
-    session_dir: Option<&Path>,
-) -> Result<SessionSelection> {
-    let default_dir = config::get_agent_dir().join("sessions");
-    let dir = session_dir.unwrap_or(&default_dir);
-    let expanded = config::expand_tilde_path(selector);
-    let selector = expanded.to_string_lossy();
-    let resolved = resolve_session_path(&selector, cwd, dir)
-        .map_err(|error| anyhow!(crate::print_runtime::render_selector_error(&error)))?;
-    let source = match resolved {
-        ResolvedSession::Path(path)
-        | ResolvedSession::Local(path)
-        | ResolvedSession::Global { path, .. } => path,
-    };
-    let forked = eukhe_core::session::manager::SessionManager::fork_from(&source, cwd, dir)
-        .map_err(anyhow::Error::msg)?;
-    let fork_file = forked
-        .get_session_file()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| {
-            anyhow!(
-                "Cannot fork: the forked session file is missing: {}",
-                source.display()
-            )
-        })?;
-    Ok(SessionSelection::Resume(fork_file))
+/// The selector error (with the browse hint), an empty or invalid source,
+/// or the fork failure.
+fn fork_startup_selection(options: &RunOptions, selector: &str) -> Result<SessionSelection> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        let cx = &*eukhe_chord::context::BACKGROUND_CONTEXT;
+        let source = crate::headless_session::resolve_fork_source(options, selector, cx)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let (_, dir, _lease) =
+            crate::headless_session::fork_into_fresh(options, &source, &options.config.cwd, cx)
+                .await
+                .map_err(anyhow::Error::msg)?;
+        Ok(SessionSelection::Resume(dir))
+    })
 }
 
 /// TS `shouldOpenAgentsViewForDaemonInteractive`: a selector, continuation,

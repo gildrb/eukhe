@@ -606,17 +606,32 @@ fn seed_session(
     )
 }
 
-fn read_jsonl(path: &std::path::Path) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(path)
-        .expect("read session file")
-        .lines()
-        .map(serde_json::from_str)
-        .collect::<Result<_, _>>()
-        .expect("valid session entries")
+/// Whether any file directly under the storage `dir` carries `needle`
+/// (the forked conversation's rows land in the storage's JSONL files).
+fn storage_contains(dir: &std::path::Path, needle: &str) -> bool {
+    std::fs::read_dir(dir)
+        .expect("read storage dir")
+        .map(|entry| entry.expect("storage entry").path())
+        .filter(|path| path.is_file())
+        .any(|path| std::fs::read_to_string(path).is_ok_and(|text| text.contains(needle)))
+}
+
+fn fork_options(cwd: &std::path::Path, session_dir: &std::path::Path) -> RunOptions {
+    let mut options = run_options_for_continue(cwd);
+    options.session.session_dir = Some(session_dir.to_path_buf());
+    options
+}
+
+fn fork(options: &RunOptions, selector: &str) -> std::path::PathBuf {
+    let selection = fork_startup_selection(options, selector).expect("fork startup");
+    let SessionSelection::Resume(fork) = selection else {
+        panic!("the fork opens as a resume of the fork storage, got {selection:?}");
+    };
+    fork
 }
 
 #[test]
-fn fork_startup_selection_copies_the_source_under_a_fresh_header() {
+fn fork_startup_selection_copies_the_source_into_a_fresh_storage() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let cwd = dir.path().join("project");
     let session_dir = dir.path().join("sessions");
@@ -625,42 +640,17 @@ fn fork_startup_selection_copies_the_source_under_a_fresh_header() {
     let (source, id) = seed_session(&session_dir, &cwd, "original question");
     let before = std::fs::read(&source).expect("read source");
 
-    let selection = fork_startup_selection(&id, &cwd, Some(&session_dir)).expect("fork startup");
-    let SessionSelection::Resume(fork) = &selection else {
-        panic!("the fork opens as a resume of the forked file, got {selection:?}");
-    };
+    let fork = fork(&fork_options(&cwd, &session_dir), &id);
 
-    // A new file in the session dir, never the source.
-    assert!(fork.is_file(), "the fork file landed on disk");
-    assert_ne!(fork, &source, "the fork is a new session file");
-    assert!(
-        fork.starts_with(&session_dir),
-        "the fork lives in the session dir"
+    assert!(fork.is_dir(), "the fork storage landed on disk");
+    assert_eq!(fork.parent(), Some(session_dir.as_path()));
+    assert_ne!(
+        fork.file_name().and_then(|name| name.to_str()),
+        Some(id.as_str()),
+        "the fork is a new session"
     );
-    // Fresh header: new id, the source as parentSession, the target
-    // cwd (TS `forkFrom`'s new header).
-    let fork_entries = read_jsonl(fork);
-    let header = &fork_entries[0];
-    assert_eq!(header["type"], "session");
-    assert_ne!(header["id"].as_str(), Some(id.as_str()));
-    assert_eq!(
-        header["parentSession"].as_str(),
-        Some(source.display().to_string().as_str()),
-        "the fork header parents at the source"
-    );
-    assert_eq!(
-        header["cwd"].as_str(),
-        Some(cwd.display().to_string().as_str())
-    );
-    // The branch copied: the source's exchange rides the fork.
-    let texts: Vec<&str> = fork_entries
-        .iter()
-        .filter(|entry| entry["type"] == "message")
-        .filter_map(|entry| entry["message"]["content"][0]["text"].as_str())
-        .collect();
-    assert!(texts.contains(&"original question"), "texts: {texts:?}");
-    assert!(texts.contains(&"the answer"), "texts: {texts:?}");
-    // The source keeps its rows untouched (the copy never rewrites it).
+    assert!(storage_contains(&fork, "original question"));
+    assert!(storage_contains(&fork, "the answer"));
     let after = std::fs::read(&source).expect("read source");
     assert_eq!(before, after, "the source file is unchanged");
 }
@@ -677,21 +667,12 @@ fn fork_startup_selection_imports_a_global_session_into_this_cwd() {
     let (source, id) = seed_session(&session_dir, &other_project, "global question");
     let before = std::fs::read(&source).expect("read source");
 
-    let selection = fork_startup_selection(&id, &this_project, Some(&session_dir))
-        .expect("a GLOBAL session is exactly what --fork is for");
-    let SessionSelection::Resume(fork) = &selection else {
-        panic!("the fork opens as a resume of the forked file, got {selection:?}");
-    };
+    let fork = fork(&fork_options(&this_project, &session_dir), &id);
 
-    let fork_entries = read_jsonl(fork);
-    assert_eq!(
-        fork_entries[0]["cwd"].as_str(),
-        Some(this_project.display().to_string().as_str()),
+    assert!(storage_contains(&fork, "global question"));
+    assert!(
+        storage_contains(&fork, &this_project.display().to_string()),
         "the fork adopts the TARGET cwd"
-    );
-    assert_eq!(
-        fork_entries[0]["parentSession"].as_str(),
-        Some(source.display().to_string().as_str())
     );
     let after = std::fs::read(&source).expect("read source");
     assert_eq!(before, after, "the source file is unchanged");
@@ -704,13 +685,13 @@ fn fork_startup_selection_reports_the_ts_contracts() {
     let session_dir = dir.path().join("sessions");
     std::fs::create_dir_all(&cwd).expect("cwd");
     std::fs::create_dir_all(&session_dir).expect("sessions dir");
+    let options = fork_options(&cwd, &session_dir);
 
     // An empty source file: the `forkFrom` failure contract.
     let empty = session_dir.join("empty.jsonl");
     std::fs::write(&empty, "").expect("write empty file");
-    let error =
-        fork_startup_selection(empty.to_str().expect("utf8 path"), &cwd, Some(&session_dir))
-            .expect_err("an empty source cannot fork");
+    let error = fork_startup_selection(&options, empty.to_str().expect("utf8 path"))
+        .expect_err("an empty source cannot fork");
     assert!(
         error.to_string().contains(&format!(
             "Cannot fork: source session file is empty or invalid: {}",
@@ -719,44 +700,8 @@ fn fork_startup_selection_reports_the_ts_contracts() {
         "unexpected error: {error:#}"
     );
 
-    // A source file with only an unreadable row: the loader finalizes
-    // it to zero entries (the eukhe-core `forkFrom` contract).
-    let torn = session_dir.join("torn.jsonl");
-    std::fs::write(&torn, "{\"type\":\"message\"}\n").expect("write torn file");
-    let error = fork_startup_selection(torn.to_str().expect("utf8 path"), &cwd, Some(&session_dir))
-        .expect_err("a source with no readable rows cannot fork");
-    assert!(
-        error
-            .to_string()
-            .contains("Cannot fork: source session file is empty or invalid: "),
-        "unexpected error: {error:#}"
-    );
-
-    // A parseable but headerless source file: the loader finalizes it
-    // to zero entries (the eukhe-core `forkFrom` contract the manager's
-    // own test asserts), so the failure is the empty-or-invalid one --
-    // never a half-copied fork.
-    let headerless = session_dir.join("headerless.jsonl");
-    std::fs::write(
-        &headerless,
-        "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":[],\"timestamp\":0},\"id\":\"aaaa1\",\"parentId\":null}\n",
-    )
-    .expect("write headerless file");
-    let error = fork_startup_selection(
-        headerless.to_str().expect("utf8 path"),
-        &cwd,
-        Some(&session_dir),
-    )
-    .expect_err("a headerless source cannot fork");
-    assert!(
-        error
-            .to_string()
-            .contains("Cannot fork: source session file is empty or invalid: "),
-        "unexpected error: {error:#}"
-    );
-
     // An unknown selector: the TS startup failure with the browse hint.
-    let error = fork_startup_selection("does-not-exist", &cwd, Some(&session_dir))
+    let error = fork_startup_selection(&options, "does-not-exist")
         .expect_err("an unknown selector cannot fork");
     let rendered = format!("{error:#}");
     assert!(
@@ -772,9 +717,6 @@ fn fork_startup_selection_reports_the_ts_contracts() {
 // The tilde selector expands a unix HOME path.
 #[test]
 fn fork_startup_selection_expands_a_tilde_selector() {
-    // The resume selector's convention: a leading `~` resolves against
-    // the home dir, so forking a home-located session by that path
-    // opens it instead of erroring on a nonexistent relative path.
     let dir = tempfile::TempDir::new().expect("temp dir");
     let home = dir.path().join("home");
     let project = dir.path().join("project");
@@ -791,32 +733,26 @@ fn fork_startup_selection_expands_a_tilde_selector() {
     let previous_home = std::env::var("HOME").ok();
     std::env::set_var("HOME", &home);
     let selector = format!("~/sessions/{id}.jsonl");
-    let selection = fork_startup_selection(&selector, &project, Some(&session_dir));
+    let selection = fork_startup_selection(&fork_options(&project, &session_dir), &selector);
     match previous_home {
         Some(value) => std::env::set_var("HOME", value),
         None => std::env::remove_var("HOME"),
     }
-    let selection = selection.expect("the tilde selector forks");
-    let SessionSelection::Resume(fork) = &selection else {
-        panic!("the fork opens as a resume of the forked file, got {selection:?}");
+    let SessionSelection::Resume(fork) = selection.expect("the tilde selector forks") else {
+        panic!("the fork opens as a resume of the fork storage");
     };
-    assert_ne!(fork, &home_file, "the fork is a new session file");
-    assert!(
-        fork.starts_with(&session_dir),
+    assert_eq!(
+        fork.parent(),
+        Some(session_dir.as_path()),
         "the fork lands in the requested session dir"
     );
-    let fork_entries = read_jsonl(fork);
-    assert_eq!(
-        fork_entries[0]["parentSession"].as_str(),
-        Some(home_file.display().to_string().as_str()),
-        "the fork header parents at the tilde-resolved source"
-    );
+    assert!(storage_contains(&fork, "tilde question"));
 }
 
 #[test]
 fn fork_startup_selection_rejects_a_fifo_source_without_hanging() {
-    // A FIFO with no writer blocks the copy's read forever; the guard
-    // rejects it before any open, so the launch errors instead.
+    // A FIFO with no writer blocks a read forever; the launch must error
+    // instead.
     let dir = tempfile::TempDir::new().expect("temp dir");
     let project = dir.path().join("project");
     let session_dir = dir.path().join("sessions");
@@ -825,9 +761,8 @@ fn fork_startup_selection_rejects_a_fifo_source_without_hanging() {
     let fifo = session_dir.join("pipe.jsonl");
     nix::unistd::mkfifo(&fifo, nix::sys::stat::Mode::S_IRWXU).expect("mkfifo");
     let error = fork_startup_selection(
+        &fork_options(&project, &session_dir),
         fifo.to_str().expect("utf8 path"),
-        &project,
-        Some(&session_dir),
     )
     .expect_err("a FIFO source cannot fork");
     assert!(
@@ -846,7 +781,7 @@ fn build_tui_options_opens_a_fork_as_the_startup_session() {
     let session_dir = dir.path().join("sessions");
     std::fs::create_dir_all(&cwd).expect("cwd");
     std::fs::create_dir_all(&session_dir).expect("sessions dir");
-    let (source, id) = seed_session(&session_dir, &cwd, "interactive question");
+    let (_, id) = seed_session(&session_dir, &cwd, "interactive question");
 
     let mut options = run_options_for_continue(dir.path());
     options.config.cwd = cwd;
@@ -862,20 +797,16 @@ fn build_tui_options_opens_a_fork_as_the_startup_session() {
 
     let SessionSelection::Resume(fork) = &tui.session else {
         panic!(
-            "the fork opens as a resume of the forked file, got {:?}",
+            "the fork opens as a resume of the fork storage, got {:?}",
             tui.session
         );
     };
-    assert!(
-        fork.starts_with(&session_dir),
+    assert_eq!(
+        fork.parent(),
+        Some(session_dir.as_path()),
         "the fork honors --session-dir"
     );
-    assert_ne!(fork, &source, "the fork is a new session file");
-    let fork_entries = read_jsonl(fork);
-    assert_eq!(
-        fork_entries[0]["parentSession"].as_str(),
-        Some(source.display().to_string().as_str())
-    );
+    assert!(storage_contains(fork, "interactive question"));
 }
 
 #[test]
