@@ -1089,7 +1089,7 @@ async fn cancel_child_aborts_the_run_and_lists_it_cancelled() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].entry.status, "cancelled");
     assert!(listed[0].settled);
-    let found = super::find_child(
+    let mut found = super::find_child(
         &opened.harness,
         ROOT_CONVERSATION_ID,
         &row.session_name,
@@ -1098,6 +1098,9 @@ async fn cancel_child_aborts_the_run_and_lists_it_cancelled() {
     .await
     .unwrap()
     .unwrap();
+    // `duration_ms` is measured at read time (TS parity: now - start), so
+    // two reads a millisecond apart differ there only.
+    found.entry.duration_ms = listed[0].entry.duration_ms;
     assert_eq!(found, listed[0]);
     opened.harness.close(cx()).await.unwrap();
 }
