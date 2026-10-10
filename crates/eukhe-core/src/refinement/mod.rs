@@ -348,10 +348,13 @@ pub fn update_harness_state<R>(
 ) -> anyhow::Result<(R, PathBuf)> {
     std::fs::create_dir_all(harness_state_dir)?;
     let state_path = get_harness_state_path(harness_state_dir);
+    // Up to 5 s of contention: each holder fsyncs the file and its
+    // directory, which takes tens of milliseconds on some filesystems
+    // (upstream's 1 s budget failed eight queued writers here).
     let lock = crate::platform::lock_dir::LockDir::acquire_owned_retrying(
         &state_path,
         std::time::Duration::from_secs(10),
-        50,
+        250,
         std::time::Duration::from_millis(20),
     )?;
     let mut state = load_harness_state(harness_state_dir, scope);
