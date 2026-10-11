@@ -31,10 +31,12 @@ fn compaction_commands_scripted_session() {
     let (mut client, _hello) = Client::connect(&socket);
 
     // Durable compaction summarizes through the session model: the faux
-    // queue serves the two turns, then (1) a summary held long enough to
-    // observe the in-flight state and abort it, then (2) the summary the
-    // second compaction commits. `delayMs` holds the stream before its
-    // first delta.
+    // queue serves the two turns, then the summaries. The abort may land
+    // before or after the first compaction's summarizer request pops the
+    // queue (the task commits `compaction_start` before its hook runs), so
+    // both summary slots answer the text the second compaction commits;
+    // `delayMs` holds whichever request pops first long enough to observe
+    // the in-flight state and abort it.
     let script_path = dir.path().join("script.json");
     std::fs::write(
         &script_path,
@@ -42,7 +44,7 @@ fn compaction_commands_scripted_session() {
             "responses": [
                 { "text": "one turn ".repeat(20) },
                 { "text": "two turn ".repeat(20) },
-                { "text": "first summary", "delayMs": 1500 },
+                { "text": "second summary", "delayMs": 1500 },
                 { "text": "second summary" },
             ],
         })
