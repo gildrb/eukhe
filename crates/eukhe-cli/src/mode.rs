@@ -130,7 +130,7 @@ pub struct RunOptions {
     /// The `@file` image attachments for the initial prompt (TS
     /// `initialImages`; only the non-interactive prompt path sends them -
     /// the interactive initial-message image arm is not yet wired).
-    pub initial_images: Vec<eukhe_agent::types::ImageContent>,
+    pub initial_images: Vec<eukhe_types::pi_ai::ImageContent>,
     pub verbose: bool,
     pub offline: bool,
     pub agents_view_requested: bool,

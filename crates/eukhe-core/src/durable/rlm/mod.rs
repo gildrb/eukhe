@@ -10,9 +10,12 @@
 
 mod activity;
 mod boundary;
+pub mod factory;
 mod host;
 mod kernels;
 pub(crate) mod refine;
+pub mod skills_unavailable_notice;
+pub mod state_restore_notice;
 mod tool;
 
 #[cfg(test)]

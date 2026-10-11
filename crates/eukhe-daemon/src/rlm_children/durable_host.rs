@@ -13,19 +13,46 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::PoisonError;
 
-use eukhe_core::durable::children as durable;
-use eukhe_core::session_engine::agent_messaging::{
+use eukhe_core::agent_messaging::{
     create_agent_session_message_row, AgentFamilyRelationship, AgentSessionMessageRowPayload,
 };
+use eukhe_core::durable::children as durable;
 use eukhe_types::daemon::{DaemonCommand, PromptInput};
 use eukhe_types::pi_ai::{Usage, UsageCost};
 
-use super::host::resolve_child_model_allowlisted;
 use super::{
-    assert_thinking_supported, json, now_ms, Arc, Duration, Map, Path, PathBuf, Result,
-    SupervisorChildSessions, SupervisorChildSessionsInner, Value, KILL_TIMEOUT_MS,
-    PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS, STATE_TIMEOUT_MS, WATCH_SETTLE_GRACE_MS,
+    assert_thinking_supported, json, now_ms, resolve_child_model, Arc, Context, Duration, Map,
+    Path, PathBuf, Result, SupervisorChildSessions, SupervisorChildSessionsInner, Value,
+    KILL_TIMEOUT_MS, PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS, STATE_TIMEOUT_MS, WATCH_SETTLE_GRACE_MS,
 };
+
+/// Resolve the child model with the daemon `allowedModels` allowlist
+/// enforced (the parent's cwd scopes the settings read), refusing a model
+/// outside the allowlist loudly with the typed error. The settings read
+/// (a synchronous file lock under `with_lock`) runs on the blocking pool,
+/// so a contended settings lock never stalls this async spawn path's
+/// Tokio worker.
+async fn resolve_child_model_allowlisted(
+    this: &SupervisorChildSessionsInner,
+    reference: Option<&str>,
+    target: &str,
+) -> Result<String> {
+    let identity = this.identity.lock().expect("identity lock").clone();
+    let cwd = identity.cwd.clone().unwrap_or_else(|| "/".to_string());
+    let agent_dir = this.agent_dir.clone();
+    let allowlist = tokio::task::spawn_blocking(move || {
+        crate::model_allowlist::load(Path::new(&cwd), &agent_dir)
+    })
+    .await
+    .context("the allowlist load task join failed")?;
+    resolve_child_model(
+        &this.agent_dir,
+        reference,
+        identity.model.as_deref(),
+        target,
+        &allowlist,
+    )
+}
 
 /// The supervisor's error for a selector no resident worker answers.
 const UNKNOWN_SESSION: &str = "Unknown active session:";

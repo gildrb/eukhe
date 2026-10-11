@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 
 use super::super::{HostCall, HostDeps};
 use super::CustomNotice;
+use super::{skills_unavailable_notice, state_restore_notice};
 use crate::kernel::bootstrap::UnavailablePythonSkills;
 use crate::kernel::provisioner::{
     IpythonKernelProvisioner, IpythonKernelProvisionerOptions, RestoreCallback,
@@ -25,7 +26,6 @@ use crate::kernel::shared::{
     KernelHostDispatch, KernelHostRequest, KernelShutdownOptions,
 };
 use crate::kernel::state_snapshot::{manifest_path_in, snapshot_path_in, RestoreResult};
-use crate::session_engine::{skills_unavailable_notice, state_restore_notice};
 
 /// Bound on the background MCP settle after a prewarm boot (one wedged
 /// server must not keep the settle task alive forever).

@@ -1,4 +1,4 @@
-//! The digest composition half of `session_engine::harness_digest`: render
+//! The digest composition half of the old engine's `harness_digest`: render
 //! the continual-harness state (merged global + local) into the
 //! model-facing digest body plus the fingerprint of the state that produced
 //! it. One merged-state read feeds both, so the fingerprint always matches

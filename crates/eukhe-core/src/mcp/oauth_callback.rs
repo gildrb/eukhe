@@ -9,8 +9,10 @@
 
 use std::sync::Arc;
 
+use crate::auth::redirect_input::{
+    parse_redirect_input, RedirectInputError, VerifiedAuthorization,
+};
 use anyhow::{anyhow, Result};
-use eukhe_ai::oauth::{parse_redirect_input, RedirectInputError, VerifiedAuthorization};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 

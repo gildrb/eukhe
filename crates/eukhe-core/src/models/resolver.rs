@@ -1,7 +1,7 @@
 //! Model resolution, scoping, and CLI selection. Port of model-resolver.ts.
 
-use eukhe_agent::types::ThinkingLevel;
 use eukhe_types::ai::Model;
+use eukhe_types::pi_ai::ModelThinkingLevel;
 
 use super::prime_inference::is_private_prime_inference_model;
 
@@ -42,7 +42,7 @@ pub fn default_model_per_provider(provider: &str) -> Option<&'static str> {
 #[derive(Debug, Clone)]
 pub struct ScopedModel {
     pub model: Model,
-    pub thinking_level: Option<ThinkingLevel>,
+    pub thinking_level: Option<ModelThinkingLevel>,
 }
 
 /// True when a model id looks like an alias (no date suffix).
@@ -197,22 +197,22 @@ pub(crate) fn is_valid_thinking_level(value: &str) -> bool {
     )
 }
 
-fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
+fn parse_thinking_level(value: &str) -> Option<ModelThinkingLevel> {
     match value {
-        "off" => Some(ThinkingLevel::Off),
-        "minimal" => Some(ThinkingLevel::Minimal),
-        "low" => Some(ThinkingLevel::Low),
-        "medium" => Some(ThinkingLevel::Medium),
-        "high" => Some(ThinkingLevel::High),
-        "xhigh" => Some(ThinkingLevel::Xhigh),
-        "max" => Some(ThinkingLevel::Max),
+        "off" => Some(ModelThinkingLevel::Off),
+        "minimal" => Some(ModelThinkingLevel::Minimal),
+        "low" => Some(ModelThinkingLevel::Low),
+        "medium" => Some(ModelThinkingLevel::Medium),
+        "high" => Some(ModelThinkingLevel::High),
+        "xhigh" => Some(ModelThinkingLevel::Xhigh),
+        "max" => Some(ModelThinkingLevel::Max),
         _ => None,
     }
 }
 
 struct ParsedModelResult<'a> {
     model: Option<&'a Model>,
-    thinking_level: Option<ThinkingLevel>,
+    thinking_level: Option<ModelThinkingLevel>,
     warning: Option<String>,
 }
 
@@ -351,7 +351,7 @@ fn models_equal(a: &Model, b: &Model) -> bool {
 #[derive(Debug, Default)]
 pub struct ResolveCliModelResult {
     pub model: Option<Model>,
-    pub thinking_level: Option<ThinkingLevel>,
+    pub thinking_level: Option<ModelThinkingLevel>,
     pub warning: Option<String>,
     pub error: Option<String>,
 }
@@ -774,7 +774,7 @@ mod tests {
         assert_eq!(scoped.len(), 2);
         assert_eq!(scoped[0].model.id, "claude-sonnet-4-5");
         assert!(scoped[0].thinking_level.is_none());
-        assert_eq!(scoped[1].thinking_level, Some(ThinkingLevel::High));
+        assert_eq!(scoped[1].thinking_level, Some(ModelThinkingLevel::High));
     }
 
     #[test]
@@ -838,19 +838,19 @@ mod tests {
     /// template.
     #[test]
     fn fallback_models_never_inherit_the_zai_thinking_format() {
-        use eukhe_ai::types::ModelExt;
-        use eukhe_types::ai::{CompatKind, ThinkingFormat};
-        let mut catalog: Vec<Model> =
-            vec![
-                eukhe_ai::models_generated::get_model("prime-inference", "z-ai/glm-5.3")
-                    .expect("the compiled prime-inference default")
-                    .clone(),
-            ];
+        use eukhe_types::ai::{CompatKind, ModelCompat, ThinkingFormat};
+        let mut catalog: Vec<Model> = vec![eukhe_models::transports::compiled_models()
+            .iter()
+            .find(|model| model.provider == "prime-inference" && model.id == "z-ai/glm-5.3")
+            .expect("the compiled prime-inference default")
+            .clone()];
         catalog.extend(private_prime_inference_models());
         for model_id in ["z-ai/glm-9", "internal/glm-5.9-turbo"] {
             let fallback = build_fallback_model("prime-inference", model_id, &catalog)
                 .unwrap_or_else(|| panic!("{model_id} has a fallback template"));
-            let Some(CompatKind::OpenAiCompletions(compat)) = fallback.compat_kind() else {
+            let Some(Ok(CompatKind::OpenAiCompletions(compat))) =
+                fallback.compat.as_ref().map(ModelCompat::kind)
+            else {
                 panic!("{model_id}: fallback inherits a compat object");
             };
             assert_ne!(

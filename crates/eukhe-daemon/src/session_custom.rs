@@ -363,5 +363,13 @@ fn custom_message_value(message: Option<&Value>) -> Option<Value> {
     Some(row)
 }
 
+/// One durable row in its wire message form (`role: "custom"`): the shape
+/// `message_start`/`message_end` pairs carry and TS sessions keep in
+/// `agent.state.messages`.
+pub(crate) fn custom_row_value(message: &eukhe_types::session::CustomMessage) -> Value {
+    serde_json::to_value(eukhe_types::session::AgentMessage::Custom(message.clone()))
+        .unwrap_or(Value::Null)
+}
+
 #[cfg(test)]
 mod tests;

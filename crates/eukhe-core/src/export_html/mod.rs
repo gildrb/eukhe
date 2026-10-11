@@ -16,7 +16,6 @@
 //! the data shape (`SessionExportData`) and the file write.
 
 use std::path::Path;
-use std::sync::Arc;
 
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -171,23 +170,6 @@ pub fn export_from_file(
     write_export(&html, input_path, output_path)
 }
 
-/// The export's tools section: each tool's model-facing contract
-/// (name/description/JSON-schema parameters), exactly the TS exporter's
-/// `state.tools.map` — the template renders these into its
-/// "Available Tools" list.
-pub fn tools_section(tools: &[Arc<dyn eukhe_agent::types::AgentTool>]) -> Vec<Value> {
-    tools
-        .iter()
-        .map(|tool| {
-            serde_json::json!({
-                "name": tool.name(),
-                "description": tool.description(),
-                "parameters": tool.parameters(),
-            })
-        })
-        .collect()
-}
-
 /// Build the export data from a session file: the header entry, every other
 /// entry in file order, and the last entry's id as the leaf (the TS
 /// `SessionManager` index build).
@@ -320,56 +302,6 @@ mod tests {
         assert!(
             error.to_string().starts_with("File not found:"),
             "unexpected: {error}"
-        );
-    }
-
-    /// The tools section maps each tool to its model-facing contract,
-    /// with the template's `name`/`description`/`parameters` keys.
-    #[test]
-    fn tools_section_wire_shape() {
-        use eukhe_agent::types::{AgentTool, AgentToolResult};
-        struct EchoTool {
-            schema: serde_json::Value,
-        }
-        impl AgentTool for EchoTool {
-            fn name(&self) -> &'static str {
-                "echo"
-            }
-            fn description(&self) -> &'static str {
-                "Echoes input."
-            }
-            fn parameters(&self) -> &serde_json::Value {
-                &self.schema
-            }
-            fn execute(
-                self: Arc<Self>,
-                _id: String,
-                _params: serde_json::Value,
-                _signal: eukhe_agent::abort::AbortSignal,
-                _on_update: eukhe_agent::types::AgentToolUpdateCallback,
-            ) -> eukhe_agent::BoxFut<'static, anyhow::Result<AgentToolResult>> {
-                unreachable!("no test executes the export registry")
-            }
-        }
-        let tools: Vec<Arc<dyn AgentTool>> = vec![Arc::new(EchoTool {
-            schema: serde_json::json!({
-                "type": "object",
-                "required": ["text"],
-                "properties": { "text": { "type": "string" } },
-            }),
-        })];
-        let section = tools_section(&tools);
-        assert_eq!(
-            serde_json::to_value(&section).unwrap(),
-            serde_json::json!([{
-                "name": "echo",
-                "description": "Echoes input.",
-                "parameters": {
-                    "type": "object",
-                    "required": ["text"],
-                    "properties": { "text": { "type": "string" } },
-                },
-            }])
         );
     }
 

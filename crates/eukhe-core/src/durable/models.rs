@@ -245,7 +245,7 @@ pub async fn resolve_session_model(
                 )
             })));
         };
-        let thinking = result.thinking_level.and_then(agent_thinking_level);
+        let thinking = result.thinking_level;
         (catalog_model(&all, &resolved)?, thinking)
     } else {
         let patterns = settings.get_enabled_models().unwrap_or_default();
@@ -283,8 +283,7 @@ pub async fn resolve_session_model(
         let thinking = scoped
             .iter()
             .find(|scoped| scoped.model.provider == picked.provider && scoped.model.id == picked.id)
-            .and_then(|scoped| scoped.thinking_level)
-            .and_then(agent_thinking_level);
+            .and_then(|scoped| scoped.thinking_level);
         (catalog_model(&all, &picked)?, thinking)
     };
 
@@ -347,12 +346,6 @@ fn catalog_model(all: &[Model], model: &eukhe_types::ai::Model) -> Result<Model,
             provider: model.provider.clone(),
             model_id: model.id.clone(),
         })
-}
-
-/// A `model:level` suffix level as a pi-ai level (same wire names).
-fn agent_thinking_level(level: eukhe_agent::types::ThinkingLevel) -> Option<ModelThinkingLevel> {
-    let wire = serde_json::to_value(level).ok()?;
-    wire.as_str().and_then(ModelThinkingLevel::parse)
 }
 
 /// The daemon's `allowedModels` gate (`eukhe-daemon` `model_allowlist`):

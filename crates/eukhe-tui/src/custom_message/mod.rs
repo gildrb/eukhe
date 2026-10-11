@@ -59,7 +59,7 @@ pub const REFINEMENT_OUTCOME_CUSTOM_TYPE: &str = "refinement_outcome";
 /// The durable single-line outcome of one provider-retry episode (SANCTIONED
 /// DIVERGENCE, operator ruling 2026-09-23: one resolved/terminal row per
 /// episode instead of the per-attempt error rows TS keeps). Wire twin of
-/// `eukhe_core::session_engine::messages::PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE`.
+/// `eukhe_core::durable::messages::PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE`.
 pub const PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE: &str = "provider_retry_outcome";
 /// Wire twin of `eukhe_core::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE`.
 pub const MODEL_PROMPT_ERROR_CUSTOM_TYPE: &str = "model_prompt_error";

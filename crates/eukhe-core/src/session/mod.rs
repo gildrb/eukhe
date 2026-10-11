@@ -364,7 +364,7 @@ pub fn build_session_context(entries: &[FileEntry], leaf_id: Option<&str>) -> Se
     let mut newest_digest_entry_id: Option<String> = None;
     for (path_idx, &index) in path.iter().enumerate().rev() {
         if let FileEntry::CustomMessage { payload, .. } = &entries[index] {
-            if payload.custom_type == crate::session_engine::headless::HARNESS_DIGEST_CUSTOM_TYPE {
+            if payload.custom_type == crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE {
                 newest_digest_path_idx = Some(path_idx);
                 newest_digest_entry_id = entries[index].id().map(str::to_string);
                 break;
@@ -403,8 +403,7 @@ pub fn build_session_context(entries: &[FileEntry], leaf_id: Option<&str>) -> Se
             match entry {
                 FileEntry::Message { message, .. } => target.push(message.clone()),
                 FileEntry::CustomMessage { payload, .. } => {
-                    if payload.custom_type
-                        == crate::session_engine::headless::HARNESS_DIGEST_CUSTOM_TYPE
+                    if payload.custom_type == crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE
                         && entry.id() != keep_digest_entry_id
                     {
                         return;

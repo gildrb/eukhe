@@ -12,9 +12,9 @@ use eukhe_types::daemon::KERNEL_NOT_RUNNING_MESSAGE;
 use serde_json::Value;
 
 use super::super::HostDeps;
+use super::factory::{FactoryActivityRequest, FactoryHost, FactoryHostConfig};
 use crate::kernel::manager::ReplKernelManager;
 use crate::refinement::{get_global_harness_state_dir, get_local_harness_state_dir};
-use crate::session_engine::factory_host::{FactoryActivityRequest, FactoryHost, FactoryHostConfig};
 
 /// One kernel bash activity action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,8 +188,7 @@ async fn factory_host(
     let session_model = agent
         .model
         .as_ref()
-        .and_then(|model| deps.models.get_model(&model.provider, &model.model_id))
-        .map(|model| descriptor(&model));
+        .and_then(|model| deps.models.get_model(&model.provider, &model.model_id));
     Ok(FactoryHost::new(FactoryHostConfig {
         agent_dir: deps.agent_dir.clone(),
         global_harness_dir: get_global_harness_state_dir(&deps.agent_dir),
@@ -197,30 +196,4 @@ async fn factory_host(
         session_model,
         allowed_models: deps.settings.manager().get_allowed_models(),
     }))
-}
-
-/// The agent-side model descriptor the preflight's session-model fallback
-/// reads (provider and id select it; the rest is carried over field by
-/// field).
-fn descriptor(model: &eukhe_types::pi_ai::Model) -> eukhe_agent::types::Model {
-    eukhe_agent::types::Model {
-        id: model.id.clone(),
-        name: model.name.clone(),
-        api: model.api.clone(),
-        provider: model.provider.clone(),
-        base_url: model.base_url.clone(),
-        reasoning: model.reasoning,
-        cost: eukhe_agent::types::UsageCost {
-            input: model.cost.input,
-            output: model.cost.output,
-            cache_read: model.cost.cache_read,
-            cache_write: model.cost.cache_write,
-            ..eukhe_agent::types::UsageCost::default()
-        },
-        context_window: model.context_window,
-        max_tokens: model.max_tokens,
-        // pi-ai models carry no explicit flag (pi-ai applies no output
-        // ceiling); this descriptor never sizes a request.
-        max_tokens_explicit: false,
-    }
 }

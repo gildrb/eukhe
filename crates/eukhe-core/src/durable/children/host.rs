@@ -1,5 +1,5 @@
 //! The child-session host seam: the supervisor operations an
-//! `eukhe.rlm.child` task drives (port of `session_engine/rlm_host.rs`'s
+//! `eukhe.rlm.child` task drives (port of the old engine's `rlm_host.rs`'s
 //! `RlmSubagentHost`, narrowed to primitives).
 //!
 //! The old host owned the whole child lifecycle in daemon memory (spawn,

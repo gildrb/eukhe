@@ -45,13 +45,18 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use eukhe_core::kernel::shared::{HostRequestHandlers, HostRequestPayload};
-use eukhe_core::session_engine::agent_messaging::{
+use eukhe_core::agent_messaging::{
     register_agent_message_host_handlers, AgentFamilyRelationship, AgentMessageController,
 };
-use eukhe_core::session_engine::rlm_host::{RlmSpawnRequest, RlmSubagentHost};
+use eukhe_core::durable::children::{
+    RlmChildIdentity, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
+    RlmChildSpawnRequest, RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget, RlmSubagentHost,
+};
+use eukhe_core::kernel::shared::{HostRequestHandlers, HostRequestPayload};
 use eukhe_daemon::agent_messaging::LinkAgentMessageController;
-use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
+use eukhe_daemon::rlm_children::{
+    ParentIdentity, RlmChildIdentity as FamilyChild, SupervisorChildSessions,
+};
 use eukhe_daemon::supervisor_link::SupervisorLink;
 use serde_json::{json, Value};
 
@@ -324,6 +329,76 @@ fn daemon_log_tail(receipts_dir: &Path) -> String {
         .collect()
 }
 
+/// The roster id of the `index`-th spawned child.
+fn child_id(index: u32) -> String {
+    format!("sub-0000000{index}")
+}
+
+/// Spawn one child through the durable host, admit its task, and
+/// long-poll it until its spawn turn settles (the parent's
+/// `eukhe.rlm.child` task drives exactly these keyed calls). Bounded: a
+/// child that never settles fails loudly with the daemon log tail.
+async fn spawn_settled_child(
+    children: &SupervisorChildSessions,
+    index: u32,
+    name: &str,
+    prompt: &str,
+    depth: u32,
+    receipts_dir: &Path,
+) -> RlmChildSession {
+    let rlm_child_id = child_id(index);
+    let child = children
+        .spawn(RlmChildSpawnRequest {
+            idempotency_key: format!("rlm:{index}:spawn"),
+            child: RlmChildIdentity {
+                rlm_child_id: rlm_child_id.clone(),
+                session_id: format!("0{index}000000-0000-4000-8000-00000000000{index}"),
+            },
+            name: name.to_string(),
+            prompt: prompt.to_string(),
+            model: None,
+            thinking: None,
+            depth,
+            max_depth: 2,
+            spawned_by_request_id: None,
+            parent_task_id: index.to_string(),
+        })
+        .await
+        .expect("spawn the child");
+    children
+        .prompt(RlmChildPromptRequest {
+            idempotency_key: format!("rlm:{index}:prompt"),
+            session_id: child.session_id.clone(),
+            rlm_child_id: rlm_child_id.clone(),
+            prompt: prompt.to_string(),
+        })
+        .await
+        .expect("prompt the child");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let observation = children
+            .wait_settled(RlmChildWaitRequest {
+                session_id: child.session_id.clone(),
+                rlm_child_id: rlm_child_id.clone(),
+                timeout_ms: 2_000,
+            })
+            .await
+            .expect("wait for the child");
+        match observation.state {
+            RlmChildRunState::Settled { .. } => return child,
+            RlmChildRunState::Failed { error } => panic!(
+                "child {name} spawn turn failed: {error}; daemon log tail: {}",
+                daemon_log_tail(receipts_dir)
+            ),
+            RlmChildRunState::Running => assert!(
+                Instant::now() < deadline,
+                "child {name} spawn turn never settled; daemon log tail: {}",
+                daemon_log_tail(receipts_dir)
+            ),
+        }
+    }
+}
+
 /// A recorded JSON file, waiting for the turn that writes it. The
 /// recording cell writes the receipt non-atomically (`open(w).write`),
 /// so the file can exist while its content is still empty or partial:
@@ -436,10 +511,9 @@ async fn parent_child_agent_message_round_trip_end_to_end() {
         .expect("parent session file")
         .to_string();
 
-    // The parent's children registry (the same construction the worker
-    // engine performs), bound to the real parent identity: the child
-    // spawns through the supervisor and lands in the registry the
-    // controller's family view reads.
+    // The parent's child host (the same construction the worker
+    // performs), bound to the real parent identity: the child spawns
+    // through the supervisor.
     let link = Arc::new(SupervisorLink::new(socket.clone()));
     let children = SupervisorChildSessions::new(
         Arc::clone(&link),
@@ -456,59 +530,25 @@ async fn parent_child_agent_message_round_trip_end_to_end() {
         thinking: None,
         child_script: Some(child_script.to_string_lossy().to_string()),
     });
-    let handle = children
-        .spawn(RlmSpawnRequest {
-            prompt: "work on the lane".to_string(),
-            name: Some("kid".to_string()),
-            model: None,
-            thinking: None,
-            cell_source_code: None,
-            spawned_by_request_id: None,
-        })
-        .await
-        .expect("spawn the child");
-    assert_eq!(handle.name, "kid");
-    let child_id = handle.rlm_child_id.clone();
-
-    // The detached task prompt waits for the parent's turn boundary (the
-    // spawn admission ordering); this harness owns its own children
-    // registry, separate from the parent worker's engine, so the boundary
-    // the real parent's turn would bump has to be simulated here. Without
-    // it the spawn prompt never fires and the delivered messages consume
-    // the child's scripted spawn response.
-    children.notify_turn_done();
-    // Wait for the spawn prompt's turn to settle before delivering: the
-    // child must run its spawn turn ("kid spawned") before the reply
-    // script begins, or the first delivered message would consume the
-    // spawn response and lose its own reply cell. Bounded: a child that
-    // never settles fails loudly instead of hanging the suite.
-    let settle_deadline = Instant::now() + Duration::from_secs(60);
-    let spawn_row = loop {
-        let roster = children.list_subagents().await.expect("child roster");
-        let row = roster.first().expect("one child row");
-        // The spawn turn settled once the child went idle with an answer
-        // (or an error); a still-running child keeps polling.
-        if row.status == "completed" || row.status == "error" {
-            break row.clone();
-        }
-        assert!(
-            Instant::now() < settle_deadline,
-            "kid spawn turn never settled: {row:?}; daemon log tail: {}",
-            daemon_log_tail(&receipts_dir)
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let child =
+        spawn_settled_child(&children, 1, "kid", "work on the lane", 1, &receipts_dir).await;
+    assert_eq!(child.session_name, "kid");
+    let child_id = child_id(1);
+    let child_active_session_id = child.active_session_id.clone();
+    let child_session_id = child.session_id.clone();
+    // The family view reads the parent's durable children roster (the
+    // worker wires it from the parent's `eukhe.rlm.children` document;
+    // this harness owns the host, so it serves the spawned child itself).
+    let family_child = FamilyChild {
+        rlm_child_id: child_id.clone(),
+        active_session_id: child_active_session_id.clone(),
+        session_id: Some(child_session_id.clone()),
+        session_name: child.session_name.clone(),
     };
-    assert_eq!(spawn_row.status, "completed", "spawn turn: {spawn_row:?}");
-
-    // The roster row gives the child's live and persisted session ids.
-    let roster = children.list_subagents().await.expect("child roster");
-    let child_row = roster.first().expect("one child row");
-    let child_active_session_id = child_row
-        .active_session_id
-        .clone()
-        .expect("child active session id");
-    let child_session_id = child_row.session_id.clone().expect("child session id");
-    assert_eq!(child_row.session_name, "kid");
+    children.set_durable_children_source(Arc::new(move || {
+        let family_child = family_child.clone();
+        Box::pin(async move { Ok(vec![family_child]) })
+    }));
 
     // The parent-side controller: the same wiring the worker's engine
     // performs (family + delivery over the supervisor link).
@@ -836,45 +876,22 @@ async fn family_edges_never_cross_families_end_to_end() {
             thinking: None,
             child_script: Some(kid_script.to_string_lossy().to_string()),
         });
-        let handle = children
-            .spawn(RlmSpawnRequest {
-                prompt: "work on the lane".to_string(),
-                name: Some(kid_name.to_string()),
-                model: None,
-                thinking: None,
-                cell_source_code: None,
-                spawned_by_request_id: None,
-            })
-            .await
-            .expect("spawn the child");
-        assert_eq!(handle.name, kid_name);
-        children.notify_turn_done();
-        // The spawn turn settles once the child goes idle with an answer
-        // (bounded: a kid that never settles fails loudly with its last
-        // roster row and the daemon log instead of hanging the suite).
-        let settle_deadline = Instant::now() + Duration::from_secs(60);
-        loop {
-            let roster = children.list_subagents().await.expect("child roster");
-            let row = roster.first().expect("one child row");
-            if row.status == "completed" || row.status == "error" {
-                assert_eq!(row.status, "completed", "spawn turn: {row:?}");
-                break;
-            }
-            assert!(
-                Instant::now() < settle_deadline,
-                "kid {kid_name} spawn turn never settled: {row:?}; daemon log tail: {}",
-                daemon_log_tail(&receipts_dir)
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-        let roster = children.list_subagents().await.expect("child roster");
-        let row = roster.first().expect("one child row");
-        assert_eq!(row.session_name, kid_name);
-        // The spawn row can settle in the admission-to-turn-pop window (the
-        // watcher's stability re-check), before the child's first turn
+        let child_index = u32::try_from(index).expect("two roots") + 1;
+        let child = spawn_settled_child(
+            &children,
+            child_index,
+            kid_name,
+            "work on the lane",
+            1,
+            &receipts_dir,
+        )
+        .await;
+        assert_eq!(child.session_name, kid_name);
+        // The spawn can settle in the admission-to-turn-pop window (the
+        // host's stability re-check), before the child's first turn
         // writes its session; the durable artifact is the proof, so wait
         // for it (bounded) before reading.
-        let kid_session_id = row.session_id.clone().expect("child persisted id");
+        let kid_session_id = child.session_id.clone();
         // The per-child artifact dir IS the rlm child id (it already
         // carries the "sub-" prefix); do not prefix it again. The durable
         // kid session is its storage directory (`<session-id>/`, holding
@@ -882,7 +899,7 @@ async fn family_edges_never_cross_families_end_to_end() {
         let artifact_dir = agent_dir
             .join("session-artifacts")
             .join(session)
-            .join(&handle.rlm_child_id);
+            .join(child_id(child_index));
         let expected_storage = artifact_dir.join(&kid_session_id);
         let artifact_deadline = Instant::now() + Duration::from_secs(15);
         while !expected_storage.join("main.jsonl").is_file() {
@@ -905,8 +922,8 @@ async fn family_edges_never_cross_families_end_to_end() {
             .collect();
         assert_eq!(kid_sessions.len(), 1, "one kid session: {kid_sessions:?}");
         kids.push((
-            row.active_session_id.clone().expect("child active id"),
-            row.session_id.clone().expect("child persisted id"),
+            child.active_session_id.clone(),
+            child.session_id.clone(),
             kid_sessions[0].to_string_lossy().to_string(),
         ));
     }
@@ -916,17 +933,11 @@ async fn family_edges_never_cross_families_end_to_end() {
     // Parent-a's first turn runs the cell that sends the broadcast, and
     // the kid's script accounts for that broadcast draining into its
     // steering queue as the spawn turn's follow-up (the filler turn).
-    // That first turn is driven explicitly: this harness owns the
-    // children registry in the TEST process (the parent is a scripted
-    // worker), so the registry's own settle notice mints its reserved-kind
-    // nonce here while the parent worker's queue admission consumes it
-    // there — the notice is (correctly) refused, and waiting for it
-    // leaves the receipts dir empty forever (the empty-dir red). The
-    // drive is the same agentOrigin delivery shape as every other drive
-    // below, and the receipt gate stays: once the broadcast receipt
-    // exists, the broadcast is already ahead of every drive in the FIFO
-    // steering lane, and each scripted cell lands on its driven turn no
-    // matter when the drain fires.
+    // That first turn is driven explicitly with the same agentOrigin
+    // delivery shape as every other drive below, and the receipt gate
+    // stays: once the broadcast receipt exists, the broadcast is already
+    // ahead of every drive in the FIFO steering lane, and each scripted
+    // cell lands on its driven turn no matter when the drain fires.
     client.send_command(
         "to-parent-a-cells",
         &json!({
@@ -987,34 +998,17 @@ async fn family_edges_never_cross_families_end_to_end() {
         thinking: None,
         child_script: Some(kid_script.to_string_lossy().to_string()),
     });
-    let grandkid_handle = kid_children
-        .spawn(RlmSpawnRequest {
-            prompt: "grandkid work".to_string(),
-            name: Some("grandkid".to_string()),
-            model: None,
-            thinking: None,
-            cell_source_code: None,
-            spawned_by_request_id: None,
-        })
-        .await
-        .expect("spawn the grandchild");
-    assert_eq!(grandkid_handle.name, "grandkid");
-    kid_children.notify_turn_done();
-    let grandkid_settle_deadline = Instant::now() + Duration::from_secs(60);
-    let grandkid_active = loop {
-        let roster = kid_children.list_subagents().await.expect("roster");
-        let row = roster.first().expect("one grandchild row");
-        if row.status == "completed" || row.status == "error" {
-            assert_eq!(row.status, "completed", "grandchild spawn turn: {row:?}");
-            break row.active_session_id.clone().expect("grandchild active id");
-        }
-        assert!(
-            Instant::now() < grandkid_settle_deadline,
-            "grandkid spawn turn never settled: {row:?}; daemon log tail: {}",
-            daemon_log_tail(&receipts_dir)
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    };
+    let grandkid = spawn_settled_child(
+        &kid_children,
+        3,
+        "grandkid",
+        "grandkid work",
+        2,
+        &receipts_dir,
+    )
+    .await;
+    assert_eq!(grandkid.session_name, "grandkid");
+    let grandkid_active = grandkid.active_session_id;
 
     // Kid-a's own observe roster: the grandchild nests under its true
     // parent.
@@ -1117,7 +1111,7 @@ async fn family_edges_never_cross_families_end_to_end() {
         .iter()
         .find(|summary| {
             summary["activeSessionId"] == grandkid_active.as_str()
-                || summary["rlmChildId"] == grandkid_handle.rlm_child_id.as_str()
+                || summary["rlmChildId"] == child_id(3).as_str()
         })
         .expect("the grandchild nests under its parent");
     assert_eq!(grandkid_row["relationship"], "child", "{grandkid_row:?}");
@@ -1245,13 +1239,11 @@ async fn family_edges_never_cross_families_end_to_end() {
 }
 
 /// Verifier (TS #2529): a parent renames one of its direct children
-/// through the real kernel host handler (`rlm.rename` with the spawn
-/// handle's child id) — the same handler map the parent's kernel
-/// dispatches into. The supervisor's reservation ladder admits the
-/// unique name, the child worker persists it and leaves the
-/// ` by parent` transcript notice, the child's RLM ledger edge carries
-/// the new name, and the parent-side selectors stop matching the old
-/// name (`rlm.collect` by the old name fails, the new name hits).
+/// through the durable child host (the call the parent's `rlm.rename`
+/// handler issues). The supervisor's reservation ladder admits the unique
+/// name, the child worker persists it and leaves the ` by parent`
+/// transcript notice, and the child's RLM ledger edge carries the new
+/// name.
 #[tokio::test]
 async fn parent_renames_a_child_end_to_end() {
     let Some(kernel_python) = kernel_python() else {
@@ -1317,73 +1309,29 @@ async fn parent_renames_a_child_end_to_end() {
         thinking: None,
         child_script: Some(child_script.to_string_lossy().to_string()),
     });
-    let handle = children
-        .spawn(RlmSpawnRequest {
-            prompt: "work on the lane".to_string(),
-            name: Some("kid".to_string()),
-            model: None,
-            thinking: None,
-            spawned_by_request_id: None,
-            cell_source_code: None,
+    let child = spawn_settled_child(
+        &children,
+        1,
+        "kid",
+        "work on the lane",
+        1,
+        &dir.path().join("receipts"),
+    )
+    .await;
+    let child_active_session_id = child.active_session_id.clone();
+
+    // The parent-directed rename through the durable host (the parent's
+    // `rlm.rename` handler normalizes the name, resolves the child, and
+    // issues exactly this call).
+    children
+        .rename(RlmRenameRequest {
+            name: "bench-runner".to_string(),
+            target: RlmRenameTarget::Child {
+                session_id: child.session_id.clone(),
+            },
         })
         .await
-        .expect("spawn the child");
-    assert_eq!(handle.name, "kid");
-    children.notify_turn_done();
-    // Wait for the spawn turn to settle (bounded), then read the roster's
-    // live/persisted child ids.
-    let settle_deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let roster = children.list_subagents().await.expect("child roster");
-        let row = roster.first().expect("one child row");
-        if row.status == "completed" || row.status == "error" {
-            assert_eq!(row.status, "completed", "spawn turn: {row:?}");
-            break;
-        }
-        assert!(
-            Instant::now() < settle_deadline,
-            "kid spawn turn never settled: {row:?}; daemon log tail: {}",
-            daemon_log_tail(&dir.path().join("receipts"))
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    let roster = children.list_subagents().await.expect("child roster");
-    let child_row = roster.first().expect("one child row");
-    let child_active_session_id = child_row
-        .active_session_id
-        .clone()
-        .expect("child active session id");
-
-    // The parent-side kernel host surface over the same registry (the
-    // wiring the parent worker's engine performs): the rename dispatches
-    // through the REAL `rlm.rename` handler, with the spawn handle's
-    // child id as the selector.
-    let children = Arc::new(children);
-    let wiring = eukhe_core::session_engine::runtime_wiring::wire_session_runtime(
-        eukhe_core::session::manager::SessionManager::in_memory(dir.path()),
-        dir.path(),
-        eukhe_core::session_engine::runtime_wiring::RlmWiring {
-            model_registry: None,
-            subagent_host: Some(Arc::clone(&children) as Arc<dyn RlmSubagentHost>),
-        },
-        None,
-        None,
-    );
-    let rename = wiring
-        .handlers
-        .get("rlm.rename")
-        .expect("rlm.rename handler registered")
-        .clone();
-    let reply = rename(HostRequestPayload {
-        data: json!({
-            "name": "  bench-runner ",
-            "session_id": handle.rlm_child_id,
-        }),
-        cell_source_code: None,
-    })
-    .await
-    .expect("the rename dispatch");
-    assert_eq!(reply, json!({ "name": "bench-runner" }));
+        .expect("the rename");
 
     // The child's transcript carries the parent-directed notice.
     client.wait_idle("w-child-rename", &child_active_session_id);
@@ -1402,7 +1350,7 @@ async fn parent_renames_a_child_end_to_end() {
     let edges = ledger.edges(true).expect("ledger edges");
     let edge = edges
         .iter()
-        .find(|edge| edge.child_id == handle.rlm_child_id)
+        .find(|edge| edge.child_id == child_id(1))
         .expect("the child's ledger edge");
     assert_eq!(edge.name, "bench-runner", "the ledger rename landed");
 }

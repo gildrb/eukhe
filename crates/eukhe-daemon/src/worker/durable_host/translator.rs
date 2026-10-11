@@ -19,11 +19,11 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eukhe_chord::json::JsonValue;
+use eukhe_core::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use eukhe_core::durable::{
     CustomEntryData, CustomStateData, ProviderWireEvent, BASH_ENTRY, BRANCH_SUMMARY_ENTRY,
     CUSTOM_ENTRY, CUSTOM_STATE_ENTRY,
 };
-use eukhe_core::session_engine::refine::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::types::{AgentState, CompactionReason, ConversationRetryPolicy};
 use eukhe_durable::harness::usage::UsageState;

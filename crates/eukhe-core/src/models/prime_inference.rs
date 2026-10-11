@@ -103,17 +103,17 @@ mod tests {
         assert_eq!(PRIME_INFERENCE_BASE_URL, expected);
     }
 
-    /// Internal consistency: every bundled prime-inference catalog entry in
-    /// the generated model registry carries the same base URL as the
-    /// private-model constant.
+    /// Internal consistency: every compiled prime-inference catalog entry
+    /// (the pi-ai `PRIME_INFERENCE_MODELS`) carries the same base URL as
+    /// the private-model constant.
     #[test]
     fn generated_catalog_base_urls_match_const() {
-        let models = eukhe_ai::models_generated::get_models("prime-inference");
+        let models = &*eukhe_pi_ai::providers::prime_inference_models::PRIME_INFERENCE_MODELS;
         assert!(
             !models.is_empty(),
             "generated prime-inference catalog is empty"
         );
-        for model in models {
+        for model in models.values() {
             assert_eq!(
                 model.base_url, PRIME_INFERENCE_BASE_URL,
                 "generated model {} diverges from PRIME_INFERENCE_BASE_URL",

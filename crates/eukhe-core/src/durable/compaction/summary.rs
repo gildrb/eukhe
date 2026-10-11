@@ -31,16 +31,19 @@ use serde_json::json;
 
 use crate::durable::observe::compaction_trace::trace;
 
+use super::auxiliary_model::{resolve_auxiliary_model, AuxiliaryModelContext};
 use super::head;
-use crate::session_engine::auxiliary_model::{resolve_auxiliary_model, AuxiliaryModelContext};
-use crate::session_engine::compact_session::history_summary_completion_budget;
-use crate::session_engine::compaction::DEFAULT_RESERVE_TOKENS;
-use crate::session_engine::compaction_exec::build_summarization_request;
-use crate::session_engine::compaction_utils::{
+use super::summary_request::{
+    build_summarization_request, estimate_summary_request_tokens,
+    history_summary_completion_budget, DEFAULT_RESERVE_TOKENS,
+};
+use super::utils::{
     compute_file_lists, extract_file_ops_from_message, format_file_operations, FileOperations,
     SUMMARIZATION_SYSTEM_PROMPT,
 };
-use crate::session_engine::messages::create_compaction_outcome_message;
+use crate::durable::messages::{
+    create_compaction_outcome_message, CompactionOutcomeKind, CompactionOutcomeReason,
+};
 
 use super::{CompactionRuntime, COMPACTION_ENTRY_KIND};
 
@@ -360,7 +363,7 @@ fn route_auxiliary(
         agent_dir: deps.agent_dir.clone(),
     };
     let legacy = crate::durable::rlm::refine::legacy_model(session_model);
-    let required = crate::session_engine::compact_session::estimate_summary_request_tokens(
+    let required = estimate_summary_request_tokens(
         history,
         &[],
         false,
@@ -405,8 +408,8 @@ fn sink_for(deps: &super::HostDeps) -> Option<crate::durable::SummaryDeltaSink> 
 #[must_use]
 pub(crate) fn outcome_message(
     content: &str,
-    reason: crate::session_engine::messages::CompactionOutcomeReason,
-    outcome: crate::session_engine::messages::CompactionOutcomeKind,
+    reason: CompactionOutcomeReason,
+    outcome: CompactionOutcomeKind,
 ) -> eukhe_types::session::CustomMessage {
     create_compaction_outcome_message(content, reason, outcome)
 }

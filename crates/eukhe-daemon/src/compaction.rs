@@ -227,28 +227,6 @@ pub(crate) fn compaction_start_event(reason: &str, custom_instructions: Option<&
     event
 }
 
-/// The client-facing `CompactionResult` of a successful compaction (TS
-/// `_performCompaction`'s return, the `data` of the `compact` response and
-/// the `result` of the settled `compaction_end` event): summary,
-/// firstKeptEntryId, tokensBefore, and the durable entry's file-op
-/// `details` verbatim. `usage` never rides the wire result (TS keeps it on
-/// the persisted entry), and a run whose entry carries no `details` drops
-/// the key exactly like TS's `undefined` under JSON serialization.
-pub(crate) fn compaction_result_value(
-    result: &eukhe_core::session_engine::compaction_exec::CompactionResult,
-    entry: &eukhe_types::session::CompactionEntry,
-) -> Value {
-    let mut value = json!({
-        "summary": result.summary,
-        "firstKeptEntryId": result.first_kept_entry_id,
-        "tokensBefore": result.tokens_before,
-    });
-    if let Some(details) = &entry.details {
-        value["details"] = details.clone();
-    }
-    value
-}
-
 /// The `compaction_end` event payload of a successful compaction (TS
 /// `AgentSessionEvent`): the client-facing `CompactionResult` plus whether
 /// the session retries the failed turn on the compacted context (the
@@ -309,62 +287,6 @@ pub(crate) mod durable;
 mod tests {
     use super::*;
     use crate::durable_test_support::{answer, ask, hosted, kinds, Fixture};
-
-    #[test]
-    fn compaction_result_value_mirrors_the_ts_datakeys() {
-        let result = eukhe_core::session_engine::compaction_exec::CompactionResult {
-            summary: "the story so far".to_string(),
-            first_kept_entry_id: "abcd1234".to_string(),
-            tokens_before: 1234,
-            usage: Some(eukhe_types::ai::Usage::default()),
-        };
-        let entry = eukhe_types::session::CompactionEntry {
-            summary: result.summary.clone(),
-            first_kept_entry_id: result.first_kept_entry_id.clone(),
-            tokens_before: result.tokens_before,
-            details: Some(json!({ "readFiles": ["a.rs"], "modifiedFiles": ["b.rs"] })),
-            from_hook: Some(false),
-            custom_instructions: None,
-            usage: result.usage,
-            harness_digest: None,
-            harness_state_fingerprint: None,
-        };
-        // The TS `compact` response dataKeys (the live golden,
-        // `tests/goldens/compaction-live-ts.json`): summary,
-        // firstKeptEntryId, tokensBefore, details — with the entry's
-        // `details` verbatim and the summarizer usage never on the wire.
-        assert_eq!(
-            compaction_result_value(&result, &entry),
-            json!({
-                "summary": "the story so far",
-                "firstKeptEntryId": "abcd1234",
-                "tokensBefore": 1234,
-                "details": { "readFiles": ["a.rs"], "modifiedFiles": ["b.rs"] },
-            })
-        );
-        // Byte order: the TS `compact` response dataKeys are summary,
-        // firstKeptEntryId, tokensBefore, details (the JSON map preserves
-        // insertion order), and the `details` block keeps the TS
-        // readFiles-first literal order.
-        assert_eq!(
-            serde_json::to_string(&compaction_result_value(&result, &entry)).unwrap(),
-            "{\"summary\":\"the story so far\",\"firstKeptEntryId\":\"abcd1234\",\"tokensBefore\":1234,\"details\":{\"readFiles\":[\"a.rs\"],\"modifiedFiles\":[\"b.rs\"]}}"
-        );
-        // A run whose entry carries no details drops the key, like TS's
-        // `undefined` under JSON serialization.
-        let bare = eukhe_types::session::CompactionEntry {
-            details: None,
-            ..entry
-        };
-        assert_eq!(
-            compaction_result_value(&result, &bare),
-            json!({
-                "summary": "the story so far",
-                "firstKeptEntryId": "abcd1234",
-                "tokensBefore": 1234,
-            })
-        );
-    }
 
     #[test]
     fn event_shapes_match_ts() {

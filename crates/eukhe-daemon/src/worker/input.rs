@@ -7,11 +7,11 @@
 use std::sync::Arc;
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_core::durable::input_row_draft;
-use eukhe_core::session_engine::agent_messaging::{
+use eukhe_core::agent_messaging::{
     AgentFamilyRelationship, AgentMessagePromptPayload, AGENT_MESSAGE_SOURCE,
     DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
 };
+use eukhe_core::durable::input_row_draft;
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy, WriteSubmissionDraft};
 use eukhe_durable::harness::{Conversation, SubmissionHandle};
 use eukhe_durable::types::SubmissionStatus;
@@ -468,14 +468,11 @@ impl Worker {
             Ok(row) => row,
             Err(error) => return response_failure(None, command, &error, None),
         };
-        // The daemon's own child-status notices carry a one-shot minted
-        // capability; any other row claiming the reserved kinds is refused.
+        // Only the daemon's own durable notice producer writes the reserved
+        // child-status kinds; any row claiming them on intake is refused.
         if custom_row
             .as_ref()
             .is_some_and(crate::child_status_notices::is_reserved_child_status_custom_type)
-            && !crate::child_status_notices::consume(
-                payload.get("rlmNoticeNonce").and_then(Value::as_str),
-            )
         {
             return response_failure(
                 None,
@@ -522,9 +519,7 @@ impl Worker {
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        if let Err(error) =
-            eukhe_core::session_engine::agent_messaging::normalize_agent_session_message(message)
-        {
+        if let Err(error) = eukhe_core::agent_messaging::normalize_agent_session_message(message) {
             return response_failure(None, COMMAND, &error.to_string(), None);
         }
         if let Err(response) = self.refuse_delivery_if_paused() {
@@ -550,23 +545,20 @@ impl Worker {
                 self.summary_locked(&core),
             )
         };
-        if let Err(error) =
-            eukhe_core::session_engine::agent_messaging::assert_agent_message_queue_capacity(
-                pending,
-                DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
-            )
-        {
+        if let Err(error) = eukhe_core::agent_messaging::assert_agent_message_queue_capacity(
+            pending,
+            DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
+        ) {
             return response_failure(None, COMMAND, &error.to_string(), None);
         }
-        let prompt =
-            eukhe_core::session_engine::agent_messaging::create_agent_session_message_prompt(
-                &AgentMessagePromptPayload {
-                    message: message.to_string(),
-                    sender_name,
-                    from_relationship,
-                },
-            );
-        let id = eukhe_core::session_engine::agent_messaging::create_agent_session_message_id();
+        let prompt = eukhe_core::agent_messaging::create_agent_session_message_prompt(
+            &AgentMessagePromptPayload {
+                message: message.to_string(),
+                sender_name,
+                from_relationship,
+            },
+        );
+        let id = eukhe_core::agent_messaging::create_agent_session_message_id();
         let mut target = json!({
             "activeSessionId": summary.active_session_id.clone().unwrap_or_default(),
             "sessionId": summary.session_id,
@@ -578,8 +570,8 @@ impl Worker {
         if let Some(name) = summary.session_name.filter(|name| !name.is_empty()) {
             target["sessionName"] = json!(name);
         }
-        let row = eukhe_core::session_engine::agent_messaging::create_agent_session_message_row(
-            &eukhe_core::session_engine::agent_messaging::AgentSessionMessageRowPayload {
+        let row = eukhe_core::agent_messaging::create_agent_session_message_row(
+            &eukhe_core::agent_messaging::AgentSessionMessageRowPayload {
                 id: &id,
                 prompt: &prompt,
                 message,

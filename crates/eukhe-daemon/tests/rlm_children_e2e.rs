@@ -1,9 +1,8 @@
 //! End-to-end RLM child machinery against the real `eukhe-daemon` supervisor:
 //! supervisor-backed child sessions spawn through the supervisor link, run
 //! in their own worker processes, appear in the supervisor roster, settle
-//! with an answer the parent roster surfaces, and die on delete
-//! (`rlm.spawn` / `rlm.list_subagents` / `rlm.collect` /
-//! `rlm.delete_subagent` / `rlm.create_session` host surface).
+//! with an answer, and die on delete (the durable `RlmSubagentHost`
+//! primitives: spawn / prompt / `wait_settled` / delete / `create_session`).
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -36,8 +35,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use eukhe_core::session_engine::rlm_host::{
-    RlmCreateSessionRequest, RlmSpawnRequest, RlmSubagentHost,
+use eukhe_core::durable::children::{
+    RlmChildDeleteRequest, RlmChildIdentity, RlmChildPromptRequest, RlmChildRunState,
+    RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionRequest, RlmSubagentHost,
 };
 use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
 use eukhe_daemon::supervisor_link::SupervisorLink;
@@ -242,21 +242,48 @@ fn is_durable_storage(path: &Path) -> bool {
     path.join("main.jsonl").is_file()
 }
 
-fn spawn_request(name: &str, prompt: &str) -> RlmSpawnRequest {
-    RlmSpawnRequest {
+const CHILD_ID: &str = "sub-0000000a";
+const CHILD_SESSION_ID: &str = "0a000000-0000-4000-8000-00000000000a";
+
+fn spawn_request(name: &str, prompt: &str) -> RlmChildSpawnRequest {
+    RlmChildSpawnRequest {
+        idempotency_key: "rlm:1:spawn".to_string(),
+        child: RlmChildIdentity {
+            rlm_child_id: CHILD_ID.to_string(),
+            session_id: CHILD_SESSION_ID.to_string(),
+        },
+        name: name.to_string(),
         prompt: prompt.to_string(),
-        name: Some(name.to_string()),
         model: None,
         thinking: None,
-        cell_source_code: None,
+        depth: 1,
+        max_depth: 2,
         spawned_by_request_id: None,
+        parent_task_id: "1".to_string(),
     }
 }
 
-/// Spawn a child through the supervisor, observe it in both rosters, collect
-/// its answer, then delete it and watch the supervisor roster drop it.
+/// The subagent rows of the supervisor roster.
+fn subagent_rows(client: &mut Client, id: &str) -> Vec<Value> {
+    client.send_command(id, &json!({ "type": "list" }));
+    let list = client.read_response(id);
+    list["data"]["sessions"]
+        .as_array()
+        .map(|sessions| {
+            sessions
+                .iter()
+                .filter(|summary| summary["runtimeKind"] == "subagent")
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Spawn a child through the supervisor, observe it in the supervisor
+/// roster, prompt it and wait for its settled answer, then delete it and
+/// watch the supervisor roster drop it. Every keyed call repeats as a no-op.
 #[tokio::test]
-async fn rlm_children_spawn_roster_collect_delete_end_to_end() {
+async fn rlm_children_spawn_prompt_settle_delete_end_to_end() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -268,23 +295,20 @@ async fn rlm_children_spawn_roster_collect_delete_end_to_end() {
     let children = children(&socket, &agent_dir, &script, 0);
 
     // Spawn: one child worker session created through the supervisor.
-    let handle = children
+    let child = children
         .spawn(spawn_request("worker-a", "ship the lane"))
         .await
         .expect("spawn");
-    // The registry sits outside a live worker turn here: release the
-    // detached task prompt at the boundary the worker would signal.
-    children.notify_turn_done();
-    assert_eq!(handle.name, "worker-a");
-    assert!(handle.rlm_child_id.starts_with("sub-"), "{handle:?}");
-    assert_eq!(handle.model, "scripted/faux-1");
+    assert_eq!(child.session_name, "worker-a");
+    assert_eq!(child.session_id, CHILD_SESSION_ID);
+    assert_eq!(child.model, "scripted/faux-1");
     // TS child-session layout: the child persists inside its per-child
     // directory under the parent's session-artifacts tree.
     let expected_dir = agent_dir
         .join("session-artifacts")
         .join("parent-session-uuid")
-        .join(&handle.rlm_child_id);
-    assert_eq!(handle.session_dir, expected_dir.to_string_lossy());
+        .join(CHILD_ID);
+    assert_eq!(child.session_dir, expected_dir.to_string_lossy());
     // TS child-session layout: the child persists inside its per-child
     // directory under the parent's session-artifacts tree, alongside the
     // per-child display file the passive roster reads for hydration. On
@@ -298,12 +322,12 @@ async fn rlm_children_spawn_roster_collect_delete_end_to_end() {
         .filter(|path| is_durable_storage(path))
         .collect();
     assert_eq!(child_sessions.len(), 1, "one session in the child dir");
-    let display: Value = serde_json::from_str(
-        &std::fs::read_to_string(expected_dir.join("rlm-subagent.json")).expect("display file"),
-    )
-    .expect("parse display file");
+    let display_file = expected_dir.join("rlm-subagent.json");
+    let display: Value =
+        serde_json::from_str(&std::fs::read_to_string(&display_file).expect("display file"))
+            .expect("parse display file");
     assert_eq!(display["type"], "rlm_subagent");
-    assert_eq!(display["childId"], handle.rlm_child_id);
+    assert_eq!(display["childId"], CHILD_ID);
     assert_eq!(display["sessionName"], "worker-a");
     assert_eq!(display["status"], "running");
     assert_eq!(
@@ -317,14 +341,7 @@ async fn rlm_children_spawn_roster_collect_delete_end_to_end() {
 
     // The supervisor roster shows the child as a depth-1 subagent session.
     let roster_summary = wait_until(Duration::from_secs(10), || {
-        client.send_command("l1", &json!({ "type": "list" }));
-        let list = client.read_response("l1");
-        list["data"]["sessions"].as_array().and_then(|sessions| {
-            sessions
-                .iter()
-                .find(|summary| summary["runtimeKind"] == "subagent")
-                .cloned()
-        })
+        subagent_rows(&mut client, "l1").into_iter().next()
     });
     assert_eq!(roster_summary["rlmDepth"], 1);
     assert_eq!(roster_summary["sessionName"], "worker-a");
@@ -340,146 +357,75 @@ async fn rlm_children_spawn_roster_collect_delete_end_to_end() {
         child_sessions[0].to_string_lossy().to_string()
     );
 
-    // The parent roster settles with the child's answer preview.
-    let entries = {
-        let deadline = Instant::now() + Duration::from_secs(15);
-        loop {
-            let entries = children.list_subagents().await.expect("list subagents");
-            if entries
-                .iter()
-                .any(|entry| entry.answer_preview.as_deref() == Some("child answer"))
-            {
-                break entries;
+    // A repeated spawn key answers the first spawn's child: no second
+    // worker is created.
+    let again = children
+        .spawn(spawn_request("worker-a", "ship the lane"))
+        .await
+        .expect("repeated spawn");
+    assert_eq!(again, child);
+    assert_eq!(subagent_rows(&mut client, "l2").len(), 1);
+
+    // Prompt the task, then long-poll the child until it settles with
+    // its answer preview.
+    let prompt = RlmChildPromptRequest {
+        idempotency_key: "rlm:1:prompt".to_string(),
+        session_id: CHILD_SESSION_ID.to_string(),
+        rlm_child_id: CHILD_ID.to_string(),
+        prompt: "ship the lane".to_string(),
+    };
+    children.prompt(prompt.clone()).await.expect("prompt");
+    children.prompt(prompt).await.expect("repeated prompt");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let settled = loop {
+        let observation = children
+            .wait_settled(RlmChildWaitRequest {
+                session_id: CHILD_SESSION_ID.to_string(),
+                rlm_child_id: CHILD_ID.to_string(),
+                timeout_ms: 2_000,
+            })
+            .await
+            .expect("wait settled");
+        match observation.state {
+            RlmChildRunState::Running => {
+                assert!(Instant::now() < deadline, "child never settled");
             }
-            assert!(
-                Instant::now() < deadline,
-                "child never settled: {entries:?}"
-            );
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            state @ (RlmChildRunState::Settled { .. } | RlmChildRunState::Failed { .. }) => {
+                break state;
+            }
         }
     };
-    assert_eq!(entries.len(), 1, "one child in the roster");
-    let entry = &entries[0];
-    assert_eq!(entry.rlm_child_id, handle.rlm_child_id);
-    assert_eq!(entry.status, "completed");
-    assert_eq!(entry.session_name, "worker-a");
-    assert_eq!(entry.label.as_deref(), Some("ship the lane"));
-    assert!(entry.session_dir.ends_with(&handle.rlm_child_id));
-
-    // Collect: settled snapshot of the child, and the selector errors.
-    let results = children
-        .collect(vec![handle.rlm_child_id.clone()], 5_000)
-        .await
-        .expect("collect");
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].status, "done");
-    assert!(results[0].settled);
-    assert_eq!(results[0].answer_preview.as_deref(), Some("child answer"));
-    let snapshot = children.collect(vec![], 0).await.expect("collect all");
-    assert_eq!(snapshot.len(), 1);
-    let missing = children
-        .collect(vec!["ghost".to_string()], 0)
-        .await
-        .expect_err("unknown selector");
     assert_eq!(
-        missing.to_string(),
-        "No direct RLM child matches \"ghost\" in the current parent session"
+        settled,
+        RlmChildRunState::Settled {
+            answer_preview: Some("child answer".to_string()),
+            replied_since_task: false,
+        }
     );
+    // The settled run completes the child's display entry.
+    let display: Value =
+        serde_json::from_str(&std::fs::read_to_string(&display_file).expect("display file"))
+            .expect("parse display file");
+    assert_eq!(display["status"], "completed");
 
-    // A live duplicate name is rejected with the TS conflict error.
-    let duplicate = children
-        .spawn(spawn_request("worker-a", "same name again"))
-        .await
-        .expect_err("duplicate name");
-    assert_eq!(
-        duplicate.to_string(),
-        "Agent name \"worker-a\" is unavailable: an agent of that name already exists at depth 1 under this parent"
-    );
-
-    // Delete: the child dies and leaves both rosters.
-    let deleted = children
-        .delete_subagent(handle.rlm_child_id.clone())
-        .await
-        .expect("delete");
-    assert_eq!(deleted.outcome, Some("deleted"));
-    assert_eq!(deleted.subagent.rlm_child_id, handle.rlm_child_id);
-    let remaining = children.list_subagents().await.expect("list after delete");
-    assert!(remaining.is_empty(), "child removed from the parent roster");
+    // Delete: the child dies and leaves the supervisor roster; a repeated
+    // delete key is a no-op.
+    let delete = RlmChildDeleteRequest {
+        idempotency_key: "rlm:1:delete".to_string(),
+        session_id: CHILD_SESSION_ID.to_string(),
+        rlm_child_id: CHILD_ID.to_string(),
+    };
+    children.delete(delete.clone()).await.expect("delete");
     wait_until(Duration::from_secs(10), || {
-        client.send_command("l2", &json!({ "type": "list" }));
-        let list = client.read_response("l2");
+        client.send_command("l3", &json!({ "type": "list" }));
+        let list = client.read_response("l3");
         list["data"]["sessions"]
             .as_array()
             .filter(|sessions| sessions.is_empty())
             .map(|_| ())
     });
-
-    // An unknown delete target is the TS selector miss.
-    let gone = children
-        .delete_subagent("worker-a".to_string())
-        .await
-        .expect_err("deleted child no longer resolves");
-    assert_eq!(
-        gone.to_string(),
-        "No direct RLM subagent matches \"worker-a\" in the current parent session"
-    );
-
-    // TS #2388 F4: a just-deleted target resolves immediately to the
-    // settled cancelled envelope its delete receipt promised - by child id
-    // and by session name - without spending the timeout budget.
-    let cancelled = children
-        .collect(vec![handle.rlm_child_id.clone()], 0)
-        .await
-        .expect("collect the deleted child by id");
-    assert_eq!(cancelled.len(), 1);
-    assert_eq!(cancelled[0].rlm_child_id, handle.rlm_child_id);
-    assert_eq!(cancelled[0].session_name.as_deref(), Some("worker-a"));
-    assert_eq!(cancelled[0].status, "cancelled");
-    assert!(cancelled[0].settled);
-    assert_eq!(
-        cancelled[0].error.as_deref(),
-        Some("Deleted by parent orchestrator")
-    );
-    let cancelled_by_name = children
-        .collect(vec!["worker-a".to_string()], 0)
-        .await
-        .expect("collect the deleted child by name");
-    assert_eq!(cancelled_by_name.len(), 1);
-    assert_eq!(cancelled_by_name[0].rlm_child_id, handle.rlm_child_id);
-    assert_eq!(cancelled_by_name[0].status, "cancelled");
-    assert!(cancelled_by_name[0].settled);
-    assert_eq!(
-        cancelled_by_name[0].error.as_deref(),
-        Some("Deleted by parent orchestrator")
-    );
-    // An unknown selector keeps the TS miss.
-    let missing = children
-        .collect(vec!["ghost".to_string()], 0)
-        .await
-        .expect_err("unknown selector");
-    assert_eq!(
-        missing.to_string(),
-        "No direct RLM child matches \"ghost\" in the current parent session"
-    );
-
-    // A reused name owns the selector again: the live respawn answers
-    // collect, never the deleted generation's cancelled envelope.
-    let replacement = children
-        .spawn(spawn_request("worker-a", "second shard"))
-        .await
-        .expect("respawn under the freed name");
-    children.notify_turn_done();
-    let live = children
-        .collect(vec!["worker-a".to_string()], 0)
-        .await
-        .expect("collect the live respawn");
-    assert_eq!(live.len(), 1);
-    assert_eq!(live[0].rlm_child_id, replacement.rlm_child_id);
-    assert_ne!(live[0].rlm_child_id, handle.rlm_child_id);
-    // The live respawn answers, never the deleted generation's envelope
-    // (the replacement may settle at any moment, but it is never the
-    // tombstone's cancellation).
-    assert_ne!(live[0].status, "cancelled");
+    children.delete(delete).await.expect("repeated delete");
+    assert!(children.list().await.expect("listings").is_empty());
 }
 
 /// `rlm.create_session`: a resident depth-0 daemon session over the link,
@@ -498,6 +444,7 @@ async fn rlm_create_session_spawns_a_prompted_depth_zero_session() {
 
     let handle = children
         .create_session(RlmCreateSessionRequest {
+            idempotency_key: "rlm.create_session:call-1:0".to_string(),
             prompt: "start a root session".to_string(),
             name: Some("root-b".to_string()),
             model: None,
@@ -522,9 +469,9 @@ async fn rlm_create_session_spawns_a_prompted_depth_zero_session() {
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0]["rlmDepth"], 0);
     assert_eq!(sessions[0]["runtimeKind"], "top-level");
-    let roster = children.list_subagents().await.expect("roster");
+    let listings = children.list().await.expect("child listings");
     assert!(
-        roster.is_empty(),
+        listings.is_empty(),
         "create_session children are not subagents"
     );
 
@@ -560,28 +507,21 @@ async fn rlm_create_session_spawns_a_prompted_depth_zero_session() {
     });
 }
 
-/// The recursion bound: a parent at its depth limit fails spawns with the
-/// TS error, and depth-0-only `create_session` refuses from deeper sessions.
+/// `rlm.create_session` is depth-0 only: the host refuses it from a deeper
+/// session with the TS error (the spawn depth bound lives in the durable
+/// children extension).
 #[tokio::test]
-async fn rlm_recursion_bound_is_enforced() {
+async fn rlm_create_session_refuses_from_a_nested_session() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let _daemon = spawn_daemon(&socket, &agent_dir);
     let script = write_script(dir.path(), "unreachable");
-    // A depth-2 parent (the default bound): spawns are refused.
     let children = children(&socket, &agent_dir, &script, 2);
     let error = children
-        .spawn(spawn_request("too-deep", "nope"))
-        .await
-        .expect_err("depth limit");
-    assert_eq!(
-        error.to_string(),
-        "RLM recursion depth limit reached (RLM_DEPTH=2, RLM_MAX_DEPTH=2)"
-    );
-    let error = children
         .create_session(RlmCreateSessionRequest {
+            idempotency_key: "rlm.create_session:call-1:0".to_string(),
             prompt: "nope".to_string(),
             name: None,
             model: None,

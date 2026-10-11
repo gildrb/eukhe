@@ -14,8 +14,8 @@
 use std::future::Future;
 use std::pin::{pin, Pin};
 
+use crate::auth::redirect_input::{exchange_retry_notice, parse_redirect_input};
 use anyhow::{anyhow, bail, Result};
-use eukhe_ai::oauth::{exchange_retry_notice, parse_redirect_input};
 
 use crate::auth::types::AuthCredential;
 
@@ -471,8 +471,8 @@ pub async fn mcp_refresh_token(
 mod tests {
     use super::super::oauth_callback::{callback_range_stages, CALLBACK_PORT_LOCK};
     use super::*;
+    use crate::auth::redirect_input::RedirectInputError;
     use crate::mcp::oauth_http::{OAuthHttpRequest, OAuthHttpResponse};
-    use eukhe_ai::oauth::RedirectInputError;
     use std::collections::{HashMap, VecDeque};
     use std::sync::Mutex;
 

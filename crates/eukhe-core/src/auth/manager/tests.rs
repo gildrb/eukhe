@@ -12,10 +12,16 @@ struct ScriptedEnv(HashMap<String, String>);
 
 impl EnvCredentialSource for ScriptedEnv {
     fn key_names(&self, provider: &str) -> Option<Vec<String>> {
-        let names = eukhe_ai::env_api_keys::get_api_key_env_vars(provider)?
+        // The provider's env-var table, filtered to the scripted values (the
+        // lookup also consults the process env; the filter keeps it hermetic).
+        let scripted: eukhe_types::pi_ai::ProviderEnv = self
+            .0
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+        let names = eukhe_pi_ai::env_api_keys::find_env_keys(provider, Some(&scripted))?
             .into_iter()
-            .filter(|name| self.0.get(*name).is_some_and(|value| !value.is_empty()))
-            .map(str::to_string)
+            .filter(|name| self.0.get(name).is_some_and(|value| !value.is_empty()))
             .collect::<Vec<_>>();
         (!names.is_empty()).then_some(names)
     }

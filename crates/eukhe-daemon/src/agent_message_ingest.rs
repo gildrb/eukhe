@@ -29,7 +29,7 @@ use eukhe_durable::types::SubmissionId;
 use eukhe_types::pi_ai::UserContent;
 use serde_json::{json, Value};
 
-use eukhe_core::session_engine::agent_messaging::{
+use eukhe_core::agent_messaging::{
     DEFAULT_AGENT_MESSAGE_MAX_CHARS, DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
     DEFAULT_AGENT_MESSAGE_RATE_LIMIT_CAPACITY, DEFAULT_AGENT_MESSAGE_RATE_LIMIT_REFILL_MS,
 };

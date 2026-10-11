@@ -9,8 +9,7 @@ description = "The eukhe binary."
 [dependencies]
 eukhe-types = { path = "../eukhe-types" }
 eukhe-core = { path = "../eukhe-core" }
-eukhe-ai = { path = "../eukhe-ai" }
-eukhe-agent = { path = "../eukhe-agent" }
+eukhe-models = { path = "../eukhe-models" }
 eukhe-daemon = { path = "../eukhe-daemon" }
 eukhe-tui = { path = "../eukhe-tui" }
 # The durable agent session the print/json/rpc modes run on (submissions,
@@ -24,6 +23,9 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# The subscription logins' paste validation (the authorization URL's state,
+# the code query the flow receives).
+url = "2"
 
 [[bin]]
 name = "eukhe"
@@ -40,7 +42,6 @@ libc = "0.2"
 futures = { workspace = true }
 crossterm = "0.28"
 nix = { version = "0.29", features = ["term", "signal", "fs"] }
-url = "2"
 
 [lints.clippy]
 # eukhe-cli keeps its OWN lints table (not `workspace = true`): the

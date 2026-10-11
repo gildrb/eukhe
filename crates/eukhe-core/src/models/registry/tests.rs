@@ -214,6 +214,37 @@ fn a_stored_copilot_credential_rewrites_its_models_base_url() {
     assert_eq!(grok.base_url, "https://copilot-api.company.ghe.com");
 }
 
+/// The registry over a `models.json` that defines the catalog's
+/// non-reasoning completions-API xai model (the compiled pi-ai xai models
+/// already ride the responses API, so the subscription switch is pinned on
+/// a completions entry the catalog ships).
+fn registry_with_completions_grok(auth: AuthStorage, dir: &tempfile::TempDir) -> ModelRegistry {
+    let models_path = dir.path().join("models.json");
+    std::fs::write(
+        &models_path,
+        r#"{ "providers": { "xai": {
+            "baseUrl": "https://api.x.ai/v1", "api": "openai-completions",
+            "models": [ {
+                "id": "grok-4.20-0309-non-reasoning", "name": "Grok 4.20 (Non-Reasoning)",
+                "reasoning": false, "input": ["text", "image"],
+                "contextWindow": 2000000, "maxTokens": 30000
+            } ]
+        } } }"#,
+    )
+    .unwrap();
+    let registry = ModelRegistry::create(auth, &models_path);
+    assert!(registry.get_error().is_none(), "{:?}", registry.get_error());
+    registry
+}
+
+fn completions_grok(registry: &ModelRegistry) -> &Model {
+    registry
+        .get_all()
+        .iter()
+        .find(|model| model.provider == "xai" && model.id == "grok-4.20-0309-non-reasoning")
+        .expect("the xai model renders")
+}
+
 #[test]
 fn a_stored_xai_subscription_switches_its_models_onto_responses() {
     let auth = auth_without_env(&serde_json::json!({
@@ -224,12 +255,9 @@ fn a_stored_xai_subscription_switches_its_models_onto_responses() {
             "expires": 4_102_444_800_000i64,
         }
     }));
-    let registry = ModelRegistry::in_memory(auth);
-    let grok = registry
-        .get_all()
-        .iter()
-        .find(|model| model.provider == "xai")
-        .expect("the xai model renders");
+    let dir = tempfile::tempdir().unwrap();
+    let registry = registry_with_completions_grok(auth, &dir);
+    let grok = completions_grok(&registry);
     assert_eq!(grok.api, "openai-responses");
     assert_eq!(grok.base_url, "https://api.x.ai/v1");
     // The catalog's xai model is non-reasoning: "off" is the only
@@ -285,12 +313,9 @@ fn a_subscription_model_keeps_its_own_thinking_level_map() {
 
 #[test]
 fn without_a_stored_xai_subscription_the_models_stay_on_completions() {
-    let registry = ModelRegistry::in_memory(auth_without_env(&serde_json::json!({})));
-    let grok = registry
-        .get_all()
-        .iter()
-        .find(|model| model.provider == "xai")
-        .expect("the xai model renders");
+    let dir = tempfile::tempdir().unwrap();
+    let registry = registry_with_completions_grok(auth_without_env(&serde_json::json!({})), &dir);
+    let grok = completions_grok(&registry);
     assert_eq!(grok.api, "openai-completions");
     assert!(grok.thinking_level_map.is_none());
     assert!(grok.compat.is_none());

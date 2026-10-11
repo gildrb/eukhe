@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use eukhe_core::session_engine::agent_messaging::{
+use eukhe_core::agent_messaging::{
     AgentFamilyMember, AgentFamilyRelationship, AgentFamilyStatus, AgentMessageController,
     AgentMessageDeliveryStatus, AgentMessageReceipt, AgentMessageSendInput, AgentObserveActivity,
     AgentObserveController, AgentObserveMessagePreview, AgentObserveSummary,
@@ -227,8 +227,8 @@ fn row_is_sibling(row: &Value, identity: &FamilyIdentity) -> bool {
 // The kernel agent_message/agent_observe bridge controllers moved to the
 // child modules at the same tree position
 // (agent_messaging::{message,observe}); the re-exports keep the facade's
-// type paths stable (agent_engine.rs's use + the agent-family e2e
-// verifier), the binding exposes the observe family helper to the tests
+// type paths stable (the agent-family e2e verifier), the binding exposes
+// the observe family helper to the tests
 // glob. The durable family-edges concern (FamilyIdentity + the row
 // classification) stays facade-resident: both controllers drive it.
 mod message;
@@ -269,12 +269,8 @@ impl crate::worker::Worker {
             Arc::clone(&self.own_summary),
             children,
         ));
-        eukhe_core::session_engine::agent_messaging::register_agent_message_host_handlers(
-            sender, handlers,
-        );
-        eukhe_core::session_engine::agent_messaging::register_agent_observe_host_handlers(
-            observer, handlers,
-        );
+        eukhe_core::agent_messaging::register_agent_message_host_handlers(sender, handlers);
+        eukhe_core::agent_messaging::register_agent_observe_host_handlers(observer, handlers);
     }
 }
 

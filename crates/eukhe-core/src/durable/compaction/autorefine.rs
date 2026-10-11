@@ -16,14 +16,15 @@ use eukhe_chord::context::Context;
 use eukhe_durable::harness::Conversation;
 use eukhe_types::session::AgentMessage;
 
+use crate::autonomous::now_millis;
+use crate::durable::rlm::refine::{
+    auto_refine_instructions, AutoRefineGates, RefinementSource, AUTO_REFINE_COMPACT_REASON,
+};
 use crate::durable::HostDeps;
 use crate::refinement::executor::{review_auto_refine, AutoRefineReviewContext};
 use crate::refinement::{
     load_global_refinement_history, load_harness_state, merge_harness_states,
     merge_refinement_history, HarnessScope,
-};
-use crate::session_engine::refine::{
-    auto_refine_instructions, now_millis, AutoRefineGates, AUTO_REFINE_COMPACT_REASON,
 };
 
 use super::CompactionRuntime;
@@ -149,11 +150,8 @@ async fn run_round(
         rollback_id: None,
     };
     let result = super::super::rlm::refine::refine(deps, conversation, request, cx).await?;
-    let drafts = super::super::rlm::refine::outcome_drafts(
-        &result,
-        crate::session_engine::refine::RefinementSource::Auto,
-    )
-    .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let drafts = super::super::rlm::refine::outcome_drafts(&result, RefinementSource::Auto)
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
     let conversation_id = conversation.id();
     conversation
         .commit(

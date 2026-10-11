@@ -42,7 +42,7 @@ use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 
 use super::{custom_entry_draft, HostDeps, OpenedSession, ServiceStop};
-use crate::session_engine::messages::{
+use crate::durable::messages::{
     provider_retry_exhausted_text, provider_retry_recovered_text,
     PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE,
 };

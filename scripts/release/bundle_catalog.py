@@ -407,12 +407,12 @@ def validate_bundled_catalog_dir(directory, allow_small_fixture: bool = False) -
 # Fixture: a synthetic snapshot that passes the FULL gates (offline builds)
 # --------------------------------------------------------------------------
 
-# The compiled transport tuples of the shipped registry (43 distinct
-# (provider, api, baseUrl) triples across 32 providers, from the compiled
-# model catalog, now the hand-maintained fallback table
-# crates/eukhe-ai/src/models_generated.rs). Fixture models use real tuples so
-# they survive runtime transport pinning; nothing here can introduce a
-# transport the client does not implement.
+# Compiled transport tuples of the shipped registry (43 distinct
+# (provider, api, baseUrl) triples across 32 providers; the registry pins to
+# eukhe-models' compiled transports: the eukhe-pi-ai catalog plus
+# crates/eukhe-models/src/transports.rs SUPPLEMENTAL_TRANSPORTS). Fixture
+# models use real tuples so they survive runtime transport pinning; nothing
+# here can introduce a transport the client does not implement.
 FIXTURE_TRANSPORT_TUPLES = [
     ("amazon-bedrock", "bedrock-converse-stream", "https://bedrock-runtime.ap-northeast-1.amazonaws.com"),
     ("amazon-bedrock", "bedrock-converse-stream", "https://bedrock-runtime.ap-southeast-2.amazonaws.com"),

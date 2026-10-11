@@ -626,10 +626,8 @@ async fn kernel_activity_answers_not_running_without_a_booted_kernel() {
     let factory = super::kernel_factory_activity(
         session.deps(),
         session.root(),
-        crate::session_engine::factory_host::FactoryActivityRequest::parse(
-            "graph", None, None, None,
-        )
-        .expect("a valid request"),
+        super::factory::FactoryActivityRequest::parse("graph", None, None, None)
+            .expect("a valid request"),
         cx(),
     )
     .await;
@@ -738,13 +736,8 @@ async fn kernel_factory_run_is_preflighted_before_the_kernel() {
     .expect("harness state");
     let session = fixture.open().await;
     let run = |spec_id: &str| {
-        crate::session_engine::factory_host::FactoryActivityRequest::parse(
-            "run",
-            None,
-            Some(spec_id),
-            None,
-        )
-        .expect("a valid request")
+        super::factory::FactoryActivityRequest::parse("run", None, Some(spec_id), None)
+            .expect("a valid request")
     };
     let doomed =
         super::kernel_factory_activity(session.deps(), session.root(), run("doomed"), cx()).await;

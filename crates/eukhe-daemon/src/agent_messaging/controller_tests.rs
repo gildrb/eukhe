@@ -10,7 +10,7 @@ use super::*;
 use crate::protocol::{response_failure, response_success};
 use crate::rlm_children::RlmChildIdentity;
 use crate::supervisor_link::SupervisorLink;
-use eukhe_core::session_engine::agent_messaging::AgentMessageController;
+use eukhe_core::agent_messaging::AgentMessageController;
 use eukhe_types::platform::transport::bind_transport;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -110,8 +110,8 @@ fn controller(
     }
 }
 
-/// A controller whose children registry holds one resident child
-/// (`sub-kid1`, live id `ddd444`): the same registry shape
+/// A controller whose children host reads one durable child (`sub-kid1`,
+/// live id `ddd444`) from its durable children roster: the same document
 /// `rlm.list_subagents` reads.
 fn controller_with_children(
     socket: std::path::PathBuf,
@@ -127,15 +127,17 @@ fn controller_with_children(
     controller
 }
 
-/// Seed the children registry with one admitted child (the same state
+/// Seed the durable children roster with one admitted child (the state
 /// `rlm.spawn` leaves behind, without the supervisor round trip).
-async fn admit_child(controller: &LinkAgentMessageController, child: RlmChildIdentity) {
+fn admit_child(controller: &LinkAgentMessageController, child: RlmChildIdentity) {
     controller
         .children
         .as_ref()
-        .expect("children registry")
-        .push_test_child(child)
-        .await;
+        .expect("children host")
+        .set_durable_children_source(Arc::new(move || {
+            let child = child.clone();
+            Box::pin(async move { Ok(vec![child]) })
+        }));
 }
 
 fn own_summary() -> Option<Value> {
@@ -232,8 +234,7 @@ async fn family_labels_children_and_parent_from_the_registry() {
             session_id: Some("sess-d".to_string()),
             session_name: "worker-a".to_string(),
         },
-    )
-    .await;
+    );
     let family = controller.family().await.unwrap();
     // TS `selectAgentFamily` order: parent, siblings, children. The
     // unrelated top-level row (xxx999) never enters the family, and
@@ -313,8 +314,7 @@ async fn family_keeps_off_roster_children_addressable() {
             session_id: Some("sess-e".to_string()),
             session_name: "worker-b".to_string(),
         },
-    )
-    .await;
+    );
     let family = controller.family().await.unwrap();
     assert_eq!(family.len(), 1, "{family:?}");
     assert_eq!(family[0].relationship, AgentFamilyRelationship::Child);
@@ -952,8 +952,7 @@ async fn family_joins_a_replaced_child_by_its_durable_ids() {
             session_id: Some("sess-kid".to_string()),
             session_name: "kid".to_string(),
         },
-    )
-    .await;
+    );
     let family = controller.family().await.unwrap();
     let children: Vec<_> = family
         .iter()

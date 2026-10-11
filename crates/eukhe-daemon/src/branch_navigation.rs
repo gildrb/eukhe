@@ -27,11 +27,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use eukhe_chord::context::{AbortController, Context, BACKGROUND_CONTEXT};
+use eukhe_core::durable::branch_summary::collect_entries_for_branch_summary;
 use eukhe_core::durable::rlm::{release_settled_kernel, transfer_kernel};
 use eukhe_core::durable::{
     fork_main_conversation, fork_session_conversation, ForkPoint, SessionLocation,
 };
-use eukhe_core::session_engine::branch_summarization::collect_entries_for_branch_summary;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};

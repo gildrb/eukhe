@@ -15,7 +15,7 @@ use eukhe_types::pi_ai::{Message, TextContent, UserContent, UserContentBlock, Us
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::session_engine::messages::{
+use crate::durable::messages::{
     bash_execution_to_text, COMPACTION_OUTCOME_CUSTOM_TYPE, PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE,
     REFINEMENT_OUTCOME_CUSTOM_TYPE, SESSION_SLASH_COMMAND_CUSTOM_TYPE,
     SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,

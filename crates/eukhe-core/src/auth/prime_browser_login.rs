@@ -50,7 +50,7 @@ async fn generate_prime_challenge(
         format!(
             "Prime login challenge returned an invalid response (HTTP {}): {}",
             response.status,
-            eukhe_ai::oauth::response_snippet(&response.body)
+            crate::auth::failure_text::response_snippet(&response.body)
         )
     };
     let data: Value = serde_json::from_str(&response.body)
@@ -107,7 +107,7 @@ async fn poll_prime_challenge_result(
             format!(
                 "Prime login status returned an invalid response (HTTP {}): {}",
                 response.status,
-                eukhe_ai::oauth::response_snippet(&response.body)
+                crate::auth::failure_text::response_snippet(&response.body)
             )
         };
         let data: Value = serde_json::from_str(&response.body)

@@ -23,6 +23,23 @@ async fn custom_rows(worker: &Worker) -> Vec<(String, Value)> {
         .collect()
 }
 
+#[test]
+fn custom_rows_serialize_with_custom_role() {
+    let row = eukhe_types::session::CustomMessage {
+        custom_type: "session_slash_command_result".to_owned(),
+        content: eukhe_types::ai::UserContent::Text("Command failed: boom".to_owned()),
+        display: true,
+        details: Some(json!({ "success": false })),
+        timestamp: 1,
+        rest: serde_json::Map::new(),
+    };
+    let value = super::custom_row_value(&row);
+    assert_eq!(value["role"], "custom");
+    assert_eq!(value["customType"], "session_slash_command_result");
+    assert_eq!(value["content"], "Command failed: boom");
+    assert_eq!(value["details"]["success"], false);
+}
+
 /// A worker whose first run holds the model request (later inputs queue).
 async fn busy_worker() -> (tempfile::TempDir, std::sync::Arc<Worker>) {
     let (dir, worker) = created_worker(

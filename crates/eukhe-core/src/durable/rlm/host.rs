@@ -12,9 +12,9 @@ use serde_json::{json, Value};
 
 use super::super::{HostCall, HostCallHandler, HostDeps};
 use super::{background, RlmRuntime};
+use crate::cron::rlm_heartbeat::{handle_rlm_heartbeat_host_request, SessionBinding};
 use crate::cron::store::AgentCronJobStore;
 use crate::kernel::shared::{HostRequestHandlers, HostRequestPayload};
-use crate::session_engine::host_requests::{handle_rlm_heartbeat_host_request, SessionBinding};
 
 /// The heartbeat request types.
 const RLM_HEARTBEAT_REQUESTS: [&str; 4] = [

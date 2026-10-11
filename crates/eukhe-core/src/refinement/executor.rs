@@ -187,7 +187,7 @@ fn kind_value(name: &str) -> RefinementKind {
 
 /// Serialize the conversation for the refine prompt, tail-capped.
 fn conversation_text(messages: &[AgentMessage], cap: usize) -> String {
-    let serialized = crate::session_engine::compaction_utils::serialize_conversation(messages);
+    let serialized = crate::durable::compaction::utils::serialize_conversation(messages);
     let chars: Vec<char> = serialized.chars().collect();
     if chars.len() <= cap {
         serialized

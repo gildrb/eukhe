@@ -238,7 +238,7 @@ pub(crate) async fn run_prime_inference_login(
 async fn prompt_non_empty(ui: &dyn PrimeLoginUi, prompt: &str) -> Option<String> {
     loop {
         let line = ui.prompt_line(prompt).await?;
-        let key = eukhe_ai::oauth::clean_paste(&line);
+        let key = eukhe_core::auth::clean_paste(&line);
         if !key.is_empty() {
             return Some(key);
         }

@@ -12,6 +12,7 @@ mod commands;
 mod depth;
 mod host;
 mod notice;
+pub mod parent_notice;
 mod progress;
 mod registry;
 mod rename;

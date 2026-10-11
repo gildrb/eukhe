@@ -1,24 +1,30 @@
 //! The built-in subscription providers' OAuth integration (TS the auth
 //! storage delegates to the AI library's oauth registry): the stored
 //! `openai-codex`, `anthropic`, `github-copilot`, and `xai`
-//! credentials refresh at their token endpoints when they expire.
-//! Every other provider serves its access token until expiry (no
-//! refresh flow exists for it), so refresh answers that reason and
-//! resolution keeps the stored credential for a later explicit
-//! re-login.
+//! credentials refresh through the pi-ai OAuth flows
+//! ([`OAuthAuth::refresh`]) when they expire. Every other provider
+//! serves its access token until expiry (no refresh flow exists for
+//! it), so refresh answers that reason and resolution keeps the stored
+//! credential for a later explicit re-login.
 //!
-//! The [`OAuthIntegration`] seam is synchronous by contract (it runs
-//! under the storage's file lock), so the refresh runs on its own
-//! short-lived thread with a private runtime — the same bridge the MCP
-//! integration uses. Refreshes are rare: token expiry, once per hour at
-//! worst.
+//! The [`OAuthIntegration`](crate::auth::OAuthIntegration) seam is
+//! synchronous by contract (it runs under the storage's file lock), so
+//! the refresh runs on its own short-lived thread with a private runtime
+//! — the same bridge the MCP integration uses. Refreshes are rare: token
+//! expiry, once per hour at worst.
+//!
+//! The stored credential keeps the `auth.json` wire shape: the flows'
+//! `accountId` (Codex) and `enterpriseUrl` (Copilot) extras ride the
+//! credential's own fields; the flows' other extras are not stored.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use eukhe_ai::oauth::{
-    refresh_anthropic_token, refresh_github_copilot_token, refresh_openai_codex_token,
-    refresh_xai_token, CodexHttp, ProviderHttp, ReqwestCodexHttp, ReqwestProviderHttp,
+use eukhe_chord::context::AbortController;
+use eukhe_pi_ai::auth::oauth::{
+    anthropic_oauth, github_copilot_oauth, openai_codex_oauth, xai_oauth,
 };
+use eukhe_pi_ai::auth::{OAuthAuth, OAuthCredential};
 
 use crate::auth::types::{AuthCredential, AuthStorageData};
 
@@ -32,11 +38,97 @@ pub const GITHUB_COPILOT_PROVIDER_ID: &str = "github-copilot";
 /// The xAI (Grok) subscription provider id.
 pub const XAI_PROVIDER_ID: &str = "xai";
 
+/// The credential extra naming the Codex Subscription account.
+const ACCOUNT_ID_EXTRA: &str = "accountId";
+/// The credential extra naming the GitHub Enterprise domain.
+const ENTERPRISE_URL_EXTRA: &str = "enterpriseUrl";
+
+/// The pi-ai flow that logs in to and refreshes one built-in subscription
+/// provider; `None` for every other provider id.
+#[must_use]
+pub fn subscription_oauth_flow(provider_id: &str) -> Option<Arc<dyn OAuthAuth>> {
+    match provider_id {
+        OPENAI_CODEX_PROVIDER_ID => Some(openai_codex_oauth()),
+        ANTHROPIC_PROVIDER_ID => Some(anthropic_oauth()),
+        GITHUB_COPILOT_PROVIDER_ID => Some(github_copilot_oauth()),
+        XAI_PROVIDER_ID => Some(xai_oauth()),
+        _ => None,
+    }
+}
+
+/// The stored shape of a flow's credential: the access and refresh
+/// tokens, the expiry (epoch milliseconds), and the `accountId` /
+/// `enterpriseUrl` extras.
+#[must_use]
+pub fn stored_oauth_credential(credential: &OAuthCredential) -> AuthCredential {
+    let extra = |key: &str| {
+        credential
+            .extra_str(key)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    AuthCredential::Oauth {
+        access: credential.access.clone(),
+        refresh: Some(credential.refresh.clone()),
+        expires: epoch_millis(credential.expires),
+        account_id: extra(ACCOUNT_ID_EXTRA),
+        enterprise_url: extra(ENTERPRISE_URL_EXTRA),
+        endpoint: None,
+        token_endpoint: None,
+        client_id: None,
+        resource: None,
+        issuer: None,
+    }
+}
+
+/// The flow's view of a stored OAuth credential (the inverse of
+/// [`stored_oauth_credential`]); `None` without a refresh token.
+fn flow_credential(credential: &AuthCredential) -> Option<OAuthCredential> {
+    let AuthCredential::Oauth {
+        access,
+        refresh: Some(refresh),
+        expires,
+        account_id,
+        enterprise_url,
+        ..
+    } = credential
+    else {
+        return None;
+    };
+    let mut flow = OAuthCredential::new(refresh.clone(), access.clone(), js_millis(*expires));
+    for (key, value) in [
+        (ACCOUNT_ID_EXTRA, account_id),
+        (ENTERPRISE_URL_EXTRA, enterprise_url),
+    ] {
+        if let Some(value) = value {
+            flow = flow.with_extra(key, serde_json::Value::String(value.clone()));
+        }
+    }
+    Some(flow)
+}
+
+/// A JS epoch-milliseconds number as the stored integer expiry.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "epoch milliseconds stay far inside the i64 range; the JS number's fraction is dropped"
+)]
+fn epoch_millis(expires: f64) -> i64 {
+    expires as i64
+}
+
+/// The stored integer expiry as a JS epoch-milliseconds number.
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "epoch milliseconds stay below 2^53, where f64 is exact"
+)]
+fn js_millis(expires: i64) -> f64 {
+    expires as f64
+}
+
 /// The AI library's oauth registry as the auth storage's default
 /// integration.
 pub struct ProviderOAuth {
-    http: Arc<dyn CodexHttp>,
-    provider_http: Arc<dyn ProviderHttp>,
+    flows: BTreeMap<String, Arc<dyn OAuthAuth>>,
 }
 
 impl Default for ProviderOAuth {
@@ -46,57 +138,40 @@ impl Default for ProviderOAuth {
 }
 
 impl ProviderOAuth {
-    /// The production transports.
+    /// The built-in subscription flows.
     #[must_use]
     pub fn new() -> Self {
-        ProviderOAuth {
-            http: Arc::new(ReqwestCodexHttp::new()),
-            provider_http: Arc::new(ReqwestProviderHttp::new()),
-        }
+        Self::with_flows(
+            [
+                OPENAI_CODEX_PROVIDER_ID,
+                ANTHROPIC_PROVIDER_ID,
+                GITHUB_COPILOT_PROVIDER_ID,
+                XAI_PROVIDER_ID,
+            ]
+            .into_iter()
+            .filter_map(|id| Some((id.to_string(), subscription_oauth_flow(id)?))),
+        )
     }
 
-    /// Fixed transports (tests and embedded hosts).
-    pub fn with_transports(http: Arc<dyn CodexHttp>, provider_http: Arc<dyn ProviderHttp>) -> Self {
+    /// Fixed flows per provider id (tests and embedded hosts); a provider
+    /// without a flow has no token refresh.
+    pub fn with_flows(flows: impl IntoIterator<Item = (String, Arc<dyn OAuthAuth>)>) -> Self {
         ProviderOAuth {
-            http,
-            provider_http,
-        }
-    }
-
-    /// A fixed Codex transport, the production provider transport (the
-    /// codex-only flows' tests).
-    pub fn with_http(http: Arc<dyn CodexHttp>) -> Self {
-        ProviderOAuth {
-            http,
-            provider_http: Arc::new(ReqwestProviderHttp::new()),
+            flows: flows.into_iter().collect(),
         }
     }
 
     /// Refresh one expired credential off the async runtime (the
     /// `AuthStorage` seam is synchronous by contract). Each
     /// subscription provider's refresh resolves through its own flow;
-    /// a failure answers the flow's own error (the token endpoint's
-    /// status and body, or the transport failure).
+    /// a failure answers the flow's own error.
     fn refresh_blocking(
-        &self,
+        flow: Arc<dyn OAuthAuth>,
         provider_id: &str,
         credential: &AuthCredential,
     ) -> Result<AuthCredential, String> {
-        let AuthCredential::Oauth {
-            refresh: Some(refresh_token),
-            enterprise_url,
-            ..
-        } = credential
-        else {
-            return Err(format!(
-                "the stored {provider_id} credential has no refresh token"
-            ));
-        };
-        let http = Arc::clone(&self.http);
-        let provider_http = Arc::clone(&self.provider_http);
-        let refresh_token = refresh_token.clone();
-        let enterprise_url = enterprise_url.clone();
-        let provider_id = provider_id.to_string();
+        let credential = flow_credential(credential)
+            .ok_or_else(|| format!("the stored {provider_id} credential has no refresh token"))?;
         std::thread::Builder::new()
             .name("provider-oauth-refresh".to_string())
             .spawn(move || {
@@ -104,82 +179,11 @@ impl ProviderOAuth {
                     .enable_all()
                     .build()
                     .map_err(|error| format!("could not start the refresh runtime: {error}"))?;
-                match provider_id.as_str() {
-                    OPENAI_CODEX_PROVIDER_ID => {
-                        let credentials = runtime
-                            .block_on(refresh_openai_codex_token(http.as_ref(), &refresh_token))?;
-                        Ok(AuthCredential::Oauth {
-                            access: credentials.access,
-                            refresh: Some(credentials.refresh),
-                            expires: credentials.expires,
-                            account_id: Some(credentials.account_id),
-                            enterprise_url: None,
-                            endpoint: None,
-                            token_endpoint: None,
-                            client_id: None,
-                            resource: None,
-                            issuer: None,
-                        })
-                    }
-                    ANTHROPIC_PROVIDER_ID => {
-                        let credentials = runtime.block_on(refresh_anthropic_token(
-                            provider_http.as_ref(),
-                            &refresh_token,
-                        ))?;
-                        Ok(AuthCredential::Oauth {
-                            access: credentials.access,
-                            refresh: Some(credentials.refresh),
-                            expires: credentials.expires,
-                            account_id: None,
-                            enterprise_url: None,
-                            endpoint: None,
-                            token_endpoint: None,
-                            client_id: None,
-                            resource: None,
-                            issuer: None,
-                        })
-                    }
-                    GITHUB_COPILOT_PROVIDER_ID => {
-                        // The stored GitHub token exchanges for a fresh
-                        // Copilot token; the enterprise domain rides the
-                        // credential (TS `enterpriseUrl`).
-                        let credentials = runtime.block_on(refresh_github_copilot_token(
-                            provider_http.as_ref(),
-                            &refresh_token,
-                            enterprise_url.as_deref(),
-                        ))?;
-                        Ok(AuthCredential::Oauth {
-                            access: credentials.access,
-                            refresh: Some(credentials.refresh),
-                            expires: credentials.expires,
-                            account_id: None,
-                            enterprise_url: credentials.enterprise_url,
-                            endpoint: None,
-                            token_endpoint: None,
-                            client_id: None,
-                            resource: None,
-                            issuer: None,
-                        })
-                    }
-                    XAI_PROVIDER_ID => {
-                        let credentials = runtime
-                            .block_on(refresh_xai_token(provider_http.as_ref(), &refresh_token))?;
-                        Ok(AuthCredential::Oauth {
-                            access: credentials.access,
-                            refresh: Some(credentials.refresh),
-                            expires: credentials.expires,
-                            account_id: None,
-                            enterprise_url: None,
-                            endpoint: None,
-                            token_endpoint: None,
-                            client_id: None,
-                            resource: None,
-                            issuer: None,
-                        })
-                    }
-                    // `refresh` dispatches only the four subscription ids.
-                    other => Err(format!("{other} has no token refresh flow")),
-                }
+                let signal = AbortController::new().signal();
+                runtime
+                    .block_on(flow.refresh(credential, signal))
+                    .map(|refreshed| stored_oauth_credential(&refreshed))
+                    .map_err(|error| error.to_string())
             })
             .map_err(|error| format!("could not start the refresh thread: {error}"))?
             .join()
@@ -200,82 +204,77 @@ impl crate::auth::OAuthIntegration for ProviderOAuth {
         provider_id: &str,
         credentials: &AuthStorageData,
     ) -> Result<AuthCredential, String> {
-        if !matches!(
-            provider_id,
-            OPENAI_CODEX_PROVIDER_ID
-                | ANTHROPIC_PROVIDER_ID
-                | GITHUB_COPILOT_PROVIDER_ID
-                | XAI_PROVIDER_ID
-        ) {
-            return Err(format!("{provider_id} has no token refresh flow"));
-        }
+        let flow = self
+            .flows
+            .get(provider_id)
+            .ok_or_else(|| format!("{provider_id} has no token refresh flow"))?;
         let credential = credentials
             .credential(provider_id)
             .ok_or_else(|| format!("no stored credential for {provider_id}"))?;
-        self.refresh_blocking(provider_id, &credential)
+        Self::refresh_blocking(Arc::clone(flow), provider_id, &credential)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use eukhe_ai::oauth::{CodexHttpResponse, ProviderHttpRequest, ProviderHttpResponse};
+    use eukhe_chord::context::AbortSignal;
+    use eukhe_pi_ai::auth::{LoginOptions, ModelAuth, ProviderAuthInteraction};
+    use eukhe_pi_ai::utils::diagnostics::Thrown;
+    use futures::future::BoxFuture;
 
     use super::*;
 
-    /// A scripted Codex transport (url -> response); unknown urls fail
-    /// the request.
-    struct ScriptedHttp(HashMap<String, CodexHttpResponse>);
+    /// A scripted refresh: the refreshed credential the flow answers
+    /// (keeping the stored refresh token when the script has none, like
+    /// the Copilot flow), or the flow's failure.
+    struct ScriptedRefresh(Result<OAuthCredential, String>);
 
-    impl CodexHttp for ScriptedHttp {
-        fn post_form<'a>(
-            &'a self,
-            url: &'a str,
-            _body: &'a str,
-            _timeout_ms: u64,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<CodexHttpResponse, String>> + Send + 'a>,
-        > {
-            let response = self.0.get(url).cloned();
-            Box::pin(async move { response.ok_or_else(|| format!("{url} was not scripted")) })
+    impl OAuthAuth for ScriptedRefresh {
+        fn name(&self) -> &'static str {
+            "scripted"
         }
-    }
 
-    /// A scripted provider transport (url -> response); unknown urls
-    /// fail the request.
-    struct ScriptedProviderHttp(HashMap<String, ProviderHttpResponse>);
-
-    impl ProviderHttp for ScriptedProviderHttp {
-        fn request(
+        fn login(
             &self,
-            request: ProviderHttpRequest,
-            _timeout_ms: u64,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<ProviderHttpResponse, String>> + Send + '_>,
-        > {
-            let response = self.0.get(&request.url).cloned();
-            Box::pin(
-                async move { response.ok_or_else(|| format!("{} was not scripted", request.url)) },
-            )
+            _interaction: ProviderAuthInteraction,
+            _options: Option<LoginOptions>,
+        ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
+            Box::pin(async { Err(thrown("login is not scripted".to_string())) })
+        }
+
+        fn refresh(
+            &self,
+            credential: OAuthCredential,
+            _signal: AbortSignal,
+        ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
+            let answer = self.0.clone().map(|mut refreshed| {
+                if refreshed.refresh.is_empty() {
+                    refreshed.refresh = credential.refresh;
+                }
+                for (key, value) in credential.extra {
+                    refreshed.extra.entry(key).or_insert(value);
+                }
+                refreshed
+            });
+            Box::pin(async move { answer.map_err(thrown) })
+        }
+
+        fn to_auth<'a>(
+            &'a self,
+            credential: &'a OAuthCredential,
+        ) -> BoxFuture<'a, Result<ModelAuth, Thrown>> {
+            Box::pin(async move {
+                Ok(ModelAuth {
+                    api_key: Some(credential.access.clone()),
+                    headers: None,
+                    base_url: None,
+                })
+            })
         }
     }
 
-    /// One fake access token carrying the account id (the flow never
-    /// verifies a signature, like the TS decode).
-    fn account_jwt(account_id: &str) -> String {
-        use base64::Engine as _;
-        let segment = |value: &serde_json::Value| {
-            base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .encode(serde_json::to_string(value).unwrap().as_bytes())
-        };
-        format!(
-            "{}.{}.not-a-signature",
-            segment(&serde_json::json!({"alg": "RS256"})),
-            segment(&serde_json::json!({
-                "https://api.openai.com/auth": {"chatgpt_account_id": account_id}
-            }))
-        )
+    fn thrown(message: String) -> Thrown {
+        Arc::new(std::io::Error::other(message))
     }
 
     fn expired_codex_credential() -> AuthCredential {
@@ -323,63 +322,43 @@ mod tests {
         }
     }
 
-    /// The scripted endpoints for the four subscription refreshes (the
-    /// codex token endpoint, the Anthropic platform, the enterprise
-    /// Copilot token endpoint, and the xAI token endpoint).
-    fn integrations() -> std::sync::Arc<ProviderOAuth> {
-        let mut codex = HashMap::new();
-        codex.insert(
-            "https://auth.openai.com/oauth/token".to_string(),
-            CodexHttpResponse {
-                status: 200,
-                body: serde_json::json!({
-                    "access_token": account_jwt("acct-2"),
-                    "refresh_token": "r-new",
-                    "expires_in": 3600,
-                })
-                .to_string(),
-            },
-        );
-        let mut providers = HashMap::new();
-        providers.insert(
-            "https://platform.claude.com/v1/oauth/token".to_string(),
-            ProviderHttpResponse {
-                status: 200,
-                body: serde_json::json!({
-                    "access_token": "anthropic-access",
-                    "refresh_token": "anthropic-refresh",
-                    "expires_in": 3600,
-                })
-                .to_string(),
-            },
-        );
-        providers.insert(
-            "https://api.company.ghe.com/copilot_internal/v2/token".to_string(),
-            ProviderHttpResponse {
-                status: 200,
-                body: serde_json::json!({
-                    "token": "copilot-access",
-                    "expires_at": 4_000_000_000i64,
-                })
-                .to_string(),
-            },
-        );
-        providers.insert(
-            "https://auth.x.ai/oauth2/token".to_string(),
-            ProviderHttpResponse {
-                status: 200,
-                body: serde_json::json!({
-                    "access_token": "grok-access",
-                    "refresh_token": "grok-refresh",
-                    "expires_in": 3600,
-                })
-                .to_string(),
-            },
-        );
-        std::sync::Arc::new(ProviderOAuth::with_transports(
-            std::sync::Arc::new(ScriptedHttp(codex)),
-            std::sync::Arc::new(ScriptedProviderHttp(providers)),
-        ))
+    /// The scripted refreshes of the four subscription flows.
+    fn integrations() -> Arc<ProviderOAuth> {
+        let in_an_hour = 4_000_000_000_000.0;
+        let flow = |credential: OAuthCredential| -> Arc<dyn OAuthAuth> {
+            Arc::new(ScriptedRefresh(Ok(credential)))
+        };
+        Arc::new(ProviderOAuth::with_flows([
+            (
+                OPENAI_CODEX_PROVIDER_ID.to_string(),
+                flow(
+                    OAuthCredential::new("r-new", "codex-access", in_an_hour).with_extra(
+                        ACCOUNT_ID_EXTRA,
+                        serde_json::Value::String("acct-2".to_string()),
+                    ),
+                ),
+            ),
+            (
+                ANTHROPIC_PROVIDER_ID.to_string(),
+                flow(OAuthCredential::new(
+                    "anthropic-refresh",
+                    "anthropic-access",
+                    in_an_hour,
+                )),
+            ),
+            (
+                GITHUB_COPILOT_PROVIDER_ID.to_string(),
+                flow(OAuthCredential::new("", "copilot-access", in_an_hour)),
+            ),
+            (
+                XAI_PROVIDER_ID.to_string(),
+                flow(OAuthCredential::new(
+                    "grok-refresh",
+                    "grok-access",
+                    in_an_hour,
+                )),
+            ),
+        ]))
     }
 
     fn storage_with_credential(
@@ -392,13 +371,68 @@ mod tests {
     }
 
     #[test]
+    fn the_builtin_integration_maps_the_four_subscription_flows() {
+        let builtin = ProviderOAuth::new();
+        let ids: Vec<&str> = builtin.flows.keys().map(String::as_str).collect();
+        assert_eq!(
+            ids,
+            vec![
+                ANTHROPIC_PROVIDER_ID,
+                GITHUB_COPILOT_PROVIDER_ID,
+                OPENAI_CODEX_PROVIDER_ID,
+                XAI_PROVIDER_ID
+            ]
+        );
+        assert!(subscription_oauth_flow("other-oauth").is_none());
+    }
+
+    #[test]
+    fn the_stored_shape_round_trips_the_flow_extras() {
+        let flow = OAuthCredential::new("r", "a", 1_700_000_000_123.0)
+            .with_extra(
+                ACCOUNT_ID_EXTRA,
+                serde_json::Value::String("acct".to_string()),
+            )
+            .with_extra(
+                ENTERPRISE_URL_EXTRA,
+                serde_json::Value::String("company.ghe.com".to_string()),
+            )
+            .with_extra("availableModelIds", serde_json::json!(["m"]));
+        let stored = stored_oauth_credential(&flow);
+        assert_eq!(
+            stored,
+            AuthCredential::Oauth {
+                access: "a".to_string(),
+                refresh: Some("r".to_string()),
+                expires: 1_700_000_000_123,
+                account_id: Some("acct".to_string()),
+                enterprise_url: Some("company.ghe.com".to_string()),
+                endpoint: None,
+                token_endpoint: None,
+                client_id: None,
+                resource: None,
+                issuer: None,
+            }
+        );
+        let back = flow_credential(&stored).expect("a refreshable credential");
+        assert_eq!(back.refresh, "r");
+        assert_eq!(back.access, "a");
+        assert_eq!(back.expires, 1_700_000_000_123.0);
+        assert_eq!(back.extra_str(ACCOUNT_ID_EXTRA), Some("acct"));
+        assert_eq!(
+            back.extra_str(ENTERPRISE_URL_EXTRA),
+            Some("company.ghe.com")
+        );
+    }
+
+    #[test]
     fn an_expired_codex_credential_refreshes_and_resolves() {
         let mut auth =
             storage_with_credential(OPENAI_CODEX_PROVIDER_ID, &expired_codex_credential());
         let api_key = auth
             .get_api_key(OPENAI_CODEX_PROVIDER_ID)
             .expect("the refreshed access token resolves");
-        assert_eq!(api_key, account_jwt("acct-2"));
+        assert_eq!(api_key, "codex-access");
         // The refreshed credential persisted: the account id rode along
         // (TS stores the fresh login's `accountId`).
         let stored = auth.get_all().credential(OPENAI_CODEX_PROVIDER_ID).unwrap();
@@ -412,7 +446,7 @@ mod tests {
         else {
             panic!("the stored credential is OAuth");
         };
-        assert_eq!(access, account_jwt("acct-2"));
+        assert_eq!(access, "codex-access");
         assert_eq!(refresh.as_deref(), Some("r-new"));
         assert!(expires > 1, "the fresh expiry landed");
         assert_eq!(account_id.as_deref(), Some("acct-2"));
@@ -490,18 +524,19 @@ mod tests {
 
     #[test]
     fn a_failed_refresh_keeps_the_stored_credential() {
-        // Nothing scripted: the refresh fails and resolution skips the
-        // provider, keeping the stored credential for a later retry.
+        // The flow fails: resolution skips the provider, keeping the
+        // stored credential for a later retry.
         let mut auth = crate::auth::AuthStorage::in_memory_without_env(
             &{
                 let mut data = crate::auth::types::AuthStorageData::default();
                 data.insert(OPENAI_CODEX_PROVIDER_ID, &expired_codex_credential());
                 data
             },
-            std::sync::Arc::new(ProviderOAuth::with_transports(
-                std::sync::Arc::new(ScriptedHttp(HashMap::new())),
-                std::sync::Arc::new(ScriptedProviderHttp(HashMap::new())),
-            )),
+            Arc::new(ProviderOAuth::with_flows([(
+                OPENAI_CODEX_PROVIDER_ID.to_string(),
+                Arc::new(ScriptedRefresh(Err("token endpoint down".to_string())))
+                    as Arc<dyn OAuthAuth>,
+            )])),
         );
         assert_eq!(auth.get_api_key(OPENAI_CODEX_PROVIDER_ID), None);
         assert!(
@@ -525,7 +560,7 @@ mod tests {
     #[test]
     fn an_unexpired_credential_serves_without_a_refresh() {
         // A credential in its validity window resolves its access token
-        // directly; no token request fires.
+        // directly; no refresh runs.
         let unexpired = AuthCredential::Oauth {
             access: "live-access".to_string(),
             refresh: Some("r".to_string()),

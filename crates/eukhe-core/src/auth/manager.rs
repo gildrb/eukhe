@@ -164,7 +164,7 @@ impl OAuthIntegration for NoOAuth {
 /// reads ambient credentials (provider API-key variables, the prime team
 /// variable, and multi-variable ambient identity material such as AWS
 /// profiles). The production implementation reads the real process
-/// environment via the shared env-var table in `eukhe-ai`; tests inject a fixed
+/// environment via the shared env-var table in `eukhe-pi-ai`; tests inject a fixed
 /// mapping so resolution order is deterministic and hermetic against
 /// ambient variables and parallel-test env mutation.
 pub(crate) trait EnvCredentialSource: Send + Sync {
@@ -208,11 +208,11 @@ impl EnvCredentialSource for NoEnvCredentials {
 
 impl EnvCredentialSource for ProcessEnvCredentials {
     fn key_names(&self, provider: &str) -> Option<Vec<String>> {
-        eukhe_ai::env_api_keys::find_env_keys(provider)
+        eukhe_pi_ai::env_api_keys::find_env_keys(provider, None)
     }
 
     fn api_key(&self, provider: &str) -> Option<String> {
-        eukhe_ai::env_api_keys::get_env_api_key(provider)
+        eukhe_pi_ai::env_api_keys::get_env_api_key(provider, None)
     }
 
     fn prime_team_id(&self) -> Option<String> {

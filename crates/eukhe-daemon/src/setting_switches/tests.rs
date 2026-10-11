@@ -417,7 +417,14 @@ async fn set_auto_retry_persists_the_toggle() {
         .dispatch("set_auto_retry", &json!({ "enabled": false }))
         .await;
     assert!(response.success, "failed: {response:?}");
-    assert!(!settings(dir.path()).get_provider_retry_policy().enabled);
+    assert_eq!(
+        settings(dir.path())
+            .settings()
+            .retry
+            .as_ref()
+            .and_then(|retry| retry.enabled),
+        Some(false)
+    );
     let response = worker.dispatch("set_auto_retry", &json!({})).await;
     assert!(!response.success);
 }

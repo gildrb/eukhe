@@ -1,5 +1,5 @@
 //! Provider failover on the durable path: the failover policy and the
-//! candidate chain of the old engine's `session_engine/provider_failover.rs`
+//! candidate chain of the old engine's `provider_failover.rs`
 //! (the TS backup-model retry, `_handleBackupModelRetry`), over the pi-ai
 //! catalog.
 //!

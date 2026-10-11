@@ -66,6 +66,7 @@ pub use tools::ipython::{
     KernelBusyAfterInterruptError, KernelErrorInfo, KernelExecError, KernelExecutor,
 };
 pub use tools::rlm_bootstrap::{build_rlm_bootstrap_code, PythonSkillRuntimeInfo};
+pub mod agent_messaging;
 // RLM kernel subsystem: persistent IPython kernel lifecycle.
 pub mod agent_log;
 pub mod auth;
@@ -84,7 +85,6 @@ pub mod prompts;
 pub mod refinement;
 pub mod resources;
 pub mod session;
-pub mod session_engine;
 pub mod settings;
 pub mod skills;
 pub mod slash_command_args;

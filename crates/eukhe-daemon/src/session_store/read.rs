@@ -246,7 +246,6 @@ impl SessionFile {
         // that has not joined the index yet).
         fold_child_usage_attributions(&mut file.entries);
         file.leaf_id = Some(window.leaf_id().to_owned());
-        let settings = window.settings();
         file.window = Some(SessionWindow {
             message_count: window.message_count(),
             first_message: window
@@ -254,11 +253,7 @@ impl SessionFile {
                 .map(message_text)
                 .filter(|text| !text.is_empty()),
             loaded_entries: file.entries.len(),
-            has_thinking_level: window.has_thinking_level(),
-            model: settings.model.clone(),
             boundary_model: window.boundary_model().cloned(),
-            thinking_level: settings.thinking_level.clone(),
-            service_tier: settings.service_tier,
             // The retained rows joined the store verbatim above (any
             // unparsable row fell back to the full reader), so their ids are
             // exactly the trailing `raw_count` store ids — no third parse

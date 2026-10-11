@@ -2,11 +2,10 @@
 //! and `/logout` (TS `ProviderAuthFlows`): the provider catalog rows with
 //! their auth status, the API-key store, the MCP device flow, the Prime
 //! Inference terminal login (`prime_inference_login`), and the four
-//! subscription logins -- the Codex Subscription login
-//! (`codex_subscription_login`) and the Anthropic, GitHub Copilot, and
-//! xAI logins (`subscription_login`: the PKCE callback flow, the device
-//! flows, the token exchanges, and the credential writes). The Prime
-//! browser logins (the RSA `auth_challenge` flow) are not ported yet.
+//! subscription logins (`subscription_login`: the Codex Subscription,
+//! Anthropic, GitHub Copilot, and xAI pi-ai OAuth flows on the inline auth
+//! panel, and the credential writes). The Prime browser logins (the RSA
+//! `auth_challenge` flow) are not ported yet.
 
 use std::path::{Path, PathBuf};
 
@@ -378,7 +377,7 @@ impl ProviderAuth {
                 provider.agent_dir.join("models.json"),
             );
             let built_in_provider_ids: std::collections::HashSet<String> =
-                eukhe_ai::models_generated::get_providers()
+                eukhe_models::transports::compiled_provider_ids()
                     .into_iter()
                     .map(str::to_string)
                     .collect();
@@ -586,12 +585,13 @@ fn login_blocking_on_panel(
                 },
             );
     }
-    // The Codex Subscription login (TS `loginProvider`'s dispatch to
-    // the AI library's `openaiCodexOAuthProvider.login`): the browser
-    // authorization URL block, the manual paste racing the localhost
-    // callback, the token exchange, and the credential write, all
+    // The four subscription logins (TS `loginProvider`'s dispatch to the
+    // AI library's `openaiCodex`, `anthropic`, `githubCopilot`, and `xai`
+    // OAuth providers): the provider's pi-ai flow -- the browser
+    // authorization URL block and the manual paste racing the localhost
+    // callback, or the device flow -- and the credential write, all
     // through the inline auth panel (TS the login dialog).
-    if provider_row.id == eukhe_core::auth::OPENAI_CODEX_PROVIDER_ID {
+    if let Some(flow) = eukhe_core::auth::subscription_oauth_flow(&provider_row.id) {
         return tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -603,99 +603,12 @@ fn login_blocking_on_panel(
                     ))
                 },
                 |runtime| {
-                    runtime.block_on(
-                        crate::codex_subscription_login::run_codex_subscription_login(
-                            &agent_dir,
-                            &provider_row.name,
-                            &eukhe_ai::oauth::ReqwestCodexHttp::new(),
-                            &crate::codex_subscription_login::PanelCodexLoginUi::new(panel),
-                        ),
-                    )
-                },
-            );
-    }
-    // The Anthropic (Claude Pro/Max) login (TS `loginProvider`'s
-    // dispatch to the AI library's `anthropicOAuthProvider.login`):
-    // the PKCE authorization URL, the manual paste racing the localhost
-    // callback, the JSON token exchange, and the credential write, all
-    // through the inline auth panel.
-    if provider_row.id == eukhe_core::auth::ANTHROPIC_PROVIDER_ID {
-        return tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_or_else(
-                |error: std::io::Error| {
-                    ProviderAuthOutcome::Error(format!(
-                        "Failed to login to {}: {error}",
-                        provider_row.name
-                    ))
-                },
-                |runtime| {
-                    runtime.block_on(crate::subscription_login::run_anthropic_login(
+                    runtime.block_on(crate::subscription_login::run_subscription_login(
                         &agent_dir,
+                        &provider_row.id,
                         &provider_row.name,
-                        &eukhe_ai::oauth::ReqwestProviderHttp::new(),
-                        &crate::subscription_login::PanelSubscriptionLoginUi::new(
-                            panel,
-                            &provider_row.id,
-                        ),
-                    ))
-                },
-            );
-    }
-    // The GitHub Copilot login (TS `loginProvider`'s dispatch to the AI
-    // library's `githubCopilotOAuthProvider.login`): the enterprise
-    // domain prompt, the device flow, the Copilot token exchange, the
-    // model-policy enabling, and the credential write, all through the
-    // inline auth panel.
-    if provider_row.id == eukhe_core::auth::GITHUB_COPILOT_PROVIDER_ID {
-        return tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_or_else(
-                |error: std::io::Error| {
-                    ProviderAuthOutcome::Error(format!(
-                        "Failed to login to {}: {error}",
-                        provider_row.name
-                    ))
-                },
-                |runtime| {
-                    runtime.block_on(crate::subscription_login::run_github_copilot_login(
-                        &agent_dir,
-                        &provider_row.name,
-                        &eukhe_ai::oauth::ReqwestProviderHttp::new(),
-                        &crate::subscription_login::PanelSubscriptionLoginUi::new(
-                            panel,
-                            &provider_row.id,
-                        ),
-                    ))
-                },
-            );
-    }
-    // The xAI (Grok) login (TS `loginProvider`'s dispatch to the AI
-    // library's `xaiOAuthProvider.login`): the device flow, the token
-    // poll, and the credential write, all through the inline auth
-    // panel.
-    if provider_row.id == eukhe_core::auth::XAI_PROVIDER_ID {
-        return tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_or_else(
-                |error: std::io::Error| {
-                    ProviderAuthOutcome::Error(format!(
-                        "Failed to login to {}: {error}",
-                        provider_row.name
-                    ))
-                },
-                |runtime| {
-                    runtime.block_on(crate::subscription_login::run_xai_login(
-                        &agent_dir,
-                        &provider_row.name,
-                        &eukhe_ai::oauth::ReqwestProviderHttp::new(),
-                        &crate::subscription_login::PanelSubscriptionLoginUi::new(
-                            panel,
-                            &provider_row.id,
-                        ),
+                        flow.as_ref(),
+                        &crate::subscription_login::LoginSurface::new(panel),
                     ))
                 },
             );

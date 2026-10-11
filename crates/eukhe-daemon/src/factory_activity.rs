@@ -10,8 +10,8 @@
 use std::path::Path;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::rlm::factory::FactoryActivityRequest;
 use eukhe_core::durable::rlm::kernel_factory_activity;
-use eukhe_core::session_engine::factory_host::FactoryActivityRequest;
 use serde_json::Value;
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};

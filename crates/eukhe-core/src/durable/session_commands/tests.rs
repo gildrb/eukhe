@@ -19,8 +19,8 @@ use serde_json::{json, Value};
 use super::*;
 use crate::autonomous::AgentAutonomousConfig;
 use crate::durable::entries::{CustomEntryData, CustomStateData, CUSTOM_ENTRY, CUSTOM_STATE_ENTRY};
+use crate::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use crate::durable::{open_session, ModelRequest, SessionConfig, SessionStorage};
-use crate::session_engine::refine::REFINEMENT_AUDIT_CUSTOM_TYPE;
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -583,4 +583,49 @@ async fn global_refine_records_its_rows_and_the_applied_count() {
         .collect();
     assert_eq!(audits.len(), 1);
     fixture.close().await;
+}
+
+#[test]
+fn refine_options_parsing() {
+    assert_eq!(
+        parse_refine_command_options("do the thing").unwrap(),
+        RefineCommandOptions {
+            instructions: Some("do the thing".to_string()),
+            rollback_id: None,
+            global: false,
+        }
+    );
+    assert_eq!(
+        parse_refine_command_options("").unwrap(),
+        RefineCommandOptions::default()
+    );
+    assert_eq!(
+        parse_refine_command_options("--global tweak").unwrap(),
+        RefineCommandOptions {
+            instructions: Some("tweak".to_string()),
+            rollback_id: None,
+            global: true,
+        }
+    );
+    assert_eq!(
+        parse_refine_command_options("rollback ref_123").unwrap(),
+        RefineCommandOptions {
+            instructions: None,
+            rollback_id: Some("ref_123".to_string()),
+            global: false,
+        }
+    );
+    assert!(
+        parse_refine_command_options("--global rollback ref_123")
+            .unwrap()
+            .global
+    );
+    assert_eq!(
+        parse_refine_command_options("rollback").unwrap_err(),
+        "Usage: /refine rollback <refinement-id>"
+    );
+    assert_eq!(
+        parse_refine_command_options("rollback ").unwrap_err(),
+        "Usage: /refine rollback <refinement-id>"
+    );
 }

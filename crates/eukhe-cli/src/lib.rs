@@ -27,7 +27,6 @@
 pub(crate) mod args;
 pub(crate) mod chat_command;
 pub(crate) mod client_settings;
-pub(crate) mod codex_subscription_login;
 pub(crate) mod command_registry;
 pub(crate) mod config;
 pub(crate) mod config_command;

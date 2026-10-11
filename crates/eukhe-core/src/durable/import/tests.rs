@@ -19,10 +19,10 @@ use serde_json::{json, Value};
 use super::plan::{plan_import, PlannedHead};
 use super::{harness_options, import_legacy_session, ImportError, ImportReport};
 use crate::durable::goals::goal_state;
+use crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE;
+use crate::durable::messages::{convert_to_llm, COMPACTION_OUTCOME_CUSTOM_TYPE};
 use crate::session::tree::SessionTree;
 use crate::session::{build_session_context, migrate_to_current_version, parse_session_entries};
-use crate::session_engine::headless::HARNESS_DIGEST_CUSTOM_TYPE;
-use crate::session_engine::messages::{convert_to_llm, COMPACTION_OUTCOME_CUSTOM_TYPE};
 use eukhe_types::goal::GoalStatus;
 
 fn cx() -> Context {

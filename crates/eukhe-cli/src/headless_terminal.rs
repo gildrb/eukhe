@@ -6,12 +6,11 @@
 //! primary.
 
 use eukhe_chord::context::Context;
-use eukhe_core::durable::{custom_entry_content, CUSTOM_ENTRY};
-use eukhe_core::session_engine::headless::{
+use eukhe_core::durable::messages::{
     COMPACTION_OUTCOME_CUSTOM_TYPE, HARNESS_DIGEST_CUSTOM_TYPE, REFINEMENT_NOTICE_CUSTOM_TYPE,
-    REFINEMENT_OUTCOME_CUSTOM_TYPE,
+    REFINEMENT_OUTCOME_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
 };
-use eukhe_core::session_engine::messages::SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE;
+use eukhe_core::durable::{custom_entry_content, CUSTOM_ENTRY};
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
 use eukhe_durable::types::EntryRecord;

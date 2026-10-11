@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::session_engine::agent_messaging::AgentFamilyRelationship;
-use eukhe_core::session_engine::messages::SESSION_RENAMED_CUSTOM_TYPE;
+use eukhe_core::agent_messaging::AgentFamilyRelationship;
+use eukhe_core::durable::messages::SESSION_RENAMED_CUSTOM_TYPE;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
 use serde_json::{json, Value};
 

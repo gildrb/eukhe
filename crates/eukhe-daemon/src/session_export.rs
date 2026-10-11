@@ -75,40 +75,6 @@ impl ExportCommands {
     }
 }
 
-/// The export's custom-tool renderer (the TS `createToolHtmlRenderer`
-/// seam): resolves a tool by name against the session's live registry at
-/// render time. The Rust tool surface carries no render functions — the
-/// built-in `ipython` has none in either product — so a resolved tool
-/// reports no renderable representation and the export falls back to the
-/// template's generic tool rendering, exactly like the TS renderer for a
-/// tool without `renderCall`. The seam stays wired at the registry so a
-/// future line-oriented renderer slots in without touching the exporter.
-pub(crate) struct ExportToolRenderer<'a> {
-    /// The session's live tool registry (TS `getToolDefinition` source).
-    pub tools: &'a [std::sync::Arc<dyn eukhe_agent::types::AgentTool>],
-}
-
-impl eukhe_core::export_html::ToolHtmlRenderer for ExportToolRenderer<'_> {
-    fn render_call(&self, _tool_call_id: &str, tool_name: &str, _args: &Value) -> Option<String> {
-        // Registry lookup first (TS `getToolDefinition`): an unregistered
-        // tool never renders; a registered one has no render function.
-        self.tools.iter().find(|tool| tool.name() == tool_name)?;
-        None
-    }
-
-    fn render_result(
-        &self,
-        _tool_call_id: &str,
-        tool_name: &str,
-        _result: &[Value],
-        _details: &Value,
-        _is_error: bool,
-    ) -> Option<eukhe_core::export_html::RenderedToolResult> {
-        self.tools.iter().find(|tool| tool.name() == tool_name)?;
-        None
-    }
-}
-
 pub(crate) mod durable;
 
 #[cfg(test)]

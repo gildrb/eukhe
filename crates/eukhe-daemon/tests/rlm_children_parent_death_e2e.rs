@@ -62,7 +62,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use eukhe_core::session_engine::semantic_edges::SemanticEdgeLedgerEvent as LedgerEvent;
+use eukhe_core::durable::observe::semantic_edges::SemanticEdgeLedgerEvent as LedgerEvent;
 
 use serde_json::{json, Value};
 

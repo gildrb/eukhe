@@ -17,9 +17,9 @@ use super::host::{RlmRenameRequest, RlmRenameTarget};
 use super::registry::{tx_children, tx_update_row, ChildStatus};
 use super::requests::{commit, conversation_of, session_error, spawn_name_unavailable};
 use super::Children;
+use crate::agent_messaging::assert_direct_agent_message_target;
 use crate::durable::deps::HostCall;
 use crate::kernel::rlm_runtime::normalize_requested_rlm_subagent_session_name;
-use crate::session_engine::agent_messaging::assert_direct_agent_message_target;
 
 const OPERATION: &str = "rlm.rename";
 const NOT_OWN_FAMILY: &str =

@@ -10,8 +10,8 @@
 use eukhe_types::pi_ai::{AssistantContentBlock, Message};
 use eukhe_types::session::AgentMessage;
 
-use crate::session_engine::compaction_utils::strip_file_list_blocks;
-use crate::session_engine::messages::{
+use super::utils::strip_file_list_blocks;
+use crate::durable::messages::{
     COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX, HARNESS_DIGEST_PREFIX,
     HARNESS_DIGEST_SUFFIX,
 };

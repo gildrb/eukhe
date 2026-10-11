@@ -15,9 +15,7 @@ futures.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 eukhe-types.workspace = true
-eukhe-ai.workspace = true
 eukhe-models = { path = "../eukhe-models" }
-eukhe-agent.workspace = true
 # The eukhe agent on the durable Harness (`durable` module): the Harness,
 # its pi-ai model layer, and chord contexts/JSON.
 eukhe-durable.workspace = true

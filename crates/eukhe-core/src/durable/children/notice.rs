@@ -1,5 +1,5 @@
-//! Report texts a parent receives about its children (port of the content
-//! text of `session_engine/rlm_notices.rs`, TS
+//! Report texts a parent receives about its children (the content text of
+//! [`super::parent_notice`], TS
 //! `createRlmChildTerminalNoticeMessage` / `createRlmChildFailureMessage`)
 //! and the roster's one-line labels (daemon `rlm_child_model.rs`).
 

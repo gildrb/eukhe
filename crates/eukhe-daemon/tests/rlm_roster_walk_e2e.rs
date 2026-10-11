@@ -302,7 +302,10 @@ fn list_all_returns_the_full_synthetic_thousand_child_roster() {
 /// subscriber receives and in a fresh subscriber's snapshot.
 #[tokio::test]
 async fn subscribe_after_spawn_then_shutdown_seeds_the_passive_child() {
-    use eukhe_core::session_engine::rlm_host::{RlmSpawnRequest, RlmSubagentHost};
+    use eukhe_core::durable::children::{
+        RlmChildIdentity, RlmChildPromptRequest, RlmChildSpawnRequest, RlmSubagentHost,
+    };
+    const CHILD_ID: &str = "sub-0000000a";
     use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
 
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -364,18 +367,34 @@ async fn subscribe_after_spawn_then_shutdown_seeds_the_passive_child() {
         thinking: None,
         child_script: Some(script.to_string_lossy().to_string()),
     });
-    let handle = children
-        .spawn(RlmSpawnRequest {
+    let child = children
+        .spawn(RlmChildSpawnRequest {
+            idempotency_key: "rlm:1:spawn".to_string(),
+            child: RlmChildIdentity {
+                rlm_child_id: CHILD_ID.to_string(),
+                session_id: "0a000000-0000-4000-8000-00000000000a".to_string(),
+            },
+            name: "worker-a".to_string(),
             prompt: "ship the seed lane".to_string(),
-            name: Some("worker-a".to_string()),
             model: None,
             thinking: None,
-            cell_source_code: None,
+            depth: 1,
+            max_depth: 2,
             spawned_by_request_id: None,
+            parent_task_id: "1".to_string(),
         })
         .await
         .expect("spawn child");
-    let child_agent_id = format!("{parent_file}#{}", handle.rlm_child_id);
+    children
+        .prompt(RlmChildPromptRequest {
+            idempotency_key: "rlm:1:prompt".to_string(),
+            session_id: child.session_id,
+            rlm_child_id: CHILD_ID.to_string(),
+            prompt: "ship the seed lane".to_string(),
+        })
+        .await
+        .expect("prompt child");
+    let child_agent_id = format!("{parent_file}#{CHILD_ID}");
 
     // Both rows settle as residents in the supervisor roster.
     let deadline = Instant::now() + Duration::from_secs(15);
@@ -385,7 +404,7 @@ async fn subscribe_after_spawn_then_shutdown_seeds_the_passive_child() {
         if let Some(active_id) = list["data"]["sessions"].as_array().and_then(|sessions| {
             sessions
                 .iter()
-                .find(|summary| summary["rlmChildId"] == handle.rlm_child_id)
+                .find(|summary| summary["rlmChildId"] == CHILD_ID)
                 .and_then(|summary| summary["activeSessionId"].as_str())
                 .map(str::to_string)
         }) {
@@ -467,7 +486,7 @@ async fn subscribe_after_spawn_then_shutdown_seeds_the_passive_child() {
     let seeded_summary = &seeded["summary"];
     assert!(seeded_summary["activeSessionId"].is_null());
     assert_eq!(seeded_summary["runtimeKind"], "subagent");
-    assert_eq!(seeded_summary["rlmChildId"], handle.rlm_child_id);
+    assert_eq!(seeded_summary["rlmChildId"], CHILD_ID);
     assert_eq!(seeded_summary["sessionName"], "worker-a");
     assert_eq!(seeded_summary["parentSessionPath"], parent_file);
     // The passivated row preserves the durable summary the resident row

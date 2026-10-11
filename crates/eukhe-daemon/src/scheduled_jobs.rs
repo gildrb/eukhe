@@ -35,6 +35,7 @@ use eukhe_durable::harness::types::WhenBusy;
 use eukhe_durable::types::SubmissionStatus;
 use serde_json::{json, Value};
 
+use eukhe_core::cron::rlm_heartbeat::{KernelCronBinding, KernelCronWiring};
 use eukhe_core::cron::scheduler::{AgentCronScheduler, AgentCronSchedulerHooks};
 use eukhe_core::cron::store::{
     AgentCronJobStore, CancelJobsFilter, CreateAgentCronJobInput, HeartbeatManagementAction,
@@ -45,7 +46,6 @@ use eukhe_core::cron::{
     should_defer_heartbeat_cron_job, AgentCronJob, DeliveryMode, HeartbeatSessionActivity,
     JobStatus,
 };
-use eukhe_core::session_engine::runtime_wiring::{KernelCronBinding, KernelCronWiring};
 
 use crate::agent_message_ingest::withdraw_queued;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
@@ -189,14 +189,14 @@ impl QueueHooks {
         // `promptHeartbeat`, so the turn carries the `heartbeat_prompt`
         // custom row (TS `createHeartbeatPromptMessage`) the transcript
         // renders as the heartbeat component.
-        let row = eukhe_core::session_engine::messages::create_heartbeat_prompt_message(
+        let row = eukhe_core::durable::messages::create_heartbeat_prompt_message(
             job,
             crate::util::now_ms(),
         );
         InputRequest {
             text: row.content.text(),
             images: Vec::new(),
-            custom_row: Some(crate::session_commands::custom_message_value(&row)),
+            custom_row: Some(crate::session_custom::custom_row_value(&row)),
             when_busy: if matches!(job.delivery_mode, Some(DeliveryMode::FollowUp)) {
                 WhenBusy::FollowUp
             } else {
@@ -371,7 +371,7 @@ impl ScheduledJobs {
     /// afterwards never fires.
     pub(crate) fn mutation_hook(
         self: &Arc<Self>,
-    ) -> eukhe_core::session_engine::host_requests::RlmHeartbeatMutationHook {
+    ) -> eukhe_core::cron::rlm_heartbeat::RlmHeartbeatMutationHook {
         let scheduled = Arc::clone(self);
         Arc::new(move |mutation| {
             let scheduled = Arc::clone(&scheduled);

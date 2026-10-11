@@ -177,70 +177,6 @@ impl SessionFile {
     pub(crate) fn window_boundary_model(&self) -> Option<(String, String)> {
         self.window.as_ref()?.boundary_model.clone()
     }
-
-    pub(crate) fn restored_settings(&self) -> eukhe_core::session::SessionContext {
-        if let Some(window) = &self.window {
-            let mut context = eukhe_core::session::SessionContext {
-                messages: Vec::new(),
-                thinking_level: window.thinking_level.clone(),
-                service_tier: window.service_tier,
-                model: window.model.clone(),
-            };
-            for entry in &self.entries[window.loaded_entries..] {
-                match entry.type_.as_str() {
-                    "model_change" => {
-                        if let (Some(provider), Some(model)) = (
-                            entry.fields.get("provider").and_then(Value::as_str),
-                            entry.fields.get("modelId").and_then(Value::as_str),
-                        ) {
-                            context.model = Some((provider.to_owned(), model.to_owned()));
-                        }
-                    }
-                    "message" => {
-                        if let Some(message) = entry.fields.get("message").filter(|message| {
-                            message.get("role").and_then(Value::as_str) == Some("assistant")
-                        }) {
-                            if let (Some(provider), Some(model)) = (
-                                message.get("provider").and_then(Value::as_str),
-                                message.get("model").and_then(Value::as_str),
-                            ) {
-                                context.model = Some((provider.to_owned(), model.to_owned()));
-                            }
-                        }
-                    }
-                    "thinking_level_change" => {
-                        if let Some(level) =
-                            entry.fields.get("thinkingLevel").and_then(Value::as_str)
-                        {
-                            level.clone_into(&mut context.thinking_level);
-                        }
-                    }
-                    "service_tier_change" => {
-                        context.service_tier = entry
-                            .fields
-                            .get("serviceTier")
-                            .and_then(|tier| serde_json::from_value(tier.clone()).ok());
-                    }
-                    _ => {}
-                }
-            }
-            context
-        } else {
-            let entries = self.branch_file_entries();
-            eukhe_core::session::build_session_context(&entries, self.leaf_id())
-        }
-    }
-
-    pub(crate) fn has_thinking_level(&self) -> bool {
-        self.window
-            .as_ref()
-            .is_some_and(|window| window.has_thinking_level)
-            || self
-                .branch()
-                .iter()
-                .any(|entry| entry.type_ == "thinking_level_change")
-    }
-
     /// Session name from the latest `session_info` entry.
     pub fn session_name(&self) -> Option<&str> {
         self.entries()
@@ -380,40 +316,6 @@ impl SessionFile {
                 visit(message);
             }
         }
-    }
-
-    /// The durable entry id the compaction cut keeps: the same
-    /// `find_cut_point` walk the engine ran over its in-memory entries,
-    /// re-run over this store's branch. The engine's own
-    /// `firstKeptEntryId` references its in-memory entry ids, which never
-    /// exist in the session file (the store mints fresh ids on persist);
-    /// verbatim it retains nothing on the `messages` read. TS has a single
-    /// store so its ids match by construction — the durable re-cut here
-    /// pins the boundary the file read recognizes (TS: one store, ids
-    /// match by construction).
-    pub fn durable_first_kept_entry_id(&self, keep_recent_tokens: u64) -> Option<String> {
-        let branch = self.branch();
-        let entries: Vec<eukhe_types::session::FileEntry> = branch
-            .iter()
-            .filter_map(|entry| serde_json::to_value(entry).ok())
-            .filter_map(|value| serde_json::from_value(value).ok())
-            .collect();
-        // The header is not a compact candidate (TS `prepareCompaction`).
-        let start = usize::from(matches!(
-            entries.first(),
-            Some(eukhe_types::session::FileEntry::Header { .. })
-        ));
-        let cut = eukhe_core::session_engine::compaction::find_cut_point(
-            &entries,
-            start,
-            entries.len(),
-            keep_recent_tokens,
-        );
-        entries
-            .get(cut.first_kept_entry_index)
-            .and_then(|entry| entry.id())
-            .filter(|id| !id.is_empty())
-            .map(str::to_string)
     }
 
     #[must_use]

@@ -7,42 +7,50 @@
 //! (`template?.headers ?? transport.headers`), never from catalog data;
 //! prime-inference entries are skipped (that domain ships compiled).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::schema::{parse_model_catalog, InvalidEntries};
 use crate::Model;
 
+/// A template's request headers.
+type TemplateHeaders = Option<BTreeMap<String, String>>;
+
 /// The compiled `(provider, api, baseUrl)` template tables for pinning.
 #[derive(Clone, Default)]
 pub struct PinnedTemplates {
-    /// `(provider, api, baseUrl)` -> transport template.
-    transports: HashMap<(String, String, String), Model>,
-    /// `(provider, id)` -> exact model template.
-    exact: HashMap<(String, String), Model>,
+    /// `(provider, api, baseUrl)` -> transport template headers.
+    transports: HashMap<(String, String, String), TemplateHeaders>,
+    /// `(provider, id)` -> exact model template headers.
+    exact: HashMap<(String, String), TemplateHeaders>,
 }
 
 impl PinnedTemplates {
-    /// Index the compiled catalog (production use).
+    /// Index the compiled catalog plus the header-less
+    /// [`SUPPLEMENTAL_TRANSPORTS`](crate::transports::SUPPLEMENTAL_TRANSPORTS)
+    /// (production use).
     #[must_use]
     pub fn from_compiled() -> Self {
-        Self::from_models(crate::transports::compiled_models().iter().cloned())
+        let mut pinned = Self::from_models(crate::transports::compiled_models().iter().cloned());
+        for (provider, api, base_url) in crate::transports::SUPPLEMENTAL_TRANSPORTS {
+            pinned
+                .transports
+                .entry((provider.to_string(), api.to_string(), base_url.to_string()))
+                .or_insert(None);
+        }
+        pinned
     }
 
     /// Index an arbitrary template list (tests).
     pub fn from_models<I: IntoIterator<Item = Model>>(models: I) -> Self {
         let mut pinned = PinnedTemplates::default();
         for model in models {
-            pinned
-                .exact
-                .insert((model.provider.clone(), model.id.clone()), model.clone());
-            pinned.transports.insert(
-                (
-                    model.provider.clone(),
-                    model.api.clone(),
-                    model.base_url.clone(),
-                ),
-                model,
+            pinned.exact.insert(
+                (model.provider.clone(), model.id.clone()),
+                model.headers.clone(),
             );
+            pinned
+                .transports
+                .insert((model.provider, model.api, model.base_url), model.headers);
         }
         pinned
     }
@@ -97,9 +105,7 @@ pub fn pin_catalog_models(
             .exact
             .get(&(model.provider.clone(), model.id.clone()));
         let mut pinned = model;
-        pinned.headers = exact
-            .and_then(|template| template.headers.clone())
-            .or_else(|| transport.headers.clone());
+        pinned.headers = exact.and_then(Clone::clone).or_else(|| transport.clone());
         models.push(pinned);
     }
     if models.is_empty() {
@@ -133,7 +139,12 @@ mod tests {
                 reasoning: false,
                 thinking_level_map: None,
                 input: vec![],
-                cost: eukhe_ai::types::zero_model_cost(),
+                cost: eukhe_types::ai::ModelCost {
+                    input: 0.0.into(),
+                    output: 0.0.into(),
+                    cache_read: 0.0.into(),
+                    cache_write: 0.0.into(),
+                },
                 context_window: 1,
                 max_tokens: 1,
                 max_tokens_explicit: false,
@@ -247,5 +258,19 @@ mod tests {
             .headers
             .as_ref()
             .is_some_and(|headers| headers.contains_key("X-Evil")));
+    }
+
+    #[test]
+    fn supplemental_transports_pin_without_headers() {
+        let payload = json!({"schemaVersion": 1, "models": [
+            catalog_entry("grok-x", "openai-completions", "xai", "https://api.x.ai/v1"),
+            catalog_entry("mimo-x", "anthropic-messages", "xiaomi", "https://api.xiaomimimo.com/anthropic"),
+            catalog_entry("grok-y", "openai-completions", "xai", "https://elsewhere.example"),
+        ]});
+        let models = parse_provider_model_catalog(&payload, &PinnedTemplates::from_compiled())
+            .expect("pinned");
+        let ids: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
+        assert_eq!(ids, vec!["grok-x", "mimo-x"]);
+        assert!(models.iter().all(|model| model.headers.is_none()));
     }
 }

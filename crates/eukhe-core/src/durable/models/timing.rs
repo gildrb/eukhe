@@ -1,6 +1,5 @@
 //! Per-request phase timing for provider requests on the durable models
-//! layer: the port of the old engine's
-//! `session_engine::request_timing` clock (TS #2462,
+//! layer: the port of the old engine's `request_timing` clock (TS #2462,
 //! `packages/coding-agent/src/core/request-timing.ts`).
 //!
 //! It answers "what is the agent waiting for" while the provider request

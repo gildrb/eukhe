@@ -5,11 +5,16 @@
 //! with credentials) — at the `memory.thinking` effort (default medium).
 //! The `allowedModels` pin applies like everywhere else; an unusable model
 //! fails the call (the owner reports it and retries) instead of silently
-//! picking another one.
+//! picking another one. The request runs through the durable model
+//! collection ([`crate::durable::create_models`]), which serves the
+//! registered pi-ai models only.
 
 use std::path::{Path, PathBuf};
 
-use eukhe_types::ai::{Context, Model, ModelThinkingLevel};
+use eukhe_pi_ai::models::ModelsSimpleStreamOptions;
+use eukhe_pi_ai::types::{SimpleStreamOptions, StreamOptions};
+use eukhe_types::ai::{AssistantMessage, Context, Model, ModelThinkingLevel};
+use eukhe_types::pi_ai;
 
 use super::compactor::{Summarizer, SummarizerFuture};
 
@@ -41,25 +46,58 @@ impl Summarizer for SettingsSummarizer {
             let target = tokio::task::spawn_blocking(move || resolve(&agent_dir))
                 .await
                 .map_err(|error| anyhow::anyhow!("compactor model resolution failed: {error}"))??;
-            let options = eukhe_ai::types::SimpleStreamOptions {
-                base: eukhe_ai::types::StreamOptions {
-                    api_key: target.api_key,
-                    headers: target.headers.map(|headers| headers.into_iter().collect()),
+            let context: pi_ai::Context = convert(&context)
+                .map_err(|error| anyhow::anyhow!("compactor context conversion failed: {error}"))?;
+            let mut options: ModelsSimpleStreamOptions = SimpleStreamOptions {
+                stream: StreamOptions {
                     session_id: Some(COMPACTOR_SESSION.to_string()),
-                    ..Default::default()
+                    ..StreamOptions::default()
                 },
-                reasoning: Some(target.thinking),
-                thinking_budgets: None,
-            };
-            eukhe_ai::complete_simple(&target.model, &context, Some(options))
-                .await
-                .map_err(|error| anyhow::anyhow!("compactor model call failed: {error:?}"))
+                reasoning: reasoning(target.thinking),
+                ..SimpleStreamOptions::default()
+            }
+            .into();
+            options.options.stream.request.api_key = target.api_key;
+            options.options.stream.request.headers = target.headers.map(|headers| {
+                headers
+                    .into_iter()
+                    .map(|(name, value)| (name, Some(value)))
+                    .collect()
+            });
+            let reply = target
+                .models
+                .complete_simple(&target.model, context, options)
+                .await;
+            convert::<_, AssistantMessage>(&reply)
+                .map_err(|error| anyhow::anyhow!("compactor reply conversion failed: {error}"))
         })
     }
 }
 
+/// One wire shape into the other (the old-ai and pi-ai message types
+/// share the TS JSON form).
+fn convert<From: serde::Serialize, Into: serde::de::DeserializeOwned>(
+    value: &From,
+) -> serde_json::Result<Into> {
+    serde_json::from_value(serde_json::to_value(value)?)
+}
+
+/// The pi-ai reasoning option of a thinking level (`off` sends none).
+fn reasoning(level: ModelThinkingLevel) -> Option<pi_ai::ThinkingLevel> {
+    match level {
+        ModelThinkingLevel::Off => None,
+        ModelThinkingLevel::Minimal => Some(pi_ai::ThinkingLevel::Minimal),
+        ModelThinkingLevel::Low => Some(pi_ai::ThinkingLevel::Low),
+        ModelThinkingLevel::Medium => Some(pi_ai::ThinkingLevel::Medium),
+        ModelThinkingLevel::High => Some(pi_ai::ThinkingLevel::High),
+        ModelThinkingLevel::Xhigh => Some(pi_ai::ThinkingLevel::Xhigh),
+        ModelThinkingLevel::Max => Some(pi_ai::ThinkingLevel::Max),
+    }
+}
+
 struct Target {
-    model: Model,
+    models: eukhe_pi_ai::models::Models,
+    model: pi_ai::Model,
     api_key: Option<String>,
     headers: Option<std::collections::BTreeMap<String, String>>,
     thinking: ModelThinkingLevel,
@@ -125,8 +163,19 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
             resolved.error.as_deref().unwrap_or("run /login")
         );
     }
+    let models = crate::durable::create_models(agent_dir).map_err(|error| {
+        anyhow::anyhow!("the memory compactor model collection failed: {error}")
+    })?;
+    let served = models
+        .get_model(&model.provider, &model.id)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "the memory compactor model {selector} is not served by the model collection"
+            )
+        })?;
     Ok(Target {
-        model,
+        models,
+        model: served,
         api_key: resolved.api_key,
         headers: resolved.headers,
         thinking: settings.get_memory_thinking().model_level(),

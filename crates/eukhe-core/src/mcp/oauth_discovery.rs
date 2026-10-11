@@ -384,7 +384,7 @@ pub(crate) async fn register_client(
         bail!(
             "POST {registration_endpoint} failed: {}: {}",
             response.status,
-            eukhe_ai::oauth::response_snippet(&response.body)
+            crate::auth::failure_text::response_snippet(&response.body)
         );
     }
     let value: serde_json::Value = serde_json::from_str(&response.body)
@@ -428,13 +428,13 @@ pub(crate) async fn exchange_token(
         bail!(
             "Token request to {token_endpoint} failed: {}: {}",
             response.status,
-            eukhe_ai::oauth::response_snippet(&response.body)
+            crate::auth::failure_text::response_snippet(&response.body)
         );
     }
     let token: serde_json::Value = serde_json::from_str(&response.body).map_err(|_| {
         anyhow!(
             "Token request to {token_endpoint} returned invalid JSON: {}",
-            eukhe_ai::oauth::response_snippet(&response.body)
+            crate::auth::failure_text::response_snippet(&response.body)
         )
     })?;
     let access_token = token.get("access_token").and_then(|v| v.as_str());

@@ -72,12 +72,12 @@ use super::park::{
     QUOTA_RESUME_CRON_LABEL, QUOTA_RESUME_MARKER_TEXT,
 };
 use super::timing::{self, RequestTiming};
+use crate::cron::rlm_heartbeat::{RlmHeartbeatMutation, SessionBinding};
 use crate::cron::store::{AgentCronJobStore, CreateAgentCronJobInput};
 use crate::cron::JobStatus;
 use crate::durable::entries::{CustomStateData, CUSTOM_STATE_ENTRY};
 use crate::durable::rlm::now_millis;
 use crate::durable::HostDeps;
-use crate::session_engine::host_requests::{RlmHeartbeatMutation, SessionBinding};
 use crate::settings::SettingsManager;
 
 const SWITCH_BUDGET: u32 = MAX_TOTAL_PROVIDER_RETRIES;

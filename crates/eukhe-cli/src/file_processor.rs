@@ -14,7 +14,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use eukhe_agent::types::ImageContent;
+use eukhe_types::pi_ai::ImageContent;
 
 /// TS `DEFAULT_MAX_BYTES`: 4.5MB of base64 payload, headroom below the
 /// provider's 5MB limit.

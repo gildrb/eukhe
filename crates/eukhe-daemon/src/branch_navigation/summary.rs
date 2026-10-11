@@ -7,13 +7,13 @@
 //! conversation's `pi.usage` under the serving model.
 
 use eukhe_chord::context::{AbortSignal, Context};
-use eukhe_core::durable::{BranchSummaryData, HostDeps, BRANCH_SUMMARY_ENTRY};
-use eukhe_core::session_engine::branch_summarization::{
+use eukhe_core::durable::branch_summary::{
     build_branch_summary_request, estimate_branch_summary_request_tokens, finalize_branch_summary,
     BranchSummaryDetails, DEFAULT_BRANCH_RESERVE_TOKENS,
 };
-use eukhe_core::session_engine::compaction_utils::SUMMARIZATION_SYSTEM_PROMPT;
-use eukhe_core::session_engine::messages::{BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX};
+use eukhe_core::durable::compaction::utils::SUMMARIZATION_SYSTEM_PROMPT;
+use eukhe_core::durable::messages::{BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX};
+use eukhe_core::durable::{BranchSummaryData, HostDeps, BRANCH_SUMMARY_ENTRY};
 use eukhe_durable::harness::types::WriteSubmissionDraft;
 use eukhe_durable::harness::usage::{record_usage, UsageBucket};
 use eukhe_durable::harness::Conversation;
@@ -197,7 +197,7 @@ pub(crate) async fn generate(
 
 /// TS #2411's `_resolveAuxiliaryModel` over the session's model
 /// collection (the durable twin of
-/// `eukhe_core::session_engine::auxiliary_model::resolve_auxiliary_model`):
+/// `eukhe_core::durable::compaction::auxiliary_model::resolve_auxiliary_model`):
 /// an unset, blank, or session-equal selector keeps the session model; a
 /// selector outside `allowedModels`, missing from the authenticated
 /// catalog, or whose known window is smaller than the request falls back

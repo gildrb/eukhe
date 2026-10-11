@@ -22,9 +22,6 @@
 //! for the next boundary and an idle one wakes into the turn; the Harness
 //! inbox makes the admission durable. A `bash.consumed` withdraws the
 //! front-most still-queued notice for the same pid and command.
-//!
-//! The old engine's seam (`AgentSessionEngine` sinks) stays compiled until
-//! the engine is removed.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -35,87 +32,28 @@ use serde_json::Value;
 
 use eukhe_core::kernel::shared::{host_handler, HostRequestHandlers};
 
-use crate::agent_engine::AgentSessionEngine;
 use crate::agent_message_ingest::{withdraw_queued, WithdrawnLane};
-use crate::engine::{BashCompletionNotice, BashConsumedNotice};
 use crate::worker::{submit_input, InputRequest, SessionCore, SessionSlot, Worker};
 
-impl AgentSessionEngine {
-    /// Wire the worker's bash-completion queue seams. The worker calls
-    /// this once at construction, before the first prompt's session
-    /// build reads them in [`AgentSessionEngine::extra_host_handlers`].
-    ///
-    /// # Panics
-    ///
-    /// Panics when a sink mutex is poisoned (a holder panicked while
-    /// holding the completion or consumed-sink lock).
-    pub fn set_bash_notice_sinks(
-        &self,
-        completion: crate::engine::BashCompletionSink,
-        consumed: crate::engine::BashConsumedSink,
-    ) {
-        *self
-            .bash_completion_sink
-            .lock()
-            .expect("bash completion sink lock") = Some(completion);
-        *self
-            .bash_consumed_sink
-            .lock()
-            .expect("bash consumed sink lock") = Some(consumed);
-    }
+/// One detached kernel bash completion (the `bash.completed` host
+/// request): the finished command's identity and exit code. The worker
+/// queue admission turns it into the woken turn (TS
+/// `createAsyncBashCompletionHostHandler` ->
+/// `_promptInjectedMessage(..., { resumeIfIdle: true })`).
+#[derive(Debug, Clone)]
+struct BashCompletionNotice {
+    pid: u32,
+    command: String,
+    exit_code: i64,
+}
 
-    /// The `bash.completed`/`bash.consumed` kernel host handlers (TS
-    /// `createAsyncBashCompletionHostHandler` /
-    /// `createAsyncBashConsumedHostHandler`): validated details, the
-    /// notice admitted (or withdrawn) through the worker's queue
-    /// seams. Registered only when both seams are wired — the daemon
-    /// worker wires them at construction; anything without a worker
-    /// queue leaves the requests honestly unavailable.
-    pub(crate) fn register_bash_notice_host_handlers(&self, handlers: &mut HostRequestHandlers) {
-        let Some(completion) = self
-            .bash_completion_sink
-            .lock()
-            .expect("bash completion sink lock")
-            .clone()
-        else {
-            return;
-        };
-        let Some(consumed) = self
-            .bash_consumed_sink
-            .lock()
-            .expect("bash consumed sink lock")
-            .clone()
-        else {
-            return;
-        };
-        handlers.register(
-            "bash.completed",
-            host_handler(move |payload| {
-                let completion = completion.clone();
-                Box::pin(async move {
-                    let notice = validate_completion(&payload.data)?;
-                    // The closed-session gate lives in the sink: the
-                    // worker's kill/shutdown set the marker and parked the
-                    // runner, and the sink (which holds the engine) refuses
-                    // the injection exactly like TS `_disposed` /
-                    // `session_closed` refuse it.
-                    completion(notice);
-                    Ok(serde_json::json!({}))
-                })
-            }),
-        );
-        handlers.register(
-            "bash.consumed",
-            host_handler(move |payload| {
-                let consumed = consumed.clone();
-                Box::pin(async move {
-                    let notice = validate_consumed(&payload.data)?;
-                    consumed(notice);
-                    Ok(serde_json::json!({}))
-                })
-            }),
-        );
-    }
+/// The kernel read a finished command's result before its notice
+/// delivered (the `bash.consumed` host request): the queued notice is
+/// stale and must withdraw (TS `_withdrawAsyncBashCompletionNotice`).
+#[derive(Debug, Clone)]
+struct BashConsumedNotice {
+    pid: u32,
+    command: String,
 }
 
 /// One admitted notice a later `bash.consumed` may still withdraw.
@@ -193,7 +131,7 @@ impl BashNotices {
         let Some(hosted) = self.session.get() else {
             return Ok(());
         };
-        let row = eukhe_core::session_engine::messages::create_async_bash_completion_message(
+        let row = eukhe_core::durable::messages::create_async_bash_completion_message(
             notice.pid,
             &notice.command,
             notice.exit_code,
@@ -203,7 +141,7 @@ impl BashNotices {
         let request = InputRequest {
             text: row.content.text(),
             images: Vec::new(),
-            custom_row: Some(crate::session_commands::custom_message_value(&row)),
+            custom_row: Some(crate::session_custom::custom_row_value(&row)),
             when_busy: WhenBusy::Steer,
             request_id: Some(request_id.clone()),
         };

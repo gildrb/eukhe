@@ -145,7 +145,7 @@ impl PrimeHttp for ReqwestPrimeHttp {
                     if error.is_timeout() {
                         format!("Prime Inference request timed out after {timeout_ms} ms")
                     } else {
-                        eukhe_ai::oauth::transport_failure(&error)
+                        crate::auth::failure_text::transport_failure(&error)
                     }
                 })?;
             let status = response.status().as_u16();
@@ -178,7 +178,7 @@ impl PrimeHttp for ReqwestPrimeHttp {
                 if error.is_timeout() {
                     format!("Prime Inference request timed out after {timeout_ms} ms")
                 } else {
-                    eukhe_ai::oauth::transport_failure(&error)
+                    crate::auth::failure_text::transport_failure(&error)
                 }
             })?;
             let status = response.status().as_u16();
@@ -238,7 +238,7 @@ pub(super) fn read_response_message(status: u16, body: &str) -> String {
             }
         }
     }
-    eukhe_ai::oauth::response_snippet(body)
+    crate::auth::failure_text::response_snippet(body)
 }
 
 /// One denial of Prime Inference access (TS `PrimeInferenceAccessResult`'s
@@ -309,7 +309,7 @@ pub(super) async fn check_prime_scope_access(
         PrimeAccessError::Failed(format!(
             "Prime whoami returned an invalid response (HTTP {}): {}",
             response.status,
-            eukhe_ai::oauth::response_snippet(&response.body)
+            crate::auth::failure_text::response_snippet(&response.body)
         ))
     };
     let data: serde_json::Value = serde_json::from_str(&response.body)
@@ -398,7 +398,7 @@ pub async fn fetch_prime_teams(
             format!(
                 "Prime teams returned an invalid response (HTTP {}): {}",
                 response.status,
-                eukhe_ai::oauth::response_snippet(&response.body)
+                crate::auth::failure_text::response_snippet(&response.body)
             )
         };
         let data: serde_json::Value = serde_json::from_str(&response.body)

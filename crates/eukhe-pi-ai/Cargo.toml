@@ -73,9 +73,6 @@ tokio = { workspace = true, features = ["test-util"] }
 tempfile = "3"
 # Mock HTTP responses for the `fetch` option in provider tests (`http::Response` → `reqwest::Response`).
 http = "1"
-# Differential tests of the eukhe faux-script format: the old eukhe-ai faux provider is the
-# reference the scripted provider must match (eukhe-ai does not depend on this crate).
-eukhe-ai.workspace = true
 
 [lints]
 workspace = true

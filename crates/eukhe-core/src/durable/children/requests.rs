@@ -1,4 +1,4 @@
-//! The `rlm.*` kernel host requests (port of `session_engine/rlm_host.rs`'s
+//! The `rlm.*` kernel host requests (port of the old engine's `rlm_host.rs`'s
 //! handlers) over the durable children registry: `rlm.run` (`rlm.spawn`),
 //! `rlm.create_session`, `rlm.find_models`, `rlm.list_subagents`,
 //! `rlm.delete_subagent`, `rlm.collect`, and `rlm.progress.note`
@@ -38,6 +38,7 @@ use super::wire::{
     RlmChildResult, RlmDeleteSubagentResult, RlmSpawnHandle, RlmSubagentActivity, RlmSubagentEntry,
 };
 use super::Children;
+use crate::agent_messaging::assert_direct_agent_message_target;
 use crate::durable::deps::{HostCall, HostRequestRegistry};
 use crate::kernel::rlm_runtime::{
     create_default_rlm_subagent_session_name, find_rlm_model_matches, kwargs_from_payload,
@@ -45,7 +46,6 @@ use crate::kernel::rlm_runtime::{
     normalize_requested_rlm_subagent_thinking_level, RlmModelInfo, DEFAULT_RLM_MODEL_SEARCH_LIMIT,
     MAX_RLM_MODEL_SEARCH_LIMIT,
 };
-use crate::session_engine::agent_messaging::assert_direct_agent_message_target;
 
 const RLM_COLLECT_MAX_TIMEOUT_MS: u64 = 2_147_483_647;
 const NO_SPAWN_RUNTIME: &str =

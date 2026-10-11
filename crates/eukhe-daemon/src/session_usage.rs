@@ -27,8 +27,6 @@ use eukhe_types::ai::{Usage, UsageCost};
 use eukhe_types::JsNumber;
 use serde::{Deserialize, Serialize};
 
-use eukhe_core::session_engine::compaction_exec::{add_assistant_usage, subtract_assistant_usage};
-
 /// TS `SessionUsageSummary` (`sessionUsageSummaryFrom`): the token/cost
 /// summary rows publish. `inputTokens` folds cache reads and writes into
 /// the input total; `cost` is the provider-billed total.
@@ -323,7 +321,7 @@ impl UsageScan {
         };
         if self.assistant_usage_by_id.contains(target_id) {
             self.assistant_usage_by_id.set(target_id, aggregate_usage);
-            add_assistant_usage(&mut self.attributed_child_usage, &child_usage);
+            self.attributed_child_usage.add_usage(&child_usage);
         }
     }
 
@@ -331,7 +329,7 @@ impl UsageScan {
     /// entry's own usage (the summarization call's billed block).
     pub(crate) fn fold_summarization(&mut self, usage: Option<Usage>) {
         if let Some(usage) = usage {
-            add_assistant_usage(&mut self.summarization_usage, &usage);
+            self.summarization_usage.add_usage(&usage);
         }
     }
 
@@ -342,11 +340,11 @@ impl UsageScan {
     pub fn totals(&self) -> SessionUsageTotals {
         let mut total = Usage::default();
         for (_, usage) in &self.assistant_usage_by_id.entries {
-            add_assistant_usage(&mut total, usage);
+            total.add_usage(usage);
         }
-        add_assistant_usage(&mut total, &self.summarization_usage);
+        total.add_usage(&self.summarization_usage);
         let mut own = total;
-        subtract_assistant_usage(&mut own, &self.attributed_child_usage);
+        own.subtract_usage(&self.attributed_child_usage);
         SessionUsageTotals { own, total }
     }
 

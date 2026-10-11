@@ -358,14 +358,7 @@ async fn print_mode_main(
 /// The prompts of this invocation: the combined initial message (with the
 /// `@file` images; TS `initialImages`), then the later CLI messages.
 fn prompts(options: &RunOptions) -> impl Iterator<Item = (&str, Vec<ImageContent>)> {
-    let images = options
-        .initial_images
-        .iter()
-        .map(|image| ImageContent {
-            data: image.data.clone(),
-            mime_type: image.mime_type.clone(),
-        })
-        .collect::<Vec<_>>();
+    let images = options.initial_images.clone();
     options
         .initial_message
         .iter()

@@ -15,10 +15,10 @@ use serde_json::Value;
 
 use super::children::RlmSubagentHost;
 use super::settings::EukheSettings;
+use crate::cron::rlm_heartbeat::KernelCronWiring;
 use crate::kernel::{HostRequestHandlers, KernelPythonSkill};
 use crate::memory::{Memory, MemoryRole};
 use crate::resources::LoadedResources;
-use crate::session_engine::runtime_wiring::KernelCronWiring;
 
 /// The session that spawned a child session.
 #[derive(Clone, Debug, PartialEq, Eq)]

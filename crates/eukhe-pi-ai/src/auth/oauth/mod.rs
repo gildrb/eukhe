@@ -29,7 +29,7 @@ pub use device_code::{
     abortable_sleep, poll_oauth_device_code_flow, OAuthDeviceCodePollOptions,
     OAuthDeviceCodePollResult,
 };
-pub use github_copilot::github_copilot_oauth;
+pub use github_copilot::{get_github_copilot_base_url, github_copilot_oauth};
 pub use kimi_coding::kimi_coding_oauth;
 pub use load::{
     load_anthropic_oauth, load_github_copilot_oauth, load_kimi_coding_oauth, load_meta_oauth,

@@ -1,5 +1,5 @@
 //! Goal-state transitions: the durable port of the old goal driver's
-//! lifecycle (`session_engine/goal_driver.rs` and its `progress` child) as
+//! lifecycle (the old engine's `goal_driver.rs` and its `progress` child) as
 //! pure functions over [`GoalState`]. The callers read the `eukhe.goal`
 //! document inside a commit, apply one transition, and write the result back
 //! in the same commit, so every transition is one atomic read-modify-write.

@@ -381,7 +381,7 @@ impl ModelRegistry {
             ..
         }) = copilot_credential
         {
-            let base_url = eukhe_ai::oauth::get_github_copilot_base_url(
+            let base_url = eukhe_pi_ai::auth::oauth::get_github_copilot_base_url(
                 Some(&access),
                 enterprise_url.as_deref(),
             );
@@ -424,12 +424,14 @@ impl ModelRegistry {
                 ..Default::default()
             };
         };
+        let compiled = eukhe_models::transports::compiled_models();
         let mut result = load_custom_models(
             &content,
-            &|provider| !eukhe_ai::models_generated::get_models(provider).is_empty(),
+            &|provider| compiled.iter().any(|model| model.provider == provider),
             &|provider| {
-                eukhe_ai::models_generated::get_models(provider)
-                    .first()
+                compiled
+                    .iter()
+                    .find(|model| model.provider == provider)
                     .map(|model| (model.api.clone(), model.base_url.clone()))
             },
         );

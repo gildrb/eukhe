@@ -6,15 +6,13 @@
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
-use eukhe_ai::models::{get_supported_thinking_levels, thinking_level_from_str};
 use eukhe_core::kernel::rlm_runtime::{find_rlm_model_matches, RlmModelInfo};
+use eukhe_types::ai::thinking_levels::{get_supported_thinking_levels, thinking_level_from_str};
 
 /// Close matches listed in model-resolution errors (TS suggestion limit).
 const MODEL_ERROR_SUGGESTION_LIMIT: usize = 3;
 /// Cap on the answer preview handed to the parent model (TS `compactRlmText`).
 pub const ANSWER_PREVIEW_MAX_CHARS: usize = 160;
-/// Cap on the one-line task label shown in kernel rosters.
-pub const LABEL_MAX_CHARS: usize = 200;
 const ELLIPSIS: &str = "...";
 
 /// The model catalog the RLM surface resolves against: the same
@@ -193,18 +191,6 @@ fn model_unavailable_error(
 pub fn compact_rlm_text(text: &str) -> String {
     let compact: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     cap_text(&compact, ANSWER_PREVIEW_MAX_CHARS)
-}
-
-/// One-line task label: collapsed prompt, capped for roster rows.
-#[must_use]
-pub fn rlm_child_label(prompt: &str) -> String {
-    let collapsed: String = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
-    let collapsed = if collapsed.is_empty() {
-        "child agent".to_string()
-    } else {
-        collapsed
-    };
-    cap_text(&collapsed, LABEL_MAX_CHARS)
 }
 
 /// Whitespace-collapsed text capped at `max` chars with an ellipsis.
@@ -426,12 +412,6 @@ mod tests {
 
     #[test]
     fn roster_text_is_collapsed_and_capped() {
-        let label = rlm_child_label("  ship   the\nlane  ");
-        assert_eq!(label, "ship the lane");
-        let long = "word ".repeat(100);
-        let label = rlm_child_label(&long);
-        assert!(label.chars().count() <= LABEL_MAX_CHARS);
-        assert!(label.ends_with("..."));
         let preview = compact_rlm_text("  a\nshort   answer ");
         assert_eq!(preview, "a short answer");
         let long_answer = "x".repeat(ANSWER_PREVIEW_MAX_CHARS + 50);

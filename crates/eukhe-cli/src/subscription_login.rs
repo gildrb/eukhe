@@ -1,32 +1,42 @@
 //! The composition root's subscription logins (TS `auth-flows.ts`'s
-//! `showLoginDialog` over the AI library's `anthropic`,
-//! `githubCopilot`, and `xai` providers): the browser URL block, the
-//! prompts, the progress lines, and the credential write under each
-//! provider's id. Every surface renders through the inline auth panel
-//! (TS the login dialog in the TUI); nothing touches the plain
-//! terminal. The credential the flow stores carries the TS
-//! `auth.json` wire shape, and a stored credential makes the
-//! provider's subscription models resolvable.
+//! `showLoginDialog` over the AI library's `openaiCodex`, `anthropic`,
+//! `githubCopilot`, and `xai` OAuth providers): each provider's pi-ai flow
+//! ([`OAuthAuth::login`]) runs against the inline auth panel — the browser
+//! URL block, the prompts, the progress lines, the manual paste racing the
+//! localhost callback — and the credential lands under the provider's id
+//! in the TS `auth.json` wire shape. Nothing touches the plain terminal.
 //!
-//! Cancellation (#2770): the panel handle's shared flag is the seam --
-//! the driving pane marks it on exit and each flow checks it between
-//! its own poll steps (the flows check it again before the credential
-//! write), so an exited pane never lands a credential (a task abort
-//! cannot reach the started blocking body).
+//! The panel keeps the paste loop's behavior: a paste that carries no
+//! code, reports a sign-in error, or echoes another login's state is
+//! rejected with a notice and the paste field re-mounts (the flow never
+//! sees it); a login that fails after its code reached the flow (the
+//! token exchange) shows the retry notice and starts the login again.
+//! The panel has no picker, so a method selection takes the flow's first
+//! (default) option: the browser login.
+//!
+//! Cancellation (#2770): the panel handle's shared flag is the seam -- the
+//! driving pane marks it on exit, the login's abort signal follows it, and
+//! the flag is checked again before the credential write, so an exited
+//! pane never lands a credential (a task abort cannot reach the started
+//! blocking body). An Esc on a prompt ends the login silently.
 
-use std::future::Future;
 use std::path::Path;
-use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
-use eukhe_ai::oauth::{
-    login_anthropic, login_github_copilot, login_xai, OAuthLoginUi, OAuthPrompt, ProviderHttp,
-    ANTHROPIC_LOGIN_CANCELLED, COPILOT_LOGIN_CANCELLED, XAI_LOGIN_CANCELLED,
-};
+use eukhe_chord::context::{AbortController, AbortSignal};
 use eukhe_core::auth::{
-    AuthCredential, AuthStorage, ANTHROPIC_PROVIDER_ID, GITHUB_COPILOT_PROVIDER_ID, XAI_PROVIDER_ID,
+    exchange_retry_notice, parse_redirect_input, stored_oauth_credential, AuthStorage,
+    RedirectInputError, VerifiedAuthorization, GITHUB_COPILOT_PROVIDER_ID,
 };
+use eukhe_pi_ai::auth::{
+    AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, OAuthAuth, ProviderAuthInteraction,
+};
+use eukhe_pi_ai::utils::diagnostics::Thrown;
 use eukhe_tui::auth_panel::{AuthPanelHandle, PastePromptTone, PasteStyle};
 use eukhe_tui::provider_auth::ProviderAuthOutcome;
+use futures::future::BoxFuture;
 
 /// TS the login dialog's manual-input prompt (the callback-server
 /// providers' paste line).
@@ -34,243 +44,326 @@ const MANUAL_INPUT_PROMPT: &str = "Paste redirect URL below, or complete login i
 /// TS `showWaiting` for the Copilot device flow (the composition root's
 /// onAuth handling for `github-copilot`).
 const COPILOT_WAITING: &str = "Waiting for browser authentication...";
+/// The error a cancelled prompt answers the flow with.
+const LOGIN_CANCELLED: &str = "Login cancelled";
+/// How often the login re-checks the pane's cancel flag.
+const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// The inline auth panel as the subscription logins' surface (TS the
-/// login dialog): the browser URL block (the flow opens the browser;
-/// the panel renders), the prompts, the progress lines, and the manual
-/// paste racing the browser callback ride the panel channel. The
-/// Copilot provider adds its waiting line (TS the dialog's
-/// provider-specific `showWaiting`).
-pub(crate) struct PanelSubscriptionLoginUi {
+/// Opens a URL in the user's browser.
+pub(crate) type BrowserOpener = fn(&str);
+
+/// The surface one login drives: the inline auth panel and the browser.
+#[derive(Clone)]
+pub(crate) struct LoginSurface {
     panel: AuthPanelHandle,
-    provider_id: String,
+    open_browser: BrowserOpener,
 }
 
-impl PanelSubscriptionLoginUi {
-    pub(crate) fn new(panel: AuthPanelHandle, provider_id: &str) -> Self {
-        PanelSubscriptionLoginUi {
+impl LoginSurface {
+    /// The panel, with the system browser.
+    pub(crate) fn new(panel: AuthPanelHandle) -> Self {
+        LoginSurface {
             panel,
-            provider_id: provider_id.to_string(),
+            open_browser: eukhe_core::platform::browser::open_in_browser,
         }
     }
 }
 
-impl OAuthLoginUi for PanelSubscriptionLoginUi {
-    fn on_auth(&self, url: &str, instructions: Option<&str>) {
-        self.panel.auth_url(url, instructions);
-        eukhe_core::platform::browser::open_in_browser(url);
-        if self.provider_id == GITHUB_COPILOT_PROVIDER_ID {
-            // TS `showWaiting` (the dialog's own method, no onboarding
-            // guard -- never the `onProgress` chatter arm the onboarding
-            // block drops).
-            self.panel.waiting(COPILOT_WAITING);
+/// The inline auth panel as one pi-ai login attempt's interaction.
+struct PanelAuthInteraction {
+    surface: LoginSurface,
+    provider_id: String,
+    signal: AbortSignal,
+    /// A retried attempt keeps the browser tab the first one opened.
+    open_browser: bool,
+    /// The attempt's `state` (its authorization URL's): a paste echoing
+    /// another login's state is rejected before the flow sees it.
+    expected_state: Mutex<Option<String>>,
+    /// The user cancelled a prompt (Esc).
+    cancelled: AtomicBool,
+    /// A code reached the flow (a paste answered the manual prompt, or
+    /// the browser callback ended the race): a later failure is the
+    /// token exchange's.
+    code_delivered: AtomicBool,
+}
+
+impl PanelAuthInteraction {
+    fn new(surface: LoginSurface, provider_id: &str, signal: AbortSignal, first: bool) -> Self {
+        PanelAuthInteraction {
+            surface,
+            provider_id: provider_id.to_string(),
+            signal,
+            open_browser: first,
+            expected_state: Mutex::new(None),
+            cancelled: AtomicBool::new(false),
+            code_delivered: AtomicBool::new(false),
         }
     }
 
-    fn on_prompt(
+    fn cancel(&self) -> Thrown {
+        self.cancelled.store(true, Ordering::Relaxed);
+        login_error(LOGIN_CANCELLED)
+    }
+
+    fn show_url(&self, url: &str, instructions: Option<&str>) {
+        self.surface.panel.auth_url(url, instructions);
+        if self.open_browser {
+            (self.surface.open_browser)(url);
+        }
+    }
+
+    /// One text prompt (the placeholder renders as an example).
+    async fn text_prompt(
         &self,
-        prompt: &OAuthPrompt,
-    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + '_>> {
-        let panel = self.panel.clone();
-        let message = prompt.message.clone();
-        let allow_empty = prompt.allow_empty;
-        let message = match &prompt.placeholder {
+        message: &str,
+        placeholder: Option<&str>,
+        style: PasteStyle,
+        allow_empty: bool,
+    ) -> Result<String, Thrown> {
+        let message = match placeholder {
             // TS `showPrompt` renders the placeholder as an example.
             Some(placeholder) => format!("{message} (e.g. {placeholder})"),
-            None => message,
+            None => message.to_string(),
         };
+        let panel = &self.surface.panel;
+        let answer = if allow_empty {
+            panel
+                .paste_prompt_allow_empty(&message, PastePromptTone::Text, style)
+                .await
+        } else {
+            panel
+                .paste_prompt(&message, PastePromptTone::Text, style)
+                .await
+        };
+        answer.ok_or_else(|| self.cancel())
+    }
+
+    /// The manual paste racing the browser callback: rejected pastes
+    /// notice and re-mount the field; the accepted one reaches the flow
+    /// as a `code=..&state=..` query.
+    async fn manual_code(&self, prompt_signal: Option<AbortSignal>) -> Result<String, Thrown> {
+        loop {
+            let paste = self.surface.panel.paste_prompt(
+                MANUAL_INPUT_PROMPT,
+                PastePromptTone::Muted,
+                PasteStyle::Visible,
+            );
+            let input = match &prompt_signal {
+                Some(signal) => tokio::select! {
+                    reason = signal.cancelled() => {
+                        // The callback ended the race (its code goes to
+                        // the exchange) unless the whole login aborted.
+                        if !self.signal.aborted() {
+                            self.code_delivered.store(true, Ordering::Relaxed);
+                        }
+                        return Err(reason);
+                    }
+                    input = paste => input,
+                },
+                None => paste.await,
+            };
+            let Some(input) = input else {
+                return Err(self.cancel());
+            };
+            let expected = self
+                .expected_state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            match verified_paste(&input, expected.as_deref()) {
+                Ok(accepted) => {
+                    self.code_delivered.store(true, Ordering::Relaxed);
+                    return Ok(url::form_urlencoded::Serializer::new(String::new())
+                        .append_pair("code", &accepted.code)
+                        .append_pair("state", &accepted.state)
+                        .finish());
+                }
+                // The warning row under the re-mounted paste field.
+                Err(rejected) => self.surface.panel.notice(rejected.to_string()),
+            }
+        }
+    }
+}
+
+/// A paste's code, checked against the login's state when one is known.
+fn verified_paste(
+    input: &str,
+    expected_state: Option<&str>,
+) -> Result<VerifiedAuthorization, RedirectInputError> {
+    let pasted = parse_redirect_input(input)?;
+    match expected_state {
+        Some(state) => pasted.verify_state(state),
+        None => Ok(VerifiedAuthorization {
+            state: pasted.state.unwrap_or_default(),
+            code: pasted.code,
+        }),
+    }
+}
+
+impl AuthInteraction for PanelAuthInteraction {
+    fn signal(&self) -> Option<AbortSignal> {
+        Some(self.signal.clone())
+    }
+
+    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<String, Thrown>> {
         Box::pin(async move {
-            if allow_empty {
-                // TS `OAuthPrompt.allowEmpty`: a blank submit is a valid
-                // answer (the Copilot domain prompt's "blank for
-                // github.com"). TS `showPrompt` renders the message as
-                // the text-coloured section title.
-                panel
-                    .paste_prompt_allow_empty(&message, PastePromptTone::Text, PasteStyle::Visible)
-                    .await
-            } else {
-                panel
-                    .paste_prompt(&message, PastePromptTone::Text, PasteStyle::Visible)
-                    .await
+            match prompt.kind {
+                // The panel has no picker: the flows list their default
+                // (the browser login) first.
+                AuthPromptKind::Select { message, options } => options
+                    .into_iter()
+                    .next()
+                    .map(|option| option.id)
+                    .ok_or_else(|| login_error(format!("{message} offers no option"))),
+                // A blank answer is the flow's to judge (the Copilot
+                // domain prompt's "blank for github.com").
+                AuthPromptKind::Text {
+                    message,
+                    placeholder,
+                } => {
+                    self.text_prompt(&message, placeholder.as_deref(), PasteStyle::Visible, true)
+                        .await
+                }
+                AuthPromptKind::Secret {
+                    message,
+                    placeholder,
+                } => {
+                    self.text_prompt(&message, placeholder.as_deref(), PasteStyle::Masked, false)
+                        .await
+                }
+                AuthPromptKind::ManualCode { .. } => self.manual_code(prompt.signal).await,
             }
         })
     }
 
-    fn on_progress(&self, message: &str) {
-        // TS `showLoginDialog`'s `onProgress` arm is unguarded chatter --
-        // a direct `dialog.showProgress` line: renders on every surface.
-        self.panel.progress_line(message);
+    fn notify(&self, event: AuthEvent) {
+        match event {
+            AuthEvent::AuthUrl { url, instructions } => {
+                *self
+                    .expected_state
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = authorization_state(&url);
+                self.show_url(&url, instructions.as_deref());
+            }
+            AuthEvent::DeviceCode {
+                user_code,
+                verification_uri,
+                ..
+            } => {
+                self.show_url(&verification_uri, Some(&format!("Enter code: {user_code}")));
+                if self.provider_id == GITHUB_COPILOT_PROVIDER_ID {
+                    // TS `showWaiting` (the dialog's own method, no
+                    // onboarding guard).
+                    self.surface.panel.waiting(COPILOT_WAITING);
+                }
+            }
+            // TS `showLoginDialog`'s `onProgress` arm is unguarded chatter:
+            // a direct `dialog.showProgress` line on every surface.
+            AuthEvent::Progress { message } | AuthEvent::Info { message, .. } => {
+                self.surface.panel.progress_line(message);
+            }
+        }
     }
+}
 
-    fn on_manual_code_input(
-        &self,
-    ) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send + '_>>> {
-        let panel = self.panel.clone();
-        Some(Box::pin(async move {
-            panel
-                .paste_prompt(
-                    MANUAL_INPUT_PROMPT,
-                    PastePromptTone::Muted,
-                    PasteStyle::Visible,
-                )
-                .await
+/// The `state` parameter of an authorization URL.
+fn authorization_state(url: &str) -> Option<String> {
+    url::Url::parse(url).ok().and_then(|url| {
+        url.query_pairs()
+            .find(|(key, _)| key == "state")
+            .map(|(_, value)| value.into_owned())
+    })
+}
+
+fn login_error(message: impl Into<String>) -> Thrown {
+    Arc::new(std::io::Error::other(message.into()))
+}
+
+/// Aborts the login when the pane exits, until dropped.
+struct CancelWatch(tokio::task::JoinHandle<()>);
+
+impl CancelWatch {
+    fn start(panel: AuthPanelHandle, controller: AbortController) -> Self {
+        CancelWatch(tokio::spawn(async move {
+            while !panel.cancelled() {
+                tokio::time::sleep(CANCEL_POLL_INTERVAL).await;
+            }
+            controller.abort(Some(login_error(LOGIN_CANCELLED)));
         }))
     }
+}
 
-    fn on_input_rejected(&self, reason: &str) {
-        // The warning row under the re-mounted paste field.
-        self.panel.notice(reason);
-    }
-
-    fn is_cancelled(&self) -> bool {
-        self.panel.cancelled()
+impl Drop for CancelWatch {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
 /// TS `showLoginDialog` + `completeProviderAuthentication`: run the
-/// Anthropic flow, store the credential, and report the TS status. A
-/// cancelled surface stays silent; a failed flow reports the TS error
-/// row.
-pub(crate) async fn run_anthropic_login(
+/// provider's flow on the panel, store the credential, and report the TS
+/// status. A cancelled surface stays silent; a failed flow reports the TS
+/// error row.
+pub(crate) async fn run_subscription_login(
     agent_dir: &Path,
+    provider_id: &str,
     provider_name: &str,
-    http: &dyn ProviderHttp,
-    ui: &dyn OAuthLoginUi,
+    flow: &dyn OAuthAuth,
+    surface: &LoginSurface,
 ) -> ProviderAuthOutcome {
-    let credentials = match login_anthropic(http, ui).await {
-        Ok(credentials) => credentials,
-        Err(message) if message == ANTHROPIC_LOGIN_CANCELLED => {
-            return ProviderAuthOutcome::Cancelled;
-        }
-        Err(message) => {
-            return ProviderAuthOutcome::Error(format!(
-                "Failed to login to {provider_name}: {message}"
-            ));
+    let controller = AbortController::new();
+    let _watch = CancelWatch::start(surface.panel.clone(), controller.clone());
+    let mut first = true;
+    let credential = loop {
+        let interaction = Arc::new(PanelAuthInteraction::new(
+            surface.clone(),
+            provider_id,
+            controller.signal(),
+            first,
+        ));
+        first = false;
+        let login = flow
+            .login(
+                ProviderAuthInteraction::new(
+                    Arc::clone(&interaction) as Arc<dyn AuthInteraction>,
+                    controller.signal(),
+                ),
+                None,
+            )
+            .await;
+        match login {
+            Ok(credential) => break credential,
+            Err(_)
+                if interaction.cancelled.load(Ordering::Relaxed)
+                    || surface.panel.cancelled()
+                    || controller.signal().aborted() =>
+            {
+                return ProviderAuthOutcome::Cancelled;
+            }
+            // The code reached the flow and the exchange failed: the same
+            // panel retries with a fresh login.
+            Err(error) if interaction.code_delivered.load(Ordering::Relaxed) => {
+                surface
+                    .panel
+                    .notice(exchange_retry_notice(&error.to_string()));
+            }
+            Err(error) => {
+                return ProviderAuthOutcome::Error(format!(
+                    "Failed to login to {provider_name}: {error}"
+                ));
+            }
         }
     };
     // The pane exited while the login ran: no credential write lands.
-    if ui.is_cancelled() {
+    if surface.panel.cancelled() {
         return ProviderAuthOutcome::Cancelled;
     }
     let mut auth = AuthStorage::create(agent_dir);
-    auth.set(
-        ANTHROPIC_PROVIDER_ID,
-        AuthCredential::Oauth {
-            access: credentials.access,
-            refresh: Some(credentials.refresh),
-            expires: credentials.expires,
-            account_id: None,
-            enterprise_url: None,
-            endpoint: None,
-            token_endpoint: None,
-            client_id: None,
-            resource: None,
-            issuer: None,
-        },
-    );
+    auth.set(provider_id, stored_oauth_credential(&credential));
     if let Some(error) = auth.drain_errors().pop() {
         return ProviderAuthOutcome::Error(format!(
             "Failed to login to {provider_name}: could not save the login: {error}"
         ));
     }
-    login_status(agent_dir, provider_name)
-}
-
-/// TS `showLoginDialog` + `completeProviderAuthentication` for GitHub
-/// Copilot: the credential stores the Copilot token as the access and
-/// the GitHub token as the refresh, with the enterprise domain riding
-/// the credential (TS `enterpriseUrl`).
-pub(crate) async fn run_github_copilot_login(
-    agent_dir: &Path,
-    provider_name: &str,
-    http: &dyn ProviderHttp,
-    ui: &dyn OAuthLoginUi,
-) -> ProviderAuthOutcome {
-    let credentials = match login_github_copilot(http, ui).await {
-        Ok(credentials) => credentials,
-        Err(message) if message == COPILOT_LOGIN_CANCELLED => {
-            return ProviderAuthOutcome::Cancelled;
-        }
-        Err(message) => {
-            return ProviderAuthOutcome::Error(format!(
-                "Failed to login to {provider_name}: {message}"
-            ));
-        }
-    };
-    if ui.is_cancelled() {
-        return ProviderAuthOutcome::Cancelled;
-    }
-    let mut auth = AuthStorage::create(agent_dir);
-    auth.set(
-        GITHUB_COPILOT_PROVIDER_ID,
-        AuthCredential::Oauth {
-            access: credentials.access,
-            refresh: Some(credentials.refresh),
-            expires: credentials.expires,
-            account_id: None,
-            enterprise_url: credentials.enterprise_url,
-            endpoint: None,
-            token_endpoint: None,
-            client_id: None,
-            resource: None,
-            issuer: None,
-        },
-    );
-    if let Some(error) = auth.drain_errors().pop() {
-        return ProviderAuthOutcome::Error(format!(
-            "Failed to login to {provider_name}: could not save the login: {error}"
-        ));
-    }
-    login_status(agent_dir, provider_name)
-}
-
-/// TS `showLoginDialog` + `completeProviderAuthentication` for xAI.
-pub(crate) async fn run_xai_login(
-    agent_dir: &Path,
-    provider_name: &str,
-    http: &dyn ProviderHttp,
-    ui: &dyn OAuthLoginUi,
-) -> ProviderAuthOutcome {
-    let credentials = match login_xai(http, ui).await {
-        Ok(credentials) => credentials,
-        Err(message) if message == XAI_LOGIN_CANCELLED => {
-            return ProviderAuthOutcome::Cancelled;
-        }
-        Err(message) => {
-            return ProviderAuthOutcome::Error(format!(
-                "Failed to login to {provider_name}: {message}"
-            ));
-        }
-    };
-    if ui.is_cancelled() {
-        return ProviderAuthOutcome::Cancelled;
-    }
-    let mut auth = AuthStorage::create(agent_dir);
-    auth.set(
-        XAI_PROVIDER_ID,
-        AuthCredential::Oauth {
-            access: credentials.access,
-            refresh: Some(credentials.refresh),
-            expires: credentials.expires,
-            account_id: None,
-            enterprise_url: None,
-            endpoint: None,
-            token_endpoint: None,
-            client_id: None,
-            resource: None,
-            issuer: None,
-        },
-    );
-    if let Some(error) = auth.drain_errors().pop() {
-        return ProviderAuthOutcome::Error(format!(
-            "Failed to login to {provider_name}: could not save the login: {error}"
-        ));
-    }
-    login_status(agent_dir, provider_name)
-}
-
-/// TS `completeProviderAuthentication`'s oauth status row.
-fn login_status(agent_dir: &Path, provider_name: &str) -> ProviderAuthOutcome {
     ProviderAuthOutcome::Status(format!(
         "Logged in to {provider_name}. Credentials saved to {}",
         agent_dir.join("auth.json").display()
@@ -278,419 +371,5 @@ fn login_status(agent_dir: &Path, provider_name: &str) -> ProviderAuthOutcome {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::{HashMap, VecDeque};
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-
-    use eukhe_ai::oauth::ProviderHttpResponse;
-
-    /// A scripted transport: queued responses per url (popped in
-    /// order; unknown urls fail the request).
-    struct ScriptedHttp {
-        queued: std::sync::Mutex<HashMap<String, VecDeque<ProviderHttpResponse>>>,
-    }
-
-    impl ScriptedHttp {
-        fn new() -> Self {
-            ScriptedHttp {
-                queued: std::sync::Mutex::new(HashMap::new()),
-            }
-        }
-
-        fn entry(status: u16, body: &str) -> ProviderHttpResponse {
-            ProviderHttpResponse {
-                status,
-                body: body.to_string(),
-            }
-        }
-
-        fn queue(self, url: &str, responses: Vec<ProviderHttpResponse>) -> Self {
-            self.queued.lock().unwrap().insert(
-                url.to_string(),
-                responses.into_iter().collect::<VecDeque<_>>(),
-            );
-            self
-        }
-    }
-
-    impl ProviderHttp for ScriptedHttp {
-        fn request(
-            &self,
-            request: eukhe_ai::oauth::ProviderHttpRequest,
-            _timeout_ms: u64,
-        ) -> Pin<Box<dyn Future<Output = Result<ProviderHttpResponse, String>> + Send + '_>>
-        {
-            let response = self
-                .queued
-                .lock()
-                .unwrap()
-                .get_mut(&request.url)
-                .and_then(std::collections::VecDeque::pop_front);
-            Box::pin(
-                async move { response.ok_or_else(|| format!("{} was not scripted", request.url)) },
-            )
-        }
-    }
-
-    /// One scripted prompt answer: a value (blank included -- TS
-    /// `allowEmpty`'s blank entry) or a cancel.
-    enum Answer {
-        Value(String),
-        Cancel,
-    }
-
-    /// A scripted surface: the prompt answer, the manual paste (answered
-    /// once; a re-prompt cancels), the rejections, and a shared cancel
-    /// flag.
-    struct ScriptedUi {
-        prompt: Answer,
-        manual: Option<String>,
-        manual_answered: AtomicBool,
-        rejections: std::sync::Mutex<Vec<String>>,
-        cancelled: Arc<AtomicBool>,
-    }
-
-    impl ScriptedUi {
-        fn new() -> Self {
-            ScriptedUi {
-                prompt: Answer::Value(String::new()),
-                manual: None,
-                manual_answered: AtomicBool::new(false),
-                rejections: std::sync::Mutex::new(Vec::new()),
-                cancelled: Arc::new(AtomicBool::new(false)),
-            }
-        }
-
-        fn prompt(mut self, answer: &str) -> Self {
-            self.prompt = Answer::Value(answer.to_string());
-            self
-        }
-
-        fn cancelled_prompt(mut self) -> Self {
-            self.prompt = Answer::Cancel;
-            self
-        }
-
-        fn flag(&self) -> Arc<AtomicBool> {
-            Arc::clone(&self.cancelled)
-        }
-    }
-
-    impl OAuthLoginUi for ScriptedUi {
-        fn on_auth(&self, _url: &str, _instructions: Option<&str>) {}
-
-        fn on_prompt(
-            &self,
-            _prompt: &OAuthPrompt,
-        ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + '_>> {
-            let answer = match &self.prompt {
-                Answer::Value(value) => Some(value.clone()),
-                Answer::Cancel => None,
-            };
-            Box::pin(std::future::ready(answer))
-        }
-
-        fn on_progress(&self, _message: &str) {}
-
-        fn on_manual_code_input(
-            &self,
-        ) -> Option<Pin<Box<dyn Future<Output = Option<String>> + Send + '_>>> {
-            let answer = self.manual.as_ref()?;
-            let first = !self.manual_answered.swap(true, Ordering::SeqCst);
-            Some(Box::pin(std::future::ready(first.then(|| answer.clone()))))
-        }
-
-        fn on_input_rejected(&self, reason: &str) {
-            self.rejections.lock().unwrap().push(reason.to_string());
-        }
-
-        fn is_cancelled(&self) -> bool {
-            self.cancelled.load(Ordering::Relaxed)
-        }
-    }
-
-    /// The Copilot happy flow's scripted endpoints.
-    fn copilot_http() -> ScriptedHttp {
-        ScriptedHttp::new()
-            .queue(
-                "https://github.com/login/device/code",
-                vec![ScriptedHttp::entry(
-                    200,
-                    r#"{"device_code":"dev-1","user_code":"ABCD-1234","verification_uri":"https://github.com/login/device","interval":0,"expires_in":900}"#,
-                )],
-            )
-            .queue(
-                "https://github.com/login/oauth/access_token",
-                vec![ScriptedHttp::entry(200, r#"{"access_token":"gh-token"}"#)],
-            )
-            .queue(
-                "https://api.github.com/copilot_internal/v2/token",
-                vec![ScriptedHttp::entry(
-                    200,
-                    r#"{"token":"copilot-token","expires_at":4000000000}"#,
-                )],
-            )
-    }
-
-    /// The xAI happy flow's scripted endpoints.
-    fn xai_http() -> ScriptedHttp {
-        ScriptedHttp::new()
-            .queue(
-                "https://auth.x.ai/oauth2/device/code",
-                vec![ScriptedHttp::entry(
-                    200,
-                    r#"{"device_code":"dev-1","user_code":"GROK-1234","verification_uri":"https://auth.x.ai/activate","interval":0,"expires_in":900}"#,
-                )],
-            )
-            .queue(
-                "https://auth.x.ai/oauth2/token",
-                vec![ScriptedHttp::entry(
-                    200,
-                    r#"{"access_token":"grok-access","refresh_token":"grok-refresh","expires_in":3600}"#,
-                )],
-            )
-    }
-
-    fn agent_dir(dir: &tempfile::TempDir) -> std::path::PathBuf {
-        let agent = dir.path().join("agent");
-        std::fs::create_dir_all(&agent).expect("agent dir");
-        agent
-    }
-
-    #[tokio::test]
-    async fn the_copilot_login_stores_the_credential_and_reports_the_ts_status() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let agent = agent_dir(&dir);
-        let http = copilot_http();
-        let ui = ScriptedUi::new().prompt("");
-        match run_github_copilot_login(&agent, "GitHub Copilot", &http, &ui).await {
-            ProviderAuthOutcome::Status(message) => {
-                assert_eq!(
-                    message,
-                    format!(
-                        "Logged in to GitHub Copilot. Credentials saved to {}",
-                        agent.join("auth.json").display()
-                    )
-                );
-            }
-            other => panic!("expected the logged-in status, got {other:?}"),
-        }
-        // The packaged auth.json wire shape: the Copilot token as the
-        // access, the GitHub token as the refresh.
-        let document: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(agent.join("auth.json")).unwrap())
-                .unwrap();
-        let stored = &document["github-copilot"];
-        assert_eq!(stored["type"], "oauth");
-        assert_eq!(stored["access"], "copilot-token");
-        assert_eq!(stored["refresh"], "gh-token");
-        // The stored credential resolves as the provider's api key (the
-        // subscription models become selectable).
-        let mut auth = AuthStorage::create(&agent);
-        assert_eq!(
-            auth.get_api_key("github-copilot"),
-            Some("copilot-token".to_string())
-        );
-    }
-
-    #[tokio::test]
-    async fn the_xai_login_stores_the_credential_and_reports_the_ts_status() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let agent = agent_dir(&dir);
-        let http = xai_http();
-        let ui = ScriptedUi::new();
-        let before_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(i64::MAX, |elapsed| elapsed.as_millis() as i64);
-        match run_xai_login(&agent, "xAI (Grok)", &http, &ui).await {
-            ProviderAuthOutcome::Status(message) => {
-                assert_eq!(
-                    message,
-                    format!(
-                        "Logged in to xAI (Grok). Credentials saved to {}",
-                        agent.join("auth.json").display()
-                    )
-                );
-            }
-            other => panic!("expected the logged-in status, got {other:?}"),
-        }
-        let document: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(agent.join("auth.json")).unwrap())
-                .unwrap();
-        let stored = &document["xai"];
-        assert_eq!(stored["type"], "oauth");
-        assert_eq!(stored["access"], "grok-access");
-        assert_eq!(stored["refresh"], "grok-refresh");
-        // The expiry is `now + expires_in * 1000 - 5 minutes` (TS's
-        // convention).
-        let expires = stored["expires"].as_i64().expect("the expiry is numeric");
-        let after_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
-        assert!(
-            expires >= before_ms + 3_600_000 - 300_000 && expires <= after_ms + 3_600_000 - 300_000,
-            "the expiry lands one hour minus the skew out: {expires} vs {before_ms}..{after_ms}"
-        );
-        let mut auth = AuthStorage::create(&agent);
-        assert_eq!(auth.get_api_key("xai"), Some("grok-access".to_string()));
-    }
-
-    /// The Anthropic login's run: the flow binds its registered callback
-    /// port. Skip when another process holds the port -- the flow-level
-    /// tests cover the race; this test covers the store's wire shape.
-    #[tokio::test]
-    async fn the_anthropic_login_stores_the_credential_and_reports_the_ts_status() {
-        let Ok(probe) = std::net::TcpListener::bind(("127.0.0.1", 53_692)) else {
-            return; // the registered port is busy: this run cannot stage it.
-        };
-        drop(probe);
-        let dir = tempfile::tempdir().expect("temp dir");
-        let agent = agent_dir(&dir);
-        let http = ScriptedHttp::new().queue(
-            "https://platform.claude.com/v1/oauth/token",
-            vec![ScriptedHttp::entry(
-                200,
-                r#"{"access_token":"anthropic-access","refresh_token":"anthropic-refresh","expires_in":3600}"#,
-            )],
-        );
-        let mut ui = ScriptedUi::new().cancelled_prompt();
-        ui.manual = Some("http://localhost:53692/callback?code=anthropic-code".to_string());
-        match run_anthropic_login(&agent, "Anthropic (Claude Pro/Max)", &http, &ui).await {
-            ProviderAuthOutcome::Status(message) => {
-                assert_eq!(
-                    message,
-                    format!(
-                        "Logged in to Anthropic (Claude Pro/Max). Credentials saved to {}",
-                        agent.join("auth.json").display()
-                    )
-                );
-            }
-            other => panic!("expected the logged-in status, got {other:?}"),
-        }
-        let document: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(agent.join("auth.json")).unwrap())
-                .unwrap();
-        let stored = &document["anthropic"];
-        assert_eq!(stored["type"], "oauth");
-        assert_eq!(stored["access"], "anthropic-access");
-        assert_eq!(stored["refresh"], "anthropic-refresh");
-        assert!(stored.get("enterpriseUrl").is_none());
-        let mut auth = AuthStorage::create(&agent);
-        assert_eq!(
-            auth.get_api_key("anthropic"),
-            Some("anthropic-access".to_string())
-        );
-    }
-
-    /// A failed Anthropic exchange is a notice on the same panel, not an
-    /// error row: the login re-prompts, and the cancelled re-prompt ends
-    /// it silently without a credential.
-    #[tokio::test]
-    async fn a_failed_anthropic_exchange_notices_and_re_prompts() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let agent = agent_dir(&dir);
-        let http = ScriptedHttp::new().queue(
-            "https://platform.claude.com/v1/oauth/token",
-            vec![ScriptedHttp::entry(400, "{\"error\":\"invalid_grant\"}\n")],
-        );
-        let mut ui = ScriptedUi::new().cancelled_prompt();
-        ui.manual = Some("http://localhost:53692/callback?code=anthropic-code".to_string());
-        assert_eq!(
-            run_anthropic_login(&agent, "Anthropic (Claude Pro/Max)", &http, &ui).await,
-            ProviderAuthOutcome::Cancelled
-        );
-        let rejections = ui.rejections.lock().unwrap().clone();
-        let notice = rejections
-            .iter()
-            .find(|reason| reason.starts_with("Login did not complete: Token exchange"))
-            .expect("the failed exchange is a notice");
-        assert!(
-            notice.contains("status=400") && notice.contains(r#"body={"error":"invalid_grant"}"#),
-            "{notice}"
-        );
-        assert!(!agent.join("auth.json").exists());
-    }
-
-    /// A cancelled pane never receives the credential (#2770: no write
-    /// after the exit) -- the regression test for the abort-cleanup
-    /// contract.
-    #[tokio::test]
-    async fn a_cancelled_pane_writes_no_credential() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let agent = agent_dir(&dir);
-        let http = copilot_http();
-        let ui = ScriptedUi::new().prompt("");
-        ui.flag().store(true, Ordering::Relaxed);
-        assert_eq!(
-            run_github_copilot_login(&agent, "GitHub Copilot", &http, &ui).await,
-            ProviderAuthOutcome::Cancelled
-        );
-        assert!(
-            !agent.join("auth.json").exists(),
-            "a cancelled pane lands no credential"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_failed_flow_reports_the_ts_error_row() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let agent = agent_dir(&dir);
-        // Nothing scripted: the device request fails.
-        let http = ScriptedHttp::new();
-        let ui = ScriptedUi::new().prompt("");
-        assert_eq!(
-            run_github_copilot_login(&agent, "GitHub Copilot", &http, &ui).await,
-            ProviderAuthOutcome::Error(
-                "Failed to login to GitHub Copilot: GitHub device code request failed: \
-                 https://github.com/login/device/code was not scripted"
-                    .to_string()
-            )
-        );
-        // The xAI error row names its endpoint.
-        let http = ScriptedHttp::new();
-        let ui = ScriptedUi::new();
-        assert_eq!(
-            run_xai_login(&agent, "xAI (Grok)", &http, &ui).await,
-            ProviderAuthOutcome::Error(
-                "Failed to login to xAI (Grok): xAI OAuth request failed: \
-                 https://auth.x.ai/oauth2/device/code was not scripted. Check your connection \
-                 and try again."
-                    .to_string()
-            )
-        );
-    }
-
-    /// The credential round-trip: the flows' stored credentials reload,
-    /// resolve while unexpired, and refresh at expiry through the
-    /// default provider integration (the packaged-build path: the same
-    /// `AuthStorage::create` every surface uses).
-    #[tokio::test]
-    async fn the_stored_credentials_round_trip_and_refresh() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let agent = agent_dir(&dir);
-        let http = xai_http();
-        let ui = ScriptedUi::new();
-        run_xai_login(&agent, "xAI (Grok)", &http, &ui).await;
-        // Reload through the default integration (the daemon's path):
-        // an unexpired credential resolves its access token.
-        let mut auth = AuthStorage::create(&agent);
-        assert_eq!(auth.get_api_key("xai"), Some("grok-access".to_string()));
-        // An expired credential refreshes through the integration's
-        // scripted endpoint and the fresh token resolves.
-        let mut data = auth.get_all();
-        if let Some(document) = data.0.get_mut("xai") {
-            document["expires"] = serde_json::json!(1);
-        }
-        let mut expired = AuthStorage::in_memory_without_env(
-            &data,
-            Arc::new(eukhe_core::auth::ProviderOAuth::with_transports(
-                Arc::new(eukhe_ai::oauth::ReqwestCodexHttp::new()),
-                Arc::new(xai_http()),
-            )),
-        );
-        assert_eq!(expired.get_api_key("xai"), Some("grok-access".to_string()));
-    }
-}
+#[path = "subscription_login_tests.rs"]
+mod tests;

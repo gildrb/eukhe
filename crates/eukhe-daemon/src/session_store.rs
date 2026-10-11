@@ -45,7 +45,7 @@ pub(crate) use index::new_entry_id;
 // in-memory create) moved to the child module at the same tree position
 // (session_store::read); the facade re-exports keep the crate paths
 // stable (session_scan.rs, rlm_ledger.rs, session_archive.rs,
-// agent_engine/model.rs, worker/tests.rs).
+// worker/tests.rs).
 mod read;
 
 pub use read::{
@@ -182,15 +182,10 @@ pub(crate) struct SessionWindow {
     message_count: usize,
     first_message: Option<String>,
     loaded_entries: usize,
-    has_thinking_level: bool,
-    model: Option<(String, String)>,
     /// The model in effect at the retained-window boundary (the newest
     /// `model_change` in the discarded prefix): the per-model usage fold's
-    /// timeline seed — `model` above is the leaf's model, not the
-    /// boundary's.
+    /// timeline seed.
     boundary_model: Option<(String, String)>,
-    thinking_level: String,
-    service_tier: Option<eukhe_types::ai::ServiceTier>,
     retained_ids: std::collections::HashSet<String>,
     /// The discarded prefix's on-chain spend (attribution-folded — the
     /// window walk's older-path stats): the active stats add it when no

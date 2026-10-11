@@ -29,8 +29,8 @@ use super::observe;
 use super::observe::semantic_edges::{wrap_stream_fn, wrap_stream_simple_fn, SemanticEdgeRecorder};
 use super::registry::create_eukhe_registry;
 use super::settings::EukheSettings;
+use crate::kernel::python_skills::kernel_python_skills;
 use crate::resources::{load_resources, LoadedResources, ResourceLoaderOptions};
-use crate::session_engine::runtime_wiring::kernel_python_skills;
 use crate::settings::SettingsManager;
 
 /// Why a session could not open.
@@ -192,7 +192,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     let ledger_path = storage_dir.as_deref().and_then(|dir| {
         observe::semantic_edges::semantic_edge_ledger_path(
             parent.as_ref().and(dir.parent()),
-            crate::session_engine::harness_digest::session_artifact_dir_for_log(dir).as_deref(),
+            session_artifact_dir_for_log(dir).as_deref(),
         )
     });
     let semantic_edges = Arc::new(observe::semantic_edges::SemanticEdgeRecorder::open(
@@ -566,6 +566,17 @@ async fn close_after_failure(harness: &Harness, cx: &Context) {
     if let Err(error) = harness.close(cx).await {
         tracing::warn!(error = %error, "closing a session that failed to open");
     }
+}
+
+/// Session artifact directory implied by a conversation-log path
+/// (`dirname(dirname(file))/session-artifacts/<id>`, TS
+/// `getSessionArtifactPathForFile`); used when the caller owns persistence
+/// outside the session manager (the daemon worker's in-memory session).
+#[must_use]
+pub fn session_artifact_dir_for_log(log: &std::path::Path) -> Option<std::path::PathBuf> {
+    let id = log.file_stem()?.to_string_lossy().to_string();
+    let artifacts_root = log.parent()?.parent()?.join("session-artifacts");
+    Some(artifacts_root.join(id))
 }
 
 #[cfg(test)]

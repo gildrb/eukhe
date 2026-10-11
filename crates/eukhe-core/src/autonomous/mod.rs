@@ -444,30 +444,6 @@ pub fn is_autonomous_continuation(text: &str) -> bool {
     text.starts_with("[autonomous-continuation]") || text.starts_with("[autonomous-continuation: ")
 }
 
-/// The continuation row an in-run continuation hook returns to the agent
-/// loop (TS `createAutonomousContinuationMessage`: `{ role: "user", content:
-/// [{ type: "text", text }], timestamp }`): the loop emits and persists the
-/// row through its own message events, so the surface that mints it owns no
-/// emission of its own.
-#[must_use]
-pub fn autonomous_continuation_loop_row(
-    text: &str,
-    timestamp: u64,
-) -> eukhe_agent::types::AgentMessage {
-    eukhe_agent::types::AgentMessage::Standard(eukhe_agent::types::Message::User(
-        eukhe_agent::types::UserMessage {
-            content: eukhe_agent::types::UserContent::Parts(vec![
-                eukhe_agent::types::UserPart::Text(eukhe_agent::types::TextContent {
-                    text: text.to_string(),
-                    text_signature: None,
-                    cache_breakpoint: None,
-                }),
-            ]),
-            timestamp: timestamp as i64,
-        },
-    ))
-}
-
 /// Keep-alive message delivered while subagents are still active.
 #[must_use]
 pub fn create_autonomous_subagent_keep_alive_text(state: &AutonomousRuntimeState) -> String {

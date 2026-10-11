@@ -234,12 +234,10 @@ async fn the_mutation_hook_withdraws_a_dropped_heartbeats_queued_fire() {
     let fired = fire(&worker, job.clone());
     wait_inbox(&worker, 2).await;
     let hook = worker.scheduled.mutation_hook();
-    hook(
-        eukhe_core::session_engine::host_requests::RlmHeartbeatMutation {
-            job,
-            drop_queued: true,
-        },
-    )
+    hook(eukhe_core::cron::rlm_heartbeat::RlmHeartbeatMutation {
+        job,
+        drop_queued: true,
+    })
     .await;
     assert_eq!(worker_inbox(&worker).await, Vec::<(String, String)>::new());
     assert_eq!(

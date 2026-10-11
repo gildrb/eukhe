@@ -54,17 +54,17 @@ fn passes_the_packer_gates() {
         .map(|m| (m.provider.as_str(), m.api.as_str(), m.base_url.as_str()))
         .collect();
     assert!(tuples.len() >= 42, "packer gate: >=42 transport tuples");
-    // Compiled table agrees entry-by-entry with the fixture's tuples.
-    let compiled: std::collections::HashSet<(String, String, String)> =
-        transports::compiled_models()
-            .iter()
-            .map(|m| (m.provider.clone(), m.api.clone(), m.base_url.clone()))
+    // Compiled transports (the pi-ai table plus the supplemental
+    // transports) agree entry-by-entry with the fixture's tuples.
+    let compiled: std::collections::HashSet<(&str, &str, &str)> =
+        transports::compiled_transport_tuples()
+            .into_iter()
             .collect();
     assert!(
         parsed.models.iter().all(|m| compiled.contains(&(
-            m.provider.clone(),
-            m.api.clone(),
-            m.base_url.clone()
+            m.provider.as_str(),
+            m.api.as_str(),
+            m.base_url.as_str()
         ))),
         "fixture is compiled-transport-shaped"
     );

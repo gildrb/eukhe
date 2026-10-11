@@ -365,7 +365,12 @@ fn worker_roster_delta_requires_authentication() {
 /// `rlm_children` e2e harness: a scripted child over the supervisor link.
 #[tokio::test]
 async fn rlm_children_key_the_roster_by_parent_path_and_child_id() {
-    use eukhe_core::session_engine::rlm_host::{RlmSpawnRequest, RlmSubagentHost};
+    use eukhe_core::durable::children::{
+        RlmChildDeleteRequest, RlmChildIdentity, RlmChildPromptRequest, RlmChildSpawnRequest,
+        RlmSubagentHost,
+    };
+    const CHILD_ID: &str = "sub-0000000a";
+    const CHILD_SESSION_ID: &str = "0a000000-0000-4000-8000-00000000000a";
     use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
 
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -438,17 +443,33 @@ async fn rlm_children_key_the_roster_by_parent_path_and_child_id() {
         child_script: Some(script.to_string_lossy().to_string()),
     });
 
-    let handle = children
-        .spawn(RlmSpawnRequest {
+    let child = children
+        .spawn(RlmChildSpawnRequest {
+            idempotency_key: "rlm:1:spawn".to_string(),
+            child: RlmChildIdentity {
+                rlm_child_id: CHILD_ID.to_string(),
+                session_id: CHILD_SESSION_ID.to_string(),
+            },
+            name: "child-a".to_string(),
             prompt: "ship the roster lane".to_string(),
-            name: Some("child-a".to_string()),
             model: None,
             thinking: None,
-            cell_source_code: None,
+            depth: 1,
+            max_depth: 2,
             spawned_by_request_id: None,
+            parent_task_id: "1".to_string(),
         })
         .await
         .expect("spawn child");
+    children
+        .prompt(RlmChildPromptRequest {
+            idempotency_key: "rlm:1:prompt".to_string(),
+            session_id: child.session_id.clone(),
+            rlm_child_id: CHILD_ID.to_string(),
+            prompt: "ship the roster lane".to_string(),
+        })
+        .await
+        .expect("prompt child");
 
     // The roster snapshot keys the child `parentSessionPath#childId`.
     client.send_command("r1", &serde_json::json!({ "type": "roster_subscribe" }));
@@ -457,7 +478,7 @@ async fn rlm_children_key_the_roster_by_parent_path_and_child_id() {
         subscribed["success"], true,
         "subscribe failed: {subscribed}"
     );
-    let child_agent_id = format!("{}#{}", parent_file.to_string_lossy(), handle.rlm_child_id);
+    let child_agent_id = format!("{}#{CHILD_ID}", parent_file.to_string_lossy());
     let roster = subscribed["data"]["roster"]
         .as_array()
         .cloned()
@@ -468,7 +489,7 @@ async fn rlm_children_key_the_roster_by_parent_path_and_child_id() {
         .unwrap_or_else(|| panic!("child keyed by parent path: {roster:?}"));
     let summary = &child_entry["summary"];
     assert_eq!(summary["runtimeKind"], "subagent");
-    assert_eq!(summary["rlmChildId"], handle.rlm_child_id);
+    assert_eq!(summary["rlmChildId"], CHILD_ID);
     assert_eq!(
         summary["parentSessionPath"],
         parent_file.to_string_lossy().to_string()
@@ -527,7 +548,11 @@ async fn rlm_children_key_the_roster_by_parent_path_and_child_id() {
 
     // Deleting the child pushes the removal keyed by the same agent id.
     children
-        .delete_subagent(handle.rlm_child_id.clone())
+        .delete(RlmChildDeleteRequest {
+            idempotency_key: "rlm:1:delete".to_string(),
+            session_id: CHILD_SESSION_ID.to_string(),
+            rlm_child_id: CHILD_ID.to_string(),
+        })
         .await
         .expect("delete child");
     let removal = client_b.next_roster_update(|line| {

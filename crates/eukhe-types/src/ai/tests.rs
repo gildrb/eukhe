@@ -197,3 +197,20 @@ fn user_content_text_helper() {
     .unwrap();
     assert_eq!(content.text(), "a b c");
 }
+
+/// Token sums saturate at `u64::MAX` (JS `Infinity`): an overflowing
+/// record must never panic the whole-file readers that fold totals.
+#[test]
+fn add_usage_saturates_token_totals() {
+    let mut total = Usage {
+        input: u64::MAX,
+        output: 1,
+        ..Default::default()
+    };
+    total.add_usage(&Usage {
+        input: 10,
+        ..Default::default()
+    });
+    assert_eq!(total.input, u64::MAX);
+    assert_eq!(total.output, 1);
+}

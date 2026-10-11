@@ -97,7 +97,10 @@ fn get_base_url_from_token(token: &str) -> Option<String> {
     Some(format!("https://{api_host}"))
 }
 
-fn get_github_copilot_base_url(token: Option<&str>, enterprise_domain: Option<&str>) -> String {
+/// The Copilot API base URL for a token (its `proxy-ep` endpoint), else
+/// the enterprise domain's endpoint, else the individual endpoint.
+#[must_use]
+pub fn get_github_copilot_base_url(token: Option<&str>, enterprise_domain: Option<&str>) -> String {
     // If we have a token, extract the base URL from proxy-ep.
     if let Some(url) = token
         .filter(|token| !token.is_empty())

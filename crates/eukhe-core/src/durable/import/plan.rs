@@ -28,10 +28,10 @@ use crate::durable::entries::{
     CustomStateData, BRANCH_SUMMARY_ENTRY, COMPACTION_SUMMARY_ENTRY, CUSTOM_ENTRY,
     CUSTOM_STATE_ENTRY,
 };
+use crate::durable::messages::convert_to_llm;
+use crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE;
 use crate::session::tree::SessionTree;
 use crate::session::{migrate_to_current_version, parse_session_entries, timestamp_to_millis};
-use crate::session_engine::headless::HARNESS_DIGEST_CUSTOM_TYPE;
-use crate::session_engine::messages::convert_to_llm;
 
 /// Where an imported entry's context range starts (`EntryRecord.head`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

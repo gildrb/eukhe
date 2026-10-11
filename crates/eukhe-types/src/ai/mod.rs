@@ -493,6 +493,46 @@ pub struct Usage {
     pub cost: UsageCost,
 }
 
+impl Usage {
+    /// Sum one wire call's billed usage into this total (TS
+    /// `addAssistantUsage`). Token fields saturate at `u64::MAX`: JS numbers
+    /// saturate to `Infinity` rather than wrapping, and one overflowing
+    /// persisted record must never panic a whole-file reader.
+    pub fn add_usage(&mut self, usage: &Usage) {
+        self.input = self.input.saturating_add(usage.input);
+        self.output = self.output.saturating_add(usage.output);
+        self.cache_read = self.cache_read.saturating_add(usage.cache_read);
+        self.cache_write = self.cache_write.saturating_add(usage.cache_write);
+        self.total_tokens = self.total_tokens.saturating_add(usage.total_tokens);
+        let add_cost =
+            |left: JsNumber, right: JsNumber| JsNumber::from(left.as_f64() + right.as_f64());
+        self.cost.input = add_cost(self.cost.input, usage.cost.input);
+        self.cost.output = add_cost(self.cost.output, usage.cost.output);
+        self.cost.cache_read = add_cost(self.cost.cache_read, usage.cost.cache_read);
+        self.cost.cache_write = add_cost(self.cost.cache_write, usage.cost.cache_write);
+        self.cost.total = add_cost(self.cost.total, usage.cost.total);
+    }
+
+    /// Remove one usage block from this total, clamping every field at zero
+    /// (TS `subtractAssistantUsage`: "Remove a previously added usage,
+    /// clamping at zero to absorb attribution drift").
+    pub fn subtract_usage(&mut self, usage: &Usage) {
+        self.input = self.input.saturating_sub(usage.input);
+        self.output = self.output.saturating_sub(usage.output);
+        self.cache_read = self.cache_read.saturating_sub(usage.cache_read);
+        self.cache_write = self.cache_write.saturating_sub(usage.cache_write);
+        self.total_tokens = self.total_tokens.saturating_sub(usage.total_tokens);
+        let sub_cost = |left: JsNumber, right: JsNumber| {
+            JsNumber::from((left.as_f64() - right.as_f64()).max(0.0))
+        };
+        self.cost.input = sub_cost(self.cost.input, usage.cost.input);
+        self.cost.output = sub_cost(self.cost.output, usage.cost.output);
+        self.cost.cache_read = sub_cost(self.cost.cache_read, usage.cost.cache_read);
+        self.cost.cache_write = sub_cost(self.cost.cache_write, usage.cost.cache_write);
+        self.cost.total = sub_cost(self.cost.total, usage.cost.total);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum StopReason {

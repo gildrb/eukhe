@@ -10,8 +10,7 @@
 //! of outcome, so a failure is not silently re-run). A crash during the
 //! run leaves the request pending and the hook reruns it on resume.
 //!
-//! Port of `session_engine::refine::execute_refinement_with_rows` over the
-//! durable conversation: the audit row is a `eukhe.custom-state` entry
+//! The old engine's refinement flow over the durable conversation: the audit row is a `eukhe.custom-state` entry
 //! (`eukhe.refinement`), the outcome and notice rows are `eukhe.custom`
 //! entries. [`refine_now`] is the user `/refine` path over the same run.
 
@@ -34,6 +33,7 @@ use super::super::HostDeps;
 use super::boundary::{boundary_state, PendingRefine, BOUNDARY_DOC};
 use super::CustomNotice;
 use super::RlmRuntime;
+use crate::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use crate::refinement::executor::{
     apply_refinement_plan, plan_refinement, RefineOptions as CoreRefineOptions, RefinementPlan,
     RefinerFn,
@@ -44,9 +44,11 @@ use crate::refinement::{
     merge_harness_states, merge_refinement_history, update_harness_state, HarnessMemory,
     HarnessScope, RefinementResult,
 };
-use crate::session_engine::refine::{
-    create_refinement_notice_message, create_refinement_outcome_message, RefinementSource,
-    REFINEMENT_AUDIT_CUSTOM_TYPE,
+
+mod rows;
+pub use rows::{
+    auto_refine_instructions, create_refinement_notice_message, create_refinement_outcome_message,
+    AutoRefineGates, RefinementSource, AUTO_REFINE_COMPACT_REASON,
 };
 
 /// A user-requested refinement (`/refine [--global] [instructions]`,

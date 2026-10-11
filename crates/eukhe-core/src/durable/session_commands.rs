@@ -1,7 +1,6 @@
 //! Session slash commands on the durable session: `/compact`, `/refine`,
-//! `/goal`, and `/autonomous` (port of `session_engine::session_commands`
-//! and the session half of `session_engine::slash_commands`). Shared by
-//! print mode, rpc mode, and the daemon worker's prompt path.
+//! `/goal`, and `/autonomous`, including the `/refine` argument parsing.
+//! Shared by print mode, rpc mode, and the daemon worker's prompt path.
 //!
 //! The rows are `eukhe.custom` entries committed on the command's
 //! conversation: the `session_slash_command` echo first (durable whether the
@@ -22,14 +21,13 @@ use super::goals::{
     autonomous_state, clear_goal, goal_state, pause_goal, resume_goal, set_autonomous, start_goal,
     AutonomousChange,
 };
+use super::messages::{
+    SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
+};
 use super::rlm::{refine_now, RefineRequest};
 use super::EukheSession;
 use crate::autonomous::{now_millis, AgentAutonomousStatus, AUTONOMOUS_STATUS_CUSTOM_TYPE};
 use crate::goals::{GoalState, GoalStatus};
-use crate::session_engine::messages::{
-    SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
-};
-use crate::session_engine::slash_commands::parse_refine_command_options;
 use crate::slash_command_args::{
     format_autonomous_status, parse_autonomous_command, parse_goal_command, AutonomousCommand,
     GoalCommand,
@@ -37,6 +35,57 @@ use crate::slash_command_args::{
 
 #[cfg(test)]
 mod tests;
+
+/// Parsed `/refine` options.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct RefineCommandOptions {
+    pub(crate) instructions: Option<String>,
+    pub(crate) rollback_id: Option<String>,
+    pub(crate) global: bool,
+}
+
+/// Parse `/refine [--global] [instructions]` and `/refine rollback <id>`.
+///
+/// # Errors
+///
+/// Returns a usage-error string when `rollback` is given without a
+/// refinement id.
+pub(crate) fn parse_refine_command_options(args: &str) -> Result<RefineCommandOptions, String> {
+    let mut rest = args.trim();
+    let mut global = false;
+    if rest.starts_with("--global") && matches!(rest.as_bytes().get(8), None | Some(b' ' | b'\t')) {
+        global = true;
+        rest = rest["--global".len()..].trim();
+    }
+    if rest == "rollback" {
+        return Err("Usage: /refine rollback <refinement-id>".to_string());
+    }
+    if let Some(tail) = rest.strip_prefix("rollback") {
+        if tail.starts_with('\t') || tail.starts_with(' ') {
+            let mut rollback_id = rest["rollback".len()..].trim().to_string();
+            if rollback_id == "--global" {
+                return Err("Usage: /refine rollback <refinement-id>".to_string());
+            }
+            if rollback_id.ends_with(" --global") {
+                global = true;
+                rollback_id = rollback_id.trim_end_matches(" --global").trim().to_string();
+            }
+            if rollback_id.is_empty() {
+                return Err("Usage: /refine rollback <refinement-id>".to_string());
+            }
+            return Ok(RefineCommandOptions {
+                instructions: None,
+                rollback_id: Some(rollback_id),
+                global,
+            });
+        }
+    }
+    Ok(RefineCommandOptions {
+        instructions: (!rest.is_empty()).then(|| rest.to_string()),
+        rollback_id: None,
+        global,
+    })
+}
 
 /// The session-executed commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

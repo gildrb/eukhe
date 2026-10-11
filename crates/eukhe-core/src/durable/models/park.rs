@@ -1,5 +1,5 @@
 //! Provider quota park on the durable path: the pure decision logic of the
-//! old engine's `session_engine/provider_park.rs` (TS #2375 park mechanism)
+//! old engine's `provider_park.rs` (TS #2375 park mechanism)
 //! over the pi-ai assistant message, plus the durable park state document.
 //!
 //! A quota failure (the `provider_stream_failure` diagnostic's `rate_limit`

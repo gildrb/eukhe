@@ -5,6 +5,7 @@
 //! `extension(deps: &Arc<HostDeps>) -> Arc<Extension>`; `registry` installs
 //! them in order.
 
+pub mod branch_summary;
 pub mod children;
 pub mod compaction;
 mod deps;
@@ -16,6 +17,7 @@ mod fork;
 pub mod goals;
 mod import;
 mod main_conversation;
+pub mod messages;
 mod models;
 pub mod observe;
 mod open;
@@ -24,7 +26,7 @@ mod prompt;
 mod registry;
 mod retry_outcome;
 pub mod rlm;
-mod session_commands;
+pub(crate) mod session_commands;
 mod settings;
 
 pub use deps::{
@@ -56,7 +58,7 @@ pub use models::provider::{ProviderRuntime, ProviderWireEvent};
 pub use models::{
     compose_models_json, create_models, resolve_session_model, ModelsError, ResolvedModel,
 };
-pub use open::{open_session, EukheSession, OpenError};
+pub use open::{open_session, session_artifact_dir_for_log, EukheSession, OpenError};
 pub use prompt::{section_keys, PROMPT_EXTENSION};
 pub use registry::create_eukhe_registry;
 pub use session_commands::{

@@ -431,11 +431,10 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     // configured model comes from a models.json file, so the ambient
     // catalog cannot widen a test's scope. The supervisor strips these from
     // the session workers it spawns too (they inherit its environment).
-    for provider in eukhe_ai::models_generated::get_providers() {
-        if let Some(vars) = eukhe_ai::env_api_keys::get_api_key_env_vars(provider) {
-            for var in vars {
-                command.env_remove(var);
-            }
+    for provider in eukhe_pi_ai::providers::all::builtin_providers() {
+        let set = eukhe_pi_ai::env_api_keys::find_env_keys(&provider.id, None);
+        for var in set.unwrap_or_default() {
+            command.env_remove(var);
         }
     }
     command.env_remove("PRIME_TEAM_ID");

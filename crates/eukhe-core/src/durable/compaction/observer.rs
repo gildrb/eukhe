@@ -48,7 +48,7 @@ use serde_json::Value;
 
 use super::super::{custom_entry_draft, OpenedSession};
 use super::{CompactionRuntime, HostDeps, COMPACTION_ENTRY_KIND};
-use crate::session_engine::messages::{CompactionOutcomeKind, CompactionOutcomeReason};
+use crate::durable::messages::{CompactionOutcomeKind, CompactionOutcomeReason};
 
 /// The reported failure of a run whose one overflow compaction did not make
 /// the retried request fit (the old engine's `_checkCompaction` text).
@@ -557,12 +557,11 @@ async fn notice_surviving_kernel(deps: &HostDeps, conversation: &Conversation, c
     let Some(kernel) = pool.existing(conversation.id()) else {
         return;
     };
-    let Some(content) =
-        crate::session_engine::ipython_state::capture_notice_content(&kernel.provisioner).await
+    let Some(content) = super::ipython_state::capture_notice_content(&kernel.provisioner).await
     else {
         return;
     };
-    let row = crate::session_engine::ipython_state::notice_message(content);
+    let row = super::ipython_state::notice_message(content);
     let Some(content) = pi_user_content(&row.content).ok() else {
         return;
     };

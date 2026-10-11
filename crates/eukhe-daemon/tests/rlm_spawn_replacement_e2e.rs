@@ -55,7 +55,10 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use eukhe_core::session_engine::rlm_host::{RlmSpawnRequest, RlmSubagentHost};
+use eukhe_core::durable::children::{
+    RlmChildIdentity, RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest,
+    RlmChildWaitRequest, RlmSubagentHost,
+};
 use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
 use eukhe_daemon::supervisor_link::SupervisorLink;
 use serde_json::{json, Value};
@@ -255,14 +258,29 @@ fn children(socket: &Path, agent_dir: &Path, script: &Path) -> SupervisorChildSe
     sessions
 }
 
-fn spawn_request(name: &str, prompt: &str) -> RlmSpawnRequest {
-    RlmSpawnRequest {
+fn child_id(index: usize) -> String {
+    format!("sub-0000000{index}")
+}
+
+fn child_session_id(index: usize) -> String {
+    format!("0{index}000000-0000-4000-8000-00000000000{index}")
+}
+
+fn spawn_request(index: usize, name: &str, prompt: &str) -> RlmChildSpawnRequest {
+    RlmChildSpawnRequest {
+        idempotency_key: format!("rlm:{index}:spawn"),
+        child: RlmChildIdentity {
+            rlm_child_id: child_id(index),
+            session_id: child_session_id(index),
+        },
+        name: name.to_string(),
         prompt: prompt.to_string(),
-        name: Some(name.to_string()),
         model: None,
         thinking: None,
-        cell_source_code: None,
+        depth: 1,
+        max_depth: 2,
         spawned_by_request_id: None,
+        parent_task_id: index.to_string(),
     }
 }
 
@@ -341,9 +359,8 @@ fn worker_pid(agent_dir: &Path, socket: &Path, worker_id: &str) -> u32 {
 
 /// Concurrent spawns + a mid-window worker replacement: every child's task
 /// prompt lands exactly once and no admitted child is torn down.
-// Multi-thread runtime: the detached task prompts (`tokio::spawn` inside
-// `SupervisorChildSessions`) must progress while the test thread blocks in
-// its synchronous JSONL/file polls.
+// Multi-thread runtime: the host's link calls must progress while the test
+// thread blocks in its synchronous JSONL/file polls.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -359,32 +376,33 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
     // Four concurrent spawns, each with a unique prompt marker.
     let (a, b, c, d) = tokio::join!(
         children.spawn(spawn_request(
+            0,
             "kid-a",
             "ship the marker-replacement-e2e-a task"
         )),
         children.spawn(spawn_request(
+            1,
             "kid-b",
             "ship the marker-replacement-e2e-b task"
         )),
         children.spawn(spawn_request(
+            2,
             "kid-c",
             "ship the marker-replacement-e2e-c task"
         )),
         children.spawn(spawn_request(
+            3,
             "kid-d",
             "ship the marker-replacement-e2e-d task"
         )),
     );
     let handles = [a, b, c, d];
     let names = ["kid-a", "kid-b", "kid-c", "kid-d"];
-    let child_ids: Vec<String> = handles
-        .iter()
-        .map(|handle| handle.as_ref().expect("spawn").rlm_child_id.clone())
-        .collect();
-    for (handle, name) in handles.iter().zip(names.iter()) {
+    let child_ids: Vec<String> = (0..names.len()).map(child_id).collect();
+    for (index, (handle, name)) in handles.iter().zip(names.iter()).enumerate() {
         let handle = handle.as_ref().expect("spawn");
-        assert!(handle.rlm_child_id.starts_with("sub-"), "{handle:?}");
-        assert_eq!(handle.name, *name);
+        assert_eq!(handle.session_id, child_session_id(index));
+        assert_eq!(handle.session_name, *name);
     }
 
     // The supervisor roster carries all four resident children.
@@ -404,8 +422,7 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
     }
 
     // The replacement: kill kid-a's worker between its admission and its
-    // task prompt (the detached prompt fires at the parent's turn
-    // boundary, released below). The supervisor restarts the worker
+    // task prompt (admitted below). The supervisor restarts the worker
     // (backoff + relaunch + create replay) while the prompt is in flight.
     let kid_a_worker_id = {
         let row = wait_until(Duration::from_mins(1), "kid-a roster row", || {
@@ -426,23 +443,62 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
         .expect("kill kid-a worker");
     assert!(killed.success(), "kill -9 {kid_a_pid}");
 
-    // Release the detached task prompts (the parent's turn boundary): all
-    // four fire now - kid-a's into a worker mid-replacement.
-    children.notify_turn_done();
+    // Admit the task prompts now: all four fire concurrently - kid-a's
+    // into a worker mid-replacement. A failed prompt reruns with the same
+    // key, exactly as the parent's durable child task does; the key keeps
+    // the rerun from admitting twice.
+    let prompts =
+        child_ids
+            .iter()
+            .zip(names.iter())
+            .enumerate()
+            .map(|(index, (child_id, name))| {
+                let request = RlmChildPromptRequest {
+                    idempotency_key: format!("rlm:{index}:prompt"),
+                    session_id: child_session_id(index),
+                    rlm_child_id: child_id.clone(),
+                    prompt: format!(
+                        "ship the marker-replacement-e2e-{} task",
+                        name.trim_start_matches("kid-")
+                    ),
+                };
+                let children = &children;
+                async move {
+                    let deadline = Instant::now() + Duration::from_secs(150);
+                    loop {
+                        match children.prompt(request.clone()).await {
+                            Ok(()) => return,
+                            Err(error) => {
+                                assert!(
+                                    Instant::now() < deadline,
+                                    "prompt {} never admitted: {error:#}",
+                                    request.rlm_child_id
+                                );
+                                tokio::time::sleep(Duration::from_millis(200)).await;
+                            }
+                        }
+                    }
+                }
+            });
+    futures::future::join_all(prompts).await;
 
-    // Exactly-once: each child's transcript carries its prompt marker
+    // Exactly-once: each child's transcript carries its task kickoff row
     // exactly once. kid-a's prompt must survive the replacement (the
-    // budget covers the replacement window end to end). The durable
-    // child persists the prompt in its storage directory twice over (the
-    // inbox submission and the transcript entry), so the transcript read
-    // is the exactly-once oracle; the storage is the archive oracle.
+    // budget covers the replacement window end to end). The kickoff row
+    // carries the marker twice (its content plus `details.message`), so
+    // its `spawn:<child id>` row id is the exactly-once oracle. The
+    // durable child persists the prompt in its storage directory twice
+    // over (the inbox submission and the transcript entry), so the
+    // transcript read is the exactly-once oracle; the storage is the
+    // archive oracle.
     for (child_id, name) in child_ids.iter().zip(names.iter()) {
         let marker = format!("marker-replacement-e2e-{}", name.trim_start_matches("kid-"));
+        let kickoff = format!("\"id\":\"spawn:{child_id}\"");
         let storage = child_session_storage(&agent_dir, child_id);
         let deadline = Instant::now() + Duration::from_secs(150);
         loop {
             let transcript = child_transcript(&mut client, name).unwrap_or_default();
-            if transcript.matches(&marker).count() == 1 {
+            if transcript.matches(&kickoff).count() == 1 && transcript.contains(&marker) {
                 break;
             }
             if Instant::now() >= deadline {
@@ -490,20 +546,32 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
             "relaunched child archived: {row}"
         );
     }
-    let deadline = Instant::now() + Duration::from_mins(3);
-    loop {
-        let entries = children.list_subagents().await.expect("list subagents");
-        let settled = entries
-            .iter()
-            .filter(|entry| entry.answer_preview.as_deref() == Some("replacement kid answer"))
-            .count();
-        assert!(
-            Instant::now() < deadline,
-            "children never settled: {entries:?}"
-        );
-        if settled == 4 {
-            break;
+    for (index, child_id) in child_ids.iter().enumerate() {
+        let deadline = Instant::now() + Duration::from_mins(3);
+        loop {
+            let observation = children
+                .wait_settled(RlmChildWaitRequest {
+                    session_id: child_session_id(index),
+                    rlm_child_id: child_id.clone(),
+                    timeout_ms: 5_000,
+                })
+                .await;
+            match observation.map(|observation| observation.state) {
+                Ok(RlmChildRunState::Settled { answer_preview, .. }) => {
+                    assert_eq!(
+                        answer_preview.as_deref(),
+                        Some("replacement kid answer"),
+                        "{child_id} settles with its answer"
+                    );
+                    break;
+                }
+                Ok(RlmChildRunState::Failed { error }) => panic!("{child_id} failed: {error}"),
+                // Running, or unreachable mid-replacement: poll again.
+                Ok(RlmChildRunState::Running) | Err(_) => {
+                    assert!(Instant::now() < deadline, "{child_id} never settled");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }

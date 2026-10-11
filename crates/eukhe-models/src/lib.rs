@@ -11,15 +11,17 @@
 //!
 //! The packaged `models.bundled.json` (generated at build time from the
 //! catalog repo's `models/catalog.v1.json`) is the client-facing catalog
-//! contract; the compiled table in `eukhe-ai` is the fallback. Everything
-//! the catalog can do is select among transports the client compiled in;
-//! it can never introduce a transport or change what a request sends.
+//! contract; the compiled pi-ai table in `eukhe-pi-ai` (converted by
+//! [`pi_ai_model`]) is the fallback. Everything the catalog can do is select
+//! among transports the client compiled in; it can never introduce a
+//! transport or change what a request sends.
 //!
-//! Ownership: eukhe-models depends on eukhe-ai (compiled transport templates) and
-//! eukhe-types (shared `Model`). Nothing above eukhe-agent may be depended on.
+//! Ownership: eukhe-models depends on eukhe-pi-ai (compiled transport
+//! templates) and eukhe-types (shared `Model`).
 
 pub mod bundled;
 pub mod compat;
+pub mod pi_ai_model;
 pub mod pinning;
 pub mod prime_inference;
 pub mod schema;

@@ -86,7 +86,6 @@ use crate::descriptor::{
     create_command_payload, load_descriptors, persist_supervisor_config, persist_worker,
     persist_worker_at, PersistedSupervisorConfig, TempSync, SUPERVISOR_CONFIG_FILE_NAME,
 };
-use crate::engine::EngineModelSelection;
 use crate::framing::{write_frame, PrivateFrameReader, DEFAULT_PRIVATE_FRAME_LIMITS};
 use crate::paths;
 use crate::prompt_admission::input_admission_id;

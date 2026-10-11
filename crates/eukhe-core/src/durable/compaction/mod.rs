@@ -13,12 +13,16 @@
 //!   serviced once the conversation goes idle.
 
 mod autorefine;
+pub mod auxiliary_model;
 pub(crate) mod head;
+pub mod ipython_state;
 pub use head::summary_body;
 mod observer;
 mod summary;
+pub(crate) mod summary_request;
 #[cfg(test)]
 mod tests;
+pub mod utils;
 
 use std::sync::Arc;
 

@@ -9,10 +9,22 @@ use super::routing::WORKER_REQUEST_TIMEOUT_MS;
 use super::{
     anyhow, create_command_payload, json, persist_worker, socket, util, Arc, Context,
     DaemonCommand, DaemonWorkerDescriptor, DaemonWorkerLifecycle, DurableDaemonCreateCommand,
-    Duration, EngineModelSelection, Map, Ordering, Path, ResidentWorker, Result, RouteAdmission,
-    Supervisor, TempSync, TypedCreateRejection, Value, ROUTE_TIMEOUT_MS,
+    Duration, Map, Ordering, Path, ResidentWorker, Result, RouteAdmission, Supervisor, TempSync,
+    TypedCreateRejection, Value, ROUTE_TIMEOUT_MS,
 };
 use crate::protocol::{response_failure, response_success, DaemonResponse};
+
+/// Explicit model selection from a session's create config (the wire
+/// `provider`/`model`/`apiKey`/`thinking` fields). `None` fields keep the
+/// session's current selection, mirroring the TS runtime-config merge
+/// semantics.
+struct EngineModelSelection {
+    provider: Option<String>,
+    model: Option<String>,
+    api_key: Option<String>,
+    /// The requested thinking level (`--thinking` on the wire).
+    thinking: Option<eukhe_types::ai::ModelThinkingLevel>,
+}
 
 impl Supervisor {
     /// Complete a tombstoned stop for a worker encountered at adoption —
@@ -173,7 +185,7 @@ impl Supervisor {
         // and thinking level.
         let requested_thinking = match config_object.and_then(|config| config.get("thinking")) {
             None => None,
-            Some(Value::String(level)) => match eukhe_ai::models::thinking_level_from_str(level) {
+            Some(Value::String(level)) => match eukhe_types::ai::thinking_levels::thinking_level_from_str(level) {
                 Some(level) => Some(level),
                 None => {
                     return Err(anyhow!(

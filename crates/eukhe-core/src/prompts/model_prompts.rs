@@ -269,7 +269,7 @@ pub fn model_prompt_error_message(errors: &[String]) -> CustomMessage {
         content: eukhe_types::ai::UserContent::Text(model_prompt_error_text(errors)),
         display: true,
         details: None,
-        timestamp: crate::session_engine::refine::now_millis(),
+        timestamp: crate::autonomous::now_millis(),
         rest: serde_json::Map::default(),
     }
 }

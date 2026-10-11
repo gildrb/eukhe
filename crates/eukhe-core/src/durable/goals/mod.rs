@@ -1,5 +1,5 @@
 //! `eukhe.goals`: thread goals and autonomous continuation on the durable
-//! Harness (port of `session_engine/{goal_driver, goal_boundary}`,
+//! Harness (port of the old engine's `{goal_driver, goal_boundary}`,
 //! `crate::goals`' engine half, and the daemon's goal/autonomous
 //! continuation loops).
 //!

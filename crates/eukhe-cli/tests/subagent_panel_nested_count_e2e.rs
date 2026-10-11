@@ -33,7 +33,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use eukhe_core::session_engine::rlm_host::{RlmSpawnRequest, RlmSubagentHost};
+use eukhe_core::durable::children::{
+    RlmChildIdentity, RlmChildPromptRequest, RlmChildSpawnRequest, RlmSubagentHost,
+};
 use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
 use eukhe_daemon::supervisor_link::SupervisorLink;
 use eukhe_tui::subagents::{count_descendants, SessionIdentity};
@@ -225,15 +227,46 @@ fn children_host(
     sessions
 }
 
-fn spawn_request(name: &str, prompt: &str) -> RlmSpawnRequest {
-    RlmSpawnRequest {
+/// The roster id of the `index`-th spawned child.
+fn child_id(index: u32) -> String {
+    format!("sub-0000000{index}")
+}
+
+/// Spawn one child through the durable host and admit its task (the
+/// parent's `eukhe.rlm.child` task drives exactly these keyed calls).
+async fn spawn_prompted(
+    host: &SupervisorChildSessions,
+    index: u32,
+    name: &str,
+    prompt: &str,
+    depth: u32,
+) {
+    let child = host
+        .spawn(RlmChildSpawnRequest {
+            idempotency_key: format!("rlm:{index}:spawn"),
+            child: RlmChildIdentity {
+                rlm_child_id: child_id(index),
+                session_id: format!("0{index}000000-0000-4000-8000-00000000000{index}"),
+            },
+            name: name.to_string(),
+            prompt: prompt.to_string(),
+            model: None,
+            thinking: None,
+            depth,
+            max_depth: 3,
+            spawned_by_request_id: None,
+            parent_task_id: index.to_string(),
+        })
+        .await
+        .expect("spawn child");
+    host.prompt(RlmChildPromptRequest {
+        idempotency_key: format!("rlm:{index}:prompt"),
+        session_id: child.session_id,
+        rlm_child_id: child_id(index),
         prompt: prompt.to_string(),
-        name: Some(name.to_string()),
-        model: None,
-        thinking: None,
-        cell_source_code: None,
-        spawned_by_request_id: None,
-    }
+    })
+    .await
+    .expect("prompt child");
 }
 
 fn wait_until<T>(deadline: Duration, mut probe: impl FnMut() -> Option<T>) -> T {
@@ -290,20 +323,14 @@ async fn a_two_level_spawn_counts_the_whole_tree() {
     let root_host = children_host(&supervisor.socket, &agent_dir, &script, &root, 0);
 
     // The root spawns its child (depth 1).
-    let child_handle = root_host
-        .spawn(spawn_request("worker-b", "ship the lane"))
-        .await
-        .expect("spawn child");
-    root_host.notify_turn_done();
+    spawn_prompted(&root_host, 1, "worker-b", "ship the lane", 1).await;
 
     // The child's roster row carries the live ids its own spawns key by.
     let child_row = wait_until(Duration::from_secs(15), || {
         let roster = client.roster("rs1");
         roster
             .iter()
-            .find(|entry| {
-                entry_field(entry, "rlmChildId") == Some(child_handle.rlm_child_id.as_str())
-            })
+            .find(|entry| entry_field(entry, "rlmChildId") == Some(child_id(1).as_str()))
             .cloned()
     });
     let child = Parent {
@@ -321,20 +348,14 @@ async fn a_two_level_spawn_counts_the_whole_tree() {
     // The child spawns its own child (the root's grandchild, depth 2),
     // through the same supervisor-backed host bound to the child's ids.
     let child_host = children_host(&supervisor.socket, &agent_dir, &script, &child, 1);
-    let grandchild_handle = child_host
-        .spawn(spawn_request("worker-c", "audit the lane"))
-        .await
-        .expect("spawn grandchild");
-    child_host.notify_turn_done();
+    spawn_prompted(&child_host, 2, "worker-c", "audit the lane", 2).await;
 
     // The grandchild's roster row appears with its parent linkage.
     let grandchild_row = wait_until(Duration::from_secs(15), || {
         let roster = client.roster("rs2");
         roster
             .iter()
-            .find(|entry| {
-                entry_field(entry, "rlmChildId") == Some(grandchild_handle.rlm_child_id.as_str())
-            })
+            .find(|entry| entry_field(entry, "rlmChildId") == Some(child_id(2).as_str()))
             .cloned()
     });
     assert_eq!(
@@ -376,11 +397,11 @@ async fn a_two_level_spawn_counts_the_whole_tree() {
     wait_until(Duration::from_secs(20), || {
         let roster = client.roster("rs4");
         let child_settled = roster.iter().any(|entry| {
-            entry_field(entry, "rlmChildId") == Some(child_handle.rlm_child_id.as_str())
+            entry_field(entry, "rlmChildId") == Some(child_id(1).as_str())
                 && entry.get("status").and_then(Value::as_str) == Some("idle")
         });
         let grandchild_settled = roster.iter().any(|entry| {
-            entry_field(entry, "rlmChildId") == Some(grandchild_handle.rlm_child_id.as_str())
+            entry_field(entry, "rlmChildId") == Some(child_id(2).as_str())
                 && entry.get("status").and_then(Value::as_str) == Some("idle")
         });
         child_settled

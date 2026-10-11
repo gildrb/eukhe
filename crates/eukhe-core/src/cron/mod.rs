@@ -3,6 +3,7 @@
 //! Port of the pure-function half of core/cron-jobs.ts; the file-backed job
 //! store lives in the `store` submodule.
 
+pub mod rlm_heartbeat;
 pub mod scheduler;
 pub mod store;
 

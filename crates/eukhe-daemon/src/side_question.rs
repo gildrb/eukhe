@@ -14,9 +14,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use eukhe_chord::context::{AbortController, AbortSignal, Context, BACKGROUND_CONTEXT};
-use eukhe_core::session_engine::side_question::{
-    side_question_prompt, SideQuestionTurn, SIDE_QUESTION_MAX_TURNS, SIDE_QUESTION_TOOL_BLOCKED,
-};
 use eukhe_pi_ai::models::ModelsSimpleStreamOptions;
 use eukhe_pi_ai::types::SimpleStreamOptions;
 use eukhe_pi_ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms, RetryDelay};
@@ -28,12 +25,109 @@ use eukhe_types::pi_ai::{
 use futures::StreamExt;
 use serde_json::{json, Map, Value};
 
-use crate::engine::{
-    side_question_event_value, SideQuestionOutcome, SideQuestionRequest,
-    SIDE_QUESTION_STATUS_RUNNING,
-};
 use crate::protocol::{response_failure, response_success, DaemonOutbound, DaemonResponse};
 use crate::worker::{EventPump, HostedSession, OutboundFrame, SessionSlot};
+
+const SIDE_QUESTION_INSTRUCTION: &str = "The user asked this via `/btw` — a temporary side thread cloned from the main conversation to answer a question without interrupting the main work. Tools (including `ipython`) are deactivated in this side thread and return an error if called; answer using only the conversation context above. The user may send follow-up side questions. Nothing here is added to the main session, so don't start or plan main-session work from this thread.";
+
+/// The deactivated-tool answer a side-thread tool call reads.
+const SIDE_QUESTION_TOOL_BLOCKED: &str =
+    "Tools are deactivated in this side thread. Answer from the conversation context.";
+
+/// Backstop for a model that keeps calling deactivated tools instead of answering.
+const SIDE_QUESTION_MAX_TURNS: u32 = 3;
+
+/// Prompt sent to the side run: the question wrapped in a side-question tag,
+/// with the side-thread instruction prepended on the first turn.
+fn side_question_prompt(question: &str, is_first_turn: bool) -> String {
+    let body = if is_first_turn {
+        format!("{SIDE_QUESTION_INSTRUCTION}\n\n{question}")
+    } else {
+        question.to_string()
+    };
+    format!("<side_question>\n{body}\n</side_question>")
+}
+
+/// One completed side-question exchange, replayed into a follow-up run.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SideQuestionTurn {
+    pub question: String,
+    pub answer: String,
+}
+
+/// One side-question request (the `start_side_question` command fields).
+#[derive(Debug, Clone)]
+struct SideQuestionRequest {
+    /// Caller-generated id; echoed on every event of the run.
+    side_question_id: String,
+    question: String,
+    /// Earlier `{question, answer}` exchanges replayed before the question.
+    previous_turns: Vec<SideQuestionTurn>,
+}
+
+/// How one side-question run ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SideQuestionOutcome {
+    /// Answered; the string is the final answer text.
+    Complete { answer: String },
+    /// Aborted mid-run; the string is the partial answer streamed so far.
+    Aborted { answer: String },
+    /// Failed; the string is the provider/engine error message.
+    Failed { answer: String, error: String },
+}
+
+/// Wire form of one side-question status (TS `SideQuestionStatus`).
+const SIDE_QUESTION_STATUS_RUNNING: &str = "running";
+const SIDE_QUESTION_STATUS_COMPLETE: &str = "complete";
+const SIDE_QUESTION_STATUS_CANCELLED: &str = "cancelled";
+const SIDE_QUESTION_STATUS_ERROR: &str = "error";
+
+/// Wire form of one side-question event (TS `SideQuestionEvent`).
+fn side_question_event_value(
+    request: &SideQuestionRequest,
+    answer: &str,
+    status: &str,
+    error_message: Option<&str>,
+) -> Value {
+    let mut event = json!({
+        "id": request.side_question_id,
+        "question": request.question,
+        "answer": answer,
+        "status": status,
+    });
+    if let Some(error_message) = error_message {
+        event["errorMessage"] = json!(error_message);
+    }
+    event
+}
+
+impl SideQuestionOutcome {
+    /// The TS wire status of this outcome.
+    fn status_str(&self) -> &'static str {
+        match self {
+            SideQuestionOutcome::Complete { .. } => SIDE_QUESTION_STATUS_COMPLETE,
+            SideQuestionOutcome::Aborted { .. } => SIDE_QUESTION_STATUS_CANCELLED,
+            SideQuestionOutcome::Failed { .. } => SIDE_QUESTION_STATUS_ERROR,
+        }
+    }
+
+    /// The answer text carried by the final event (partial on abort/failure).
+    fn answer(&self) -> &str {
+        match self {
+            SideQuestionOutcome::Complete { answer }
+            | SideQuestionOutcome::Aborted { answer }
+            | SideQuestionOutcome::Failed { answer, .. } => answer,
+        }
+    }
+
+    /// The error message carried by the final event, when the run failed.
+    fn error_message(&self) -> Option<&str> {
+        match self {
+            SideQuestionOutcome::Failed { error, .. } => Some(error.as_str()),
+            SideQuestionOutcome::Complete { .. } | SideQuestionOutcome::Aborted { .. } => None,
+        }
+    }
+}
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT

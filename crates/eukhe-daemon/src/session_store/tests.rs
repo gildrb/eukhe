@@ -241,20 +241,6 @@ fn the_depth_two_chain_reports_the_folded_aggregate() {
         json!(1_500),
         "the end-of-load fold installed the cumulative aggregate"
     );
-    // The observer walk reads the FOLDED store: the depth-2 batch the
-    // root receives carries the grandchild's spend (input 1,500 — the
-    // raw 1,000 would mean the grandchild vanished at depth 2).
-    let (batches, next) = crate::rlm_child_usage::child_usage_batches(store.entries(), 0);
-    assert_eq!(next, store.entries().len(), "the walk consumes the file");
-    let spawn = batches
-        .iter()
-        .find(|(origin, _)| matches!(origin, eukhe_types::session::ChildUsageOrigin::SpawnTask))
-        .expect("the spawning turn's batch");
-    assert_eq!(
-        spawn.1.input, 1_500,
-        "the folded aggregate rides the report"
-    );
-    assert_eq!(spawn.1.cost.total, eukhe_types::JsNumber(0.15));
 }
 
 /// The Anthropic subscription warning's once-per-session-lifecycle gate
@@ -1053,57 +1039,6 @@ fn search_text_counter_lockstep_names_every_corpus_mutation_path() {
 }
 
 #[test]
-fn durable_first_kept_entry_id_pins_the_boundary_the_read_retains() {
-    // The parity scenario the frame diff caught: the engine compacts its
-    // in-memory entries and reports an id that never exists in the
-    // session file. The durable re-cut must pin the boundary the
-    // `messages()` read recognizes, or the retained tail is lost.
-    let mut session = SessionFile::create("/tmp", None, 0);
-    session.append_message(&json!({"role": "user", "content": "first", "timestamp": 1u64}));
-    let usage = json!({
-        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
-        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
-    });
-    let assistant = |text: String, timestamp: u64| {
-        json!({
-            "role": "assistant",
-            "content": [{ "type": "text", "text": text }],
-            "api": "faux", "provider": "p", "model": "m",
-            "usage": usage, "stopReason": "stop", "timestamp": timestamp
-        })
-    };
-    session.append_message(&assistant(format!("history {}", "word ".repeat(40)), 2u64));
-    session.append_message(&json!({"role": "user", "content": "second turn", "timestamp": 3u64}));
-    session.append_message(&assistant("second turn done".to_string(), 4u64));
-
-    let durable_id = session.durable_first_kept_entry_id(5);
-    // The cut keeps the whole second turn: its user message is the
-    // boundary (estimate: 4 + 2 >= 5 stops at the user entry).
-    let kept = session
-        .branch()
-        .iter()
-        .find(|entry| {
-            entry.fields.get("message").and_then(|m| m.get("content"))
-                == Some(&json!("second turn"))
-        })
-        .map(|entry| entry.id.clone())
-        .expect("the second-turn user entry");
-    assert_eq!(durable_id, Some(kept));
-
-    let _ = session.persist_entry(
-        "compaction",
-        json!({ "summary": "the story", "firstKeptEntryId": durable_id, "tokensBefore": 12 }),
-    );
-    let messages = session.messages();
-    // Wire order is summary-first (TS `buildSessionContext`); the
-    // retained messages follow.
-    assert_eq!(messages.len(), 3);
-    assert_eq!(messages[0].get("role"), Some(&json!("compactionSummary")));
-    assert_eq!(crate::types::message_text(&messages[1]), "second turn");
-    assert_eq!(crate::types::message_text(&messages[2]), "second turn done");
-}
-
-#[test]
 fn entry_chain_links_parents() {
     let mut session = SessionFile::create("/tmp", None, 0);
     let a = session.append_entry("custom", json!({"customType": "x"}));
@@ -1186,15 +1121,7 @@ fn durable_compaction_row_serializes_in_the_ts_key_order() {
         summary: "pre-compaction reply 6".to_string(),
         first_kept_entry_id: "ebd5e444".to_string(),
         tokens_before: 110,
-        details: Some(
-            serde_json::to_value(
-                &eukhe_core::session_engine::compaction_exec::CompactionDetails {
-                    read_files: vec!["a.rs".to_string()],
-                    modified_files: vec!["b.rs".to_string()],
-                },
-            )
-            .unwrap(),
-        ),
+        details: Some(json!({ "readFiles": ["a.rs"], "modifiedFiles": ["b.rs"] })),
         from_hook: Some(false),
         custom_instructions: None,
         usage: Some(eukhe_types::ai::Usage {

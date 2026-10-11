@@ -2,7 +2,7 @@
 //! accessor arm - the active context and history snapshot, the branch
 //! scans, the window-backed reads, and the getters.
 
-use super::{FileEntry, Path, RefineTranscriptParts, SessionHeader, SessionManager, SessionTree};
+use super::{FileEntry, Path, SessionHeader, SessionManager, SessionTree};
 
 impl SessionManager {
     /// The active compacted context without hydrating old message bodies.
@@ -84,80 +84,6 @@ impl SessionManager {
         }
     }
 
-    /// Extract the refine transcript's consumed artifacts (see
-    /// [`RefineTranscriptParts`]) without materializing an owned copy of
-    /// every entry: the message rows the refine prompt serializes, and
-    /// the in-session refinement history the audit scan reads. A
-    /// windowless manager — and a full-history window under the
-    /// session's sole runtime lease — serves both straight from the
-    /// retained rows; a boundary window keeps the historical read, since
-    /// its pre-window conversation and audit rows live only on disk, and
-    /// moves the messages out of the read's parse result instead of
-    /// re-cloning them.
-    ///
-    /// Capture while the session lock is held; await after releasing it,
-    /// like [`Self::history_snapshot`].
-    ///
-    /// # Errors
-    ///
-    /// The returned future errors when the historical read fails (see
-    /// [`Self::history_snapshot`]); the retained-serving arms cannot
-    /// fail.
-    ///
-    /// # Panics
-    ///
-    /// The read arm's `expect` cannot fire: it is reached only when the
-    /// retained-serving arms did not run, and the snapshot is captured in
-    /// exactly that case.
-    pub fn refine_transcript_parts(
-        &self,
-    ) -> impl std::future::Future<Output = anyhow::Result<RefineTranscriptParts>> + Send + 'static
-    {
-        let retained_serves = self.window.is_none()
-            || (self
-                .window
-                .as_ref()
-                .is_some_and(super::window::WindowedSessionStore::retained_whole_file)
-                && self.append_ownership == super::window::AppendOwnership::SessionLeaseHeld);
-        let parts = retained_serves.then(|| RefineTranscriptParts {
-            messages: self
-                .file_entries
-                .iter()
-                .filter_map(|entry| match entry {
-                    FileEntry::Message { message, .. } => Some(message.clone()),
-                    _ => None,
-                })
-                .collect(),
-            refinement_history: crate::session_engine::refine::session_refinement_history(
-                &self.file_entries,
-            ),
-        });
-        // Only the read arm pays `history_snapshot`'s capture (its eager
-        // retained clone feeds the unpersisted-rows merge).
-        let snapshot = (!retained_serves).then(|| self.history_snapshot());
-        async move {
-            if let Some(parts) = parts {
-                return Ok(parts);
-            }
-            let entries = snapshot
-                .expect("the read arm always carries its snapshot")
-                .await?;
-            let refinement_history =
-                crate::session_engine::refine::session_refinement_history(&entries);
-            let messages = entries
-                .into_iter()
-                .filter_map(|entry| match entry {
-                    FileEntry::Message { message, .. } => Some(message),
-                    _ => None,
-                })
-                .collect();
-            Ok(RefineTranscriptParts {
-                messages,
-                refinement_history,
-            })
-        }
-    }
-
     /// Loaded current-context records; not a whole-history view.
     #[must_use]
     pub fn retained_entries(&self) -> &[FileEntry] {
@@ -222,39 +148,6 @@ impl SessionManager {
         })
     }
 
-    /// The branch's newest un-resumed quota park, reachable without
-    /// hydration (TS `_restoreQuotaPark`'s scan, newest first): the
-    /// loaded active branch entries first, then — for a windowed store —
-    /// the window's pre-boundary metadata records.
-    #[must_use]
-    pub fn latest_quota_park(
-        &self,
-    ) -> Option<crate::session_engine::provider_park::PersistedQuotaPark> {
-        use crate::session_engine::provider_park::{scan_quota_park_entries, BranchParkScan};
-        // The loaded branch is a borrow scan (once per build); the windowed
-        // fallback below reads the older metadata records line by line.
-        let branch: Vec<FileEntry> = self.active_branch_entries().into_iter().cloned().collect();
-        match scan_quota_park_entries(&branch) {
-            BranchParkScan::Park(park) => return Some(park),
-            // A newer resume entry ends the episode; older records cannot
-            // restore a park behind it.
-            BranchParkScan::Resumed => return None,
-            BranchParkScan::None => {}
-        }
-        let window = self.window.as_ref()?;
-        for line in window.metadata_entries().iter().rev() {
-            let Ok(entry) = serde_json::from_str::<FileEntry>(line) else {
-                continue;
-            };
-            match scan_quota_park_entries(std::slice::from_ref(&entry)) {
-                BranchParkScan::Park(park) => return Some(park),
-                BranchParkScan::Resumed => return None,
-                BranchParkScan::None => {}
-            }
-        }
-        None
-    }
-
     /// Newest `git_state` reachable without hydration: the loaded active
     /// branch first, then the window's pre-boundary metadata (newest first).
     pub(crate) fn latest_git_context(&self) -> Option<eukhe_types::session::GitContext> {
@@ -306,21 +199,6 @@ impl SessionManager {
                         | FileEntry::ServiceTierChange { .. }
                 )
             })
-    }
-
-    pub fn refinement_history(&self) -> Vec<crate::refinement::RefinementResult> {
-        let mut history = self.window.as_ref().map_or_else(Vec::new, |window| {
-            let entries: Vec<FileEntry> = window
-                .metadata_entries()
-                .iter()
-                .filter_map(|line| serde_json::from_str(line).ok())
-                .collect();
-            crate::session_engine::refine::session_refinement_history(&entries)
-        });
-        history.extend(crate::session_engine::refine::session_refinement_history(
-            &self.file_entries,
-        ));
-        history
     }
 
     #[cfg(test)]
