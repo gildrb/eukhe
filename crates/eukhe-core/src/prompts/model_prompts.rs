@@ -15,8 +15,8 @@ const MODEL_PROMPT_FILES: &[(&str, &str)] = &[];
 
 const USER_MODEL_PROMPTS_TOML: &str = "model-prompts.toml";
 
-/// `display: true` rows of this type stay out of LLM context (the old engine's
-/// `messages::convert_to_llm`, the durable `entries::is_display_only_custom_type`).
+/// `display: true` rows of this type stay out of LLM context
+/// (`entries::is_display_only_custom_type`).
 pub const MODEL_PROMPT_ERROR_CUSTOM_TYPE: &str = "model_prompt_error";
 
 const SHIPPED_SOURCE: &str = "shipped model_prompts.toml";

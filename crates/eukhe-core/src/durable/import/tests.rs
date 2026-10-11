@@ -1,6 +1,6 @@
 //! Legacy session import: fixtures with branches, compactions, custom rows,
 //! and tool results; the reopened Harness's model context must equal the
-//! old engine's active context.
+//! legacy session's active context.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -127,7 +127,7 @@ fn jsonl(rows: &[Value]) -> String {
     out
 }
 
-/// The old engine's model context for `content`: the default leaf's
+/// The legacy session's model context for `content`: the default leaf's
 /// session context through `convert_to_llm`, in pi-ai shapes.
 fn old_context(content: &str) -> Vec<Message> {
     let mut entries = parse_session_entries(content);
@@ -329,14 +329,14 @@ async fn a_tool_result_without_a_tool_name_takes_its_calls_name() {
         user("u1", None, "hi", 1),
         tool_call("a1", Some("u1"), "call-1", 2),
         nameless_tool_result("r1", "a1", "call-1", 3),
-        // No assistant call answers this one: the old engine sent "".
+        // No assistant call answers this one: the legacy session sent "".
         nameless_tool_result("r2", "r1", "call-orphan", 4),
         assistant("a2", Some("r2"), "done", 5),
     ]);
     let imported = import(&content).await;
     assert_eq!(imported.report.entries, 5);
     let (harness, root) = reopen(&imported.storage).await;
-    // The stored entries carry what the old engine sent for each row (the
+    // The stored entries carry what the legacy session sent for each row (the
     // context view leaves the orphan result out).
     let names: Vec<String> = all_entries(&root)
         .await

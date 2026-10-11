@@ -78,7 +78,7 @@ impl ConversationKernel {
 }
 
 /// The `ipython_state_restored` row for a boot that revived a snapshot
-/// (the old engine's `state_restore_notice::notice_message`).
+/// (`state_restore_notice::notice_message`).
 fn restored_notice(result: &RestoreResult) -> CustomNotice {
     CustomNotice::new(
         state_restore_notice::IPYTHON_STATE_RESTORED_CUSTOM_TYPE,
@@ -89,7 +89,7 @@ fn restored_notice(result: &RestoreResult) -> CustomNotice {
 }
 
 /// The `python_skills_unavailable` row for a boot whose skill imports
-/// failed (the old engine's `skills_unavailable_notice::notice_message`).
+/// failed (`skills_unavailable_notice::notice_message`).
 fn skills_notice(errors: &UnavailablePythonSkills) -> CustomNotice {
     let message = skills_unavailable_notice::notice_message(errors);
     CustomNotice::new(

@@ -1,6 +1,6 @@
 //! `eukhe.prompt`: eukhe's system prompt as durable sections. Each segment
 //! of [`system_prompt_breakdown`] is one untagged section, in the same
-//! order, so the provider sees exactly the old engine's prompt: durable
+//! order, so the provider sees exactly eukhe's system prompt: durable
 //! joins section texts with `"\n\n"` and drops empty ones, as the breakdown
 //! joins its (never empty) segments.
 //!

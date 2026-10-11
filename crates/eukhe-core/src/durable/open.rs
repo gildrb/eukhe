@@ -228,7 +228,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         let _ = ProviderRuntime::install(&models, &deps);
     }
     // The semantic-edge wrapper rides OUTERMOST (over the provider
-    // runtime's timing fn, the old engine's wrap order): every model
+    // runtime's timing fn): every model
     // request mints its id, sends it on the wire headers, and settles on
     // the ledger.
     wrap_models_with_semantic_edges(&models, &semantic_edges);

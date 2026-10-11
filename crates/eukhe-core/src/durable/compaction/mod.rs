@@ -1,7 +1,7 @@
-//! `eukhe.compaction`: the old engine's compaction behaviors on the
+//! `eukhe.compaction`: eukhe's compaction behaviors on the
 //! durable Harness:
 //!
-//! - `before_compact` supplies eukhe's own summary (the old prompts,
+//! - `before_compact` supplies eukhe's own summary (eukhe's prompts,
 //!   serializer, auxiliary model, update mode, recent-state anchor,
 //!   harness-digest block, and `[compaction-summary]` wrapper) and streams
 //!   its text deltas to the session's [`SummaryDeltaSink`]; chat-memory

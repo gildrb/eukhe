@@ -1,5 +1,5 @@
 //! Per-request phase timing for provider requests on the durable models
-//! layer: the port of the old engine's `request_timing` clock (TS #2462,
+//! layer: the `request_timing` clock (TS #2462,
 //! `packages/coding-agent/src/core/request-timing.ts`).
 //!
 //! It answers "what is the agent waiting for" while the provider request
@@ -14,12 +14,12 @@
 //! or `"requestTiming": true` in settings. Entries go to the shared JSONL
 //! diagnostic log ([`crate::agent_log::AgentLog`],
 //! `<agentDir>/logs/agent.jsonl`) under the component
-//! `coding-agent.request-timing`, byte-identical to the old engine's
+//! `coding-agent.request-timing`, byte-identical to TS's
 //! lines for every phase observable at the provider-stream seam.
 //!
-//! # Omissions versus the old engine
+//! # Omissions versus TS
 //!
-//! Two old-engine phases happen above the provider-stream seam the
+//! Two TS phases happen above the provider-stream seam the
 //! durable models layer sits at, and are therefore not observable here:
 //!
 //! - the `prompt-built` phase (turn dispatch -> the LLM message array is
@@ -30,7 +30,7 @@
 //!   payload capture — the body is serialized inside the provider client,
 //!   below this seam.
 //!
-//! Every other entry keeps the old JSON shape: component, phase names,
+//! Every other entry keeps the TS JSON shape: component, phase names,
 //! `requestSeq`, rounded milliseconds with one decimal, and the usage
 //! fields.
 
@@ -65,8 +65,8 @@ fn truthy_env_flag(value: Option<&str>) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Per-agent-dir timing state: the shared JSONL log the entries go to and
-/// the request-sequence counter (the old engine's `RequestTimingWiring`,
-/// minus the loop correlation slots this seam cannot observe).
+/// the request-sequence counter (minus the loop correlation slots this
+/// seam cannot observe).
 pub(crate) struct RequestTimingWiring {
     log: AgentLog,
     request_seq: AtomicU64,
@@ -158,16 +158,16 @@ impl Outcome {
     }
 }
 
-/// Mutable phase clock for one provider request (the old engine's
-/// `RequestTiming`, created at its streamFn seam). Phase transitions are
+/// Mutable phase clock for one provider request (TS `RequestTiming`,
+/// created at its streamFn seam). Phase transitions are
 /// logged as they happen so a hung request shows the last completed phase
 /// in the live log. Create only on the enabled path; one per request.
 pub(crate) struct RequestTiming {
     wiring: Arc<RequestTimingWiring>,
     /// The request's model identity (`RequestInfo.model`; the provider,
-    /// api, and session fields the old engine read off its stream options
-    /// are not observable at this seam and stay omitted, exactly like the
-    /// old engine omitted empty ones).
+    /// api, and session fields TS reads off its stream options
+    /// are not observable at this seam and stay omitted, exactly like
+    /// TS omits empty ones).
     model: String,
     request_seq: u64,
     started_at: Instant,
@@ -289,7 +289,7 @@ impl RequestTiming {
     /// Terminal failure before or without a done (the stream's error
     /// event, or a request the provider rejected): emit the failed
     /// summary. An aborted stop reason reports as aborted, exactly like
-    /// the old engine's error-event arm.
+    /// the TS error-event arm.
     pub(crate) fn failed(&mut self, error: &AssistantMessage) {
         self.stop_reason = Some(error.stop_reason.as_str().to_string());
         self.error_message.clone_from(&error.error_message);
@@ -613,7 +613,7 @@ mod tests {
         );
     }
 
-    /// A request never marked sent (the old engine's faux-provider shape):
+    /// A request never marked sent (the faux-provider shape):
     /// the request-sent entry and its summary deltas are absent, and
     /// first-byte measures from the clock's creation with the TS
     /// `phaseFrom` fallback label.

@@ -1,17 +1,17 @@
 //! Provider failover on the durable path: the failover policy and the
-//! candidate chain of the old engine's `provider_failover.rs`
+//! candidate chain
 //! (the TS backup-model retry, `_handleBackupModelRetry`), over the pi-ai
 //! catalog.
 //!
 //! The durable Harness already owns the per-provider quick retries (its
-//! durable attempt loop with backoff, the old engine's quick-retry loop).
+//! durable attempt loop with backoff).
 //! What it cannot do is move a turn to a sibling provider: when a whole
 //! provider is down, every retry hits the same outage and the turn dies.
 //! The provider runtime (see [`super::provider`]) wraps the provider stream
 //! functions and adds exactly that move — after a retryable provider
 //! failure, the request re-routes to the next configured provider serving
 //! the same model id, immediately (the TS backup retry re-issues with
-//! `delayMs: 0`), bounded by the old engine's whole-episode ceiling.
+//! `delayMs: 0`), bounded by the whole-episode ceiling.
 
 use eukhe_types::pi_ai::Model;
 
@@ -28,7 +28,7 @@ pub struct ProviderFailoverPolicy {
 }
 
 /// Default policy: failover on, up to [`MAX_TOTAL_PROVIDER_RETRIES`]
-/// provider attempts per request (the old engine's whole-episode ceiling —
+/// provider attempts per request (the whole-episode ceiling —
 /// the SANCTIONED DIVERGENCE of 2026-09-23: the per-provider budget alone
 /// let a chain of N candidate providers stack 5xN retries into the ~30
 /// attempts the operator ruled too many).
@@ -51,8 +51,7 @@ pub fn model_reference(model: &Model) -> String {
 
 /// Provider-failover candidates for `current`: the other auth-configured
 /// providers serving the same model id, in catalog order starting after
-/// `current`'s provider, one per provider (the old engine's
-/// `failover_candidates`, ported verbatim over the pi-ai catalog).
+/// `current`'s provider, one per provider, over the pi-ai catalog.
 ///
 /// Rotation keeps the chain stable for every starting provider: with
 /// catalog order A, B, C the candidates for B are C then A.

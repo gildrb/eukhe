@@ -2,8 +2,7 @@
 //! pause, resume, clear), the CLI `--goal` seed, the legacy import seed, and
 //! the shared commit helpers of the hooks and host requests.
 //!
-//! The old engine admitted a minted goal context as the next turn's primary
-//! record; here a context that starts a run is submitted as user input with
+//! A context that starts a run is submitted as user input with
 //! a request id (a rerun never queues it twice), and its `goal_context` row
 //! is a display/audit [`CUSTOM_ENTRY`] without model (the user entry the
 //! submission or the `on_yield` continuation appends carries the text).

@@ -961,7 +961,7 @@ async fn child_usage_attribution_rows_target_the_spawning_assistant_row() {
         .max_by_key(|aggregate| aggregate.input)
         .unwrap();
     assert_eq!(newest_aggregate, aggregate);
-    // The read-side fold restores the old engine's view: the newest
+    // The read-side fold applies the attribution: the newest
     // aggregate replaces the target row's usage.
     apply_child_usage_attributions(&mut entries);
     assert_eq!(

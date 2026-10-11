@@ -7,8 +7,8 @@
 //! credential store (`stores`): a pi-ai `CredentialStore` over eukhe's
 //! `<agent_dir>/auth.json`, through eukhe's own `FileAuthStorageBackend`
 //! (same file, same lock directory, same atomic 0600 writes, same
-//! process-local serialization), so the old engine and this one share one
-//! document.
+//! process-local serialization), so every eukhe reader and writer shares
+//! one document.
 //!
 //! Catalogs are fully local: every provider serves its compiled catalog
 //! and the collection never refreshes a provider's model list over the
@@ -39,7 +39,7 @@
 //! `PRIME_TEAM_ID` hides the stored team (the env pin owns the team).
 //!
 //! Writes (OAuth refresh, login, logout) rewrite only the provider's entry:
-//! OAuth credentials in the pi-ai shape (a superset the old engine reads),
+//! OAuth credentials in the pi-ai shape (a superset of eukhe's own),
 //! api-key credentials as `{type, key, primeTeam?, env?}`, keeping the
 //! stored `primeTeam` when the key is unchanged. The OAuth refresh runs
 //! outside the document lock (eukhe's load-then-lock shape: a token fetch
@@ -181,8 +181,7 @@ pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Result<(), Mode
 }
 
 /// Model + thinking of a new root conversation, as eukhe's daemon resolves
-/// a fresh session (`AgentSessionEngine::resolve_registry_model` and
-/// `effective_thinking`):
+/// a fresh session (registry model resolution and effective thinking):
 ///
 /// 1. `requested` resolves against the full catalog like `--provider` +
 ///    `--model` (`resolve_cli_model`), whether or not it has credentials;

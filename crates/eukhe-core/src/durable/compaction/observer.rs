@@ -5,11 +5,11 @@
 //!
 //! - a settled **threshold/overflow** compaction that failed, was aborted,
 //!   or produced no summary appends the durable `compaction_outcome`
-//!   disclosure row (the old engine's `_persistCompactionOutcome`; manual
-//!   compactions stay excluded — the old `compact()` reports on the event
+//!   disclosure row (TS `_persistCompactionOutcome`; manual
+//!   compactions stay excluded — a manual compaction reports on the event
 //!   only);
 //! - a compaction that produced a summary gets the post-compaction
-//!   `ipython_state` notice when a kernel survived it (the old engine's
+//!   `ipython_state` notice when a kernel survived it (TS
 //!   `_syncKernelStateAfterCompaction`), a model-context row that also
 //!   keeps a back-to-back second `/compact` preparing in update mode
 //!   instead of skipping as already compacted;
@@ -19,7 +19,7 @@
 //!
 //! It also watches a context-overflow error that ends a run (no compaction
 //! task created in the same commit): after the run's one overflow
-//! compaction it appends the reported-failure row (the old engine's
+//! compaction it appends the reported-failure row (TS
 //! `_checkCompaction` reported state, keyed `overflow:<entry id>`); with
 //! nothing to cut it appends the skip row.
 
@@ -51,7 +51,7 @@ use super::{CompactionRuntime, HostDeps, COMPACTION_ENTRY_KIND};
 use crate::durable::messages::{CompactionOutcomeKind, CompactionOutcomeReason};
 
 /// The reported failure of a run whose one overflow compaction did not make
-/// the retried request fit (the old engine's `_checkCompaction` text).
+/// the retried request fit (TS `_checkCompaction` text).
 pub const OVERFLOW_RECOVERY_FAILED: &str = "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.";
 
 static OUTCOMES_DOC: ConversationDoc<OutcomesState> = match ConversationDoc::define(
@@ -93,7 +93,7 @@ struct Settled {
     /// The task's durable id (its idempotency key).
     task_id: String,
     /// `None` for a manual compaction: its outcome reports on the event
-    /// (the old `compact()`), so only the kernel notice follows its summary.
+    /// only, so only the kernel notice follows its summary.
     reason: Option<CompactionOutcomeReason>,
     outcome: SettledOutcome,
 }
@@ -153,8 +153,7 @@ pub(crate) fn start(
                             }
                         }
                         // One settled assistant turn appended: the review
-                        // prompt's trigger counter (the old engine's
-                        // `message_end` increment).
+                        // prompt's trigger counter.
                         CommitChange::Entry(entry) if entry.kind == "pi.assistant" => {
                             listener_runtime.autorefine.note_settled_turn();
                             if overflow_ends_run(entry, publication) {
@@ -340,7 +339,7 @@ fn settle_of(record: &TaskRecord, seen: &Mutex<Vec<String>>) -> Option<Settled> 
     let reason = match input.get("reason").and_then(Value::as_str) {
         Some("threshold") => Some(CompactionOutcomeReason::Threshold),
         Some("overflow") => Some(CompactionOutcomeReason::Overflow),
-        // Manual compactions report on the event only (the old `compact()`).
+        // Manual compactions report on the event only.
         _ => None,
     };
     let eukhe_durable::types::TaskState::Terminal { outcome } = &record.state else {
@@ -415,7 +414,7 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
     match event.outcome {
         SettledOutcome::Summarized => {
             // The kernel survived the compaction: its persistence notice
-            // (the old `_syncKernelStateAfterCompaction`) lands first.
+            // (TS `_syncKernelStateAfterCompaction`) lands first.
             // The compact-trigger review arms (TS
             // `_scheduleAutoRefineAfterCompaction`); the spawned task
             // consumes it once the conversation is idle.
@@ -480,7 +479,7 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
 
 /// The skip message of a compaction that completed without a summary: the
 /// chat-memory decline, the already-compacted head, or nothing to
-/// summarize (the old engine's `CompactSkip::user_message` texts).
+/// summarize.
 async fn skip_message(deps: &HostDeps, conversation: &Conversation, cx: &Context) -> String {
     if super::summary::chat_memory_root_of(deps, conversation.id(), cx)
         .await
@@ -548,8 +547,7 @@ async fn outcome_row(
 
 /// Submit the post-compaction `ipython_state` notice when a kernel of the
 /// conversation survived (a write submission: placed at once when idle,
-/// otherwise at the next boundary — the old engine's row also landed
-/// after the compaction commit).
+/// otherwise at the next boundary, after the compaction commit).
 async fn notice_surviving_kernel(deps: &HostDeps, conversation: &Conversation, cx: &Context) {
     let Some(pool) = deps.rlm_kernels.get().and_then(std::sync::Weak::upgrade) else {
         return;
@@ -588,8 +586,8 @@ async fn notice_surviving_kernel(deps: &HostDeps, conversation: &Conversation, c
     }
 }
 
-/// The pi wire shape of an old-engine user content (the two crates share
-/// the camelCase wire form).
+/// The pi wire shape of an `eukhe_types::ai` user content (the two crates
+/// share the camelCase wire form).
 fn pi_user_content(
     content: &eukhe_types::ai::UserContent,
 ) -> anyhow::Result<eukhe_types::pi_ai::UserContent> {

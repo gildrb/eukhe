@@ -27,7 +27,7 @@ pub(crate) const TOO_SHORT_TO_COMPACT: &str =
     "Session is too short to compact -- try again once it grows";
 /// The skip of a context that already starts at its compaction summary.
 pub(crate) const ALREADY_COMPACTED: &str = "Already compacted";
-/// The skip of a chat-memory root (the old `CompactSkip::ChatMemory`).
+/// The skip of a chat-memory root.
 pub(crate) const CHAT_MEMORY_SKIP: &str =
     "Nothing to compact: the chat memory keeps this chat, and every turn starts fresh from its view";
 /// The error of an aborted manual compaction (TS `compact()` abort arm).

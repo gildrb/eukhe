@@ -318,8 +318,7 @@ pub(crate) async fn tx_update_row(
 /// `eukhe.child-usage-attributed` entry names the spawning assistant row
 /// with the cumulative aggregate, in the same commit that advances the
 /// row, so a rerun never bills twice. Without an assistant row to fold
-/// (a spawn outside a model turn) the delta still bills, with no row —
-/// the old engine's unregistered-child drop.
+/// (a spawn outside a model turn) the delta still bills, with no row.
 pub(crate) async fn tx_attribute_usage(
     tx: &Tx,
     conversation_id: ConversationId,
@@ -345,8 +344,7 @@ pub(crate) async fn tx_attribute_usage(
     let cumulative_total = total;
     if let Some(target) = tx_attribution_target(tx, conversation_id).await? {
         // The row's aggregate is the row's own usage plus the CUMULATIVE
-        // child usage (the old engine rewrote the row to own +
-        // cumulative); the entry is immutable, so `own` is always the
+        // child usage; the entry is immutable, so `own` is always the
         // assistant row's own usage and never a prior aggregate.
         let aggregate = attributed_aggregate(&target.own, &cumulative_total, target.context_tokens);
         tx.append_entry(
@@ -369,7 +367,7 @@ struct AttributionTarget {
 }
 
 /// Resolve the attribution target of `conversation_id` inside a commit:
-/// the newest assistant entry (the old `_findLastAssistantMessage`) and
+/// the newest assistant entry (TS `_findLastAssistantMessage`) and
 /// its own usage; `None` when the conversation has no assistant row.
 async fn tx_attribution_target(
     tx: &Tx,

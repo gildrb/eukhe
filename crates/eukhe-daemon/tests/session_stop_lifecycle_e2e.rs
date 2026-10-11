@@ -235,8 +235,7 @@ fn create_session(
 }
 
 impl Session {
-    /// The session's durable storage (`<sessions>/<id>/`; the old engine
-    /// wrote a `<id>.jsonl` file).
+    /// The session's durable storage (`<sessions>/<id>/`).
     fn session_file(&self) -> PathBuf {
         self.agent_dir.join("sessions").join(&self.session_id)
     }
@@ -258,8 +257,8 @@ impl Session {
     }
 
     /// The main conversation's `eukhe.goal` document as JSON (the durable
-    /// goal record the continuation loop writes; the old engine appended
-    /// `thread_goal_state` rows), read through the read-only storage view.
+    /// goal record the continuation loop writes), read through the
+    /// read-only storage view.
     fn goal_record(&self) -> Option<String> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()

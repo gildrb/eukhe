@@ -66,7 +66,7 @@ pub struct CustomEntryData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
     /// The row stands for an input submitted after it with the same
-    /// content (the old engine's injected custom turn, whose row replaced
+    /// content (an injected custom turn, whose row replaced
     /// the user message): the input's user entry carries the model
     /// context, so the row has no `model`, and transcripts show the row in
     /// the input's place. Build drafts with [`input_row_draft`].
@@ -118,7 +118,7 @@ pub struct CustomStateData {
 }
 
 /// Whether custom messages of `custom_type` stay out of model context
-/// (display-only bookkeeping, the old engine's `convert_to_llm` rule).
+/// (display-only bookkeeping, excluded when converting to LLM messages).
 #[must_use]
 pub fn is_display_only_custom_type(custom_type: &str) -> bool {
     matches!(
@@ -212,7 +212,7 @@ pub fn custom_entry_content<'a>(
     }
 }
 
-/// The model text of a bash run (the old `bash_execution_to_text`).
+/// The model text of a bash run (`bash_execution_to_text`).
 #[must_use]
 pub fn bash_entry_text(data: &BashEntryData) -> String {
     bash_execution_to_text(&eukhe_types::session::BashExecutionMessage {

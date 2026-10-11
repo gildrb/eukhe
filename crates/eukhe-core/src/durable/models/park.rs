@@ -1,5 +1,5 @@
 //! Provider quota park on the durable path: the pure decision logic of the
-//! old engine's `provider_park.rs` (TS #2375 park mechanism)
+//! TS #2375 park mechanism
 //! over the pi-ai assistant message, plus the durable park state document.
 //!
 //! A quota failure (the `provider_stream_failure` diagnostic's `rate_limit`
@@ -7,11 +7,11 @@
 //! chain cleanly and parks the session until the reset: the durable
 //! `eukhe.quota_park` document on the root conversation holds the park, a
 //! one-shot cron job (the scheduled-jobs path) wakes the session at the
-//! reset, and the park/resume transitions land in the transcript as the old
-//! engine's `provider_quota_park` / `provider_quota_resume` rows.
+//! reset, and the park/resume transitions land in the transcript as
+//! `provider_quota_park` / `provider_quota_resume` rows.
 //!
-//! The decision logic stays pure and clock-free (ported verbatim from the
-//! old engine); the provider runtime owns the clock, the document, and the
+//! The decision logic stays pure and clock-free; the provider runtime owns
+//! the clock, the document, and the
 //! wake job.
 
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
@@ -187,7 +187,7 @@ pub fn quota_already_parked_final_error(resume_at_ms: u64, error: &str) -> Strin
 }
 
 /// The park state of one conversation: the durable `eukhe.quota_park`
-/// document (the old engine's in-memory `QuotaParkState`, persisted). A
+/// document (the quota park state, persisted). A
 /// fork starts unparked.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn parked_sentences_name_the_resume_time() {
         let resume_at = 1_768_000_000_000_u64;
-        // The old `format_iso` renders in the host's timezone; the sentence
+        // `format_iso` renders in the host's timezone; the sentence
         // must carry exactly its rendering, whatever it is here.
         let iso = crate::session::manager::format_iso(i64::try_from(resume_at).unwrap());
         let parked = quota_parked_final_error("Provider requested a wait", resume_at, "429");

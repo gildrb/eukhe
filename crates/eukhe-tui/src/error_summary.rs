@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn inline_login_recovery_merges_suffix_terminated_errors() {
-        // The exact daemon wording (eukhe-daemon agent_engine.rs).
+        // The exact daemon wording.
         assert_eq!(
             format_inline_login_recovery_message(
                 "Authentication failed for \"prime-inference\". Credentials may have expired or network is unavailable.\n\nRun /login to update credentials."

@@ -5,8 +5,8 @@
 //! delivery supersedes the older in-context copies with context edits —
 //! while persisted transcripts keep every copy (the newest remains
 //! authoritative), exactly as the legacy import admits old digests
-//! ([`super::import`]). Port of the old engine's `harness_digest` over
-//! [`crate::refinement`] state.
+//! ([`super::import`]). The digest renders from [`crate::refinement`]
+//! state.
 
 mod deliver;
 mod render;

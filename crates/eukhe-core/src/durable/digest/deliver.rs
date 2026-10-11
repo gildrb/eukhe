@@ -1,6 +1,6 @@
 //! Cold-boundary digest delivery over the durable conversation (the
 //! `_ensureHarnessDigestContext` / `_appendHarnessDigestIfStale` invariant
-//! of the old engine): the generation's `before_request` renders a fresh
+//! of TS): the generation's `before_request` renders a fresh
 //! digest and, when the newest in-context digest is stale against it,
 //! appends a `eukhe.custom` `harness_digest` entry — `display: false`, the
 //! framed digest as its model message, the raw digest and its state

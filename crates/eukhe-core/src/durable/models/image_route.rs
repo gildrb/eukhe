@@ -1,4 +1,4 @@
-//! Image-model routing for dispatched durable turns (the old engine's
+//! Image-model routing for dispatched durable turns (the
 //! `settings.imageModel` behavior, TS `resolveImageModelOverride`): a
 //! request whose context attaches image blocks, served on a model without
 //! image input, routes to the configured image-capable model instead. An
@@ -9,7 +9,7 @@
 //! The decision is pure and synchronous: it resolves against the
 //! collection's last-known chat catalog (`Models::get_models`), so the
 //! dispatcher (which owns the request pipeline) applies the swap itself.
-//! Unlike the old engine's resolver, the durable decision carries no
+//! The durable decision carries no
 //! thinking-level/tier clamps (the durable request builds those from the
 //! routed model) and no auth probe (the routed model's provider resolves
 //! auth per request, like every other served model).
@@ -55,8 +55,7 @@ fn format_image_model_unusable_message(reference: &str) -> String {
     )
 }
 
-/// Exact reference match against the catalog (the old engine's
-/// `find_exact_model_reference_match` over pi-ai models): canonical
+/// Exact reference match against the catalog (over pi-ai models): canonical
 /// `provider/id`, the `provider/id` split, or an unambiguous bare id,
 /// case-insensitively; an ambiguous or unmatched reference resolves to
 /// nothing.

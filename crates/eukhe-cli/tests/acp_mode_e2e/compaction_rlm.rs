@@ -116,8 +116,8 @@ fn compaction_metas(updates: &[Value]) -> Vec<Value> {
 /// the window minus the faux harness model's `4_096` per-request output
 /// budget and the reserve). Turn one crosses it with only its own prompt
 /// in context: pi-durable finds nothing before the prompt to summarize and
-/// runs no compaction (no meta; the old engine's post-turn arm published a
-/// skip). Turn two's request crosses it again: the compaction summarizes
+/// runs no compaction (no meta, no skip row). Turn two's request crosses
+/// it again: the compaction summarizes
 /// turn one before turn two's answer, so the summary is the second
 /// scripted response.
 #[test]

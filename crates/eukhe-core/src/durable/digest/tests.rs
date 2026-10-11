@@ -450,7 +450,7 @@ async fn a_compaction_snapshot_of_the_current_state_suppresses_redelivery() {
     };
 
     // The compaction summary carries the digest snapshot as its leading
-    // frame (the old engine's `harnessDigest` on the summary).
+    // frame (TS `harnessDigest` on the summary).
     let all = entries(&session).await;
     let answer = all.last().expect("the answer entry");
     let summary = format!("{}[compaction] early work", digest_block(&delivered_digest));

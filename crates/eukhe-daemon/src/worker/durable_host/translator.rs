@@ -682,7 +682,7 @@ impl EventTranslator {
     }
 
     /// A provider failover event of the session's provider runtime (the
-    /// old engine's backup-switch `auto_retry_*` vocabulary the durable
+    /// backup-switch `auto_retry_*` vocabulary the durable
     /// Harness itself does not emit): flushed after any parked update,
     /// like the harness's own retry frames. A switch joins the open retry
     /// episode; a successful switch's end closes it.
@@ -863,7 +863,7 @@ impl EventTranslator {
             });
         } else if kind == USER_ENTRY.kind() && self.suppressed_input_row(entry) {
             // The input row entered just before its input: the row already
-            // shows the user message (the old engine's injected custom turn).
+            // shows the user message (an injected custom turn).
         } else if kind != BASH_ENTRY.kind() && kind != BRANCH_SUMMARY_ENTRY.kind() {
             // Bash runs and branch summaries are shown by their features' own events.
             if let Some(message) = entry_wire_message(entry) {
@@ -1102,7 +1102,7 @@ impl EventTranslator {
 }
 
 /// The `compaction_end` that reports a run's failed overflow recovery,
-/// after its `compaction_outcome` row (the old engine's `_checkCompaction`
+/// after its `compaction_outcome` row (TS `_checkCompaction`
 /// reported state: no result, no retry, the row's text as the error).
 fn reported_overflow_end(message: &Value) -> Option<Value> {
     let details = &message["details"];
@@ -1375,7 +1375,7 @@ fn retry_delay_ms(at: f64, from: f64) -> u64 {
     })
 }
 
-/// The wire frame of one provider failover event (the old engine's
+/// The wire frame of one provider failover event (TS backup-switch
 /// shapes: `maxAttempts`/`delayMs`/`errorMessage`/`backupModel` on the
 /// start, `restoredModel` on the end).
 fn provider_wire_frame(event: &ProviderWireEvent) -> Value {

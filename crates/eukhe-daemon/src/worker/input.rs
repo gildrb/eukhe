@@ -176,7 +176,7 @@ pub(crate) fn injection_kind(
 
 /// The failure text of a waited prompt that ended unanswered: the run's
 /// error (pi-durable settles a failed run `model_error` with the provider
-/// error text as its detail — the old engine answered that text), else the
+/// error text as its detail), else the
 /// bare reason.
 fn unsettled_text(state: &eukhe_durable::types::SubmissionState) -> String {
     state

@@ -1,5 +1,5 @@
 //! `rlm.*` reply shapes (strict `snake_case`, parsed by the Python `rlm`
-//! module); ported from the old engine's `rlm_host.rs`.
+//! module).
 
 /// `rlm.spawn` handle returned once the child task is admitted.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]

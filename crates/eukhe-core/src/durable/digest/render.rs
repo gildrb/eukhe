@@ -1,4 +1,4 @@
-//! The digest composition half of the old engine's `harness_digest`: render
+//! The digest composition half of `harness_digest`: render
 //! the continual-harness state (merged global + local) into the
 //! model-facing digest body plus the fingerprint of the state that produced
 //! it. One merged-state read feeds both, so the fingerprint always matches
@@ -23,14 +23,13 @@ use crate::refinement::{
 
 use super::super::HostDeps;
 
-/// The custom row type of a delivered digest (the old engine's
-/// `HARNESS_DIGEST_CUSTOM_TYPE`).
+/// The custom row type of a delivered digest.
 pub const HARNESS_DIGEST_CUSTOM_TYPE: &str = "harness_digest";
 
-/// Full digest frame prefix (the old engine's `HARNESS_DIGEST_PREFIX`).
+/// Full digest frame prefix.
 pub const HARNESS_DIGEST_PREFIX: &str =
     "[harness-digest]\n\nThe persistent memories produced across this session so far:\n\n<harness_state>\n";
-/// Full digest frame suffix (the old engine's `HARNESS_DIGEST_SUFFIX`).
+/// Full digest frame suffix.
 pub const HARNESS_DIGEST_SUFFIX: &str = "\n</harness_state>";
 
 /// Session-scoped digest inputs: where harness state lives and which
@@ -68,8 +67,7 @@ pub fn digest_context(deps: &HostDeps, tool_names: &[&str]) -> HarnessDigestCont
 }
 
 /// Relevance terms for digest entry ranking: the active goal objective
-/// (strongest) plus the last few user/assistant texts, newest first (the
-/// old engine's `digest_query_terms`).
+/// (strongest) plus the last few user/assistant texts, newest first.
 #[must_use]
 pub fn digest_query_terms(
     goal_objective: Option<&str>,

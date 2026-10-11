@@ -791,7 +791,7 @@ fn process_alive(pid: i32) -> bool {
 /// The daemon's prewarm (TS `prewarmIpythonKernel`): a top-level session
 /// that asks for it boots its kernel at open with no `ipython` call, so a
 /// compaction with no tool use still lands the hidden `ipython_state`
-/// notice (the old engine's `kernel_prewarm` contract on the durable pool).
+/// notice (the `kernel_prewarm` contract on the durable pool).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_prewarmed_root_boots_at_open_and_its_compaction_lands_the_state_notice() {
     if kernel_python().is_none() {

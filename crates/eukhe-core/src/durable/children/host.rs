@@ -1,10 +1,9 @@
 //! The child-session host seam: the supervisor operations an
-//! `eukhe.rlm.child` task drives (port of the old engine's `rlm_host.rs`'s
-//! `RlmSubagentHost`, narrowed to primitives).
+//! `eukhe.rlm.child` task drives, narrowed to primitives.
 //!
-//! The old host owned the whole child lifecycle in daemon memory (spawn,
-//! settle watching, the terminal notice, the roster). The durable host is a
-//! set of idempotent primitives: the lifecycle lives in the parent's durable
+//! The host is a set of idempotent primitives rather than an in-memory
+//! owner of the child lifecycle (spawn, settle watching, the terminal
+//! notice, the roster): the lifecycle lives in the parent's durable
 //! task, so it survives a parent restart. Every mutating call carries an
 //! explicit idempotency key; a rerun after a crash repeats the call with the
 //! same key and must observe the first call's effect, never a second one.

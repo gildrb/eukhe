@@ -360,8 +360,8 @@ async fn abort_suspends_the_queue_and_resume_sends_it() {
 
 /// `abort`'s suspended inputs are durable (`eukhe.daemon.suspended`): a
 /// fresh worker over the same storage still shows them in its queue
-/// strip, and `resume_queue` there sends them (the old engine restored
-/// the queue from its journal; the document takes its place).
+/// strip, and `resume_queue` there sends them (the document persists
+/// the queue).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn suspended_inputs_survive_a_worker_restart() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -424,7 +424,7 @@ async fn suspended_inputs_survive_a_worker_restart() {
 
 /// An input-pause lease holds admissions: a prompt while paused never
 /// reaches the model, `prompt_and_wait` answers the pause error, and the
-/// release delivers the held input (the old engine's admission gate).
+/// release delivers the held input (the admission gate).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_input_pause_lease_holds_admissions_until_released() {
     let dir = tempfile::tempdir().expect("tempdir");

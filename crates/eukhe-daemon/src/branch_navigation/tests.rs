@@ -62,7 +62,7 @@ fn shape(tree: &Value) -> Vec<(String, String, String, Option<String>)> {
 /// Two answered prompts: the harness-digest row rides the first turn only
 /// (the digest is fresh afterwards), so the ids are
 /// user/digest/assistant/user/assistant (the durable tree shows every
-/// stored entry, the old `flat_tree` included display rows too).
+/// stored entry, display rows included).
 async fn two_turns(worker: &Worker) -> [String; 5] {
     prompt(worker, "first").await;
     prompt(worker, "second").await;

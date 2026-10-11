@@ -1,7 +1,7 @@
 //! Legacy session -> import plan: the active branch of an old `<id>.jsonl`
 //! session as durable entry drafts, plus the agent state it ends with.
 //!
-//! Each entry's `model` is exactly what the old engine sent the model for
+//! Each entry's `model` is exactly what the legacy session sent the model for
 //! that row (`build_session_context` + `convert_to_llm`), so the imported
 //! conversation's model context equals the old session's active context.
 
@@ -466,7 +466,7 @@ fn typed<D>(model: Option<Vec<Message>>, data: D) -> TypedEntryDraft<D> {
     }
 }
 
-/// What the old engine sent the model for `message`, in pi-ai shapes;
+/// What the legacy session sent the model for `message`, in pi-ai shapes;
 /// `None` when it sent nothing.
 fn llm_view(message: &AgentMessage, id: &str) -> Result<Option<Vec<Message>>, ImportError> {
     let converted = convert_to_llm(std::slice::from_ref(message));
@@ -501,7 +501,7 @@ fn to_value<T: Serialize>(value: &T, id: &str) -> Result<serde_json::Value, Impo
     })
 }
 
-/// Old-engine (`eukhe_types::ai`/`session`) JSON into its pi-ai shape: both
+/// Legacy-session (`eukhe_types::ai`/`session`) JSON into its pi-ai shape: both
 /// use the same camelCase wire form.
 fn convert<T: Serialize, U: DeserializeOwned>(value: &T, id: &str) -> Result<U, ImportError> {
     serde_json::to_value(value)

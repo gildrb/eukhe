@@ -240,8 +240,8 @@ pub struct TextContent {
     /// `OpenAI` Responses message metadata: a legacy id string or a
     /// [`TextSignatureV1`] JSON payload (TS wire key `textSignature`; the
     /// camelCase rename keeps the provider signature attached to the block
-    /// across the eukhe-ai <-> eukhe-agent wire-shape round trips, which have no
-    /// catch-all field to carry a dropped key through).
+    /// across wire-shape round trips and matches the TS session files and
+    /// event frames).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_signature: Option<String>,
     /// An explicit prompt-cache breakpoint after this block (wire key
@@ -277,10 +277,9 @@ pub struct ThinkingContent {
     /// Provider reasoning item id (e.g. `OpenAI` Responses), or the encoded
     /// reasoning-details payload for redacted blocks. TS wire key
     /// `thinkingSignature`; the camelCase rename keeps the provider
-    /// signature attached to the block across the eukhe-ai <-> eukhe-agent
-    /// wire-shape round trips (eukhe-agent has no catch-all field, so a
-    /// `snake_case` key was silently dropped there) and matches the TS
-    /// product's session files and event frames.
+    /// signature attached to the block across wire-shape round trips (a
+    /// `snake_case` key would be dropped by camelCase readers) and matches
+    /// the TS product's session files and event frames.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_signature: Option<String>,
     /// True when the thinking content was redacted by safety filters.
@@ -309,7 +308,7 @@ pub struct ToolCall {
     pub arguments: JsonMap,
     /// Google-specific opaque signature for reusing thought context (TS
     /// wire key `thoughtSignature`; see [`ThinkingContent`] for why the
-    /// camelCase rename must match eukhe-agent's).
+    /// rename is camelCase).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thought_signature: Option<String>,
     #[serde(flatten)]

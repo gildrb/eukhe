@@ -1,7 +1,6 @@
 //! `eukhe.goals`: thread goals and autonomous continuation on the durable
-//! Harness (port of the old engine's `{goal_driver, goal_boundary}`,
-//! `crate::goals`' engine half, and the daemon's goal/autonomous
-//! continuation loops).
+//! Harness (the goal driver and boundary, `crate::goals`' engine half,
+//! and the daemon's goal/autonomous continuation loops).
 //!
 //! State lives in conversation documents (`eukhe.goal`, `eukhe.autonomous`,
 //! and the hooks' bookkeeping `eukhe.goal.loop`); the `pi.generation` hooks

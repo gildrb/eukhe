@@ -1,6 +1,6 @@
 //! The `ipython` tool on the durable Harness: the conversation's kernel runs
 //! the cell, its output streams into the call's durable output, and the
-//! result content/details are the old engine's `ipython` tool result
+//! result content/details are the `ipython` tool result
 //! (`crate::tools::ipython::execute_ipython`).
 //!
 //! The call is not replay-safe: a cell interrupted by a crash is answered
@@ -39,11 +39,11 @@ use crate::tools::ipython::{ipython_tool_description, sent_agent_message_json, I
 /// The tool name.
 pub const IPYTHON_TOOL_NAME: &str = "ipython";
 
-/// The `code` parameter description (the old `ipython_tool_schema`).
+/// The `code` parameter description.
 const CODE_DESCRIPTION: &str = "Python code to execute in the persistent Python REPL. Use the target project's own environment for project imports, tests, scripts, CLIs, and dependency checks instead of direct kernel imports.";
 
-/// `Type.Object({ code: Type.String({ description }) })`: the old
-/// `ipython_tool_schema` (`type`, `required: ["code"]`, `properties`).
+/// `Type.Object({ code: Type.String({ description }) })`: the `ipython`
+/// tool schema (`type`, `required: ["code"]`, `properties`).
 #[must_use]
 pub fn ipython_parameters() -> TSchema {
     Type::object([(
@@ -292,10 +292,10 @@ fn status_name(status: ExecuteStatus) -> &'static str {
     }
 }
 
-/// The old `ipython` tool result: text plus image attachments, and the TUI
+/// The `ipython` tool result: text plus image attachments, and the TUI
 /// card details. The busy-kernel restart choice needs a UI the durable host
 /// does not have, so `kernelRestarted` is always `false` (as in every
-/// headless old session).
+/// headless session).
 pub(crate) fn tool_result(result: &ExecuteResult) -> ToolExecutionResult {
     let mut content = vec![UserContentBlock::Text(TextContent::new(
         format_execute_text(result),

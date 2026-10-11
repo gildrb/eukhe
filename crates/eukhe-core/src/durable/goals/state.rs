@@ -1,10 +1,10 @@
-//! Goal-state transitions: the durable port of the old goal driver's
-//! lifecycle (the old engine's `goal_driver.rs` and its `progress` child) as
+//! Goal-state transitions: the goal driver's lifecycle (and its
+//! `progress` child) as
 //! pure functions over [`GoalState`]. The callers read the `eukhe.goal`
 //! document inside a commit, apply one transition, and write the result back
 //! in the same commit, so every transition is one atomic read-modify-write.
 //!
-//! Every write goes through [`stamp`] (the old `set_state` normalization:
+//! Every write goes through [`stamp`] (the state normalization:
 //! `updated_at`, the derived `active` flag, and the creation-based timer).
 
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, StopReason, Usage};

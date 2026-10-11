@@ -154,7 +154,7 @@ async fn open_submit_answers_and_commits_entries() {
     ask(&session, "hello").await;
     let entries = entries(&session).await;
     // The delivered harness digest row persists between the prompt and the
-    // answer (the old engine's `[harness-digest]` row).
+    // answer (the `[harness-digest]` row).
     let digest_rows = transcript(&entries)
         .into_iter()
         .filter(|(kind, text)| {
@@ -341,8 +341,8 @@ async fn a_fork_made_main_in_its_creating_commit_is_main_after_reopen() {
     session.close(cx()).await.expect("close");
 }
 
-/// The system prompt the provider receives equals the old engine's
-/// `build_system_prompt` output for the same inputs.
+/// The system prompt the provider receives equals
+/// `build_system_prompt`'s output for the same inputs.
 #[tokio::test]
 async fn prompt_sections_join_to_the_old_system_prompt() {
     let fixture = fixture();

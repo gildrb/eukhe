@@ -270,8 +270,7 @@ async fn goal_start_submits_its_continuation_and_reports_the_goal() {
 #[tokio::test]
 async fn goal_pause_resume_and_clear_report_each_state() {
     // An active goal whose run ends on a terminal provider failure fails
-    // right away (the goal observer; the old engine's
-    // `finish_for_terminal_message`), so the goal's first run holds its
+    // right away (the goal observer), so the goal's first run holds its
     // model request until the pause lands, then the abort ends it without
     // a provider failure. The resumed continuation's run fails afterwards.
     let fixture = open(&[]).await;

@@ -5,8 +5,7 @@
 //! lists; every mutation rewrites the document, so `resume_queue`,
 //! `clear_queue`, queue mutations, the pause release, and a worker
 //! restart (the supervisor relaunches the worker over the same storage)
-//! all read the same durable truth — the old engine kept these rows in
-//! its process-local recovery journal, which a crash lost.
+//! all read the same durable truth, which a crash cannot lose.
 
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue};

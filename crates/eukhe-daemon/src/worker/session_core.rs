@@ -14,7 +14,7 @@ use super::durable_host::ShownView;
 use crate::types::SessionActionSnapshot;
 
 /// Typed provenance of one queued input's admission — the queue strip's
-/// riders (the old engine's parked-row classification): the kinds mark
+/// riders (the parked-row classification): the kinds mark
 /// which parked rows the TUI renders as daemon work, never plain user
 /// rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

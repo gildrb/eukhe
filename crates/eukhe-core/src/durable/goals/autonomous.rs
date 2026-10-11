@@ -28,8 +28,8 @@ use crate::autonomous::{
 use crate::durable::entries::custom_entry_draft;
 use crate::slash_command_args::format_autonomous_status;
 
-/// The persisted autonomous run (the old `AutonomousRuntimeState` plus the
-/// last stop decision).
+/// The persisted autonomous run (the runtime state plus the last stop
+/// decision).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutonomousDocState {
@@ -211,7 +211,7 @@ pub(crate) enum AutonomousYield {
     Stop(AutonomousStop),
 }
 
-/// The old `ShellAutonomousDriver::after_turn` over the runtime state: gates
+/// The after-turn decision over the runtime state: gates
 /// first (a pass stops the run), then the limits, else a continuation.
 pub(crate) async fn decide(
     state: &mut AutonomousRuntimeState,
@@ -257,7 +257,7 @@ pub(crate) async fn decide(
     }
 }
 
-/// The old engine's stop reason of a final answer; `None` for the reasons a
+/// The wire stop reason of a final answer; `None` for the reasons a
 /// final answer never carries.
 fn legacy_stop_reason(stop_reason: StopReason) -> Option<eukhe_types::ai::StopReason> {
     match stop_reason {

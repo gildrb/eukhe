@@ -567,7 +567,7 @@ fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
     assert_eq!(starts[1]["attempt"], 2);
     // Each retry start's delay sits around its ladder step (50ms then
     // 100ms: [40, 70] and [80, 140]). pi-durable schedules the step exactly
-    // (no jitter, unlike the old engine's ±20%); the band stays as headroom.
+    // (no jitter); the band stays as headroom.
     let jitter_band = |base: u64| (base * 4 / 5, base * 7 / 5);
     for (start, base) in starts.iter().zip([50u64, 100u64]) {
         let delay = start["delayMs"].as_u64().expect("delayMs");
@@ -670,8 +670,8 @@ fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
 ///
 /// pi-durable decides the waits: its generation retry schedules the
 /// policy's exponential ladder (`baseDelayMs * 2^(attempt-1)`, no jitter)
-/// and does not read `Retry-After`, so the old engine's honored-and-
-/// jittered server wait ([800, 1400] ms here) is not the durable shape.
+/// and does not read `Retry-After`, so a server-requested wait is not
+/// honored.
 #[test]
 fn storm_429_caps_requests_and_leaves_one_outcome_row() {
     let (_dir, mock, _supervisor, mut client, session_id) = setup_with_rejection(
@@ -871,8 +871,7 @@ fn goal_continuation_refuses_after_the_402_corpse() {
     // The durable `/goal` command answers once the goal is set and its
     // continuation submitted: the goal loop runs in-run (pi-durable's
     // `on_yield` continuation), so a waited answer would only come when
-    // the whole goal ends. The old engine settled the command with the
-    // first turn's error; here the turn's failure is observed after it.
+    // the whole goal ends; the turn's failure is observed after the answer.
     assert_eq!(done["success"], true, "the goal command answers: {done}");
     let is_outcome_start = |event: &Value| {
         event.get("type").and_then(Value::as_str) == Some("message_start")

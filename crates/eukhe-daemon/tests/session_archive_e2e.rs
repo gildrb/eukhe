@@ -469,8 +469,7 @@ fn an_archived_session_resumes_through_the_wake() {
 
     // Phase 2: backdate the saved session past the default age rule and
     // restart the supervisor; its boot sweep archives the session. The
-    // session is its durable storage directory (`<sessions>/<id>/`; the
-    // old engine wrote `<id>.jsonl`).
+    // session is its durable storage directory (`<sessions>/<id>/`).
     let saved = sessions.join(&session_id);
     assert!(
         saved.is_dir(),

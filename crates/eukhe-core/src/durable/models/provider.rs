@@ -5,7 +5,7 @@
 //!
 //! - Image-model routing ([`super::image_route`]): a request attaching
 //!   image blocks on a text-only session model routes to
-//!   `settings.imageModel`, or fails with the old engine's actionable
+//!   `settings.imageModel`, or fails with an actionable
 //!   refusal.
 //! - Provider failover ([`super::failover`]): after a retryable provider
 //!   failure the request re-routes to the next configured provider serving
@@ -29,7 +29,7 @@
 //! Wrapping happens once per collection at session open
 //! ([`ProviderRuntime::install`]), on the session's own collection; the
 //! daemon's faux-script sessions share one collection across workers and
-//! stay unwrapped, matching the old engine's no-failover faux rule.
+//! stay unwrapped: faux-script sessions get no failover.
 
 use eukhe_ai::api::lazy::lazy_stream;
 use eukhe_ai::api::{StreamFn, StreamSimpleFn};
@@ -82,7 +82,7 @@ use crate::settings::SettingsManager;
 
 const SWITCH_BUDGET: u32 = MAX_TOTAL_PROVIDER_RETRIES;
 
-/// Wire-shaped provider events of the runtime (the old engine's
+/// Wire-shaped provider events of the runtime (the backup-switch
 /// `auto_retry_*` failover vocabulary the durable Harness does not emit):
 /// broadcast to every subscriber; the daemon worker translates them onto
 /// the wire.
@@ -201,7 +201,7 @@ impl ProviderRuntime {
         runtime
     }
 
-    /// The runtime's wire events (the old `auto_retry_*` failover
+    /// The runtime's wire events (the `auto_retry_*` failover
     /// vocabulary); a late subscriber sees only later events.
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<ProviderWireEvent> {
@@ -625,7 +625,7 @@ fn allowlist_allows(settings: &SettingsManager, candidate: &Model) -> bool {
 // Quota park
 // ---------------------------------------------------------------------------
 
-/// Restore a persisted park at open (the old engine's build-time
+/// Restore a persisted park at open (TS's build-time
 /// `_restoreQuotaPark` scan, on the durable document): a live park keeps
 /// its wake; a resume already recorded cleared the document.
 async fn restore_park(inner: &Arc<Inner>, conversation: ConversationId) {

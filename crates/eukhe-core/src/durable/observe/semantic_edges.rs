@@ -11,7 +11,7 @@
 //! the stream wrapper over the pi-ai provider contract, and the tests
 //! live in `semantic_edges/tests.rs`.
 //!
-//! Deviation from the old engine, documented: the compaction guard (TS
+//! Documented deviation: the compaction guard (TS
 //! `semanticCompaction` / `summaryCall`) has no producer here — the
 //! durable compaction's summary wire calls run through the session's
 //! models directly, correlated by durable task ids. The compaction

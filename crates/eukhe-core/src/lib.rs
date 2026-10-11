@@ -24,9 +24,8 @@
 //! manager, subagents, session manager, settings.
 //!
 //! Public API (crate facade): the tool-definition contract for the
-//! model-facing surface. All subsystem internals are `pub(crate)`;
-//! `SessionEngine` (message in -> events out) is the future facade per the
-//! crate README. This lane ports the tools subsystem; its only public
+//! model-facing surface. All subsystem internals are `pub(crate)`.
+//! This lane ports the tools subsystem; its only public
 //! surface is what other layers legitimately consume: the tool definitions
 //! (name, schema, executor) and the pluggable operation seams.
 

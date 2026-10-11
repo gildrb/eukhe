@@ -10,7 +10,7 @@
 //! of outcome, so a failure is not silently re-run). A crash during the
 //! run leaves the request pending and the hook reruns it on resume.
 //!
-//! The old engine's refinement flow over the durable conversation: the audit row is a `eukhe.custom-state` entry
+//! The refinement flow over the durable conversation: the audit row is a `eukhe.custom-state` entry
 //! (`eukhe.refinement`), the outcome and notice rows are `eukhe.custom`
 //! entries. [`refine_now`] is the user `/refine` path over the same run.
 

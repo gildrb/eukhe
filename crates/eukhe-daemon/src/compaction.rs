@@ -3,7 +3,7 @@
 //! Port of the TS daemon-mode compaction surface: the `compact` /
 //! `abort_compaction` handlers over the durable session ([`durable`]), and
 //! the `compaction_start`/`compaction_end` event payloads with their exact
-//! TS shapes (shared with the old engine paths).
+//! TS shapes.
 
 use std::sync::{Arc, Mutex};
 

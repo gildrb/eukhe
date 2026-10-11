@@ -1,9 +1,6 @@
 //! The RLM host requests that do not touch the turn boundary: the
 //! session-internal heartbeats (`rlm_heartbeat.*`), the kernel's generic MCP
-//! bridge (`mcp.*`), and `model.info`. Ported from the old engine's
-//! `SessionRuntime::register_host_handlers` (heartbeat half),
-//! `McpManager::register_host_handlers`, and `TurnBoundaryRequests::
-//! register_model_info_handler`.
+//! bridge (`mcp.*`), and `model.info`.
 
 use std::sync::{Arc, Weak};
 

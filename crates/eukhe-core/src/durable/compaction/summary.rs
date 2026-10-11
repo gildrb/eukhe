@@ -4,13 +4,13 @@
 //! (`compaction_utils`), the auxiliary-model routing (`auxiliaryModel`,
 //! TS #2411), the previous summary's update mode, the recent-state anchor
 //! (TS #2385), the harness-digest block that leads the summary, and the
-//! `[compaction-summary]` wrapper — the same texts the old engine wrote.
+//! `[compaction-summary]` wrapper.
 //! The summary text deltas stream to the session's
 //! [`SummaryDeltaSink`](super::HostDeps) while the summarizer answers.
 //!
 //! Chat-memory roots decline: their next turn starts fresh from the
 //! settled view, so the context a summary would replace is dropped anyway
-//! (the old engine's `next_turn_is_fresh` threshold skip).
+//! (the threshold skip).
 
 use std::sync::Arc;
 
@@ -72,8 +72,7 @@ async fn decide(
         &json!({ "customInstructions": request.instructions.is_some() }),
     );
     // A chat-memory root's next turn starts fresh from the settled view;
-    // the history lives in the chat, so the compaction is declined (the
-    // old engine's `next_turn_is_fresh` arm).
+    // the history lives in the chat, so the compaction is declined.
     if chat_memory_root(deps, api.conversation_id(), cx).await? {
         return Ok(Some(CompactionDecision::Decline));
     }
@@ -98,8 +97,8 @@ async fn decide(
     let history = head::agent_messages(&history_models)
         .map_err(|error| SessionError::error(format!("{error:#}")))?;
     if history.is_empty() && previous.is_none() {
-        // Nothing new and nothing to update (the old engine's
-        // `CompactSkip::TooShort`): the compaction ends without a summary.
+        // Nothing new and nothing to update (too short to compact):
+        // the compaction ends without a summary.
         return Ok(Some(CompactionDecision::Decline));
     }
     // The recent-state anchor: the newest assistant text of the kept tail.
@@ -149,7 +148,7 @@ async fn decide(
     }
     model.max_tokens = max_tokens;
 
-    // The request (the old engine's `build_summarization_request`).
+    // The summarization request.
     let request_messages = build_summarization_request(
         &history,
         request.instructions.as_deref(),
@@ -195,7 +194,7 @@ async fn decide(
         &json!({ "maxTokens": max_tokens }),
     );
     // Stream the summarizer, forwarding every text delta to the live
-    // summary sink (the old engine's `complete_summary_call` on_delta).
+    // summary sink.
     let sink = deps.summary_delta.clone();
     let forward_sink = sink.clone();
     let stream = deps.models.stream_simple(&model, context, options);
@@ -215,7 +214,7 @@ async fn decide(
     if let Some(signal) = &signal {
         signal.throw_if_aborted().map_err(SessionError::Aborted)?;
     }
-    // The old engine's failure label ("Summarization failed"): an error
+    // The failure label ("Summarization failed"): an error
     // stop bubbles out of the hook and fails the compaction task.
     if reply.stop_reason == StopReason::Error {
         let message = reply.error_message.unwrap_or_default();
@@ -328,7 +327,7 @@ async fn harness_read_context(
 }
 
 /// The session's compaction reserve tokens (the settings file's
-/// `compaction.reserveTokens`, the old engine's default).
+/// `compaction.reserveTokens`, or the default).
 fn compaction_reserve_tokens(deps: &super::HostDeps) -> u64 {
     deps.settings
         .manager()
@@ -403,8 +402,8 @@ fn sink_for(deps: &super::HostDeps) -> Option<crate::durable::SummaryDeltaSink> 
     deps.summary_delta.clone()
 }
 
-/// The custom message row of an unsuccessful compaction (the old engine's
-/// `create_compaction_outcome_message`): kept for the observer's rows.
+/// The custom message row of an unsuccessful compaction: kept for the
+/// observer's rows.
 #[must_use]
 pub(crate) fn outcome_message(
     content: &str,

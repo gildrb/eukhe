@@ -6,9 +6,8 @@
 //! runs the refinement through [`crate::durable::rlm::refine::refine`].
 //! Every review attempt — decline, success, or failure — stamps the
 //! cooldown, so a persistent failure cannot retry a full review on every
-//! boundary. The cooldown and pending flag are session-memory, exactly
-//! like the old engine's `_lastAutoRefineReviewAt` /
-//! `_compactAutoRefinePending`.
+//! boundary. The cooldown and pending flag are session-memory, like TS
+//! `_lastAutoRefineReviewAt` / `_compactAutoRefinePending`.
 
 use std::sync::{Mutex, PoisonError};
 
@@ -168,7 +167,7 @@ async fn run_round(
     Ok(())
 }
 
-/// The compact-trigger review (the old `review_compact_auto_refine`): an
+/// The compact-trigger review: an
 /// LLM call over the conversation, the merged harness state, and the
 /// refinement history; `Ok(None)` is the decline.
 async fn review(

@@ -11,7 +11,6 @@
 //! runtime sits under it, inside one request — so the switch to the backup
 //! happens within the failed request, immediately, and a pi-durable retry
 //! re-issues the request to the primary again (where the switch repeats).
-//! The old engine quick-retried on the primary first and switched after.
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -412,7 +411,7 @@ fn provider_failure_fails_over_to_the_next_provider_and_recovers() {
     // Durable composition (see the module doc): the runtime switches inside
     // the primary's failed request, so the backup answers that same
     // request and pi-durable never retries — one primary request, no quick
-    // retry before the switch (the old engine retried the primary first).
+    // retry before the switch.
     assert_eq!(primary.count(), 1, "primary requests: the failed initial");
     assert_eq!(backup.count(), 1, "backup served the switched turn");
 
@@ -504,8 +503,7 @@ fn every_provider_failing_surfaces_the_final_error() {
     assert_eq!(backup.count(), 2);
 
     // Durable composition (module doc): the switch comes first inside each
-    // request, the pi-durable quick retry between the two requests — the
-    // old engine's order was quick retry, switch, quick retry.
+    // request, the pi-durable quick retry between the two requests.
     let starts = retry_starts(&client.events);
     assert_eq!(starts.len(), 3, "events: {:?}", client.events);
     assert_eq!(starts[0]["reason"], "backup");
@@ -530,8 +528,7 @@ fn every_provider_failing_surfaces_the_final_error() {
     );
 
     // The episode closes once, failed: its attempt is the episode's retry
-    // count (two switches plus the quick retry; the old engine numbered
-    // the walk 4).
+    // count (two switches plus the quick retry).
     let end = retry_end(&client.events);
     assert_eq!(end["success"], false);
     assert_eq!(end["attempt"], 3);

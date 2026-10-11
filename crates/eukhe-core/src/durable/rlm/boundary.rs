@@ -1,6 +1,5 @@
 //! The run-boundary host requests: `compact.status`/`compact.run` and
-//! `refine.status`/`refine.run` (port of the old engine's
-//! `TurnBoundaryRequests`). Both `*.run` requests only schedule work for the
+//! `refine.status`/`refine.run`. Both `*.run` requests only schedule work for the
 //! requesting conversation:
 //!
 //! - `compact.run` admits a manual durable compaction

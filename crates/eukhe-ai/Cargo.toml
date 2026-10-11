@@ -19,8 +19,8 @@ eukhe-chord.workspace = true
 # HTTP client: the TS `fetch` (OAuth endpoints, provider catalogs); rustls only.
 # `stream`: streamed SSE response bodies (`bytes_stream`) and streamed mock bodies.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
-# WebSocket transport of openai-codex-responses (TS global `WebSocket`); same version and
-# rustls feature set the old eukhe-ai port resolves.
+# WebSocket transport of openai-codex-responses (TS global `WebSocket`); rustls with
+# webpki roots, matching reqwest's TLS stack.
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
 # zstd request-body compression of the Codex SSE transport (TS `zlib.zstdCompressSync` at
 # level 3); binds the same libzstd Node uses. License: MIT (zstd-sys/zstd-safe MIT OR Apache-2.0).

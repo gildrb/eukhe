@@ -1,13 +1,13 @@
-//! RLM child-usage attribution rows (the durable form of the old engine's
+//! RLM child-usage attribution rows (the durable form of the
 //! `child_usage_attributed` session rows): one display-only entry per
 //! attributed batch, naming the spawning parent assistant row and the
-//! cumulative aggregate, plus the read-side fold that restores the old
+//! cumulative aggregate, plus the read-side fold that restores the TS
 //! `applyChildUsageAttributions` view (the newest aggregate per target
 //! replaces the target row's usage; totals keep the row's own context
 //! size).
 //!
-//! Durable entries are immutable, so the fold the old engine performed at
-//! append time (rewriting the assistant row in the session file) becomes a
+//! Durable entries are immutable, so instead of rewriting the assistant
+//! row at append time the attribution is a
 //! fold at read: [`apply_child_usage_attributions`] over the entries a
 //! surface is about to render. The parent's billable session totals are
 //! unaffected — they come from the `pi.usage` attribution the children
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// The entry kind of one attribution row.
 pub const CHILD_USAGE_ATTRIBUTED_KIND: &str = "eukhe.child-usage-attributed";
 
-/// The data of one `eukhe.child-usage-attributed` entry: the old JSONL
+/// The data of one `eukhe.child-usage-attributed` entry: the legacy JSONL
 /// row's payload over the durable entry id (a number).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,7 +37,7 @@ pub struct ChildUsageAttributionData {
     pub aggregate_usage: Usage,
     /// Which parent surface the child's spend belonged to; `None` on the
     /// durable path (the child host reports one cumulative total, not
-    /// per-origin batches like the old engine's child-file walk).
+    /// per-origin batches).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<ChildUsageOrigin>,
 }
@@ -96,7 +96,7 @@ pub(crate) fn entry_assistant_usage(entry: &EntryRecord) -> Option<Usage> {
     assistant_of(entry).map(|assistant| assistant.usage)
 }
 
-/// The read-side fold (the old `applyChildUsageAttributions`): the newest
+/// The read-side fold (TS `applyChildUsageAttributions`): the newest
 /// `aggregateUsage` per target replaces the target assistant entry's
 /// usage; aggregates are cumulative, so they are never summed. `entries`
 /// arrive in storage scan order (newest first), so the FIRST row per

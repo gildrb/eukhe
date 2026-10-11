@@ -1,5 +1,5 @@
 //! `eukhe.retry_outcome`: the durable `provider_retry_outcome` disclosure
-//! row of a provider failure episode (the old engine's single-line retry
+//! row of a provider failure episode (the single-line retry
 //! UX, SANCTIONED DIVERGENCE of 2026-09-23), on the durable Harness.
 //!
 //! pi-durable owns the retry loop: a failed attempt's assistant entry lands
@@ -54,7 +54,7 @@ pub const RETRY_OUTCOME_EXTENSION: &str = "eukhe.retry_outcome";
 const LIVE_DOC_KIND: &str = "pi.live";
 
 /// The faux test provider's queue exhaustion (no provider failure: the
-/// old engine's disclosure gate excluded it too).
+/// disclosure gate excludes it).
 const FAUX_QUEUE_EXHAUSTED: &str = "No more faux responses queued";
 
 static OUTCOMES_DOC: ConversationDoc<OutcomesState> = match ConversationDoc::define(
@@ -318,7 +318,7 @@ struct RetryRow {
 }
 
 /// Whether a failed message carries the provider stream failure diagnostic
-/// (the old engine's disclosure gate): agent-lifecycle failures and the
+/// (the disclosure gate): agent-lifecycle failures and the
 /// faux queue exhaustion carry none.
 fn is_provider_failure(message: &AssistantMessage) -> bool {
     let faux_exhausted = message.provider == "faux"

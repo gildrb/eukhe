@@ -1,6 +1,5 @@
 //! What the goal extension's hooks and host requests share, and the
-//! `goal.get` / `goal.create` / `goal.complete` kernel host requests (port of
-//! the old engine's `host_requests.rs`'s `handle_goal_host_request`).
+//! `goal.get` / `goal.create` / `goal.complete` kernel host requests.
 
 use std::sync::Arc;
 

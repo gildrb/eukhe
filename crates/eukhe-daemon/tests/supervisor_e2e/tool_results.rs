@@ -99,8 +99,7 @@ fn tool_result_entries_persisted_and_streamed() {
     );
     assert_eq!(tool_result_message["toolCallId"], "call-1");
     assert_eq!(tool_result_message["toolName"], "no-such-tool");
-    // pi-durable's tool-not-found result text (the old engine answered
-    // `Tool no-such-tool not found`).
+    // pi-durable's tool-not-found result text.
     let not_found = "<harness>\n[error] Tool no-such-tool is not available\n</harness>";
     assert_eq!(tool_result_message["content"][0]["text"], not_found);
     assert_eq!(tool_result_message["isError"], true);

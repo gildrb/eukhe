@@ -540,8 +540,8 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
         !rendered.contains("Model not found: "),
         "the not-signed-in pick never surfaces the dead-end refusal (the typed sign-in class):\n{rendered}"
     );
-    // The durable session has no run-start credential preflight (TS
-    // `_validateCanStartAgentRun` lived in the old engine): the run starts
+    // The durable session has no run-start credential preflight (no TS
+    // `_validateCanStartAgentRun` equivalent): the run starts
     // and its request fails at pi-ai's auth resolution, which reports the
     // unconfigured provider.
     assert!(

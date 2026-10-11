@@ -457,8 +457,7 @@ impl Worker {
                 }),
             );
         }));
-        // The live compaction summary block (the old engine's
-        // `set_compaction_summary_sink`): every summarizer text delta,
+        // The live compaction summary block: every summarizer text delta,
         // then the file-operations flush, straight onto the wire between
         // the run's `compaction_start` and `compaction_end`.
         config.summary_delta = Some(Arc::new(move |delta: &str| {

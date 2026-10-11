@@ -484,7 +484,7 @@ async fn goal_loop(
     }
 }
 
-/// The session's provider failover events onto the wire (the old engine's
+/// The session's provider failover events onto the wire (the
 /// backup-switch frames): translated under the core lock so the parked
 /// update flush keeps stream order; a start also reports the retry to the
 /// run hook. A stopped bridge's late events drop on the epoch check.

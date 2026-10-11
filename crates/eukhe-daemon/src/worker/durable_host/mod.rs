@@ -54,7 +54,7 @@ pub(crate) enum HostError {
 /// A create-config faux script (`script`) as the model collection every
 /// session of the worker shares: its responses are consumed in order across
 /// the worker's sessions (a replacement continues the script where the
-/// replaced session left it, like the old engine the worker kept).
+/// replaced session left it).
 #[derive(Clone)]
 pub(crate) struct ScriptedModels {
     models: Models,

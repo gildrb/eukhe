@@ -422,7 +422,7 @@ fn user_message(text: String) -> Message {
 /// earlier side turns, then the question, as ephemeral requests. The
 /// tool declarations ride along (the provider-side cache prefix holds),
 /// but every call answers the block error and the follow-up turn answers
-/// from context — the old engine's `before_tool_call` — with a turn cap
+/// from context — with a turn cap
 /// backstopping a model that keeps calling, and provider failures retry
 /// with the session's retry policy. Each streamed text update reaches
 /// `on_update`; `signal` aborts the run.
@@ -623,7 +623,7 @@ fn capped_answer(turn_texts: Vec<String>, streamed: String) -> SideQuestionOutco
 }
 
 /// The deactivated-tool answer one side-thread call reads: the block
-/// error, as the old engine's `before_tool_call` reason.
+/// error.
 fn blocked_result(call: &ToolCall) -> ToolResultMessage {
     ToolResultMessage {
         tool_call_id: call.id.clone(),
@@ -942,7 +942,7 @@ mod tests {
 
     /// The tool declarations ride along, but a call is deactivated: the
     /// block error answers it and the follow-up turn answers from
-    /// context (the old engine's `before_tool_call`).
+    /// context.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn tool_calls_answer_the_block_error_and_the_next_turn_answers() {
         let harness = Harness::new().await;

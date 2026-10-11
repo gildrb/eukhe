@@ -128,9 +128,8 @@ fn small_usage() -> Value {
 
 /// The crossing turn's reported usage. pi-durable compacts before a
 /// request once the context estimate exceeds `contextWindow -
-/// reserveTokens` (`127_500` here; no `4_096` estimate-error floor like
-/// the old engine's `119_808` ceiling), so the old f14-auto battery's
-/// `126_010` no longer crosses: `127_910` does.
+/// reserveTokens` (`127_500` here; no `4_096` estimate-error floor), so
+/// `126_010` does not cross: `127_910` does.
 fn crossing_usage() -> Value {
     json!({
         "prompt_tokens": 127_900, "completion_tokens": 10, "total_tokens": 127_910,
@@ -469,8 +468,8 @@ fn threshold_compaction_streams_summary_deltas_to_attached_clients() {
     assert_eq!(seeded["success"], true, "seed prompt failed: {seeded}");
 
     // The crossing turn reports `127_910` tokens (over the 500-token
-    // headroom). Its user message is big on purpose (the old engine cut
-    // at that message's boundary for a non-split cut; harmless here).
+    // headroom). Its user message is big on purpose (harmless for the
+    // cut).
     client.send_command(
         "p2",
         &json!({"type": "prompt_and_wait", "activeSessionId": session_id, "message": format!("crossing turn {}", "x".repeat(4_000))}),

@@ -1,7 +1,6 @@
 //! The session's runtime RLM depth bound (`set_rlm_max_depth`): kept in the
 //! `eukhe.rlm.max-depth` conversation document so the bound a user set
-//! survives a restart (the old engine kept an `rlm_max_depth_state` custom
-//! row and re-seeded from it).
+//! survives a restart.
 
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonValue};

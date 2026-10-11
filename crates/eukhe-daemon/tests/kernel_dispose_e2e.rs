@@ -3,8 +3,8 @@
 //! `AgentSessionRuntime.dispose` -> `AgentSession.disposeAsync` ->
 //! `IpythonKernelProvisioner.dispose` (final namespace snapshot, then the
 //! `python -m rlm.repl` process exits) — and the daemon worker is the host
-//! that keeps its engine object alive past the session, so the Rust port
-//! must call `AgentSessionEngine::dispose_kernel` explicitly on each end
+//! that keeps the session's kernel pool alive past the session, so the
+//! worker must dispose the session's kernels explicitly on each end
 //! path. Every end path here ends the *worker process* too, and a process
 //! exit runs no destructors, so each assertion catches exactly the
 //! missing-dispose leak: a kernel that survives would be orphaned forever.

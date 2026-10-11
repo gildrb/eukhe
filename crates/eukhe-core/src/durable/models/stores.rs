@@ -478,7 +478,7 @@ mod tests {
             })
         );
 
-        // An OAuth refresh rewrites only its entry, in a shape the old engine reads.
+        // An OAuth refresh rewrites only its entry, in the pi-ai shape.
         let refreshed = OAuthCredential::new("rt-new", "sk-ant-oat-new", 1_800_000_000_000.0);
         assert_eq!(
             store

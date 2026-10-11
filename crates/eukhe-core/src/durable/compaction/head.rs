@@ -1,7 +1,6 @@
 //! Parsing the compaction head of a durable conversation: the previous
 //! summary the update-mode summarizer merges, and the anchors and file
-//! lists it carries. The old engine stored these on the compaction entry
-//! (`summary`, `details.readFiles`/`modifiedFiles`); the durable
+//! lists it carries. The durable
 //! `pi.compaction` entry carries only the wrapped summary text, so the
 //! update-mode inputs are read back out of that text — the summary the
 //! eukhe extension writes is canonical (digest block, `[compaction-summary]`
@@ -24,7 +23,7 @@ const DURABLE_SUMMARY_SUFFIX: &str = "\n</summary>";
 
 /// The summary as the user reads it: the durable wrapper, the leading
 /// harness-digest block, and the `[compaction-summary]` wrapper off; the
-/// file-list blocks stay (the old engine's entry `summary`).
+/// file-list blocks stay.
 #[must_use]
 pub fn summary_body(wrapped: &str) -> &str {
     let unwrapped = wrapped
@@ -40,7 +39,7 @@ pub fn summary_body(wrapped: &str) -> &str {
 
 /// The raw summary of a wrapped compaction-summary text: [`summary_body`]
 /// with the file-list blocks stripped (they are re-appended mechanically
-/// after the summarizer answers, exactly like the old engine's TS #2385
+/// after the summarizer answers, the TS #2385
 /// rule; the digest is re-rendered fresh per compaction). The result is
 /// the update-mode `previousSummary`; `None` when nothing summarizable
 /// remains (a digest-only or file-lists-only head).
@@ -70,14 +69,14 @@ pub fn strip_digest_block(text: &str) -> &str {
 }
 
 /// The digest frame the compaction summary leads with when the digest
-/// rendered (the old engine's `HARNESS_DIGEST_PREFIX` block).
+/// rendered (the `HARNESS_DIGEST_PREFIX` block).
 #[must_use]
 pub fn digest_block(digest: &str) -> String {
     format!("{HARNESS_DIGEST_PREFIX}{digest}{HARNESS_DIGEST_SUFFIX}\n\n")
 }
 
 /// The `[compaction-summary]`-wrapped presentation of a summary body (the
-/// old engine's compaction-summary user message).
+/// compaction-summary user message).
 #[must_use]
 pub fn wrapped_summary(body: &str) -> String {
     format!("{COMPACTION_SUMMARY_PREFIX}{body}{COMPACTION_SUMMARY_SUFFIX}")

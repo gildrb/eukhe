@@ -122,8 +122,8 @@ pub struct CompactionData {
     /// Why the compaction ran.
     pub reason: CompactionReason,
     /// The harness digest snapshot the summary leads with, and the state
-    /// fingerprint that produced it (the old engine's compaction record
-    /// fields; eukhe addition). Absent on plain compactions.
+    /// fingerprint that produced it (eukhe addition). Absent on plain
+    /// compactions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_digest: Option<String>,
     #[serde(

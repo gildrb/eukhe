@@ -1,5 +1,5 @@
-//! The `rlm.*` kernel host requests (port of the old engine's `rlm_host.rs`'s
-//! handlers) over the durable children registry: `rlm.run` (`rlm.spawn`),
+//! The `rlm.*` kernel host requests over the durable children registry:
+//! `rlm.run` (`rlm.spawn`),
 //! `rlm.create_session`, `rlm.find_models`, `rlm.list_subagents`,
 //! `rlm.delete_subagent`, `rlm.collect`, and `rlm.progress.note`
 //! (`rlm.rename` lives in [`super::rename`]).

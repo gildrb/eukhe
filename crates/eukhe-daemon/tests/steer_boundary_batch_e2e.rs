@@ -355,9 +355,8 @@ fn multi_steer_parked_mid_run_co_delivers_as_one_batched_turn() {
     client.drain_events(Duration::from_secs(2));
 
     // Adapted to pi-durable: the tool boundary places the parked steers
-    // into the RUNNING run (its post-tools boundary; spec §6), where the
-    // old engine ended the long turn there and ran the batch as a new
-    // turn. So the long turn and the steer batch share the first run, and
+    // into the RUNNING run (its post-tools boundary; spec §6), so the
+    // long turn and the steer batch share the first run, and
     // the follow-up (placed only at the run's final boundary) runs as its
     // own: two agent_starts in all (not one per steer — the drip-feed),
     // the steer rows before the first agent_end, the follow-up's row

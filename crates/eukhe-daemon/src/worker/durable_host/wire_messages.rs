@@ -54,7 +54,7 @@ pub fn assistant_wire_message(message: &AssistantMessage) -> Value {
 
 /// Attach `messages`: every shown entry mapped, in order. A user entry
 /// covered by the input row before it (an `eukhe.custom` row with
-/// `input: true`, the old engine's injected custom turn) shows as that row
+/// `input: true`, an injected custom turn) shows as that row
 /// only.
 #[must_use]
 pub fn transcript_messages(entries: &[EntryRecord]) -> Vec<Value> {
