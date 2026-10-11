@@ -33,6 +33,16 @@ static CLIENT_ID: LazyLock<String> =
     LazyLock::new(|| decode("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl"));
 const AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
+/// eukhe addition: `EUKHE_ANTHROPIC_TOKEN_URL` points the code exchange and
+/// the refresh at a local stub (end-to-end tests); unset or empty means
+/// [`TOKEN_URL`].
+const TOKEN_URL_ENV: &str = "EUKHE_ANTHROPIC_TOKEN_URL";
+
+fn token_url() -> String {
+    get_provider_env_value(TOKEN_URL_ENV, None)
+        .filter(|url| !url.is_empty())
+        .unwrap_or_else(|| TOKEN_URL.to_owned())
+}
 static CALLBACK_HOST: LazyLock<String> = LazyLock::new(|| {
     get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".to_owned())
 });
@@ -119,16 +129,17 @@ async fn exchange_authorization_code(
         "redirect_uri": redirect_uri,
         "code_verifier": verifier,
     });
-    let response_body = post_json(TOKEN_URL, &body, signal).await.map_err(|error| {
+    let token_url = token_url();
+    let response_body = post_json(&token_url, &body, signal).await.map_err(|error| {
         js_error(format!(
-            "Token exchange request failed. url={TOKEN_URL}; redirect_uri={redirect_uri}; response_type=authorization_code; details={}",
+            "Token exchange request failed. url={token_url}; redirect_uri={redirect_uri}; response_type=authorization_code; details={}",
             thrown_details(&error)
         ))
     })?;
 
     let token_data: TokenData = serde_json::from_str(&response_body).map_err(|error| {
         js_error(format!(
-            "Token exchange returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=SyntaxError: {error}"
+            "Token exchange returned invalid JSON. url={token_url}; body={response_body}; details=SyntaxError: {error}"
         ))
     })?;
     Ok(credential_from(&token_data))
@@ -179,37 +190,54 @@ async fn login_anthropic(interaction: &ProviderAuthInteraction) -> Result<OAuthC
             instructions: Some("Complete login in your browser. If the browser is on another machine, paste the final redirect URL here.".to_owned()),
         });
 
-        let result = wait_for_callback_or_manual_input(
-            interaction,
-            callback.as_ref(),
-            "Complete login in your browser, or paste the authorization code / redirect URL here:",
-            &redirect_uri,
-        )
-        .await?;
-        let mut state = pkce.verifier.clone();
-        let code = match result {
-            CallbackOrManual::Callback { value } => Some(value),
-            CallbackOrManual::Manual { input } => {
-                let parsed = parse_authorization_input(&input);
-                if parsed.state.as_ref().is_some_and(|parsed_state| {
-                    !parsed_state.is_empty() && *parsed_state != pkce.verifier
-                }) {
-                    return Err(js_error("OAuth state mismatch"));
+        // eukhe addition: a failed token exchange keeps this login (same
+        // PKCE verifier and state) and asks for the address again with the
+        // reason, instead of ending the login. The callback server settles
+        // on its first use (a callback or a paste cancels it), so retries
+        // take pasted input only.
+        let mut waiting_callback = callback.as_ref();
+        loop {
+            let result = wait_for_callback_or_manual_input(
+                interaction,
+                waiting_callback.take(),
+                "Complete login in your browser, or paste the authorization code / redirect URL here:",
+                &redirect_uri,
+            )
+            .await?;
+            let mut state = pkce.verifier.clone();
+            let code = match result {
+                CallbackOrManual::Callback { value } => Some(value),
+                CallbackOrManual::Manual { input } => {
+                    let parsed = parse_authorization_input(&input);
+                    if parsed.state.as_ref().is_some_and(|parsed_state| {
+                        !parsed_state.is_empty() && *parsed_state != pkce.verifier
+                    }) {
+                        return Err(js_error("OAuth state mismatch"));
+                    }
+                    if let Some(parsed_state) = parsed.state {
+                        state = parsed_state;
+                    }
+                    parsed.code
                 }
-                if let Some(parsed_state) = parsed.state {
-                    state = parsed_state;
-                }
-                parsed.code
-            }
-        };
+            };
 
-        let Some(code) = code.filter(|code| !code.is_empty()) else {
-            return Err(js_error("Missing authorization code"));
-        };
-        interaction.notify(AuthEvent::Progress {
-            message: "Exchanging authorization code for tokens...".to_owned(),
-        });
-        exchange_authorization_code(&code, &state, &pkce.verifier, &redirect_uri, &interaction.signal).await
+            let Some(code) = code.filter(|code| !code.is_empty()) else {
+                return Err(js_error("Missing authorization code"));
+            };
+            interaction.notify(AuthEvent::Progress {
+                message: "Exchanging authorization code for tokens...".to_owned(),
+            });
+            match exchange_authorization_code(&code, &state, &pkce.verifier, &redirect_uri, &interaction.signal).await {
+                Ok(credential) => return Ok(credential),
+                Err(error) if interaction.signal.aborted() => return Err(error),
+                Err(error) => interaction.notify(AuthEvent::Info {
+                    message: format!(
+                        "Login did not complete: {error}. Paste the address again, or open the login link again and sign in."
+                    ),
+                    links: None,
+                }),
+            }
+        }
     }
     .await;
     if let Some(callback) = &callback {
@@ -274,16 +302,19 @@ async fn refresh_anthropic_token(
         "client_id": *CLIENT_ID,
         "refresh_token": refresh_token,
     });
-    let response_body = post_json(TOKEN_URL, &body, signal).await.map_err(|error| {
-        js_error(format!(
-            "Anthropic token refresh request failed. url={TOKEN_URL}; details={}",
-            thrown_details(&error)
-        ))
-    })?;
+    let token_url = token_url();
+    let response_body = post_json(&token_url, &body, signal)
+        .await
+        .map_err(|error| {
+            js_error(format!(
+                "Anthropic token refresh request failed. url={token_url}; details={}",
+                thrown_details(&error)
+            ))
+        })?;
 
     let data: TokenData = serde_json::from_str(&response_body).map_err(|error| {
         js_error(format!(
-            "Anthropic token refresh returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=SyntaxError: {error}"
+            "Anthropic token refresh returned invalid JSON. url={token_url}; body={response_body}; details=SyntaxError: {error}"
         ))
     })?;
     Ok(credential_from(&data))

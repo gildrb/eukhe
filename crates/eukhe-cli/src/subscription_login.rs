@@ -259,9 +259,10 @@ impl AuthInteraction for PanelAuthInteraction {
             }
             // TS `showLoginDialog`'s `onProgress` arm is unguarded chatter:
             // a direct `dialog.showProgress` line on every surface.
-            AuthEvent::Progress { message } | AuthEvent::Info { message, .. } => {
-                self.surface.panel.progress_line(message);
-            }
+            AuthEvent::Progress { message } => self.surface.panel.progress_line(message),
+            // Guidance and a failed exchange's retry reason stay readable
+            // under the re-mounted paste field.
+            AuthEvent::Info { message, .. } => self.surface.panel.notice(message),
         }
     }
 }
