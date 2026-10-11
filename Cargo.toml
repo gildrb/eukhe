@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "crates/eukhe-types",
     "crates/eukhe-chord",
-    "crates/eukhe-pi-ai",
+    "crates/eukhe-ai",
     "crates/eukhe-durable",
     "crates/eukhe-models",
     "crates/eukhe-core",
@@ -41,7 +41,7 @@ tokio-util = "0.7"
 tracing = { version = "0.1", features = ["attributes"] }
 eukhe-types = { path = "crates/eukhe-types" }
 eukhe-chord = { path = "crates/eukhe-chord" }
-eukhe-pi-ai = { path = "crates/eukhe-pi-ai" }
+eukhe-ai = { path = "crates/eukhe-ai" }
 eukhe-durable = { path = "crates/eukhe-durable" }
 thiserror = "2"
 futures = "0.3"

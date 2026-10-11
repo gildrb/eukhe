@@ -4,6 +4,7 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::entries::{define_entry, Entry};
 use eukhe_durable::harness::registry::create_registry;
@@ -13,7 +14,6 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::{Harness, RootOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{ConversationOwnership, TypedEntryDraft};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use eukhe_types::pi_ai::{Message, ModelThinkingLevel, UserContent, UserMessage};
 use serde::{Deserialize, Serialize};
 

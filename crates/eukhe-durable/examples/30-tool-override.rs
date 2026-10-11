@@ -6,6 +6,11 @@ use std::io::Write;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    FauxResponseStep, RegisterFauxProviderOptions,
+};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::entries::TOOL_RESULT_ENTRY;
 use eukhe_durable::env::{ExecutionEnv, NativeExecutionEnv, NativeExecutionEnvOptions};
@@ -20,11 +25,6 @@ use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, Root
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::tools::{create_bash_tool, BashToolOptions, CODING_TOOLS};
 use eukhe_durable::types::ConversationOwnership;
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
-    FauxResponseStep, RegisterFauxProviderOptions,
-};
 use eukhe_types::pi_ai::{Message, StopReason, UserContentBlock};
 use futures::FutureExt;
 

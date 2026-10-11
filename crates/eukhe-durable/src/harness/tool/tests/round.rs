@@ -3,8 +3,8 @@
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
+use eukhe_ai::providers::faux::{FauxResponseStep, RegisterFauxProviderOptions};
 use eukhe_chord::json::JsonValue;
-use eukhe_pi_ai::providers::faux::{FauxResponseStep, RegisterFauxProviderOptions};
 use eukhe_types::pi_ai::{
     Message, TextContent, ToolReference, ToolResultMessage, UserContentBlock,
 };

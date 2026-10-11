@@ -9,13 +9,13 @@
 
 use std::path::Path;
 
+use eukhe_ai::auth::AuthOperationOptions;
+use eukhe_ai::models::clamp_thinking_level;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::thinking_level;
 use eukhe_core::models::SetModelSelectionError;
 use eukhe_core::settings::{SettingsManager, ThinkingLevelSetting};
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
-use eukhe_pi_ai::auth::AuthOperationOptions;
-use eukhe_pi_ai::models::clamp_thinking_level;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::Value;
 

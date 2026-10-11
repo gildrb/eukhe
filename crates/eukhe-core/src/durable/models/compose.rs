@@ -6,15 +6,15 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use eukhe_chord::context::AbortSignal;
-use eukhe_pi_ai::api::builtin::load_stream_api;
-use eukhe_pi_ai::api::lazy::lazy_stream;
-use eukhe_pi_ai::auth::{
+use eukhe_ai::api::builtin::load_stream_api;
+use eukhe_ai::api::lazy::lazy_stream;
+use eukhe_ai::auth::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthResult, LoginOptions, ModelAuth,
     OAuthAuth, OAuthCredential, ProviderAuth, ProviderAuthInteraction,
 };
-use eukhe_pi_ai::models::{GetAllModelsFn, GetModelsFn, Provider};
-use eukhe_pi_ai::utils::diagnostics::Thrown;
+use eukhe_ai::models::{GetAllModelsFn, GetModelsFn, Provider};
+use eukhe_ai::utils::diagnostics::Thrown;
+use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{AnyModel, Model, ProviderHeaders};
 use futures::future::BoxFuture;
 use serde_json::{json, Map, Value};

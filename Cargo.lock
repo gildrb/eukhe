@@ -373,148 +373,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "eukhe-chord"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "futures",
- "indexmap",
- "ryu-js",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "eukhe-cli"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "base64",
- "crossterm",
- "eukhe-chord",
- "eukhe-core",
- "eukhe-daemon",
- "eukhe-durable",
- "eukhe-models",
- "eukhe-pi-ai",
- "eukhe-tui",
- "eukhe-types",
- "futures",
- "libc",
- "nix",
- "rsa",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "eukhe-core"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "base64",
- "eukhe-chord",
- "eukhe-durable",
- "eukhe-models",
- "eukhe-pi-ai",
- "eukhe-types",
- "fancy-regex",
- "futures",
- "getrandom 0.3.4",
- "globset",
- "ignore",
- "libc",
- "nix",
- "proptest",
- "reqwest",
- "rsa",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha1",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "toml",
- "tracing",
- "unicode-normalization",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "eukhe-daemon"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "anyhow",
- "eukhe-chord",
- "eukhe-core",
- "eukhe-durable",
- "eukhe-pi-ai",
- "eukhe-types",
- "filetime",
- "futures",
- "proptest",
- "serde",
- "serde_json",
- "sha2",
- "socket2",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "eukhe-durable"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "eukhe-chord",
- "eukhe-pi-ai",
- "eukhe-types",
- "futures",
- "indexmap",
- "nix",
- "percent-encoding",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "unicode-normalization",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "eukhe-models"
-version = "0.9.9-eukhe.1"
-dependencies = [
- "eukhe-pi-ai",
- "eukhe-types",
- "serde",
- "serde_json",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "eukhe-pi-ai"
+name = "eukhe-ai"
 version = "0.9.9-eukhe.1"
 dependencies = [
  "base64",
@@ -547,6 +406,147 @@ dependencies = [
  "url",
  "uuid",
  "zstd",
+]
+
+[[package]]
+name = "eukhe-chord"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "futures",
+ "indexmap",
+ "ryu-js",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "eukhe-cli"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "crossterm",
+ "eukhe-ai",
+ "eukhe-chord",
+ "eukhe-core",
+ "eukhe-daemon",
+ "eukhe-durable",
+ "eukhe-models",
+ "eukhe-tui",
+ "eukhe-types",
+ "futures",
+ "libc",
+ "nix",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "eukhe-core"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "eukhe-ai",
+ "eukhe-chord",
+ "eukhe-durable",
+ "eukhe-models",
+ "eukhe-types",
+ "fancy-regex",
+ "futures",
+ "getrandom 0.3.4",
+ "globset",
+ "ignore",
+ "libc",
+ "nix",
+ "proptest",
+ "reqwest",
+ "rsa",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha1",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "unicode-normalization",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "eukhe-daemon"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "anyhow",
+ "eukhe-ai",
+ "eukhe-chord",
+ "eukhe-core",
+ "eukhe-durable",
+ "eukhe-types",
+ "filetime",
+ "futures",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "socket2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "eukhe-durable"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "eukhe-ai",
+ "eukhe-chord",
+ "eukhe-types",
+ "futures",
+ "indexmap",
+ "nix",
+ "percent-encoding",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "unicode-normalization",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "eukhe-models"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "eukhe-ai",
+ "eukhe-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

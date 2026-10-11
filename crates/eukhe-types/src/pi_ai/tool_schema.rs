@@ -1,5 +1,5 @@
 //! TS `TSchema` as a tool's `parameters`: the JSON Schema sent on the wire,
-//! plus — for schemas built with `eukhe_pi_ai::typebox::Type` — the
+//! plus — for schemas built with `eukhe_ai::typebox::Type` — the
 //! non-enumerable markers `TypeBox` attaches to every node (`~kind`,
 //! `~optional`, `~readonly`, `~unsafe`).
 //!

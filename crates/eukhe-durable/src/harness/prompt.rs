@@ -3,8 +3,8 @@
 
 use std::collections::HashSet;
 
+use eukhe_ai::utils::transcript::{declarations_equal, get_current_tools, to_tool_declaration};
 use eukhe_chord::context::Context;
-use eukhe_pi_ai::utils::transcript::{declarations_equal, get_current_tools, to_tool_declaration};
 use eukhe_types::pi_ai::{IndexMap, Message, SystemContent, SystemMessage, Tool, ToolReference};
 
 use crate::entries::SYSTEM_ENTRY;

@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
+use eukhe_ai::typebox::{Options, TSchema, Type};
 use eukhe_chord::json::to_json;
-use eukhe_pi_ai::typebox::{Options, TSchema, Type};
 use eukhe_types::pi_ai::{JsonObject, JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use serde::{Deserialize, Serialize};
 

@@ -3,9 +3,9 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use eukhe_ai::typebox::{Options, TSchema, Type};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonNumber};
-use eukhe_pi_ai::typebox::{Options, TSchema, Type};
 use eukhe_types::pi_ai::{
     ImageContent, Modality, ModelImageResizeOptions, TextContent, UserContentBlock,
 };

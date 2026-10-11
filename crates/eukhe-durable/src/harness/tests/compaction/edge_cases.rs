@@ -4,7 +4,7 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions};
+use eukhe_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions};
 use eukhe_types::pi_ai::{AssistantMessage, Message, StopReason};
 use futures::FutureExt;
 

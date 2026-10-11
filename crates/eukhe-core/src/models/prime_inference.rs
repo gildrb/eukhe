@@ -108,7 +108,7 @@ mod tests {
     /// the private-model constant.
     #[test]
     fn generated_catalog_base_urls_match_const() {
-        let models = &*eukhe_pi_ai::providers::prime_inference_models::PRIME_INFERENCE_MODELS;
+        let models = &*eukhe_ai::providers::prime_inference_models::PRIME_INFERENCE_MODELS;
         assert!(
             !models.is_empty(),
             "generated prime-inference catalog is empty"

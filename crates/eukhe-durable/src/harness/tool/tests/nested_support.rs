@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use eukhe_chord::context::Context;
 use futures::future::BoxFuture;
 
+use eukhe_ai::providers::faux::FauxResponseStep;
 use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_pi_ai::providers::faux::FauxResponseStep;
 use eukhe_types::pi_ai::{
     AssistantMessage, JsonObject as PiJsonObject, Message, TextContent, ToolResultMessage,
     UserContentBlock,

@@ -4,6 +4,8 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::typebox::Type;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::define::{define_extension, define_tool, wrap_tool};
 use eukhe_durable::harness::registry::create_registry;
@@ -12,8 +14,6 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::harness::{Conversation, Harness, RootOptions};
 use eukhe_durable::storage::MemoryStorage;
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::typebox::Type;
 use eukhe_types::pi_ai::{TextContent, UserContentBlock};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;

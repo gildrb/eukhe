@@ -4,6 +4,11 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
+};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::registry::{create_registry, Registry};
@@ -16,11 +21,6 @@ use eukhe_durable::session::SessionError;
 use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
-    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
-};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, CacheBreakpoint, ImageContent, Message, StopReason, SystemContent,
     SystemMessage, TextContent, UserContent, UserContentBlock, UserMessage,

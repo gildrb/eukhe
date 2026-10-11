@@ -16,13 +16,13 @@
 
 use std::sync::{Arc, Weak};
 
+use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::define::hook;
 use eukhe_durable::harness::types::{GenerationHooks, HookApi, HookRegistration, ModelRef};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, GENERATION_TASK};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, EntryDraft};
-use eukhe_pi_ai::models::ModelsSimpleStreamOptions;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Message, Modality, StopReason, UserContent, UserMessage,
 };

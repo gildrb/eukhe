@@ -12,13 +12,13 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_chord::context::{with_cancel, Context};
-use eukhe_chord::json::JsonValue;
-use eukhe_chord::DeliveryKind;
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
     RegisterFauxProviderOptions,
 };
+use eukhe_chord::context::{with_cancel, Context};
+use eukhe_chord::json::JsonValue;
+use eukhe_chord::DeliveryKind;
 use eukhe_types::pi_ai::{JsonObject as PiJsonObject, ModelThinkingLevel, StopReason};
 use futures::future::BoxFuture;
 use futures::FutureExt;

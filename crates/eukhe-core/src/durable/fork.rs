@@ -11,6 +11,7 @@ mod tests;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
 use eukhe_chord::context::{without_abort_signal, Context};
 use eukhe_chord::json::JsonValue;
 use eukhe_durable::errors::StorageError;
@@ -24,7 +25,6 @@ use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::types::{ConversationId, ConversationOwnership, EntryId};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use futures::FutureExt;
 
 use super::discovery::SessionLocation;

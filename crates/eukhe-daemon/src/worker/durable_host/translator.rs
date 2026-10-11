@@ -18,6 +18,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use eukhe_ai::utils::retry::RetryDelay;
 use eukhe_chord::json::JsonValue;
 use eukhe_core::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use eukhe_core::durable::{
@@ -32,7 +33,6 @@ use eukhe_durable::harness::{
     ToolSlotStatus,
 };
 use eukhe_durable::types::{EntryId, EntryRecord, SubmissionId, TaskId};
-use eukhe_pi_ai::utils::retry::RetryDelay;
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, StopReason, Usage};
 use serde_json::{json, Map, Value};
 
@@ -652,7 +652,7 @@ impl EventTranslator {
         match &self.retry_policy {
             Some(source) => {
                 let policy = (source.0)();
-                let step = eukhe_pi_ai::utils::retry::retry_delay_ms(
+                let step = eukhe_ai::utils::retry::retry_delay_ms(
                     RetryDelay {
                         base_delay_ms: policy.base_delay_ms,
                         max_agent_delay_ms: policy.max_agent_delay_ms,

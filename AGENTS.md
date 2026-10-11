@@ -83,8 +83,11 @@ background bookkeeping.
 
 - `make check`: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
-- `crates/eukhe-ai/src/models_generated.rs` is the hand-maintained fallback model
-  catalog. `crates/eukhe-models/tests/fixtures/catalog.v1.json` refreshes with
+- `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs` and
+  `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled
+  fallback model catalog. `eukhe-models` adds the transport templates pi-ai lacks
+  (`transports.rs` `SUPPLEMENTAL_TRANSPORTS`).
+  `crates/eukhe-models/tests/fixtures/catalog.v1.json` refreshes with
   `scripts/generate-catalog-fixture.py`.
 
 ## Crates
@@ -92,13 +95,14 @@ background bookkeeping.
 |Crate|Purpose|Direct workspace dependencies|
 |---|---|---|
 |`eukhe-types`|Shared wire and domain types|none|
-|`eukhe-agent`|Provider-independent agent loop|none|
-|`eukhe-ai`|Providers, model registry, streaming|`eukhe-types`|
-|`eukhe-models`|Bundled model catalog and transport pinning|`eukhe-ai`, `eukhe-types`|
-|`eukhe-core`|Session engine, tools, skills, kernel, settings, chat memory|`eukhe-types`, `eukhe-ai`, `eukhe-models`, `eukhe-agent`|
-|`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-core`, `eukhe-agent`, `eukhe-ai`, `eukhe-models`|
+|`eukhe-chord`|Contexts, cancellation, JSON (port of chord)|none|
+|`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-chord`|
+|`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`|
+|`eukhe-models`|Bundled model catalog and transport pinning|`eukhe-types`, `eukhe-ai`|
+|`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`|
+|`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`|
 |`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`|
-|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-core`, `eukhe-ai`, `eukhe-agent`, `eukhe-daemon`, `eukhe-tui`|
+|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`|
 
 - Dependencies point from higher crates to lower crates only. No cycles.
 - `eukhe-tui` renders from wire types and events; it does not link the session engine.
@@ -107,6 +111,7 @@ background bookkeeping.
 ## Reliability
 
 - The daemon is a supervisor. It spawns one worker process per active session.
-  Workers restart with backoff. Sessions persist as append-only JSONL under
-  `~/.eukhe/sessions`, so reattach works after a supervisor restart.
+  Workers restart with backoff. Sessions persist as durable storages under
+  `~/.eukhe/sessions/<id>/` (append-only commit logs; legacy `<id>.jsonl` files are
+  imported on open), so reattach works after a supervisor restart.
 - No stubs, no `todo!()`, no swallowed errors.

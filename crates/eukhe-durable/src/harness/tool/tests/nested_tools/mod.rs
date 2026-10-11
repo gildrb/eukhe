@@ -8,7 +8,7 @@ mod calls;
 mod progress;
 mod version1;
 
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
 
 use crate::harness::tests::chat_support::{chat_setup, ChatSetup};
 

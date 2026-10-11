@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail};
+use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::to_json;
 use eukhe_durable::harness::types::ToolExecutionApiExt;
@@ -18,7 +19,6 @@ use eukhe_durable::types::{
     ConversationId, DocumentObserverExt, TaskId, TaskOptions, TaskOutcome, TaskOwnership,
     TaskState, ROOT_CONVERSATION_ID,
 };
-use eukhe_pi_ai::auth::AuthOperationOptions;
 use futures::FutureExt;
 use serde_json::{json, Map, Value};
 use tokio::sync::Notify;

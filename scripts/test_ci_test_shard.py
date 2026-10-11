@@ -91,7 +91,7 @@ class EnumerationTestCase(unittest.TestCase):
                               and u["id"] == unit["id"]][0])
 
     def test_crate_selection_covers_exactly_that_crates_units(self):
-        crate = sorted(p for p in self.packages if p != "eukhe-agent")[0]
+        crate = sorted(self.packages)[0]
         selection = SHARD.selected_units(self.units, [crate])
         self.assertTrue(selection, "the crate selection is never empty")
         self.assertTrue(all(u["package"] == crate for u in selection))
@@ -112,8 +112,7 @@ class AuditTestCase(unittest.TestCase):
         counts = {}
         for unit in cls.units:
             counts[unit["package"]] = counts.get(unit["package"], 0) + 1
-        cls.crate = max((p for p in counts if p != "eukhe-agent"),
-                        key=lambda p: counts[p])
+        cls.crate = max(counts, key=lambda p: counts[p])
         cls.selection = [u["id"] for u in cls.units
                           if u["package"] == cls.crate]
 
@@ -225,10 +224,17 @@ class SelectionReportingTestCase(unittest.TestCase):
         env = dict(os.environ)
         output = Path(tempfile.mkdtemp()) / "github-output"
         env["GITHUB_OUTPUT"] = str(output)
-        # eukhe-ai's two units both hash to shard 8: every other leg selects zero.
+        # A (crate, shard) pair where every unit of the crate hashes to
+        # another shard: that leg selects zero.
+        occupied = {}
+        for unit in SHARD.enumerate_units():
+            occupied.setdefault(unit["package"], set()).add(
+                SHARD.shard_of(unit["id"], TOTAL) + 1)
+        crate, shard = next((crate, shard) for crate, shards in sorted(occupied.items())
+                            for shard in range(1, TOTAL + 1) if shard not in shards)
         result = subprocess.run(
             [sys.executable, str(SCRIPTS_DIR / "ci_test_shard.py"),
-             "--shard", "3", "--total", str(TOTAL), "--crates", "eukhe-ai",
+             "--shard", str(shard), "--total", str(TOTAL), "--crates", crate,
              "--print-selection"],
             capture_output=True, text=True, env=env, cwd=REPO, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)

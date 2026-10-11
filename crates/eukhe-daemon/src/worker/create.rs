@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use eukhe_ai::providers::faux_script::FauxScriptError;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::autonomous::AgentAutonomousConfig;
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous};
@@ -15,7 +16,6 @@ use eukhe_core::durable::{
     TurnWait,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
-use eukhe_pi_ai::providers::faux_script::FauxScriptError;
 use eukhe_types::pi_ai::ModelThinkingLevel;
 use serde_json::{json, Value};
 

@@ -6,11 +6,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
+use eukhe_ai::models::Models;
+use eukhe_ai::utils::validation::check_value;
 use eukhe_chord::context::{await_with_context, Context};
 use eukhe_chord::delta::{overlap, DraftItem};
 use eukhe_chord::json::{copy_json, from_json, to_json, JsonObject, JsonValue};
-use eukhe_pi_ai::models::Models;
-use eukhe_pi_ai::utils::validation::check_value;
 use eukhe_types::pi_ai::{
     JsonObject as PiJsonObject, JsonValue as PiJsonValue, TextContent, UserContentBlock,
 };

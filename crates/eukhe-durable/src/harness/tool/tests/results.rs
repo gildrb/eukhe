@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_chord::json::JsonValue;
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, ImageContent, JsonValue as PiJsonValue, Message, TextContent,
     UserContentBlock,

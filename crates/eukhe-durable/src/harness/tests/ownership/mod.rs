@@ -13,13 +13,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_chord::context::{with_cancel, Context};
-use eukhe_chord::json::{from_json, to_json, JsonValue};
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
     FauxResponseStep, RegisterFauxProviderOptions,
 };
-use eukhe_pi_ai::typebox::Type;
+use eukhe_ai::typebox::Type;
+use eukhe_chord::context::{with_cancel, Context};
+use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, JsonValue as PiJsonValue, Message, StopReason,
     TextContent, UserContentBlock,

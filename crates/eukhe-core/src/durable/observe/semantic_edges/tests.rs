@@ -3,10 +3,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use eukhe_pi_ai::api::StreamFn;
-use eukhe_pi_ai::providers::faux::{faux_assistant_message, FauxAssistantMessageOptions};
-use eukhe_pi_ai::types::ProviderStreamOptions;
-use eukhe_pi_ai::utils::event_stream::AssistantMessageEventStream;
+use eukhe_ai::api::StreamFn;
+use eukhe_ai::providers::faux::{faux_assistant_message, FauxAssistantMessageOptions};
+use eukhe_ai::types::ProviderStreamOptions;
+use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_types::pi_ai::{
     DoneReason, ErrorReason, Model, ModelCost, StopReason, TranscriptContext,
 };

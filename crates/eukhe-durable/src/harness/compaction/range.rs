@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use eukhe_pi_ai::utils::estimate::{calculate_context_tokens, estimate_message_tokens};
+use eukhe_ai::utils::estimate::{calculate_context_tokens, estimate_message_tokens};
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message};
 
 use crate::harness::context::order_tool_results;

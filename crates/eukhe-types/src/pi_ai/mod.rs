@@ -5,7 +5,7 @@
 //! JSON shapes match the TS wire format: camelCase keys, tags (`type`,
 //! `role`) serialized first, optional fields omitted when absent, numbers
 //! printed like `JSON.stringify` (see [`js_number`]). The runtime-only types
-//! (stream options and callbacks) live in `eukhe_pi_ai::types`.
+//! (stream options and callbacks) live in `eukhe_ai::types`.
 
 mod api;
 mod classifier;

@@ -6,6 +6,12 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    FauxResponseStep, RegisterFauxProviderOptions,
+};
+use eukhe_ai::typebox::{TSchema, Type};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::entries::TOOL_RESULT_ENTRY;
 use eukhe_durable::harness::define::{define_extension, define_tool};
@@ -16,12 +22,6 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
 use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
-    FauxResponseStep, RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::typebox::{TSchema, Type};
 use eukhe_types::pi_ai::{Message, StopReason, TextContent, UserContentBlock};
 use tokio::sync::{oneshot, watch};
 

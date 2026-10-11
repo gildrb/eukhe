@@ -5,6 +5,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::{to_json, JsonValue};
 use eukhe_durable::harness::define::define_extension;
@@ -15,7 +16,6 @@ use eukhe_durable::session::SessionResult;
 use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
 use eukhe_durable::tasks::{define_task, NextTaskState, Task, TaskDefinition};
 use eukhe_durable::types::{TaskOptions, TaskOutcome, TaskOwnership};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 

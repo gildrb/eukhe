@@ -8,12 +8,12 @@
 
 use std::sync::Arc;
 
+use eukhe_ai::utils::transcript::get_current_system_message;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::{HookApi, HookResult, RequestMessages};
 use eukhe_durable::harness::{Harness, LiveRun, LiveState, LIVE_DOC};
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{ConversationId, EntryId};
-use eukhe_pi_ai::utils::transcript::get_current_system_message;
 use eukhe_types::pi_ai::{
     CacheBreakpoint, Message, TextContent, UserContent, UserContentBlock, UserMessage,
 };

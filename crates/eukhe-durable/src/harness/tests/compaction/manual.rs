@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
+use eukhe_ai::providers::faux::{faux_tool_call, RegisterFauxProviderOptions};
 use eukhe_chord::json::JsonValue;
-use eukhe_pi_ai::providers::faux::{faux_tool_call, RegisterFauxProviderOptions};
 use eukhe_types::pi_ai::{
     CacheRetention, JsonObject as PiJsonObject, Message, StopReason, SystemMessage,
 };

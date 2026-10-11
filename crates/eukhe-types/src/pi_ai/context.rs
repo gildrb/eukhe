@@ -26,7 +26,7 @@ pub struct Context {
 /// TS brands this type so only `normalizeContext()` produces it; here the
 /// field is private and the only constructor is
 /// [`TranscriptContext::from_normalized_messages`], reserved for the
-/// transcript normalizer (`eukhe_pi_ai::utils::transcript`). It is not
+/// transcript normalizer (`eukhe_ai::utils::transcript`). It is not
 /// deserializable, so a raw [`Context`] cannot become one by accident.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TranscriptContext {

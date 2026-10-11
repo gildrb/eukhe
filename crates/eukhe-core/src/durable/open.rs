@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models as create_pi_models, CreateModelsOptions, Models};
 use eukhe_chord::context::Context;
 use eukhe_durable::env::{NativeExecutionEnv, NativeExecutionEnvOptions};
 use eukhe_durable::errors::StorageError;
@@ -15,7 +16,6 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
-use eukhe_pi_ai::models::{create_models as create_pi_models, CreateModelsOptions, Models};
 
 use super::deps::{
     HostDeps, OpenedSession, ResolvedServices, ServiceStop, SessionConfig, SessionStorage,
@@ -470,7 +470,7 @@ async fn load_session_resources(
 async fn open_root(
     harness: &Harness,
     config: &SessionConfig,
-    models: &eukhe_pi_ai::models::Models,
+    models: &eukhe_ai::models::Models,
     manager: &SettingsManager,
     cx: &Context,
 ) -> Result<Conversation, OpenError> {
@@ -535,7 +535,7 @@ async fn open_root(
 async fn adopt_session_model(
     main: &Conversation,
     config: &SessionConfig,
-    models: &eukhe_pi_ai::models::Models,
+    models: &eukhe_ai::models::Models,
     manager: &SettingsManager,
     cx: &Context,
 ) -> Result<(), OpenError> {

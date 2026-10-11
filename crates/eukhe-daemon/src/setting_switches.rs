@@ -10,11 +10,11 @@
 
 use std::path::Path;
 
+use eukhe_ai::auth::AuthOperationOptions;
+use eukhe_ai::models::get_supported_thinking_levels;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::settings::{QueueModeSetting, SettingsManager, TransportSetting};
 use eukhe_durable::harness::types::ConversationAbortOptions;
-use eukhe_pi_ai::auth::AuthOperationOptions;
-use eukhe_pi_ai::models::get_supported_thinking_levels;
 use eukhe_types::ai::{ServiceTier, Transport};
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};

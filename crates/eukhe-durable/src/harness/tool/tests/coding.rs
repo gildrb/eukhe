@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
 
 use super::support::{calls, done, result_text, results};
 use crate::entries::TOOL_RESULT_ENTRY;

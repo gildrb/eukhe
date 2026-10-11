@@ -7,6 +7,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
+};
+use eukhe_ai::typebox::{TSchema, Type};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::entries::{ASSISTANT_ENTRY, USER_ENTRY};
 use eukhe_durable::env::{NativeExecutionEnv, NativeExecutionEnvOptions};
@@ -20,12 +26,6 @@ use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, Root
 use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{EntryRecord, Storage};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
-    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::typebox::{TSchema, Type};
 use eukhe_types::pi_ai::{
     AssistantMessage, JsonObject, Message, StopReason, UserContent, UserContentBlock,
 };

@@ -77,7 +77,7 @@ impl<'de> Deserialize<'de> for ToolConstrainedSampling {
 
 /// A tool definition. `parameters` is the tool's parameter schema: wire JSON
 /// identical to what `TypeBox` serializes, plus its `TypeBox` markers when
-/// built with `eukhe_pi_ai::typebox::Type`.
+/// built with `eukhe_ai::typebox::Type`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tool {

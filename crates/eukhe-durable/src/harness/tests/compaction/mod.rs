@@ -14,13 +14,13 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, FauxAssistantMessageOptions, FauxModelDefinition, FauxResponseStep,
     RegisterFauxProviderOptions,
 };
-use eukhe_pi_ai::types::SimpleStreamOptions;
-use eukhe_pi_ai::utils::diagnostics::{ErrorObject, Thrown};
+use eukhe_ai::types::SimpleStreamOptions;
+use eukhe_ai::utils::diagnostics::{ErrorObject, Thrown};
+use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_types::pi_ai::{
     AssistantMessage, CacheRetention, Message, StopReason, SystemContent, TextContent,
     UserContentBlock,
@@ -228,7 +228,7 @@ pub(super) fn failure(error_message: &str) -> AssistantMessage {
 }
 
 pub(super) fn with_stop(
-    content: impl Into<eukhe_pi_ai::providers::faux::FauxContent>,
+    content: impl Into<eukhe_ai::providers::faux::FauxContent>,
     stop_reason: StopReason,
 ) -> AssistantMessage {
     faux_assistant_message(

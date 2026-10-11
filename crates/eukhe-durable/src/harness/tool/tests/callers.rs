@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_types::pi_ai::{JsonObject as PiJsonObject, TextContent, UserContentBlock};
 
 use super::support::{calls, done, submit_and_wait};

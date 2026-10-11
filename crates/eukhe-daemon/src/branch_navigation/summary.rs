@@ -6,6 +6,9 @@
 //! through a write submission, with the call's spend added to that
 //! conversation's `pi.usage` under the serving model.
 
+use eukhe_ai::auth::AuthOperationOptions;
+use eukhe_ai::models::ModelsSimpleStreamOptions;
+use eukhe_ai::types::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use eukhe_chord::context::{AbortSignal, Context};
 use eukhe_core::durable::branch_summary::{
     build_branch_summary_request, estimate_branch_summary_request_tokens, finalize_branch_summary,
@@ -19,9 +22,6 @@ use eukhe_durable::harness::usage::{record_usage, UsageBucket};
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryId, TypedEntryDraft};
-use eukhe_pi_ai::auth::AuthOperationOptions;
-use eukhe_pi_ai::models::ModelsSimpleStreamOptions;
-use eukhe_pi_ai::types::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Context as PiContext, Message, Model, StopReason, TextContent, Usage,
     UserContent, UserContentBlock, UserMessage,

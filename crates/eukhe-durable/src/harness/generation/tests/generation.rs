@@ -5,15 +5,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use eukhe_chord::json::{from_json, to_json, JsonValue};
-use eukhe_pi_ai::api::StreamSimpleFn;
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::api::StreamSimpleFn;
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, FauxAssistantMessageOptions, FauxContentBlock,
     FauxDeferredOptions, FauxResponseStep, FauxTokenSize, RegisterFauxProviderOptions,
 };
-use eukhe_pi_ai::types::{DeferredRequest, SimpleStreamOptions};
-use eukhe_pi_ai::utils::diagnostics::ErrorObject;
-use eukhe_pi_ai::utils::event_stream::AssistantMessageEventStream;
+use eukhe_ai::types::{DeferredRequest, SimpleStreamOptions};
+use eukhe_ai::utils::diagnostics::ErrorObject;
+use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
+use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageEvent, DeferredHandle, IndexMap, Message, ModelThinkingLevel,
     StopReason, SystemContent, SystemMessage, ThinkingLevel, TranscriptContext, UserContent,

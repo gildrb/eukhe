@@ -5,11 +5,11 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use eukhe_chord::context::Context;
-use eukhe_pi_ai::models::Models;
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::models::Models;
+use eukhe_ai::providers::faux::{
     faux_provider, FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
+use eukhe_chord::context::Context;
 use eukhe_types::pi_ai::{AssistantContentBlock, Message, UserContent, UserContentBlock};
 use futures::FutureExt;
 use tokio::sync::watch;

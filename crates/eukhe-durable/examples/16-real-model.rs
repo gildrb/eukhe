@@ -5,6 +5,8 @@ use std::future::Future;
 use std::io::Write;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::openai::openai_provider;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::JsonValue as DurableJson;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
@@ -17,8 +19,6 @@ use eukhe_durable::harness::{Harness, RootOptions, LIVE_DOC};
 use eukhe_durable::session::ObservedDocumentValue;
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::DocumentObserverExt;
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::openai::openai_provider;
 use eukhe_types::pi_ai::{AssistantContentBlock, Message, ModelThinkingLevel, UserContent};
 use futures::FutureExt;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};

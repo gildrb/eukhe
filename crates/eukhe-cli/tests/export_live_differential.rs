@@ -171,8 +171,8 @@ fn spawn_supervisor(binary: &Path, dir: &Path) -> Supervisor {
     for var in SCRUB_ENV {
         command.env_remove(var);
     }
-    for provider in eukhe_pi_ai::providers::all::builtin_providers() {
-        let set = eukhe_pi_ai::env_api_keys::find_env_keys(&provider.id, None);
+    for provider in eukhe_ai::providers::all::builtin_providers() {
+        let set = eukhe_ai::env_api_keys::find_env_keys(&provider.id, None);
         for var in set.unwrap_or_default() {
             command.env_remove(var);
         }

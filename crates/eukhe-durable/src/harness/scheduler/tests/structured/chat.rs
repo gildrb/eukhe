@@ -4,13 +4,13 @@
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
 
-use eukhe_chord::context::Context;
-use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_pi_ai::api::StreamSimpleFn;
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::api::StreamSimpleFn;
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
 };
-use eukhe_pi_ai::utils::event_stream::AssistantMessageEventStream;
+use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
+use eukhe_chord::context::Context;
+use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageEvent, Message, StopReason};
 use futures::FutureExt;
 

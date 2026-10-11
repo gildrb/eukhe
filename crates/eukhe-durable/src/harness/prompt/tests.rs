@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::utils::transcript::{get_current_tools, to_tool_declaration};
 use eukhe_chord::context::{with_abort_signal, AbortController, Context};
-use eukhe_pi_ai::utils::transcript::{get_current_tools, to_tool_declaration};
 use eukhe_types::pi_ai::{
     IndexMap, Message, ModelThinkingLevel, SystemContent, SystemMessage, Tool,
 };

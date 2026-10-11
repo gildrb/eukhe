@@ -1,8 +1,8 @@
 //! The compiled transport table.
 //!
-//! The compiled model catalog (`eukhe_pi_ai::models_generated::MODELS`, the
+//! The compiled model catalog (`eukhe_ai::models_generated::MODELS`, the
 //! pi-ai port of the TS `models.generated.ts`, plus the
-//! `eukhe_pi_ai::providers::prime_inference_models` entries) is the
+//! `eukhe_ai::providers::prime_inference_models` entries) is the
 //! hand-maintained table of transports the client implements: the
 //! `(provider, api, baseUrl)` tuples of the public providers, plus the
 //! offline Prime Inference entries (one transport tuple of their own). It
@@ -12,8 +12,8 @@
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
-use eukhe_pi_ai::models_generated::MODELS;
-use eukhe_pi_ai::providers::prime_inference_models::PRIME_INFERENCE_MODELS;
+use eukhe_ai::models_generated::MODELS;
+use eukhe_ai::providers::prime_inference_models::PRIME_INFERENCE_MODELS;
 
 use crate::pi_ai_model::registry_model;
 use crate::Model;

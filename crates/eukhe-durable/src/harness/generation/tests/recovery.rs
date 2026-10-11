@@ -4,12 +4,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_chord::json::{JsonObject, JsonValue};
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, FauxAssistantMessageOptions, FauxDeferredOptions, FauxResponseStep,
     FauxTokenSize, RegisterFauxProviderOptions,
 };
-use eukhe_pi_ai::types::DeferredRequest;
+use eukhe_ai::types::DeferredRequest;
+use eukhe_chord::json::{JsonObject, JsonValue};
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, StopReason};
 use futures::FutureExt;
 
@@ -114,7 +114,7 @@ fn generation_text(value: &serde_json::Value) -> Option<String> {
 }
 
 fn signal_of(
-    options: Option<&eukhe_pi_ai::types::SimpleStreamOptions>,
+    options: Option<&eukhe_ai::types::SimpleStreamOptions>,
 ) -> eukhe_chord::context::AbortSignal {
     options
         .and_then(|options| options.stream.request.signal.clone())

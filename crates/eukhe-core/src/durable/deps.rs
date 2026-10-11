@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
+use eukhe_ai::models::Models;
 use eukhe_durable::harness::types::{Clock, ModelRef, ToolExecutionApi};
 use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_pi_ai::models::Models;
 use eukhe_types::pi_ai::ModelThinkingLevel;
 use futures::future::BoxFuture;
 use serde_json::Value;

@@ -5,10 +5,10 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::utils::transcript::get_current_tools;
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::DraftItem;
 use eukhe_chord::json::{from_json, to_json};
-use eukhe_pi_ai::utils::transcript::get_current_tools;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Message, ToolCall, UserContent, UserMessage,
 };

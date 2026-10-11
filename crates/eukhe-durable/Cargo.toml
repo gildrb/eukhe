@@ -8,7 +8,7 @@ description = "Rust port of @earendil-works/pi-durable v1.0.4: a durable agent h
 
 [dependencies]
 eukhe-chord.workspace = true
-eukhe-pi-ai.workspace = true
+eukhe-ai.workspace = true
 eukhe-types.workspace = true
 futures.workspace = true
 serde.workspace = true

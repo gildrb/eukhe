@@ -3,9 +3,9 @@
 
 use std::sync::{Arc, LazyLock};
 
+use eukhe_ai::models::{create_models as create_pi_models, CreateModelsOptions, Models};
+use eukhe_ai::typebox::{TSchema, Type};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_pi_ai::models::{create_models as create_pi_models, CreateModelsOptions, Models};
-use eukhe_pi_ai::typebox::{TSchema, Type};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, IndexMap, Message, StopReason, SystemContent,
     SystemMessage, TextContent, ToolCall, ToolResultMessage, Usage, UserContent, UserContentBlock,

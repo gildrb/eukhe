@@ -11,11 +11,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
     FauxResponseStep, RegisterFauxProviderOptions,
 };
+use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_types::pi_ai::{
     AssistantMessage, JsonObject as PiJsonObject, Message, StopReason, ToolResultMessage, Usage,
     UserContentBlock,

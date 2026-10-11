@@ -3,13 +3,13 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use eukhe_chord::context::with_cancel;
-use eukhe_chord::json::{from_json, to_json, JsonValue};
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_thinking, faux_tool_call, FauxAssistantMessageOptions,
     FauxResponseStep, FauxTokenSize, RegisterFauxProviderOptions,
 };
-use eukhe_pi_ai::typebox::{TSchema, Type};
+use eukhe_ai::typebox::{TSchema, Type};
+use eukhe_chord::context::with_cancel;
+use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, StopReason};
 use futures::FutureExt;
 

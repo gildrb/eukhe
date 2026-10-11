@@ -4,9 +4,9 @@
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::Models;
+use eukhe_ai::types::DeferredRequest;
 use eukhe_chord::context::Context;
-use eukhe_pi_ai::models::Models;
-use eukhe_pi_ai::types::DeferredRequest;
 use eukhe_types::pi_ai::{CacheRetention, IndexMap, JsonObject as PiJsonObject, Transport};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -79,7 +79,7 @@ pub struct ConversationStreamOptions {
 
 /// Serde of TS `deferred?: boolean | { window?: "15m" | "1h" | "24h" }`.
 mod deferred_serde {
-    use eukhe_pi_ai::types::{DeferredRequest, DeferredWindow};
+    use eukhe_ai::types::{DeferredRequest, DeferredWindow};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     #[derive(Serialize, Deserialize)]
@@ -354,8 +354,8 @@ impl ConversationStreamOptions {
     /// The pi-ai request options these select (TS `{ ...streamOptions }`
     /// spread into `SimpleStreamOptions`); callers add `signal`,
     /// `sessionId`, and `reasoning`.
-    pub(crate) fn simple_stream_options(&self) -> eukhe_pi_ai::types::SimpleStreamOptions {
-        let mut options = eukhe_pi_ai::types::SimpleStreamOptions::default();
+    pub(crate) fn simple_stream_options(&self) -> eukhe_ai::types::SimpleStreamOptions {
+        let mut options = eukhe_ai::types::SimpleStreamOptions::default();
         let stream = &mut options.stream;
         stream.transport = self.transport;
         stream.request.timeout_ms = self.timeout_ms;

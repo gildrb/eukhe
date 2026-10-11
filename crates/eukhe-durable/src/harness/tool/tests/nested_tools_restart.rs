@@ -4,8 +4,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_chord::json::JsonValue;
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
 use futures::FutureExt;
 use serde_json::json;
 

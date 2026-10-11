@@ -9,6 +9,13 @@ use std::future::Future;
 use std::io::Write;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
+    RegisterFauxProviderOptions,
+};
+use eukhe_ai::providers::openai::openai_provider;
+use eukhe_ai::typebox::{Options, Type};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::JsonValue as DurableJson;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
@@ -29,13 +36,6 @@ use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{
     ConversationId, ConversationOwnership, ConversationQuery, EntryId, SubmissionStatus,
 };
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
-    RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::providers::openai::openai_provider;
-use eukhe_pi_ai::typebox::{Options, Type};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, JsonObject, JsonValue, Message, StopReason,
     TextContent, UserContent, UserContentBlock,

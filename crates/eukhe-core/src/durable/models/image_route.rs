@@ -14,7 +14,7 @@
 //! routed model) and no auth probe (the routed model's provider resolves
 //! auth per request, like every other served model).
 
-use eukhe_pi_ai::models::Models;
+use eukhe_ai::models::Models;
 use eukhe_types::pi_ai::{Modality, Model};
 
 /// The image-routing decision for one dispatched request: serve on the
@@ -148,8 +148,8 @@ pub(crate) fn resolve(
 
 #[cfg(test)]
 mod tests {
-    use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-    use eukhe_pi_ai::providers::faux::{
+    use eukhe_ai::models::{create_models, CreateModelsOptions};
+    use eukhe_ai::providers::faux::{
         faux_provider, FauxModelDefinition, RegisterFauxProviderOptions,
     };
     use eukhe_types::pi_ai::Modality;

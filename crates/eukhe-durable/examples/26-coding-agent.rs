@@ -6,6 +6,11 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    FauxResponseStep, RegisterFauxProviderOptions,
+};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::entries::TOOL_RESULT_ENTRY;
 use eukhe_durable::env::{ExecutionEnv, NativeExecutionEnv, NativeExecutionEnvOptions};
@@ -18,11 +23,6 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::tools::CODING_TOOLS;
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
-    FauxResponseStep, RegisterFauxProviderOptions,
-};
 use eukhe_types::pi_ai::{Message, StopReason, UserContentBlock};
 use futures::FutureExt;
 

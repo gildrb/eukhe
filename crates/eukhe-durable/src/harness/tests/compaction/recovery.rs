@@ -3,8 +3,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_chord::json::{to_json, JsonValue};
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
 use futures::FutureExt;
 
 use super::automatic::{event_kinds, record_events};

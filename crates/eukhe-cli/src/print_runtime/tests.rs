@@ -1,8 +1,8 @@
 use std::path::Path;
 
+use eukhe_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::{open_session, ModelRequest, SessionConfig, SessionStorage};
-use eukhe_pi_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
 
 use super::*;
 use crate::headless_terminal::HeadlessPrimary;

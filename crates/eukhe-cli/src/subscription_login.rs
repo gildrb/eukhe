@@ -25,15 +25,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use eukhe_ai::auth::{
+    AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, OAuthAuth, ProviderAuthInteraction,
+};
+use eukhe_ai::utils::diagnostics::Thrown;
 use eukhe_chord::context::{AbortController, AbortSignal};
 use eukhe_core::auth::{
     exchange_retry_notice, parse_redirect_input, stored_oauth_credential, AuthStorage,
     RedirectInputError, VerifiedAuthorization, GITHUB_COPILOT_PROVIDER_ID,
 };
-use eukhe_pi_ai::auth::{
-    AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, OAuthAuth, ProviderAuthInteraction,
-};
-use eukhe_pi_ai::utils::diagnostics::Thrown;
 use eukhe_tui::auth_panel::{AuthPanelHandle, PastePromptTone, PasteStyle};
 use eukhe_tui::provider_auth::ProviderAuthOutcome;
 use futures::future::BoxFuture;

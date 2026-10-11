@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_types::pi_ai::{IndexMap, Message, TextContent, UserContentBlock};
 use futures::FutureExt;
 use tokio::task::JoinHandle;
@@ -47,7 +47,7 @@ fn text(text: &str) -> ToolExecutionResult {
     }
 }
 
-fn one_call(name: &str) -> Vec<eukhe_pi_ai::providers::faux::FauxResponseStep> {
+fn one_call(name: &str) -> Vec<eukhe_ai::providers::faux::FauxResponseStep> {
     vec![
         calls(&[(name, serde_json::json!({}), "c1")]).into(),
         done().into(),

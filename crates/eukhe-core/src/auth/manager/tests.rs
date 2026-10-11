@@ -19,7 +19,7 @@ impl EnvCredentialSource for ScriptedEnv {
             .iter()
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect();
-        let names = eukhe_pi_ai::env_api_keys::find_env_keys(provider, Some(&scripted))?
+        let names = eukhe_ai::env_api_keys::find_env_keys(provider, Some(&scripted))?
             .into_iter()
             .filter(|name| self.0.get(name).is_some_and(|value| !value.is_empty()))
             .collect::<Vec<_>>();

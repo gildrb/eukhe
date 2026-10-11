@@ -6,15 +6,15 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_pi_ai::auth::{
+use eukhe_ai::auth::{
     ApiKeyCredential, ApiKeyType, AuthOperationOptions, AuthType, Credential, CredentialInfo,
     CredentialStore, ModifyFn, OAuthCredential,
 };
-use eukhe_pi_ai::providers::prime_inference::{
+use eukhe_ai::providers::prime_inference::{
     PRIME_API_KEY_ENV, PRIME_INFERENCE_PROVIDER_ID, PRIME_TEAM_ID_ENV,
 };
-use eukhe_pi_ai::utils::abort::{operation_signal, race_with_abort_signal};
-use eukhe_pi_ai::utils::diagnostics::{ErrorObject, Thrown};
+use eukhe_ai::utils::abort::{operation_signal, race_with_abort_signal};
+use eukhe_ai::utils::diagnostics::{ErrorObject, Thrown};
 use eukhe_types::pi_ai::ProviderEnv;
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};

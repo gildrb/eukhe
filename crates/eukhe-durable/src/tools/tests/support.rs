@@ -4,9 +4,9 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::Models;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::JsonValue;
-use eukhe_pi_ai::models::Models;
 use eukhe_types::pi_ai::{
     JsonObject as PiJsonObject, JsonValue as PiJsonValue, ModelThinkingLevel, UserContentBlock,
 };

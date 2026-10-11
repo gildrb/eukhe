@@ -3,12 +3,12 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_chord::delta::Op;
-use eukhe_chord::json::{from_json, to_json, JsonValue};
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
     FauxResponseStep, FauxTokenSize, RegisterFauxProviderOptions,
 };
+use eukhe_chord::delta::Op;
+use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_types::pi_ai::{
     AssistantMessage, IndexMap, JsonObject as PiJsonObject, Message, StopReason, Usage, UsageCost,
 };

@@ -7,6 +7,8 @@
 use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Instant;
 
+use eukhe_ai::models::Models;
+use eukhe_ai::typebox::Type;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::JsonValue;
 use eukhe_chord::Draft;
@@ -34,8 +36,6 @@ use eukhe_durable::types::{
     EntryId, InputSubmission, LatestFork, Storage, SubmissionState, TaskId, TaskOptions,
     TaskOutcome, TaskOwnership,
 };
-use eukhe_pi_ai::models::Models;
-use eukhe_pi_ai::typebox::Type;
 use eukhe_types::pi_ai::{AssistantMessage, TextContent, ToolCall, UserContentBlock};
 use futures::future::{BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};

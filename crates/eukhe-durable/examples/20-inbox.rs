@@ -4,6 +4,11 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxResponseStep,
+    RegisterFauxProviderOptions,
+};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_durable::harness::registry::create_registry;
@@ -17,11 +22,6 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{DocumentReaderExt, EntryDraft, SubmissionStatus};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxResponseStep,
-    RegisterFauxProviderOptions,
-};
 use eukhe_types::pi_ai::UserContent;
 use futures::FutureExt;
 

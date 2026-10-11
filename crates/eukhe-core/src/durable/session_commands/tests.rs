@@ -2,17 +2,17 @@
 
 use std::sync::Arc;
 
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, FauxAssistantMessageOptions, FauxContentBlock, FauxResponseStep,
+};
+use eukhe_ai::providers::faux_script::{
+    create_faux_script_models, parse_faux_script, FauxScriptProvider,
+};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft};
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::types::{EntryRecord, TaskOutcome};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, FauxAssistantMessageOptions, FauxContentBlock, FauxResponseStep,
-};
-use eukhe_pi_ai::providers::faux_script::{
-    create_faux_script_models, parse_faux_script, FauxScriptProvider,
-};
 use eukhe_types::pi_ai::{Message, UserContent};
 use serde_json::{json, Value};
 

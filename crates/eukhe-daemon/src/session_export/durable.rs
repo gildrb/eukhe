@@ -6,6 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
+use eukhe_ai::utils::text::get_system_message_text;
+use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::{
     custom_entry_content, BashEntryData, BranchSummaryData, CustomEntryData, HostDeps, BASH_ENTRY,
@@ -15,8 +17,6 @@ use eukhe_core::session::manager::{format_iso, format_iso_now};
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
 use eukhe_durable::types::{EntryData, EntryRecord};
-use eukhe_pi_ai::utils::text::get_system_message_text;
-use eukhe_pi_ai::utils::transcript::{get_current_system_message, get_current_tools};
 use eukhe_types::pi_ai::Message;
 use serde_json::{json, Map, Value};
 

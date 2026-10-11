@@ -4,6 +4,12 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    RegisterFauxProviderOptions,
+};
+use eukhe_ai::typebox::Type;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_durable::documents::{DocDefinition, RewindableConversationDoc};
@@ -16,12 +22,6 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::{Harness, RootOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{DocumentReaderExt, RewindableFork};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
-    RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::typebox::Type;
 use eukhe_types::pi_ai::{JsonObject, Message, StopReason, TextContent, UserContentBlock};
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};

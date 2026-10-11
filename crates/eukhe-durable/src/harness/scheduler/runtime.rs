@@ -6,9 +6,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
+use eukhe_ai::models::Models;
 use eukhe_chord::context::{await_with_context, with_abort_signal, AbortSignal, Context};
 use eukhe_chord::json::{JsonObject, JsonValue};
-use eukhe_pi_ai::models::Models;
 use futures::future::{BoxFuture, FutureExt};
 
 use crate::documents::{AnyDocDefinition, ResolvedAddress};

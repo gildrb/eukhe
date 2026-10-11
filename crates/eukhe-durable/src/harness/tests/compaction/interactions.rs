@@ -3,8 +3,8 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::providers::faux::faux_tool_call;
 use eukhe_chord::json::{to_json, JsonValue};
-use eukhe_pi_ai::providers::faux::faux_tool_call;
 use eukhe_types::pi_ai::{
     JsonObject as PiJsonObject, Message, StopReason, TextContent, UserContentBlock,
 };

@@ -11,6 +11,13 @@ use std::path::Path;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
+    FauxResponseStep, RegisterFauxProviderOptions,
+};
+use eukhe_ai::providers::openai::openai_provider;
+use eukhe_ai::typebox::Type;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, to_json, JsonValue as DurableJson};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
@@ -34,13 +41,6 @@ use eukhe_durable::types::{
     ConversationId, ConversationOwnership, DocumentReaderExt, EntryId, JsonObject, LatestFork,
     TaskId, TaskOptions, TaskOutcome, TaskOwnership,
 };
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
-    FauxResponseStep, RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::providers::openai::openai_provider;
-use eukhe_pi_ai::typebox::Type;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, IndexMap, JsonObject as PiJsonObject,
     JsonValue as PiJsonValue, Message, StopReason, TextContent, UserContent, UserContentBlock,

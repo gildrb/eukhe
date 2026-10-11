@@ -31,6 +31,17 @@
 //! daemon's faux-script sessions share one collection across workers and
 //! stay unwrapped, matching the old engine's no-failover faux rule.
 
+use eukhe_ai::api::lazy::lazy_stream;
+use eukhe_ai::api::{StreamFn, StreamSimpleFn};
+use eukhe_ai::auth::AuthResolutionOverrides;
+use eukhe_ai::models::Models;
+use eukhe_ai::types::{
+    ProviderRequestOptions, ProviderStreamOptions, SimpleStreamOptions, StreamOptions,
+};
+use eukhe_ai::utils::event_stream::{
+    create_assistant_message_event_stream, AssistantMessageEventStream,
+};
+use eukhe_ai::utils::retry::is_retryable_assistant_error;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::delta::Draft;
 use eukhe_chord::json::{from_json, to_json};
@@ -38,17 +49,6 @@ use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, TypedEntryDraft};
-use eukhe_pi_ai::api::lazy::lazy_stream;
-use eukhe_pi_ai::api::{StreamFn, StreamSimpleFn};
-use eukhe_pi_ai::auth::AuthResolutionOverrides;
-use eukhe_pi_ai::models::Models;
-use eukhe_pi_ai::types::{
-    ProviderRequestOptions, ProviderStreamOptions, SimpleStreamOptions, StreamOptions,
-};
-use eukhe_pi_ai::utils::event_stream::{
-    create_assistant_message_event_stream, AssistantMessageEventStream,
-};
-use eukhe_pi_ai::utils::retry::is_retryable_assistant_error;
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason, Message, Model, StopReason,
     TranscriptContext, Usage, UserContent, UserContentBlock,
@@ -1015,10 +1015,10 @@ mod tests {
     use crate::durable::deps::{ResolvedServices, SessionConfig, SessionStorage};
     use crate::durable::EukheSettings;
     use crate::resources::LoadedResources;
-    use eukhe_pi_ai::models::{
+    use eukhe_ai::models::{
         create_models as create_pi_models, CreateModelsOptions, ModelsSimpleStreamOptions,
     };
-    use eukhe_pi_ai::providers::faux::{
+    use eukhe_ai::providers::faux::{
         faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxModelDefinition,
         FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
     };

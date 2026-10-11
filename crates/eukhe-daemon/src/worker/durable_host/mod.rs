@@ -20,6 +20,10 @@ pub use translator::{CoalesceMode, ConversationMirror, EventTranslator};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use eukhe_ai::models::Models;
+use eukhe_ai::providers::faux_script::{
+    create_faux_script_models, parse_faux_script_value, FauxScriptError,
+};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::{
     compose_models_json, open_session, EukheSession, HostDeps, ModelRequest, ModelsError,
@@ -27,10 +31,6 @@ use eukhe_core::durable::{
 };
 use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_pi_ai::models::Models;
-use eukhe_pi_ai::providers::faux_script::{
-    create_faux_script_models, parse_faux_script_value, FauxScriptError,
-};
 
 use crate::lease::SessionLease;
 

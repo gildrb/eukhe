@@ -15,11 +15,11 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::Models;
 use eukhe_durable::harness::define::{define_extension, section};
 use eukhe_durable::harness::types::{
     Extension, PromptInput, SubmissionDraft, WriteSubmissionDraft,
 };
-use eukhe_pi_ai::models::Models;
 use eukhe_types::pi_ai::Modality;
 use futures::FutureExt;
 

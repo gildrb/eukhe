@@ -11,6 +11,12 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
+    RegisterFauxProviderOptions,
+};
+use eukhe_ai::providers::openai::openai_provider;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::delta::Op;
 use eukhe_chord::json::{to_json, JsonValue as DurableJson};
@@ -27,12 +33,6 @@ use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteSto
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::tools::{create_bash_tool, create_read_tool, BashToolOptions, ReadToolOptions};
 use eukhe_durable::types::Storage;
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
-    RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::providers::openai::openai_provider;
 use eukhe_types::pi_ai::{JsonObject, JsonValue, StopReason, UserContent};
 use futures::FutureExt;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};

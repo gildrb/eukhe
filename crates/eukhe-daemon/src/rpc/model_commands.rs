@@ -6,12 +6,12 @@
 
 use std::sync::Arc;
 
+use eukhe_ai::auth::AuthOperationOptions;
+use eukhe_ai::models::{clamp_thinking_level, get_supported_thinking_levels};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::EukheSession;
 use eukhe_core::settings::{QueueModeSetting, ThinkingLevelSetting};
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
-use eukhe_pi_ai::auth::AuthOperationOptions;
-use eukhe_pi_ai::models::{clamp_thinking_level, get_supported_thinking_levels};
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 

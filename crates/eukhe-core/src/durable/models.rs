@@ -69,14 +69,14 @@ pub(crate) mod timing;
 use std::path::Path;
 use std::sync::Arc;
 
-use eukhe_chord::context::Context;
-use eukhe_durable::harness::types::ModelRef;
-use eukhe_pi_ai::auth::{AuthContext, AuthOperationOptions};
-use eukhe_pi_ai::models::{
+use eukhe_ai::auth::{AuthContext, AuthOperationOptions};
+use eukhe_ai::models::{
     clamp_thinking_level, create_models as create_pi_models, CreateModelsOptions, Models,
 };
-use eukhe_pi_ai::providers::all::builtin_providers;
-use eukhe_pi_ai::utils::abort::operation_signal;
+use eukhe_ai::providers::all::builtin_providers;
+use eukhe_ai::utils::abort::operation_signal;
+use eukhe_chord::context::Context;
+use eukhe_durable::harness::types::ModelRef;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
@@ -127,7 +127,7 @@ pub struct ResolvedModel {
     pub thinking: ModelThinkingLevel,
 }
 
-/// `eukhe_pi_ai::models::Models` with every built-in pi-ai provider,
+/// `eukhe_ai::models::Models` with every built-in pi-ai provider,
 /// credentials from eukhe's auth storage, custom providers/models from
 /// eukhe `models.json`, and Prime Inference through the pi-ai
 /// `prime-inference` provider's compiled catalog. See the module docs.
@@ -172,7 +172,7 @@ pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Result<(), Mode
     let base = models
         .get_providers()
         .iter()
-        .map(|provider| eukhe_pi_ai::models::Provider::clone(provider))
+        .map(|provider| eukhe_ai::models::Provider::clone(provider))
         .collect();
     for provider in compose::compose_providers(base, &agent_dir.join("models.json"))? {
         models.set_provider(provider);
@@ -390,9 +390,9 @@ fn enforce_allowlist(settings: &SettingsManager, selector: &str) -> Result<(), M
 
 #[cfg(test)]
 mod tests {
+    use eukhe_ai::auth::{ApiKeyResolveInput, ModelAuth};
+    use eukhe_ai::providers::all::get_builtin_models;
     use eukhe_chord::context::BACKGROUND_CONTEXT;
-    use eukhe_pi_ai::auth::{ApiKeyResolveInput, ModelAuth};
-    use eukhe_pi_ai::providers::all::get_builtin_models;
     use eukhe_types::pi_ai::{Modality, ProviderHeaders};
     use futures::future::BoxFuture;
 
@@ -569,7 +569,7 @@ mod tests {
             } } }"#,
         );
         let levels = |provider: &str, id: &str| {
-            eukhe_pi_ai::models::get_supported_thinking_levels(
+            eukhe_ai::models::get_supported_thinking_levels(
                 &models.get_model(provider, id).unwrap(),
             )
         };
@@ -606,12 +606,12 @@ mod tests {
             } } }"#,
         )
         .unwrap();
-        let script = eukhe_pi_ai::providers::faux_script::parse_faux_script_value(
+        let script = eukhe_ai::providers::faux_script::parse_faux_script_value(
             &json!({ "responses": ["scripted"] }),
         )
         .unwrap();
         let (models, provider) =
-            eukhe_pi_ai::providers::faux_script::create_faux_script_models(script);
+            eukhe_ai::providers::faux_script::create_faux_script_models(script);
         compose_models_json(&models, dir.path()).unwrap();
         let mut ids: Vec<String> = models
             .get_models(Some("faux"))
@@ -644,8 +644,7 @@ mod tests {
         let model = models.get_model("glm-h200", "glm-5.2").unwrap();
         assert_eq!(model.max_tokens, 131_072);
         let context = eukhe_types::pi_ai::TranscriptContext::from_normalized_messages(Vec::new());
-        let base =
-            eukhe_pi_ai::api::simple_options::build_base_options(&model, &context, None, None);
+        let base = eukhe_ai::api::simple_options::build_base_options(&model, &context, None, None);
         assert_eq!(base.max_tokens, Some(131_072));
     }
 

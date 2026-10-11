@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::to_json;
 use eukhe_durable::harness::define::define_extension;
@@ -14,7 +15,6 @@ use eukhe_durable::harness::{Harness, RootOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::tasks::{define_task, NextTaskState, Task, TaskDefinition};
 use eukhe_durable::types::{TaskOptions, TaskOutcome, TaskOwnership};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use serde::{Deserialize, Serialize};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;

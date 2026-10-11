@@ -3,6 +3,8 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::typebox::Type;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{to_json, JsonObject, JsonValue};
 use eukhe_durable::harness::agent::AGENT_DOC;
@@ -17,8 +19,6 @@ use eukhe_durable::harness::{Conversation, Harness, RootOptions};
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::DocumentReaderExt;
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::typebox::Type;
 use eukhe_types::pi_ai::{ModelThinkingLevel, TextContent, UserContentBlock};
 use futures::FutureExt;
 

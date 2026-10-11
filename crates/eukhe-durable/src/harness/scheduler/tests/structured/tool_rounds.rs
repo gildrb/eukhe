@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_types::pi_ai::{Message, ToolResultMessage};
 use futures::FutureExt;
 

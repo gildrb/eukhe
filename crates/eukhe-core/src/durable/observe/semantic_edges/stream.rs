@@ -7,9 +7,9 @@
 
 use std::sync::Arc;
 
-use eukhe_pi_ai::api::{StreamFn, StreamSimpleFn};
-use eukhe_pi_ai::types::StreamOptions;
-use eukhe_pi_ai::utils::event_stream::AssistantMessageEventStream;
+use eukhe_ai::api::{StreamFn, StreamSimpleFn};
+use eukhe_ai::types::StreamOptions;
+use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageEvent, Message, Model, StopReason, TranscriptContext,
 };

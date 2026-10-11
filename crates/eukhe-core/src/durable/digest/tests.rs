@@ -5,16 +5,16 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_text, FauxAssistantMessageOptions,
+    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
+};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::types::ModelRef;
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{EntryDraft, EntryHead, EntryRecord};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_text, FauxAssistantMessageOptions,
-    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
-};
 use eukhe_types::pi_ai::{Message, UserContent, UserMessage};
 use tempfile::TempDir;
 

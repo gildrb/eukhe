@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use eukhe_pi_ai::typebox::{Options, TSchema, Type};
+use eukhe_ai::typebox::{Options, TSchema, Type};
 use eukhe_types::pi_ai::{TextContent, UserContentBlock};
 use serde::Deserialize;
 

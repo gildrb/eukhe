@@ -20,11 +20,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use eukhe_ai::auth::oauth::{anthropic_oauth, github_copilot_oauth, openai_codex_oauth, xai_oauth};
+use eukhe_ai::auth::{OAuthAuth, OAuthCredential};
 use eukhe_chord::context::AbortController;
-use eukhe_pi_ai::auth::oauth::{
-    anthropic_oauth, github_copilot_oauth, openai_codex_oauth, xai_oauth,
-};
-use eukhe_pi_ai::auth::{OAuthAuth, OAuthCredential};
 
 use crate::auth::types::{AuthCredential, AuthStorageData};
 
@@ -217,9 +215,9 @@ impl crate::auth::OAuthIntegration for ProviderOAuth {
 
 #[cfg(test)]
 mod tests {
+    use eukhe_ai::auth::{LoginOptions, ModelAuth, ProviderAuthInteraction};
+    use eukhe_ai::utils::diagnostics::Thrown;
     use eukhe_chord::context::AbortSignal;
-    use eukhe_pi_ai::auth::{LoginOptions, ModelAuth, ProviderAuthInteraction};
-    use eukhe_pi_ai::utils::diagnostics::Thrown;
     use futures::future::BoxFuture;
 
     use super::*;

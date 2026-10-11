@@ -8,9 +8,9 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use eukhe_ai::models::Models;
 use eukhe_chord::context::{AbortSignal, Context};
 use eukhe_chord::json::{from_json, to_json, JsonValue};
-use eukhe_pi_ai::models::Models;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde::de::DeserializeOwned;

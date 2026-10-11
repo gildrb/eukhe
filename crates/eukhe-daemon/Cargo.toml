@@ -10,11 +10,11 @@ description = "Session supervisor, worker processes, and wire protocol."
 eukhe-types = { path = "../eukhe-types" }
 eukhe-core = { path = "../eukhe-core" }
 # The session worker hosts the eukhe agent on the durable Harness
-# (`eukhe-durable`, the pi-durable port) with `eukhe-pi-ai` models and
+# (`eukhe-durable`, the pi-durable port) with `eukhe-ai` models and
 # `eukhe-chord` contexts/JSON.
 eukhe-durable = { path = "../eukhe-durable" }
 eukhe-chord = { path = "../eukhe-chord" }
-eukhe-pi-ai = { path = "../eukhe-pi-ai" }
+eukhe-ai = { path = "../eukhe-ai" }
 anyhow = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

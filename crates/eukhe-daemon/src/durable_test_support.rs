@@ -4,16 +4,16 @@
 
 use std::path::PathBuf;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxProviderHandle,
+    FauxResponseStep, RegisterFauxProviderOptions,
+};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::{open_session, EukheSession, SessionConfig, SessionStorage};
 use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
 use eukhe_durable::types::EntryRecord;
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxProviderHandle,
-    FauxResponseStep, RegisterFauxProviderOptions,
-};
 
 pub(crate) const SESSION_ID: &str = "0192a000-0000-7000-8000-0000000000f1";
 

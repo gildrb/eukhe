@@ -7,9 +7,9 @@ use std::fmt;
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::Models;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonValue};
-use eukhe_pi_ai::models::Models;
 use eukhe_types::pi_ai::{
     JsonObject as PiJsonObject, JsonValue as PiJsonValue, Tool, ToolConstrainedSampling,
     ToolSchema, Usage, UserContentBlock,

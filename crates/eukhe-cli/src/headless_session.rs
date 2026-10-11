@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use eukhe_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::{
     fork_session, most_recent_session_for_cwd, open_session, read_session_cwd, resolve_session,
@@ -17,7 +18,6 @@ use eukhe_core::durable::{
 };
 use eukhe_daemon::lease::SessionLease;
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
-use eukhe_pi_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
 
 use crate::mode::RunOptions;
 

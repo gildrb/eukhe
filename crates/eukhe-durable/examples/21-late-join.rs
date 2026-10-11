@@ -7,6 +7,12 @@ use std::io::Write;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
+    FauxTokenSize, RegisterFauxProviderOptions,
+};
+use eukhe_ai::typebox::{TSchema, Type};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::JsonValue as DurableJson;
 use eukhe_durable::harness::define::{define_extension, define_tool};
@@ -20,12 +26,6 @@ use eukhe_durable::harness::{
     ToolOutputUpdate, ToolSlotStatus,
 };
 use eukhe_durable::storage::MemoryStorage;
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
-    FauxTokenSize, RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::typebox::{TSchema, Type};
 use eukhe_types::pi_ai::{JsonObject, StopReason, UserContent};
 use futures::FutureExt;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};

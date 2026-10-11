@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
+use eukhe_ai::typebox::{TSchema, Type};
 use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
-use eukhe_pi_ai::typebox::{TSchema, Type};
 use eukhe_types::pi_ai::{TextContent, UserContentBlock};
 use futures::FutureExt;
 

@@ -4,12 +4,12 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use eukhe_chord::context::Context;
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
     FauxResponseStep,
 };
-use eukhe_pi_ai::typebox::{TSchema, Type};
+use eukhe_ai::typebox::{TSchema, Type};
+use eukhe_chord::context::Context;
 use eukhe_types::pi_ai::{
     AssistantMessage, JsonValue as PiJsonValue, Message, StopReason, ToolResultMessage,
     UserContentBlock,

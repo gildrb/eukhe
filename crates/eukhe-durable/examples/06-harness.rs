@@ -3,6 +3,8 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::typebox::Type;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::{JsonObject, JsonValue};
 use eukhe_durable::documents::{DocDefinition, RewindableConversationDoc};
@@ -15,8 +17,6 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::{Harness, RootOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{DocumentReaderExt, RewindableFork};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::typebox::Type;
 use eukhe_types::pi_ai::{ModelThinkingLevel, TextContent, UserContentBlock};
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};

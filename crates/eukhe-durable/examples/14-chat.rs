@@ -4,6 +4,10 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, RegisterFauxProviderOptions,
+};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::define::{define_extension, section};
@@ -14,10 +18,6 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::{ConversationEntryQuery, Harness, RootOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{InputSubmission, SubmissionState};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, RegisterFauxProviderOptions,
-};
 use eukhe_types::pi_ai::Message;
 use futures::FutureExt;
 

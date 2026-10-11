@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
 use eukhe_chord::json::{to_json, JsonValue};
-use eukhe_pi_ai::providers::faux::RegisterFauxProviderOptions;
 use futures::FutureExt;
 
 use super::support::{calls, done, empty_content, result_text, results, run_with, tool};

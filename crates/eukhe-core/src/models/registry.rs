@@ -381,7 +381,7 @@ impl ModelRegistry {
             ..
         }) = copilot_credential
         {
-            let base_url = eukhe_pi_ai::auth::oauth::get_github_copilot_base_url(
+            let base_url = eukhe_ai::auth::oauth::get_github_copilot_base_url(
                 Some(&access),
                 enterprise_url.as_deref(),
             );

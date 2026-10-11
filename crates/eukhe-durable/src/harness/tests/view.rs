@@ -2,13 +2,13 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_chord::context::{with_cancel, Context};
-use eukhe_chord::delta::{apply_immutable, Op, Seg};
-use eukhe_chord::json::{to_json, JsonObject, JsonValue};
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, FauxAssistantMessageOptions, FauxResponseStep,
     RegisterFauxProviderOptions,
 };
+use eukhe_chord::context::{with_cancel, Context};
+use eukhe_chord::delta::{apply_immutable, Op, Seg};
+use eukhe_chord::json::{to_json, JsonObject, JsonValue};
 use eukhe_types::pi_ai::{AssistantMessage, ModelThinkingLevel};
 use futures::FutureExt;
 

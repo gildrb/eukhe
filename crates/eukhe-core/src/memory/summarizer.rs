@@ -11,8 +11,8 @@
 
 use std::path::{Path, PathBuf};
 
-use eukhe_pi_ai::models::ModelsSimpleStreamOptions;
-use eukhe_pi_ai::types::{SimpleStreamOptions, StreamOptions};
+use eukhe_ai::models::ModelsSimpleStreamOptions;
+use eukhe_ai::types::{SimpleStreamOptions, StreamOptions};
 use eukhe_types::ai::{AssistantMessage, Context, Model, ModelThinkingLevel};
 use eukhe_types::pi_ai;
 
@@ -96,7 +96,7 @@ fn reasoning(level: ModelThinkingLevel) -> Option<pi_ai::ThinkingLevel> {
 }
 
 struct Target {
-    models: eukhe_pi_ai::models::Models,
+    models: eukhe_ai::models::Models,
     model: pi_ai::Model,
     api_key: Option<String>,
     headers: Option<std::collections::BTreeMap<String, String>>,

@@ -12,11 +12,12 @@ yanked = "deny"
 # a landed fix upstream means the entry is removed instead of silenced.
 ignore = [
   # Marvin Attack timing sidechannel in rsa; no patch exists upstream
-  # (RustCrypto/RSA#626 tracks it). `rsa` is currently a dead dependency in
-  # eukhe-ai (declared, never referenced); no signing path executes it, so no
-  # timing oracle exists. Reviewed 2026-09-17; drop rsa (eukhe-ai lane) or
-  # re-triage when rsa publishes a fix.
-  { id = "RUSTSEC-2023-0071", reason = "unpatched upstream; rsa is an unused eukhe-ai dep, no signing path executes it (reviewed 2026-09-17)" },
+  # (RustCrypto/RSA#626 tracks it). eukhe-core's Prime Inference browser login
+  # (auth/prime_browser_login.rs) decrypts one RSA-OAEP payload per login with a
+  # fresh, single-use local key; no attacker can submit chosen ciphertexts or
+  # observe repeated decryption timing, so no timing oracle exists. Reviewed
+  # 2026-10-11; re-triage when rsa publishes a fix.
+  { id = "RUSTSEC-2023-0071", reason = "unpatched upstream; rsa decrypts one OAEP payload per login with a single-use local key, no timing oracle (reviewed 2026-10-11)" },
 ]
 
 [licenses]

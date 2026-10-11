@@ -8,17 +8,17 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
+    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
+};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, ModelRef};
 use eukhe_durable::harness::{ConversationEntryQuery, LiveState, ToolSlot, LIVE_DOC};
 use eukhe_durable::types::{
     ConversationId, DocumentReaderExt, EntryRecord, SubmissionId, SubmissionStatus,
-};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
-    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_types::pi_ai::{
     JsonObject, Message, StopReason, ToolResultMessage, UserContent, UserContentBlock,

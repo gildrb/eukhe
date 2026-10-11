@@ -7,6 +7,7 @@
 use std::future::Future;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::delta::Op;
 use eukhe_chord::json::{utf16_suffix, JsonObject, JsonValue};
@@ -30,7 +31,6 @@ use eukhe_durable::types::{
     CheckpointInfo, ConversationId, DocumentObserver, DocumentObserverExt, LatestFork, TaskId,
     TaskOptions, TaskOutcome, TaskOwnership,
 };
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use futures::future::{BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;

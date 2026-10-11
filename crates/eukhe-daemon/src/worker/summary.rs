@@ -82,7 +82,7 @@ pub(crate) fn available_thinking_levels(core: &SessionCore, session: &SessionSlo
         .and_then(|view| view.translator.mirror().agent.model.clone())
         .and_then(|model_ref| catalog_model(session, &model_ref.provider, &model_ref.model_id));
     match model {
-        Some(model) => eukhe_pi_ai::models::get_supported_thinking_levels(&model)
+        Some(model) => eukhe_ai::models::get_supported_thinking_levels(&model)
             .into_iter()
             .map(|level| level.as_str().to_string())
             .collect(),

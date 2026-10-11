@@ -6,10 +6,10 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
 
+use eukhe_ai::auth::{AuthSelectOption, LoginOptions, ModelAuth, OAuthCredential};
 use eukhe_core::auth::{
     AuthCredential, ANTHROPIC_PROVIDER_ID, OPENAI_CODEX_PROVIDER_ID, XAI_PROVIDER_ID,
 };
-use eukhe_pi_ai::auth::{AuthSelectOption, LoginOptions, ModelAuth, OAuthCredential};
 use eukhe_tui::auth_panel::AuthPanelRequest;
 
 use super::*;

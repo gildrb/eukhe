@@ -25,9 +25,9 @@ mod tests;
 
 use std::sync::Arc;
 
+use eukhe_ai::models::Models;
 use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::Extension;
-use eukhe_pi_ai::models::Models;
 
 pub use commands::{
     cancel_child, delete_inactive_child, find_child, list_children, DeleteChildOutcome,

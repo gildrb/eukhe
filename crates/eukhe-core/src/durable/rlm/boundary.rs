@@ -13,6 +13,7 @@
 
 use std::sync::{Arc, Weak};
 
+use eukhe_ai::utils::estimate::calculate_context_tokens;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
@@ -23,7 +24,6 @@ use eukhe_durable::harness::types::{CompactionReason, ContextView, ToolExecution
 use eukhe_durable::harness::{Conversation, LiveState, LIVE_DOC};
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, LatestFork};
-use eukhe_pi_ai::utils::estimate::calculate_context_tokens;
 use eukhe_types::pi_ai::Message;
 use futures::future::BoxFuture;
 use futures::FutureExt;

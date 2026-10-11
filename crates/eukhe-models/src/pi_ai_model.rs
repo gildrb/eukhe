@@ -1,5 +1,5 @@
 //! The conversion of a pi-ai catalog model ([`eukhe_types::pi_ai::Model`],
-//! the `eukhe-pi-ai` compiled catalog's entry) into the registry's
+//! the `eukhe-ai` compiled catalog's entry) into the registry's
 //! [`Model`] (`eukhe_types::ai::Model`).
 //!
 //! Every field the registry model has carries over unchanged. The pi-ai

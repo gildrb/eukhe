@@ -4,7 +4,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use eukhe_pi_ai::typebox::Type;
+use eukhe_ai::typebox::Type;
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, Usage, UsageCost};
 use futures::FutureExt;
 use serde_json::json;

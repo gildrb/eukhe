@@ -173,7 +173,7 @@ pub(super) async fn stream_response(
     runtime: &Runtime,
     model: &Model,
     messages: Vec<Message>,
-    options: eukhe_pi_ai::types::SimpleStreamOptions,
+    options: eukhe_ai::types::SimpleStreamOptions,
     attempt: u64,
     cx: &Context,
 ) -> SessionResult<AssistantMessage> {

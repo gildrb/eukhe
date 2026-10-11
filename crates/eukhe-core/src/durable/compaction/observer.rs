@@ -26,6 +26,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
@@ -39,7 +40,6 @@ use eukhe_durable::types::{
     CommitChange, CommitPublication, ConversationId, EntryId, EntryRecord, LatestFork, TaskOutcome,
     TaskRecord,
 };
-use eukhe_pi_ai::utils::overflow::is_context_overflow;
 use eukhe_types::pi_ai::{Message, StopReason};
 use eukhe_types::session::CustomMessage;
 use futures::FutureExt;

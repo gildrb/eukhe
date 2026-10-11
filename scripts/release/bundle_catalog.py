@@ -409,7 +409,7 @@ def validate_bundled_catalog_dir(directory, allow_small_fixture: bool = False) -
 
 # Compiled transport tuples of the shipped registry (43 distinct
 # (provider, api, baseUrl) triples across 32 providers; the registry pins to
-# eukhe-models' compiled transports: the eukhe-pi-ai catalog plus
+# eukhe-models' compiled transports: the eukhe-ai catalog plus
 # crates/eukhe-models/src/transports.rs SUPPLEMENTAL_TRANSPORTS). Fixture
 # models use real tuples so they survive runtime transport pinning; nothing
 # here can introduce a transport the client does not implement.

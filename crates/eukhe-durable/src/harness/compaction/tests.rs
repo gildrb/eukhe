@@ -1,7 +1,7 @@
 //! Range selection and serialization (`test/harness-compaction.test.ts`,
 //! "range selection" and "serialization").
 
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_thinking, faux_tool_call, FauxAssistantMessageOptions,
 };
 use eukhe_types::pi_ai::{

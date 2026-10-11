@@ -13,9 +13,9 @@ mod tests;
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use eukhe_ai::utils::validation::validate_tool_arguments;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
-use eukhe_pi_ai::utils::validation::validate_tool_arguments;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, JsonObject as PiJsonObject, JsonValue as PiJsonValue, Message, ToolCall,
 };

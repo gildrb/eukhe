@@ -7,6 +7,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
+};
+use eukhe_ai::typebox::{TSchema, Type};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::errors::StorageError;
 use eukhe_durable::harness::define::{define_extension, define_tool};
@@ -24,12 +30,6 @@ use eukhe_durable::types::{
     Page, Seq, Storage, StorageWrite, StoredDocument, StoredEntry, SubmissionId, SubmissionQuery,
     SubmissionRecord, TaskId, TaskOutcome, TaskQuery, TaskState, ROOT_CONVERSATION_ID,
 };
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions, Models};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
-    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::typebox::{TSchema, Type};
 use eukhe_types::pi_ai::{
     JsonObject, Message, StopReason, TextContent, Usage, UsageCost, UserContent, UserContentBlock,
 };

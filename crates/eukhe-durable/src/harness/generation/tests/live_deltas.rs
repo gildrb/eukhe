@@ -4,13 +4,13 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use eukhe_chord::context::Context;
-use eukhe_chord::delta::Op;
-use eukhe_chord::json::{JsonObject, JsonValue};
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions, FauxTokenSize,
     RegisterFauxProviderOptions,
 };
+use eukhe_chord::context::Context;
+use eukhe_chord::delta::Op;
+use eukhe_chord::json::{JsonObject, JsonValue};
 use eukhe_types::pi_ai::{AssistantContentBlock, StopReason, Usage};
 use futures::future::BoxFuture;
 use futures::FutureExt;

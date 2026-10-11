@@ -3,12 +3,12 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use eukhe_chord::context::{with_cancel, Context};
-use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_pi_ai::providers::faux::{
+use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, FauxAssistantMessageOptions, FauxResponseStep,
     RegisterFauxProviderOptions,
 };
+use eukhe_chord::context::{with_cancel, Context};
+use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_types::pi_ai::{AssistantMessage, Message, UserContent, UserMessage};
 use futures::future::BoxFuture;
 use futures::FutureExt;

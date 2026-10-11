@@ -14,6 +14,8 @@
 
 use std::sync::Arc;
 
+use eukhe_ai::models::ModelsSimpleStreamOptions;
+use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::{
     BeforeCompactHook, CompactionDecision, CompactionRequest, CompactionSnapshot, HookApi,
@@ -21,8 +23,6 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::EntryRecord;
-use eukhe_pi_ai::models::ModelsSimpleStreamOptions;
-use eukhe_pi_ai::types::SimpleStreamOptions;
 use eukhe_types::pi_ai::{
     AssistantMessageEvent, CacheRetention, Context as PiContext, Message, StopReason,
 };
@@ -172,10 +172,10 @@ async fn decide(
         tools: None,
     };
     let mut options: ModelsSimpleStreamOptions = SimpleStreamOptions {
-        stream: eukhe_pi_ai::types::StreamOptions {
+        stream: eukhe_ai::types::StreamOptions {
             max_tokens: Some(max_tokens),
             cache_retention: Some(CacheRetention::None),
-            ..eukhe_pi_ai::types::StreamOptions::default()
+            ..eukhe_ai::types::StreamOptions::default()
         },
         ..SimpleStreamOptions::default()
     }

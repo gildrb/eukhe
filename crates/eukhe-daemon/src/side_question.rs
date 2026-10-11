@@ -13,10 +13,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use eukhe_ai::models::ModelsSimpleStreamOptions;
+use eukhe_ai::types::SimpleStreamOptions;
+use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms, RetryDelay};
 use eukhe_chord::context::{AbortController, AbortSignal, Context, BACKGROUND_CONTEXT};
-use eukhe_pi_ai::models::ModelsSimpleStreamOptions;
-use eukhe_pi_ai::types::SimpleStreamOptions;
-use eukhe_pi_ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms, RetryDelay};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Message, ModelThinkingLevel,
     StopReason, TextContent, ThinkingLevel, Tool, ToolCall, ToolResultMessage, UserContent,
@@ -655,7 +655,7 @@ fn emit_side_question_frame(events: &Arc<EventPump>, active_session_id: &str, ev
 mod tests {
     use super::*;
     use crate::durable_test_support::{answer, ask, hosted, kinds, Fixture};
-    use eukhe_pi_ai::providers::faux::{
+    use eukhe_ai::providers::faux::{
         faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
         FauxResponseStep,
     };

@@ -1,17 +1,17 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models as create_pi_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxProviderHandle,
+    FauxResponseStep, RegisterFauxProviderOptions,
+};
+use eukhe_ai::utils::text::get_system_message_text;
+use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::types::EntryRecord;
-use eukhe_pi_ai::models::{create_models as create_pi_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxProviderHandle,
-    FauxResponseStep, RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::utils::text::get_system_message_text;
-use eukhe_pi_ai::utils::transcript::{get_current_system_message, get_current_tools};
 use eukhe_types::pi_ai::{AssistantContentBlock, Message, Modality, UserContent, UserContentBlock};
 
 use super::*;
@@ -38,7 +38,7 @@ struct Fixture {
     cwd: PathBuf,
     sessions: PathBuf,
     faux: FauxProviderHandle,
-    models: eukhe_pi_ai::models::Models,
+    models: eukhe_ai::models::Models,
 }
 
 fn fixture() -> Fixture {

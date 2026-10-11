@@ -6,6 +6,11 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    FauxResponseStep, RegisterFauxProviderOptions,
+};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{JsonObject, JsonValue};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
@@ -19,11 +24,6 @@ use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::tools::CODING_TOOLS;
 use eukhe_durable::types::{ConversationOwnership, DocumentReaderExt, LatestFork};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
-    FauxResponseStep, RegisterFauxProviderOptions,
-};
 use eukhe_types::pi_ai::StopReason;
 use futures::FutureExt;
 use tempfile::TempDir;

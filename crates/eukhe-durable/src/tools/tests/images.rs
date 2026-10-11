@@ -11,11 +11,9 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{faux_provider, FauxModelDefinition, RegisterFauxProviderOptions};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_provider, FauxModelDefinition, RegisterFauxProviderOptions,
-};
 use eukhe_types::pi_ai::{
     ImageContent, Modality, ModelImageInputLimits, ModelImageResizeOptions, ModelInputLimits,
     UserContentBlock,

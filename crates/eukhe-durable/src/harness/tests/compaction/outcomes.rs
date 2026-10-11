@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::providers::faux::faux_tool_call;
 use eukhe_chord::json::JsonValue;
-use eukhe_pi_ai::providers::faux::faux_tool_call;
 use eukhe_types::pi_ai::{
     CacheRetention, JsonObject as PiJsonObject, Message, ModelThinkingLevel, StopReason,
     ThinkingLevel,
@@ -222,7 +222,7 @@ async fn retries_a_retryable_error_with_the_pinned_request_and_counts_every_atte
         .unwrap();
     chat.set_stream(ConversationStreamOptions {
         timeout_ms: Some(1234.0),
-        deferred: Some(eukhe_pi_ai::types::DeferredRequest::Flag(true)),
+        deferred: Some(eukhe_ai::types::DeferredRequest::Flag(true)),
         ..ConversationStreamOptions::default()
     });
     let root = chat.root.clone();

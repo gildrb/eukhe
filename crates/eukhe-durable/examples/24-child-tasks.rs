@@ -7,6 +7,7 @@ use std::io::Write;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{to_json, JsonValue};
 use eukhe_durable::harness::define::define_extension;
@@ -19,7 +20,6 @@ use eukhe_durable::types::{
     JoinPolicy, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError, TaskOutcomeStatus,
     TaskOwnership,
 };
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
 use serde::{Deserialize, Serialize};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;

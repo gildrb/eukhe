@@ -46,6 +46,12 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
+    FauxProviderHandle, FauxTokenSize, RegisterFauxProviderOptions,
+};
+use eukhe_ai::typebox::Type;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue};
 use eukhe_durable::harness::define::{define_extension, define_tool};
@@ -61,12 +67,6 @@ use eukhe_durable::types::{
     ConversationQuery, Cursor, DocumentPoint, DocumentQuery, EntryQuery, Storage, SubmissionQuery,
     TaskQuery,
 };
-use eukhe_pi_ai::models::{create_models, CreateModelsOptions};
-use eukhe_pi_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
-    FauxProviderHandle, FauxTokenSize, RegisterFauxProviderOptions,
-};
-use eukhe_pi_ai::typebox::Type;
 use eukhe_types::pi_ai::{
     AssistantMessage, JsonObject as PiJsonObject, StopReason, TextContent, UserContentBlock,
 };

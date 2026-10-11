@@ -12,6 +12,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::typebox::{Options, TSchema, Type};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::JsonValue;
 use eukhe_durable::harness::define::define_tool;
@@ -20,7 +21,6 @@ use eukhe_durable::harness::types::{
     ToolRegistration, ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_pi_ai::typebox::{Options, TSchema, Type};
 use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use futures::FutureExt;
 use serde_json::json;

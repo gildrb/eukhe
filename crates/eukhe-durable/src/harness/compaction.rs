@@ -14,10 +14,10 @@ mod tests;
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms, RetryDelay};
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::Draft;
 use eukhe_chord::json::to_json;
-use eukhe_pi_ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms, RetryDelay};
 use eukhe_types::pi_ai::{
     AssistantMessage, CacheRetention, Context as PiContext, Message, ModelThinkingLevel,
     StopReason, SystemContent, SystemMessage, TextContent, ThinkingLevel, UserContent,

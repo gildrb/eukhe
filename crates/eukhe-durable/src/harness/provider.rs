@@ -1,9 +1,9 @@
 //! The `pi.provider` document: a stable provider-facing identity per
 //! conversation (`harness/provider.ts`).
 
+use eukhe_ai::utils::uuid::uuidv7;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_pi_ai::utils::uuid::uuidv7;
 use serde::{Deserialize, Serialize};
 
 use crate::documents::{ConversationDoc, DocDefinition};
