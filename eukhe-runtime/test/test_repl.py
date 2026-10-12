@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import queue
+import select
 import signal
 import subprocess
 import sys
@@ -21,7 +22,7 @@ _EOF = object()
 class ReplProcess:
     """Drives one `python -m rlm.repl` subprocess over the JSON-lines protocol."""
 
-    def __init__(self, env: dict[str, str] | None = None) -> None:
+    def __init__(self, env: dict[str, str] | None = None, *, own_process_group: bool = False) -> None:
         env = {
             **os.environ,
             "PYTHONPATH": SRC + os.pathsep + os.environ.get("PYTHONPATH", ""),
@@ -35,6 +36,8 @@ class ReplProcess:
             stderr=subprocess.DEVNULL,
             text=True,
             env=env,
+            # The host's spawn shape: the runtime leads its own group.
+            process_group=0 if own_process_group else None,
         )
         self.raw_lines: list[str] = []
         self._lines: queue.Queue[object] = queue.Queue()
@@ -3046,6 +3049,38 @@ class OwnerWatchdogTest(unittest.TestCase):
             owner.kill()
             owner.wait(timeout=10)
             self.assertEqual(repl.proc.wait(timeout=15), 1)
+        finally:
+            if owner.poll() is None:
+                owner.kill()
+                owner.wait(timeout=10)
+
+    def test_owner_death_takes_down_the_kernel_process_group(self):
+        # The orphan path after a SIGKILLed worker: the host starts the
+        # runtime as its own group leader, so the watchdog's exit must also
+        # kill the subprocesses a cell started in that group.
+        owner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
+        try:
+            repl = ReplProcess(env={"EUKHE_KERNEL_OWNER_PID": str(owner.pid)}, own_process_group=True)
+            self.addCleanup(repl.close)
+            repl.ready()
+            repl.send(
+                {
+                    "type": "execute",
+                    "id": "busy",
+                    "code": "import subprocess\nchild = subprocess.Popen(['sleep', '300'])\n"
+                    "print(child.pid, flush=True)\nwhile True: pass",
+                }
+            )
+            event = repl.read_event()
+            while event.get("event") != "stdout":
+                event = repl.read_event()
+            child = int(event["text"].strip())
+            child_exit = select.poll()
+            child_exit.register(os.pidfd_open(child), select.POLLIN)
+            owner.kill()
+            owner.wait(timeout=10)
+            self.assertEqual(repl.proc.wait(timeout=15), -signal.SIGKILL)
+            self.assertTrue(child_exit.poll(15_000), "the cell's subprocess outlived the kernel")
         finally:
             if owner.poll() is None:
                 owner.kill()

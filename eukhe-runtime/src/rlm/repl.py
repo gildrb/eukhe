@@ -1645,6 +1645,11 @@ def _owner_watchdog(owner: int, initial_ppid: int) -> None:
         _kill_live_handles()
     except BaseException:  # noqa: BLE001
         pass
+    # The host starts the runtime as its own process-group leader: take the
+    # group (the cell's subprocesses) down with it. Never signal a group
+    # this process does not lead.
+    if os.getpgrp() == os.getpid():
+        os.killpg(0, signal.SIGKILL)
     os._exit(1)
 
 
