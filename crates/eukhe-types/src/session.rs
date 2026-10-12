@@ -176,12 +176,6 @@ pub enum AgentMessage {
 // Session entries
 // ---------------------------------------------------------------------------
 
-/// `type: "message"`: one conversation message.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SessionMessageEntry {
-    pub message: AgentMessage,
-}
-
 /// `type: "thinking_level_change"`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -42,12 +42,6 @@ impl ToolSchema {
         &self.json
     }
 
-    /// The JSON Schema as serialized, by value.
-    #[must_use]
-    pub fn into_json(self) -> JsonValue {
-        self.json
-    }
-
     /// The `TypeBox` view (markers inline), for `TypeBox`-built schemas.
     #[must_use]
     pub fn typebox(&self) -> Option<&JsonValue> {
