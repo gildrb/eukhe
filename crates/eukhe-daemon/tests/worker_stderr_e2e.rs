@@ -16,6 +16,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
+
 struct Daemon {
     child: Child,
 }
@@ -33,7 +37,7 @@ struct DaemonBuilder {
 
 impl DaemonBuilder {
     fn new(socket: &Path, agent_dir: &Path) -> Self {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"));
+        let mut command = daemon_command();
         command
             .arg("supervisor")
             .arg("--socket")

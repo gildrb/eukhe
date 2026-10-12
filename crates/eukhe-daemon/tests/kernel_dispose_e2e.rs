@@ -24,15 +24,15 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 /// The three tests scan the whole process table (the kernel is a worker
 /// child, not a test-process child), so this std lock serializes them.
@@ -120,20 +120,14 @@ impl Drop for Daemon {
 }
 
 #[allow(clippy::zombie_processes)]
-fn spawn_supervisor(
-    socket: &Path,
-    agent_dir: &Path,
-    kernel_python: &Path,
-    lost_window_ms: &str,
-) -> Daemon {
+fn spawn_supervisor(socket: &Path, agent_dir: &Path, lost_window_ms: &str) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
-        .env("EUKHE_KERNEL_PYTHON", kernel_python)
         // Hermetic agent dir: the ambient environment may export a real
         // agent dir; point every fallback at the test sandbox instead.
         .env("EUKHE_CODING_AGENT_DIR", agent_dir)
@@ -327,7 +321,6 @@ fn await_receipt(dir: &Path) {
 /// this test catches it as a kernel pid that never clears the diff.
 #[test]
 fn kill_disposes_the_session_kernel() {
-    let kernel_python = kernel_python();
     let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
@@ -335,7 +328,7 @@ fn kill_disposes_the_session_kernel() {
     let script = write_faux_script(dir.path(), "");
     let baseline = kernel_pids();
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, "15000");
+    let _daemon = spawn_supervisor(&socket, &agent_dir, "15000");
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -365,7 +358,6 @@ fn kill_disposes_the_session_kernel() {
 /// `std::process::exit`, so the dispose must happen in the handler).
 #[test]
 fn shutdown_disposes_session_kernels_before_the_worker_exits() {
-    let kernel_python = kernel_python();
     let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
@@ -373,7 +365,7 @@ fn shutdown_disposes_session_kernels_before_the_worker_exits() {
     let script = write_faux_script(dir.path(), "");
     let baseline = kernel_pids();
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, "15000");
+    let _daemon = spawn_supervisor(&socket, &agent_dir, "15000");
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -396,7 +388,6 @@ fn shutdown_disposes_session_kernels_before_the_worker_exits() {
 /// itself would orphan it forever.
 #[test]
 fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
-    let kernel_python = kernel_python();
     let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
@@ -406,7 +397,7 @@ fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
 
     // A short supervisor-lost window: the orphaned worker exits quickly
     // once its supervisor is gone (the env flows to the spawned workers).
-    let mut daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, "5000");
+    let mut daemon = spawn_supervisor(&socket, &agent_dir, "5000");
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -434,7 +425,6 @@ fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
 /// orphaned for as long as the cell ran.
 #[test]
 fn orphan_exit_disposes_a_wedged_cell_kernel_within_the_bound() {
-    let kernel_python = kernel_python();
     let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
@@ -442,7 +432,7 @@ fn orphan_exit_disposes_a_wedged_cell_kernel_within_the_bound() {
     let script = write_faux_script(dir.path(), "import time\ntime.sleep(3600)");
     let baseline = kernel_pids();
 
-    let mut daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, "2000");
+    let mut daemon = spawn_supervisor(&socket, &agent_dir, "2000");
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");

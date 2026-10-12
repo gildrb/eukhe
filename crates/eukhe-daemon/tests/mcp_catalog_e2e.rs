@@ -34,14 +34,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -65,21 +65,14 @@ static DAEMON_E2E: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// ambient package dir must never leak in either way; the kernel runtime
 /// and skills fall back to the source checkout).
 #[allow(clippy::zombie_processes)]
-fn spawn_supervisor(
-    socket: &Path,
-    agent_dir: &Path,
-    kernel_python: &Path,
-    package_dir: Option<&Path>,
-) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let mut command = Command::new(binary);
+fn spawn_supervisor(socket: &Path, agent_dir: &Path, package_dir: Option<&Path>) -> Daemon {
+    let mut command = daemon_command();
     command
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
-        .env("EUKHE_KERNEL_PYTHON", kernel_python)
         .env("EUKHE_CODING_AGENT_DIR", agent_dir);
     match package_dir {
         Some(dir) => command.env("EUKHE_PACKAGE_DIR", dir),
@@ -240,7 +233,6 @@ fn bundled_package_dir(root: &Path, catalog: &Value) -> PathBuf {
 
 #[test]
 fn catalog_surfaces_and_paste_installs_through_the_daemon() {
-    let kernel_python = kernel_python();
     let _serial = DAEMON_E2E.lock().unwrap();
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");
@@ -252,7 +244,7 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
     let package_dir = bundled_package_dir(dir.path(), &seeded_catalog_document());
 
     let socket = dir.path().join("mcp.sock");
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, Some(&package_dir));
+    let _daemon = spawn_supervisor(&socket, &agent_dir, Some(&package_dir));
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -459,7 +451,6 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
 /// absence it cannot prove.
 #[test]
 fn pinned_hint_needs_a_snapshot_to_claim_the_source_unavailable() {
-    let kernel_python = kernel_python();
     let _serial = DAEMON_E2E.lock().unwrap();
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");
@@ -501,7 +492,7 @@ fn pinned_hint_needs_a_snapshot_to_claim_the_source_unavailable() {
     // shows, byte-exact.
     {
         let socket = dir.path().join("bundle-present.sock");
-        let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, Some(&package_dir));
+        let _daemon = spawn_supervisor(&socket, &agent_dir, Some(&package_dir));
         wait_socket_ready(&socket);
         let (mut client, _hello) = Client::connect(&socket);
         let view = pinned_service_view(&mut client, dir.path(), "present");
@@ -524,7 +515,7 @@ fn pinned_hint_needs_a_snapshot_to_claim_the_source_unavailable() {
     // No packaged bundle: the row stays, the claim does not — the ordinary
     // account hint is all the card says.
     let socket = dir.path().join("bundle-absent.sock");
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, None);
+    let _daemon = spawn_supervisor(&socket, &agent_dir, None);
     wait_socket_ready(&socket);
     let (mut client, _hello) = Client::connect(&socket);
     let view = pinned_service_view(&mut client, dir.path(), "absent");

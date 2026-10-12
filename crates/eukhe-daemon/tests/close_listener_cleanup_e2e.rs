@@ -46,6 +46,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
+
 /// The bind-capture gap the oracles set: wide enough that the replacement
 /// provably lands inside the window, small enough to keep the oracle fast.
 const BIND_CAPTURE_GAP_MS: &str = "2000";
@@ -142,7 +146,7 @@ fn wait_socket_file(socket: &Path) {
 
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> ProcessGuard {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
@@ -169,7 +173,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> ProcessGuard {
 /// so the oracle can poison the worker's capture.
 fn spawn_worker(dir: &Path, socket: &Path, supervisor_socket: &Path, token: &str) -> ProcessGuard {
     std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let child = daemon_command()
         .arg("worker")
         .env(eukhe_daemon::worker::WORKER_ROLE_ENV, "1")
         .env(eukhe_daemon::worker::WORKER_TOKEN_ENV, token)

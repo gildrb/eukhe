@@ -63,6 +63,10 @@ use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
 use eukhe_daemon::supervisor_link::SupervisorLink;
 use serde_json::{json, Value};
 
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
+
 struct Daemon {
     child: Child,
     #[allow(dead_code)]
@@ -80,8 +84,7 @@ impl Drop for Daemon {
 // immediately afterwards, reaping it.
 #[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let child = Command::new(binary)
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)

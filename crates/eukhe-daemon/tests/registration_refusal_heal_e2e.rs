@@ -23,6 +23,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
+
 struct Daemon {
     child: Child,
     // The socket path rides the struct for harness symmetry (the spawned
@@ -42,7 +46,7 @@ impl Drop for Daemon {
 // immediately afterwards, reaping it.
 #[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"));
+    let mut command = daemon_command();
     command
         .arg("supervisor")
         .arg("--socket")
@@ -298,7 +302,7 @@ fn a_refused_registration_retires_the_worker() {
     // self-contained (no model resolution, no kernel) so the retire path
     // under test is the registration close alone.
     let script_path = write_script(dir.path(), &["unused"]);
-    let mut worker = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let mut worker = daemon_command()
         .arg("worker")
         .env(eukhe_daemon::worker::WORKER_ROLE_ENV, "1")
         .env(

@@ -32,8 +32,12 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
+
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -50,8 +54,7 @@ impl Drop for Daemon {
 
 #[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let child = Command::new(binary)
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
@@ -388,7 +391,7 @@ async fn rlm_children_key_the_roster_by_parent_path_and_child_id() {
             }
         }
         #[allow(clippy::zombie_processes)]
-        let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+        let child = daemon_command()
             .arg("supervisor")
             .arg("--socket")
             .arg(&socket)

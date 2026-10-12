@@ -24,11 +24,15 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use eukhe_daemon::worker;
 use serde_json::{json, Value};
+
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -51,7 +55,7 @@ impl Drop for Daemon {
 // immediately afterwards, reaping it.
 #[allow(clippy::zombie_processes)]
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"));
+    let mut command = daemon_command();
     command
         .arg("supervisor")
         .arg("--socket")
@@ -545,7 +549,7 @@ fn the_give_up_sweep_reaps_a_live_leftover_of_the_abandoned_id() {
     // whose active-session env names the session's worker id. It fails
     // registration (an unknown token) and parks in the registration
     // backoff - the shape of a process the supervisor lost track of.
-    let mut fake = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let mut fake = daemon_command()
         .arg("worker")
         .env(worker::WORKER_ROLE_ENV, "1")
         .env(worker::WORKER_ACTIVE_SESSION_ID_ENV, &session_id)

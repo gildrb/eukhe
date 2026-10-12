@@ -18,7 +18,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -36,9 +36,9 @@ use eukhe_daemon::rlm_children::{
 };
 use eukhe_daemon::supervisor_link::SupervisorLink;
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -51,17 +51,15 @@ impl Drop for Daemon {
     }
 }
 
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     let log_file = std::fs::File::create(socket.with_extension("daemon.log")).expect("log file");
     let log_err = log_file.try_clone().expect("clone log file");
-    let child = Command::new(binary)
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
-        .env("EUKHE_KERNEL_PYTHON", kernel_python)
         .stdout(Stdio::null())
         .stderr(Stdio::from(log_err))
         .env(
@@ -247,7 +245,6 @@ async fn spawn_settled_child(children: &SupervisorChildSessions) -> RlmChildSess
 /// file and delivers.
 #[tokio::test]
 async fn a_settled_child_passivates_stays_listable_and_revives_by_agent_message() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -276,7 +273,7 @@ async fn a_settled_child_passivates_stays_listable_and_revives_by_agent_message(
         &json!([{ "text": "child done" }, { "text": "revived: the child answered again" }]),
     );
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -553,7 +550,6 @@ fn root_worker_ids(agent_dir: &Path) -> Vec<String> {
 /// rename lands there.
 #[tokio::test]
 async fn a_parent_rename_after_a_revival_and_second_passivation_reaches_the_child() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -575,7 +571,7 @@ async fn a_parent_rename_after_a_revival_and_second_passivation_reaches_the_chil
         &json!([{ "text": "child done" }]),
     );
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -743,7 +739,6 @@ async fn a_parent_rename_after_a_revival_and_second_passivation_reaches_the_chil
 /// saved file and the snapshot carries the pre-passivation transcript.
 #[tokio::test]
 async fn an_idle_root_passivates_and_resumes_by_its_durable_id_with_its_transcript() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -756,7 +751,7 @@ async fn an_idle_root_passivates_and_resumes_by_its_durable_id_with_its_transcri
     .expect("write settings");
     let root_script = write_faux_script(dir.path(), "root", &json!([{ "text": "root turn done" }]));
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");

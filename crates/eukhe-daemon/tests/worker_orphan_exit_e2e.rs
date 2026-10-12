@@ -14,6 +14,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
+
 /// Kill a leftover worker at scope exit (the control case ends alive).
 struct WorkerGuard {
     child: Child,
@@ -31,7 +35,7 @@ impl Drop for WorkerGuard {
 /// first availability check that cannot connect).
 fn spawn_worker(dir: &Path, supervisor_socket: &Path) -> WorkerGuard {
     std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let child = daemon_command()
         .arg("worker")
         .env(eukhe_daemon::worker::WORKER_ROLE_ENV, "1")
         .env(
@@ -150,7 +154,7 @@ impl Drop for Supervisor {
 /// supervisor-lost exit window.
 fn spawn_supervisor(socket: &Path, agent_dir: &Path, lost_window_ms: &str) -> Supervisor {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)

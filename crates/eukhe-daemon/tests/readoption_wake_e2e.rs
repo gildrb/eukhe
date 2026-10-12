@@ -44,15 +44,15 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -68,9 +68,9 @@ impl Drop for Daemon {
 }
 
 #[allow(clippy::zombie_processes)]
-fn spawn_daemon(socket: &Path, agent_dir: &Path, kernel_python: Option<&Path>) -> Daemon {
+fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"));
+    let mut command = daemon_command();
     command
         .arg("supervisor")
         .arg("--socket")
@@ -87,9 +87,6 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path, kernel_python: Option<&Path>) -
             eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
             "20000",
         );
-    if let Some(kernel_python) = kernel_python {
-        command.env("EUKHE_KERNEL_PYTHON", kernel_python);
-    }
     let child = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -349,7 +346,6 @@ fn create_session(client: &mut Client, id: &str, dir: &Path, agent_dir: &Path) -
 #[test]
 fn a_detached_bash_completion_wakes_the_idle_session_across_a_supervisor_restart() {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let kernel_python = kernel_python();
     let root = tempfile::TempDir::new().expect("temp dir");
     let dir = root.path().to_path_buf();
     let agent_dir = dir.join("agent");
@@ -382,7 +378,7 @@ fn a_detached_bash_completion_wakes_the_idle_session_across_a_supervisor_restart
 
     // First generation: the session starts the detached watcher and goes
     // idle (the turn settles while `sleep 12` keeps running).
-    let mut supervisor = spawn_daemon(&socket, &agent_dir, Some(&kernel_python));
+    let mut supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
     let (active_id, session_id) = create_session(&mut client, "c1", &dir, &agent_dir);
     let started = client.request(
@@ -411,7 +407,7 @@ fn a_detached_bash_completion_wakes_the_idle_session_across_a_supervisor_restart
     drop(client);
     drop(supervisor);
     std::fs::remove_file(&socket).ok();
-    let _supervisor = spawn_daemon(&socket, &agent_dir, Some(&kernel_python));
+    let _supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
     wait_until(Duration::from_secs(30), || {
         client
@@ -474,7 +470,7 @@ fn a_heartbeat_keeps_firing_across_a_supervisor_restart() {
     .expect("write faux script");
 
     // First generation: a scripted session with a 5s heartbeat.
-    let supervisor = spawn_daemon(&socket, &agent_dir, None);
+    let supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
     let sessions = agent_dir.join("sessions");
     std::fs::create_dir_all(&sessions).expect("sessions dir");
@@ -537,7 +533,7 @@ fn a_heartbeat_keeps_firing_across_a_supervisor_restart() {
     drop(client);
     drop(supervisor);
     std::fs::remove_file(&socket).ok();
-    let _supervisor = spawn_daemon(&socket, &agent_dir, None);
+    let _supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
     wait_until(Duration::from_secs(30), || {
         client
@@ -597,7 +593,7 @@ fn a_boot_fires_the_adopted_worker_due_job_and_never_resurrects_the_killed_sibli
     )
     .expect("write faux script");
 
-    let supervisor = spawn_daemon(&socket, &agent_dir, None);
+    let supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
     let sessions = agent_dir.join("sessions");
     std::fs::create_dir_all(&sessions).expect("sessions dir");
@@ -665,7 +661,7 @@ fn a_boot_fires_the_adopted_worker_due_job_and_never_resurrects_the_killed_sibli
     drop(client);
     drop(supervisor);
     std::fs::remove_file(&socket).ok();
-    let _supervisor = spawn_daemon(&socket, &agent_dir, None);
+    let _supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
     wait_until(Duration::from_secs(30), || {
         client

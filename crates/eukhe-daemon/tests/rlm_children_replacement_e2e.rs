@@ -61,14 +61,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -86,15 +86,13 @@ impl Drop for Daemon {
 // The timeout panic path cannot wait on the child; the test process exits
 // immediately afterwards, reaping it.
 #[allow(clippy::zombie_processes)]
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let child = Command::new(binary)
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
-        .env("EUKHE_KERNEL_PYTHON", kernel_python)
         // Hermetic agent dir: the ambient environment exports a real
         // agent dir; point every fallback at the test sandbox instead.
         .env("EUKHE_CODING_AGENT_DIR", agent_dir)
@@ -421,7 +419,6 @@ fn create_parent(
 /// session's kernel `rlm.list_subagents()` reading an empty roster.
 #[test]
 fn new_session_closes_the_spawned_child_and_empties_the_roster() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -439,7 +436,7 @@ fn new_session_closes_the_spawned_child_and_empties_the_roster() {
         &spawn_cell(&spawn_receipt, &spawn_error),
         &roster_cell(&roster_receipt, &roster_error),
     );
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -561,7 +558,6 @@ fn new_session_closes_the_spawned_child_and_empties_the_roster() {
 /// parent's own child registry still reads empty.
 #[test]
 fn new_session_keeps_a_created_root_session_running() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -577,7 +573,7 @@ fn new_session_keeps_a_created_root_session_running() {
         &create_session_cell(&create_receipt, &create_error),
         "pass",
     );
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -653,7 +649,6 @@ fn a_daemon_restart_marks_a_still_running_child_as_failed() {
 }
 
 fn restart_relists_child(delay_ms: u64, display_status: &str) {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -677,7 +672,7 @@ fn restart_relists_child(delay_ms: u64, display_status: &str) {
         &spawn_cell(&spawn_receipt, &spawn_error),
         "pass",
     );
-    let mut daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let mut daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -763,7 +758,7 @@ fn restart_relists_child(delay_ms: u64, display_status: &str) {
         assert!(Instant::now() < deadline, "the supervisor never exited");
         std::thread::sleep(Duration::from_millis(50));
     }
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");

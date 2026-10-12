@@ -35,10 +35,14 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "../support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -58,8 +62,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
 }
 
 fn spawn_supervisor_env(socket: &Path, agent_dir: &Path, extra_env: &[(&str, String)]) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let mut command = Command::new(binary);
+    let mut command = daemon_command();
     let command = command
         .arg("supervisor")
         .arg("--socket")

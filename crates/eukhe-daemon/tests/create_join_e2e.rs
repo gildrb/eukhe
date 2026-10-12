@@ -35,10 +35,14 @@
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 /// Kill a leftover worker at scope exit (the shutdown path is the primary
 /// cleanup; this is the fallback).
@@ -58,7 +62,7 @@ impl Drop for WorkerGuard {
 /// authenticated clients below disarm the orphan monitor).
 fn spawn_worker(dir: &Path, socket: &Path, token: &str) -> WorkerGuard {
     std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let child = daemon_command()
         .arg("worker")
         .env(eukhe_daemon::worker::WORKER_ROLE_ENV, "1")
         .env(eukhe_daemon::worker::WORKER_TOKEN_ENV, token)
