@@ -8,7 +8,7 @@
 use eukhe_models::pinning::{parse_provider_model_catalog, PinnedTemplates};
 use eukhe_models::schema::{parse_model_catalog, InvalidEntries};
 use eukhe_models::transports;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 const FIXTURE: &str = include_str!("fixtures/catalog.v1.json");
 
@@ -74,4 +74,33 @@ fn passes_the_packer_gates() {
 fn skip_invalid_keeps_the_real_payload_whole() {
     let parsed = parse_model_catalog(&fixture(), InvalidEntries::SkipInvalid).expect("skip mode");
     assert_eq!(parsed.models.len(), 1197, "no real entry is skipped");
+}
+
+#[test]
+fn every_compiled_row_validates_against_the_catalog_schema() {
+    let compiled = transports::compiled_models();
+    // Router rows price themselves per request with a negative sentinel the
+    // published catalog writes as 0; the schema's cost range is not this test's subject.
+    let catalog_shaped: Vec<_> = compiled
+        .iter()
+        .filter(|model| model.cost.input.as_f64() >= 0.0 && model.cost.output.as_f64() >= 0.0)
+        .collect();
+    let entries: Vec<Value> = catalog_shaped
+        .iter()
+        .map(|model| {
+            let mut entry = serde_json::to_value(model).expect("model serializes");
+            // Request headers live in the compiled templates, never in catalog data.
+            entry
+                .as_object_mut()
+                .expect("model serializes to an object")
+                .remove("headers");
+            entry
+        })
+        .collect();
+    let parsed = parse_model_catalog(
+        &json!({"schemaVersion": 1, "models": entries}),
+        InvalidEntries::Reject,
+    )
+    .expect("every compiled row is a valid catalog entry");
+    assert_eq!(parsed.models.len(), catalog_shaped.len());
 }

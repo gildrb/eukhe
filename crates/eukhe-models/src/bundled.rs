@@ -82,8 +82,19 @@ impl BundledAssets {
 /// `loadBundledModels` catches for.
 #[must_use]
 pub fn load_bundled_models(asset: &str, templates: &PinnedTemplates) -> Option<Vec<Model>> {
-    let payload: serde_json::Value = serde_json::from_str(asset).ok()?;
-    let catalog = parse_model_catalog(&payload, InvalidEntries::Reject).ok()?;
+    let payload: serde_json::Value = serde_json::from_str(asset)
+        .inspect_err(|error| {
+            tracing::warn!(%error, "bundled model catalog is not JSON; using the compiled catalog");
+        })
+        .ok()?;
+    let catalog = parse_model_catalog(&payload, InvalidEntries::Reject)
+        .inspect_err(|error| {
+            tracing::warn!(
+                error,
+                "bundled model catalog rejected; using the compiled catalog"
+            );
+        })
+        .ok()?;
     let mut models = pin_catalog_models(catalog.models.clone(), templates).ok()?;
     // Prime Inference ships compiled (110 offline entries) — the packaged
     // aggregate never carries it. Join any asset-provided prime entries

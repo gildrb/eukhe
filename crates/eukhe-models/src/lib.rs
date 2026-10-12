@@ -4,7 +4,6 @@
 //! Port of the TS catalog client's local layers:
 //! - `packages/ai/src/model-catalog.ts` (strict model catalog schema) ->
 //!   [`schema`]
-//! - `packages/ai/src/model-compat-schema.ts` -> [`compat`]
 //! - `packages/coding-agent/src/core/provider-model-catalog.ts` (transport
 //!   pinning) -> [`pinning`]
 //! - `packages/coding-agent/src/core/bundled-model-catalog.ts` -> [`bundled`]
@@ -20,7 +19,6 @@
 //! templates) and eukhe-types (shared `Model`).
 
 pub mod bundled;
-pub mod compat;
 pub mod pi_ai_model;
 pub mod pinning;
 pub mod prime_inference;

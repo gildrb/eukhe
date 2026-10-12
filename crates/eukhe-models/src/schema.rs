@@ -9,19 +9,21 @@
 //!   compiled transport templates, never in catalog data);
 //! - field constraints (lengths, control chars, ranges) checked after the
 //!   structural parse;
-//! - `compat` validated per `api` (`crate::compat`);
+//! - `compat` validated per `api` against the typed
+//!   [`eukhe_types::pi_ai::ModelCompat`] (the one compat schema): a value of
+//!   the wrong type, a key the API's compat type does not declare, or a
+//!   compat block on an API without compat axes rejects the entry;
 //! - duplicates reject even in skip-invalid mode;
 //! - the lenient mode parses with skip-invalid semantics: bad entries drop,
-//!   the rest of the payload survives.
+//!   the rest of the payload survives, and each dropped entry is logged at
+//!   `warn`.
 
 use std::collections::BTreeSet;
 
 use serde::Deserialize;
 
 use eukhe_types::ai::{Model, ModelCompat, ModelCost, ModelInput, ThinkingLevelMap};
-use eukhe_types::JsNumber;
-
-use crate::compat::is_model_compat;
+use eukhe_types::{pi_ai, JsNumber};
 
 const MAX_MODEL_CATALOG_MODELS: usize = 20_000;
 
@@ -122,7 +124,14 @@ pub fn parse_model_catalog(
             Ok(model) => model,
             Err(error) => match policy {
                 InvalidEntries::SkipInvalid => {
-                    tracing::debug!(error, "skipping invalid model catalog entry");
+                    tracing::warn!(
+                        provider = candidate
+                            .get("provider")
+                            .and_then(serde_json::Value::as_str),
+                        id = candidate.get("id").and_then(serde_json::Value::as_str),
+                        error,
+                        "skipping invalid model catalog entry"
+                    );
                     continue;
                 }
                 InvalidEntries::Reject => return Err(error),
@@ -149,8 +158,28 @@ fn parse_entry(candidate: &serde_json::Value) -> Result<Model, String> {
     let entry: CatalogModelSchema = serde_json::from_value(candidate.clone())
         .map_err(|_| "Invalid model catalog entry".to_string())?;
     validate_entry(&entry)?;
-    if !is_model_compat(&entry.api, entry.compat.as_ref()) {
-        return Err("Invalid model catalog entry".into());
+    if let Some(raw) = &entry.compat {
+        let invalid = |reason: String| {
+            format!(
+                "Invalid compat of model catalog entry [\"{}\",\"{}\"]: {reason}",
+                entry.provider, entry.id
+            )
+        };
+        let typed =
+            pi_ai::ModelCompat::from_json(&entry.api, serde_json::Value::Object(raw.clone()))
+                .map_err(|error| invalid(error.to_string()))?;
+        if matches!(typed, pi_ai::ModelCompat::Other(_)) {
+            return Err(invalid(format!("api {} has no compat axes", entry.api)));
+        }
+        // The typed compat serializes every key it declares and holds, so a
+        // raw key missing from its serialization is one the schema does not know.
+        let declared = serde_json::to_value(&typed).map_err(|error| invalid(error.to_string()))?;
+        if let Some(key) = raw.keys().find(|key| declared.get(key.as_str()).is_none()) {
+            return Err(invalid(format!(
+                "key {key} is unknown or null for api {}",
+                entry.api
+            )));
+        }
     }
     Ok(Model {
         id: entry.id,
@@ -332,17 +361,34 @@ mod tests {
     }
 
     #[test]
-    fn compat_shapes_validate_per_api() {
-        let good = catalog(vec![entry(&json!({
-            "api": "anthropic-messages",
-            "compat": {"supportsEagerToolInputStreaming": true}
-        }))]);
-        assert!(parse_model_catalog(&good, InvalidEntries::Reject).is_ok());
-        let bad = catalog(vec![entry(&json!({
-            "api": "anthropic-messages",
-            "compat": {"supportsStore": true}
-        }))]);
-        assert!(parse_model_catalog(&bad, InvalidEntries::Reject).is_err());
+    fn compat_validates_against_the_typed_schema_of_the_api() {
+        let parse = |api: &str, compat: serde_json::Value| {
+            parse_model_catalog(
+                &catalog(vec![entry(&json!({"api": api, "compat": compat}))]),
+                InvalidEntries::Reject,
+            )
+        };
+        assert!(parse(
+            "anthropic-messages",
+            json!({"allowEmptySignature": true, "forceAdaptiveThinking": true})
+        )
+        .is_ok());
+        assert!(parse("openai-responses", json!({"supportsStrictMode": true})).is_ok());
+        assert!(parse(
+            "bedrock-converse-stream",
+            json!({"supportsStrictMode": true})
+        )
+        .is_ok());
+        for (api, compat) in [
+            ("anthropic-messages", json!({"supportsStore": true})),
+            ("openai-completions", json!({"supportsStore": "yes"})),
+            ("openai-completions", json!({"thinkingFormat": "ultra"})),
+            ("openai-completions", json!({"supportsStore": null})),
+            ("google-generative-ai", json!({"supportsStrictMode": true})),
+        ] {
+            let error = parse(api, compat).expect_err("rejected");
+            assert!(error.contains("[\"openai\",\"model-a\"]"), "{error}");
+        }
     }
 
     #[test]
