@@ -409,7 +409,7 @@ fn build_command_input(
     let inference_max_tokens = options
         .stream
         .max_tokens
-        .or_else(|| convert::is_anthropic_claude_model(model).then_some(model.max_tokens));
+        .or_else(|| convert::uses_anthropic_thinking(model).then_some(model.max_tokens));
     let messages = context.messages();
     let initial_system_prompt = get_initial_system_message(messages).map(get_system_message_text);
     let converted = convert::convert_messages(messages, model, cache_retention, env)?;
@@ -742,9 +742,7 @@ pub fn stream_simple(
     );
 
     let mut thinking_budgets = options.thinking_budgets.clone();
-    if convert::is_anthropic_claude_model(model)
-        && !convert::supports_adaptive_thinking(&model.id, &model.name)
-    {
+    if convert::uses_anthropic_thinking(model) && !convert::supports_adaptive_thinking(model) {
         // `None` means the caller did not request an output cap; the helper
         // uses the model cap.
         let adjusted = adjust_max_tokens_for_thinking(

@@ -2,17 +2,14 @@
 //! additional model request fields, and the model-capability checks behind
 //! them. Section of the port of `api/bedrock-converse-stream.ts`.
 
-use std::sync::LazyLock;
-
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD};
 use base64::engine::DecodePaddingMode;
 use base64::Engine as _;
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, CacheRetention, JsonObject, JsonValue, Message, Model,
-    ModelThinkingLevel, ProviderEnv, StopReason, ThinkingLevel, Tool, UserContent,
-    UserContentBlock,
+    AssistantContentBlock, BedrockCompat, BedrockThinkingFormat, CacheRetention, JsonObject,
+    JsonValue, Message, Model, ModelCompat, ModelThinkingLevel, ProviderEnv, StopReason,
+    ThinkingLevel, Tool, UserContent, UserContentBlock,
 };
-use regex::Regex;
 use serde_json::json;
 
 use super::client_config::get_configured_bedrock_region;
@@ -34,78 +31,28 @@ const EMPTY_TEXT_PLACEHOLDER: &str = "<empty>";
 
 const THINKING_BINDING_CONTROLS_BETA: &str = "thinking-binding-controls-2026-08-01";
 
-/// `/[\s_.:]+/g`.
-static SEPARATORS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[\s_.:]+").unwrap_or_else(|_| unreachable!("static regex")));
-
-/// TS `getModelMatchCandidates`: the lowercased id (and name), each also
-/// with separator runs replaced by `-`.
-fn get_model_match_candidates(model_id: &str, model_name: &str) -> Vec<String> {
-    let values: &[&str] = if model_name.is_empty() {
-        &[model_id]
-    } else {
-        &[model_id, model_name]
-    };
-    values
-        .iter()
-        .flat_map(|value| {
-            let lower = value.to_lowercase();
-            let dashed = SEPARATORS.replace_all(&lower, "-").into_owned();
-            [lower, dashed]
-        })
-        .collect()
+/// The model's Bedrock compat block.
+fn bedrock_compat(model: &Model) -> Option<&BedrockCompat> {
+    model.compat.as_ref().and_then(ModelCompat::as_bedrock)
 }
 
-fn any_candidate(model_id: &str, model_name: &str, needles: &[&str]) -> bool {
-    get_model_match_candidates(model_id, model_name)
-        .iter()
-        .any(|candidate| needles.iter().any(|needle| candidate.contains(needle)))
+/// Whether the model takes Claude thinking: budget or adaptive `thinking`,
+/// signed thinking blocks, and the model's output cap as the default.
+pub(crate) fn uses_anthropic_thinking(model: &Model) -> bool {
+    bedrock_compat(model).and_then(|compat| compat.thinking_format)
+        == Some(BedrockThinkingFormat::Anthropic)
 }
 
-/// TS `supportsAdaptiveThinking` (Opus 4.6+, Sonnet 4.6+, Fable 5).
-pub(crate) fn supports_adaptive_thinking(model_id: &str, model_name: &str) -> bool {
-    any_candidate(
-        model_id,
-        model_name,
-        &[
-            "opus-4-6",
-            "opus-4-7",
-            "opus-4-8",
-            "opus-5",
-            "sonnet-4-6",
-            "sonnet-5",
-            "haiku-5",
-            "fable-5",
-        ],
-    )
-}
-
-/// TS `supportsNativeXhighEffort`.
-fn supports_native_xhigh_effort(model: &Model) -> bool {
-    any_candidate(
-        &model.id,
-        &model.name,
-        &[
-            "opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "haiku-5", "fable-5",
-        ],
-    )
-}
-
-/// TS `supportsThinkingBlockBinding`: Opus 4.6 and Sonnet 4.6 reject
-/// `thinking.block_binding`.
-fn supports_thinking_block_binding(model: &Model) -> bool {
-    any_candidate(
-        &model.id,
-        &model.name,
-        &[
-            "opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "haiku-5", "fable-5",
-        ],
-    )
+/// Whether Claude takes adaptive thinking with an effort.
+pub(crate) fn supports_adaptive_thinking(model: &Model) -> bool {
+    bedrock_compat(model).and_then(|compat| compat.supports_adaptive_thinking) == Some(true)
 }
 
 /// TS `mapThinkingLevelToEffort`.
 fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> String {
-    if level == ThinkingLevel::Xhigh && supports_native_xhigh_effort(model) {
+    if level == ThinkingLevel::Xhigh
+        && bedrock_compat(model).and_then(|compat| compat.supports_xhigh_effort) == Some(true)
+    {
         return "xhigh".to_owned();
     }
     let mapped = model
@@ -139,43 +86,13 @@ pub(crate) fn resolve_cache_retention(
     CacheRetention::Short
 }
 
-/// TS `isAnthropicClaudeModel`: checks the id and the name (application
-/// inference profile ARNs don't contain the model name).
-pub(crate) fn is_anthropic_claude_model(model: &Model) -> bool {
-    let id = model.id.to_lowercase();
-    let name = model.name.to_lowercase();
-    id.contains("anthropic.claude")
-        || id.contains("anthropic/claude")
-        || name.contains("anthropic.claude")
-        || name.contains("anthropic/claude")
-        || name.contains("claude")
-}
-
-/// TS `supportsPromptCaching`: Claude 3.5 Haiku, 3.7 Sonnet, 4.x, 5; any
-/// model with `AWS_BEDROCK_FORCE_CACHE=1` when the id/name names no Claude.
+/// Whether the model takes `cachePoint` blocks; when the catalog does not
+/// establish it, `AWS_BEDROCK_FORCE_CACHE=1` opts in.
 pub(crate) fn supports_prompt_caching(model: &Model, env: Option<&ProviderEnv>) -> bool {
-    let candidates = get_model_match_candidates(&model.id, &model.name);
-    let any = |needle: &str| {
-        candidates
-            .iter()
-            .any(|candidate| candidate.contains(needle))
-    };
-    if !any("claude") {
-        return get_provider_env_value("AWS_BEDROCK_FORCE_CACHE", env).as_deref() == Some("1");
+    match bedrock_compat(model).and_then(|compat| compat.supports_prompt_caching) {
+        Some(supported) => supported,
+        None => get_provider_env_value("AWS_BEDROCK_FORCE_CACHE", env).as_deref() == Some("1"),
     }
-    any("fable-5")
-        || any("opus-5")
-        || any("sonnet-5")
-        || any("haiku-5")
-        || any("-4-")
-        || any("claude-3-7-sonnet")
-        || any("claude-3-5-haiku")
-}
-
-/// TS `supportsThinkingSignature`: only Claude accepts
-/// `reasoningContent.reasoningText.signature`.
-fn supports_thinking_signature(model: &Model) -> bool {
-    is_anthropic_claude_model(model)
 }
 
 /// A `cachePoint` content block (TS `{ type: CachePointType.DEFAULT, ttl? }`).
@@ -388,7 +305,7 @@ fn convert_assistant_content(content: &[AssistantContentBlock], model: &Model) -
                 if js_trim(&text).is_empty() {
                     continue;
                 }
-                if supports_thinking_signature(model) {
+                if uses_anthropic_thinking(model) {
                     // A partial or externally persisted message without a
                     // signature replays as plain text, matching Anthropic.
                     match thinking
@@ -598,9 +515,51 @@ pub(crate) fn build_additional_model_request_fields(
     if !model.reasoning {
         return None;
     }
-    if !is_anthropic_claude_model(model) {
-        return build_openai_reasoning_fields(model, reasoning);
+    match bedrock_compat(model).and_then(|compat| compat.thinking_format)? {
+        BedrockThinkingFormat::Anthropic => {
+            Some(build_claude_thinking_fields(model, options, reasoning))
+        }
+        BedrockThinkingFormat::OpenAIReasoningEffort => {
+            // TS `OPENAI_GPT_OSS_EFFORT`.
+            let effort = match reasoning {
+                ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
+                ThinkingLevel::Medium => "medium",
+                ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max => "high",
+            };
+            Some(json!({ "reasoning_effort": effort }))
+        }
+        BedrockThinkingFormat::OpenAIReasoning => {
+            let mapped = model
+                .thinking_level_map
+                .as_ref()
+                .and_then(|map| map.get(&ModelThinkingLevel::from(reasoning)))
+                .and_then(Option::as_ref);
+            // TS `OPENAI_GPT_EFFORT`.
+            let effort = mapped.map_or_else(
+                || {
+                    match reasoning {
+                        ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
+                        ThinkingLevel::Medium => "medium",
+                        ThinkingLevel::High => "high",
+                        ThinkingLevel::Xhigh => "xhigh",
+                        ThinkingLevel::Max => "max",
+                    }
+                    .to_owned()
+                },
+                Clone::clone,
+            );
+            Some(json!({ "reasoning": { "effort": effort } }))
+        }
     }
+}
+
+/// The Claude `thinking` fields: adaptive with an effort where the model
+/// supports it, else a token budget.
+fn build_claude_thinking_fields(
+    model: &Model,
+    options: &BedrockOptions,
+    reasoning: ThinkingLevel,
+) -> JsonValue {
     // GovCloud Bedrock rejects the Claude thinking.display field and block
     // binding.
     let is_gov_cloud = is_gov_cloud_bedrock_target(model, options);
@@ -613,10 +572,12 @@ pub(crate) fn build_additional_model_request_fields(
                 .unwrap_or(BedrockThinkingDisplay::Summarized),
         )
     };
-    let adaptive = supports_adaptive_thinking(&model.id, &model.name);
+    let adaptive = supports_adaptive_thinking(model);
     let mut result = JsonObject::new();
     if adaptive {
-        let use_block_binding = !is_gov_cloud && supports_thinking_block_binding(model);
+        let use_block_binding = !is_gov_cloud
+            && bedrock_compat(model).and_then(|compat| compat.supports_thinking_block_binding)
+                == Some(true);
         let mut thinking = JsonObject::new();
         thinking.insert("type".to_owned(), "adaptive".into());
         if let Some(display) = display {
@@ -675,53 +636,7 @@ pub(crate) fn build_additional_model_request_fields(
             );
         }
     }
-    Some(JsonValue::Object(result))
-}
-
-/// The non-Claude tail of TS `buildAdditionalModelRequestFields`: `OpenAI`
-/// GPT models (GPT-5.x, GPT-6) take a nested `reasoning.effort` and reject
-/// `minimal`; gpt-oss takes a flat `reasoning_effort` and only accepts low,
-/// medium and high.
-fn build_openai_reasoning_fields(model: &Model, reasoning: ThinkingLevel) -> Option<JsonValue> {
-    let candidates = get_model_match_candidates(&model.id, &model.name);
-    if candidates
-        .iter()
-        .any(|candidate| candidate.contains("gpt-oss"))
-    {
-        // TS `OPENAI_GPT_OSS_EFFORT`.
-        let effort = match reasoning {
-            ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
-            ThinkingLevel::Medium => "medium",
-            ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max => "high",
-        };
-        return Some(json!({ "reasoning_effort": effort }));
-    }
-    if candidates
-        .iter()
-        .any(|candidate| candidate.contains("gpt-"))
-    {
-        let mapped = model
-            .thinking_level_map
-            .as_ref()
-            .and_then(|map| map.get(&ModelThinkingLevel::from(reasoning)))
-            .and_then(Option::as_ref);
-        // TS `OPENAI_GPT_EFFORT`.
-        let effort = mapped.map_or_else(
-            || {
-                match reasoning {
-                    ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
-                    ThinkingLevel::Medium => "medium",
-                    ThinkingLevel::High => "high",
-                    ThinkingLevel::Xhigh => "xhigh",
-                    ThinkingLevel::Max => "max",
-                }
-                .to_owned()
-            },
-            Clone::clone,
-        );
-        return Some(json!({ "reasoning": { "effort": effort } }));
-    }
-    None
+    JsonValue::Object(result)
 }
 
 #[cfg(test)]

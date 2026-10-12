@@ -253,6 +253,18 @@ pub struct AnthropicMessagesCompat {
     pub allowed_fallback_models: Option<Vec<AnthropicAllowedFallbackModel>>,
 }
 
+string_enum! {
+    /// How a Bedrock model takes its reasoning request fields.
+    pub enum BedrockThinkingFormat {
+        /// Claude `thinking` (budget or adaptive) with signed thinking blocks.
+        Anthropic => "anthropic",
+        /// Nested `reasoning: { effort }`, mapped through the thinking level map.
+        OpenAIReasoning => "openai-reasoning",
+        /// Flat `reasoning_effort` limited to low, medium, and high.
+        OpenAIReasoningEffort => "openai-reasoning-effort",
+    }
+}
+
 /// Compatibility settings for Amazon Bedrock models.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -260,6 +272,22 @@ pub struct BedrockCompat {
     /// Whether the model supports Bedrock strict tool schemas. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_strict_mode: Option<bool>,
+    /// The reasoning request format. Default: none (no reasoning fields).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_format: Option<BedrockThinkingFormat>,
+    /// Whether Claude takes adaptive thinking with an effort. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_adaptive_thinking: Option<bool>,
+    /// Whether adaptive thinking accepts the `xhigh` effort. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_xhigh_effort: Option<bool>,
+    /// Whether adaptive thinking accepts `thinking.block_binding`. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_thinking_block_binding: Option<bool>,
+    /// Whether the model takes `cachePoint` blocks. Default: unknown, which
+    /// sends them only with `AWS_BEDROCK_FORCE_CACHE=1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_prompt_caching: Option<bool>,
 }
 
 /// Compatibility settings for the Mistral chat API.
