@@ -43,6 +43,7 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                     version: options.version.clone(),
                     anchor_session_id: (!outcome.session_id.is_empty())
                         .then(|| outcome.session_id.clone()),
+                    return_active_session_id: None,
                     scope: None,
                     query: None,
                     expanded_ancestors: Vec::new(),
@@ -83,6 +84,7 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                     ),
                     version: options.version.clone(),
                     anchor_session_id: None,
+                    return_active_session_id: None,
                     scope: None,
                     query: None,
                     expanded_ancestors: Vec::new(),

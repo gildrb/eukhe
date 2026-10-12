@@ -77,6 +77,11 @@ pub struct AgentsViewOptions {
     /// selection on its row (the agents-back handoff selects the session
     /// just left, not the first row).
     pub anchor_session_id: Option<String>,
+    /// The live session id (`activeSessionId`) of the chat this view was
+    /// entered from (agents-back or bare `/resume`): escape on an empty
+    /// unscoped view attaches back to it instead of exiting. A startup
+    /// launch straight into the view has none.
+    pub return_active_session_id: Option<String>,
     /// Open scoped to one session's subtree (the subagent summary line's
     /// open action; TS `scoped_agents_view`): the root lists its
     /// descendants, and the back key reopens this session.

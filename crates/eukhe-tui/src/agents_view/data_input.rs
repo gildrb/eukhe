@@ -659,14 +659,14 @@ impl AgentsViewMode {
         // TS `app.input.clear` (default escape, the editor's `onEscape`):
         // clear the search; scoped, reopen the last-opened session (the
         // scope root in this flow) without touching the scope frame;
-        // otherwise exit.
+        // entered from a chat, return to it; otherwise exit.
         if self.keybindings.matches(key, "app.input.clear") {
             if !self.query.is_empty() {
                 self.query.clear();
                 self.query_changed(false);
             } else if self.scope_active {
                 self.open_scope_root(false);
-            } else {
+            } else if !self.open_return_chat() {
                 self.running = false;
             }
             return;

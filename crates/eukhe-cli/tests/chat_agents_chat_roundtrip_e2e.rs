@@ -220,6 +220,7 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
         anchor_session_id: (!first_outcome.session_id.is_empty())
             .then(|| first_outcome.session_id.clone())
             .or(Some("roundtrip-01".to_string())),
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),
@@ -364,6 +365,7 @@ async fn a_post_turn_reentry_renders_the_turn_rows() {
         anchor_session_id: (!first_outcome.session_id.is_empty())
             .then(|| first_outcome.session_id.clone())
             .or(Some("roundtrip-turn-01".to_string())),
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),

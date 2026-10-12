@@ -81,7 +81,7 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
             let (anchor, notice) = continue_view.map_or((None, daemon_notice), |view| {
                 (Some(view.session_id), Some(view.notice))
             });
-            run_agents_view_flow(tui_options, anchor, notice).await
+            run_agents_view_flow(tui_options, anchor, None, notice).await
         } else {
             let outcome =
                 eukhe_tui::interactive::run_interactive(tui_options.clone(), UiMode::Terminal)
@@ -95,7 +95,9 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
                 // identity to anchor on; its notice seeds the view's status
                 // line instead.
                 let anchor = (!outcome.session_id.is_empty()).then(|| outcome.session_id.clone());
-                run_agents_view_flow(tui_options, anchor, outcome.agents_view_notice).await
+                let return_chat = return_chat_of(&outcome);
+                run_agents_view_flow(tui_options, anchor, return_chat, outcome.agents_view_notice)
+                    .await
             } else {
                 print_resume_hint(outcome.resume_hint.as_deref());
                 Ok(())
@@ -136,12 +138,17 @@ fn print_resume_hint(hint: Option<&str>) {
 /// session exit -- ctrl+c/ctrl+d, `/quit`, `/exit` -- ends the whole app (TS
 /// `shutdown()` exits the process instead of reopening the view). A
 /// `/resume <selector>` chain runs its target before the loop decides again.
+/// `return_chat` is the live session id of the chat the view is entered
+/// from: escape on the empty global view returns to it (a startup launch
+/// straight into the view has none, and escape there exits).
 async fn run_agents_view_flow(
     base: InteractiveOptions,
     anchor: Option<String>,
+    return_chat: Option<String>,
     notice: Option<String>,
 ) -> Result<()> {
     let mut anchor = anchor;
+    let mut return_chat = return_chat;
     // The flow's roster connection (TS `AgentsViewPersistentState.rosterClient`):
     // every view run in this loop reuses it, and a chat run hands it back,
     // so a switch back from a chat skips the connect + hello handshake.
@@ -189,6 +196,7 @@ async fn run_agents_view_flow(
             theme: resolved_theme.theme,
             version: base.version.clone(),
             anchor_session_id: anchor.clone(),
+            return_active_session_id: return_chat.clone(),
             scope: frames.last().map(|(scope, _)| scope.clone()),
             query: query.clone(),
             expanded_ancestors: expanded_ancestors.clone(),
@@ -266,6 +274,7 @@ async fn run_agents_view_flow(
         if !outcome.session_id.is_empty() {
             anchor = Some(outcome.session_id.clone());
         }
+        return_chat = return_chat_of(&outcome);
         if let Some(notice) = &outcome.agents_view_notice {
             status_message = Some(notice.clone());
         }
@@ -300,6 +309,7 @@ async fn run_agents_view_flow(
             if !outcome.session_id.is_empty() {
                 anchor = Some(outcome.session_id.clone());
             }
+            return_chat = return_chat_of(&outcome);
             if let Some(notice) = &outcome.agents_view_notice {
                 status_message = Some(notice.clone());
             }
@@ -321,6 +331,12 @@ async fn run_agents_view_flow(
             pending = outcome.selection_request;
         }
     }
+}
+
+/// The live session a chat run left through agents-back or `/resume`: the
+/// view's escape returns to it. Empty when a startup attach fell back.
+fn return_chat_of(outcome: &eukhe_tui::interactive::InteractiveOutcome) -> Option<String> {
+    (!outcome.active_session_id.is_empty()).then(|| outcome.active_session_id.clone())
 }
 
 /// The `terminal.fullscreen` mode a surface mounts with: read at each

@@ -46,6 +46,7 @@ fn pending_ancestors_expand_and_selection_restores_after_reentry() {
         theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: vec!["p".to_string()],

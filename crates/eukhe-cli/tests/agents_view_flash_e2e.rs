@@ -309,6 +309,7 @@ fn view_options(socket: &Path, session_dir: &Path) -> AgentsViewOptions {
         theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),

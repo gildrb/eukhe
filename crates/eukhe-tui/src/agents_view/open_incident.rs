@@ -249,6 +249,29 @@ impl AgentsViewMode {
         };
         self.scope_popped = pop;
         self.scope_back = true;
+        let expanded_ancestors = scope_ancestors(&self.records(), &scope);
+        self.open_attached(active, expanded_ancestors);
+    }
+
+    /// Escape in the unscoped view entered from a chat (agents-back or
+    /// bare `/resume`): hand the terminal back to that chat instead of
+    /// exiting the app. `false` when the view has no return chat.
+    pub(super) fn open_return_chat(&mut self) -> bool {
+        let Some(active) = self
+            .options
+            .return_active_session_id
+            .clone()
+            .filter(|id| !id.is_empty())
+        else {
+            return false;
+        };
+        self.open_attached(active, Vec::new());
+        true
+    }
+
+    /// Open an attach of a live session, carrying its roster depth,
+    /// children, and cwd when the roster knows it.
+    fn open_attached(&mut self, active: String, expanded_ancestors: Vec<String>) {
         let summary = self
             .records()
             .iter()
@@ -261,7 +284,7 @@ impl AgentsViewMode {
         let has_children = has_session_children(&self.records(), &key);
         self.opened = Some(OpenedRow {
             selection: SessionSelection::Attach(active),
-            expanded_ancestors: scope_ancestors(&self.records(), &scope),
+            expanded_ancestors,
             selected_row_identity: self.selected_identity.clone().unwrap_or_default(),
             selected_key: self.selected_key.clone().unwrap_or_default(),
             rlm_depth: summary

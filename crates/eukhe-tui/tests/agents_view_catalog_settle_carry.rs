@@ -278,6 +278,7 @@ fn view_options(socket: &std::path::Path, anchor: Option<&str>) -> AgentsViewOpt
         theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: anchor.map(str::to_string),
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),

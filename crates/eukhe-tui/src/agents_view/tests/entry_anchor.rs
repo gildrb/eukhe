@@ -268,6 +268,7 @@ fn carried_selection_wins_over_the_entry_anchor() {
         theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: Some("s2".to_string()),
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),

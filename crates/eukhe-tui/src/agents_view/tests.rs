@@ -20,6 +20,7 @@ mod key_bindings;
 mod notices;
 mod render_pulse;
 mod reply;
+mod return_chat;
 mod row_cells;
 mod running_lines;
 mod saved_catalog;
@@ -37,6 +38,7 @@ fn mode_with_row(title: &str, model: &str) -> (AgentsViewMode, usize) {
         theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),
@@ -132,6 +134,7 @@ fn mode_with_parent_and_child() -> AgentsViewMode {
         theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),
@@ -162,6 +165,7 @@ fn mode_with_anchor(anchor: Option<&str>, roster: Vec<serde_json::Value>) -> Age
         theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: anchor.map(str::to_string),
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),
@@ -190,6 +194,7 @@ fn scoped_mode(anchor: Option<&str>, roster: Vec<serde_json::Value>) -> AgentsVi
         theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: anchor.map(str::to_string),
+        return_active_session_id: None,
         scope: Some(AgentsViewScope {
             session_id: Some("p".to_string()),
             active_session_id: Some("p-live".to_string()),
@@ -226,6 +231,7 @@ fn mode_with_user_bindings(bindings: &[(&str, &str)]) -> AgentsViewMode {
         theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),
@@ -254,6 +260,7 @@ fn fresh_mode(roster: Vec<serde_json::Value>) -> AgentsViewMode {
         theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),

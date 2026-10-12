@@ -141,6 +141,7 @@ fn mode_with_mixed_children() -> AgentsViewMode {
         theme: crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: None,
+        return_active_session_id: None,
         scope: None,
         query: None,
         expanded_ancestors: Vec::new(),
