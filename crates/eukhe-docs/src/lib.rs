@@ -5,6 +5,8 @@
 //!   registers, and the no-op loop guard.
 //! - [`text`]: line endings and the BOM, stripped for editing and restored on
 //!   write.
+//! - [`grep`]: regex search rendered as `[path#TAG]` / `N:TEXT` rows that
+//!   become edit anchors.
 //! - [`rebase_content`]: byte-level three-way rebase of a stale edit onto the
 //!   current file.
 //!
@@ -12,12 +14,20 @@
 //! (`can1357/oh-my-pi`, MIT; see `THIRD-PARTY-NOTICES`).
 
 mod error;
+mod grep;
+mod notice;
 mod path;
+mod path_tree;
 mod rebase;
+mod scope;
 mod store;
 pub mod text;
 
 pub use error::{EditError, EditResult};
+pub use grep::{
+    grep, ContextLine, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest, DEFAULT_FILE_LIMIT,
+};
+pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};
 pub use path::{canonical_key, resolve};
 pub use rebase::{
     apply_edits, canonical_edits, rebase_content, rebase_edits, validate_edits, AppliedEdits,
