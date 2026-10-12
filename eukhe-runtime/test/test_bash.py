@@ -79,7 +79,7 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
     async def test_activity_tail_keeps_the_newest_output_under_the_cap(self):
         # Escaped output shrinks from the oldest end: the newest line is
         # always the surviving one.
-        handle = bash('python3 -c "print(chr(0) * 20000); print(chr(65) * 8)"')
+        handle = bash(f'{sys.executable} -c "print(chr(0) * 20000); print(chr(65) * 8)"')
         await handle
         from rlm.bash import activity_request
 
