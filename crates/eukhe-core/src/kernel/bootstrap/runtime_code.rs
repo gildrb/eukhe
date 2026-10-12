@@ -1,6 +1,6 @@
 //! The runtime bootstrap code injected into each kernel right after start or
-//! restore: binds the `rlm`, `bash`, `jobs`, and MCP surfaces and pre-imports
-//! every Python skill (from `core/tools/ipython.ts`'s `buildRlmBootstrapCode`).
+//! restore: binds the `rlm`, `bash`, `jobs`, `read`/`write`, and MCP surfaces and pre-imports every
+//! Python skill (from `core/tools/ipython.ts`'s `buildRlmBootstrapCode`).
 
 use super::KernelPythonSkill;
 
@@ -44,6 +44,7 @@ try:
     rlm = _eukhe_rlm_module.rlm
     bash = _eukhe_rlm_module.bash
     jobs = _eukhe_rlm_module.jobs
+    from rlm.fs import read, write
     import rlm.mcp as mcp
 except Exception as _eukhe_rlm_error:
     _EUKHE_RLM_IMPORT_ERROR = str(_eukhe_rlm_error)
@@ -88,6 +89,11 @@ except Exception as _eukhe_rlm_error:
             rlm._raise_missing()
 
     jobs = _EukheMissingJobs()
+    def read(path, sel=None):
+        rlm._raise_missing()
+
+    def write(path, content):
+        rlm._raise_missing()
 "#;
 
 /// The code the session injects right after kernel start/restore: binds the

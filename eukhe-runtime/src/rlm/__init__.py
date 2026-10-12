@@ -170,6 +170,22 @@ async def host_request(request_type: str, payload: dict[str, Any] | None = None)
     return _parse_host_reply(request_type, reply)
 
 
+def host_request_sync(request_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Like :func:`host_request`, but blocks instead of awaiting.
+
+    For short host work behind synchronous kernel functions (``read``,
+    ``edit``, ...). Raises RuntimeError like :func:`host_request`.
+    """
+    if not isinstance(request_type, str) or not request_type:
+        raise TypeError("request_type must be a non-empty str")
+    if payload is not None and not isinstance(payload, dict):
+        raise TypeError(f"payload must be a dict or None, got {type(payload).__name__}")
+    from . import repl
+
+    reply = repl.host_request_sync({**(payload or {}), "type": request_type})
+    return _parse_host_reply(request_type, reply)
+
+
 def emit(data: dict[str, Any]) -> None:
     """Ship one display event (dict of MIME type -> JSON payload) to the host."""
     from . import repl
@@ -763,6 +779,7 @@ __all__ = [
     "harness",
     "host_request",
     "jobs",
+    "host_request_sync",
     "list_subagents",
     "progress_note",
     "rename",

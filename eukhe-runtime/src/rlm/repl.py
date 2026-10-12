@@ -56,7 +56,7 @@ _RESULT_TRUNCATION_MARKER = f"\n[... error text truncated at {_RESULT_TEXT_CAP} 
 _PAYLOAD_CAP = 16 * 1024 * 1024
 
 # Names the session bootstrap re-creates on every start; never snapshotted.
-_ALWAYS_SKIP = {"rlm", "mcp", "bash", "asyncio", "In", "Out", "get_ipython", "exit", "quit", "open"}
+_ALWAYS_SKIP = {"rlm", "mcp", "bash", "read", "write", "asyncio", "In", "Out", "get_ipython", "exit", "quit", "open"}
 # IPython-injected names that may appear in a snapshot payload; never restored.
 _RESTORE_SKIP = {"In", "Out", "get_ipython"}
 # The target of the last successful snapshot, remembered so an EOF shutdown
@@ -187,6 +187,63 @@ async def host_request(data: dict[str, Any]) -> dict[str, Any]:
         _pending_host.pop(rid, None)
 
 
+class _SyncWaiter:
+    """One synchronous host request: the reader thread resolves it directly."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.reply: dict[str, Any] | None = None
+        self.error: str | None = None
+
+    def resolve(self, data: dict[str, Any]) -> None:
+        self.reply = data
+        self.done.set()
+
+    def fail(self, message: str) -> None:
+        self.error = message
+        self.done.set()
+
+
+_sync_lock = threading.Lock()
+_pending_host_sync: dict[str, _SyncWaiter] = {}
+
+
+def _fail_sync_host_requests() -> None:
+    """Reader-thread half of teardown for synchronous callers, which block the
+    loop thread and so cannot wait for ``_fail_pending_host_requests``."""
+    with _sync_lock:
+        for waiter in _pending_host_sync.values():
+            waiter.fail("host connection closed; host_request cannot be answered")
+
+
+def host_request_sync(data: dict[str, Any]) -> dict[str, Any]:
+    """Send one host request and block the calling thread until its reply.
+
+    For short host work called from synchronous kernel functions (``read``,
+    ``edit``): the reply does not need the event loop, so a cell may call it
+    without ``await``.
+    """
+    if _loop is None:
+        raise RuntimeError("repl runtime is not serving")
+    if _host_closed:
+        raise RuntimeError("host connection closed; host_request cannot be answered")
+    _check_payload("host_request", data)
+    rid = uuid.uuid4().hex
+    waiter = _SyncWaiter()
+    with _sync_lock:
+        _pending_host_sync[rid] = waiter
+    try:
+        _send({"event": "host_request", "id": rid, "data": data})
+        waiter.done.wait()
+    finally:
+        with _sync_lock:
+            _pending_host_sync.pop(rid, None)
+    if waiter.error is not None:
+        raise RuntimeError(waiter.error)
+    assert waiter.reply is not None
+    return waiter.reply
+
+
 def _fail_pending_host_requests() -> None:
     """Loop-thread half of teardown: no host reply can arrive anymore, so every
     awaiting cell must unblock or the queued shutdown would never be served."""
@@ -200,6 +257,12 @@ def _fail_pending_host_requests() -> None:
 def _resolve_host_reply(rid: str, data: dict[str, Any]) -> None:
     """Reader-thread half of the host bridge; late/unknown replies are dropped."""
     assert _loop is not None
+    with _sync_lock:
+        waiter = _pending_host_sync.get(rid)
+    if waiter is not None:
+        # A synchronous caller blocks the loop thread: deliver from here.
+        waiter.resolve(data)
+        return
 
     def deliver() -> None:
         future = _pending_host.get(rid)
@@ -1556,6 +1619,7 @@ def _handle_request_line(raw: bytes, queue: asyncio.Queue[dict[str, Any]]) -> No
     if rtype == "shutdown":
         # No host reply follows a shutdown; a cell awaiting host_request
         # must fail now or it would block _serve from ever consuming this.
+        _fail_sync_host_requests()
         _loop.call_soon_threadsafe(_fail_pending_host_requests)
     _loop.call_soon_threadsafe(queue.put_nowait, req)
 
@@ -1577,6 +1641,7 @@ def _read_requests(stdin_fd: int, queue: asyncio.Queue[dict[str, Any]]) -> None:
     # Host closed stdin: shut the runtime down. The marker distinguishes
     # this from the host's explicit shutdown request (which runs after the
     # host flushed its own final snapshot, so no runtime-side flush runs).
+    _fail_sync_host_requests()
     _loop.call_soon_threadsafe(_fail_pending_host_requests)
     _loop.call_soon_threadsafe(queue.put_nowait, {"type": "shutdown", "eof": True})
 
