@@ -244,37 +244,26 @@ fn the_depth_two_chain_reports_the_folded_aggregate() {
 }
 
 /// The Anthropic subscription warning's once-per-session-lifecycle gate
-/// (operator directive 2026-09-29): [`SessionFile::mark_anthropic_warning_shown`]
-/// persists the marker row durably, the live flag flips, and BOTH reopen
-/// paths (the full [`SessionFile::open`] and the windowed
-/// [`SessionFile::open_windowed`]) hydrate the gate from the file — the
-/// reattach/resume contract: a session that warned once never warns again
-/// however it reopens. A fresh session serves the gate closed.
+/// (operator directive 2026-09-29): a legacy file carrying the marker row
+/// hydrates the gate through BOTH reopen paths (the full
+/// [`SessionFile::open`] and the windowed [`SessionFile::open_windowed`])
+/// — a session that warned once never warns again however it reopens. A
+/// session without the row serves the gate closed.
 #[test]
-fn marking_the_warning_persists_and_both_reopens_hydrate_it() {
+fn both_reopens_hydrate_the_warning_marker_row() {
     let dir = temp_dir();
     let mut session = SessionFile::create("/repo", None, 0);
     session.append_message(&json!({"role": "user", "content": "hi", "timestamp": 1u64}));
+    session.append_entry(
+        "custom",
+        json!({
+            "customType": eukhe_core::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE,
+            "data": { "shown": true },
+        }),
+    );
     let path = dir.join(session_file_name(session.session_id()));
     session.set_path(path.clone());
     session.rewrite().unwrap();
-    assert!(
-        !session.anthropic_warning_shown(),
-        "an unmarked session serves the gate closed"
-    );
-
-    session.mark_anthropic_warning_shown().unwrap();
-    assert!(
-        session.anthropic_warning_shown(),
-        "the live flag flipped with the mark"
-    );
-
-    // The durable row: the exact custom entry the lifecycle reads back.
-    let text = fs::read_to_string(&path).unwrap();
-    assert!(
-        text.contains("\"customType\":\"anthropic_subscription_warning_shown\""),
-        "the marker row reached the session file: {text}"
-    );
 
     // The full reopen (a plain resume) and the windowed reopen (the
     // create-over-file replay of a long session) both hydrate the gate.
@@ -282,7 +271,6 @@ fn marking_the_warning_persists_and_both_reopens_hydrate_it() {
     assert!(reopened.anthropic_warning_shown());
     let windowed = SessionFile::open_windowed(&path).unwrap();
     assert!(windowed.anthropic_warning_shown());
-
     // A session that never warned stays closed through both opens.
     let mut fresh = SessionFile::create("/repo", None, 0);
     let fresh_path = dir.join(session_file_name(fresh.session_id()));
@@ -434,9 +422,6 @@ fn a_cyclic_parent_chain_terminates_the_branch_walk() {
             .map(|entry| entry.id.as_str())
             .collect::<Vec<_>>()
     );
-    // The root-to-leaf typed walk (the restore's reader) terminates too.
-    let typed = session.branch_file_entries();
-    assert!(typed.len() <= 2, "branch_file_entries terminates");
 }
 
 /// The persisted thinking level (`thinking_level_change`): the last
@@ -453,111 +438,6 @@ fn scan_keeps_the_latest_persisted_thinking_level() {
     session.rewrite().unwrap();
     let info = read_session_info(&path).unwrap();
     assert_eq!(info.thinking_level.as_deref(), Some("high"));
-    let _ = fs::remove_dir_all(&dir);
-}
-
-/// A failed append leaves the store unchanged: the in-memory index
-/// only adopts entries the file accepted, so the next append parents
-/// to the last persisted entry and the reloaded file stays walkable.
-#[test]
-fn failed_persist_keeps_the_store_walkable() {
-    let dir = temp_dir();
-    let mut session = SessionFile::create("/tmp", None, 0);
-    let file = dir.join(session_file_name(session.session_id()));
-    session.set_path(file.clone());
-    let first = session
-        .persist_entry(
-            "message",
-            json!({ "message": { "role": "user", "content": "hi" } }),
-        )
-        .unwrap();
-    let blocker = dir.join("blocked");
-    fs::create_dir_all(&blocker).unwrap();
-    session.set_path(blocker);
-    assert!(session
-        .persist_entry(
-            "message",
-            json!({ "message": { "role": "user", "content": "x" } })
-        )
-        .is_err());
-    assert_eq!(
-        session.entries().len(),
-        1,
-        "only the persisted entry stays indexed"
-    );
-    assert_eq!(session.leaf_id(), Some(first.as_str()));
-    session.set_path(file.clone());
-    let third = session
-        .persist_entry(
-            "message",
-            json!({ "message": { "role": "user", "content": "again" } }),
-        )
-        .unwrap();
-    // The reloaded file chains first -> third: the failed append added
-    // nothing to the file, so the next one chains from the last
-    // persisted entry.
-    let loaded = SessionFile::open(&file).unwrap();
-    let chain: Vec<&str> = loaded
-        .branch()
-        .iter()
-        .map(|entry| entry.id.as_str())
-        .collect();
-    assert_eq!(chain, [first.as_str(), third.as_str()]);
-    let _ = fs::remove_dir_all(&dir);
-}
-
-/// The replay's dedup predicate is the disclosure row's fields: the
-/// create handler recognizes the exact row wherever it came from —
-/// this replacement's own declaration-stamped persist, an earlier
-/// crash-replay's identical row, or the dead worker's own abort arm
-/// (the same fields carrying the worker's persist-time stamp) — and
-/// appends nothing. A different disclosure (another reason or
-/// outcome) stays distinct.
-#[test]
-fn declaration_stamped_entry_survives_reload_as_the_same_identity() {
-    let dir = temp_dir();
-    let mut session = SessionFile::create("/tmp", None, 0);
-    let file = dir.join(session_file_name(session.session_id()));
-    session.set_path(file.clone());
-    let disclosure = json!({
-        "customType": "compaction_outcome",
-        "content": "Compaction cancelled",
-        "display": true,
-        "details": { "reason": "threshold", "outcome": "cancelled" },
-    });
-    let declared_at = "2026-09-23T06:00:00Z";
-    session
-        .persist_entry_at("custom_message", disclosure.clone(), declared_at)
-        .unwrap();
-
-    // The rebuilt transcript (a fresh open) holds the exact row: the
-    // replay's fields-only dedup matches it — the declaration stamp
-    // and any other stamp alike — so the row is not appended twice.
-    let loaded = SessionFile::open(&file).unwrap();
-    let already_disclosed =
-        |entry: &SessionEntry| entry.type_ == "custom_message" && entry.fields == disclosure;
-    assert!(loaded.entries().iter().any(already_disclosed));
-
-    // The worker's own abort arm carries the same fields under its own
-    // persist-time stamp: still the same disclosure, still not a
-    // duplicate.
-    let mut with_own_row = SessionFile::open(&file).unwrap();
-    with_own_row
-        .persist_entry("custom_message", disclosure.clone())
-        .unwrap();
-    assert!(with_own_row.entries().iter().any(already_disclosed));
-
-    // A different disclosure (a failed run's row) stays distinct.
-    let failed = json!({
-        "customType": "compaction_outcome",
-        "content": "Compaction failed: Summarization failed",
-        "display": true,
-        "details": { "reason": "threshold", "outcome": "failed" },
-    });
-    assert!(!loaded
-        .entries()
-        .iter()
-        .any(|entry| entry.type_ == "custom_message" && entry.fields == failed));
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -1077,7 +957,6 @@ fn append_cost_does_not_grow_with_the_store() {
         ] {
             let start = std::time::Instant::now();
             store.append_entry("custom", json!({}));
-            store.persist_entry("custom", json!({})).unwrap();
             *fastest = (*fastest).min(start.elapsed());
         }
     }

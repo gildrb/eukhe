@@ -269,14 +269,27 @@ pub(crate) async fn rename_saved_session_storage(
     Ok(())
 }
 
+/// The disposable sidecars a legacy `<id>.jsonl` grows beside it, by the
+/// extension replacing `jsonl`: the daemon's info fold
+/// (`session_store::info_sidecar`) and eukhe-core's window snapshot
+/// (`session::window_cache`).
+const LEGACY_SIDECAR_EXTENSIONS: [&str; 2] = ["info-cache.json", "window-cache.json"];
+
 /// Delete a saved session (TS `deleteSessionFile`) under its session
-/// lease: its storage directory and its legacy file, each through the
-/// `trash` CLI first with a removal fallback; then the after-removal hook
-/// runs and the session's artifact partition goes. The hook runs once the
-/// session is gone but BEFORE the artifact partition's removal (the
-/// daemon's `cancelScheduledJobsForSessionFile`, which needs the
-/// partition registered on the store). Answers the TS
-/// `DeleteSessionFileResult` wire object.
+/// lease: the legacy file's sidecars, its legacy `<id>.jsonl` file (the
+/// durable storage's import twin too), and its storage directory, the
+/// file and the directory each through the `trash` CLI first with a
+/// removal fallback; then the after-removal hook runs and the session's
+/// artifact partition goes. The hook runs once the session is gone but
+/// BEFORE the artifact partition's removal (the daemon's
+/// `cancelScheduledJobsForSessionFile`, which needs the partition
+/// registered on the store). Answers the TS `DeleteSessionFileResult`
+/// wire object.
+///
+/// The order keeps a crash midway from resurrecting the session: a
+/// legacy file lists in the roster and re-imports on open whenever its
+/// storage directory is missing, so it goes before the directory; a
+/// crash between the two leaves the storage, the session as it was.
 pub(crate) async fn delete_saved_session_storage(
     path: &Path,
     agent_dir: &Path,
@@ -288,23 +301,30 @@ pub(crate) async fn delete_saved_session_storage(
         Ok(lease) => lease,
         Err(error) => return json!({ "ok": false, "error": error.to_string() }),
     };
-    let mut targets = Vec::new();
-    match &location {
+    let (legacy, storage_present) = match &location {
         SessionLocation::Durable(dir) => {
-            if dir.exists() {
-                targets.push(dir.clone());
-            }
+            let twin = dir.file_name().map(|name| {
+                let mut name = name.to_os_string();
+                name.push(".jsonl");
+                dir.with_file_name(name)
+            });
+            (twin, dir.exists())
         }
-        SessionLocation::Legacy(file) => {
-            if is_storage(&storage_dir) {
-                targets.push(storage_dir);
-            }
-            if std::fs::symlink_metadata(file).is_ok() {
-                targets.push(file.clone());
-            }
+        SessionLocation::Legacy(file) => (Some(file.clone()), is_storage(&storage_dir)),
+    };
+    let mut sidecars = Vec::new();
+    let mut targets = Vec::new();
+    if let Some(legacy) = legacy {
+        sidecars
+            .extend(LEGACY_SIDECAR_EXTENSIONS.map(|extension| legacy.with_extension(extension)));
+        if std::fs::symlink_metadata(&legacy).is_ok() {
+            targets.push(legacy);
         }
     }
-    let removed = tokio::task::spawn_blocking(move || remove_all(&targets)).await;
+    if storage_present {
+        targets.push(storage_dir);
+    }
+    let removed = tokio::task::spawn_blocking(move || remove_all(&sidecars, &targets)).await;
     drop(lease);
     match removed {
         Ok(Ok(method)) => {
@@ -317,11 +337,22 @@ pub(crate) async fn delete_saved_session_storage(
     }
 }
 
-/// Remove every target (trash first, then unlink / recursive removal);
-/// answers `"trash"` when the trash took them all, else `"unlink"`.
-fn remove_all(targets: &[PathBuf]) -> Result<&'static str, String> {
+/// Unlink every present sidecar, then remove every target in order (trash
+/// first, then unlink / recursive removal); answers `"trash"` when the
+/// trash took every target, else `"unlink"`. A directory removed without
+/// the trash is first renamed to a hidden tombstone beside it (the roster
+/// and open skip hidden directories), so a crash inside the recursive
+/// removal never leaves a half-removed storage listed.
+fn remove_all(sidecars: &[PathBuf], targets: &[PathBuf]) -> Result<&'static str, String> {
     if targets.is_empty() {
         return Err(std::io::Error::from(std::io::ErrorKind::NotFound).to_string());
+    }
+    for sidecar in sidecars {
+        match std::fs::remove_file(sidecar) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("remove {}: {error}", sidecar.display())),
+        }
     }
     let mut method = "trash";
     for target in targets {
@@ -335,11 +366,22 @@ fn remove_all(targets: &[PathBuf]) -> Result<&'static str, String> {
         }
         method = "unlink";
         let removed = if target.is_dir() {
-            std::fs::remove_dir_all(target)
+            let mut tombstone = std::ffi::OsString::from(".");
+            tombstone.push(target.file_name().unwrap_or_default());
+            tombstone.push(format!(".deleted-{}", uuid::Uuid::new_v4().simple()));
+            let tombstone = target.with_file_name(tombstone);
+            // A boot sweep (eukhe-core `sweep_stale_staging_dirs`) may take
+            // the tombstone first: rename keeps the storage's old mtimes.
+            std::fs::rename(target, &tombstone).and_then(|()| {
+                match std::fs::remove_dir_all(&tombstone) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    removed => removed,
+                }
+            })
         } else {
             std::fs::remove_file(target)
         };
-        removed.map_err(|error| error.to_string())?;
+        removed.map_err(|error| format!("remove {}: {error}", target.display()))?;
     }
     Ok(method)
 }
@@ -1302,6 +1344,48 @@ mod durable_saved_session_tests {
             vec![legacy.clone()]
         );
         assert!(read_saved_session(&legacy, cx()).await.is_none());
+    }
+
+    /// A durable storage's delete takes its legacy import twin and the
+    /// twin's sidecars along: a twin left behind lists in the roster and
+    /// re-imports on open once the storage directory is gone.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn deleting_a_storage_removes_its_legacy_twin_and_sidecars() {
+        let fixture = Fixture::new();
+        let dir = saved_session(&fixture).await;
+        let legacy = fixture.sessions.join(format!("{SESSION_ID}.jsonl"));
+        std::fs::write(
+            &legacy,
+            format!(
+                "{}\n",
+                json!({
+                    "type": "session",
+                    "id": SESSION_ID,
+                    "timestamp": "2026-09-21T00:00:00.000Z",
+                    "cwd": fixture.cwd.to_string_lossy(),
+                })
+            ),
+        )
+        .unwrap();
+        for extension in LEGACY_SIDECAR_EXTENSIONS {
+            std::fs::write(legacy.with_extension(extension), "{}").unwrap();
+        }
+        let roster_ids = || {
+            crate::session_scan::list_sessions(&fixture.sessions)
+                .into_iter()
+                .map(|info| (info.id, info.path))
+                .collect::<Vec<_>>()
+        };
+        // Both forms present: the storage is the one row.
+        assert_eq!(roster_ids(), vec![(SESSION_ID.to_owned(), dir.clone())]);
+        let deleted = delete_saved_session_storage(&dir, &fixture.agent_dir, &|_| {}).await;
+        assert_eq!(deleted["ok"], true, "{deleted}");
+        let left = std::fs::read_dir(&fixture.sessions)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(left, Vec::<std::ffi::OsString>::new());
+        assert_eq!(roster_ids(), Vec::new());
     }
 }
 

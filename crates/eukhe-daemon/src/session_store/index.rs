@@ -1,19 +1,8 @@
 //! The index concern (moved with its concern): the entry-chain index
-//! maintenance - the push-side `by_id`/`leaf_id` bookkeeping, the live and
-//! end-of-load child-usage attribution folds, the rewrite-persist deferred
-//! fold, and the entry-id mint.
+//! maintenance - the push-side `by_id`/`leaf_id` bookkeeping and the live
+//! and end-of-load child-usage attribution folds.
 
 use super::{HashMap, SessionEntry, SessionFile, Value};
-
-pub(crate) fn new_entry_id(used: &HashMap<String, usize>) -> String {
-    for _ in 0..100 {
-        let id: String = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
-        if !used.contains_key(&id) {
-            return id;
-        }
-    }
-    uuid::Uuid::new_v4().simple().to_string()[..8].to_string()
-}
 
 /// `applyChildUsageAttributions` (TS `core/session-manager.ts`): fold each
 /// `child_usage_attributed` entry's `aggregateUsage` into its target
@@ -79,43 +68,18 @@ pub(super) fn fold_child_usage_attributions(entries: &mut [SessionEntry]) {
 }
 
 impl SessionFile {
+    /// Index one entry as the new leaf. An attribution entry joining the
+    /// index folds its aggregate into the target assistant row (TS
+    /// `SessionManager.append_child_usage_attribution`'s live fold); the
+    /// end-of-load fold re-applies idempotently (the fold SETS the
+    /// aggregate) and also catches forward references in foreign files.
     pub(super) fn push_index(&mut self, entry: SessionEntry) {
-        self.push_index_inner(entry, true);
-    }
-
-    /// The load and in-memory build paths fold live attributions as they
-    /// push (the end-of-load fold re-applies idempotently); the
-    /// rewrite-persist path defers the fold until the rewrite succeeds —
-    /// a failed rewrite rolls the index back, and the target row must not
-    /// keep a fold whose durable attribution row never landed (TS reverts
-    /// the live row in the same failure path).
-    pub(super) fn push_index_inner(&mut self, entry: SessionEntry, fold_live: bool) {
-        // The live-append seam of the attribution fold (TS
-        // `SessionManager.append_child_usage_attribution` folds after the
-        // durable append): an attribution entry joining the index folds its
-        // aggregate into the target assistant row, or the in-memory view
-        // keeps stale usage until a reopen. The end-of-load fold re-applies
-        // idempotently (the fold SETS the aggregate) and also catches forward
-        // references in foreign files.
-        if fold_live && entry.type_ == "child_usage_attributed" {
+        if entry.type_ == "child_usage_attributed" {
             self.fold_live_attribution(&entry);
         }
         self.by_id.insert(entry.id.clone(), self.entries.len());
         self.leaf_id = Some(entry.id.clone());
         self.entries.push(entry);
-    }
-
-    /// Fold one already-indexed attribution entry's aggregate (the
-    /// rewrite-persist path calls this after the durable write succeeds).
-    pub(super) fn fold_attribution_id(&mut self, id: &str) {
-        let Some(&row) = self.by_id.get(id) else {
-            return;
-        };
-        if self.entries[row].type_ != "child_usage_attributed" {
-            return;
-        }
-        let entry = self.entries[row].clone();
-        self.fold_live_attribution(&entry);
     }
 
     /// Fold one attribution entry's aggregate into its already-indexed

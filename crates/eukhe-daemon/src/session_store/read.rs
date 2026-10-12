@@ -1,18 +1,12 @@
 //! The read arm (moved with its concern): the file-IO load surface - the
-//! streamed and windowed opens, the bounded header-only readers, the
-//! file-layout helpers, and the in-memory create.
+//! streamed and windowed opens, the bounded header-only readers, and the
+//! file-layout helpers.
 
 use super::view::is_warning_shown_row;
 use super::{
     anyhow, fold_child_usage_attributions, fs, message_text, BufRead, Context, HashMap, Map, Path,
-    PathBuf, Read, Result, SessionEntry, SessionFile, SessionHeader, SessionWindow, Value,
+    Read, Result, SessionEntry, SessionFile, SessionHeader, SessionWindow, Value,
 };
-
-const CURRENT_SESSION_VERSION: u32 = 3;
-
-fn new_session_id() -> String {
-    uuid::Uuid::now_v7().to_string()
-}
 
 #[must_use]
 pub fn session_file_name(session_id: &str) -> String {
@@ -47,6 +41,29 @@ pub(crate) fn parse_session_header_line(line: &str) -> Option<SessionHeader> {
         return None;
     }
     serde_json::from_value(value).ok()
+}
+
+/// The stored first line: the typed header plus the `session` type tag.
+///
+/// The tag leads the line (TS `SessionHeader` declares `type` first, so the
+/// TS session file's first line starts with `{"type":"session",...}`); the
+/// JSON map preserves insertion order (the workspace's `serde_json` runs
+/// with `preserve_order`), so the tag is rebuilt into the leading slot
+/// instead of appended.
+#[must_use]
+pub fn session_header_line(header: &SessionHeader) -> Value {
+    let value = serde_json::to_value(header).unwrap_or(Value::Null);
+    let Some(object) = value.as_object() else {
+        return serde_json::json!({ "type": "session" });
+    };
+    let mut ordered = Map::new();
+    ordered.insert("type".to_string(), Value::String("session".to_string()));
+    ordered.extend(
+        object
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone())),
+    );
+    Value::Object(ordered)
 }
 
 /// Read the file's first line when it ends within `max_bytes` bytes.
@@ -168,7 +185,6 @@ impl SessionFile {
             by_id: HashMap::new(),
             leaf_id: None,
             window: None,
-            lease: None,
             anthropic_warning_shown: false,
         };
         for line in lines {
@@ -223,7 +239,6 @@ impl SessionFile {
             by_id: HashMap::new(),
             leaf_id: None,
             window: None,
-            lease: None,
             anthropic_warning_shown,
         };
         // The raw rows are consumed in place: each line String drops as
@@ -288,36 +303,11 @@ impl SessionFile {
             }
         }
         full.leaf_id.clone_from(&self.leaf_id);
-        full.lease.clone_from(&self.lease);
         // The merged store's leaf is the window's leaf: re-derive the gate
         // from the merged ACTIVE branch — the full open's own-leaf answer
         // can disagree, a post-snapshot marker must hydrate, and an
         // off-path one must not (the full scan never wins here).
         full.anthropic_warning_shown = full.branch().iter().copied().any(is_warning_shown_row);
         *self = full;
-    }
-
-    /// Create a new in-memory session; persisted with the first flush.
-    pub fn create(cwd: &str, parent_session: Option<&str>, rlm_depth: u32) -> Self {
-        let header = SessionHeader {
-            version: Some(CURRENT_SESSION_VERSION),
-            id: new_session_id(),
-            timestamp: crate::util::now_iso(),
-            cwd: cwd.to_string(),
-            parent_session: parent_session.map(str::to_string),
-            rlm_depth: Some(u64::from(rlm_depth)),
-            git: None,
-            rest: Map::default(),
-        };
-        SessionFile {
-            path: PathBuf::new(),
-            header,
-            entries: Vec::new(),
-            by_id: HashMap::new(),
-            leaf_id: None,
-            window: None,
-            lease: None,
-            anthropic_warning_shown: false,
-        }
     }
 }

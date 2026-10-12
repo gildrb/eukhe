@@ -6,7 +6,6 @@ use super::*;
 // The sink's answers flow through the eukhe-tui trait; the tests call the
 // trait methods directly (the impl header alone does not import them).
 use eukhe_tui::interactive::OnboardingSink;
-use serde_json::Map;
 
 #[test]
 fn session_flags_map_to_selections() {
@@ -74,8 +73,8 @@ fn run_options_for_continue(dir: &std::path::Path) -> RunOptions {
     }
 }
 
-/// A saved session file the cwd-scoped scans resolve: the same shape
-/// `SessionFile::create` writes (header with id + cwd).
+/// A saved session file the cwd-scoped scans resolve: a legacy header
+/// line (id + cwd).
 fn seed_saved_session(
     session_dir: &std::path::Path,
     id: &str,
@@ -402,66 +401,41 @@ fn build_tui_options_reads_code_block_indent_settings() {
     assert_eq!(options.code_block_indent, "  ");
 }
 
-/// A session with one user/assistant exchange, written the same shape
-/// `SessionManager::persisted` + appends produce. Returns the file and
-/// its session id.
+/// A legacy session with one user/assistant exchange, written as the
+/// JSONL rows a real run produced. Returns the file and its session id.
 fn seed_session(
     session_dir: &std::path::Path,
     cwd: &std::path::Path,
     user_text: &str,
 ) -> (std::path::PathBuf, String) {
-    use eukhe_types::ai::{AssistantMessage, StopReason, Usage, UserContent, UserMessage};
-    use eukhe_types::session::AgentMessage;
-    let mut session = eukhe_core::session::manager::SessionManager::persisted(cwd, session_dir);
-    session
-        .append_message(AgentMessage::User(UserMessage {
-            // The block shape a real run writes (the print runtime's
-            // `content[0].text` rows), so the copy assertions read the
-            // same shape the shipped sessions carry.
-            content: UserContent::Blocks(vec![eukhe_types::ai::UserContentBlock::Text(
-                eukhe_types::ai::TextContent {
-                    text: user_text.to_string(),
-                    text_signature: None,
-                    rest: Map::default(),
-                    cache_breakpoint: None,
-                },
-            )]),
-            timestamp: 0,
-            rest: Map::default(),
-        }))
-        .expect("write user message");
-    session
-        .append_message(AgentMessage::Assistant(AssistantMessage {
-            content: vec![eukhe_types::ai::AssistantContentBlock::Text(
-                eukhe_types::ai::TextContent {
-                    text: "the answer".to_string(),
-                    text_signature: None,
-                    rest: Map::default(),
-                    cache_breakpoint: None,
-                },
-            )],
-            api: "openai-completions".to_string(),
-            provider: "openai".to_string(),
-            model: "gpt-x".to_string(),
-            response_model: None,
-            response_id: None,
-            diagnostics: None,
-            usage: Usage::default(),
-            stop_reason: StopReason::Stop,
-            stop_reason_raw: None,
-            error_message: None,
-            timestamp: 0,
-            rest: Map::default(),
-        }))
-        .expect("write assistant message");
-    let id = session.get_session_id().to_string();
-    (
-        session
-            .get_session_file()
-            .expect("session file")
-            .to_path_buf(),
-        id,
-    )
+    let id = uuid::Uuid::now_v7().to_string();
+    let at = "2026-01-01T00:00:00.000Z";
+    let lines = [
+        serde_json::json!({"type": "session", "version": 3, "id": id, "timestamp": at,
+            "cwd": cwd.display().to_string()}),
+        // The block shape a real run writes (the print runtime's
+        // `content[0].text` rows), so the copy assertions read the same
+        // shape the shipped sessions carry.
+        serde_json::json!({"type": "message", "id": "u0", "parentId": null, "timestamp": at,
+            "message": {"role": "user", "content": [{"type": "text", "text": user_text}],
+                "timestamp": 0}}),
+        serde_json::json!({"type": "message", "id": "a0", "parentId": "u0", "timestamp": at,
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "the answer"}],
+                "api": "openai-completions", "provider": "openai", "model": "gpt-x",
+                "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0,
+                    "totalTokens": 0, "cost": {"input": 0, "output": 0, "cacheRead": 0,
+                    "cacheWrite": 0, "total": 0}},
+                "stopReason": "stop", "timestamp": 0}}),
+    ];
+    std::fs::create_dir_all(session_dir).expect("sessions dir");
+    let path = session_dir.join(format!("{id}.jsonl"));
+    let mut body = String::new();
+    for line in &lines {
+        body.push_str(&line.to_string());
+        body.push('\n');
+    }
+    std::fs::write(&path, body).expect("write session file");
+    (path, id)
 }
 
 /// Whether any file directly under the storage `dir` carries `needle`

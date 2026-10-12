@@ -686,6 +686,13 @@ impl JsonlStorage {
         {
             return Err(self.poison(error_from_file(format!("append to {MAIN_FILE}"), error)));
         }
+        // An fsync storage acknowledges a commit only once its marker is
+        // durable; the same flush authorizes the reclamation below.
+        if self.fsync {
+            if let Err(error) = self.fs.flush_file(&self.main_path, cx).await {
+                return Err(self.poison(error_from_file(format!("flush of {MAIN_FILE}"), error)));
+            }
+        }
         let seq = prepared.apply();
         self.adopt_sidecar_state(&json_writes);
         self.reclaim_sidecars(&reclamations, cx).await;
@@ -905,15 +912,13 @@ impl JsonlStorage {
         }
     }
 
-    /// The marker already published this state, so reclamation is retryable
-    /// best-effort maintenance: every failure stops or skips it silently.
+    /// Replace or remove the sidecars `replacements` names. The caller has
+    /// made the markers that authorize them durable first (an fsync storage
+    /// flushed `main.jsonl`), so a crash cannot resurrect a marker whose
+    /// sidecar records are gone. The marker already published this state, so
+    /// reclamation is retryable best-effort maintenance: every failure stops
+    /// or skips it silently.
     async fn reclaim_sidecars(&self, replacements: &[(String, String)], cx: &Context) {
-        if replacements.is_empty() {
-            return;
-        }
-        if self.fsync && self.fs.flush_file(&self.main_path, cx).await.is_err() {
-            return;
-        }
         for (file, content) in replacements {
             self.replace_sidecar(file, content, cx).await;
         }
@@ -1284,7 +1289,16 @@ impl JsonlStorage {
                 }
             }
         }
-        self.reclaim_sidecars(&reclamations, cx).await;
+        // The recovered markers may never have been flushed (a crash between
+        // the append and its flush): flush them before reclaiming what they
+        // authorize. Best-effort like the reclamation itself: a failed flush
+        // defers it to the next open.
+        let authorized = reclamations.is_empty()
+            || !self.fsync
+            || fs.flush_file(&self.main_path, cx).await.is_ok();
+        if authorized {
+            self.reclaim_sidecars(&reclamations, cx).await;
+        }
 
         let mut state = self.lock();
         state.current_only_documents.extend(current_only_documents);

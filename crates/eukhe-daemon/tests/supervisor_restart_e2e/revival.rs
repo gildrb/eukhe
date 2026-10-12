@@ -28,16 +28,23 @@ fn write_revival_fixture(
     let sessions_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
     let worker_id = format!("w{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
-    let mut session =
-        eukhe_daemon::session_store::SessionFile::create(&dir.to_string_lossy(), None, 0);
-    session.append_message(&json!({
-        "role": "user", "content": "lane work", "timestamp": 1u64
-    }));
-    session.append_session_state(session_state);
-    let session_id = session.session_id().to_string();
+    let session_id = uuid::Uuid::now_v7().to_string();
+    let at = "2026-01-01T00:00:00.000Z";
+    let lines = [
+        json!({"type": "session", "version": 3, "id": session_id, "timestamp": at,
+            "cwd": dir.to_string_lossy()}),
+        json!({"type": "message", "id": "m0", "parentId": null, "timestamp": at,
+            "message": {"role": "user", "content": "lane work", "timestamp": 1u64}}),
+        json!({"type": "session_state", "id": "s0", "parentId": "m0", "timestamp": at,
+            "state": {"status": session_state}}),
+    ];
     let session_file = sessions_dir.join(format!("{session_id}.jsonl"));
-    session.set_path(session_file.clone());
-    session.rewrite().expect("session file");
+    let mut body = String::new();
+    for line in &lines {
+        body.push_str(&line.to_string());
+        body.push('\n');
+    }
+    std::fs::write(&session_file, body).expect("session file");
     let session_bytes = std::fs::read(&session_file).expect("session bytes");
 
     // A script the relaunched create would drive: on the unpatched base

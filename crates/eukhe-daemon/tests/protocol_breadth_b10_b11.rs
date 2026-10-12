@@ -626,16 +626,11 @@ fn wave_b11_saved_sessions_wire_shapes() {
     let saved_path = {
         let sessions_dir = agent_dir.join("sessions");
         std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
-        let mut session = eukhe_daemon::session_store::SessionFile::create(
-            dir.path().to_string_lossy().as_ref(),
-            None,
-            0,
-        );
-        let path = sessions_dir.join(eukhe_daemon::session_store::session_file_name(
-            session.session_id(),
-        ));
-        session.set_path(path.clone());
-        session.rewrite().expect("write saved session");
+        let id = uuid::Uuid::now_v7().to_string();
+        let path = sessions_dir.join(eukhe_daemon::session_store::session_file_name(&id));
+        let header = json!({"type": "session", "version": 3, "id": id,
+            "timestamp": "2026-01-01T00:00:00.000Z", "cwd": dir.path().to_string_lossy()});
+        std::fs::write(&path, format!("{header}\n")).expect("write saved session");
         path
     };
 

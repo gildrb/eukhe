@@ -232,27 +232,12 @@ impl SessionManager {
                 .cloned(),
         );
         let leaf = self.leaf_id.clone();
-        self.refresh_has_assistant_entry(&entries);
         self.file_entries = entries;
         self.build_index();
         self.leaf_id = leaf;
         self.window = None;
         Ok(())
     }
-    /// Session artifact directory (`dirname(sessionDir)/session-artifacts/<id>`,
-    /// TS `getSessionArtifactDir`); only persisted sessions have one.
-    #[must_use]
-    pub fn get_session_artifact_dir(&self) -> Option<std::path::PathBuf> {
-        self.persist
-            .then(|| {
-                self.session_dir
-                    .parent()
-                    .map(|root| root.join("session-artifacts"))
-            })
-            .flatten()
-            .map(|root| root.join(&self.session_id))
-    }
-
     #[must_use]
     pub fn get_cwd(&self) -> &Path {
         &self.cwd

@@ -241,21 +241,30 @@ fn write_models_json(agent_dir: &Path) {
 /// so the first open's legacy import holds the create open long enough for
 /// the second create to land inside the window the create gate guards.
 fn write_padded_session_file(dir: &Path) -> PathBuf {
-    let mut session =
-        eukhe_daemon::session_store::SessionFile::create(dir.to_str().expect("utf8 dir"), None, 0);
-    session.append_model_change("battery", "mock-1");
+    let id = uuid::Uuid::now_v7().to_string();
+    let mut lines = vec![
+        json!({"type": "session", "version": 3, "id": id, "timestamp": "2026-01-01T00:00:00.000Z",
+            "cwd": dir.to_str().expect("utf8 dir")}),
+        json!({"type": "model_change", "id": "m0", "parentId": null,
+            "timestamp": "2026-01-01T00:00:00.000Z", "provider": "battery", "modelId": "mock-1"}),
+    ];
+    let mut parent = "m0".to_string();
     for index in 0..2_000 {
-        session.append_message(&json!({
-            "role": "user",
-            "content": format!("filler {index}"),
-            "timestamp": index as u64,
+        let entry_id = format!("f{index}");
+        lines.push(json!({
+            "type": "message", "id": entry_id.clone(), "parentId": parent,
+            "timestamp": "2026-01-01T00:00:00.000Z",
+            "message": {"role": "user", "content": format!("filler {index}"), "timestamp": index as u64},
         }));
+        parent = entry_id;
     }
-    let path = dir.join(eukhe_daemon::session_store::session_file_name(
-        session.session_id(),
-    ));
-    session.set_path(path.clone());
-    session.rewrite().expect("write session file");
+    let mut body = String::new();
+    for line in &lines {
+        body.push_str(&line.to_string());
+        body.push('\n');
+    }
+    let path = dir.join(eukhe_daemon::session_store::session_file_name(&id));
+    std::fs::write(&path, body).expect("write session file");
     path
 }
 

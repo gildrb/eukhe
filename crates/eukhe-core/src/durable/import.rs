@@ -5,9 +5,10 @@
 //! entries, compactions as `pi.compaction` heads, custom rows as eukhe entry
 //! kinds (`crate::durable::entries`); the model, thinking level, and cwd
 //! become the root's `pi.agent`, the branch's goal state the goal doc.
-//! Everything lands in one commit inside a
-//! staging directory that is renamed into place, so `storage_dir` either
-//! holds the whole import or does not exist. The legacy file is only read.
+//! Everything lands in one commit inside a staging directory that is made
+//! durable and renamed into place ([`super::staging`]), so `storage_dir`
+//! either holds the whole import or does not exist. The legacy file is only
+//! read.
 
 mod plan;
 #[cfg(test)]
@@ -32,6 +33,7 @@ use eukhe_types::pi_ai::{Message, ModelThinkingLevel};
 use futures::FutureExt;
 
 use self::plan::{plan_import, ImportPlan, PlannedHead};
+use super::staging::{publish, staging_dir, StagingKind};
 use crate::durable::goals::import_legacy_goal;
 
 /// What [`import_legacy_session`] wrote.
@@ -54,7 +56,8 @@ pub struct ImportReport {
     pub skipped_rows: usize,
 }
 
-/// Why an import failed. Nothing is left at `storage_dir` then.
+/// Why an import failed. Nothing is left at `storage_dir` then, unless only
+/// the final sync of its parent directory failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
     #[error("{action} {}: {source}", path.display())]
@@ -93,7 +96,8 @@ pub enum ImportError {
 ///
 /// `storage_dir` exists; the legacy file cannot be read, has no header, or
 /// holds rows that do not convert; or writing the storage fails. On error
-/// nothing is left at `storage_dir`.
+/// nothing is left at `storage_dir`, unless only the final sync of its
+/// parent directory failed (the storage is complete then).
 pub async fn import_legacy_session(
     legacy: &Path,
     storage_dir: &Path,
@@ -116,7 +120,10 @@ pub async fn import_legacy_session(
             path: storage_dir.to_owned(),
         });
     }
-    let (parent, staging) = staging_dir(storage_dir)?;
+    let (parent, staging) =
+        staging_dir(storage_dir, StagingKind::Import).ok_or_else(|| ImportError::StorageDir {
+            path: storage_dir.to_owned(),
+        })?;
     tokio::fs::create_dir_all(&parent)
         .await
         .map_err(io("create", &parent))?;
@@ -125,22 +132,28 @@ pub async fn import_legacy_session(
         .map_err(io("create staging directory", &staging))?;
     let report = report(&plan);
     let written = match write_storage(&staging, plan, cx).await {
-        Ok(()) => tokio::fs::rename(&staging, storage_dir)
+        Ok(()) => publish(&staging, storage_dir, &parent)
             .await
-            .map_err(io("move import into", storage_dir)),
+            .map_err(|error| ImportError::Io {
+                action: error.action,
+                path: error.path,
+                source: error.source,
+            }),
         Err(error) => Err(error),
     };
     if let Err(error) = written {
-        if let Err(cleanup) = tokio::fs::remove_dir_all(&staging).await {
-            tracing::warn!(
-                staging = %staging.display(),
-                error = %cleanup,
-                "failed to remove the staging directory of a failed session import"
-            );
+        // A failed final sync already moved the staging directory into place.
+        if tokio::fs::try_exists(&staging).await.unwrap_or(true) {
+            if let Err(cleanup) = tokio::fs::remove_dir_all(&staging).await {
+                tracing::warn!(
+                    staging = %staging.display(),
+                    error = %cleanup,
+                    "failed to remove the staging directory of a failed session import"
+                );
+            }
         }
         return Err(error);
     }
-    sync_dir(&parent).await?;
     Ok(report)
 }
 
@@ -150,28 +163,6 @@ fn io<'a>(action: &'static str, path: &'a Path) -> impl FnOnce(std::io::Error) -
         path: path.to_owned(),
         source,
     }
-}
-
-/// The parent of `storage_dir` and a unique staging directory beside it
-/// (same filesystem, so the final rename is atomic).
-fn staging_dir(storage_dir: &Path) -> Result<(PathBuf, PathBuf), ImportError> {
-    let invalid = || ImportError::StorageDir {
-        path: storage_dir.to_owned(),
-    };
-    let name = storage_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(invalid)?;
-    let parent = match storage_dir.parent() {
-        Some(parent) if parent.as_os_str().is_empty() => PathBuf::from("."),
-        Some(parent) => parent.to_owned(),
-        None => return Err(invalid()),
-    };
-    let staging = parent.join(format!(".{name}.import-{}", uuid::Uuid::new_v4().simple()));
-    if staging.to_str().is_none() {
-        return Err(invalid());
-    }
-    Ok((parent, staging))
 }
 
 /// The legacy file as text. A crash mid-append can leave an unterminated
@@ -192,22 +183,6 @@ fn legacy_text(bytes: &[u8]) -> Result<&str, std::str::Utf8Error> {
         return Err(error);
     }
     std::str::from_utf8(&bytes[..complete])
-}
-
-/// Flush the directory entry of the renamed storage.
-async fn sync_dir(dir: &Path) -> Result<(), ImportError> {
-    let dir = dir.to_owned();
-    let synced = tokio::task::spawn_blocking({
-        let dir = dir.clone();
-        move || crate::platform::fs::sync_directory(&dir)
-    })
-    .await
-    .map_err(|join| ImportError::Io {
-        action: "sync",
-        path: dir.clone(),
-        source: std::io::Error::other(join),
-    })?;
-    synced.map_err(io("sync", &dir))
 }
 
 fn report(plan: &ImportPlan) -> ImportReport {

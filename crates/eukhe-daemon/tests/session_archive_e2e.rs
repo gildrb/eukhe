@@ -236,15 +236,21 @@ fn wait_until<T>(deadline: Duration, mut probe: impl FnMut() -> Option<T>) -> T 
 
 /// A saved session fixture: header + name + one user message.
 fn write_fixture(sessions_dir: &Path, name: &str) -> String {
-    let mut session = eukhe_daemon::session_store::SessionFile::create("/work", None, 0);
-    let id = session.session_id().to_string();
-    session.append_session_info(name);
-    session.append_message(&serde_json::json!({
-        "role": "user", "content": "hi", "timestamp": 1u64
-    }));
-    let path = sessions_dir.join(format!("{id}.jsonl"));
-    session.set_path(path);
-    session.rewrite().expect("write fixture session");
+    let id = uuid::Uuid::now_v7().to_string();
+    let at = "2026-01-01T00:00:00.000Z";
+    let lines = [
+        serde_json::json!({"type": "session", "version": 3, "id": id, "timestamp": at, "cwd": "/work"}),
+        serde_json::json!({"type": "session_info", "id": "i0", "parentId": null, "timestamp": at,
+            "name": name.trim()}),
+        serde_json::json!({"type": "message", "id": "m0", "parentId": "i0", "timestamp": at,
+            "message": {"role": "user", "content": "hi", "timestamp": 1u64}}),
+    ];
+    let mut body = String::new();
+    for line in &lines {
+        body.push_str(&line.to_string());
+        body.push('\n');
+    }
+    std::fs::write(sessions_dir.join(format!("{id}.jsonl")), body).expect("write fixture session");
     id
 }
 

@@ -1372,6 +1372,7 @@ async fn a_ledger_delete_of_a_stopped_child_tombstones_without_a_worker() {
         "{\"type\":\"session\",\"version\":3,\"id\":\"child-gone\",\"timestamp\":\"t\",\"cwd\":\"/c\"}\n",
     )
     .unwrap();
+    let child_bytes = std::fs::read(&child_file).unwrap();
     // The child's artifact partition exists (the stopped child's leftover):
     // the delete must sweep it exactly like a live child's kill route.
     let artifacts = agent_dir.join("session-artifacts").join("child-gone");
@@ -1431,17 +1432,22 @@ async fn a_ledger_delete_of_a_stopped_child_tombstones_without_a_worker() {
     assert!(miss.is_err(), "a selector with no edge must not delete");
     // The stopped child's delete teardown mirrors the resident delete's
     // end state (the second bot round's leftover-partition finding): the
-    // artifact partition is swept and the session file carries the
-    // archived state.
+    // artifact partition is swept and the session carries the archived
+    // state - in its imported durable storage, the legacy file untouched.
     assert!(
         !artifacts.exists(),
         "the deleted child's artifact partition must be swept"
     );
-    assert!(
-        std::fs::read_to_string(&child_file)
-            .expect("the child file survives (archived, not unlinked)")
-            .contains("archived"),
-        "the stopped child's delete must archive the session file"
+    assert_eq!(
+        std::fs::read(&child_file).expect("the child file survives (archived, not unlinked)"),
+        child_bytes,
+        "the archive never writes the legacy file"
+    );
+    assert_eq!(
+        crate::session_store::read_session_info(&sessions_dir.join("child-gone"))
+            .map(|info| info.state),
+        Some(Some("archived".to_owned())),
+        "the stopped child's delete must archive the session"
     );
 }
 

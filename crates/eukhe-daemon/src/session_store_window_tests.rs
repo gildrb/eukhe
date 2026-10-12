@@ -99,7 +99,7 @@ fn windowed_open_folds_attributions_on_both_sides_of_the_boundary() {
 }
 
 #[test]
-fn window_preserves_transcript_metadata_and_append_then_hydrate() {
+fn window_preserves_transcript_metadata_and_hydrates_pending_rows() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("session.jsonl");
     let mut full = SessionFile::create("/tmp", None, 0);
@@ -127,9 +127,7 @@ fn window_preserves_transcript_metadata_and_append_then_hydrate() {
     );
     full.append_message(&json!({"role":"user","content":"after","timestamp":221}));
     full.rewrite().unwrap();
-    let lease = crate::lease::acquire_runtime_session_lease(&path, dir.path()).unwrap();
     let mut window = SessionFile::open_windowed(&path).unwrap();
-    window.lease = Some(std::sync::Arc::new(lease));
     assert!(window.window.is_some());
     assert_eq!(window.messages(), full.messages());
     assert_eq!(
@@ -148,43 +146,13 @@ fn window_preserves_transcript_metadata_and_append_then_hydrate() {
         crate::session_stats::session_stats(&window, Some(100_000)),
         crate::session_stats::session_stats(&full, Some(100_000))
     );
-    assert!(window.rewrite().is_err());
-    window
-        .persist_entry(
-            "message",
-            json!({"message":{"role":"user","content":"appended","timestamp":222}}),
-        )
-        .unwrap();
-    let warm = eukhe_core::session::window::WindowedSessionStore::open(&path)
-        .unwrap()
-        .unwrap();
-    assert!(warm.read_stats().cache_hit);
-    window
-        .persist_entry("session_info", json!({"name":"renamed"}))
-        .unwrap();
-    window
-        .persist_entry("session_state", json!({"state":{"status":"active"}}))
-        .unwrap();
-    let reopened_window = SessionFile::open_windowed(&path).unwrap();
-    let reopened_full = SessionFile::open(&path).unwrap();
-    assert_eq!(reopened_window.messages(), reopened_full.messages());
-    assert_eq!(reopened_window.session_name(), Some("renamed"));
-    assert_eq!(reopened_window.state(), reopened_full.state());
-    assert_eq!(
-        crate::session_stats::session_stats(&reopened_window, Some(100_000)),
-        crate::session_stats::session_stats(&reopened_full, Some(100_000))
-    );
     window.append_session_info("pending name");
     let leaf = window.leaf_id.clone();
     window.ensure_full_history().unwrap();
     assert_eq!(window.leaf_id, leaf);
-    assert_eq!(window.message_count(), 223);
+    assert_eq!(window.message_count(), 222);
     assert_eq!(window.session_name(), Some("pending name"));
-    assert_eq!(window.entries.len(), full.entries.len() + 4);
-    window.rewrite().unwrap();
-    let reopened = SessionFile::open(&path).unwrap();
-    assert_eq!(reopened.messages(), window.messages());
-    assert_eq!(reopened.entries.len(), window.entries.len());
+    assert_eq!(window.entries.len(), full.entries.len() + 1);
 }
 
 #[test]
@@ -194,16 +162,12 @@ fn captured_window_matches_full_transcript_and_stats() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("capture.jsonl");
     std::fs::copy(source, &path).unwrap();
-    let lease = std::sync::Arc::new(
-        crate::lease::acquire_runtime_session_lease(&path, dir.path()).unwrap(),
-    );
     let start = std::time::Instant::now();
     let full = SessionFile::open(&path).unwrap();
     let full_elapsed = start.elapsed();
-    for phase in ["cold", "warm", "append-warm"] {
+    for phase in ["cold", "warm"] {
         let start = std::time::Instant::now();
-        let mut window = SessionFile::open_windowed(&path).unwrap();
-        window.lease = Some(lease.clone());
+        let window = SessionFile::open_windowed(&path).unwrap();
         let elapsed = start.elapsed();
         assert!(
             window.window.is_some(),
@@ -231,23 +195,14 @@ fn captured_window_matches_full_transcript_and_stats() {
             .unwrap()
             .unwrap();
         assert!(probe.read_stats().cache_hit);
-        eprintln!("phase={phase} full={full_elapsed:?} open={elapsed:?} bytes={} jsonl_bytes={} ranges={:?} entries={}/{}", path.metadata().unwrap().len(), probe.read_stats().jsonl_bytes, probe.read_stats().jsonl_ranges, window.entries.len(), full.entries.len());
-        if phase == "warm" {
-            let original = std::fs::read(&path).unwrap();
-            let started = std::time::Instant::now();
-            window
-                .persist_entry("session_state", json!({"state":{"status":"active"}}))
-                .unwrap();
-            eprintln!("resume_active_append={:?}", started.elapsed());
-            assert!(std::fs::read(&path).unwrap().starts_with(&original));
-            let maintained = eukhe_core::session::window::WindowedSessionStore::open(&path)
-                .unwrap()
-                .unwrap();
-            assert!(
-                maintained.read_stats().cache_hit,
-                "resume append must maintain warm cache"
-            );
-        }
+        eprintln!(
+            "phase={phase} full={full_elapsed:?} open={elapsed:?} bytes={} jsonl_bytes={} ranges={:?} entries={}/{}",
+            path.metadata().unwrap().len(),
+            probe.read_stats().jsonl_bytes,
+            probe.read_stats().jsonl_ranges,
+            window.entries.len(),
+            full.entries.len()
+        );
     }
 }
 

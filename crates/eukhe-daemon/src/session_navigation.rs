@@ -221,8 +221,9 @@ impl SessionNavigation {
                 )));
             }
             std::fs::create_dir_all(&sessions_dir)
-                .and_then(|()| std::fs::copy(input, &target).map(drop))
-                .map_err(|error| fail(error.to_string()))?;
+                .map_err(anyhow::Error::from)
+                .and_then(|()| publish_import_copy(input, &target))
+                .map_err(|error| fail(format!("{error:#}")))?;
         }
         let location = SessionLocation::Legacy(target);
         self.prepare_existing(COMMAND, live, &location, payload, agent_dir, cx)
@@ -302,6 +303,60 @@ fn sessions_dir_of(storage_dir: Option<&Path>, agent_dir: &Path) -> Result<PathB
         Some(dir) => Ok(dir.to_path_buf()),
         None => crate::paths::sessions_dir(agent_dir).map_err(|error| error.to_string()),
     }
+}
+
+/// Copy the import `source` to `destination` atomically: a hidden temp
+/// file in the destination's directory, fsynced, then published by a hard
+/// link, which (unlike a rename) refuses an existing destination - no
+/// reader sees a partial copy and nothing is overwritten. A destination
+/// already holding the source's bytes is the copy an earlier attempt
+/// published (an import refused at its cwd check, retried with an
+/// override) and stays as it is.
+///
+/// # Errors
+///
+/// The destination exists with other content, or the copy, sync, link, or
+/// temp removal fails.
+fn publish_import_copy(source: &Path, destination: &Path) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    let name = destination
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("invalid import destination {}", destination.display()))?;
+    let mut temp_name = std::ffi::OsString::from(".");
+    temp_name.push(name);
+    temp_name.push(format!(".import-{}.tmp", uuid::Uuid::new_v4().simple()));
+    let temp = destination.with_file_name(temp_name);
+    let published = std::fs::copy(source, &temp)
+        .with_context(|| format!("copy {} to {}", source.display(), temp.display()))
+        .and_then(|_| {
+            std::fs::File::open(&temp)
+                .and_then(|file| file.sync_all())
+                .with_context(|| format!("sync {}", temp.display()))
+        })
+        .and_then(|()| match std::fs::hard_link(&temp, destination) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let existing = std::fs::read(destination)
+                    .with_context(|| format!("read {}", destination.display()))?;
+                let copied =
+                    std::fs::read(&temp).with_context(|| format!("read {}", temp.display()))?;
+                anyhow::ensure!(
+                    existing == copied,
+                    "session file {} already exists",
+                    destination.display()
+                );
+                Ok(())
+            }
+            Err(error) => Err(error).with_context(|| {
+                format!("publish {} at {}", temp.display(), destination.display())
+            }),
+        });
+    let removed = match std::fs::remove_file(&temp) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("remove {}", temp.display())),
+    };
+    published.and(removed)
 }
 
 /// The create parameters of a replacement: the target, in `cwd` (else the

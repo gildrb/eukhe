@@ -897,8 +897,11 @@ failure_cases! {
     poisons_after_after_failure_at_flush_2_and_never_writes_a_marker => failure(Operation::Flush, 2, Mode::After),
 }
 
+/// An fsync storage flushes `main.jsonl` right after every marker append,
+/// before it acknowledges the commit; that flush also authorizes the
+/// reclamation that follows it.
 #[tokio::test]
-async fn orders_publication_flushes_exactly_and_flushes_main_only_to_authorize_reclamation() {
+async fn orders_publication_flushes_exactly_and_flushes_main_before_acknowledging() {
     for fsync in [false, true] {
         let directory = temp_directory();
         let env = InstrumentedEnv::new(&directory.path);
@@ -924,6 +927,9 @@ async fn orders_publication_flushes_exactly_and_flushes_main_only_to_authorize_r
             expected.push(format!("flush:doc-{first_id}.jsonl"));
         }
         expected.push("append:main.jsonl".to_owned());
+        if fsync {
+            expected.push("flush:main.jsonl".to_owned());
+        }
         assert_eq!(env.operations(), expected);
 
         env.clear();
@@ -959,7 +965,11 @@ async fn orders_publication_flushes_exactly_and_flushes_main_only_to_authorize_r
             })],
         )
         .await;
-        assert_eq!(env.operations(), vec!["append:main.jsonl".to_owned()]);
+        let mut expected = vec!["append:main.jsonl".to_owned()];
+        if fsync {
+            expected.push("flush:main.jsonl".to_owned());
+        }
+        assert_eq!(env.operations(), expected);
 
         let task_id = mint_task(&storage).await;
         commit_ok(
@@ -974,6 +984,38 @@ async fn orders_publication_flushes_exactly_and_flushes_main_only_to_authorize_r
             expected.push("flush:main.jsonl".to_owned());
         }
         expected.push(format!("remove:task-{task_id}.jsonl"));
+        assert_eq!(env.operations(), expected);
+    }
+}
+
+/// A commit that touches no sidecar still flushes its marker before it is
+/// acknowledged on an fsync storage, and never flushes without fsync.
+#[tokio::test]
+async fn flushes_main_after_the_marker_only_with_fsync() {
+    for fsync in [false, true] {
+        let directory = temp_directory();
+        let env = InstrumentedEnv::new(&directory.path);
+        let storage = open_instrumented(&directory.path, &env, fsync).await;
+        env.clear();
+        assert_eq!(
+            commit(
+                &storage,
+                vec![
+                    json!({ "type": "conversation", "value": { "id": ROOT_CONVERSATION_ID.get() } })
+                ],
+            )
+            .await
+            .map_err(|error| error.to_string()),
+            Ok(1)
+        );
+        let expected = if fsync {
+            vec![
+                "append:main.jsonl".to_owned(),
+                "flush:main.jsonl".to_owned(),
+            ]
+        } else {
+            vec!["append:main.jsonl".to_owned()]
+        };
         assert_eq!(env.operations(), expected);
     }
 }
@@ -1069,7 +1111,10 @@ failure_cases! {
     recovers_document_retirement_reclamation_across_remove_after => Mode::After,
 }
 
-async fn defers_reclamation_after_authorizing_main_flush_failure(mode: Mode) {
+/// A main flush that fails after the marker append poisons the storage and
+/// leaves the commit unacknowledged; the appended marker authorizes no
+/// reclamation until an open flushes it.
+async fn poisons_after_main_flush_failure_and_defers_reclamation(mode: Mode) {
     let directory = temp_directory();
     let env = InstrumentedEnv::new(&directory.path);
     let storage = open_instrumented(&directory.path, &env, true).await;
@@ -1084,10 +1129,8 @@ async fn defers_reclamation_after_authorizing_main_flush_failure(mode: Mode) {
     )
     .await;
     env.fail(failure(Operation::Flush, 2, mode));
-    assert_eq!(
-        commit_ok(&storage, vec![change(id, base(json!({ "count": 2 })))]).await,
-        3
-    );
+    let result = commit(&storage, vec![change(id, base(json!({ "count": 2 })))]).await;
+    assert!(message(result).contains("poisoned"));
     assert_eq!(
         env.operations(),
         vec![
@@ -1097,10 +1140,8 @@ async fn defers_reclamation_after_authorizing_main_flush_failure(mode: Mode) {
             "flush:main.jsonl".to_owned(),
         ]
     );
-    assert_eq!(
-        current_value(&storage, id).await,
-        Some(json!({ "count": 2 }))
-    );
+    let read = storage.document(id, DocumentPoint::Current, cx()).await;
+    assert!(message(read).contains("poisoned"));
     assert_eq!(
         read_lines(&directory.join(&format!("doc-{id}.jsonl"))).len(),
         2
@@ -1136,9 +1177,9 @@ async fn defers_reclamation_after_authorizing_main_flush_failure(mode: Mode) {
 }
 
 failure_cases! {
-    defers_reclamation_after_authorizing_main_flush_failure:
-    defers_reclamation_after_authorizing_main_flush_before_failure => Mode::Before,
-    defers_reclamation_after_authorizing_main_flush_after_failure => Mode::After,
+    poisons_after_main_flush_failure_and_defers_reclamation:
+    poisons_after_main_flush_before_failure_and_defers_reclamation => Mode::Before,
+    poisons_after_main_flush_after_failure_and_defers_reclamation => Mode::After,
 }
 
 async fn keeps_a_committed_base_usable_after_reclaim_temp_flush_failure(mode: Mode) {

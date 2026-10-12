@@ -205,31 +205,19 @@ fn ts_binary_session_header_round_trips() {
 // Session git-state lifecycle (TS session-manager-git-state.test.ts)
 // ---------------------------------------------------------------------------
 
-#[test]
-fn session_header_captures_git_context() {
-    let repo = tempfile::tempdir().unwrap();
-    let sessions = tempfile::tempdir().unwrap();
-    init_repo(repo.path());
-    git(
-        repo.path(),
-        &[
-            "remote",
-            "add",
-            "origin",
-            "https://github.com/acme/widgets.git",
-        ],
-    );
-    let sha = commit(repo.path(), "init");
-
-    let manager = SessionManager::persisted(repo.path(), sessions.path());
-    assert_eq!(
-        manager.get_header().and_then(|header| header.git.clone()),
-        Some(eukhe_types::session::GitContext {
-            repo_url: Some("https://github.com/acme/widgets.git".to_string()),
-            commit: Some(sha),
-            branch: Some("main".to_string()),
-        })
-    );
+/// A legacy session file whose header carries the repo's current git
+/// context (the header the TS writer stamps), loaded read-only.
+fn session_at_head(repo: &Path, sessions: &Path) -> SessionManager {
+    let header = serde_json::json!({
+        "type": "session", "version": 3, "id": "git-session",
+        "timestamp": "2026-01-01T00:00:00.000Z", "cwd": repo.display().to_string(),
+        "git": capture_git_context(repo),
+    });
+    let file = sessions.join("git-session.jsonl");
+    std::fs::write(&file, format!("{header}\n")).unwrap();
+    let mut manager = SessionManager::in_memory(repo);
+    manager.set_session_file(file, None);
+    manager
 }
 
 #[test]
@@ -239,7 +227,7 @@ fn no_git_state_entry_when_nothing_changed() {
     init_repo(repo.path());
     commit(repo.path(), "init");
 
-    let mut manager = SessionManager::persisted(repo.path(), sessions.path());
+    let mut manager = session_at_head(repo.path(), sessions.path());
     assert_eq!(
         manager.record_git_state_if_changed(capture_git_context(repo.path()).unwrap()),
         None
@@ -258,7 +246,7 @@ fn records_git_state_when_commit_changes() {
     commit(repo.path(), "init");
 
     // The header captures the first commit; the run lands on the second.
-    let mut manager = SessionManager::persisted(repo.path(), sessions.path());
+    let mut manager = session_at_head(repo.path(), sessions.path());
     let second_sha = commit(repo.path(), "second");
     assert!(manager
         .record_git_state_if_changed(capture_git_context(repo.path()).unwrap())
@@ -289,8 +277,8 @@ fn re_records_git_state_on_branch_without_it_on_active_path() {
     init_repo(repo.path());
     commit(repo.path(), "init");
 
-    let mut manager = SessionManager::persisted(repo.path(), sessions.path());
-    let msg_id = manager.append_message(user("hi")).unwrap();
+    let mut manager = session_at_head(repo.path(), sessions.path());
+    let msg_id = manager.append_message(user("hi"));
     commit(repo.path(), "second");
     assert!(manager
         .record_git_state_if_changed(capture_git_context(repo.path()).unwrap())
@@ -312,7 +300,7 @@ fn git_state_entries_stay_out_of_llm_context() {
     init_repo(repo.path());
     commit(repo.path(), "init");
 
-    let mut manager = SessionManager::persisted(repo.path(), sessions.path());
+    let mut manager = session_at_head(repo.path(), sessions.path());
     commit(repo.path(), "second");
     manager.record_git_state_if_changed(capture_git_context(repo.path()).unwrap());
     let context = eukhe_core::session::build_session_context(

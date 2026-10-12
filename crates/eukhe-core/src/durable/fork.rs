@@ -1,9 +1,9 @@
 //! Forking a session into a new storage: the source (a durable storage, or a
 //! legacy file imported on the way) is copied into a staging directory
 //! beside `new_dir`, its main conversation is forked there and recorded as
-//! the copy's main conversation, and the staging directory is renamed into
-//! place, so `new_dir` holds the whole fork or does not exist. The source is
-//! only read.
+//! the copy's main conversation, and the staging directory is made durable
+//! and renamed into place ([`super::staging`]), so `new_dir` holds the whole
+//! fork or does not exist. The source is only read.
 
 #[cfg(test)]
 mod tests;
@@ -30,10 +30,15 @@ use futures::FutureExt;
 use super::discovery::SessionLocation;
 use super::import::{import_legacy_session, ImportError};
 use super::main_conversation::{main_conversation, set_main_conversation};
+use super::staging::{publish, staging_dir, StagingKind};
 use crate::session::manager::read_session_header;
 
-/// The durable storage's commit log, copied first (see [`copy_storage`]).
+/// The durable storage's commit log, copied last (see [`copy_storage`]).
 const MAIN_FILE: &str = "main.jsonl";
+
+/// Copies of a source that keeps publishing commits [`copy_storage`] takes
+/// before it gives up.
+const COPY_ATTEMPTS: usize = 8;
 
 /// Where the fork starts in the source's main conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +62,8 @@ pub struct ForkedSession {
     pub main: ConversationId,
 }
 
-/// Why a fork failed. Nothing is left at `new_dir` then.
+/// Why a fork failed. Nothing is left at `new_dir` then, unless only the
+/// final sync of its parent directory failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ForkError {
     #[error("Cannot fork: source session not found: {}", path.display())]
@@ -77,6 +83,11 @@ pub enum ForkError {
         #[source]
         source: std::io::Error,
     },
+    #[error(
+        "Cannot fork: source session {} kept committing through {attempts} copy attempts",
+        path.display()
+    )]
+    SourceBusy { path: PathBuf, attempts: usize },
     #[error("failed to import legacy session {}: {source}", path.display())]
     Import {
         path: PathBuf,
@@ -94,13 +105,15 @@ pub enum ForkError {
 /// copy's main conversation (`eukhe.session`). `cwd` (when given) becomes the
 /// fork's `pi.agent` cwd in the same commit.
 ///
-/// A durable source being written by another process is copied commit log
-/// first, so the copy holds a consistent prefix of its commits.
+/// A durable source being written by another process is copied as one
+/// consistent snapshot of its commits (see [`copy_storage`]).
 ///
 /// # Errors
 ///
 /// The source is missing or invalid, `new_dir` exists, or copying, the
-/// import, or the fork commit fails. On error nothing is left at `new_dir`.
+/// import, or the fork commit fails. On error nothing is left at `new_dir`,
+/// unless only the final sync of its parent directory failed (the fork is
+/// complete then).
 pub async fn fork_session(
     source: &SessionLocation,
     at: ForkPoint,
@@ -147,16 +160,23 @@ async fn fork_into(
             path: new_dir.to_owned(),
         });
     }
-    let (parent, staging) = staging_dir(new_dir)?;
+    let (parent, staging) =
+        staging_dir(new_dir, StagingKind::Fork).ok_or_else(|| ForkError::TargetDir {
+            path: new_dir.to_owned(),
+        })?;
     tokio::fs::create_dir_all(&parent)
         .await
         .map_err(io("create", &parent))?;
     let forked = async {
         populate(source, &staging, cx).await?;
         let main = fork_storage(&staging, conversation, at, cwd, cx).await?;
-        tokio::fs::rename(&staging, new_dir)
+        publish(&staging, new_dir, &parent)
             .await
-            .map_err(io("move fork into", new_dir))?;
+            .map_err(|error| ForkError::Io {
+                action: error.action,
+                path: error.path,
+                source: error.source,
+            })?;
         Ok(main)
     }
     .await;
@@ -236,28 +256,6 @@ pub async fn fork_main_conversation(
     harness.create_conversation(options, cx).await
 }
 
-/// The parent of `new_dir` and a unique staging directory beside it (same
-/// filesystem, so the final rename is atomic).
-fn staging_dir(new_dir: &Path) -> Result<(PathBuf, PathBuf), ForkError> {
-    let invalid = || ForkError::TargetDir {
-        path: new_dir.to_owned(),
-    };
-    let name = new_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(invalid)?;
-    let parent = match new_dir.parent() {
-        Some(parent) if parent.as_os_str().is_empty() => PathBuf::from("."),
-        Some(parent) => parent.to_owned(),
-        None => return Err(invalid()),
-    };
-    let staging = parent.join(format!(".{name}.fork-{}", uuid::Uuid::new_v4().simple()));
-    if staging.to_str().is_none() {
-        return Err(invalid());
-    }
-    Ok((parent, staging))
-}
-
 /// Fill the missing `staging` with the source's storage.
 async fn populate(source: &SessionLocation, staging: &Path, cx: &Context) -> Result<(), ForkError> {
     let storage_dir = source.storage_dir();
@@ -304,19 +302,74 @@ async fn is_storage(dir: &Path) -> bool {
         .is_ok_and(|metadata| metadata.is_file())
 }
 
-/// Copy the storage `source` into the missing `target`: the commit log
-/// first, then every other file and directory. Sidecar records a concurrent
-/// writer appends meanwhile stay unconfirmed in the copy and are dropped
-/// when it opens.
+/// Copy the storage `source` into the missing `target` as one consistent
+/// snapshot, also while another process commits to it.
+///
+/// The invariant is the JSONL storage's commit order: a commit appends its
+/// sidecar records, then its `main.jsonl` marker, and only after that marker
+/// reclaims (rewrites or removes) the sidecars it made unneeded; `main.jsonl`
+/// itself only grows. So every other file is copied first and `main.jsonl`
+/// last, and the copy stands when `main.jsonl` had the copied length before
+/// anything was copied: no commit was published meanwhile, so the sidecar
+/// records every copied marker needs were appended before the copy began,
+/// every reclamation the copy saw was authorized by a copied marker, and the
+/// records of later commits are unconfirmed tails the copy drops when it
+/// opens. A commit published mid-copy can tear the copy (its marker needs a
+/// record appended after its sidecar was copied), so that copy is discarded
+/// and taken again, at most [`COPY_ATTEMPTS`] times.
 async fn copy_storage(source: &Path, target: &Path) -> Result<(), ForkError> {
+    for _ in 0..COPY_ATTEMPTS {
+        let published = copy_without_main(source, target).await?;
+        match finish_copy(source, target, published).await? {
+            Snapshot::Consistent => return Ok(()),
+            Snapshot::Torn => tokio::fs::remove_dir_all(target)
+                .await
+                .map_err(io("remove torn copy", target))?,
+        }
+    }
+    Err(ForkError::SourceBusy {
+        path: source.to_owned(),
+        attempts: COPY_ATTEMPTS,
+    })
+}
+
+/// Whether a copy of a storage holds one snapshot of its commits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Snapshot {
+    /// No commit was published while the copy was taken.
+    Consistent,
+    /// A commit was published meanwhile; the copy may lack its records.
+    Torn,
+}
+
+/// The first step of a [`copy_storage`] attempt: create `target` and copy
+/// every entry of `source` but `main.jsonl` into it. Returns the length
+/// `main.jsonl` had before.
+async fn copy_without_main(source: &Path, target: &Path) -> Result<u64, ForkError> {
     tokio::fs::create_dir(target)
         .await
         .map_err(io("create staging directory", target))?;
     let main = source.join(MAIN_FILE);
-    tokio::fs::copy(&main, target.join(MAIN_FILE))
+    let published = tokio::fs::metadata(&main)
+        .await
+        .map_err(io("inspect", &main))?
+        .len();
+    copy_dir_contents(source, target, Some(MAIN_FILE)).await?;
+    Ok(published)
+}
+
+/// The last step of a [`copy_storage`] attempt: copy `main.jsonl`, whose
+/// length was `published` before [`copy_without_main`], and judge the copy.
+async fn finish_copy(source: &Path, target: &Path, published: u64) -> Result<Snapshot, ForkError> {
+    let main = source.join(MAIN_FILE);
+    let copied = tokio::fs::copy(&main, target.join(MAIN_FILE))
         .await
         .map_err(io("copy", &main))?;
-    copy_dir_contents(source, target, Some(MAIN_FILE)).await
+    Ok(if copied == published {
+        Snapshot::Consistent
+    } else {
+        Snapshot::Torn
+    })
 }
 
 /// Copy the entries of `source` into the existing `target`, recursively,

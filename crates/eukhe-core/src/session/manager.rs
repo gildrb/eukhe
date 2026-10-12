@@ -1,8 +1,8 @@
-//! `SessionManager`: the stateful session writer. Port of the class half of
-//! core/session-manager.ts (create/new/append/persist, crash repair, index).
+//! `SessionManager`: the in-memory session model. Port of the class half of
+//! core/session-manager.ts (load, new, append, index) without its file
+//! writes: legacy session files are read-only import/export sources.
 
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use eukhe_types::session::{
@@ -20,24 +20,14 @@ use super::{migrate_to_current_version, parse_session_entries, CURRENT_SESSION_V
 #[cfg(test)]
 mod tests;
 
-// The append concern (the append family: messages, retained variants,
-// changes, compactions, customs, child-usage attributions, session
-// info/state - and the leaf/label mutators) moved to the child module at
-// the same tree position (session::manager::append); every member keeps
-// its pub/pub(crate) level (manager_ext.rs + the daemon callers resolve
-// through the type). ZERO bumps.
+// The append concern (the in-memory append family: messages, changes,
+// compactions, customs, child-usage attributions, session info/state -
+// and the leaf/label mutators) lives in the child module at the same tree
+// position (session::manager::append).
 mod append;
 
-// The persist concern (the entry index, the rewrite/flush/notify plumbing,
-// the durable append arm, and the atomic write) moved to the child module
-// at the same tree position (session::manager::persist); the pub(super)
-// bumps carry the cross-child callers (lifecycle/queries refresh +
-// build_index + rewrite_file; append persist_entry; repair atomic_write)
-// and the binding row serves the repair child bare call. on_persist,
-// is_persisted + flush_now keep their pub levels; try_rewrite_file +
-// notify_persist_listeners stay private (child-internal callers).
-mod persist;
-use persist::atomic_write;
+// The entry index (by-id and label maps rebuilt from the entry chain).
+mod index;
 
 // The queries concern (the derived state + accessor arm: the active
 // context/history snapshot, the branch scans, the window-backed reads,
@@ -48,12 +38,11 @@ use persist::atomic_write;
 mod queries;
 use super::{build_session_context, SessionContext};
 
-// The lifecycle concern (the constructors, the open/fork/new/materialize/
-// adopt arm, and the fork branch-copy helpers) moved to the child module
-// at the same tree position (session::manager::lifecycle); every member
-// keeps its pub level (external callers resolve through the type), the
+// The lifecycle concern (the constructors and the load/new/adopt arm)
+// moved to the child module at the same tree position
+// (session::manager::lifecycle); every member keeps its pub level, the
 // child resolves the facade re-exports/bindings via its use-super glob,
-// and the `use super::window;` module binding serves the childrens
+// and the `use super::window;` module binding serves the children's
 // super::window:: paths (open_windowed, adopt_window,
 // set_append_ownership).
 mod lifecycle;
@@ -75,8 +64,7 @@ pub use ids::{format_iso, format_iso_now, get_session_file_path};
 // RLM depth resolution) moved to the child module at the same tree
 // position (session::manager::header); the re-export keeps the pub API
 // path stable (discovery.rs) and the pub(super) bindings keep the
-// constructors' bare calls in scope (set_session_file, new_session,
-// fork_from, materialize_session_file).
+// constructors' bare calls in scope (set_session_file, new_session).
 mod header;
 pub use header::read_session_header;
 use header::{is_valid_rlm_depth, resolve_session_rlm_depth, root_rlm_depth_from_env};
@@ -89,19 +77,11 @@ use header::{is_valid_rlm_depth, resolve_session_rlm_depth, root_rlm_depth_from_
 mod git;
 pub use git::capture_git_context;
 
-// The crash-repair + load concern (the serialized entry wire, the
-// bounded damage scan, the torn-tail repair, and the header-validating
-// load) moved to the child module at the same tree position
-// (session::manager::repair); the re-export keeps the pub API path stable
-// (zero external callers - the find_most_recent_session_for_cwd
-// precedent) and the bindings keep the bare-path callers in scope (the
-// persist/append write arms + the test child).
-mod repair;
-pub use repair::load_entries_from_file;
-use repair::serialize_entry;
-
-/// A persist observer; must not break session writes (panics are contained).
-pub type SessionPersistListener = Box<dyn Fn(&Path) + Send + Sync>;
+// The load concern (the header-validating legacy-file load) lives in the
+// child module at the same tree position (session::manager::load); the
+// re-export keeps the pub API path stable.
+mod load;
+pub use load::load_entries_from_file;
 
 /// Options for creating a new session.
 #[derive(Default)]
@@ -111,22 +91,18 @@ pub struct NewSessionOptions {
     pub rlm_depth: Option<u64>,
 }
 
-/// The stateful session writer/reader.
-// The mirrored TS API shape is deliberate (the booleans are the
-// product's own surface, not a refactor target).
-#[allow(clippy::struct_excessive_bools)]
+/// The in-memory session model over a legacy session file: the loader the
+/// legacy export reads through, plus the in-memory entry chain. It never
+/// writes the session file; sessions persist through durable storage.
 pub struct SessionManager {
     session_id: String,
     session_file: Option<PathBuf>,
     session_dir: PathBuf,
     cwd: PathBuf,
-    persist: bool,
-    /// Whether the manager carries a session directory of its own (any
-    /// persisted manager, and the daemon's mirrored engine session): the
-    /// session-owned artifacts (local harness state) resolve under it.
+    /// Whether the manager carries a session directory of its own (the
+    /// daemon's mirrored engine session): the session-owned artifacts
+    /// (local harness state) resolve under it.
     session_dir_backed: bool,
-    flushed: bool,
-    has_assistant_entry: bool,
     append_ownership: super::window::AppendOwnership,
     file_entries: Vec<FileEntry>,
     window: Option<super::window::WindowedSessionStore>,
@@ -134,5 +110,4 @@ pub struct SessionManager {
     labels_by_id: HashMap<String, String>,
     label_timestamps_by_id: HashMap<String, String>,
     leaf_id: Option<String>,
-    persist_listeners: Vec<SessionPersistListener>,
 }

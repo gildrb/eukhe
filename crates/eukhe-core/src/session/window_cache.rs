@@ -163,73 +163,15 @@ pub fn flush(path: &Path) -> io::Result<()> {
         None => Ok(()),
     }
 }
-/// Ownership required before extending a certified session snapshot.
+/// Whether the caller holds the session's exclusive runtime lease: only a
+/// lease holder may serve its retained rows as the historical snapshot
+/// (no other writer can extend the file under it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppendOwnership {
-    /// Caller retains the canonical session's exclusive runtime lease through
-    /// this entire call. Noncooperative external writes are unsupported.
+    /// Caller retains the canonical session's exclusive runtime lease.
     SessionLeaseHeld,
-    /// No runtime lease: append without publishing an incremental snapshot.
+    /// No runtime lease: another writer may extend the file.
     Unleased,
-}
-/// Append authoritative JSONL bytes. Only a caller holding the existing session
-/// lease may incrementally certify the cache. Rows must have fresh writer IDs.
-/// Cache failures never fail a successful durable append.
-///
-/// # Errors
-///
-/// Returns the underlying I/O error while performing the durable append
-/// itself (open, write, flush, sync); a failed incremental cache
-/// certification is dropped, not surfaced.
-pub fn append_cached(path: &Path, bytes: &[u8], ownership: AppendOwnership) -> io::Result<()> {
-    let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
-    file.write_all(bytes)?;
-    file.flush()?;
-    crate::platform::fsync(&file)?;
-    if ownership != AppendOwnership::SessionLeaseHeld || !bytes.ends_with(b"\n") {
-        if let Ok(mut snapshots) = live_snapshots().lock() {
-            snapshots.remove(path);
-        }
-        return Ok(());
-    }
-    let generation = Generation::of(&file.metadata()?);
-    let Ok(text) = std::str::from_utf8(bytes) else {
-        return Ok(());
-    };
-    let Ok(mut snapshots) = live_snapshots().lock() else {
-        return Ok(());
-    };
-    let Some(snapshot) = snapshots.get_mut(path) else {
-        return Ok(());
-    };
-    for line in text.lines() {
-        let Ok(entry) = serde_json::from_str::<eukhe_types::session::FileEntry>(line) else {
-            snapshots.remove(path);
-            return Ok(());
-        };
-        if entry.parent_id() != Some(snapshot.leaf.as_str())
-            || matches!(
-                entry,
-                eukhe_types::session::FileEntry::Compaction { .. }
-                    | eukhe_types::session::FileEntry::ChildUsageAttributed { .. }
-            )
-        {
-            snapshots.remove(path);
-            return Ok(());
-        }
-        let Some(id) = entry.id() else {
-            snapshots.remove(path);
-            return Ok(());
-        };
-        if id == snapshot.leaf {
-            snapshots.remove(path);
-            return Ok(());
-        }
-        id.clone_into(&mut snapshot.leaf);
-        super::window::update_snapshot(snapshot, &entry);
-    }
-    snapshot.generation = generation;
-    Ok(())
 }
 
 // JSON decimal parsing need not round-trip every IEEE value. The subtotal must

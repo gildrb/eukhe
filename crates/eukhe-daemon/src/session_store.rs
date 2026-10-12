@@ -38,7 +38,6 @@ mod window_tests;
 mod index;
 
 use index::fold_child_usage_attributions;
-pub(crate) use index::new_entry_id;
 
 // The read arm (the file-IO load surface: the streamed and windowed
 // opens, the bounded header-only readers, the file-layout helpers, and the
@@ -56,14 +55,14 @@ pub(crate) use read::{
     parse_session_header_line, read_first_line_bounded, read_first_line_bounded_from,
 };
 
-// The write arm (the in-memory append family, the atomic full-file
-// rewrite, the durable persist paths, and the store lease discipline that
-// serializes writers onto the file) moved to the child module at the same
-// tree position (session_store::write); the facade re-export keeps the
-// header-line API path stable for the rewrite arm and the unit battery.
+// The unit-test fixture builder (the in-memory append family and the
+// plain full-file write the unit battery seeds legacy JSONL files with).
+// Production never writes legacy session files: sessions persist through
+// durable storage, and the legacy files are read-only import sources.
+#[cfg(test)]
 mod write;
 
-pub use write::session_header_line;
+pub use read::session_header_line;
 
 // The loaded-session view (the branch walks, the window/settings reads,
 // the compacted message fold and its scalars, and the wire-shape message
@@ -165,14 +164,11 @@ pub struct SessionFile {
     pub(crate) by_id: HashMap<String, usize>,
     pub(crate) leaf_id: Option<String>,
     pub(crate) window: Option<SessionWindow>,
-    pub(crate) lease: Option<std::sync::Arc<crate::lease::SessionLease>>,
     /// Whether this session has already drawn the Anthropic subscription
     /// ban-risk warning (the once-per-session-lifecycle gate, operator
     /// directive 2026-09-29): hydrated from the persisted
     /// [`eukhe_core::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE`] row at open
-    /// (full or windowed), flipped by
-    /// [`SessionFile::mark_anthropic_warning_shown`]. Client-facing reads
-    /// serve it through `get_state`
+    /// (full or windowed). Client-facing reads serve it through `get_state`
     /// (`SessionSummary::anthropic_warning_shown`).
     pub(crate) anthropic_warning_shown: bool,
 }

@@ -468,12 +468,13 @@ fn concurrent_creates_for_one_file_share_a_single_launch() {
     // The saved, unserved session: a valid file no worker hosts.
     let sessions_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
-    let mut saved =
-        eukhe_daemon::session_store::SessionFile::create(&dir.path().to_string_lossy(), None, 0);
-    let session_path = sessions_dir.join(format!("{}.jsonl", saved.session_id()));
-    saved.set_path(session_path.clone());
-    saved.append_session_state("active");
-    saved.rewrite().expect("write the saved session");
+    let saved_id = uuid::Uuid::now_v7().to_string();
+    let session_path = sessions_dir.join(format!("{saved_id}.jsonl"));
+    let header = json!({"type": "session", "version": 3, "id": saved_id,
+        "timestamp": "2026-01-01T00:00:00.000Z", "cwd": dir.path().to_string_lossy()});
+    let state = json!({"type": "session_state", "id": "s0", "parentId": null,
+        "timestamp": "2026-01-01T00:00:00.000Z", "state": {"status": "active"}});
+    std::fs::write(&session_path, format!("{header}\n{state}\n")).expect("write the saved session");
 
     // Two panes open the SAME file concurrently: both requests are in
     // flight before either answers.

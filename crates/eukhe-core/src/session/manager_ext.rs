@@ -53,18 +53,12 @@ impl SessionManager {
     }
 
     /// Append a `git_state` row; returns the new entry id.
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
-    pub fn append_git_state(&mut self, git: GitContext) -> std::io::Result<String> {
+    pub fn append_git_state(&mut self, git: GitContext) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         self.append_entry(FileEntry::GitState {
             payload: GitStateEntry { git },
             base,
-        })?;
-        Ok(id)
+        })
     }
 
     /// Append `git` as a `git_state` row when it differs from the nearest
@@ -73,7 +67,7 @@ impl SessionManager {
         if self.active_git_context().as_ref() == Some(&git) {
             return None;
         }
-        self.append_git_state(git).ok()
+        Some(self.append_git_state(git))
     }
 
     fn active_git_context(&self) -> Option<GitContext> {
@@ -87,19 +81,14 @@ impl SessionManager {
     }
 
     /// Append a custom message entry; returns the new entry id.
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
     pub fn append_custom_message_entry(
         &mut self,
         custom_type: &str,
         content: eukhe_types::ai::UserContent,
         display: bool,
         details: Option<serde_json::Value>,
-    ) -> std::io::Result<String> {
+    ) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         self.append_entry(FileEntry::CustomMessage {
             payload: CustomMessageEntry {
                 custom_type: custom_type.to_string(),
@@ -109,40 +98,30 @@ impl SessionManager {
                 rest: serde_json::Map::default(),
             },
             base,
-        })?;
-        Ok(id)
+        })
     }
 
     /// Append a label change for a target entry.
     ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
-    ///
     /// # Panics
     ///
     /// Asserts that the target entry exists.
-    pub fn append_label_change(
-        &mut self,
-        target_id: &str,
-        label: Option<&str>,
-    ) -> std::io::Result<String> {
+    pub fn append_label_change(&mut self, target_id: &str, label: Option<&str>) -> String {
         assert!(
             self.get_entry_by_id(target_id).is_some(),
             "Entry {target_id} not found"
         );
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         let timestamp = base.timestamp.clone().unwrap_or_default();
-        self.append_entry(FileEntry::Label {
+        let id = self.append_entry(FileEntry::Label {
             payload: LabelEntry {
                 target_id: target_id.to_string(),
                 label: label.map(str::to_string),
             },
             base,
-        })?;
+        });
         self.apply_label_entry(target_id, label, &timestamp);
-        Ok(id)
+        id
     }
 
     /// `getFlatTree`: every entry in file order with its active label and
@@ -218,11 +197,6 @@ impl SessionManager {
 
     /// Branch with a summary message describing what the abandoned branch held.
     ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append of the
-    /// summary row fails; the leaf is restored to its previous position.
-    ///
     /// # Panics
     ///
     /// Asserts that the given branch target entry exists.
@@ -233,20 +207,16 @@ impl SessionManager {
         details: Option<serde_json::Value>,
         from_hook: Option<bool>,
         usage: Option<eukhe_types::ai::Usage>,
-    ) -> std::io::Result<String> {
-        let previous_leaf = self.get_leaf_id().map(str::to_string);
+    ) -> String {
         if let Some(branch_from_id) = branch_from_id {
             assert!(
                 self.get_entry_by_id(branch_from_id).is_some(),
                 "Entry {branch_from_id} not found"
             );
-            self.set_leaf_id(Some(branch_from_id));
-        } else {
-            self.set_leaf_id(None);
         }
+        self.set_leaf_id(branch_from_id);
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
-        let appended = self.append_entry(FileEntry::BranchSummary {
+        self.append_entry(FileEntry::BranchSummary {
             payload: eukhe_types::session::BranchSummaryEntry {
                 from_id: branch_from_id.map_or_else(|| "root".to_string(), str::to_string),
                 summary: summary.to_string(),
@@ -255,13 +225,7 @@ impl SessionManager {
                 usage,
             },
             base,
-        });
-        if let Err(error) = appended {
-            // The move must not outlive the failed append.
-            self.set_leaf_id(previous_leaf.as_deref());
-            return Err(error);
-        }
-        Ok(id)
+        })
     }
 }
 
@@ -327,18 +291,15 @@ mod tests {
     #[test]
     fn branch_and_summary() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().join("sessions");
-        let mut manager = SessionManager::persisted(tmp.path(), &dir);
-        let a = manager.append_message(user("first")).unwrap();
-        let b = manager.append_message(assistant()).unwrap();
+        let mut manager = SessionManager::in_memory(tmp.path());
+        let a = manager.append_message(user("first"));
+        let b = manager.append_message(assistant());
         assert_eq!(manager.get_branch(None).len(), 2);
         // Branch from a: the path is just [a].
         manager.branch(&a);
         assert_eq!(manager.get_branch(None).len(), 1);
         // Append after branching creates a sibling of b.
-        let summary_id = manager
-            .branch_with_summary(Some(&a), "went back", None, None, None)
-            .unwrap();
+        let summary_id = manager.branch_with_summary(Some(&a), "went back", None, None, None);
         assert!(manager.get_entry_by_id(&summary_id).is_some());
         // b still exists (sibling branch).
         assert!(manager.get_entry_by_id(&b).is_some());
@@ -349,10 +310,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut manager = SessionManager::in_memory(tmp.path());
         // Creation prefix only: no user content.
-        manager.append_model_change("openai", "m").unwrap();
-        manager.append_thinking_level_change("medium").unwrap();
+        manager.append_model_change("openai", "m");
+        manager.append_thinking_level_change("medium");
         assert!(!manager.has_user_content());
-        manager.append_message(user("real content")).unwrap();
+        manager.append_message(user("real content"));
         assert!(manager.has_user_content());
     }
 
@@ -360,12 +321,12 @@ mod tests {
     fn labels_on_active_branch() {
         let tmp = tempfile::tempdir().unwrap();
         let mut manager = SessionManager::in_memory(tmp.path());
-        let a = manager.append_message(user("first")).unwrap();
-        let label_entry = manager.append_label_change(&a, Some("checkpoint")).unwrap();
+        let a = manager.append_message(user("first"));
+        let label_entry = manager.append_label_change(&a, Some("checkpoint"));
         assert!(manager.get_entry_by_id(&label_entry).is_some());
         assert_eq!(manager.get_label(&a).as_deref(), Some("checkpoint"));
         // Clear the label.
-        manager.append_label_change(&a, None).unwrap();
+        manager.append_label_change(&a, None);
         assert_eq!(manager.get_label(&a), None);
     }
 }

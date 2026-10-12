@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub const SESSION_LEASES_ENABLED_ENV: &str = "EUKHE_INTERNAL_SESSION_LEASES";
 pub const SESSION_LEASE_OWNER_ID_ENV: &str = "EUKHE_INTERNAL_SESSION_LEASE_OWNER_ID";
@@ -198,11 +198,6 @@ const FAST_GUARD_ATTEMPTS: u32 = 100;
 /// stale reclaim and the next acquisition attempt.
 const THROUGH_STALE_SLACK: Duration = Duration::from_millis(500);
 
-/// How long `release` drains an append already inside its write before the
-/// lease directory is removed anyway: appends are file writes at most, so
-/// this bounds a wedged device, not a normal turn.
-const APPEND_DRAIN_AFTER: Duration = Duration::from_secs(10);
-
 /// How long a guard acquisition waits for a foreign holder.
 #[derive(Clone, Copy)]
 enum GuardWait {
@@ -310,10 +305,6 @@ pub struct SessionLease {
     directory: PathBuf,
     token: String,
     released: std::sync::atomic::AtomicBool,
-    /// Appends between `append`'s released-check and its write: `release`
-    /// drains this before removing the lease directory, so no row lands
-    /// behind a successor's acquire.
-    append_in_flight: std::sync::atomic::AtomicUsize,
 }
 
 impl SessionLease {
@@ -323,21 +314,6 @@ impl SessionLease {
             .swap(true, std::sync::atomic::Ordering::SeqCst)
         {
             return;
-        }
-        // Fence against a concurrent append: one already past its
-        // released-check must land before the lease directory is removed,
-        // or its row reaches the file after a successor acquires and the
-        // window cache certifies a generation the new owner never saw.
-        // New appends are refused from the swap above; this only drains
-        // writes already in flight.
-        let drain_deadline = Instant::now() + APPEND_DRAIN_AFTER;
-        while self
-            .append_in_flight
-            .load(std::sync::atomic::Ordering::SeqCst)
-            > 0
-            && Instant::now() < drain_deadline
-        {
-            std::thread::yield_now();
         }
         let _ = eukhe_core::session::window::flush_cache(&self.opened_path);
         // The usage-scan sidecar persists beside the window snapshot, in
@@ -359,42 +335,6 @@ impl SessionLease {
 impl Drop for SessionLease {
     fn drop(&mut self) {
         self.release();
-    }
-}
-
-impl SessionLease {
-    pub(crate) fn acquire_target(&self, path: &Path) -> Result<std::sync::Arc<Self>> {
-        let agent_dir = self
-            .directory
-            .parent()
-            .and_then(Path::parent)
-            .expect("lease directory has agent root");
-        acquire_runtime_session_lease(path, agent_dir).map(std::sync::Arc::new)
-    }
-
-    /// Append one row under the held lease. The lease is exclusive from
-    /// acquire to release, so the append takes no guard and re-reads no
-    /// owner: the released-check plus the in-flight fence `release`
-    /// drains is the whole ownership proof.
-    pub(crate) fn append(&self, path: &Path, bytes: &[u8]) -> Result<()> {
-        self.append_in_flight
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let result = (|| {
-            anyhow::ensure!(
-                !self.released.load(std::sync::atomic::Ordering::SeqCst)
-                    && canonical_session_path(path) == self.session_path,
-                "session lease does not own append target"
-            );
-            eukhe_core::session::window::append_cached(
-                path,
-                bytes,
-                eukhe_core::session::window::AppendOwnership::SessionLeaseHeld,
-            )?;
-            Ok(())
-        })();
-        self.append_in_flight
-            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        result
     }
 }
 
@@ -507,7 +447,6 @@ pub fn acquire_runtime_session_lease(
                         directory: directory.clone(),
                         token,
                         released: std::sync::atomic::AtomicBool::new(false),
-                        append_in_flight: std::sync::atomic::AtomicUsize::new(0),
                     });
                 }
                 Err(error) => {
@@ -688,8 +627,10 @@ mod tests {
             corrupt_directory.exists(),
             "an unreadable owner keeps its lease, like the acquire path"
         );
-        live.append(&live_path, b"row\n")
-            .expect("the live lease still owns its append");
+        assert!(
+            live.directory.exists(),
+            "the sweep keeps the live owner's lease"
+        );
         live.release();
     }
 
@@ -859,39 +800,5 @@ mod tests {
         ] {
             assert!(!is_rename_target_contention(&error));
         }
-    }
-
-    #[test]
-    fn release_drains_an_append_still_in_flight() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("session.jsonl");
-        std::fs::write(&path, "{}").unwrap();
-        let lease = std::sync::Arc::new(acquire_runtime_session_lease(&path, dir.path()).unwrap());
-        // An append past its released-check, still inside its write.
-        lease
-            .append_in_flight
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let directory = lease.directory.clone();
-        let releaser = {
-            let lease = std::sync::Arc::clone(&lease);
-            std::thread::spawn(move || lease.release())
-        };
-        // The release flips `released` before it drains: once the flag is
-        // up, the releaser is parked on the in-flight append.
-        while !lease.released.load(std::sync::atomic::Ordering::SeqCst) {
-            std::thread::yield_now();
-        }
-        assert!(
-            directory.exists(),
-            "release must wait for the append still in flight"
-        );
-        lease
-            .append_in_flight
-            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        releaser.join().unwrap();
-        assert!(
-            !directory.exists(),
-            "release reclaims the lease once the append lands"
-        );
     }
 }

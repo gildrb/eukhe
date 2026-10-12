@@ -22,7 +22,8 @@ use eukhe_durable::harness::types::{AgentChange, FieldChange};
 use crate::mode::RunOptions;
 
 /// One opened headless session and the runtime lease guarding its storage
-/// (`None` for memory sessions, or when a fresh lease could not be taken).
+/// (`None` for memory sessions and for an open that reuses the caller's
+/// lease).
 pub(crate) struct HeadlessSession {
     pub session: Arc<EukheSession>,
     pub lease: Option<SessionLease>,
@@ -141,12 +142,12 @@ pub(crate) async fn open_headless_session(
         Selection::Fresh { cwd } => {
             let session_id = new_session_id();
             let dir = sessions_dir.join(&session_id);
-            let lease = lease_fresh(&dir, agent_dir);
+            let lease = lease_fresh(&dir, agent_dir)?;
             let config = session_config(options, &cwd, &session_id, jsonl(&dir), turn_wait).await?;
             let session = open(config, cx).await?;
             Ok(HeadlessSession {
                 session,
-                lease,
+                lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: None,
@@ -159,7 +160,7 @@ pub(crate) async fn open_headless_session(
             let session = open(config, cx).await?;
             Ok(HeadlessSession {
                 session,
-                lease,
+                lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: Some(source.path().to_path_buf()),
@@ -221,13 +222,14 @@ pub(crate) async fn open_headless_session(
 ///
 /// # Errors
 ///
-/// An empty or invalid source, or the fork failure.
+/// An empty or invalid source, the fresh lease failure, or the fork
+/// failure.
 pub(crate) async fn fork_into_fresh(
     options: &RunOptions,
     source: &SessionLocation,
     cwd: &Path,
     cx: &Context,
-) -> Result<(String, PathBuf, Option<SessionLease>), String> {
+) -> Result<(String, PathBuf, SessionLease), String> {
     if let SessionLocation::Legacy(file) = source {
         // A FIFO (or any other non-regular file) blocks the header read
         // forever; a missing file falls through to the empty-or-invalid
@@ -250,7 +252,7 @@ pub(crate) async fn fork_into_fresh(
     }
     let session_id = new_session_id();
     let dir = sessions_dir(options).join(&session_id);
-    let lease = lease_fresh(&dir, &options.config.agent_dir);
+    let lease = lease_fresh(&dir, &options.config.agent_dir)?;
     fork_session(source, ForkPoint::Latest, Some(cwd), &dir, cx)
         .await
         .map_err(|error| format!("{error:#}"))?;
@@ -559,17 +561,16 @@ async fn set_main_cwd(session: &EukheSession, cwd: &Path, cx: &Context) -> Resul
 }
 
 /// Lease a fresh storage before anything writes it. A fresh storage's lease
-/// cannot be contended (its uuid is new); an acquire failure is
-/// environmental (the lease directory), so the session proceeds with a
-/// warning instead of failing startup.
-fn lease_fresh(dir: &Path, agent_dir: &Path) -> Option<SessionLease> {
-    match eukhe_daemon::lease::acquire_runtime_session_lease(dir, agent_dir) {
-        Ok(lease) => Some(lease),
-        Err(error) => {
-            eprintln!("eukhe: could not lease the fresh session: {error:#}");
-            None
-        }
-    }
+/// cannot be contended (its uuid is new), so an acquire failure is
+/// environmental (the lease directory); the session fails closed rather
+/// than run unguarded.
+fn lease_fresh(dir: &Path, agent_dir: &Path) -> Result<SessionLease, String> {
+    eukhe_daemon::lease::acquire_runtime_session_lease(dir, agent_dir).map_err(|error| {
+        format!(
+            "could not lease the fresh session {}: {error:#}",
+            dir.display()
+        )
+    })
 }
 
 /// Guard an in-process open of a persisted session: probe the daemon's live
@@ -651,3 +652,6 @@ pub(crate) fn session_open_guard(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

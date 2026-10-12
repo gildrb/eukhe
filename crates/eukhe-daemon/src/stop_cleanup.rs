@@ -36,12 +36,13 @@ use anyhow::Result;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::cron::store::{AgentCronJobStore, CancelJobsFilter};
+use eukhe_core::durable::{import_legacy_session, SessionLocation};
 
 use crate::lease::canonical_session_path;
 use crate::registry::ResidentWorker;
 use crate::rlm_ledger::RlmSpawnLedger;
 use crate::scheduled_jobs::session_artifact_dir;
-use crate::session_store::{block_on_storage, durable_storage_of, read_session_info, SessionFile};
+use crate::session_store::{block_on_storage, is_durable_storage, read_session_info};
 use crate::supervisor::Supervisor;
 use crate::worker::durable_host::meta::mark_storage_archived;
 
@@ -189,36 +190,47 @@ pub(crate) fn cancel_scheduled_jobs_for_tree(
 /// The killed session's `archived` state belt (TS `finalizeArchivedWorkerStop`
 /// -> `catalog.archive`): the worker's own close records the state; when it
 /// died before its close wrote it, the supervisor records it here so the
-/// wake scans and saved-catalog folds treat the session as archived. A
-/// durable storage takes the marker in its `eukhe.daemon.session` document
-/// under the session lease; a legacy file not imported yet appends the
-/// state row. A session already archived (or unreadable) is a no-op.
+/// wake scans and saved-catalog folds treat the session as archived. The
+/// marker lands in the durable storage's `eukhe.daemon.session` document
+/// under the session lease; a legacy file not imported yet is imported
+/// first (under the same lease), and is never written. A session already
+/// archived (or unreadable) is a no-op.
 pub(crate) fn ensure_archived_state(agent_dir: &Path, root_session_file: &Path) -> Result<()> {
     let path = canonical_session_path(root_session_file);
-    if let Some(dir) = durable_storage_of(&path) {
-        if read_session_info(&dir)
-            .and_then(|info| info.state)
-            .as_deref()
-            == Some("archived")
-        {
-            return Ok(());
+    let location = SessionLocation::from_path(path);
+    let dir = location.storage_dir();
+    let legacy = match &location {
+        SessionLocation::Legacy(file) if !is_durable_storage(&dir) => {
+            if !file.is_file() {
+                return Ok(());
+            }
+            Some(file)
         }
-        let _lease = crate::lease::acquire_runtime_session_lease(&dir, agent_dir)?;
-        return block_on_storage(mark_storage_archived(&dir, &BACKGROUND_CONTEXT))?;
-    }
-    if !path.is_file() {
-        return Ok(());
-    }
-    if read_session_info(&path)
+        SessionLocation::Legacy(_) => None,
+        SessionLocation::Durable(_) => {
+            if !is_durable_storage(&dir) {
+                return Ok(());
+            }
+            None
+        }
+    };
+    let state_source = legacy.map_or(dir.as_path(), PathBuf::as_path);
+    if read_session_info(state_source)
         .and_then(|info| info.state)
         .as_deref()
         == Some("archived")
     {
         return Ok(());
     }
-    let mut session = SessionFile::open(&path)?;
-    session.append_session_state("archived");
-    session.rewrite()
+    let _lease = crate::lease::acquire_runtime_session_lease(&dir, agent_dir)?;
+    block_on_storage(async {
+        // Re-checked under the lease: another owner may have imported the
+        // file since the read above.
+        if let Some(legacy) = legacy.filter(|_| !is_durable_storage(&dir)) {
+            import_legacy_session(legacy, &dir, &BACKGROUND_CONTEXT).await?;
+        }
+        mark_storage_archived(&dir, &BACKGROUND_CONTEXT).await
+    })?
 }
 
 /// The finalize of a root-kill stop (TS `finalizeArchivedWorkerStop`): the
@@ -723,9 +735,32 @@ mod tests {
             read_job(&child_file, &child_id).status,
             eukhe_core::cron::JobStatus::Cancelled
         );
-        // The archived-state belt landed on the root file.
+        // The archived-state belt landed on the root's (imported) storage.
         let info = read_session_info(&root_file).unwrap();
         assert_eq!(info.state.as_deref(), Some("archived"));
+    }
+
+    /// A legacy file not imported yet is imported under the session lease
+    /// and archived in its durable storage; the legacy file is never
+    /// written.
+    #[test]
+    fn archiving_a_legacy_session_imports_it_and_leaves_the_file_unchanged() {
+        let root = temp_dir();
+        let agent_dir = root.join("agent");
+        let sessions_dir = agent_dir.join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        let (session_id, legacy) = write_session(&sessions_dir, Some("lane"));
+        let before = std::fs::read(&legacy).unwrap();
+
+        ensure_archived_state(&agent_dir, &legacy).unwrap();
+
+        let storage = sessions_dir.join(&session_id);
+        assert!(is_durable_storage(&storage));
+        assert_eq!(
+            read_session_info(&storage).map(|info| (info.id, info.state)),
+            Some((session_id, Some("archived".to_owned())))
+        );
+        assert_eq!(std::fs::read(&legacy).unwrap(), before);
     }
 
     /// A live worker covering any tree member owns its stores again: the

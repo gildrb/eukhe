@@ -1,6 +1,6 @@
-//! The append concern (moved with its concern): the append family -
-//! messages, retained variants, changes, compactions, customs,
-//! attributions, session info/state - and the leaf/label mutators.
+//! The append concern (moved with its concern): the in-memory append
+//! family - messages, changes, compactions, customs, attributions, session
+//! info/state - and the leaf/label mutators. Appends never touch the disk.
 
 use super::{
     format_iso_now, generate_id, AgentMessage, ChildUsageOrigin, EntryBase, FileEntry,
@@ -8,35 +8,18 @@ use super::{
 };
 
 impl SessionManager {
-    pub(crate) fn append_entry(&mut self, entry: FileEntry) -> std::io::Result<()> {
-        let was_assistant = self.has_assistant_entry;
-        let was_flushed = self.flushed;
-        if matches!(
-            entry,
-            FileEntry::Message {
-                message: AgentMessage::Assistant(_),
-                ..
-            }
-        ) {
-            self.has_assistant_entry = true;
-        }
-        self.file_entries.push(entry);
-        let index = self.file_entries.len() - 1;
-        if let Err(error) = self.persist_entry(index) {
-            self.file_entries.pop();
-            self.has_assistant_entry = was_assistant;
-            self.flushed = was_flushed;
-            return Err(error);
-        }
-        let entry = self.file_entries[index].clone();
+    /// Push one entry onto the chain as the new leaf; returns its id.
+    pub(crate) fn append_entry(&mut self, entry: FileEntry) -> String {
         if let Some(window) = &mut self.window {
             window.append_entry(entry.clone());
         }
-        if let Some(id) = entry.id().map(str::to_string) {
-            self.by_id.insert(id.clone(), index);
-            self.leaf_id = Some(id);
+        let id = entry.id().map(str::to_string).unwrap_or_default();
+        self.file_entries.push(entry);
+        if !id.is_empty() {
+            self.by_id.insert(id.clone(), self.file_entries.len() - 1);
+            self.leaf_id = Some(id.clone());
         }
-        Ok(())
+        id
     }
 
     pub(crate) fn next_base(&self) -> EntryBase {
@@ -53,137 +36,62 @@ impl SessionManager {
     }
 
     /// Append a conversation message; returns the new entry id.
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails; the
-    /// entry is not kept in the in-memory index.
-    pub fn append_message(&mut self, message: AgentMessage) -> std::io::Result<String> {
+    pub fn append_message(&mut self, message: AgentMessage) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
-        self.append_entry(FileEntry::Message { message, base })?;
-        Ok(id)
-    }
-
-    /// Append a conversation message with the TS `_appendEntry`
-    /// retained-write contract (the `_agentEventQueue` subscriber arm): the
-    /// loop already owns the row in live agent state, so a failed disk write
-    /// keeps it in the live session index too — the two stores stay in sync —
-    /// and the error surfaces for logging only. [`Self::append_message`]
-    /// stays strict for callers that roll back on failure.
-    pub fn append_message_retained(
-        &mut self,
-        message: AgentMessage,
-    ) -> (String, Option<std::io::Error>) {
-        if matches!(message, AgentMessage::Assistant(_)) {
-            self.has_assistant_entry = true;
-        }
-        let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
-        self.file_entries.push(FileEntry::Message { message, base });
-        let index = self.file_entries.len() - 1;
-        let write_error = self.persist_entry(index).err();
-        let entry = self.file_entries[index].clone();
-        if let Some(window) = &mut self.window {
-            window.append_entry(entry.clone());
-        }
-        if let Some(id) = entry.id().map(str::to_string) {
-            self.by_id.insert(id.clone(), index);
-            self.leaf_id = Some(id);
-        }
-        (id, write_error)
+        self.append_entry(FileEntry::Message { message, base })
     }
 
     /// Append a thinking-level change; returns the new entry id.
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
-    pub fn append_thinking_level_change(
-        &mut self,
-        thinking_level: &str,
-    ) -> std::io::Result<String> {
+    pub fn append_thinking_level_change(&mut self, thinking_level: &str) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         self.append_entry(FileEntry::ThinkingLevelChange {
             payload: eukhe_types::session::ThinkingLevelChangeEntry {
                 thinking_level: thinking_level.to_string(),
             },
             base,
-        })?;
-        Ok(id)
+        })
     }
 
     /// Append a service-tier change; returns the new entry id.
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
     pub fn append_service_tier_change(
         &mut self,
         service_tier: Option<eukhe_types::ai::ServiceTier>,
-    ) -> std::io::Result<String> {
+    ) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         self.append_entry(FileEntry::ServiceTierChange {
             payload: eukhe_types::session::ServiceTierChangeEntry { service_tier },
             base,
-        })?;
-        Ok(id)
+        })
     }
 
     /// Append a model change; returns the new entry id.
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
-    pub fn append_model_change(
-        &mut self,
-        provider: &str,
-        model_id: &str,
-    ) -> std::io::Result<String> {
+    pub fn append_model_change(&mut self, provider: &str, model_id: &str) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         self.append_entry(FileEntry::ModelChange {
             payload: eukhe_types::session::ModelChangeEntry {
                 provider: provider.to_string(),
                 model_id: model_id.to_string(),
             },
             base,
-        })?;
-        Ok(id)
+        })
     }
 
-    /// `appendCompaction`: persist the compaction record. The full typed
-    /// payload is stored (TS keeps `details`, `fromHook`,
-    /// `customInstructions`, `usage`, and `harnessDigest` on the durable
-    /// row; later compactions and branch summarization read them back).
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
-    pub fn append_compaction(
-        &mut self,
-        payload: eukhe_types::session::CompactionEntry,
-    ) -> std::io::Result<String> {
+    /// `appendCompaction`: record the compaction. The full typed payload is
+    /// kept (TS keeps `details`, `fromHook`, `customInstructions`, `usage`,
+    /// and `harnessDigest` on the row; later compactions and branch
+    /// summarization read them back).
+    pub fn append_compaction(&mut self, payload: eukhe_types::session::CompactionEntry) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
-        self.append_entry(FileEntry::Compaction { payload, base })?;
-        Ok(id)
+        self.append_entry(FileEntry::Compaction { payload, base })
     }
 
     /// Append a custom entry; returns the new entry id.
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
     pub fn append_custom_entry(
         &mut self,
         custom_type: &str,
         data: Option<serde_json::Value>,
-    ) -> std::io::Result<String> {
+    ) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         self.append_entry(FileEntry::Custom {
             payload: eukhe_types::session::CustomEntry {
                 custom_type: custom_type.to_string(),
@@ -191,57 +99,18 @@ impl SessionManager {
                 rest: serde_json::Map::default(),
             },
             base,
-        })?;
-        Ok(id)
-    }
-
-    /// Append a custom entry with the TS `_appendEntry` retained-write
-    /// contract: a failed disk write keeps the entry in the live index and
-    /// surfaces the error for the caller to log or report after the rest of
-    /// its TS-choreographed writes (the refine audit arm). [`Self::append_custom_entry`]
-    /// stays strict for callers that roll back on failure.
-    pub fn append_custom_entry_retained(
-        &mut self,
-        custom_type: &str,
-        data: Option<serde_json::Value>,
-    ) -> (String, Option<std::io::Error>) {
-        let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
-        self.file_entries.push(FileEntry::Custom {
-            payload: eukhe_types::session::CustomEntry {
-                custom_type: custom_type.to_string(),
-                data,
-                rest: serde_json::Map::default(),
-            },
-            base,
-        });
-        let index = self.file_entries.len() - 1;
-        let write_error = self.persist_entry(index).err();
-        let entry = self.file_entries[index].clone();
-        if let Some(window) = &mut self.window {
-            window.append_entry(entry.clone());
-        }
-        if let Some(id) = entry.id().map(str::to_string) {
-            self.by_id.insert(id.clone(), index);
-            self.leaf_id = Some(id);
-        }
-        (id, write_error)
+        })
     }
 
     /// Append a custom message entry (compaction/refine notices, prompts).
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
     pub fn append_custom_message(
         &mut self,
         custom_type: &str,
         content: eukhe_types::ai::UserContent,
         display: bool,
         details: Option<serde_json::Value>,
-    ) -> std::io::Result<String> {
+    ) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         self.append_entry(FileEntry::CustomMessage {
             payload: eukhe_types::session::CustomMessageEntry {
                 custom_type: custom_type.to_string(),
@@ -251,45 +120,7 @@ impl SessionManager {
                 rest: serde_json::Map::default(),
             },
             base,
-        })?;
-        Ok(id)
-    }
-
-    /// Append a best-effort disclosure row: a failed disk write keeps the
-    /// entry indexed (the TS `_unpersistedOutcomes` guarantee — context
-    /// rebuilds must not drop the disclosure; the gap-bridged usage walk
-    /// tolerates the missing line on reload). The write error surfaces for
-    /// logging only.
-    pub fn append_custom_message_retained(
-        &mut self,
-        custom_type: &str,
-        content: eukhe_types::ai::UserContent,
-        display: bool,
-        details: Option<serde_json::Value>,
-    ) -> (String, Option<std::io::Error>) {
-        let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
-        self.file_entries.push(FileEntry::CustomMessage {
-            payload: eukhe_types::session::CustomMessageEntry {
-                custom_type: custom_type.to_string(),
-                content,
-                details,
-                display,
-                rest: serde_json::Map::default(),
-            },
-            base,
-        });
-        let index = self.file_entries.len() - 1;
-        let write_error = self.persist_entry(index).err();
-        let entry = self.file_entries[index].clone();
-        if let Some(window) = &mut self.window {
-            window.append_entry(entry.clone());
-        }
-        if let Some(id) = entry.id().map(str::to_string) {
-            self.by_id.insert(id.clone(), index);
-            self.leaf_id = Some(id);
-        }
-        (id, write_error)
+        })
     }
 
     /// Fold child usage into the target assistant message and record the
@@ -298,8 +129,7 @@ impl SessionManager {
     /// # Errors
     ///
     /// Returns an invalid-input error when the target assistant message
-    /// entry is missing, or the underlying I/O error when the durable
-    /// append fails.
+    /// entry is missing.
     pub fn append_child_usage_attribution(
         &mut self,
         target_id: &str,
@@ -325,8 +155,7 @@ impl SessionManager {
             )
         })?;
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
-        self.append_entry(FileEntry::ChildUsageAttributed {
+        let id = self.append_entry(FileEntry::ChildUsageAttributed {
             payload: eukhe_types::session::ChildUsageAttributionEntry {
                 target_id: target_id.to_string(),
                 child_usage,
@@ -334,9 +163,7 @@ impl SessionManager {
                 origin,
             },
             base,
-        })?;
-        // Fold only after the durable append: a failed write must not leave
-        // phantom usage for a later rewrite to persist.
+        });
         if let FileEntry::Message {
             message: AgentMessage::Assistant(assistant),
             ..
@@ -349,21 +176,16 @@ impl SessionManager {
 
     /// Append a session-info row (the session name); returns the new entry
     /// id.
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
-    pub fn append_session_info(&mut self, name: &str) -> std::io::Result<String> {
+    pub fn append_session_info(&mut self, name: &str) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         self.append_entry(FileEntry::SessionInfo {
             payload: eukhe_types::session::SessionInfoEntry {
                 name: Some(name.trim().to_string()),
             },
             base,
-        })?;
-        Ok(id)
+        })
     }
+
     /// Move the leaf (used by branch/branchWithSummary).
     ///
     /// # Panics
@@ -397,19 +219,13 @@ impl SessionManager {
     }
 
     /// Append a session-state row; returns the new entry id.
-    ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the durable append fails.
-    pub fn append_session_state(&mut self, status: SessionStateStatus) -> std::io::Result<String> {
+    pub fn append_session_state(&mut self, status: SessionStateStatus) -> String {
         let base = self.next_base();
-        let id = base.id.clone().unwrap_or_default();
         self.append_entry(FileEntry::SessionState {
             payload: eukhe_types::session::SessionStateEntry {
                 state: SessionState { status },
             },
             base,
-        })?;
-        Ok(id)
+        })
     }
 }

@@ -263,3 +263,67 @@ async fn import_jsonl_imports_and_checks_the_cwd() {
     assert_eq!(state["sessionId"], "0192a000-0000-7000-8000-00000000bb02");
     assert_eq!(state["cwd"], json!(inputs.path().to_string_lossy()));
 }
+
+/// `import_jsonl` never overwrites a different session file already at
+/// the copy's destination: the import fails naming the path, and the
+/// existing file and the live session stay as they were.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn import_jsonl_refuses_to_overwrite_a_different_session_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = created_worker(dir.path(), dir.path()).await;
+    let before = state(&worker).await;
+    let sessions = Path::new(before["sessionFile"].as_str().unwrap())
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let id = "0192a000-0000-7000-8000-00000000bb03";
+    let existing = sessions.join(format!("{id}.jsonl"));
+    legacy_session(&existing, id, dir.path());
+    let existing_bytes = std::fs::read(&existing).unwrap();
+    let inputs = tempfile::tempdir().unwrap();
+    let input = inputs.path().join(format!("{id}.jsonl"));
+    legacy_session(&input, id, inputs.path());
+
+    let response = dispatch(
+        &worker,
+        "import_jsonl",
+        json!({ "inputPath": input.to_string_lossy() }),
+    )
+    .await;
+    assert_eq!(
+        response.error,
+        Some(format!(
+            "session file {} already exists",
+            existing.display()
+        )),
+        "{response:?}"
+    );
+    assert_eq!(std::fs::read(&existing).unwrap(), existing_bytes);
+    assert_eq!(state(&worker).await["sessionId"], before["sessionId"]);
+}
+
+/// The import copy publishes the source's bytes and leaves no temp file;
+/// republishing the same bytes (an import retried after its cwd check)
+/// keeps the published copy.
+#[test]
+fn import_copy_publishes_without_leaving_a_temp_file() {
+    let inputs = tempfile::tempdir().unwrap();
+    let source = inputs.path().join("input.jsonl");
+    std::fs::write(&source, "{\"type\":\"session\"}\n").unwrap();
+    let sessions = tempfile::tempdir().unwrap();
+    let destination = sessions.path().join("copied.jsonl");
+    let entries = || {
+        std::fs::read_dir(sessions.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>()
+    };
+    for _ in 0..2 {
+        super::publish_import_copy(&source, &destination).unwrap();
+        assert_eq!(entries(), vec![std::ffi::OsString::from("copied.jsonl")]);
+        assert_eq!(
+            std::fs::read(&destination).unwrap(),
+            std::fs::read(&source).unwrap()
+        );
+    }
+}

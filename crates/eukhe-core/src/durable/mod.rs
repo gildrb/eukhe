@@ -13,6 +13,7 @@ mod digest;
 mod discovery;
 mod entries;
 mod env;
+mod export;
 mod fork;
 pub mod goals;
 mod import;
@@ -28,6 +29,7 @@ mod retry_outcome;
 pub mod rlm;
 pub(crate) mod session_commands;
 mod settings;
+mod staging;
 
 pub use deps::{
     HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry, LateAgentMessageSink,
@@ -46,6 +48,8 @@ pub use entries::{
     CUSTOM_STATE_ENTRY,
 };
 pub use env::env_factory;
+pub(crate) use export::read_export_data;
+pub use export::{export_header, export_rows, ExportRows};
 pub use fork::{
     fork_main_conversation, fork_session, fork_session_conversation, ForkError, ForkPoint,
     ForkedSession,
@@ -66,3 +70,4 @@ pub use session_commands::{
     execute_session_command, SessionCommand, SessionCommandName, SessionCommandOutcome,
 };
 pub use settings::{harness_settings, thinking_level, EukheSettings};
+pub use staging::{sweep_stale_staging_dirs, StagingSweep};
