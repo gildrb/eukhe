@@ -1,9 +1,7 @@
 //! Every built-in provider and typed reads of the generated catalog. Port of
 //! `providers/all.ts`.
 
-use std::sync::LazyLock;
-
-use eukhe_types::pi_ai::{AnyModel, ClassifierModel, ImageModel, JsonValue, Model};
+use eukhe_types::pi_ai::{AnyModel, ClassifierModel, ImageModel, Model};
 
 use super::amazon_bedrock::amazon_bedrock_provider;
 use super::ant_ling::ant_ling_provider;
@@ -52,12 +50,6 @@ use super::zai_coding_cn::zai_coding_cn_provider;
 use crate::models::{create_models, CreateModelsOptions, Models, Provider};
 use crate::models_generated::{CLASSIFIER_MODELS, IMAGE_MODELS, MODELS};
 
-/// The generated data manifest (`data/.manifest.json`).
-static MODEL_DATA_MANIFEST: LazyLock<JsonValue> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("data/.manifest.json"))
-        .expect("the embedded model data manifest is JSON")
-});
-
 /// Typed read of one generated built-in chat model.
 #[must_use]
 pub fn get_builtin_model(provider: &str, model_id: &str) -> Option<Model> {
@@ -81,52 +73,6 @@ pub fn get_builtin_classifier_model(provider: &str, model_id: &str) -> Option<Cl
 #[must_use]
 pub fn get_builtin_providers() -> Vec<&'static str> {
     MODELS.keys().copied().collect()
-}
-
-/// Generation timestamp shared by all built-in provider catalogs (epoch
-/// milliseconds), or `None` when the manifest date does not parse.
-#[must_use]
-pub fn get_builtin_model_data_generated_at() -> Option<f64> {
-    let generated_at = MODEL_DATA_MANIFEST.get("generatedAt")?.as_str()?;
-    parse_iso_timestamp(generated_at)
-}
-
-/// `Date.parse` for the manifest's `YYYY-MM-DDTHH:MM:SS(.sss)Z` format.
-#[allow(clippy::cast_precision_loss)] // Epoch milliseconds stay far below 2^53.
-fn parse_iso_timestamp(value: &str) -> Option<f64> {
-    let (date, time) = value.strip_suffix('Z')?.split_once('T')?;
-    let mut date_parts = date.split('-').map(str::parse::<i64>);
-    let (year, month, day) = (
-        date_parts.next()?.ok()?,
-        date_parts.next()?.ok()?,
-        date_parts.next()?.ok()?,
-    );
-    if date_parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    let (clock, millis) = match time.split_once('.') {
-        Some((clock, fraction)) => (clock, format!("{fraction:0<3}")[..3].parse::<i64>().ok()?),
-        None => (time, 0),
-    };
-    let mut clock_parts = clock.split(':').map(str::parse::<i64>);
-    let (hour, minute, second) = (
-        clock_parts.next()?.ok()?,
-        clock_parts.next()?.ok()?,
-        clock_parts.next()?.ok()?,
-    );
-    if clock_parts.next().is_some() || hour > 23 || minute > 59 || second > 59 {
-        return None;
-    }
-    // Days from civil (Howard Hinnant's algorithm).
-    let shifted_year = if month <= 2 { year - 1 } else { year };
-    let era = shifted_year.div_euclid(400);
-    let year_of_era = shifted_year - era * 400;
-    let month_index = (month + 9) % 12;
-    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    let days = era * 146_097 + day_of_era - 719_468;
-    let millis_total = ((days * 24 + hour) * 60 + minute) * 60_000 + second * 1000 + millis;
-    Some(millis_total as f64)
 }
 
 /// Generated chat models of a built-in provider (none for unknown ids).

@@ -31,14 +31,6 @@ fn session_affinity_format(options: Options) -> TSchema {
     )
 }
 
-/// `SessionAffinityFormatSchema`.
-#[must_use]
-pub fn session_affinity_format_schema() -> TSchema {
-    session_affinity_format(desc(
-        "Session-affinity header format used to route related requests consistently.",
-    ))
-}
-
 /// `thinkingTokenBudgetField(options)`.
 fn thinking_token_budget_field(options: Options) -> TSchema {
     Type::union_with(
@@ -49,14 +41,6 @@ fn thinking_token_budget_field(options: Options) -> TSchema {
         ]),
         options,
     )
-}
-
-/// `ThinkingTokenBudgetFieldSchema`.
-#[must_use]
-pub fn thinking_token_budget_field_schema() -> TSchema {
-    thinking_token_budget_field(desc(
-        "Top-level request field name used by OpenAI-compatible endpoints to cap reasoning tokens. \"thinking_token_budget\" is used by vLLM, \"thinking_budget\" by Qwen, DashScope, or SGLang, and \"thinking_budget_tokens\" by llama.cpp.",
-    ))
 }
 
 /// `ChatTemplateKwargValueSchema`.
@@ -728,15 +712,6 @@ fn mistral_conversations_compat_properties() -> Properties {
             false,
         )),
     )]
-}
-
-/// `MistralConversationsCompatSchema`.
-#[must_use]
-pub fn mistral_conversations_compat_schema() -> TSchema {
-    Type::object_with(
-        mistral_conversations_compat_properties(),
-        compat_options("Compatibility settings for the Mistral chat API."),
-    )
 }
 
 /// `ProviderCompatPropertyOverrides`.

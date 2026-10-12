@@ -32,18 +32,3 @@ pub fn get_image_model(provider: &str, model_id: &str) -> Option<ImageModel> {
         .get(model_id)
         .cloned()
 }
-
-/// Built-in providers with at least one image model.
-#[must_use]
-pub fn get_image_providers() -> Vec<&'static str> {
-    IMAGE_MODELS_BY_PROVIDER.keys().copied().collect()
-}
-
-/// Static catalog read of a provider's image models.
-#[must_use]
-pub fn get_image_models(provider: &str) -> Vec<ImageModel> {
-    IMAGE_MODELS_BY_PROVIDER
-        .get(provider)
-        .map(|models| models.values().cloned().collect())
-        .unwrap_or_default()
-}

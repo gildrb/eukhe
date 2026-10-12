@@ -167,16 +167,6 @@ pub fn get_api_provider(api: &str) -> Option<ApiProviderInternal> {
     get_api_provider_arc(api).map(|provider| (*provider).clone())
 }
 
-/// Every registered implementation, in registration order.
-#[must_use]
-pub fn get_api_providers() -> Vec<ApiProviderInternal> {
-    ensure_initialized();
-    lock(&API_PROVIDER_REGISTRY)
-        .values()
-        .map(|entry| (*entry.provider).clone())
-        .collect()
-}
-
 /// Removes every implementation registered with `source_id`.
 pub fn unregister_api_providers(source_id: &str) {
     ensure_initialized();
@@ -286,14 +276,6 @@ fn register_built_in_api_providers_inner() {
         }
         lock(&BUILTIN_API_PROVIDER_INSTANCES).insert(api.to_owned(), get_api_provider_arc(api));
     }
-}
-
-/// Registers the builtin API implementations without clobbering existing
-/// entries: a test or extension may already have registered an override for
-/// a builtin api id.
-pub fn register_built_in_api_providers() {
-    ensure_initialized();
-    register_built_in_api_providers_inner();
 }
 
 /// Clears the registry and re-registers the builtins.

@@ -46,9 +46,6 @@ use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::stream_failure::record_stream_failure;
 use crate::utils::transcript::{get_current_tools, resolve_transcript};
 
-/// The API id.
-pub const API_ID: &str = "anthropic-messages";
-
 /// Stealth mode: the Claude Code version mimicked with OAuth tokens.
 const CLAUDE_CODE_VERSION: &str = "2.1.280";
 

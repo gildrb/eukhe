@@ -251,12 +251,6 @@ pub fn cloudflare_workers_ai_system_one_api() -> ProviderClassifier {
     lazy_classifier("cloudflare-workers-ai-system-one")
 }
 
-/// TS `llamaCppClassifyApi()`.
-#[must_use]
-pub fn llama_cpp_classify_api() -> ProviderClassifier {
-    lazy_classifier("llama-cpp-classify")
-}
-
 /// TS `openAIDecisionsApi()`.
 #[must_use]
 pub fn openai_decisions_api() -> ProviderClassifier {

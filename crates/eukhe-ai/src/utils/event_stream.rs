@@ -368,13 +368,6 @@ impl AssistantMessageEventStream {
     pub async fn result(&self) -> AssistantMessage {
         self.inner.result().await
     }
-
-    /// The underlying generic stream. Events pushed through it bypass
-    /// response timing.
-    #[must_use]
-    pub fn as_event_stream(&self) -> &EventStream<AssistantMessageEvent, AssistantMessage> {
-        &self.inner
-    }
 }
 
 /// Factory for [`AssistantMessageEventStream`] (for use in extensions).

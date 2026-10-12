@@ -478,16 +478,6 @@ pub fn map_stop_reason(reason: &str) -> Result<StopReason, Thrown> {
     }
 }
 
-/// Map a string finish reason to a stop reason (for raw API responses).
-#[must_use]
-pub fn map_stop_reason_string(reason: &str) -> StopReason {
-    match reason {
-        "STOP" => StopReason::Stop,
-        "MAX_TOKENS" => StopReason::Length,
-        _ => StopReason::Error,
-    }
-}
-
 /// TS `Pick<StreamOptions, "maxRetries" | "maxRetryDelayMs" | "signal">`.
 #[derive(Debug, Clone, Default)]
 pub struct GoogleRetryOptions {

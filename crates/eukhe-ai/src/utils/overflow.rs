@@ -136,12 +136,6 @@ pub fn is_recoverable_length(message: &AssistantMessage, desired_max_output: u64
         && message.usage.output < desired_max_output
 }
 
-/// The overflow patterns, for testing purposes.
-#[must_use]
-pub fn get_overflow_patterns() -> Vec<Regex> {
-    OVERFLOW_PATTERNS.clone()
-}
-
 #[cfg(test)]
 mod tests {
     use eukhe_types::pi_ai::{Usage, UsageCost};
