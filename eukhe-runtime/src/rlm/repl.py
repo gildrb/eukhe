@@ -11,6 +11,7 @@ import ast
 import asyncio
 import codecs
 import contextvars
+import ctypes
 import functools
 import inspect
 import io
@@ -1603,6 +1604,19 @@ def _owner_alive_posix(owner: int, initial_ppid: int) -> bool:
     return True
 
 
+# The raw syscall, not os.pidfd_open: the kernel's interpreter (uv's CPython
+# 3.11 build) lacks it. The number is shared across Linux architectures.
+_SYS_PIDFD_OPEN = 434
+
+
+def _pidfd_open(pid: int) -> int:
+    fd = ctypes.CDLL(None, use_errno=True).syscall(_SYS_PIDFD_OPEN, ctypes.c_int(pid), ctypes.c_uint(0))
+    if fd < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    return fd
+
+
 def _wait_owner_posix(owner: int, initial_ppid: int) -> None:
     # Blocks until the owner exits: the OS exit notification (kqueue NOTE_EXIT
     # on macOS/BSD, a pidfd on Linux) wakes this thread once, with no polling.
@@ -1622,14 +1636,13 @@ def _wait_owner_posix(owner: int, initial_ppid: int) -> None:
             wait_for_exit = functools.partial(kq.control, None, 1)
         else:
             poller = select.poll()
-            poller.register(os.pidfd_open(owner), select.POLLIN)
+            poller.register(_pidfd_open(owner), select.POLLIN)
             wait_for_exit = poller.poll
     except ProcessLookupError:
         return  # already gone
     except (AttributeError, OSError):
         # Slow fallback, only where exit notification is unavailable: Linux
-        # before 5.3, a seccomp filter denying pidfd_open, a CPython built
-        # without os.pidfd_open.
+        # before 5.3, a seccomp filter denying pidfd_open.
         while _owner_alive_posix(owner, initial_ppid):
             time.sleep(30.0)
         return
