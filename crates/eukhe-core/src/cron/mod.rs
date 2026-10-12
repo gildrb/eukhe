@@ -33,6 +33,26 @@ pub enum ScheduleKind {
     Interval,
 }
 
+/// Who created a scheduled job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobSource {
+    /// A plain scheduled prompt.
+    Cron,
+    /// A `/heartbeat` job.
+    Heartbeat,
+    /// A kernel `rlm_heartbeat` job.
+    RlmHeartbeat,
+    /// The wake of a session the provider quota parked.
+    QuotaResume,
+}
+
+/// The source of a job record that names none: the plain scheduled prompt
+/// a job created without a source is.
+fn cron_source() -> JobSource {
+    JobSource::Cron
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryMode {
@@ -58,8 +78,8 @@ pub struct AgentCronSchedule {
 pub struct AgentCronJob {
     pub id: String,
     pub status: JobStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
+    #[serde(default = "cron_source")]
+    pub source: JobSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_kind: Option<String>,
     /// Delivery mode for heartbeat jobs when the session is busy.
@@ -545,7 +565,10 @@ fn consume_leading_every_schedule(text: &str) -> Option<(String, String)> {
 
 #[must_use]
 pub fn is_heartbeat_cron_job(job: &AgentCronJob) -> bool {
-    matches!(job.source.as_deref(), Some("heartbeat" | "rlm_heartbeat"))
+    match job.source {
+        JobSource::Heartbeat | JobSource::RlmHeartbeat => true,
+        JobSource::Cron | JobSource::QuotaResume => false,
+    }
 }
 
 /// Whether a due heartbeat should wait instead of firing now.
@@ -1065,10 +1088,10 @@ mod tests {
 
     #[test]
     fn heartbeat_deferral_rules() {
-        let job = |source: &str, mode: Option<DeliveryMode>| AgentCronJob {
+        let job = |source: JobSource, mode: Option<DeliveryMode>| AgentCronJob {
             id: "j1".to_string(),
             status: JobStatus::Active,
-            source: Some(source.to_string()),
+            source,
             runtime_kind: Some("top-level".to_string()),
             delivery_mode: mode,
             active_session_id: "active".to_string(),
@@ -1097,16 +1120,16 @@ mod tests {
         };
         // Non-heartbeat jobs never defer.
         assert!(!should_defer_heartbeat_cron_job(
-            &job("cron", None),
+            &job(JobSource::Cron, None),
             &streaming
         ));
         // Steer heartbeats fire during streaming; follow-up waits.
         assert!(!should_defer_heartbeat_cron_job(
-            &job("heartbeat", Some(DeliveryMode::Steer)),
+            &job(JobSource::Heartbeat, Some(DeliveryMode::Steer)),
             &streaming
         ));
         assert!(should_defer_heartbeat_cron_job(
-            &job("heartbeat", Some(DeliveryMode::FollowUp)),
+            &job(JobSource::Heartbeat, Some(DeliveryMode::FollowUp)),
             &streaming
         ));
         // Busy states defer regardless of mode.
@@ -1116,7 +1139,7 @@ mod tests {
             ..Default::default()
         };
         assert!(should_defer_heartbeat_cron_job(
-            &job("heartbeat", Some(DeliveryMode::Steer)),
+            &job(JobSource::Heartbeat, Some(DeliveryMode::Steer)),
             &compacting
         ));
         let unfinished = HeartbeatSessionActivity {
@@ -1124,12 +1147,12 @@ mod tests {
             ..Default::default()
         };
         assert!(should_defer_heartbeat_cron_job(
-            &job("rlm_heartbeat", None),
+            &job(JobSource::RlmHeartbeat, None),
             &unfinished
         ));
         // Idle heartbeats fire.
         assert!(!should_defer_heartbeat_cron_job(
-            &job("heartbeat", None),
+            &job(JobSource::Heartbeat, None),
             &idle
         ));
     }
@@ -1139,7 +1162,7 @@ mod tests {
         let mut job = AgentCronJob {
             id: "job1".to_string(),
             status: JobStatus::Active,
-            source: Some("cron".to_string()),
+            source: JobSource::Cron,
             runtime_kind: Some("top-level".to_string()),
             delivery_mode: None,
             active_session_id: "active".to_string(),

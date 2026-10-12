@@ -599,7 +599,7 @@ pub(crate) fn session_snapshot(core: &SessionCore) -> SessionActionSnapshot {
         queued()
             .filter(|input| input.mode == mode)
             .enumerate()
-            .filter(|(_, input)| core.injected.get(&input.id) == Some(&kind))
+            .filter(|(_, input)| InjectionKind::of(&input.origin) == Some(kind))
             .map(|(index, _)| index)
             .collect::<Vec<usize>>()
     };
@@ -658,25 +658,28 @@ mod tests {
 
     use super::super::durable_host::bridge::{QueuedInput, QueuedMode};
     use super::super::durable_host::ShownView;
-    use super::super::session_core::InjectionKind;
     use super::*;
+    use eukhe_types::input_origin::{ChildExit, InputOrigin, Report};
 
     fn queued(id: u64, mode: QueuedMode, text: &str) -> QueuedInput {
+        queued_from(id, mode, text, InputOrigin::User)
+    }
+
+    fn queued_from(id: u64, mode: QueuedMode, text: &str, origin: InputOrigin) -> QueuedInput {
         QueuedInput {
             id: SubmissionId::from_number(id),
             mode,
             text: text.to_owned(),
             content: eukhe_types::pi_ai::UserContent::Text(text.to_owned()),
-            origin: eukhe_types::input_origin::InputOrigin::User,
+            origin,
         }
     }
 
-    /// A core with the given inbox and rider provenance.
+    /// A core with the given inbox.
     fn core_with(
         inbox: Vec<QueuedInput>,
         suspended: Vec<QueuedInput>,
         held: Vec<QueuedInput>,
-        injected: Vec<(u64, InjectionKind)>,
     ) -> SessionCore {
         let mut core = SessionCore::test_core("/tmp".to_string());
         let snapshot: SnapshotEvent = serde_json::from_value(json!({
@@ -696,10 +699,6 @@ mod tests {
         });
         core.suspended = suspended;
         core.held = held;
-        core.injected = injected
-            .into_iter()
-            .map(|(id, kind)| (SubmissionId::from_number(id), kind))
-            .collect();
         core
     }
 
@@ -712,14 +711,30 @@ mod tests {
         let core = core_with(
             vec![
                 queued(1, QueuedMode::Steer, "user text"),
-                queued(2, QueuedMode::Steer, "[child-exited: no-reply child:a]"),
+                queued_from(
+                    2,
+                    QueuedMode::Steer,
+                    "[child-exited: no-reply child:a]",
+                    InputOrigin::Report {
+                        report: Report::ChildExited {
+                            child: "a".to_owned(),
+                            exit: ChildExit::NoReply,
+                        },
+                    },
+                ),
             ],
             vec![queued(3, QueuedMode::FollowUp, "aborted earlier")],
-            vec![queued(4, QueuedMode::Steer, "paused admission")],
-            vec![
-                (2, InjectionKind::ChildStatusNotice),
-                (4, InjectionKind::InjectedPrompt),
-            ],
+            vec![queued_from(
+                4,
+                QueuedMode::Steer,
+                "paused admission",
+                InputOrigin::Report {
+                    report: Report::Heartbeat {
+                        schedule: "every 10m".to_owned(),
+                        run: 0,
+                    },
+                },
+            )],
         );
         let snapshot = session_snapshot(&core);
         assert_eq!(snapshot.queued_count, 4);
@@ -755,7 +770,6 @@ mod tests {
             vec![queued(1, QueuedMode::FollowUp, "plain")],
             vec![],
             vec![],
-            vec![],
         );
         let wire = serde_json::to_value(session_snapshot(&core)).expect("wire");
         assert!(wire.get("rlmChildStatus").is_none());
@@ -765,7 +779,7 @@ mod tests {
     /// The active action rides the projection as the bridge tracked it.
     #[test]
     fn the_active_action_rides_the_snapshot() {
-        let mut core = core_with(vec![], vec![], vec![], vec![]);
+        let mut core = core_with(vec![], vec![], vec![]);
         core.view.as_mut().expect("view").active = Some(crate::types::SessionActionActive {
             kind: "turn".to_string(),
             phase: "preparing".to_string(),

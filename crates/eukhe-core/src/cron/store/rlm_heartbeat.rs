@@ -3,6 +3,7 @@
 //! plus session-teardown cancellation).
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
+use crate::cron::JobSource;
 use uuid::Uuid;
 
 use super::state::{compare_optional_iso, normalize_optional_label};
@@ -26,7 +27,7 @@ impl AgentCronJobStore {
             .into_iter()
             .filter(|job| {
                 if job.active_session_id != active_session_id
-                    || job.source.as_deref() != Some("rlm_heartbeat")
+                    || job.source != JobSource::RlmHeartbeat
                 {
                     return false;
                 }
@@ -66,7 +67,7 @@ impl AgentCronJobStore {
         let job = AgentCronJob {
             id: Uuid::new_v4().to_string(),
             status: JobStatus::Active,
-            source: Some("rlm_heartbeat".to_string()),
+            source: JobSource::RlmHeartbeat,
             runtime_kind: input.runtime_kind.clone(),
             delivery_mode: Some(
                 input
@@ -119,7 +120,7 @@ impl AgentCronJobStore {
             .map(|job| {
                 if job.id != id
                     || job.active_session_id != active_session_id
-                    || job.source.as_deref() != Some("rlm_heartbeat")
+                    || job.source != JobSource::RlmHeartbeat
                 {
                     return job;
                 }
@@ -202,7 +203,7 @@ impl AgentCronJobStore {
             .map(|job| {
                 if job.id != id
                     || job.active_session_id != active_session_id
-                    || job.source.as_deref() != Some("rlm_heartbeat")
+                    || job.source != JobSource::RlmHeartbeat
                 {
                     return job;
                 }
@@ -237,7 +238,7 @@ impl AgentCronJobStore {
             .into_iter()
             .map(|job| {
                 if job.active_session_id != active_session_id
-                    || job.source.as_deref() != Some("rlm_heartbeat")
+                    || job.source != JobSource::RlmHeartbeat
                     || !matches!(job.status, JobStatus::Active | JobStatus::Paused)
                 {
                     return job;
@@ -270,7 +271,7 @@ mod tests {
         let store = AgentCronJobStore::new(dir.path().join("jobs.json"));
         let now = 1_700_000_000_000;
         let mut rlm_input = input("watch pods", "every 10m", now);
-        rlm_input.source = Some("rlm_heartbeat".to_string());
+        rlm_input.source = Some(JobSource::RlmHeartbeat);
         let rlm = store.create_rlm_heartbeat(&rlm_input).unwrap();
         assert_eq!(store.list_rlm_heartbeats("live-1", false).len(), 1);
         // Pause via update.

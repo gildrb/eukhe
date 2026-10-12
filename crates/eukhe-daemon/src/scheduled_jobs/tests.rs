@@ -1,6 +1,7 @@
 //! The scheduled-jobs unit battery: the fire/defer decision, the durable
 //! delivery (request ids, the heartbeat queue-key replacement), the target
 //! verification, and the mutation hook.
+use eukhe_core::cron::JobSource;
 use std::sync::Arc;
 
 use super::*;
@@ -22,7 +23,7 @@ fn job_for(
     AgentCronJob {
         id: id.to_owned(),
         status: JobStatus::Active,
-        source: heartbeat.map(|_| "rlm_heartbeat".to_owned()),
+        source: heartbeat.map_or(JobSource::Cron, |_| JobSource::RlmHeartbeat),
         runtime_kind: None,
         delivery_mode: heartbeat,
         active_session_id: binding.active_session_id,
@@ -128,6 +129,25 @@ async fn a_heartbeat_fire_runs_its_row_and_settles_as_a_run() {
 
 /// A fire repeated for the same run (a crash before the store recorded
 /// it) dedupes onto the admitted submission: one row, one turn.
+/// A quota wake fires its resume marker with the typed quota-resume
+/// origin; a plain cron job's prompt is the user's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quota_wake_fires_with_the_quota_resume_origin() {
+    let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
+    let plain = job_for(&worker, "cron-1", "check", None);
+    let wake = AgentCronJob {
+        source: JobSource::QuotaResume,
+        ..plain.clone()
+    };
+    assert_eq!(
+        [
+            QueueHooks::fire_request(&plain).origin,
+            QueueHooks::fire_request(&wake).origin
+        ],
+        [InputOrigin::User, InputOrigin::QuotaResume]
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_repeated_fire_of_one_run_never_duplicates() {
     let (_dir, worker) = created_worker(SESSION, json!(["ack", "again"])).await;
@@ -270,7 +290,7 @@ async fn a_fire_at_a_killed_or_deleted_session_cancels_and_skips() {
             session_id: gone.session_id.clone(),
             session_file: gone.session_file.clone(),
             cwd: gone.cwd.clone(),
-            source: Some("rlm_heartbeat".to_owned()),
+            source: Some(JobSource::RlmHeartbeat),
             prompt: "nudge".to_owned(),
             schedule_text: "every 10s".to_owned(),
             delivery_mode: Some(DeliveryMode::Steer),

@@ -267,9 +267,6 @@ fn apply_batch(
                 }
                 Step::Inbox => {
                     if let Some(inbox) = inbox.take() {
-                        // The ids no longer queued leave the rider provenance.
-                        core.injected
-                            .retain(|id, _| inbox.iter().any(|item| item.id == *id));
                         if let Some(view) = core.view.as_mut() {
                             view.inbox = inbox;
                         }

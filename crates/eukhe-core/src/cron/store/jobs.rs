@@ -3,6 +3,7 @@
 //! result recording and interrupted-dispatch recovery.
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
+use crate::cron::JobSource;
 use uuid::Uuid;
 
 use super::state::{
@@ -44,7 +45,7 @@ impl AgentCronJobStore {
         let job = AgentCronJob {
             id: Uuid::new_v4().to_string(),
             status: JobStatus::Active,
-            source: Some(input.source.clone().unwrap_or_else(|| "cron".to_string())),
+            source: input.source.unwrap_or(JobSource::Cron),
             runtime_kind: input.runtime_kind.clone(),
             delivery_mode: None,
             active_session_id: input.active_session_id.clone(),
@@ -454,7 +455,7 @@ mod tests {
             .create(&input("check the build", "every 10m", now))
             .unwrap();
         assert_eq!(job.status, JobStatus::Active);
-        assert_eq!(job.source.as_deref(), Some("cron"));
+        assert_eq!(job.source, JobSource::Cron);
         assert_eq!(job.schedule.kind, ScheduleKind::Interval);
         assert_eq!(store.list().len(), 1);
         let due = store.due(now + 600_000);

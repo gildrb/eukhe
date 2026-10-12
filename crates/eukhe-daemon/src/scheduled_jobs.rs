@@ -45,7 +45,7 @@ use eukhe_core::cron::store::{
 use eukhe_core::cron::{
     is_heartbeat_cron_job, normalize_heartbeat_delivery_mode, normalize_heartbeat_schedule,
     should_defer_heartbeat_cron_job, AgentCronJob, DeliveryMode, HeartbeatSessionActivity,
-    JobStatus,
+    JobSource, JobStatus,
 };
 
 use crate::agent_message_ingest::withdraw_queued;
@@ -174,18 +174,21 @@ impl QueueHooks {
     }
 
     /// The fire's input: a heartbeat's `heartbeat_prompt` row and lane, or
-    /// a plain cron job's follow-up prompt.
+    /// a plain cron job's or a quota wake's follow-up prompt.
     fn fire_request(job: &AgentCronJob) -> InputRequest {
         let request_id = Some(format!("{}{}", fire_request_prefix(job), job.run_count));
-        if !is_heartbeat_cron_job(job) {
-            return InputRequest {
-                text: job.prompt.clone(),
-                images: Vec::new(),
-                custom_row: None,
-                when_busy: WhenBusy::FollowUp,
-                request_id,
-                origin: InputOrigin::User,
-            };
+        let plain = |origin| InputRequest {
+            text: job.prompt.clone(),
+            images: Vec::new(),
+            custom_row: None,
+            when_busy: WhenBusy::FollowUp,
+            request_id: request_id.clone(),
+            origin,
+        };
+        match job.source {
+            JobSource::Cron => return plain(InputOrigin::User),
+            JobSource::QuotaResume => return plain(InputOrigin::QuotaResume),
+            JobSource::Heartbeat | JobSource::RlmHeartbeat => {}
         }
         // TS `runCronJob`: a heartbeat fire delivers through
         // `promptHeartbeat`, so the turn carries the `heartbeat_prompt`
@@ -245,15 +248,6 @@ impl AgentCronSchedulerHooks for QueueHooks {
         self.remove_queued_heartbeat_follow_up(job).await;
         let request = Self::fire_request(job);
         let handle = submit_input(&hosted.main()?, &request, &BACKGROUND_CONTEXT).await?;
-        // A queued heartbeat fire is an injected prompt: the queue
-        // strip's `injectedPrompts` rider marks it while it parks.
-        if let Some(kind) = crate::worker::injection_kind(request.custom_row.as_ref()) {
-            self.core
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .injected
-                .insert(handle.id(), kind);
-        }
         match tokio::time::timeout(
             std::time::Duration::from_millis(FIRE_SETTLE_TIMEOUT_MS),
             handle.wait(&BACKGROUND_CONTEXT),

@@ -2,6 +2,7 @@
 //! the heartbeat management actions (pause/resume/stop).
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
+use crate::cron::JobSource;
 use uuid::Uuid;
 
 use super::state::normalize_optional_label;
@@ -20,7 +21,7 @@ impl AgentCronJobStore {
             .into_iter()
             .filter(|job| {
                 job.active_session_id == active_session_id
-                    && job.source.as_deref() == Some("heartbeat")
+                    && job.source == JobSource::Heartbeat
                     && matches!(job.status, JobStatus::Active | JobStatus::Paused)
             })
             .max_by_key(|job| parse_iso_millis(&job.updated_at).unwrap_or(0))
@@ -53,7 +54,7 @@ impl AgentCronJobStore {
             .into_iter()
             .map(|job| {
                 if job.active_session_id == input.active_session_id
-                    && job.source.as_deref() == Some("heartbeat")
+                    && job.source == JobSource::Heartbeat
                     && matches!(job.status, JobStatus::Active | JobStatus::Paused)
                 {
                     AgentCronJob {
@@ -70,7 +71,7 @@ impl AgentCronJobStore {
         let job = AgentCronJob {
             id: Uuid::new_v4().to_string(),
             status: JobStatus::Active,
-            source: Some("heartbeat".to_string()),
+            source: JobSource::Heartbeat,
             runtime_kind: input.runtime_kind.clone(),
             delivery_mode: Some(
                 input

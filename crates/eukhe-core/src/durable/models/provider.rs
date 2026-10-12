@@ -31,6 +31,7 @@
 //! daemon's faux-script sessions share one collection across workers and
 //! stay unwrapped: faux-script sessions get no failover.
 
+use crate::cron::JobSource;
 use eukhe_ai::api::lazy::lazy_stream;
 use eukhe_ai::api::{StreamFn, StreamSimpleFn};
 use eukhe_ai::auth::AuthResolutionOverrides;
@@ -337,7 +338,7 @@ async fn run_request(
             if let Some(clock) = timing_clock.as_mut() {
                 clock.done(&message);
             }
-            resume_if_parked(&inner, &context).await;
+            resume_if_parked(&inner).await;
             out.push(AssistantMessageEvent::Done {
                 reason: done_reason_of(&message),
                 message,
@@ -837,26 +838,24 @@ async fn park_for_quota_reset(
 
 /// A parked session completed a model call: the quota is back. Clear the
 /// park (cancelling any pending wake), record the resumed transition, and —
-/// unless this success WAS the wake probe — queue the resume marker so the
-/// interrupted task continues right away (TS `_completeQuotaParkResume`).
-async fn resume_if_parked(inner: &Arc<Inner>, context: &TranscriptContext) {
-    if inner.park.lock().unwrap_or_else(poisoned).is_none() {
+/// unless the wake job already fired its resume marker — queue the marker
+/// so the interrupted task continues right away (TS
+/// `_completeQuotaParkResume`).
+async fn resume_if_parked(inner: &Arc<Inner>) {
+    let Some(park) = inner.park.lock().unwrap_or_else(poisoned).clone() else {
         return;
-    }
-    let wake_probe = context
-        .messages()
-        .last()
-        .is_some_and(|message| match message {
-            Message::User(user) => user_content_text(&user.content) == QUOTA_RESUME_MARKER_TEXT,
-            _ => false,
-        });
-    clear_park(inner, if wake_probe { "wake" } else { "early" }).await;
-    if wake_probe {
+    };
+    let woken = park
+        .job_id
+        .as_deref()
+        .is_some_and(|job_id| wake_job_fired(inner, job_id));
+    clear_park(inner, if woken { "wake" } else { "early" }).await;
+    if woken {
         return;
     }
     // Early resume: the marker continues the interrupted task now.
     if let Some(root) = inner.deps.harness.root() {
-        let _ = root
+        let submitted = root
             .submit(
                 InputSubmissionDraft {
                     origin: InputOrigin::QuotaResume,
@@ -865,20 +864,9 @@ async fn resume_if_parked(inner: &Arc<Inner>, context: &TranscriptContext) {
                 &BACKGROUND_CONTEXT,
             )
             .await;
-    }
-}
-
-/// The concatenated text of a user content (the wake-probe comparison).
-fn user_content_text(content: &UserContent) -> String {
-    match content {
-        UserContent::Text(text) => text.clone(),
-        UserContent::Blocks(blocks) => blocks
-            .iter()
-            .filter_map(|block| match block {
-                UserContentBlock::Text(text) => Some(text.text.clone()),
-                UserContentBlock::Image { .. } => None,
-            })
-            .collect(),
+        if let Err(error) = submitted {
+            tracing::warn!(%error, "quota early-resume marker submission failed");
+        }
     }
 }
 
@@ -920,7 +908,7 @@ async fn create_wake_job(inner: &Inner, resume_at_ms: u64) -> Option<String> {
             session_id: binding.session_id.clone(),
             session_file: binding.session_file.clone(),
             cwd: binding.cwd.clone(),
-            source: Some("quota_resume".to_owned()),
+            source: Some(JobSource::QuotaResume),
             label: Some(QUOTA_RESUME_CRON_LABEL.to_owned()),
             prompt: QUOTA_RESUME_MARKER_TEXT.to_owned(),
             schedule_text,
@@ -952,6 +940,15 @@ fn wake_job_active(inner: &Inner, job_id: &str) -> bool {
         .list()
         .iter()
         .any(|job| job.id == job_id && job.status == JobStatus::Active)
+}
+
+/// Whether the park's wake job has fired its resume marker.
+fn wake_job_fired(inner: &Inner, job_id: &str) -> bool {
+    let (store, _) = cron_wiring(inner);
+    store
+        .list()
+        .iter()
+        .any(|job| job.id == job_id && job.run_count > 0)
 }
 
 /// Cancel a pending wake job (a completed — fired — job stays).

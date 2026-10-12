@@ -557,7 +557,7 @@ mod tests {
         let job = AgentCronJob {
             id: "job-1".to_string(),
             status: crate::cron::JobStatus::Active,
-            source: Some("rlm_heartbeat".to_string()),
+            source: crate::cron::JobSource::RlmHeartbeat,
             runtime_kind: None,
             delivery_mode: Some(crate::cron::DeliveryMode::Steer),
             active_session_id: "live-1".to_string(),

@@ -3,6 +3,7 @@
 //! rlmHeartbeatHostResponse in agent-session.ts) and the embedding's cron
 //! wiring those requests bind to.
 
+use crate::cron::JobSource;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -177,7 +178,7 @@ pub fn handle_rlm_heartbeat_host_request(
         session_id: binding.session_id.clone(),
         session_file: binding.session_file.clone(),
         cwd: binding.cwd.clone(),
-        source: Some("rlm_heartbeat".to_string()),
+        source: Some(JobSource::RlmHeartbeat),
         now: Some(now),
         ..Default::default()
     };
@@ -353,7 +354,7 @@ mod tests {
         // wakes; it never withdraws a queued fire).
         let mutation = created.mutation.expect("create mutation");
         assert_eq!(mutation.job.id, heartbeat["id"].as_str().unwrap());
-        assert_eq!(mutation.job.source.as_deref(), Some("rlm_heartbeat"));
+        assert_eq!(mutation.job.source, JobSource::RlmHeartbeat);
         assert_eq!(mutation.job.active_session_id, "live-1");
         assert!(!mutation.drop_queued);
         let id = heartbeat["id"].as_str().unwrap().to_string();

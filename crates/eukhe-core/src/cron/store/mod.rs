@@ -9,6 +9,7 @@
 //! [`rlm_heartbeat`], and per-session artifact partitioning in
 //! [`session_artifacts`].
 
+use crate::cron::JobSource;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -126,7 +127,7 @@ impl AgentCronJobStore {
                 .map(|job| HeartbeatCatalogEntry {
                     id: job.id.clone(),
                     status: job.status,
-                    source: job.source.clone(),
+                    source: job.source,
                     runtime_kind: job.runtime_kind.clone(),
                     delivery_mode: job.delivery_mode,
                     active_session_id: job.active_session_id.clone(),
@@ -154,7 +155,7 @@ pub struct CreateAgentCronJobInput {
     pub label: Option<String>,
     pub prompt: String,
     pub schedule_text: String,
-    pub source: Option<String>,
+    pub source: Option<JobSource>,
     pub runtime_kind: Option<String>,
     pub delivery_mode: Option<DeliveryMode>,
     pub now: Option<u64>,
@@ -216,7 +217,7 @@ pub struct DispatchResultOptions {
 struct HeartbeatCatalogEntry {
     id: String,
     status: JobStatus,
-    source: Option<String>,
+    source: JobSource,
     runtime_kind: Option<String>,
     delivery_mode: Option<DeliveryMode>,
     active_session_id: String,

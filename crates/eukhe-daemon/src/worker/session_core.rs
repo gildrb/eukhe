@@ -4,26 +4,43 @@
 //! is through the core mutex; the event bridge emits under it, so the
 //! sequence and the view always advance together.
 
-use std::collections::HashMap;
-
-use eukhe_durable::types::SubmissionId;
+use eukhe_types::input_origin::{InputOrigin, Report};
 use serde_json::Value;
 
 use super::durable_host::bridge::QueuedInput;
 use super::durable_host::ShownView;
 use crate::types::SessionActionSnapshot;
 
-/// Typed provenance of one queued input's admission — the queue strip's
-/// riders (the parked-row classification): the kinds mark
-/// which parked rows the TUI renders as daemon work, never plain user
+/// The queue strip's riders (the parked-row classification): the kinds
+/// mark which parked rows the TUI renders as daemon work, never plain user
 /// rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InjectionKind {
-    /// An RLM child status notice (the reserved custom kinds only the
-    /// daemon's minted capability admits).
+    /// An RLM child status notice.
     ChildStatusNotice,
     /// An engine-minted internal prompt (a heartbeat fire).
     InjectedPrompt,
+}
+
+impl InjectionKind {
+    /// The rider of an input of `origin`, if any.
+    pub(crate) fn of(origin: &InputOrigin) -> Option<Self> {
+        match origin {
+            InputOrigin::Report {
+                report: Report::ChildExited { .. } | Report::ChildFailed { .. },
+            } => Some(Self::ChildStatusNotice),
+            InputOrigin::Report {
+                report: Report::Heartbeat { .. },
+            } => Some(Self::InjectedPrompt),
+            InputOrigin::User
+            | InputOrigin::Goal { .. }
+            | InputOrigin::Autonomous { .. }
+            | InputOrigin::QuotaResume
+            | InputOrigin::Report {
+                report: Report::AgentMessage { .. } | Report::BashDone { .. },
+            } => None,
+        }
+    }
 }
 
 pub(crate) struct SessionCore {
@@ -55,10 +72,6 @@ pub(crate) struct SessionCore {
     /// keeps them out of the run; the release resubmits them). Durable
     /// with `suspended`.
     pub(crate) held: Vec<QueuedInput>,
-    /// Admission provenance of queued inputs, by submission id: the rows
-    /// the queue strip's riders mark. Recorded at admission; the bridge
-    /// prunes it when the input leaves the inbox.
-    pub(crate) injected: HashMap<SubmissionId, InjectionKind>,
     /// The withdrawn-input store's mutation gate: every durable
     /// `eukhe.daemon.suspended` exchange (read, document write, cache
     /// install) holds it, so concurrent mutations cannot lose one
@@ -123,7 +136,6 @@ impl SessionCore {
             view: None,
             suspended: Vec::new(),
             held: Vec::new(),
-            injected: HashMap::new(),
             withdrawn_gate: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             attached_client_ids: Vec::new(),
             shutdown_requested: false,

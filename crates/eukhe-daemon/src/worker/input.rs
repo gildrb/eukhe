@@ -161,22 +161,6 @@ pub(crate) async fn write_input_row(
     Ok(())
 }
 
-/// The rider provenance of one admission's custom row (the queue strip's
-/// typed marks): the reserved child-status kinds are daemon-authentic
-/// (only the minted capability admits them), a heartbeat fire is the
-/// engine-minted internal prompt. Agent messages and plain prompts stay
-/// user rows — a same-text human row never flags.
-pub(crate) fn injection_kind(
-    custom_row: Option<&Value>,
-) -> Option<super::session_core::InjectionKind> {
-    let row = custom_row?;
-    if crate::child_status_notices::is_reserved_child_status_custom_type(row) {
-        return Some(super::session_core::InjectionKind::ChildStatusNotice);
-    }
-    (row.get("customType").and_then(Value::as_str) == Some("heartbeat_prompt"))
-        .then_some(super::session_core::InjectionKind::InjectedPrompt)
-}
-
 /// The failure text of a waited prompt that ended unanswered: the run's
 /// error (pi-durable settles a failed run `model_error` with the provider
 /// error text as its detail), else the
@@ -203,19 +187,9 @@ impl Worker {
         request: &InputRequest,
     ) -> Result<SubmissionHandle, String> {
         let main = hosted.main().map_err(|error| error.to_string())?;
-        let handle = submit_input(&main, request, &BACKGROUND_CONTEXT)
+        submit_input(&main, request, &BACKGROUND_CONTEXT)
             .await
-            .map_err(|error| format!("{error:#}"))?;
-        // The rider provenance of a daemon-classified admission: the
-        // queue strip's marks ride by submission id.
-        if let Some(kind) = injection_kind(request.custom_row.as_ref()) {
-            self.core
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .injected
-                .insert(handle.id(), kind);
-        }
-        Ok(handle)
+            .map_err(|error| format!("{error:#}"))
     }
 
     /// Hold one admission under a live input-pause lease (TS
