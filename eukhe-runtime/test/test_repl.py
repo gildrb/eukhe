@@ -146,6 +146,22 @@ class ReplTest(unittest.TestCase):
         self.addCleanup(repl.close)
         return repl
 
+    def test_sync_host_request_is_answered_while_the_cell_blocks(self):
+        self.repl.send({"type": "execute", "id": "cell", "code": "from rlm import host_request_sync\nhost_request_sync('fs.read', {'path': 'a'})"})
+        request = wait_for_host_request(self.repl, [])
+        self.assertEqual(request["data"], {"path": "a", "type": "fs.read"})
+        self.repl.send({"type": "host_reply", "id": request["id"], "data": {"status": "ok", "result": {"text": "x"}}})
+        events = self.repl.until_done("cell")
+        self.assertEqual(one(events, "result")["text"], "{'text': 'x'}")
+
+    def test_sync_host_request_fails_when_stdin_closes(self):
+        self.repl.send({"type": "execute", "id": "cell", "code": "from rlm import host_request_sync\nhost_request_sync('fs.read', {})"})
+        wait_for_host_request(self.repl, [])
+        assert self.repl.proc.stdin is not None
+        self.repl.proc.stdin.close()
+        events = self.repl.until_done("cell")
+        self.assertEqual(one(events, "error")["evalue"], "host connection closed; host_request cannot be answered")
+
     def test_bash_activity_is_available_while_cell_is_running(self):
         self.repl.send({"type": "execute", "id": "cell", "code": "from rlm import bash\nimport asyncio\nh = bash('echo ready; sleep 20'); await asyncio.sleep(20)"})
         # Wait for the activity start display before requesting list.

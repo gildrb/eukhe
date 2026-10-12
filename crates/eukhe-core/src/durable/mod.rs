@@ -13,6 +13,7 @@ pub mod compaction;
 mod deps;
 mod digest;
 mod discovery;
+pub mod documents;
 mod entries;
 mod env;
 mod export;
