@@ -13,7 +13,8 @@
 //! 2. `shutdown` (daemon stop): the workers dispose their kernels before
 //!    the process exit.
 //! 3. Supervisor SIGKILL (the `exit_orphaned` supervisor-lost exit): the
-//!    orphaned worker disposes its kernel before its own exit.
+//!    orphaned worker disposes its kernel before its own exit - also when
+//!    its turn is wedged inside a kernel cell (the ongoing-work cap).
 //!
 //! The kernel Python is ambient product state (the auto-bootstrapped kernel
 //! venv); like the other live-kernel verifiers, these tests skip (with a
@@ -255,12 +256,13 @@ impl Client {
 /// A faux script whose single turn runs one ipython cell that writes a
 /// receipt: the turn proves the session built and its kernel executed
 /// real code (the create-time prewarm alone is not enough evidence).
-fn write_faux_script(dir: &Path) -> PathBuf {
+/// `cell_tail` runs in the same cell after the receipt write.
+fn write_faux_script(dir: &Path, cell_tail: &str) -> PathBuf {
     let receipts_dir = dir.join("receipts");
     std::fs::create_dir_all(&receipts_dir).expect("receipts dir");
     let receipt = receipts_dir.join("cell.json");
     let cell = format!(
-        "open({receipt:?}, \"w\").write(\"kernel alive\")\nprint(\"kernel alive\")",
+        "open({receipt:?}, \"w\").write(\"kernel alive\")\nprint(\"kernel alive\")\n{cell_tail}",
         receipt = receipt.to_string_lossy(),
     );
     let script = dir.join("faux.json");
@@ -354,7 +356,7 @@ fn kill_disposes_the_session_kernel() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
-    let script = write_faux_script(dir.path());
+    let script = write_faux_script(dir.path(), "");
     let baseline = kernel_pids();
 
     let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, "15000");
@@ -394,7 +396,7 @@ fn shutdown_disposes_session_kernels_before_the_worker_exits() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
-    let script = write_faux_script(dir.path());
+    let script = write_faux_script(dir.path(), "");
     let baseline = kernel_pids();
 
     let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, "15000");
@@ -427,7 +429,7 @@ fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
-    let script = write_faux_script(dir.path());
+    let script = write_faux_script(dir.path(), "");
     let baseline = kernel_pids();
 
     // A short supervisor-lost window: the orphaned worker exits quickly
@@ -448,5 +450,68 @@ fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
     // The orphaned worker exits on the lost window and disposes its
     // kernel on the way out. Budget: the first availability check lands
     // 1.5s after boot and the window is 5s, so 90s covers slow boxes.
+    await_kernels_gone(&baseline, Duration::from_secs(90));
+}
+
+/// The orphan exit is bounded even when the session's turn can never end
+/// on its own: the kernel cell wedges for an hour, the supervisor is
+/// `SIGKILLed` mid-cell, and the worker still exits after the ongoing-work
+/// cap (one more lost window) - aborting the wedged cell and disposing the
+/// kernel on the way out. Before the cap, the live turn deferred the exit
+/// on every availability check, so the worker and its kernel lingered
+/// orphaned for as long as the cell ran.
+#[test]
+fn orphan_exit_disposes_a_wedged_cell_kernel_within_the_bound() {
+    let Some(kernel_python) = kernel_python() else {
+        return;
+    };
+    let _guard = test_lock();
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let socket = dir.path().join("supervisor.sock");
+    let script = write_faux_script(dir.path(), "import time\ntime.sleep(3600)");
+    let baseline = kernel_pids();
+
+    let mut daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, "2000");
+    wait_socket_ready(&socket);
+    let (mut client, hello) = Client::connect(&socket);
+    assert_eq!(hello["type"], "daemon_hello");
+    let sessions_dir = dir.path().join("sessions");
+    std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
+    client.send_command(
+        "c1",
+        &json!({
+            "type": "create",
+            "config": {
+                "cwd": dir.path().to_string_lossy(),
+                "sessionDir": sessions_dir.to_string_lossy(),
+                "script": script.to_string_lossy(),
+            },
+        }),
+    );
+    let created = client.read_response("c1");
+    assert_eq!(created["success"], true, "create failed: {created}");
+    let session_id = created["data"]["activeSessionId"]
+        .as_str()
+        .or_else(|| created["data"]["id"].as_str())
+        .expect("active session id")
+        .to_string();
+    client.send_command(
+        "p1",
+        &json!({ "type": "prompt", "activeSessionId": session_id, "message": "wedge the cell" }),
+    );
+    let prompted = client.read_response("p1");
+    assert_eq!(prompted["success"], true, "prompt failed: {prompted}");
+    // The cell is running: the kernel booted and wrote the receipt before
+    // the sleep, so the turn is wedged inside the cell.
+    await_new_kernel(&baseline, Duration::from_mins(2));
+    await_receipt(dir.path());
+
+    daemon.child.kill().expect("SIGKILL supervisor");
+    let _ = daemon.child.wait();
+
+    // Budget: the 5s check cadence finds the socket gone and the next
+    // check past two 2s windows exits (~10s), far below the hour-long
+    // cell; 90s covers slow boxes.
     await_kernels_gone(&baseline, Duration::from_secs(90));
 }

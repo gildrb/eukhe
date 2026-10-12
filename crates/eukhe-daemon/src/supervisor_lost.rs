@@ -19,6 +19,16 @@
 //! the window). A supervisor restart inside the window is still seamless:
 //! the socket's return resets the absence timer and the registration link
 //! re-presents the worker's identity.
+//!
+//! Divergence from TS, documented: TS `hasOngoingSessionWork` defers the
+//! give-up exit for as long as session work is in flight, with no upper
+//! bound. Work that can never settle once the supervisor is gone — a run
+//! wedged on a tool or a held host request, a queued input stranded behind
+//! a failed run (nothing drains the inbox until the next prompt) — then
+//! keeps the orphan alive forever. Here ongoing work defers the exit by at
+//! most one more window ([`exit_due`]); the exit's session close aborts a
+//! still-live run, and the durable session resumes it on a later
+//! supervisor's demand.
 
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -73,9 +83,8 @@ pub(crate) fn start(worker: Arc<Worker>) {
 /// The availability-check loop. Every iteration mirrors the TS
 /// `checkSupervisorAvailability` guard order: a shutdown in flight or a
 /// live authenticated supervisor connection disarms the monitor, a
-/// reachable socket resets the absence timer, and only a socket that has
-/// been unreachable for the whole window with no session work in flight
-/// exits the worker.
+/// reachable socket resets the absence timer, and a socket that stays
+/// unreachable exits the worker once [`exit_due`] says so.
 async fn monitor(worker: Arc<Worker>) {
     let window = Duration::from_millis(lost_exit_ms());
     let mut absent_since: Option<tokio::time::Instant> = None;
@@ -94,29 +103,37 @@ async fn monitor(worker: Arc<Worker>) {
             continue;
         }
         let since = *absent_since.get_or_insert_with(tokio::time::Instant::now);
-        if since.elapsed() < window {
-            continue;
-        }
+        // TS `hasOngoingSessionWork`: an active run owns the worker a
+        // little longer; its turn end lets the next availability check
+        // reconsider (bounded: see `exit_due`).
         let ongoing = worker.core.lock().unwrap().has_ongoing_work();
-        if ongoing {
-            // TS `hasOngoingSessionWork`: an active run owns the worker a
-            // little longer; its turn end lets the next availability check
-            // reconsider.
-            continue;
+        if exit_due(since.elapsed(), window, ongoing) {
+            exit_orphaned(&worker, since).await;
         }
-        exit_orphaned(&worker, since).await;
+    }
+}
+
+/// Whether a worker whose supervisor has been unreachable for `absent`
+/// exits now: once the whole `window` passed with no session work in
+/// flight, or — when work is still in flight — once a second window
+/// passed too. The cap is what makes the exit bounded: work that can never
+/// settle without a supervisor would otherwise defer it forever.
+fn exit_due(absent: Duration, window: Duration, ongoing: bool) -> bool {
+    if ongoing {
+        absent >= window.saturating_mul(2)
+    } else {
+        absent >= window
     }
 }
 
 /// The TS give-up exit: dispose the session's kernel, persist the recovery
 /// journal, close the listener and remove the worker's own socket file,
 /// and end the process (the same sequence the routed `shutdown` command
-/// runs; the monitor only reaches this with no session work in flight, so
-/// nothing else needs to settle first). The kernel dispose is the TS
-/// `shutdown(0)` close pass (`closeSession` -> runtime dispose ->
-/// `IpythonKernelProvisioner.dispose`):
-/// the process exit runs no destructors, so an undisposed kernel would be
-/// orphaned here.
+/// runs: the session close aborts a run still in flight past the
+/// ongoing-work cap, so nothing else needs to settle first). The kernel
+/// dispose is the TS `shutdown(0)` close pass (`closeSession` -> runtime
+/// dispose -> `IpythonKernelProvisioner.dispose`): the process exit runs
+/// no destructors, so an undisposed kernel would be orphaned here.
 async fn exit_orphaned(worker: &Worker, absent_since: tokio::time::Instant) {
     eprintln!(
         "eukhe-daemon worker: supervisor {} unreachable for {}s; exiting orphaned worker",
@@ -152,6 +169,20 @@ mod tests {
         assert_eq!(lost_exit_ms_from(Some("0")), 0);
         assert_eq!(lost_exit_ms_from(Some("15000")), 15_000);
         assert_eq!(lost_exit_ms_from(Some("15000.5")), 15_000);
+    }
+
+    /// Idle workers exit at the window; in-flight work defers the exit by
+    /// exactly one more window, never indefinitely.
+    #[test]
+    fn ongoing_work_defers_the_exit_by_at_most_one_more_window() {
+        let window = Duration::from_secs(15);
+        assert!(!exit_due(Duration::from_secs(14), window, false));
+        assert!(exit_due(window, window, false));
+        assert!(!exit_due(window, window, true));
+        assert!(!exit_due(Duration::from_secs(29), window, true));
+        assert!(exit_due(Duration::from_secs(30), window, true));
+        assert!(exit_due(Duration::from_secs(7_200), window, true));
+        assert!(exit_due(Duration::ZERO, Duration::ZERO, true));
     }
 
     fn lost_exit_ms_from(raw: Option<&str>) -> u64 {
