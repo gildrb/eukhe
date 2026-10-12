@@ -179,6 +179,11 @@ fn prompt_token_for_host_request(request: &str) -> Option<String> {
             "agent_observe.list" | "agent_message.list_agents" => "agent_observe.list_agents",
             "agent_observe.get" => "agent_observe.get_agent",
             "agent_observe.recent" => "agent_observe.recent_messages",
+            "fs.read" => "read",
+            "fs.write" => "write",
+            "fs.edit" => "edit",
+            "fs.grep" => "grep",
+            "fs.glob" => "glob",
             other => other,
         }
         .to_string(),
@@ -309,7 +314,8 @@ fn all_string_literals(text: &str) -> Vec<String> {
 }
 
 /// Kernel-bound REPL names from the real bootstrap code (`rlm`, `bash`,
-/// `mcp`), derived from `build_rlm_bootstrap_code`.
+/// `mcp`, and the `rlm.fs` document functions), derived from
+/// `build_rlm_bootstrap_code`.
 fn kernel_bound_names() -> BTreeSet<String> {
     let code = eukhe_core::kernel::bootstrap::build_rlm_bootstrap_code(&[]);
     let mut names = BTreeSet::new();
@@ -323,6 +329,9 @@ fn kernel_bound_names() -> BTreeSet<String> {
         }
         if let Some(rest) = line.strip_prefix("import rlm.mcp as ") {
             names.insert(rest.trim().to_string());
+        }
+        if let Some(rest) = line.strip_prefix("from rlm.fs import ") {
+            names.extend(rest.split(',').map(|name| name.trim().to_string()));
         }
     }
     names
@@ -525,15 +534,15 @@ fn core_layer_documents_the_real_tool_surface() {
 
 /// The packaged skill set at TS tip `f62dae4d0`
 /// (`packages/coding-agent/skills/`) minus the Prime Intellect product
-/// skill and the network web-search skill this fork drops: 10 skills — the
-/// generic `mcp` doc skill in, the per-service linear/notion pair out (TS
-/// removed theirs when the generic MCP surface landed).
+/// skill and the network web-search skill this fork drops, and the `edit`
+/// skill the kernel's document functions replaced: 9 skills — the generic
+/// `mcp` doc skill in, the per-service linear/notion pair out (TS removed
+/// theirs when the generic MCP surface landed).
 const TS_PACKAGED_SKILL_SET: &[&str] = &[
     "agent-message",
     "agent-observe",
     "attach-image",
     "compact",
-    "edit",
     "goal",
     "mcp",
     "refine",

@@ -1,25 +1,32 @@
-//! The `fs.read` and `fs.write` kernel host requests. Every reply carries
-//! the function revision (`read@1`) and is either `done` with the typed
-//! result or `rejected` with a reason and the model-facing message.
+//! The `fs.*` kernel host requests: `fs.read`, `fs.write`, `fs.edit`,
+//! `fs.grep`, `fs.glob`. Every reply carries the function revision
+//! (`read@1`, `edit@hl.1`) and is either `done` with the typed result or
+//! `rejected` with a reason and the model-facing message.
 
-use std::path::PathBuf;
+use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context as _;
 use eukhe_docs::{
-    Documents, Notice, ReadContent, ReadError, ReadView, WriteDisposition, WriteError,
+    EditError, FileChange, GlobError, GlobOutput, GlobRequest, GrepError, GrepOutput, GrepRequest,
+    HashlineOutcome, Notice, ReadContent, ReadError, ReadView, WriteDisposition, WriteError,
     WriteOutcome,
 };
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::DocumentsHost;
 use crate::durable::{HostCall, HostRequestRegistry};
 
 const READ_REV: &str = "read@1";
 const WRITE_REV: &str = "write@1";
+pub(super) const EDIT_REV: &str = "edit@hl.1";
+const GREP_REV: &str = "grep@1";
+const GLOB_REV: &str = "glob@1";
 
-/// The kernel's working directory comes with every request: relative paths
+/// Every request carries the kernel's working directory: relative paths
 /// resolve the way the model's `os.chdir` expects.
 #[derive(Deserialize)]
 struct ReadRequest {
@@ -34,6 +41,32 @@ struct WriteRequest {
     content: String,
 }
 
+#[derive(Deserialize)]
+struct EditRequest {
+    cwd: PathBuf,
+    input: String,
+}
+
+#[derive(Deserialize)]
+struct GrepCall {
+    cwd: PathBuf,
+    pattern: String,
+    path: String,
+    glob: Option<String>,
+    ignore_case: bool,
+    context: u32,
+    skip: u64,
+    limit: Option<NonZeroUsize>,
+}
+
+#[derive(Deserialize)]
+struct GlobCall {
+    cwd: PathBuf,
+    path: String,
+    hidden: bool,
+    limit: Option<NonZeroUsize>,
+}
+
 #[derive(Serialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 enum Reply<T> {
@@ -43,6 +76,16 @@ enum Reply<T> {
         reason: &'static str,
         message: String,
     },
+}
+
+impl<T> Reply<T> {
+    fn rejected(version: &'static str, reason: &'static str, error: &impl ToString) -> Self {
+        Self::Rejected {
+            version,
+            reason,
+            message: error.to_string(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -90,8 +133,53 @@ struct WriteReply {
     rendered: String,
 }
 
-fn diag_lines(diags: &[Notice]) -> Vec<String> {
-    diags.iter().map(ToString::to_string).collect()
+#[derive(Serialize)]
+pub(super) struct EditReply {
+    version: &'static str,
+    pub(super) rendered: String,
+    files: Vec<EditFileReply>,
+}
+
+#[derive(Serialize)]
+struct EditFileReply {
+    path: String,
+    absolute: PathBuf,
+    change: &'static str,
+    destination: Option<PathBuf>,
+    diff: String,
+    first_changed_line: Option<u32>,
+    warnings: Vec<String>,
+    tag: Option<String>,
+}
+
+#[derive(Serialize)]
+struct GrepReply {
+    version: &'static str,
+    rendered: String,
+    files: Vec<GrepFileReply>,
+    total_files: u64,
+    more_files: bool,
+}
+
+#[derive(Serialize)]
+struct GrepFileReply {
+    path: String,
+    absolute: PathBuf,
+    tag: Option<String>,
+    /// `[line, text]` of each matching line.
+    matches: Vec<(u32, String)>,
+}
+
+#[derive(Serialize)]
+struct GlobReply {
+    version: &'static str,
+    rendered: String,
+    paths: Vec<String>,
+    truncated: bool,
+}
+
+fn notice_lines(notices: &[Notice]) -> Vec<String> {
+    notices.iter().map(ToString::to_string).collect()
 }
 
 fn read_reply(view: ReadView) -> ReadReply {
@@ -119,7 +207,7 @@ fn read_reply(view: ReadView) -> ReadReply {
     };
     ReadReply {
         version: READ_REV,
-        diags: diag_lines(&view.diags),
+        diags: notice_lines(&view.diags),
         path: view.path,
         absolute: view.absolute,
         rendered: view.rendered,
@@ -159,68 +247,217 @@ fn write_rejection(error: &WriteError) -> &'static str {
     }
 }
 
+pub(super) fn edit_reply(outcome: HashlineOutcome) -> EditReply {
+    EditReply {
+        version: EDIT_REV,
+        rendered: outcome.text,
+        files: outcome
+            .files
+            .into_iter()
+            .map(|file| {
+                let (change, destination) = match file.change {
+                    FileChange::Updated => ("updated", None),
+                    FileChange::Moved { destination } => ("moved", Some(destination)),
+                    FileChange::Deleted => ("deleted", None),
+                    FileChange::Unchanged => ("unchanged", None),
+                };
+                EditFileReply {
+                    path: file.display,
+                    absolute: file.absolute,
+                    change,
+                    destination,
+                    diff: file.diff,
+                    first_changed_line: file.first_changed_line,
+                    warnings: file.warnings,
+                    tag: file.tag,
+                }
+            })
+            .collect(),
+    }
+}
+
+/// The rejection reason of an edit: what the model must fix.
+pub(super) fn edit_rejection(error: &EditError) -> &'static str {
+    match error {
+        EditError::Parse { .. } => "parse",
+        EditError::Apply(_) => "apply",
+        EditError::Match(_) => "anchor",
+        EditError::Io { .. } => "io",
+    }
+}
+
+fn grep_reply(output: GrepOutput) -> GrepReply {
+    GrepReply {
+        version: GREP_REV,
+        rendered: output.render(),
+        total_files: output.total_files,
+        more_files: output.file_limit_reached,
+        files: output
+            .files
+            .into_iter()
+            .map(|file| GrepFileReply {
+                path: file.path,
+                absolute: file.absolute,
+                tag: file.tag,
+                matches: file
+                    .matches
+                    .into_iter()
+                    .map(|hit| (hit.line_number, hit.line))
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn grep_rejection(error: &GrepError) -> &'static str {
+    match error {
+        GrepError::EmptyPattern | GrepError::InvalidRegex { .. } => "pattern",
+        GrepError::TimedOut => "timeout",
+        GrepError::AllPathsMissing { .. } => "not_found",
+        GrepError::Workspace { .. } => "io",
+    }
+}
+
+fn glob_reply(output: GlobOutput) -> GlobReply {
+    GlobReply {
+        version: GLOB_REV,
+        rendered: output.render(),
+        truncated: output.truncated,
+        paths: output.matches.into_iter().map(|hit| hit.path).collect(),
+    }
+}
+
+fn glob_rejection(error: &GlobError) -> &'static str {
+    match error {
+        GlobError::EmptyPath | GlobError::RootSearch | GlobError::UnsupportedScheme { .. } => {
+            "path"
+        }
+        GlobError::PathNotFound { .. } => "not_found",
+        GlobError::PathNotDirectory { .. } => "not_directory",
+        GlobError::InvalidPattern { .. } => "pattern",
+        GlobError::Workspace { .. } => "io",
+    }
+}
+
 fn parse<T: for<'de> Deserialize<'de>>(request_type: &str, call: &HostCall) -> anyhow::Result<T> {
     let request: T = serde_json::from_value(call.data.clone())
         .with_context(|| format!("{request_type} request is malformed"))?;
     Ok(request)
 }
 
-fn require_absolute(request_type: &str, cwd: &std::path::Path) -> anyhow::Result<()> {
+/// Check the kernel cwd and remember it as the conversation's: the wire
+/// `edit` resolves paths where the model's last read resolved them.
+fn kernel_cwd(
+    host: &DocumentsHost,
+    request_type: &str,
+    call: &HostCall,
+    cwd: &Path,
+) -> anyhow::Result<()> {
     anyhow::ensure!(
         cwd.is_absolute(),
         "{request_type} cwd must be absolute, got {}",
         cwd.display()
     );
+    host.remember_cwd(call, cwd.to_path_buf());
     Ok(())
 }
 
-async fn read(documents: Arc<Documents>, call: HostCall) -> anyhow::Result<Value> {
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> anyhow::Result<T> {
+    Ok(tokio::task::spawn_blocking(work).await?)
+}
+
+async fn read(host: Arc<DocumentsHost>, call: HostCall) -> anyhow::Result<Value> {
     let request: ReadRequest = parse("fs.read", &call)?;
-    require_absolute("fs.read", &request.cwd)?;
-    let result =
-        tokio::task::spawn_blocking(move || documents.read(&request.cwd, &request.path)).await?;
-    let reply = match result {
+    kernel_cwd(&host, "fs.read", &call, &request.cwd)?;
+    let reply = match blocking(move || host.documents.read(&request.cwd, &request.path)).await? {
         Ok(view) => Reply::Done(read_reply(view)),
-        Err(error) => Reply::Rejected {
-            version: READ_REV,
-            reason: read_rejection(&error),
-            message: error.to_string(),
-        },
+        Err(error) => Reply::rejected(READ_REV, read_rejection(&error), &error),
     };
     Ok(serde_json::to_value(reply)?)
 }
 
-async fn write(documents: Arc<Documents>, call: HostCall) -> anyhow::Result<Value> {
+async fn write(host: Arc<DocumentsHost>, call: HostCall) -> anyhow::Result<Value> {
     let request: WriteRequest = parse("fs.write", &call)?;
-    require_absolute("fs.write", &request.cwd)?;
-    let result = tokio::task::spawn_blocking(move || {
-        documents.write(&request.cwd, &request.path, &request.content)
+    kernel_cwd(&host, "fs.write", &call, &request.cwd)?;
+    let result = blocking(move || {
+        host.documents
+            .write(&request.cwd, &request.path, &request.content)
     })
     .await?;
     let reply = match result {
         Ok(outcome) => Reply::Done(write_reply(outcome)),
-        Err(error) => Reply::Rejected {
-            version: WRITE_REV,
-            reason: write_rejection(&error),
-            message: error.to_string(),
-        },
+        Err(error) => Reply::rejected(WRITE_REV, write_rejection(&error), &error),
     };
     Ok(serde_json::to_value(reply)?)
 }
 
-/// Register `fs.read` and `fs.write` over `documents`.
-pub(super) fn register(registry: &HostRequestRegistry, documents: &Arc<Documents>) {
+async fn edit(host: Arc<DocumentsHost>, call: HostCall) -> anyhow::Result<Value> {
+    let request: EditRequest = parse("fs.edit", &call)?;
+    kernel_cwd(&host, "fs.edit", &call, &request.cwd)?;
+    let reply = match blocking(move || host.documents.edit(&request.cwd, &request.input)).await? {
+        Ok(outcome) => Reply::Done(edit_reply(outcome)),
+        Err(error) => Reply::rejected(EDIT_REV, edit_rejection(&error), &error),
+    };
+    Ok(serde_json::to_value(reply)?)
+}
+
+async fn grep(host: Arc<DocumentsHost>, call: HostCall) -> anyhow::Result<Value> {
+    let call_request: GrepCall = parse("fs.grep", &call)?;
+    kernel_cwd(&host, "fs.grep", &call, &call_request.cwd)?;
+    let request = GrepRequest {
+        pattern: call_request.pattern,
+        path: call_request.path,
+        glob: call_request.glob,
+        ignore_case: call_request.ignore_case,
+        gitignore: true,
+        context_before: call_request.context,
+        context_after: call_request.context,
+        skip: call_request.skip,
+        limit: call_request.limit,
+    };
+    let cwd = call_request.cwd;
+    let reply = match blocking(move || host.documents.grep(&cwd, &request)).await? {
+        Ok(output) => Reply::Done(grep_reply(output)),
+        Err(error) => Reply::rejected(GREP_REV, grep_rejection(&error), &error),
+    };
+    Ok(serde_json::to_value(reply)?)
+}
+
+async fn glob(host: Arc<DocumentsHost>, call: HostCall) -> anyhow::Result<Value> {
+    let call_request: GlobCall = parse("fs.glob", &call)?;
+    kernel_cwd(&host, "fs.glob", &call, &call_request.cwd)?;
+    let request = GlobRequest {
+        path: call_request.path,
+        hidden: call_request.hidden,
+        gitignore: true,
+        limit: call_request.limit,
+    };
+    let cwd = call_request.cwd;
+    let reply = match blocking(move || host.documents.glob(&cwd, &request)).await? {
+        Ok(output) => Reply::Done(glob_reply(output)),
+        Err(error) => Reply::rejected(GLOB_REV, glob_rejection(&error), &error),
+    };
+    Ok(serde_json::to_value(reply)?)
+}
+
+/// Register the `fs.*` requests over `host`.
+pub(super) fn register(registry: &HostRequestRegistry, host: &Arc<DocumentsHost>) {
     macro_rules! handler {
         ($request_type:literal, $function:path) => {{
-            let documents = Arc::clone(documents);
+            let host = Arc::clone(host);
             registry.register(
                 $request_type,
-                Arc::new(move |call: HostCall| $function(Arc::clone(&documents), call).boxed()),
+                Arc::new(move |call: HostCall| $function(Arc::clone(&host), call).boxed()),
             );
         }};
     }
     handler!("fs.read", read);
     handler!("fs.write", write);
+    handler!("fs.edit", edit);
+    handler!("fs.grep", grep);
+    handler!("fs.glob", glob);
 }
 
 #[cfg(test)]

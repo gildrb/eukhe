@@ -82,5 +82,54 @@ class WriteTest(unittest.TestCase):
         self.assertEqual((result.header, result.warnings), ("[b.txt#9F3E]", ["Repaired argument: text= read as content="]))
 
 
+class EditTest(unittest.TestCase):
+    def test_rejection_is_edit_rejected(self) -> None:
+        reply = {"outcome": "rejected", "version": "edit@hl.1", "reason": "parse", "message": "bad op"}
+        with patch.object(rlm, "host_request_sync", return_value=reply):
+            with self.assertRaises(fs.EditRejected) as caught:
+                fs.edit("[a.py#1A2B]\nNOPE")
+        self.assertEqual((caught.exception.version, caught.exception.reason), ("edit@hl.1", "parse"))
+
+    def test_exact_string_dialect_is_refused_with_the_hashline_form(self) -> None:
+        with self.assertRaisesRegex(TypeError, "edit\\(\\) does not take 'old_str': edit\\(\\) takes a hashline patch"):
+            fs.edit(old_str="a", new_str="b")
+
+    def test_done_edit_exposes_new_headers(self) -> None:
+        reply = {
+            "outcome": "done",
+            "version": "edit@hl.1",
+            "rendered": "[a.py#3C4D]\n...",
+            "files": [{"path": "a.py", "tag": "3C4D", "change": "updated"}],
+        }
+        with patch.object(rlm, "host_request_sync", return_value=reply) as host:
+            result = fs.edit(input="[a.py#1A2B]\nPUT 1.=1:\n+y = 2")
+        host.assert_called_once_with("fs.edit", {"input": "[a.py#1A2B]\nPUT 1.=1:\n+y = 2", "cwd": os.getcwd()})
+        self.assertEqual((result.headers, result.warnings), (["[a.py#3C4D]"], ["Repaired argument: input= read as patch="]))
+
+
+class SearchTest(unittest.TestCase):
+    def test_grep_returns_hits_that_print_as_rows(self) -> None:
+        reply = {
+            "outcome": "done",
+            "version": "grep@1",
+            "rendered": "[a.py#1A2B]\n*1:x = 1",
+            "files": [{"path": "a.py", "absolute": "/w/a.py", "tag": "1A2B", "matches": [[1, "x = 1"]]}],
+            "total_files": 1,
+            "more_files": False,
+        }
+        with patch.object(rlm, "host_request_sync", return_value=reply) as host:
+            hits = fs.grep(regex="x", ignore_case="true")
+        self.assertEqual(host.call_args.args[1]["ignore_case"], True)
+        self.assertEqual(list(hits), [fs.Hit(path="a.py", tag="1A2B", line=1, text="x = 1")])
+        self.assertEqual(str(hits).splitlines()[0], "[a.py#1A2B]")
+
+    def test_glob_joins_the_base_path(self) -> None:
+        reply = {"outcome": "done", "version": "glob@1", "rendered": "a.py", "paths": ["src/a.py"], "truncated": False}
+        with patch.object(rlm, "host_request_sync", return_value=reply) as host:
+            paths = fs.glob("*.py;*.pyi", "src")
+        self.assertEqual(host.call_args.args[1]["path"], "src/*.py;src/*.pyi")
+        self.assertEqual(paths, ["src/a.py"])
+
+
 if __name__ == "__main__":
     unittest.main()

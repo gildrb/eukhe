@@ -43,8 +43,8 @@ pub use grep::{
     grep, ContextLine, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest, DEFAULT_FILE_LIMIT,
 };
 pub use hashline::{
-    apply_hashline, EditWriter, FileChange, FileOutcome, HashlineOptions, HashlineOutcome, WriteOp,
-    WriteRequest, WriteResponse, HASHLINE_DESCRIPTION,
+    apply_hashline, section_paths, EditWriter, FileChange, FileOutcome, HashlineOptions,
+    HashlineOutcome, WriteOp, WriteRequest, WriteResponse, HASHLINE_DESCRIPTION,
 };
 pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};
 pub use path::{canonical_key, resolve};
