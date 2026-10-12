@@ -16,6 +16,8 @@ regex = "1"
 # The file tag is omp's xxh32 (seed 0) of the normalized text; MIT, unlike
 # xxhash-rust (BSL-1.0).
 twox-hash = { version = "2", default-features = false, features = ["std", "xxhash32", "xxhash64"] }
+# The byte rebase is omp's deadline-bounded Myers diff (`capture_diff_slices_deadline`).
+similar = "3"
 
 [dev-dependencies]
 tempfile = "3"
