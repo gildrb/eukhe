@@ -70,7 +70,7 @@ pub(crate) struct ShownView {
     /// (`preparing` at pickup, `committing` once the turn's first row
     /// landed, `running` at its first assistant frame), cleared when the
     /// run ends.
-    pub(crate) active: Option<crate::types::SessionActionActive>,
+    pub(crate) active: Option<eukhe_types::daemon::SessionActionActive>,
     /// The served goal (`goal_update` payload); `Null` without a goal.
     pub(crate) goal: Value,
 }
@@ -327,7 +327,7 @@ enum Step {
     /// Apply the batch's inbox read: the lanes lose the picked-up rows.
     Inbox,
     /// Project the queue with this active action.
-    Project(Option<crate::types::SessionActionActive>),
+    Project(Option<eukhe_types::daemon::SessionActionActive>),
 }
 
 /// The active action a batch's pickup arms (the strip's Starting row):
@@ -338,14 +338,14 @@ fn armed_pickup(
     before: &[QueuedInput],
     after: &[QueuedInput],
     run_live: bool,
-) -> Option<crate::types::SessionActionActive> {
+) -> Option<eukhe_types::daemon::SessionActionActive> {
     if !run_live {
         return None;
     }
     let picked = before
         .iter()
         .find(|row| !after.iter().any(|kept| kept.id == row.id))?;
-    Some(crate::types::SessionActionActive {
+    Some(eukhe_types::daemon::SessionActionActive {
         kind: "turn".to_string(),
         phase: "preparing".to_string(),
         label: Some(super::super::compact_action_label(&picked.text)),
@@ -359,9 +359,9 @@ fn armed_pickup(
 /// ([`step_active`]), and projects at the pickup, after each frame that
 /// moved it, and once more at the batch end.
 fn plan_batch(
-    mut active: Option<crate::types::SessionActionActive>,
+    mut active: Option<eukhe_types::daemon::SessionActionActive>,
     frames: Vec<Value>,
-    mut armed: Option<crate::types::SessionActionActive>,
+    mut armed: Option<eukhe_types::daemon::SessionActionActive>,
 ) -> Vec<Step> {
     let count = frames.len();
     let pickup_at = if armed.is_some() {
@@ -423,7 +423,10 @@ fn pickup_frame(frames: &[Value]) -> usize {
 /// delivered turn's first user row moves it to `committing`, its first
 /// assistant frame to `running`; phases only advance. Answers whether it
 /// moved.
-fn step_active(active: &mut Option<crate::types::SessionActionActive>, frame: &Value) -> bool {
+fn step_active(
+    active: &mut Option<eukhe_types::daemon::SessionActionActive>,
+    frame: &Value,
+) -> bool {
     if frame_type(frame) == Some("agent_end") {
         return active.take().is_some();
     }
@@ -643,8 +646,8 @@ mod tests {
         json!({ "type": kind, "message": { "role": role } })
     }
 
-    fn active(phase: &str, label: &str) -> crate::types::SessionActionActive {
-        crate::types::SessionActionActive {
+    fn active(phase: &str, label: &str) -> eukhe_types::daemon::SessionActionActive {
+        eukhe_types::daemon::SessionActionActive {
             kind: "turn".to_owned(),
             phase: phase.to_owned(),
             label: Some(label.to_owned()),

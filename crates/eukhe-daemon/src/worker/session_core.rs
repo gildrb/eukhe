@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::durable_host::bridge::QueuedInput;
 use super::durable_host::{DurableView, ShownView};
-use crate::types::SessionActionSnapshot;
+use eukhe_types::daemon::SessionActionSnapshot;
 
 /// The queue strip's riders (the parked-row classification): the kinds
 /// mark which parked rows the TUI renders as daemon work, never plain user

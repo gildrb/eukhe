@@ -78,7 +78,7 @@ use crate::protocol::{
 };
 use crate::registration::RegistrationHandle;
 
-use crate::types::{AgentConnectionState, SessionActionSnapshot};
+use eukhe_types::daemon::{AgentConnectionState, SessionActionSnapshot};
 
 /// How long the close paths (`shutdown`, `kill`) wait for aborted side
 /// question runs to queue their terminal cancelled events before the

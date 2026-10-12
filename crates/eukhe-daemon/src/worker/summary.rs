@@ -18,7 +18,7 @@ use eukhe_types::pi_ai::Model;
 use serde_json::json;
 
 use crate::session_usage::SessionUsageSummary;
-use crate::types::SessionSummary;
+use eukhe_types::daemon::SessionSummary;
 
 /// TS `sessionUsageSummaryFrom` over the shown conversation's own spend
 /// (`pi.usage`: its entries, summarization attempts, and tool results):
@@ -551,7 +551,6 @@ pub(crate) fn session_summary(
         attached_clients: u32::try_from(core.attached_client_ids.len()).unwrap_or(u32::MAX),
         message_count: messages,
         session_actions: session_snapshot(core),
-        streaming_message: None,
         created: core.created_at.clone(),
         modified: last_activity_at,
         first_message: view.and_then(first_message),
@@ -611,11 +610,11 @@ pub(crate) fn session_snapshot(core: &SessionCore) -> SessionActionSnapshot {
         queued_count: u32::try_from(queued().count()).unwrap_or(u32::MAX),
         steering: lane(QueuedMode::Steer),
         follow_ups: lane(QueuedMode::FollowUp),
-        rlm_child_status: crate::types::QueueLaneIndices {
+        rlm_child_status: eukhe_types::daemon::QueueLaneIndices {
             steering: indices(QueuedMode::Steer, InjectionKind::ChildStatusNotice),
             follow_up: indices(QueuedMode::FollowUp, InjectionKind::ChildStatusNotice),
         },
-        injected_prompts: crate::types::QueueLaneIndices {
+        injected_prompts: eukhe_types::daemon::QueueLaneIndices {
             steering: indices(QueuedMode::Steer, InjectionKind::InjectedPrompt),
             follow_up: indices(QueuedMode::FollowUp, InjectionKind::InjectedPrompt),
         },
@@ -784,7 +783,7 @@ mod tests {
     #[test]
     fn the_active_action_rides_the_snapshot() {
         let mut core = core_with(vec![], vec![], vec![]);
-        core.view.as_mut().expect("view").active = Some(crate::types::SessionActionActive {
+        core.view.as_mut().expect("view").active = Some(eukhe_types::daemon::SessionActionActive {
             kind: "turn".to_string(),
             phase: "preparing".to_string(),
             label: Some("go".to_string()),
@@ -792,7 +791,7 @@ mod tests {
         let snapshot = session_snapshot(&core);
         assert_eq!(
             snapshot.active,
-            Some(crate::types::SessionActionActive {
+            Some(eukhe_types::daemon::SessionActionActive {
                 kind: "turn".to_string(),
                 phase: "preparing".to_string(),
                 label: Some("go".to_string()),
