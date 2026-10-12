@@ -132,12 +132,6 @@ impl JsonValue {
         matches!(self, Self::Null)
     }
 
-    /// Whether this is a boolean.
-    #[must_use]
-    pub fn is_bool(&self) -> bool {
-        matches!(self, Self::Bool(_))
-    }
-
     /// Whether this is a number.
     #[must_use]
     pub fn is_number(&self) -> bool {

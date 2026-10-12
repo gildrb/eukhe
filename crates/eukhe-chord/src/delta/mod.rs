@@ -88,9 +88,3 @@ pub use tracker::{track, Change, Prepared, Tracker, TrackerError};
 pub fn is_base(ops: &[Op]) -> bool {
     ops.first().is_some_and(Op::is_replace)
 }
-
-/// [`is_base`] for wire batches.
-#[must_use]
-pub fn is_wire_base(ops: &[WireOp]) -> bool {
-    ops.first().is_some_and(WireOp::is_replace)
-}
