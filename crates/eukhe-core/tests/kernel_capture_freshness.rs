@@ -16,12 +16,11 @@
 //!   restores through a fresh kernel (the crash-resume freshness
 //!   contract).
 //!
-//! The kernel Python is ambient product state like `kernel_restore_guards`:
-//! skipped with a note when absent; `EUKHE_CORE_KERNEL_PYTHON` points at an
-//! explicit interpreter.
+//! The kernel Python is this checkout's runtime
+//! (`eukhe-core/tests/support/kernel_runtime.rs`).
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use eukhe_core::kernel::bootstrap::build_rlm_bootstrap_code;
@@ -32,35 +31,14 @@ use eukhe_core::kernel::shared::{
 };
 use eukhe_core::kernel::state_snapshot::{manifest_path_in, snapshot_path_in};
 
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_CORE_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_CORE_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live capture-freshness test",
-        candidate.display()
-    );
-    None
-}
+#[path = "support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
-/// Options with a snapshot dir; `None` (skip) when no kernel interpreter is
-/// available.
-fn test_options(snapshot_dir: Option<&Path>) -> Option<KernelManagerOptions> {
-    let python = kernel_python()?;
-    Some(KernelManagerOptions {
+/// Options with a snapshot dir.
+fn test_options(snapshot_dir: Option<&Path>) -> KernelManagerOptions {
+    let python = kernel_python();
+    KernelManagerOptions {
         python: Some(python),
         cwd: Some(std::env::temp_dir()),
         env: HashMap::new(),
@@ -77,7 +55,7 @@ fn test_options(snapshot_dir: Option<&Path>) -> Option<KernelManagerOptions> {
         bootstrap_code: Some(build_rlm_bootstrap_code(&[])),
         stderr_log_path: None,
         on_background_work_settled: None,
-    })
+    }
 }
 
 async fn execute(
@@ -100,9 +78,7 @@ async fn fresh_capture_skips_until_a_settled_cell_changes_the_namespace() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let manifest_path = manifest_path_in(dir.path());
     let payload_path = snapshot_path_in(dir.path());
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = ReplKernelManager::new(options);
     manager
@@ -153,9 +129,7 @@ async fn fresh_capture_skips_until_a_settled_cell_changes_the_namespace() {
     // The re-dumped payload restores the changed value, not the memo's
     // stale one (the crash-resume freshness contract).
     manager.kill();
-    let Some(reader_options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let reader_options = test_options(Some(dir.path()));
     let reader = ReplKernelManager::new(reader_options);
     reader
         .start(KernelStartOptions::default())
@@ -178,9 +152,7 @@ async fn fresh_capture_skips_until_a_settled_cell_changes_the_namespace() {
 async fn prune_capture_runs_while_over_cap_survivors_live_then_skips_back_to_back() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let manifest_path = manifest_path_in(dir.path());
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = ReplKernelManager::new(options);
     manager
@@ -261,9 +233,7 @@ async fn prune_capture_runs_while_over_cap_survivors_live_then_skips_back_to_bac
 async fn dispose_flush_skips_when_fresh_and_still_restores() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let manifest_path = manifest_path_in(dir.path());
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = ReplKernelManager::new(options);
     manager
@@ -294,9 +264,7 @@ async fn dispose_flush_skips_when_fresh_and_still_restores() {
 
     // The crash-resume contract: the committed payload still revives the
     // exact namespace a fresh flush would have written.
-    let Some(reader_options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let reader_options = test_options(Some(dir.path()));
     let reader = ReplKernelManager::new(reader_options);
     reader
         .start(KernelStartOptions::default())
@@ -319,9 +287,7 @@ async fn dispose_flush_skips_when_fresh_and_still_restores() {
 async fn dispose_flush_dumps_after_a_settled_cell() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let manifest_path = manifest_path_in(dir.path());
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = ReplKernelManager::new(options);
     manager
@@ -351,9 +317,7 @@ async fn dispose_flush_dumps_after_a_settled_cell() {
         "the dispose flush must re-dump after a settled cell"
     );
 
-    let Some(reader_options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let reader_options = test_options(Some(dir.path()));
     let reader = ReplKernelManager::new(reader_options);
     reader
         .start(KernelStartOptions::default())
@@ -375,9 +339,7 @@ async fn dispose_flush_dumps_after_a_settled_cell() {
 async fn an_externally_replaced_manifest_defeats_the_fresh_skip() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let manifest_path = manifest_path_in(dir.path());
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = ReplKernelManager::new(options);
     manager
@@ -407,9 +369,7 @@ async fn an_externally_replaced_manifest_defeats_the_fresh_skip() {
 async fn an_internal_state_request_does_not_defeat_the_fresh_skip() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let manifest_path = manifest_path_in(dir.path());
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = ReplKernelManager::new(options);
     manager
@@ -446,9 +406,7 @@ async fn an_internal_state_request_does_not_defeat_the_fresh_skip() {
 async fn an_internal_execute_that_writes_a_user_variable_defeats_the_memo() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let manifest_path = manifest_path_in(dir.path());
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = ReplKernelManager::new(options);
     manager
@@ -501,9 +459,7 @@ async fn an_internal_execute_that_writes_a_user_variable_defeats_the_memo() {
     );
 
     manager.kill();
-    let Some(reader_options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let reader_options = test_options(Some(dir.path()));
     let reader = ReplKernelManager::new(reader_options);
     reader
         .start(KernelStartOptions::default())
@@ -525,9 +481,7 @@ async fn an_internal_execute_that_writes_a_user_variable_defeats_the_memo() {
 async fn a_restore_settle_clears_the_memo() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let manifest_path = manifest_path_in(dir.path());
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = ReplKernelManager::new(options);
     manager
@@ -570,9 +524,7 @@ async fn a_restore_settle_clears_the_memo() {
 async fn an_externally_replaced_payload_defeats_the_fresh_skip() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let payload_path = snapshot_path_in(dir.path());
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = ReplKernelManager::new(options);
     manager
@@ -605,9 +557,7 @@ async fn an_externally_replaced_payload_defeats_the_fresh_skip() {
 #[tokio::test]
 async fn concurrent_settles_keep_the_boundary_invariant() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
 
     let manager = std::sync::Arc::new(ReplKernelManager::new(options));
     manager
@@ -661,9 +611,7 @@ async fn concurrent_settles_keep_the_boundary_invariant() {
         .await;
     assert!(shutdown.is_ok());
 
-    let Some(reader_options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let reader_options = test_options(Some(dir.path()));
     let revived = ReplKernelManager::new(reader_options);
     revived
         .start(KernelStartOptions::default())

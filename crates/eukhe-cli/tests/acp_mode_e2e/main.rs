@@ -30,6 +30,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "../../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
+
 #[path = "../support/durable_store.rs"]
 mod durable_store;
 
@@ -379,33 +383,6 @@ fn daemon_request(socket: &std::path::Path, id: &str, command: &Value) -> Value 
         })
         .find(|frame| frame["id"] == json!(id))
         .unwrap_or_else(|| panic!("the daemon closed without answering {id}"))
-}
-
-/// The kernel Python with eukhe-runtime installed; set
-/// `EUKHE_E2E_KERNEL_PYTHON` to point at an explicit interpreter instead.
-/// Without one, the live RLM quiescence lanes below skip (with a note).
-fn kernel_python() -> Option<std::path::PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = std::path::PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = std::path::PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live RLM quiescence e2e",
-        candidate.display()
-    );
-    None
 }
 
 mod compaction_rlm;

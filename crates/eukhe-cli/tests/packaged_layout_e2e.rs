@@ -30,6 +30,10 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
+
 /// The repo root (crates/eukhe-cli -> crates -> root): the vendored
 /// eukhe-runtime sidecar and skills live there.
 fn repo_root() -> PathBuf {
@@ -132,36 +136,6 @@ fn set_executable(path: &Path) {
     std::fs::set_permissions(path, permissions).expect("staged binary permissions");
 }
 
-/// The kernel Python with eukhe-runtime installed (the interpreter the
-/// TS product's kernel venv bootstraps). Skipped (with a note) on machines
-/// without a live install; `EUKHE_E2E_KERNEL_PYTHON` points at an explicit one.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    // The kernel venv's interpreter (the venv layout the product's own
-    // bootstrap creates).
-    let venv_python = "kernel-venv/bin/python";
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| format!("/home/ubuntu/.eukhe/{venv_python}"),
-        |home| format!("{home}/.eukhe/{venv_python}"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live kernel e2e",
-        candidate.display()
-    );
-    None
-}
-
 struct Sandbox {
     home: tempfile::TempDir,
     agent_dir: PathBuf,
@@ -252,9 +226,7 @@ fn run_json_turn(
 #[test]
 fn packaged_session_boots_kernel_without_eukhe_package_dir() {
     let _guard = serial_lock();
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("stage dir");
     let staged = dir.path();
     stage_packaged_layout(staged, true);
@@ -507,11 +479,8 @@ fn packaged_layout_stays_hermetic_under_hostile_host_env() {
         .expect("decoy python");
 
     // The most hostile EUKHE_KERNEL_PYTHON is a python that would
-    // satisfy the bootstrap (exit 0) if it leaked: the live kernel venv on
-    // this machine when present, else a plausible bogus path (which would
-    // flip the failure to the override error instead).
-    let hostile_python =
-        kernel_python().unwrap_or_else(|| decoys.path().join("hostile-kernel-python"));
+    // satisfy the bootstrap if it leaked: a complete kernel venv.
+    let hostile_python = kernel_python();
 
     let child = Command::new(std::env::current_exe().expect("test binary"))
         .arg("--exact")

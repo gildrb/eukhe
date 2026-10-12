@@ -11,10 +11,9 @@
 //! session). The scheduled-jobs wake (an `every 5s` heartbeat) keeps
 //! firing across the same restart.
 //!
-//! Test A runs a live kernel (the eukhe-runtime `bash`), so it
-//! follows the live-kernel verifiers' ambient-state contract: it honors
-//! `EUKHE_E2E_KERNEL_PYTHON` and skips (with a note) on machines without a
-//! kernel install. Test B is the scripted engine (no kernel).
+//! Test A runs a live kernel (the eukhe-runtime `bash`) on this checkout's
+//! runtime. Test B is the scripted engine (no kernel).
+
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -51,6 +50,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
+
 struct Daemon {
     child: Child,
     #[allow(dead_code)]
@@ -62,32 +65,6 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-/// The kernel Python with eukhe-runtime installed; set
-/// `EUKHE_E2E_KERNEL_PYTHON` to point at an explicit interpreter instead.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live re-adoption wake e2e",
-        candidate.display()
-    );
-    None
 }
 
 #[allow(clippy::zombie_processes)]
@@ -372,9 +349,7 @@ fn create_session(client: &mut Client, id: &str, dir: &Path, agent_dir: &Path) -
 #[test]
 fn a_detached_bash_completion_wakes_the_idle_session_across_a_supervisor_restart() {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let root = tempfile::TempDir::new().expect("temp dir");
     let dir = root.path().to_path_buf();
     let agent_dir = dir.join("agent");

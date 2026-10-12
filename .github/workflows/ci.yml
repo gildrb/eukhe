@@ -234,7 +234,9 @@ jobs:
       # Pinned uv release, checked against its published sha256
       # (https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-unknown-linux-gnu.tar.gz.sha256).
       # No Actions cache: the uv cache would carry state between runs.
-      - name: Install uv (the kernel venv bootstrap below uses it)
+      # The real-kernel tests build their kernel venv from
+      # eukhe-runtime/uv.lock with it (crates/eukhe-core/tests/support/kernel_runtime.rs).
+      - name: Install uv (the real-kernel tests build their venv with it)
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.23"
@@ -264,13 +266,6 @@ jobs:
       - name: Build the workspace bins (sibling-binary parity for the e2e suites)
         if: steps.selection.outputs.units != '0'
         run: cargo build --locked --workspace --bins
-      # The kernel e2e suites resolve the ambient kernel venv; left to
-      # bootstrap lazily, the first session prewarm starts it mid-shard and
-      # the next kernel unit fails against the half-built venv (run
-      # 36764911023). The bootstrap flag readies it first.
-      - name: Bootstrap the kernel venv (ready before the kernel e2e units)
-        if: steps.selection.outputs.units != '0'
-        run: ./target/debug/eukhe --eukhe-bootstrap
       - name: Run this shard's test subset
         env:
           SHARD: ${{ matrix.shard }}

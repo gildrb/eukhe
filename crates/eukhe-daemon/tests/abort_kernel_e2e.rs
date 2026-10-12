@@ -13,22 +13,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-/// The kernel Python with eukhe-runtime installed. Skipped (with a
-/// note) on machines without a live install.
-fn kernel_python() -> Option<PathBuf> {
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live kernel test",
-        candidate.display()
-    );
-    None
-}
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
 /// The faux provider script: turn one calls the kernel with a cell that
 /// writes its start marker, sleeps far past the abort budget, and would
@@ -89,10 +76,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, script: &Path) -> Superviso
         .env_remove("PRIME_API_KEY")
         .env_remove("EUKHE_CODING_AGENT_DIR")
         .env(eukhe_daemon::worker::WORKER_SCRIPT_ENV, script)
-        .env(
-            "EUKHE_KERNEL_PYTHON",
-            kernel_python().expect("kernel python"),
-        )
+        .env("EUKHE_KERNEL_PYTHON", kernel_python())
         .env(
             eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
             "15000",
@@ -226,9 +210,6 @@ impl Client {
 /// wedge keeps the loader spinning while the cell runs out.
 #[test]
 fn abort_during_a_kernel_cell_settles_the_daemon_turn_immediately() {
-    let Some(_) = kernel_python() else {
-        return;
-    };
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");

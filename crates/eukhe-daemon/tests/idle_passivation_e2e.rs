@@ -10,6 +10,7 @@
 //! the worker-side idle clock and park-arm gates are covered by the unit
 //! battery (`idle_passivation_window_*`), and the timed path against the
 //! real binary by the VM census (the settings-driven 1-minute threshold).
+
 // Pedantic-gate disposition for THIS test root: the settled-child
 // passivation flow is one intentionally linear harness script (the
 // fn-length gate is style, not correctness).
@@ -34,6 +35,10 @@ use eukhe_daemon::rlm_children::{
     ParentIdentity, RlmChildIdentity as FamilyChild, SupervisorChildSessions,
 };
 use eukhe_daemon::supervisor_link::SupervisorLink;
+
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
 struct Daemon {
     child: Child,
@@ -126,32 +131,6 @@ impl Client {
             assert!(Instant::now() < deadline, "no response for {id}");
         }
     }
-}
-
-/// The kernel Python with eukhe-runtime installed; set
-/// `EUKHE_E2E_KERNEL_PYTHON` to point at an explicit interpreter instead.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live passivation e2e",
-        candidate.display()
-    );
-    None
 }
 
 /// The worker's token from its persisted descriptor (the same lookup the
@@ -266,9 +245,7 @@ async fn spawn_settled_child(children: &SupervisorChildSessions) -> RlmChildSess
 /// file and delivers.
 #[tokio::test]
 async fn a_settled_child_passivates_stays_listable_and_revives_by_agent_message() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -574,9 +551,7 @@ fn root_worker_ids(agent_dir: &Path) -> Vec<String> {
 /// rename lands there.
 #[tokio::test]
 async fn a_parent_rename_after_a_revival_and_second_passivation_reaches_the_child() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -766,9 +741,7 @@ async fn a_parent_rename_after_a_revival_and_second_passivation_reaches_the_chil
 /// saved file and the snapshot carries the pre-passivation transcript.
 #[tokio::test]
 async fn an_idle_root_passivates_and_resumes_by_its_durable_id_with_its_transcript() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");

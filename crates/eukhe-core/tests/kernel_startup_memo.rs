@@ -31,9 +31,8 @@
 //!   startup, and the disposed boot settles without parking a kernel
 //!   (the atomic settle/publish's invariant).
 //!
-//! The kernel Python is ambient product state (the auto-bootstrapped kernel
-//! venv); like `kernel_stop_revive.rs`, these tests skip (with a note) on
-//! machines without a live install so the suite stays hermetic elsewhere.
+//! The kernel Python is this checkout's runtime
+//! (`eukhe-core/tests/support/kernel_runtime.rs`).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -44,31 +43,9 @@ use eukhe_core::kernel::shared::{ExecuteOptions, ExecuteStatus};
 use eukhe_core::kernel::state_snapshot::snapshot_path_in;
 use std::os::unix::fs::PermissionsExt;
 
-/// The kernel Python with eukhe-runtime installed (see
-/// `kernel_stop_revive.rs`); skipped with a note when absent.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_CORE_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_CORE_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live startup-memo test",
-        candidate.display()
-    );
-    None
-}
+#[path = "support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
 /// A kernel interpreter wrapper that counts spawns into `count` AND holds
 /// the n-th interpreter (0-based, from the count file) until the fixture
@@ -110,9 +87,7 @@ fn starts(count: &std::path::Path) -> u64 {
 /// newer boot, and exactly two interpreters may spawn.
 #[tokio::test]
 async fn stale_publisher_cannot_clear_a_newer_startup_memo() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     // The wrapper reads its ordinal from the count file BEFORE appending,
@@ -191,9 +166,7 @@ async fn stale_publisher_cannot_clear_a_newer_startup_memo() {
 /// the next `ensure()` boots fresh.
 #[tokio::test]
 async fn kill_during_boot_leaves_no_resident_kernel() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     // The wrapper reads its ordinal from the count file BEFORE appending,
@@ -263,9 +236,7 @@ async fn kill_during_boot_leaves_no_resident_kernel() {
 /// kernel into a provisioner that had already reported itself torn down.
 #[tokio::test]
 async fn dispose_during_boot_settles_it_without_parking() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     // The wrapper reads its ordinal from the count file BEFORE appending,
@@ -343,9 +314,7 @@ async fn dispose_during_boot_settles_it_without_parking() {
 /// resident kernel - the doomed re-armed boot is killed by its own settle.
 #[tokio::test]
 async fn kill_during_the_re_armed_boot_leaves_no_resident_kernel() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     // The wrapper reads its ordinal from the count file BEFORE appending,
@@ -431,9 +400,7 @@ async fn kill_during_the_re_armed_boot_leaves_no_resident_kernel() {
 /// handler; after the doomed settle the replay must still fire.
 #[tokio::test]
 async fn doomed_settle_keeps_the_newer_boot_listener_state() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     // The wrapper reads its ordinal from the count file BEFORE appending,
@@ -630,9 +597,7 @@ fn flaky_first_kernel(
 /// killed generation never consumed its retry after the backoff.
 #[tokio::test]
 async fn kill_during_the_retry_backoff_pins_the_spawn_count() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     std::fs::write(&count, "").unwrap();
@@ -701,9 +666,7 @@ async fn kill_during_the_retry_backoff_pins_the_spawn_count() {
 /// same callback, exactly one report).
 #[tokio::test]
 async fn doomed_boot_does_not_report_unavailable_skills() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     std::fs::write(&count, "").unwrap();
@@ -804,9 +767,7 @@ async fn doomed_boot_does_not_report_unavailable_skills() {
 /// byte-identical.
 #[tokio::test]
 async fn a_killed_then_disposed_boot_never_flushes_the_snapshot() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     std::fs::write(&count, "").unwrap();
@@ -873,9 +834,7 @@ async fn a_killed_then_disposed_boot_never_flushes_the_snapshot() {
 /// still held.
 #[tokio::test]
 async fn dispose_after_a_kill_waits_the_doomed_boot() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     std::fs::write(&count, "").unwrap();
@@ -933,9 +892,7 @@ async fn dispose_after_a_kill_waits_the_doomed_boot() {
 /// boot's interpreter ever spawns.
 #[tokio::test]
 async fn a_kill_while_the_boot_waits_the_stop_gate_spawns_no_interpreter() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     std::fs::write(&count, "").unwrap();

@@ -25,12 +25,11 @@
 //!   `snapshot: true` shutdown) cannot clobber it with a skills-only
 //!   namespace.
 //!
-//! The kernel Python is ambient product state like `kernel_lifecycle.rs`:
-//! skipped with a note when absent; `EUKHE_CORE_KERNEL_PYTHON` points at an
-//! explicit interpreter.
+//! The kernel Python is this checkout's runtime
+//! (`eukhe-core/tests/support/kernel_runtime.rs`).
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use eukhe_core::kernel::bootstrap::build_rlm_bootstrap_code;
@@ -41,38 +40,14 @@ use eukhe_core::kernel::shared::{
 };
 use eukhe_core::kernel::state_snapshot::{manifest_path_in, snapshot_path_in};
 
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_CORE_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_CORE_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live restore test",
-        candidate.display()
-    );
-    None
-}
+#[path = "support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
-/// Options with a snapshot dir; `None` (skip) when no kernel interpreter is
-/// available. `debounce_ms` shortens the auto-snapshot window in tests.
-fn test_options(
-    snapshot_dir: Option<&Path>,
-    debounce_ms: Option<u64>,
-) -> Option<KernelManagerOptions> {
-    let python = kernel_python()?;
-    Some(KernelManagerOptions {
+/// Options with a snapshot dir. `debounce_ms` shortens the auto-snapshot window in tests.
+fn test_options(snapshot_dir: Option<&Path>, debounce_ms: Option<u64>) -> KernelManagerOptions {
+    let python = kernel_python();
+    KernelManagerOptions {
         python: Some(python),
         cwd: Some(std::env::temp_dir()),
         env: HashMap::new(),
@@ -89,7 +64,7 @@ fn test_options(
         bootstrap_code: Some(build_rlm_bootstrap_code(&[])),
         stderr_log_path: None,
         on_background_work_settled: None,
-    })
+    }
 }
 
 async fn execute(
@@ -115,9 +90,7 @@ async fn wait_out_debounce(ms: u64) {
 #[tokio::test]
 async fn restored_functions_run_against_live_namespace_globals() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    let Some(writer_options) = test_options(Some(dir.path()), None) else {
-        return;
-    };
+    let writer_options = test_options(Some(dir.path()), None);
 
     let writer = ReplKernelManager::new(writer_options);
     writer
@@ -136,9 +109,7 @@ async fn restored_functions_run_against_live_namespace_globals() {
 
     // A fresh kernel on the same snapshot: the restore revives the saved
     // functions against the live namespace of THIS kernel.
-    let Some(reader_options) = test_options(Some(dir.path()), None) else {
-        return;
-    };
+    let reader_options = test_options(Some(dir.path()), None);
     let reader = ReplKernelManager::new(reader_options);
     reader
         .start(KernelStartOptions::default())
@@ -180,9 +151,7 @@ async fn post_restore_auto_snapshot_skips_until_a_real_cell_changes_the_namespac
     let snapshot_path = snapshot_path_in(dir.path());
     let manifest_path = manifest_path_in(dir.path());
 
-    let Some(writer_options) = test_options(Some(dir.path()), None) else {
-        return;
-    };
+    let writer_options = test_options(Some(dir.path()), None);
     let writer = ReplKernelManager::new(writer_options);
     writer
         .start(KernelStartOptions::default())
@@ -207,9 +176,7 @@ async fn post_restore_auto_snapshot_skips_until_a_real_cell_changes_the_namespac
 
     // Production order (the provisioner): restore, then the bootstrap
     // (whose execution schedules the debounced snapshot), then the arm.
-    let Some(reader_options) = test_options(Some(dir.path()), Some(50)) else {
-        return;
-    };
+    let reader_options = test_options(Some(dir.path()), Some(50));
     let reader = ReplKernelManager::new(reader_options);
     reader
         .start(KernelStartOptions::default())
@@ -266,9 +233,7 @@ async fn failed_restore_keeps_the_on_disk_payload_through_the_debounced_snapshot
     // (TS #2478's test): nothing the kernel can do makes it load.
     std::fs::write(&snapshot_path, b"not-a-snapshot").expect("write bad payload");
 
-    let Some(reader_options) = test_options(Some(dir.path()), Some(50)) else {
-        return;
-    };
+    let reader_options = test_options(Some(dir.path()), Some(50));
     let reader = ReplKernelManager::new(reader_options);
     reader
         .start(KernelStartOptions::default())
@@ -350,9 +315,7 @@ async fn partial_restore_keeps_the_fuller_on_disk_payload_through_the_dispose_fl
     payload.extend(v2_record("bad", bad_blob));
     std::fs::write(&snapshot_path, &payload).expect("write v2 payload");
 
-    let Some(options) = test_options(Some(dir.path()), Some(50)) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()), Some(50));
     let manager = ReplKernelManager::new(options);
     manager
         .start(KernelStartOptions::default())
@@ -390,9 +353,7 @@ async fn failed_restore_keeps_the_on_disk_payload_through_the_dispose_flush() {
     let manifest_path = manifest_path_in(dir.path());
     std::fs::write(&snapshot_path, b"not-a-snapshot").expect("write bad payload");
 
-    let Some(options) = test_options(Some(dir.path()), Some(50)) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()), Some(50));
     let manager = ReplKernelManager::new(options);
     manager
         .start(KernelStartOptions::default())
@@ -434,9 +395,7 @@ async fn zero_debounce_after_a_failed_restore_still_cannot_clobber_the_payload()
     // tick after the bootstrap settles — before the skip arm's production
     // order (bootstrap, then mark) can install it. The boot hold suppresses
     // that early shot.
-    let Some(options) = test_options(Some(dir.path()), Some(0)) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()), Some(0));
     let reader = ReplKernelManager::new(options);
     reader
         .start(KernelStartOptions::default())

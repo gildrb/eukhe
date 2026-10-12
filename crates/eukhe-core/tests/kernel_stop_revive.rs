@@ -20,11 +20,8 @@
 //! session — the next `ensure()` boots a fresh kernel that serves the
 //! flushed namespace (the port's `stop_kernel`, the TS inline arm).
 //!
-//! The kernel Python is ambient product state (the auto-bootstrapped
-//! kernel venv); like `kernel_snapshot_resume.rs`, these tests skip
-//! (with a note) on machines without a live install so the suite stays
-//! hermetic elsewhere. `EUKHE_CORE_KERNEL_PYTHON` points at an explicit
-//! interpreter.
+//! The kernel Python is this checkout's runtime
+//! (`eukhe-core/tests/support/kernel_runtime.rs`).
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -36,31 +33,9 @@ use eukhe_core::kernel::shared::{
     host_handler, ExecuteOptions, ExecuteStatus, HostRequestHandlers, KernelShutdownOptions,
 };
 
-/// The kernel Python with eukhe-runtime installed (see
-/// `kernel_snapshot_resume.rs`); skipped with a note when absent.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_CORE_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_CORE_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live stop-revive test",
-        candidate.display()
-    );
-    None
-}
+#[path = "support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
 /// `stop_kernel` stays revivable (TS `stopKernel()` stays revivable): the
 /// stop flushes the snapshot and releases the kernel, the next `ensure()`
@@ -68,9 +43,7 @@ fn kernel_python() -> Option<PathBuf> {
 /// variables the flush carried — while `dispose` was never called.
 #[tokio::test]
 async fn stop_kernel_flushes_the_snapshot_and_the_next_ensure_revives_it() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let artifacts = dir.path().join("artifacts");
     std::fs::create_dir_all(&artifacts).unwrap();
@@ -119,9 +92,7 @@ async fn stop_kernel_flushes_the_snapshot_and_the_next_ensure_revives_it() {
 /// provisioner stays revivable either way.
 #[tokio::test]
 async fn stop_kernel_without_a_kernel_is_a_no_op_and_stays_revivable() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let artifacts = dir.path().join("artifacts");
     std::fs::create_dir_all(&artifacts).unwrap();
@@ -155,9 +126,7 @@ async fn stop_kernel_without_a_kernel_is_a_no_op_and_stays_revivable() {
 /// ordering barrier rather than relying on timing of the snapshot flush.
 #[tokio::test]
 async fn revival_waits_for_in_flight_stop_before_booting() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let artifacts = dir.path().join("artifacts");
     std::fs::create_dir_all(&artifacts).unwrap();
@@ -288,9 +257,7 @@ async fn revival_waits_for_in_flight_stop_before_booting() {
 /// at two: nothing in the chain may arm a third interpreter.
 #[tokio::test]
 async fn superseding_stop_after_kill_cannot_deadlock_the_revival_gate() {
-    let Some(python) = kernel_python() else {
-        return;
-    };
+    let python = kernel_python();
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     let wrapped = counting_kernel(dir.path(), &python, &count);

@@ -28,6 +28,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
+
 struct Daemon {
     child: Child,
     #[allow(dead_code)]
@@ -39,34 +43,6 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-/// The kernel Python with eukhe-runtime installed (the same
-/// interpreter the TS product's ambient kernel venv provides). The tests
-/// need it: the kernel executes the `agent_message.send` host request.
-/// Skipped (with a note) on machines without a live install.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live peer-messaging e2e",
-        candidate.display()
-    );
-    None
 }
 
 fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon {
@@ -328,8 +304,8 @@ fn alpha_responses(receipts_dir: &Path) -> Value {
     ])
 }
 
-fn setup_messaging() -> Option<Messaging> {
-    let kernel_python = kernel_python()?;
+fn setup_messaging() -> Messaging {
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -366,23 +342,21 @@ fn setup_messaging() -> Option<Messaging> {
         dir.path(),
         &sessions_dir,
     );
-    Some(Messaging {
+    Messaging {
         dir,
         daemon,
         socket,
         receipts_dir: receipts,
         alpha,
         beta,
-    })
+    }
 }
 
 /// Verifier 1: a kernel send in worker A delivers straight through the
 /// peer transport into worker B, with the TS sender identity.
 #[test]
 fn worker_to_worker_kernel_send_delivers_over_the_peer_transport() {
-    let Some(messaging) = setup_messaging() else {
-        return;
-    };
+    let messaging = setup_messaging();
     let Messaging {
         ref alpha,
         ref beta,
@@ -475,9 +449,7 @@ fn worker_to_worker_kernel_send_delivers_over_the_peer_transport() {
 /// (both clients keep getting answers afterwards).
 #[test]
 fn attached_client_to_client_send_completes_without_route_starvation() {
-    let Some(messaging) = setup_messaging() else {
-        return;
-    };
+    let messaging = setup_messaging();
     let Messaging {
         ref alpha,
         ref beta,
@@ -569,9 +541,7 @@ fn attached_client_to_client_send_completes_without_route_starvation() {
 /// kernel send still delivers over the peer transport.
 #[test]
 fn supervisor_death_mid_conversation_still_delivers_after_re_registration() {
-    let Some(mut messaging) = setup_messaging() else {
-        return;
-    };
+    let mut messaging = setup_messaging();
     let alpha_id = messaging.alpha.active_session_id.clone();
     let beta_id = messaging.beta.active_session_id.clone();
     let agent_dir = messaging.dir.path().join("agent");
@@ -592,7 +562,7 @@ fn supervisor_death_mid_conversation_still_delivers_after_re_registration() {
     let _ = messaging.daemon.child.wait();
 
     // Restart the supervisor on the same socket and agent dir.
-    let kernel_python = kernel_python().expect("kernel python was found in setup");
+    let kernel_python = kernel_python();
     let daemon = spawn_supervisor(&messaging.socket, &agent_dir, &kernel_python);
     messaging.daemon = daemon;
     wait_socket_ready(&messaging.socket);

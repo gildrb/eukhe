@@ -8,6 +8,7 @@
 //! `rlm.mcp.call_tool`. The kernel must resolve `mcp.config` through the
 //! session's host handlers, spawn the fixture over stdio, list its `echo`
 //! tool, and call it with the echoed argument.
+
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -41,6 +42,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
+
 struct Daemon {
     child: Child,
     #[allow(dead_code)]
@@ -52,32 +57,6 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-/// The kernel Python with eukhe-runtime (and its `mcp` package)
-/// installed. Skipped (with a note) on machines without a live install.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live MCP product-path e2e",
-        candidate.display()
-    );
-    None
 }
 
 #[allow(clippy::zombie_processes)]
@@ -250,9 +229,7 @@ fn tool_result_texts(session_messages: &[Value]) -> Vec<String> {
 /// request -> kernel MCP client spawn -> `tools/list` -> `tools/call`.
 #[test]
 fn settings_declared_stdio_server_round_trips_through_the_kernel_mcp_client() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let sessions_dir = agent_dir.join("sessions");
@@ -396,9 +373,7 @@ fn settings_declared_stdio_server_round_trips_through_the_kernel_mcp_client() {
 /// real login needs a live HTTPS provider, so this e2e pins the wiring).
 #[test]
 fn begin_login_host_request_is_live_in_the_worker() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let sessions_dir = agent_dir.join("sessions");

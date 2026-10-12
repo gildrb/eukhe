@@ -13,6 +13,7 @@
 //! call"), with "one-at-a-time" still selectable through the same
 //! setting surface. The follow-up lane never merges into the batch: it
 //! drains behind it as its own turn.
+
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -46,22 +47,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-/// The kernel Python with eukhe-runtime installed. Skipped (with a
-/// note) on machines without a live install.
-fn kernel_python() -> Option<PathBuf> {
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live kernel test",
-        candidate.display()
-    );
-    None
-}
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
 /// The faux provider script: the long turn's first model response calls a
 /// kernel cell that sleeps (the tool-call boundary the steers queue
@@ -127,10 +115,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, script: &Path) -> Superviso
         .env_remove("PRIME_API_KEY")
         .env_remove("EUKHE_CODING_AGENT_DIR")
         .env(eukhe_daemon::worker::WORKER_SCRIPT_ENV, script)
-        .env(
-            "EUKHE_KERNEL_PYTHON",
-            kernel_python().expect("kernel python"),
-        )
+        .env("EUKHE_KERNEL_PYTHON", kernel_python())
         .env(
             eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
             "15000",
@@ -261,9 +246,6 @@ impl Client {
 /// long turn's `agent_end`: the batch evidence.
 #[test]
 fn multi_steer_parked_mid_run_co_delivers_as_one_batched_turn() {
-    let Some(_kernel) = kernel_python() else {
-        return;
-    };
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let cwd = dir.path().join("work");

@@ -30,6 +30,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
+
 /// The three tests scan the whole process table (the kernel is a worker
 /// child, not a test-process child), so this std lock serializes them.
 static TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -38,32 +42,6 @@ fn test_lock() -> MutexGuard<'static, ()> {
     TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// The kernel Python with eukhe-runtime installed; set
-/// `EUKHE_E2E_KERNEL_PYTHON` to point at an explicit interpreter instead.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live kernel-dispose e2e",
-        candidate.display()
-    );
-    None
 }
 
 /// Every live `python -m rlm.repl` pid on the box (ambient kernels from
@@ -349,9 +327,7 @@ fn await_receipt(dir: &Path) {
 /// this test catches it as a kernel pid that never clears the diff.
 #[test]
 fn kill_disposes_the_session_kernel() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
@@ -389,9 +365,7 @@ fn kill_disposes_the_session_kernel() {
 /// `std::process::exit`, so the dispose must happen in the handler).
 #[test]
 fn shutdown_disposes_session_kernels_before_the_worker_exits() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
@@ -422,9 +396,7 @@ fn shutdown_disposes_session_kernels_before_the_worker_exits() {
 /// itself would orphan it forever.
 #[test]
 fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
@@ -462,9 +434,7 @@ fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
 /// orphaned for as long as the cell ran.
 #[test]
 fn orphan_exit_disposes_a_wedged_cell_kernel_within_the_bound() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");

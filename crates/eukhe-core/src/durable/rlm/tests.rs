@@ -1,7 +1,7 @@
 //! `eukhe.rlm` on a durable Harness: the `ipython` tool streaming into the
 //! live tool slot, abort, crash recovery with a revived namespace, and host
-//! requests routed with the call context. These run a real Python kernel and
-//! skip (with a note) on machines without one, like the kernel tests.
+//! requests routed with the call context. These run a real Python kernel
+//! built from this checkout's runtime.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -31,38 +31,6 @@ use crate::durable::{
     open_session, EukheSession, HostCall, HostCallHandler, SessionConfig, SessionStorage,
 };
 use crate::kernel::state_snapshot::manifest_path_in;
-
-/// The kernel Python with eukhe-runtime installed, handed to the sessions'
-/// kernels; `None` skips the test.
-fn kernel_python() -> Option<PathBuf> {
-    let python = find_kernel_python()?;
-    let _first_wins = super::kernels::TEST_KERNEL_PYTHON.set(python.clone());
-    Some(python)
-}
-
-fn find_kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_CORE_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_CORE_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping durable ipython test",
-        candidate.display()
-    );
-    None
-}
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -265,9 +233,6 @@ async fn wait_for_slot_output(session: &EukheSession, output: &str) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_ipython_result() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     let gate = fixture.dir.path().join("gate");
@@ -306,9 +271,6 @@ async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_ipytho
 /// diagnostic names the omitted middle, and the artifact holds everything.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn long_cell_output_keeps_its_end_and_spills_the_whole_to_an_artifact() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
@@ -348,9 +310,6 @@ async fn long_cell_output_keeps_its_end_and_spills_the_whole_to_an_artifact() {
 /// nothing clips it before the one bound.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_huge_result_value_reaches_the_artifact_whole() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     fixture
@@ -377,9 +336,6 @@ async fn a_huge_result_value_reaches_the_artifact_whole() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn abort_interrupts_the_running_cell_and_the_kernel_stays_usable() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![ipython(
@@ -422,9 +378,6 @@ async fn abort_interrupts_the_running_cell_and_the_kernel_stays_usable() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_its_namespace() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
@@ -545,9 +498,6 @@ type SeenCall = (Option<String>, Option<ConversationId>, Value, bool);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn host_requests_reach_their_handlers_with_the_running_tool_call() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     let code = "import rlm, json\nprobe = await rlm.host_request('test.probe', {'n': 1})\ninfo = await rlm.host_request('model.info')\nprint(json.dumps([probe, info['provider'], info['id']]))";
@@ -592,9 +542,6 @@ async fn host_requests_reach_their_handlers_with_the_running_tool_call() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_tool_round() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     let code = "import rlm, json\nstatus = await rlm.host_request('compact.status')\nrun = await rlm.host_request('compact.run')\nrefine = await rlm.host_request('refine.run', {'instructions': 'remember x'})\npending = await rlm.host_request('refine.status')\nprint(json.dumps([status['scheduled'], status['tokens'] is not None, run, refine['scheduled'], pending], sort_keys=True))";
@@ -713,9 +660,6 @@ async fn kernel_activity_answers_not_running_without_a_booted_kernel() {
 /// handle is the kernel's own refusal).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn kernel_bash_activity_reaches_the_booted_kernel() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
@@ -866,9 +810,6 @@ fn process_alive(pid: i32) -> bool {
 /// notice (the `kernel_prewarm` contract on the durable pool).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_prewarmed_root_boots_at_open_and_its_compaction_lands_the_state_notice() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     // A tiny keep window so the short conversation still finds a cut.
@@ -967,9 +908,6 @@ async fn subagents_and_unflagged_roots_stay_lazy() {
 /// engine's `kernel_teardown` prewarm contract on the durable pool).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn closing_a_session_kills_its_prewarmed_kernel_process() {
-    if kernel_python().is_none() {
-        return;
-    }
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     let session = fixture

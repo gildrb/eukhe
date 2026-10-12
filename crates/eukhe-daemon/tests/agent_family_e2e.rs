@@ -13,6 +13,7 @@
 //! prompt with a real `agent_message.send` addressed to its parent.
 //!
 //! Linux-only e2e (`AF_UNIX` sockets), like the other eukhe-daemon verifiers.
+
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -59,6 +60,10 @@ use eukhe_daemon::rlm_children::{
 };
 use eukhe_daemon::supervisor_link::SupervisorLink;
 use serde_json::{json, Value};
+
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
 struct Daemon {
     child: Child,
@@ -226,33 +231,6 @@ impl Client {
         assert_eq!(response["success"], true, "get_messages failed: {response}");
         serde_json::to_string(&response["data"]).expect("messages json")
     }
-}
-
-/// The kernel Python with the runtime installed; the child's kernel cell
-/// (the parent-directed reply) needs it. Skipped (with a note) on
-/// machines without a live install.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live family e2e",
-        candidate.display()
-    );
-    None
 }
 
 /// The child's reply turn: a kernel `agent_message.send` addressed to the
@@ -454,9 +432,7 @@ async fn send_agent_message(
 /// worker, and the child's own parent-directed reply delivers back.
 #[tokio::test]
 async fn parent_child_agent_message_round_trip_end_to_end() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -733,9 +709,7 @@ fn cell_turn(code: &str) -> Value {
 /// family's rows never enter either roster.
 #[tokio::test]
 async fn family_edges_never_cross_families_end_to_end() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -1248,9 +1222,7 @@ async fn family_edges_never_cross_families_end_to_end() {
 /// name.
 #[tokio::test]
 async fn parent_renames_a_child_end_to_end() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");

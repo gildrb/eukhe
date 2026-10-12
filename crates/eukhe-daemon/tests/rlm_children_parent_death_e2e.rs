@@ -28,9 +28,9 @@
 //! 2. `SIGKILLing` the parent KEEPS an `rlm.create_session` depth-0 root
 //!    session running: the close touches parent-linked children only.
 //!
-//! The parent's kernel Python is ambient product state; like the other
-//! live-kernel verifiers these tests skip (with a note) on machines
-//! without a live install.
+//! The kernel Python is this checkout's runtime
+//! (`eukhe-core/tests/support/kernel_runtime.rs`).
+
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -65,6 +65,10 @@ use std::time::{Duration, Instant};
 use eukhe_core::durable::observe::semantic_edges::SemanticEdgeLedgerEvent as LedgerEvent;
 
 use serde_json::{json, Value};
+
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
 struct Daemon {
     child: Child,
@@ -111,32 +115,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Da
         child,
         socket: socket.to_path_buf(),
     }
-}
-
-/// The kernel Python with eukhe-runtime installed; set
-/// `EUKHE_E2E_KERNEL_PYTHON` to point at an explicit interpreter instead.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live RLM parent-death e2e",
-        candidate.display()
-    );
-    None
 }
 
 fn wait_socket_ready(socket: &Path) {
@@ -456,9 +434,7 @@ fn sigkill(pid: u32) {
 /// spawn edge survives, no delete record).
 #[test]
 fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -608,9 +584,7 @@ fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
 /// while the parent's own registry reads empty.
 #[test]
 fn sigkill_keeps_a_created_root_session_running() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -722,9 +696,7 @@ fn semantic_ledger(path: &Path) -> Vec<LedgerEvent> {
 /// provider).
 #[test]
 fn a_spawned_child_ledger_names_its_spawning_request_and_the_parent_records_the_return() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");

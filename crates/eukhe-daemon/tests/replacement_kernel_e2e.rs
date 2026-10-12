@@ -31,9 +31,8 @@
 //!    sessionManager.getCwd() })`) - the post-switch kernel's
 //!    `os.getcwd()` is the switched-to session's directory.
 //!
-//! The kernel Python is ambient product state (the auto-bootstrapped kernel
-//! venv); like the other live-kernel verifiers, these tests skip (with a
-//! note) on machines without a live install. The process-table scans count
+//! The kernel Python is this checkout's runtime
+//! (`eukhe-core/tests/support/kernel_runtime.rs`). The process-table scans count
 //! only the kernels of the test's own agent dir (the kernel's
 //! `EUKHE_CODING_AGENT_DIR`), so ambient kernels (other agent sessions and
 //! concurrent test runs on the same box) never interfere.
@@ -45,31 +44,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-/// The kernel Python with eukhe-runtime installed; set
-/// `EUKHE_E2E_KERNEL_PYTHON` to point at an explicit interpreter instead.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live replacement-kernel e2e",
-        candidate.display()
-    );
-    None
-}
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
 /// Every live `python -m rlm.repl` pid serving `agent_dir`: the kernels
 /// of this test's daemon (each kernel's environment names its session's
@@ -420,9 +397,7 @@ fn first_user_entry_id(client: &mut Client, session_id: &str, id: &str) -> Strin
 /// the old session's kernel does not survive into the new session.
 #[test]
 fn new_session_disposes_the_kernel_and_starts_cold() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
@@ -462,9 +437,7 @@ fn new_session_disposes_the_kernel_and_starts_cold() {
 /// survives the failed switch untouched.
 #[test]
 fn switch_session_disposes_the_kernel_and_a_failed_target_keeps_it() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
@@ -547,9 +520,7 @@ fn switch_session_disposes_the_kernel_and_a_failed_target_keeps_it() {
 /// no kernel state).
 #[test]
 fn fork_disposes_the_kernel_and_starts_cold() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
@@ -600,9 +571,7 @@ fn fork_disposes_the_kernel_and_starts_cold() {
 /// not the worker's original one.
 #[test]
 fn switch_session_rebinds_the_kernel_cwd_onto_the_target_session() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
@@ -704,9 +673,7 @@ fn switch_session_rebinds_the_kernel_cwd_onto_the_target_session() {
 /// namespace is WARM (the marker set before the move survives it).
 #[test]
 fn navigate_tree_keeps_the_kernel_warm() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");

@@ -10,6 +10,7 @@
 //! last write. The env-less session stays silent (no boot-context bleed
 //! — the TS daemon's shared-process failure mode cannot recur here) until
 //! its attach adopts the pane identity (adopt-if-absent).
+
 // Pedantic-gate dispositions (fleet-uniform ruling; see create_join_e2e).
 #![allow(clippy::large_futures)]
 #![allow(
@@ -34,6 +35,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
+
 struct Daemon {
     child: Child,
 }
@@ -43,33 +48,6 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-/// The kernel Python (the same resolution the MCP product-path e2e
-/// uses): an explicit `EUKHE_E2E_KERNEL_PYTHON`, else the machine's live
-/// install. Skipped (with a note) on machines without one.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping the herdr pane e2e",
-        candidate.display()
-    );
-    None
 }
 
 /// Spawn the real supervisor inside a HOSTILE Herdr ambient env: the
@@ -265,9 +243,7 @@ fn pane_env(herdr_socket: &Path, pane_id: &str) -> Value {
 /// settle, and the release as the kill's last write, with silence after.
 #[test]
 fn the_session_reports_its_payload_pane_across_the_lifecycle() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let herdr_socket = dir.path().join("herdr.sock");
@@ -396,9 +372,7 @@ fn the_session_reports_its_payload_pane_across_the_lifecycle() {
 /// (adopt-if-absent), reports for, and releases at its stop.
 #[test]
 fn an_envless_session_stays_silent_until_its_attach_adopts_the_pane() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let herdr_socket = dir.path().join("herdr.sock");

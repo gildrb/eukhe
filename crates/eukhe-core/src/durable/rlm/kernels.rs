@@ -35,25 +35,9 @@ const MCP_SETTLE_PER_SERVER_TIMEOUT_MS: u64 = 10_000;
 /// snapshot (`kernel-state.dill` + manifest) and stderr log.
 const KERNELS_DIR: &str = "kernels";
 
-/// The kernel interpreter of this crate's tests (the old kernel tests pass
-/// `EUKHE_KERNEL_PYTHON` to their own processes; the lib test binary is
-/// shared, so its sessions take the interpreter from here instead of the
-/// process environment).
 #[cfg(test)]
-pub(crate) static TEST_KERNEL_PYTHON: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-
-/// The kernel interpreter: the auto-bootstrapped kernel venv (or the
-/// `EUKHE_KERNEL_PYTHON` override) in product builds.
-fn kernel_python() -> Option<PathBuf> {
-    #[cfg(test)]
-    {
-        TEST_KERNEL_PYTHON.get().cloned()
-    }
-    #[cfg(not(test))]
-    {
-        None
-    }
-}
+#[path = "../../../tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -183,10 +167,17 @@ impl KernelPool {
             registry: deps.host_requests.clone(),
             extra: deps.extra_host_handlers.clone(),
         });
+        // Product builds bootstrap the kernel venv (or take the
+        // `EUKHE_KERNEL_PYTHON` override); this crate's tests run this
+        // checkout's runtime.
+        #[cfg(test)]
+        let python = Some(kernel_runtime::kernel_python());
+        #[cfg(not(test))]
+        let python = None;
         let provisioner = IpythonKernelProvisioner::new(
             cwd,
             IpythonKernelProvisionerOptions {
-                python: kernel_python(),
+                python,
                 env,
                 session_id: Some(deps.session_id.clone()),
                 host_handlers: HostRequestHandlers::with_dispatch(dispatch),

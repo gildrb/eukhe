@@ -5,6 +5,7 @@
 //! (`<package-dir>/mcp-services.bundled.json`) feeds the catalog, and the
 //! pinned-definition hint gates on that snapshot being in hand, with the
 //! linear/notion compiled fallback covered by the eukhe-core verifiers.
+
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -38,6 +39,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
+
 struct Daemon {
     child: Child,
     #[allow(dead_code)]
@@ -49,33 +54,6 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-/// The kernel Python with eukhe-runtime installed; skipped (with a
-/// note) on machines without a live install (the same gate as the
-/// product-path e2e).
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live MCP catalog e2e",
-        candidate.display()
-    );
-    None
 }
 
 /// The daemon e2e tests each supervise a daemon + a session worker;
@@ -262,9 +240,7 @@ fn bundled_package_dir(root: &Path, catalog: &Value) -> PathBuf {
 
 #[test]
 fn catalog_surfaces_and_paste_installs_through_the_daemon() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let _serial = DAEMON_E2E.lock().unwrap();
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");
@@ -483,9 +459,7 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
 /// absence it cannot prove.
 #[test]
 fn pinned_hint_needs_a_snapshot_to_claim_the_source_unavailable() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let _serial = DAEMON_E2E.lock().unwrap();
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");

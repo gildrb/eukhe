@@ -356,9 +356,7 @@ fn spawn_lane(
 /// seen") drains inside the barrier, between the two.
 #[test]
 fn acp_prompt_settles_after_rlm_quiescence() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let (mut client, session_id, _) = spawn_lane(&["--mode", "acp"], 5_000, &kernel_python);
     let prompt = client.request(
         "session/prompt",
@@ -415,9 +413,7 @@ fn acp_prompt_settles_after_rlm_quiescence() {
 /// stop sequence, so it is not retested here.
 #[test]
 fn acp_cancel_during_settle_cancels_the_subagents() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let (mut client, session_id, active_session_id) =
         spawn_lane(&["--mode", "acp"], 120_000, &kernel_python);
     let socket = client.socket.clone();
@@ -461,9 +457,7 @@ fn acp_cancel_during_settle_cancels_the_subagents() {
 /// cancel a resident session's children.
 #[test]
 fn acp_eof_during_settle_exits_and_leaves_resident_subagents() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let (mut client, session_id, active_session_id) =
         spawn_lane(&["--mode", "acp"], 120_000, &kernel_python);
     let socket = client.socket.clone();

@@ -29,9 +29,9 @@
 //!    roster says `done` still holds for the terminal notice's parent
 //!    turn. A status-reading barrier answers inside that window.
 //!
-//! The parent's kernel Python is ambient product state; like the other
-//! live-kernel verifiers these tests skip (with a note) on machines
-//! without a live install.
+//! The kernel Python is this checkout's runtime
+//! (`eukhe-core/tests/support/kernel_runtime.rs`).
+
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale): the timeout panic path cannot wait on the supervisor
 // child; the test process exits immediately afterwards, reaping it.
@@ -43,6 +43,10 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
 struct Daemon {
     child: Child,
@@ -86,32 +90,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Da
         child,
         socket: socket.to_path_buf(),
     }
-}
-
-/// The kernel Python with eukhe-runtime installed; set
-/// `EUKHE_E2E_KERNEL_PYTHON` to point at an explicit interpreter instead.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_E2E_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_E2E_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live RLM quiescence e2e",
-        candidate.display()
-    );
-    None
 }
 
 fn wait_socket_ready(socket: &Path) {
@@ -393,9 +371,7 @@ fn spawn_held_child_lane(kernel_python: &Path) -> HeldChildLane {
 /// with the child still running.
 #[test]
 fn headless_completion_waits_for_rlm_quiescence() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let mut lane = spawn_held_child_lane(&kernel_python);
 
     // The barrier request on the idle parent: the child's 5s hold is
@@ -437,9 +413,7 @@ fn headless_completion_waits_for_rlm_quiescence() {
 /// running subagents is not idle until its whole subtree settled.
 #[test]
 fn wait_for_idle_waits_for_rlm_quiescence() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let mut lane = spawn_held_child_lane(&kernel_python);
     lane.client.send_command(
         "w1",
@@ -472,9 +446,7 @@ fn wait_for_idle_waits_for_rlm_quiescence() {
 /// inside the settle window.
 #[test]
 fn headless_completion_holds_through_the_settle_window() {
-    let Some(kernel_python) = kernel_python() else {
-        return;
-    };
+    let kernel_python = kernel_python();
     let mut lane = spawn_held_child_lane(&kernel_python);
 
     // The roster's terminal status is the settle window's start: the

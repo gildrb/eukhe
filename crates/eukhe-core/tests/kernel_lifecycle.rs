@@ -23,7 +23,6 @@
 //!   and host requests round-trip to the registered handler.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use eukhe_core::kernel::bootstrap::build_rlm_bootstrap_code;
@@ -34,44 +33,14 @@ use eukhe_core::kernel::shared::{
 };
 use eukhe_core::kernel::state_snapshot::{manifest_path_in, snapshot_path_in};
 
-/// The kernel Python with eukhe-runtime installed. The TS product's
-/// auto-bootstrapped kernel venv is the ground-truth environment; this is
-/// exactly the interpreter `eukhe` spawns.
-///
-/// The venv is ambient product state, not test input: it exists wherever a
-/// TS product instance bootstrapped a kernel. Tests that need it are skipped
-/// (with a note) rather than failing when it is absent, so the suite stays
-/// hermetic on machines without a live install; set `EUKHE_CORE_KERNEL_PYTHON`
-/// to point at an explicit interpreter instead.
-fn kernel_python() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("EUKHE_CORE_KERNEL_PYTHON") {
-        let explicit = PathBuf::from(explicit);
-        assert!(
-            explicit.exists(),
-            "EUKHE_CORE_KERNEL_PYTHON {} not found",
-            explicit.display()
-        );
-        return Some(explicit);
-    }
-    let candidate = PathBuf::from(std::env::var("HOME").map_or_else(
-        |_| "/home/ubuntu/.eukhe/kernel-venv/bin/python".to_string(),
-        |home| format!("{home}/.eukhe/kernel-venv/bin/python"),
-    ));
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    eprintln!(
-        "kernel python {} not found; skipping live kernel test",
-        candidate.display()
-    );
-    None
-}
+#[path = "support/kernel_runtime.rs"]
+mod kernel_runtime;
+use kernel_runtime::kernel_python;
 
-/// Test options, or `None` when no kernel interpreter is available on this
-/// machine (see [`kernel_python`]); the caller skips the test then.
-fn test_options(snapshot_dir: Option<&std::path::Path>) -> Option<KernelManagerOptions> {
-    let python = kernel_python()?;
-    Some(KernelManagerOptions {
+/// Test options on this checkout's kernel runtime.
+fn test_options(snapshot_dir: Option<&std::path::Path>) -> KernelManagerOptions {
+    let python = kernel_python();
+    KernelManagerOptions {
         python: Some(python),
         cwd: Some(std::env::temp_dir()),
         env: HashMap::new(),
@@ -90,7 +59,7 @@ fn test_options(snapshot_dir: Option<&std::path::Path>) -> Option<KernelManagerO
         // bootstrap after start; tests match that contract.
         bootstrap_code: Some(build_rlm_bootstrap_code(&[])),
         stderr_log_path: None,
-    })
+    }
 }
 
 /// Start a manager and run the RLM bootstrap, mirroring the TS provisioner
@@ -131,9 +100,7 @@ async fn execute(
 
 #[tokio::test]
 async fn kernel_state_persists_across_cells_and_turns() {
-    let Some(options) = test_options(None) else {
-        return;
-    };
+    let options = test_options(None);
     let manager = started_manager(options).await;
 
     // One turn defines; a separate call (a later "turn") uses.
@@ -184,9 +151,7 @@ async fn project_modules_in_cwd_never_shadow_the_runtime_or_stdlib() {
     // `sys.path`, so a project's own `rlm/` or `json.py` ran at kernel boot.
     // Cells must still import project-only modules from the cwd, which the
     // runtime appends at the END of `sys.path`.
-    let Some(mut options) = test_options(None) else {
-        return;
-    };
+    let mut options = test_options(None);
     let project = tempfile::tempdir().expect("tempdir");
     let marker = project.path().join("shadow-imported");
     let shadow = format!(
@@ -232,9 +197,7 @@ async fn project_modules_in_cwd_never_shadow_the_runtime_or_stdlib() {
 
 #[tokio::test]
 async fn background_thread_output_is_separated_from_cell_output() {
-    let Some(options) = test_options(None) else {
-        return;
-    };
+    let options = test_options(None);
     let manager = started_manager(options).await;
     // A user thread writing after its cell finished lands in background output.
     let first = execute(
@@ -262,9 +225,7 @@ async fn background_thread_output_is_separated_from_cell_output() {
 
 #[tokio::test]
 async fn rlm_bootstrap_injects_the_kernel_surface() {
-    let Some(base) = test_options(None) else {
-        return;
-    };
+    let base = test_options(None);
     let options = KernelManagerOptions {
         bootstrap_code: Some(build_rlm_bootstrap_code(&[])),
         ..base
@@ -308,9 +269,7 @@ async fn host_requests_round_trip_to_registered_handlers() {
             }))
         }),
     );
-    let Some(base) = test_options(None) else {
-        return;
-    };
+    let base = test_options(None);
     let options = KernelManagerOptions {
         host_handlers: handlers,
         bootstrap_code: Some(build_rlm_bootstrap_code(&[])),
@@ -358,9 +317,7 @@ async fn host_requests_round_trip_to_registered_handlers() {
 #[tokio::test]
 async fn kill9_then_restart_revives_snapshot_and_reports_unserializable() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
     let manager = started_manager(options).await;
 
     // Serializable variables plus one unserializable object (an open socket)
@@ -405,9 +362,7 @@ async fn kill9_then_restart_revives_snapshot_and_reports_unserializable() {
     assert!(manager.is_defunct(), "killed kernel must settle defunct");
 
     // Restart-and-revive: a fresh manager on the same snapshot directory.
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
     let revived = started_manager(options).await;
     let restore = tokio::time::timeout(Duration::from_secs(15), revived.restore_state())
         .await
@@ -456,9 +411,7 @@ async fn kill9_then_restart_revives_snapshot_and_reports_unserializable() {
 /// settled track fires nothing.
 #[tokio::test]
 async fn background_bash_settlement_fires_the_callback_once() {
-    let Some(mut options) = test_options(None) else {
-        return;
-    };
+    let mut options = test_options(None);
     let settled = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counter = std::sync::Arc::clone(&settled);
     // The callback itself is the observable event: the test awaits its
@@ -508,9 +461,7 @@ async fn background_bash_settlement_fires_the_callback_once() {
 /// hear the settlement before it is lost — once, not once per handle.
 #[tokio::test]
 async fn kernel_teardown_with_live_handles_settles_the_callback_once() {
-    let Some(mut options) = test_options(None) else {
-        return;
-    };
+    let mut options = test_options(None);
     let settled = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counter = std::sync::Arc::clone(&settled);
     options.on_background_work_settled = Some(std::sync::Arc::new(move || {
@@ -538,9 +489,7 @@ async fn kernel_teardown_with_live_handles_settles_the_callback_once() {
 /// which a static scan of the cell source cannot see.
 #[tokio::test]
 async fn cell_result_summarizes_the_bash_commands_it_ran() {
-    let Some(options) = test_options(None) else {
-        return;
-    };
+    let options = test_options(None);
     let manager = started_manager(options).await;
     execute(&manager, "from rlm import bash").await;
 
@@ -568,9 +517,7 @@ async fn cell_result_summarizes_the_bash_commands_it_ran() {
 #[tokio::test]
 async fn graceful_shutdown_flushes_the_final_snapshot() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
     let manager = started_manager(options).await;
     execute(&manager, "persisted = 'value'\n").await;
 
@@ -587,9 +534,7 @@ async fn graceful_shutdown_flushes_the_final_snapshot() {
     .expect("shutdown must settle");
     assert!(performed.expect("shutdown result"));
 
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
     let revived = started_manager(options).await;
     let restore = revived
         .restore_state()
@@ -656,9 +601,7 @@ async fn execute_then_abort(
 #[tokio::test]
 async fn abort_stops_any_cell_and_the_next_cell_runs_at_once() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    let Some(options) = test_options(Some(dir.path())) else {
-        return;
-    };
+    let options = test_options(Some(dir.path()));
     let manager = started_manager(options.clone()).await;
     for code in [
         "print('spin', flush=True)\nwhile True:\n    pass",
