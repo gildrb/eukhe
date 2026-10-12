@@ -117,6 +117,7 @@ pub mod herdr_env;
 mod memory;
 mod outbound;
 mod plane;
+mod session_state;
 mod worker;
 
 pub use agent_relay::AgentRelayEvent;
@@ -137,6 +138,10 @@ pub use outbound::{
     KERNEL_NOT_RUNNING_MESSAGE,
 };
 pub use plane::{command_plane, is_session_plane_daemon_command, DaemonCommandPlane};
+pub use session_state::{
+    AgentConnectionState, QueueLaneIndices, SessionActionActive, SessionActionSnapshot,
+    SessionSummary,
+};
 pub use worker::{
     DaemonPeerCommand, DaemonWorkerCommand, DaemonWorkerDescriptor, DaemonWorkerFrameHeader,
     DaemonWorkerLifecycle, DaemonWorkerPeerGrant, DaemonWorkerRosterOutbound,
