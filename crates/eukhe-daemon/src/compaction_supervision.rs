@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
+use eukhe_types::daemon::{CompactionReason, ErrorSeverity};
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 
@@ -63,7 +64,7 @@ pub(crate) struct CompactionSupervision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct InFlightCompaction {
     active_session_id: String,
-    reason: String,
+    reason: CompactionReason,
     /// The abort counter at the moment the arm was taken: a watch task
     /// declares terminal only for the abort it observed.
     abort_epoch: u64,
@@ -83,7 +84,7 @@ struct InFlightCompaction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TerminalCompaction {
     pub(crate) active_session_id: String,
-    pub(crate) reason: String,
+    pub(crate) reason: CompactionReason,
 }
 
 impl CompactionSupervision {
@@ -97,7 +98,7 @@ impl CompactionSupervision {
     /// the abort carries onto the newly armed run and the returned
     /// epoch is the one a watcher must declare against. Every other
     /// replacement arms un-aborted (a fresh run is a fresh subject).
-    pub(crate) fn arm(&self, active_session_id: &str, reason: &str) -> Option<u64> {
+    pub(crate) fn arm(&self, active_session_id: &str, reason: CompactionReason) -> Option<u64> {
         let epoch = self
             .next_epoch
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -108,7 +109,7 @@ impl CompactionSupervision {
         };
         *state = Some(InFlightCompaction {
             active_session_id: active_session_id.to_string(),
-            reason: reason.to_string(),
+            reason,
             abort_epoch: epoch,
             abort_requested_at_epoch: carried_abort,
             terminal: false,
@@ -143,7 +144,7 @@ impl CompactionSupervision {
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 *state = Some(InFlightCompaction {
                     active_session_id: active_session_id.to_string(),
-                    reason: "manual".to_string(),
+                    reason: CompactionReason::Manual,
                     abort_epoch: epoch,
                     abort_requested_at_epoch: Some(epoch),
                     terminal: false,
@@ -173,7 +174,7 @@ impl CompactionSupervision {
                 run.terminal = true;
                 Some(TerminalCompaction {
                     active_session_id: run.active_session_id.clone(),
-                    reason: run.reason.clone(),
+                    reason: run.reason,
                 })
             }
             _ => None,
@@ -209,7 +210,7 @@ impl CompactionSupervision {
         run.terminal = true;
         Some(TerminalCompaction {
             active_session_id: run.active_session_id.clone(),
-            reason: run.reason.clone(),
+            reason: run.reason,
         })
     }
 }
@@ -225,7 +226,7 @@ pub(crate) struct TerminalCompactionRecord {
     pub(crate) active_session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) session_file: Option<String>,
-    pub(crate) reason: String,
+    pub(crate) reason: CompactionReason,
     pub(crate) declared_at: String,
 }
 
@@ -287,7 +288,7 @@ impl TerminalCompactionJournal {
     /// case); a successful write also retires any retryable
     /// predecessor, which the newest declaration supersedes.
     pub(crate) fn declare(&mut self, record: TerminalCompactionRecord) -> Result<()> {
-        if record.reason == "manual"
+        if record.reason == CompactionReason::Manual
             && (self.latest.contains_key(&record.active_session_id)
                 || self.retryable.contains_key(&record.active_session_id))
         {
@@ -575,7 +576,7 @@ impl crate::supervisor::Supervisor {
                 r#type: TERMINAL_COMPACTION_RECORD_TYPE.to_string(),
                 active_session_id: terminal.active_session_id.clone(),
                 session_file,
-                reason: terminal.reason.clone(),
+                reason: terminal.reason,
                 declared_at: declared.clone(),
             };
             if let Err(error) = journal.declare(record) {
@@ -593,25 +594,36 @@ impl crate::supervisor::Supervisor {
         // arms carry none (TS `_endCompactionUnsuccessfully`'s cancelled
         // shape). The event routes to the session's attached clients like
         // the worker's own frames.
-        let error_severity = (terminal.reason == "manual").then_some("error");
+        let error_severity =
+            (terminal.reason == CompactionReason::Manual).then_some(ErrorSeverity::Error);
         let event = crate::compaction::compaction_end_unsuccessful(
-            &terminal.reason,
+            terminal.reason,
             true,
             None,
             error_severity,
             None,
         );
-        let frame = serde_json::to_value(eukhe_types::daemon::DaemonOutbound::SessionEvent {
+        match serde_json::to_value(eukhe_types::daemon::DaemonOutbound::SessionEvent {
             active_session_id: terminal.active_session_id.clone(),
             event,
             meta: None,
             rest: Map::default(),
-        })
-        .unwrap_or_default();
-        self.publish_session_event(&terminal.active_session_id, &std::sync::Arc::new(frame));
+        }) {
+            Ok(frame) => {
+                self.publish_session_event(
+                    &terminal.active_session_id,
+                    &std::sync::Arc::new(frame),
+                );
+            }
+            Err(error) => self.log_line(&format!(
+                "the synthetic compaction end for {} does not serialize: {error}",
+                terminal.active_session_id
+            )),
+        }
         self.log_line(&format!(
             "declared terminal aborted compaction for {} (reason {}, declared {declared})",
-            terminal.active_session_id, terminal.reason
+            terminal.active_session_id,
+            terminal.reason.as_str()
         ));
     }
 }
@@ -620,7 +632,7 @@ impl crate::supervisor::Supervisor {
 mod tests {
     use super::*;
 
-    fn supervision_with_run(reason: &str) -> CompactionSupervision {
+    fn supervision_with_run(reason: CompactionReason) -> CompactionSupervision {
         let supervision = CompactionSupervision::default();
         supervision.arm("session-a", reason);
         supervision
@@ -629,7 +641,7 @@ mod tests {
     /// The token lifecycle: arm on start, clear on end, nothing terminal.
     #[test]
     fn armed_run_settles_on_its_own_end() {
-        let supervision = supervision_with_run("manual");
+        let supervision = supervision_with_run(CompactionReason::Manual);
         let epoch = supervision.request_abort().expect("armed run");
         supervision.observe_end();
         assert_eq!(supervision.declare_terminal_if_unresolved(epoch), None);
@@ -639,13 +651,13 @@ mod tests {
     /// declaration carries the wire identity and reason.
     #[test]
     fn unresolved_abort_declares_terminal() {
-        let supervision = supervision_with_run("threshold");
+        let supervision = supervision_with_run(CompactionReason::Threshold);
         let epoch = supervision.request_abort().expect("armed run");
         assert_eq!(
             supervision.declare_terminal_if_unresolved(epoch),
             Some(TerminalCompaction {
                 active_session_id: "session-a".to_string(),
-                reason: "threshold".to_string(),
+                reason: CompactionReason::Threshold,
             })
         );
         // Terminal is one-shot: a late second watch must not redeclare.
@@ -656,9 +668,9 @@ mod tests {
     /// watch task never declares the newer run terminal.
     #[test]
     fn a_newer_run_escapes_an_older_watch() {
-        let supervision = supervision_with_run("manual");
+        let supervision = supervision_with_run(CompactionReason::Manual);
         let first = supervision.request_abort().expect("armed run");
-        supervision.arm("session-a", "threshold");
+        supervision.arm("session-a", CompactionReason::Threshold);
         let second = supervision.request_abort().expect("re-armed run");
         assert_ne!(first, second);
         assert_eq!(supervision.declare_terminal_if_unresolved(first), None);
@@ -666,7 +678,7 @@ mod tests {
             supervision
                 .declare_terminal_if_unresolved(second)
                 .map(|declared| declared.reason),
-            Some("threshold".to_string())
+            Some(CompactionReason::Threshold)
         );
     }
 
@@ -683,11 +695,11 @@ mod tests {
     /// nothing left to declare.
     #[test]
     fn worker_gone_declares_only_aborted_runs() {
-        let plain = supervision_with_run("manual");
+        let plain = supervision_with_run(CompactionReason::Manual);
         assert_eq!(plain.observe_worker_gone(), None);
         assert_eq!(plain.request_abort(), None, "the slot cleared");
 
-        let aborted = supervision_with_run("manual");
+        let aborted = supervision_with_run(CompactionReason::Manual);
         let epoch = aborted.request_abort().expect("armed run");
         assert_eq!(
             aborted
@@ -714,7 +726,7 @@ mod tests {
             supervision.declare_terminal_if_unresolved(epoch),
             Some(TerminalCompaction {
                 active_session_id: "session-a".to_string(),
-                reason: "manual".to_string(),
+                reason: CompactionReason::Manual,
             })
         );
     }
@@ -724,7 +736,7 @@ mod tests {
     /// terminal leftover yields no fallback at all.
     #[test]
     fn fallback_arm_respects_a_live_run() {
-        let supervision = supervision_with_run("threshold");
+        let supervision = supervision_with_run(CompactionReason::Threshold);
         let epoch = supervision
             .arm_aborted_fallback("session-a")
             .expect("live run takes the abort");
@@ -732,7 +744,7 @@ mod tests {
             supervision
                 .declare_terminal_if_unresolved(epoch)
                 .map(|declared| declared.reason),
-            Some("threshold".to_string())
+            Some(CompactionReason::Threshold)
         );
         assert_eq!(
             supervision.arm_aborted_fallback("session-a"),
@@ -754,7 +766,7 @@ mod tests {
             .arm_aborted_fallback("session-a")
             .expect("empty slot arms");
         let carried = supervision
-            .arm("session-a", "threshold")
+            .arm("session-a", CompactionReason::Threshold)
             .expect("the pending fallback abort carries");
         assert_ne!(fallback_epoch, carried);
         assert_eq!(
@@ -766,7 +778,7 @@ mod tests {
             supervision.declare_terminal_if_unresolved(carried),
             Some(TerminalCompaction {
                 active_session_id: "session-a".to_string(),
-                reason: "threshold".to_string(),
+                reason: CompactionReason::Threshold,
             })
         );
     }
@@ -776,9 +788,12 @@ mod tests {
     /// takes the new epoch.
     #[test]
     fn a_normal_replacement_arms_unaborted() {
-        let supervision = supervision_with_run("manual");
+        let supervision = supervision_with_run(CompactionReason::Manual);
         let aborted = supervision.request_abort().expect("armed run");
-        assert_eq!(supervision.arm("session-a", "threshold"), None);
+        assert_eq!(
+            supervision.arm("session-a", CompactionReason::Threshold),
+            None
+        );
         assert_eq!(
             supervision.declare_terminal_if_unresolved(aborted),
             None,
@@ -790,7 +805,7 @@ mod tests {
             supervision
                 .declare_terminal_if_unresolved(fresh)
                 .map(|declared| declared.reason),
-            Some("threshold".to_string())
+            Some(CompactionReason::Threshold)
         );
     }
 
@@ -798,10 +813,10 @@ mod tests {
     /// run cannot match a later run that reused the slot.
     #[test]
     fn epochs_stay_monotonic_across_clears() {
-        let supervision = supervision_with_run("manual");
+        let supervision = supervision_with_run(CompactionReason::Manual);
         let first = supervision.request_abort().expect("armed run");
         supervision.observe_end();
-        supervision.arm("session-a", "manual");
+        supervision.arm("session-a", CompactionReason::Manual);
         let second = supervision.request_abort().expect("re-armed run");
         assert_ne!(first, second);
         assert_eq!(supervision.declare_terminal_if_unresolved(first), None);
@@ -823,7 +838,7 @@ mod tests {
                     r#type: TERMINAL_COMPACTION_RECORD_TYPE.to_string(),
                     active_session_id: "session-a".to_string(),
                     session_file: Some("/sessions/a.jsonl".to_string()),
-                    reason: "threshold".to_string(),
+                    reason: CompactionReason::Threshold,
                     declared_at: "2026-09-23T00:00:00Z".to_string(),
                 })
                 .unwrap();
@@ -831,7 +846,7 @@ mod tests {
                 .pending("session-a")
                 .unwrap()
                 .expect("declared record");
-            assert_eq!(pending.reason, "threshold");
+            assert_eq!(pending.reason, CompactionReason::Threshold);
         }
         // A supervisor restart: the record is still pending.
         {
@@ -853,7 +868,7 @@ mod tests {
                     r#type: TERMINAL_COMPACTION_RECORD_TYPE.to_string(),
                     active_session_id: "session-b".to_string(),
                     session_file: None,
-                    reason: "manual".to_string(),
+                    reason: CompactionReason::Manual,
                     declared_at: "2026-09-23T00:00:01Z".to_string(),
                 })
                 .unwrap();
@@ -874,23 +889,25 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pa-comp-sup-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("compaction-supervision.jsonl");
-        let record = |reason: &str| TerminalCompactionRecord {
+        let record = |reason: CompactionReason| TerminalCompactionRecord {
             version: 1,
             r#type: TERMINAL_COMPACTION_RECORD_TYPE.to_string(),
             active_session_id: "session-a".to_string(),
             session_file: Some("/sessions/a.jsonl".to_string()),
-            reason: reason.to_string(),
+            reason,
             declared_at: "2026-09-23T00:00:00Z".to_string(),
         };
 
         // Durable displacement: the manual fallback declaration after a
         // supervisor restart leaves the auto record pending.
         let mut journal = TerminalCompactionJournal::open(&path).unwrap();
-        journal.declare(record("threshold")).unwrap();
-        journal.declare(record("manual")).unwrap();
+        journal
+            .declare(record(CompactionReason::Threshold))
+            .unwrap();
+        journal.declare(record(CompactionReason::Manual)).unwrap();
         assert_eq!(
             journal.pending("session-a").unwrap().expect("kept").reason,
-            "threshold"
+            CompactionReason::Threshold
         );
         // The manual record is not on disk either.
         let on_disk = std::fs::read_to_string(&path).unwrap();
@@ -903,8 +920,10 @@ mod tests {
         let path2 = dir.join("compaction-supervision-2.jsonl");
         let mut failing = TerminalCompactionJournal::open(&path2).unwrap();
         std::fs::create_dir_all(&path2).unwrap();
-        assert!(failing.declare(record("threshold")).is_err());
-        failing.declare(record("manual")).unwrap();
+        assert!(failing
+            .declare(record(CompactionReason::Threshold))
+            .is_err());
+        failing.declare(record(CompactionReason::Manual)).unwrap();
         assert!(
             failing.pending("session-a").is_err(),
             "the threshold retry still fails"
@@ -912,17 +931,18 @@ mod tests {
         std::fs::remove_dir(&path2).unwrap();
         let pending = failing.pending("session-a").unwrap().expect("retried");
         assert_eq!(
-            pending.reason, "threshold",
+            pending.reason,
+            CompactionReason::Threshold,
             "the manual record never landed"
         );
-        failing.declare(record("overflow")).unwrap();
+        failing.declare(record(CompactionReason::Overflow)).unwrap();
         assert_eq!(
             failing
                 .pending("session-a")
                 .unwrap()
                 .expect("overflow record")
                 .reason,
-            "overflow",
+            CompactionReason::Overflow,
             "a fresh auto declaration supersedes the retryable predecessor"
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -943,7 +963,7 @@ mod tests {
             r#type: TERMINAL_COMPACTION_RECORD_TYPE.to_string(),
             active_session_id: "session-a".to_string(),
             session_file: Some("/sessions/a.jsonl".to_string()),
-            reason: "threshold".to_string(),
+            reason: CompactionReason::Threshold,
             declared_at: "2026-09-23T00:00:00Z".to_string(),
         };
         // A journal whose writes fail (a directory stands where the file
@@ -960,7 +980,7 @@ mod tests {
         // durable journal holds it for the create payload.
         std::fs::remove_dir(&path).unwrap();
         let pending = failing.pending("session-a").unwrap().expect("retried");
-        assert_eq!(pending.reason, "threshold");
+        assert_eq!(pending.reason, CompactionReason::Threshold);
         let reloaded = TerminalCompactionJournal::open(&path).unwrap();
         assert!(reloaded.latest.contains_key("session-a"));
 

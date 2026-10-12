@@ -386,10 +386,7 @@ impl Worker {
         // committed audit row; a failed run commits no audit, so the
         // failure event (TS `refine_failed`) is emitted here.
         if let Some(error) = outcome.refinement_failed {
-            self.emit_worker_event(serde_json::json!({
-                "type": "refine_failed",
-                "error": error,
-            }));
+            self.emit_worker_event(eukhe_types::daemon::SessionEvent::RefineFailed { error });
         }
         match outcome.error {
             Some(error) => response_failure(None, command, &error, None),

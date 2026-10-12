@@ -11,6 +11,7 @@ use std::sync::Arc;
 use eukhe_core::durable::{fork_main_conversation, fork_session, ForkPoint, SessionLocation};
 use eukhe_durable::entries::USER_ENTRY;
 use eukhe_durable::types::{EntryId, EntryRecord};
+use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::{Message, UserContent, UserContentBlock};
 use eukhe_types::usage::{calculate_context_tokens, estimate_tokens, valid_assistant_usage};
 use serde_json::{json, Value};
@@ -280,7 +281,9 @@ async fn set_session_name(state: &Arc<RpcState>, payload: &Value) -> Result<Resp
     state
         .session
         .outputs()
-        .write(json!({ "type": "session_info_changed", "name": name }));
+        .write_events([SessionEvent::SessionInfoChanged {
+            name: Some(name.to_string()),
+        }]);
     Ok(ResponseData::Absent)
 }
 

@@ -5,8 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use eukhe_types::daemon::MemoryUpdateEvent;
-use serde_json::json;
+use eukhe_types::daemon::SessionEvent;
 
 use super::summary::emit_worker_event_with;
 use super::{EventPump, SessionCore, Worker};
@@ -60,7 +59,7 @@ async fn forward_memory_updates(
     loop {
         match updates.next().await {
             Ok(update) => {
-                emit_worker_event_with(&core, &events, json!(MemoryUpdateEvent { update }));
+                emit_worker_event_with(&core, &events, SessionEvent::MemoryUpdate { update });
             }
             Err(error) => {
                 eprintln!("eukhe-daemon worker: chat memory updates stopped: {error:#}");

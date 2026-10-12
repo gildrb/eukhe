@@ -11,6 +11,7 @@ use eukhe_core::durable::custom_entry_draft;
 use eukhe_core::durable::rlm::{refine_now, RefineRequest};
 use eukhe_durable::harness::types::{WhenBusy, WriteSubmissionDraft};
 use eukhe_durable::harness::Conversation;
+use eukhe_types::daemon::SessionEvent;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 use serde_json::{json, Value};
@@ -278,10 +279,9 @@ impl Worker {
                 // A failed refinement commits nothing: the failure event
                 // (TS `refine_failed`) is the worker's to emit.
                 let error = format!("{error:#}");
-                self.emit_worker_event(json!({
-                    "type": "refine_failed",
-                    "error": error,
-                }));
+                self.emit_worker_event(SessionEvent::RefineFailed {
+                    error: error.clone(),
+                });
                 response_failure(None, "refine", &error, None)
             }
         }

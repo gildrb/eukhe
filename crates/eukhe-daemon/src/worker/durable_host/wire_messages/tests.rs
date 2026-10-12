@@ -70,9 +70,12 @@ fn model_messages_pass_through() {
 #[test]
 fn assistant_stop_reasons_the_tui_does_not_know_show_as_stop() {
     let mut message: AssistantMessage = serde_json::from_value(assistant(1, "deferred")).unwrap();
-    assert_eq!(assistant_wire_message(&message)["stopReason"], "stop");
+    let wire = |message: &AssistantMessage| {
+        serde_json::to_value(assistant_wire_message(message).expect("wire message")).unwrap()
+    };
+    assert_eq!(wire(&message)["stopReason"], "stop");
     message.raw_stop_reason = Some("content_filter".to_owned());
-    let wire = assistant_wire_message(&message);
+    let wire = wire(&message);
     assert_eq!(wire["rawStopReason"], "content_filter");
     assert_eq!(wire["stopReasonRaw"], "content_filter");
 }

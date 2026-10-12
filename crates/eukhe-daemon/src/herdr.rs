@@ -38,6 +38,8 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
+use eukhe_types::ai::StopReason;
+use eukhe_types::session::AgentMessage;
 use serde_json::{json, Map, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -869,18 +871,22 @@ pub(crate) fn valid_resume_argv(target: Option<&str>) -> Option<Vec<String>> {
 /// The error hold's message (the TS `errorHoldMessage`): the terminal
 /// assistant row's provider error, when the run's last assistant row
 /// ended in `stopReason: "error"`.
-pub(crate) fn error_hold_message(messages: &[Value]) -> Option<String> {
-    let last_assistant = messages
-        .iter()
-        .rev()
-        .find(|message| message.get("role").and_then(Value::as_str) == Some("assistant"));
-    let assistant = last_assistant?;
-    if assistant.get("stopReason").and_then(Value::as_str) != Some("error") {
+pub(crate) fn error_hold_message(messages: &[AgentMessage]) -> Option<String> {
+    let assistant = messages.iter().rev().find_map(|message| match message {
+        AgentMessage::Assistant(assistant) => Some(assistant),
+        AgentMessage::User(_)
+        | AgentMessage::ToolResult(_)
+        | AgentMessage::BashExecution(_)
+        | AgentMessage::Custom(_)
+        | AgentMessage::BranchSummary(_)
+        | AgentMessage::CompactionSummary(_) => None,
+    })?;
+    if assistant.stop_reason != StopReason::Error {
         return None;
     }
     let message = assistant
-        .get("errorMessage")
-        .and_then(Value::as_str)
+        .error_message
+        .as_deref()
         .filter(|message| !message.is_empty())
         .unwrap_or("provider error");
     Some(message.to_string())
@@ -955,42 +961,40 @@ mod tests {
 
     #[test]
     fn the_error_hold_reads_the_terminal_assistant_row() {
+        let assistant = |stop_reason: &str, error_message: Option<&str>| -> AgentMessage {
+            serde_json::from_value(json!({
+                "role": "assistant", "content": [], "api": "a", "provider": "p", "model": "m",
+                "usage": {
+                    "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                    "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+                },
+                "stopReason": stop_reason, "errorMessage": error_message, "timestamp": 1,
+            }))
+            .expect("assistant message")
+        };
+        let user: AgentMessage =
+            serde_json::from_value(json!({ "role": "user", "content": "hi", "timestamp": 1 }))
+                .expect("user message");
         // The terminal assistant row's error becomes the hold message.
-        let messages = [
-            json!({ "role": "user", "text": "hi" }),
-            json!({ "role": "assistant", "stopReason": "error", "errorMessage": "overloaded" }),
-        ];
         assert_eq!(
-            error_hold_message(&messages),
+            error_hold_message(&[user, assistant("error", Some("overloaded"))]),
             Some("overloaded".to_string())
         );
         // An error without a message holds with the fallback text.
         assert_eq!(
-            error_hold_message(&[
-                json!({ "role": "assistant", "stopReason": "error", "errorMessage": "" }),
-            ]),
+            error_hold_message(&[assistant("error", Some(""))]),
             Some("provider error".to_string())
         );
         // A settled row and an abort end do not hold.
         assert_eq!(
-            error_hold_message(&[json!({
-                "role": "assistant", "stopReason": "stop", "errorMessage": "irrelevant",
-            })]),
+            error_hold_message(&[assistant("stop", Some("irrelevant"))]),
             None
         );
-        assert_eq!(
-            error_hold_message(&[json!({
-                "role": "assistant", "stopReason": "aborted",
-            })]),
-            None
-        );
+        assert_eq!(error_hold_message(&[assistant("aborted", None)]), None);
         // The LAST assistant row decides (an error earlier in the run
         // followed by a settled row does not hold).
         assert_eq!(
-            error_hold_message(&[
-                json!({ "role": "assistant", "stopReason": "error", "errorMessage": "early" }),
-                json!({ "role": "assistant", "stopReason": "stop" }),
-            ]),
+            error_hold_message(&[assistant("error", Some("early")), assistant("stop", None)]),
             None
         );
         // An empty run holds nothing.

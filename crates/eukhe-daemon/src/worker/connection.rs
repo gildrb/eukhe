@@ -912,10 +912,10 @@ impl Worker {
             .view
             .as_ref()
             .and_then(|view| view.translator.mirror().partial.as_ref())
+            .and_then(super::durable_host::wire_messages::assistant_wire_message)
+            .and_then(|partial| serde_json::to_value(partial).ok())
         {
-            messages.push(super::durable_host::wire_messages::assistant_wire_message(
-                partial,
-            ));
+            messages.push(partial);
         }
         // The image-payload elision (the image-heavy session-open fix): a
         // client that advertised `elide_snapshot_images` reads the

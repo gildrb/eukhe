@@ -16,6 +16,7 @@ use eukhe_core::durable::{
     TurnWait,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
+use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::ModelThinkingLevel;
 use serde_json::{json, Value};
 
@@ -459,9 +460,9 @@ impl Worker {
             emit_worker_event_with(
                 &core,
                 &events,
-                json!(eukhe_types::daemon::ChatTurnWaitEvent {
+                SessionEvent::ChatTurnWait {
                     waiting: matches!(wait, TurnWait::Waiting),
-                }),
+                },
             );
         }));
         // Provider admission: the supervisor owns the daemon-wide slots
@@ -491,7 +492,9 @@ impl Worker {
             emit_worker_event_with(
                 &summary_core,
                 &summary_events,
-                json!({ "type": "compaction_summary_delta", "delta": delta }),
+                SessionEvent::CompactionSummaryDelta {
+                    delta: delta.to_owned(),
+                },
             );
         }));
         // An agent message the kernel reports after its cell settled (TS
@@ -503,11 +506,10 @@ impl Worker {
             emit_worker_event_with(
                 &late_core,
                 &late_events,
-                json!({
-                    "type": "ipython_sent_agent_message",
-                    "toolCallId": tool_call_id,
-                    "message": message.to_json(),
-                }),
+                SessionEvent::IpythonSentAgentMessage {
+                    tool_call_id: tool_call_id.to_owned(),
+                    message: message.to_json(),
+                },
             );
         }));
         // Each accepted `rlm.progress.note` is a roster `note` candidate:

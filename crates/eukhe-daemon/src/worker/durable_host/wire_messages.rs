@@ -16,7 +16,9 @@ use eukhe_core::durable::{
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use eukhe_durable::types::EntryRecord;
 use eukhe_types::pi_ai::{AssistantMessage, Message};
+use eukhe_types::session::AgentMessage;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 /// The wire `AgentMessage` for one entry (attach snapshot, `get_messages`,
@@ -30,13 +32,13 @@ pub fn entry_wire_message(entry: &EntryRecord) -> Option<Value> {
     entry_wire_message_with(entry, 0)
 }
 
-/// The wire form of one assistant message: the pi-ai JSON, with the stop
-/// reasons the TUI's typed readers do not know (`pending` on a streaming
-/// partial, `deferred`) shown as `stop`, and `rawStopReason` also under the
-/// old `stopReasonRaw` key.
+/// The wire form of one assistant message: the pi-ai message, with the stop
+/// reasons the wire does not know (`pending` on a streaming partial,
+/// `deferred`) shown as `stop`, and `rawStopReason` also under the old
+/// `stopReasonRaw` key.
 #[must_use]
-pub fn assistant_wire_message(message: &AssistantMessage) -> Value {
-    let mut value = serde_json::to_value(message).unwrap_or(Value::Null);
+pub fn assistant_wire_message(message: &AssistantMessage) -> Option<AgentMessage> {
+    let mut value = serde_json::to_value(message).ok()?;
     if let Value::Object(object) = &mut value {
         if matches!(
             object.get("stopReason").and_then(Value::as_str),
@@ -48,7 +50,31 @@ pub fn assistant_wire_message(message: &AssistantMessage) -> Value {
             object.insert("stopReasonRaw".to_owned(), raw);
         }
     }
-    value
+    match serde_json::from_value(value) {
+        Ok(message) => Some(message),
+        Err(error) => {
+            eprintln!(
+                "eukhe-daemon worker: dropped an assistant message the wire cannot carry: {error}"
+            );
+            None
+        }
+    }
+}
+
+/// `value` re-read as its wire type: the pi-ai messages and content blocks
+/// map onto the wire's message types. A value the wire type rejects is
+/// logged and dropped.
+pub(crate) fn to_wire<T: Serialize, U: DeserializeOwned>(value: &T) -> Option<U> {
+    match serde_json::to_value(value).and_then(serde_json::from_value) {
+        Ok(wire) => Some(wire),
+        Err(error) => {
+            eprintln!(
+                "eukhe-daemon worker: dropped a value the wire cannot carry ({}): {error}",
+                std::any::type_name::<U>()
+            );
+            None
+        }
+    }
 }
 
 /// Attach `messages`: every shown entry mapped, in order. A user entry
@@ -99,7 +125,8 @@ pub(crate) fn entry_wire_message_with(entry: &EntryRecord, tokens_before: u64) -
     if kind == ASSISTANT_ENTRY.kind() {
         return first
             .and_then(Message::as_assistant)
-            .map(assistant_wire_message);
+            .and_then(assistant_wire_message)
+            .and_then(|message| serde_json::to_value(message).ok());
     }
     if kind == COMPACTION_ENTRY.kind() {
         // A malformed row maps to nothing, like `entry_data`.

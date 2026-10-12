@@ -1,5 +1,5 @@
 //! The connection's event pump over one session's main conversation: the
-//! durable agent events translated to the TS session-event frames, plus
+//! durable agent events translated to session events, plus
 //! the `goal_update` frames of the conversation's goal (TS forwards
 //! `event.event` verbatim and `_emitGoalUpdate` on goal changes). Frames
 //! go through the connection outputs, so a pending prompt response still
@@ -13,8 +13,8 @@ use eukhe_core::durable::EukheSession;
 use eukhe_core::goals::GoalState;
 use eukhe_durable::harness::{watch_events, AgentEventBatch, AgentEventStream};
 use eukhe_durable::session::SessionResult;
+use eukhe_types::daemon::SessionEvent;
 use futures::future::{self, FutureExt};
-use serde_json::{json, Value};
 use tokio::task::JoinHandle;
 
 use super::session::ConnectionOutputs;
@@ -27,7 +27,7 @@ struct Translation {
 }
 
 impl Translation {
-    fn frames(&mut self, batch: &AgentEventBatch) -> Vec<Value> {
+    fn frames(&mut self, batch: &AgentEventBatch) -> Vec<SessionEvent> {
         self.translator.translate_batch(batch)
     }
 }
@@ -69,7 +69,7 @@ impl EventPump {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .frames(&batch);
-            listener_outputs.write_all(frames);
+            listener_outputs.write_events(frames);
             future::ready(Ok(())).boxed()
         }))?;
         let mut updates = watch_goal_updates(session.harness(), conversation_id, cx)?;
@@ -87,7 +87,7 @@ impl EventPump {
                     }
                 };
                 if changed {
-                    goal_outputs.write(json!({ "type": "goal_update", "goal": goal }));
+                    goal_outputs.write_events([SessionEvent::GoalUpdate { goal }]);
                 }
             }
         });
@@ -111,9 +111,7 @@ impl EventPump {
             .unwrap_or_else(PoisonError::into_inner)
             .translator
             .flush();
-        if let Some(frame) = held {
-            self.outputs.write(frame);
-        }
+        self.outputs.write_events(held);
         self.goals.abort();
     }
 }

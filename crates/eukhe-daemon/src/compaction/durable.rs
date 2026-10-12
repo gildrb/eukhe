@@ -5,7 +5,7 @@
 //! from the event translator (the task's `pi.live` status), not from here.
 
 use eukhe_chord::context::Context;
-use eukhe_chord::json::{from_json, JsonError, JsonValue};
+use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_core::durable::compaction::compaction_summary_text;
 use eukhe_core::durable::HostDeps;
 use eukhe_durable::entries::COMPACTION_ENTRY;
@@ -18,7 +18,6 @@ use eukhe_durable::types::SubmissionState;
 use eukhe_durable::types::{
     DocumentReaderExt, EntryId, EntryRecord, TaskId, TaskOutcome, WriteSubmission,
 };
-use serde_json::{json, Value};
 
 /// The skip of a session with no history before the keep window (TS
 /// `CompactionSkippedError`).
@@ -52,25 +51,6 @@ impl ManualCompactionError {
     }
 }
 
-/// The client-facing `CompactionResult` (TS `_performCompaction`'s return)
-/// of a `pi.compaction` entry: summary, the first kept entry, and the
-/// context estimate before the compaction. Durable entries carry no file-op
-/// `details`, so the key is absent (TS's `undefined`).
-///
-/// # Errors
-///
-/// The entry's data does not decode.
-pub(crate) fn compaction_result_value(
-    entry: &EntryRecord,
-    tokens_before: u64,
-) -> Result<Value, JsonError> {
-    Ok(json!({
-        "summary": compaction_summary_text(entry)?,
-        "firstKeptEntryId": entry.head.map_or_else(String::new, |head| head.to_string()),
-        "tokensBefore": tokens_before,
-    }))
-}
-
 /// Whether the newest entry of the context is its compaction summary (TS
 /// `prepareCompaction`: the last entry is a compaction). The kept tail the
 /// summary retains was appended before it, so only an entry appended after
@@ -96,7 +76,7 @@ pub(crate) async fn run_manual_compaction(
     conversation: &Conversation,
     instructions: Option<String>,
     cx: &Context,
-) -> Result<Value, ManualCompactionError> {
+) -> Result<eukhe_types::daemon::CompactionResult, ManualCompactionError> {
     let view = conversation
         .context(cx, eukhe_durable::harness::types::ContextOptions::default())
         .await
@@ -153,8 +133,12 @@ pub(crate) async fn run_manual_compaction(
         .ok_or_else(|| {
             ManualCompactionError::Failed(format!("compaction entry {entry_id} is missing"))
         })?;
-    compaction_result_value(&entry, tokens_before)
-        .map_err(|error| ManualCompactionError::Failed(error.to_string()))
+    Ok(eukhe_types::daemon::CompactionResult {
+        summary: compaction_summary_text(&entry)
+            .map_err(|error| ManualCompactionError::Failed(error.to_string()))?,
+        first_kept_entry_id: entry.head.map(|head| head.to_string()),
+        tokens_before,
+    })
 }
 
 /// The summary entry of a completed compaction: appended directly, or

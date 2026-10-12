@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 /// One relayed peer message: `from`/`to` are the agents' display names
 /// (the session name, else the active session id).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename = "agent_relay")]
 pub struct AgentRelayEvent {
     pub from: String,
     pub to: String,
@@ -17,11 +16,9 @@ pub struct AgentRelayEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn agent_relay_event_roundtrip() {
-        crate::daemon::rt::<AgentRelayEvent>(
+        crate::daemon::rt::<crate::daemon::SessionEvent>(
             r#"{"type":"agent_relay","from":"scout","to":"builder","text":"the api is in core"}"#,
         );
     }

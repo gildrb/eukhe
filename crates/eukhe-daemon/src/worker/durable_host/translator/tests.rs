@@ -3,6 +3,35 @@ use serde_json::{json, Value};
 
 use super::*;
 
+/// The translator's frames in their wire form.
+trait WireFrames {
+    fn translate_wire(&mut self, event: &AgentEvent) -> Vec<Value>;
+    fn translate_batch_wire(&mut self, events: &[AgentEvent]) -> Vec<Value>;
+    fn flush_wire(&mut self) -> Option<Value>;
+}
+
+impl WireFrames for EventTranslator {
+    fn translate_wire(&mut self, event: &AgentEvent) -> Vec<Value> {
+        wire(&self.translate(event))
+    }
+
+    fn translate_batch_wire(&mut self, events: &[AgentEvent]) -> Vec<Value> {
+        wire(&self.translate_batch(events))
+    }
+
+    fn flush_wire(&mut self) -> Option<Value> {
+        self.flush()
+            .map(|frame| serde_json::to_value(frame).unwrap())
+    }
+}
+
+fn wire(frames: &[SessionEvent]) -> Vec<Value> {
+    frames
+        .iter()
+        .map(|frame| serde_json::to_value(frame).unwrap())
+        .collect()
+}
+
 fn usage(total: u64) -> Value {
     json!({
         "input": total, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": total,
@@ -71,7 +100,7 @@ fn stream_kinds(frames: &[Value]) -> Vec<&str> {
 }
 
 fn start_streaming(translator: &mut EventTranslator) -> Vec<Value> {
-    translator.translate(&event(json!({
+    translator.translate_wire(&event(json!({
         "type": "message_start",
         "message": assistant(json!([]), "pending", 0),
     })))
@@ -80,7 +109,7 @@ fn start_streaming(translator: &mut EventTranslator) -> Vec<Value> {
 #[test]
 fn streaming_builds_the_partial_from_text_thinking_and_toolcall_changes() {
     let mut translator = translator(CoalesceMode::Immediate);
-    let started = translator.translate(&event(json!({ "type": "run_start", "inputs": [3] })));
+    let started = translator.translate_wire(&event(json!({ "type": "run_start", "inputs": [3] })));
     assert_eq!(started, [json!({ "type": "agent_start" })]);
     let start = start_streaming(&mut translator);
     assert_eq!(types(&start), ["message_start"]);
@@ -91,7 +120,7 @@ fn streaming_builds_the_partial_from_text_thinking_and_toolcall_changes() {
     // The streaming partial's `pending` stop reason is shown as `stop`.
     assert_eq!(start[0]["message"]["stopReason"], "stop");
 
-    let frames = translator.translate(&update(json!([
+    let frames = translator.translate_wire(&update(json!([
         { "type": "thinking_start", "contentIndex": 0, "block": { "type": "thinking", "thinking": "" } },
         { "type": "thinking_delta", "contentIndex": 0, "delta": "plan" },
         { "type": "block", "contentIndex": 0, "block": { "type": "thinking", "thinking": "plan!" } },
@@ -138,32 +167,32 @@ fn streaming_builds_the_partial_from_text_thinking_and_toolcall_changes() {
 fn coalescing_merges_same_kind_and_replaces_on_a_kind_switch() {
     let mut translator = translator(CoalesceMode::Coalesced);
     start_streaming(&mut translator);
-    let parked = translator.translate(&update(json!([
+    let parked = translator.translate_wire(&update(json!([
         { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
     ])));
     assert!(parked.is_empty());
     assert!(translator.has_parked());
     for delta in ["a", "b"] {
-        let frames = translator.translate(&update(json!([
+        let frames = translator.translate_wire(&update(json!([
             { "type": "text_delta", "contentIndex": 0, "delta": delta },
         ])));
         assert!(frames.is_empty());
     }
-    let flushed = translator.flush().unwrap();
+    let flushed = translator.flush_wire().unwrap();
     assert_eq!(
         flushed["assistantMessageEvent"],
         json!({ "type": "text_delta", "delta": "ab" })
     );
     assert_eq!(flushed["message"]["content"][0]["text"], "ab");
-    assert!(translator.flush().is_none());
+    assert!(translator.flush_wire().is_none());
     assert!(!translator.has_parked());
 
     // A kind switch replaces the parked update.
-    translator.translate(&update(json!([
+    translator.translate_wire(&update(json!([
         { "type": "text_delta", "contentIndex": 0, "delta": "c" },
         { "type": "thinking_start", "contentIndex": 1, "block": { "type": "thinking", "thinking": "" } },
     ])));
-    let flushed = translator.flush().unwrap();
+    let flushed = translator.flush_wire().unwrap();
     assert_eq!(
         flushed["assistantMessageEvent"],
         json!({ "type": "thinking_start" })
@@ -175,11 +204,11 @@ fn coalescing_merges_same_kind_and_replaces_on_a_kind_switch() {
 fn coalescing_flushes_before_block_ends_and_message_end() {
     let mut translator = translator(CoalesceMode::Coalesced);
     start_streaming(&mut translator);
-    translator.translate(&update(json!([
+    translator.translate_wire(&update(json!([
         { "type": "thinking_start", "contentIndex": 0, "block": { "type": "thinking", "thinking": "" } },
         { "type": "thinking_delta", "contentIndex": 0, "delta": "x" },
     ])));
-    let frames = translator.translate(&update(json!([
+    let frames = translator.translate_wire(&update(json!([
         { "type": "thinking_delta", "contentIndex": 0, "delta": "y" },
         { "type": "block", "contentIndex": 0, "block": { "type": "thinking", "thinking": "xy" } },
     ])));
@@ -187,7 +216,7 @@ fn coalescing_flushes_before_block_ends_and_message_end() {
     assert_eq!(frames[0]["assistantMessageEvent"]["delta"], "xy");
     assert!(!translator.has_parked());
 
-    translator.translate(&update(json!([
+    translator.translate_wire(&update(json!([
         { "type": "text_start", "contentIndex": 1, "block": { "type": "text", "text": "" } },
         { "type": "text_delta", "contentIndex": 1, "delta": "done" },
     ])));
@@ -197,7 +226,7 @@ fn coalescing_flushes_before_block_ends_and_message_end() {
         "stop",
         9,
     );
-    let frames = translator.translate(&event(json!({
+    let frames = translator.translate_wire(&event(json!({
         "type": "message_end",
         "entry": entry(10, "pi.assistant", Some(final_message.clone()), None),
     })));
@@ -208,7 +237,7 @@ fn coalescing_flushes_before_block_ends_and_message_end() {
     );
     assert_eq!(frames[1]["message"], final_message);
     assert!(translator.mirror().partial.is_none());
-    assert!(translator.flush().is_none());
+    assert!(translator.flush_wire().is_none());
     assert_eq!(translator.mirror().entries.len(), 1);
 }
 
@@ -216,7 +245,7 @@ fn coalescing_flushes_before_block_ends_and_message_end() {
 fn an_unstreamed_assistant_message_end_starts_its_message() {
     let mut translator = translator(CoalesceMode::Coalesced);
     let message = assistant(json!([{ "type": "text", "text": "hi" }]), "stop", 1);
-    let frames = translator.translate(&event(json!({
+    let frames = translator.translate_wire(&event(json!({
         "type": "message_end",
         "entry": entry(10, "pi.assistant", Some(message.clone()), None),
     })));
@@ -232,9 +261,10 @@ fn an_unstreamed_assistant_message_end_starts_its_message() {
 fn user_messages_go_out_from_their_message_end() {
     let mut translator = translator(CoalesceMode::Immediate);
     let user = json!({ "role": "user", "content": "hello", "timestamp": 2 });
-    let start = translator.translate(&event(json!({ "type": "message_start", "message": user })));
+    let start =
+        translator.translate_wire(&event(json!({ "type": "message_start", "message": user })));
     assert!(start.is_empty());
-    let frames = translator.translate(&event(json!({
+    let frames = translator.translate_wire(&event(json!({
         "type": "message_end",
         "entry": entry(4, "pi.user", Some(user.clone()), None),
     })));
@@ -253,7 +283,7 @@ fn user_messages_go_out_from_their_message_end() {
 fn a_run_opens_before_its_inputs_and_ends_with_its_messages() {
     let mut translator = translator(CoalesceMode::Immediate);
     let user = json!({ "role": "user", "content": "hello", "timestamp": 2 });
-    let frames = translator.translate_batch(&[
+    let frames = translator.translate_batch_wire(&[
         event(json!({ "type": "message_start", "message": user })),
         event(json!({ "type": "message_end", "entry": entry(4, "pi.user", Some(user.clone()), None) })),
         event(json!({ "type": "run_start", "inputs": [4] })),
@@ -264,7 +294,7 @@ fn a_run_opens_before_its_inputs_and_ends_with_its_messages() {
         ["agent_start", "turn_start", "message_start", "message_end"]
     );
     let answer = assistant(json!([{ "type": "text", "text": "hi" }]), "stop", 1);
-    let frames = translator.translate_batch(&[
+    let frames = translator.translate_batch_wire(&[
         event(json!({ "type": "message_end", "entry": entry(5, "pi.assistant", Some(answer.clone()), None) })),
         event(json!({ "type": "turn_end" })),
         event(json!({ "type": "run_end", "inputs": [4] })),
@@ -282,7 +312,7 @@ fn a_run_opens_before_its_inputs_and_ends_with_its_messages() {
 fn a_handover_commit_opens_the_next_run_before_its_placed_input() {
     let mut translator = translator(CoalesceMode::Immediate);
     let first = json!({ "role": "user", "content": "first", "timestamp": 2 });
-    translator.translate_batch(&[
+    translator.translate_batch_wire(&[
         event(json!({ "type": "message_start", "message": first })),
         event(json!({ "type": "message_end", "entry": entry(4, "pi.user", Some(first.clone()), None) })),
         event(json!({ "type": "run_start", "inputs": [1] })),
@@ -290,7 +320,7 @@ fn a_handover_commit_opens_the_next_run_before_its_placed_input() {
     ]);
     let answer = assistant(json!([{ "type": "text", "text": "hi" }]), "stop", 1);
     let follow = json!({ "role": "user", "content": "follow", "timestamp": 6 });
-    let frames = translator.translate_batch(&[
+    let frames = translator.translate_batch_wire(&[
         event(json!({ "type": "message_end", "entry": entry(5, "pi.assistant", Some(answer.clone()), None) })),
         event(json!({ "type": "message_start", "message": follow })),
         event(json!({ "type": "message_end", "entry": entry(6, "pi.user", Some(follow.clone()), None) })),
@@ -334,7 +364,7 @@ fn an_input_row_shows_in_place_of_its_user_entry() {
         "display": true, "timestamp": 0,
     });
     let user = json!({ "role": "user", "content": "hello", "timestamp": 2 });
-    let frames = translator.translate_batch(&[
+    let frames = translator.translate_batch_wire(&[
         event(json!({ "type": "entry_appended", "entry": entry(
             3, "eukhe.custom", None,
             Some(json!({ "customType": "sideQuestion", "content": "hello", "display": true, "input": true })),
@@ -351,7 +381,7 @@ fn an_input_row_shows_in_place_of_its_user_entry() {
     );
     // A later user entry (nothing before it stands for it) shows again.
     let user_two = json!({ "role": "user", "content": "again", "timestamp": 6 });
-    let frames = translator.translate_batch(&[event(json!({
+    let frames = translator.translate_batch_wire(&[event(json!({
         "type": "message_end", "entry": entry(5, "pi.user", Some(user_two.clone()), None)
     }))]);
     assert_eq!(
@@ -369,13 +399,13 @@ fn tool_update(translator: &mut EventTranslator, fields: &Value) -> Value {
     for (key, field) in fields.as_object().unwrap() {
         value[key] = field.clone();
     }
-    let frames = translator.translate(&event(value));
+    let frames = translator.translate_wire(&event(value));
     assert_eq!(types(&frames), ["tool_execution_update"]);
     frames.into_iter().next().unwrap()
 }
 
 fn start_tool(translator: &mut EventTranslator) {
-    let frames = translator.translate(&event(json!({
+    let frames = translator.translate_wire(&event(json!({
         "type": "tool_execution_start", "toolCallId": "c1", "toolName": "bash",
         "args": { "command": "ls" },
     })));
@@ -446,7 +476,7 @@ fn a_starting_status_shows_its_message_as_the_loader_note() {
         })
     );
     // Removed details (`Some(null)`, which JSON cannot spell) clear the note.
-    let frames = translator.translate(&AgentEvent::ToolExecutionUpdate {
+    let frames = translator.translate_wire(&AgentEvent::ToolExecutionUpdate {
         call: ToolEventCall {
             tool_call_id: "c1".to_owned(),
             tool_name: "bash".to_owned(),
@@ -474,7 +504,7 @@ fn tool_end_reports_the_result_entry() {
         "content": [{ "type": "text", "text": "out" }], "details": { "exit": 0 },
         "isError": false, "timestamp": 3,
     });
-    let frames = translator.translate(&event(json!({
+    let frames = translator.translate_wire(&event(json!({
         "type": "tool_execution_end", "toolCallId": "c1", "toolName": "bash",
         "entry": entry(11, "pi.tool-result", Some(result), None),
     })));
@@ -494,7 +524,7 @@ fn a_faulted_tool_ends_with_its_batch_failure_or_the_bare_fact() {
     let end = json!({ "type": "tool_execution_end", "toolCallId": "c1", "toolName": "bash" });
     let mut translator = translator(CoalesceMode::Immediate);
     start_tool(&mut translator);
-    let frames = translator.translate_batch(&[
+    let frames = translator.translate_batch_wire(&[
         event(end.clone()),
         event(
             json!({ "type": "task_failed", "taskId": 9, "kind": "pi.tool", "message": "crashed" }),
@@ -510,7 +540,7 @@ fn a_faulted_tool_ends_with_its_batch_failure_or_the_bare_fact() {
     );
 
     start_tool(&mut translator);
-    let frames = translator.translate(&event(end));
+    let frames = translator.translate_wire(&event(end));
     assert_eq!(
         frames[0]["result"]["content"][0]["text"],
         "Tool execution ended without a result"
@@ -530,7 +560,7 @@ fn custom_entries_go_out_as_a_message_pair() {
                      "details": { "success": true } }),
         ),
     );
-    let frames = translator.translate(&event(
+    let frames = translator.translate_wire(&event(
         json!({ "type": "entry_appended", "entry": display_only }),
     ));
     let message = json!({
@@ -553,7 +583,8 @@ fn custom_entries_go_out_as_a_message_pair() {
         Some(user),
         Some(json!({ "customType": "goal_context", "display": false })),
     );
-    let frames = translator.translate(&event(json!({ "type": "message_end", "entry": visible })));
+    let frames =
+        translator.translate_wire(&event(json!({ "type": "message_end", "entry": visible })));
     assert_eq!(types(&frames), ["message_start", "message_end"]);
     assert_eq!(
         frames[1]["message"],
@@ -571,7 +602,8 @@ fn custom_entries_go_out_as_a_message_pair() {
         None,
         Some(json!({ "customType": "x" })),
     );
-    let frames = translator.translate(&event(json!({ "type": "entry_appended", "entry": state })));
+    let frames =
+        translator.translate_wire(&event(json!({ "type": "entry_appended", "entry": state })));
     assert!(frames.is_empty());
 }
 
@@ -590,7 +622,8 @@ fn a_refinement_audit_row_goes_out_as_refine_complete() {
         None,
         Some(json!({ "customType": "eukhe.refinement", "data": result })),
     );
-    let frames = translator.translate(&event(json!({ "type": "entry_appended", "entry": audit })));
+    let frames =
+        translator.translate_wire(&event(json!({ "type": "entry_appended", "entry": audit })));
     assert_eq!(
         frames,
         [json!({ "type": "refine_complete", "result": result })]
@@ -607,7 +640,7 @@ fn compaction_end_reports_the_placed_summary() {
     );
     let mut translator =
         EventTranslator::new(&snapshot(vec![answer], &json!({})), CoalesceMode::Immediate);
-    let frames = translator.translate(&event(json!({
+    let frames = translator.translate_wire(&event(json!({
         "type": "compaction_start", "taskId": 7, "reason": "threshold", "blocking": true,
     })));
     assert_eq!(
@@ -629,9 +662,10 @@ fn compaction_end_reports_the_placed_summary() {
         })),
     );
     summary["byTaskId"] = json!(7);
-    let frames = translator.translate(&event(json!({ "type": "message_end", "entry": summary })));
+    let frames =
+        translator.translate_wire(&event(json!({ "type": "message_end", "entry": summary })));
     assert!(frames.is_empty());
-    let frames = translator.translate(&event(json!({
+    let frames = translator.translate_wire(&event(json!({
         "type": "compaction_end", "taskId": 7, "reason": "threshold",
     })));
     assert_eq!(
@@ -649,17 +683,17 @@ fn compaction_end_reports_the_placed_summary() {
 #[test]
 fn a_faulted_compaction_ends_with_its_failure() {
     let mut translator = translator(CoalesceMode::Immediate);
-    translator.translate(&event(json!({
+    translator.translate_wire(&event(json!({
         "type": "compaction_start", "taskId": 8, "reason": "manual", "blocking": false,
     })));
-    let frames = translator.translate_batch(&[
+    let frames = translator.translate_batch_wire(&[
         event(json!({ "type": "compaction_end", "taskId": 8, "reason": "manual" })),
         event(json!({ "type": "task_failed", "taskId": 8, "kind": "pi.compaction", "message": "boom" })),
     ]);
     assert_eq!(
         frames,
         [json!({
-            "type": "compaction_end", "reason": "manual", "result": null, "aborted": false,
+            "type": "compaction_end", "reason": "manual", "aborted": false,
             "willRetry": false, "errorMessage": "boom",
         })]
     );
@@ -685,17 +719,17 @@ fn an_unsuccessful_automatic_compaction_ends_after_its_outcome_row() {
         event(json!({ "type": "entry_appended", "entry": row }))
     };
     for (task, reason) in [(9, "threshold"), (10, "overflow")] {
-        translator.translate(&event(json!({
+        translator.translate_wire(&event(json!({
             "type": "compaction_start", "taskId": task, "reason": reason, "blocking": true,
         })));
-        let frames = translator.translate(&event(json!({
+        let frames = translator.translate_wire(&event(json!({
             "type": "compaction_end", "taskId": task, "reason": reason,
         })));
         assert!(frames.is_empty(), "held for the row: {frames:?}");
     }
     assert!(!translator.mirror().is_compacting());
 
-    let frames = translator.translate(&outcome_row(
+    let frames = translator.translate_wire(&outcome_row(
         5,
         "Compaction cancelled",
         "overflow",
@@ -710,7 +744,7 @@ fn an_unsuccessful_automatic_compaction_ends_after_its_outcome_row() {
         json!({ "type": "compaction_end", "reason": "overflow", "aborted": true, "willRetry": false })
     );
 
-    let frames = translator.translate(&outcome_row(
+    let frames = translator.translate_wire(&outcome_row(
         6,
         "Auto-compaction failed: boom",
         "threshold",
@@ -725,7 +759,7 @@ fn an_unsuccessful_automatic_compaction_ends_after_its_outcome_row() {
     );
 
     // With nothing held, a row is its pair alone.
-    let frames = translator.translate(&outcome_row(
+    let frames = translator.translate_wire(&outcome_row(
         7,
         "Auto-compaction skipped: Already compacted",
         "threshold",
@@ -738,20 +772,20 @@ fn an_unsuccessful_automatic_compaction_ends_after_its_outcome_row() {
 fn turn_end_carries_a_generation_failure_of_its_turn() {
     let mut translator = translator(CoalesceMode::Immediate);
     assert_eq!(
-        translator.translate(&event(json!({ "type": "turn_start" }))),
+        translator.translate_wire(&event(json!({ "type": "turn_start" }))),
         [json!({ "type": "turn_start" })]
     );
-    let failed = translator.translate(&event(json!({
+    let failed = translator.translate_wire(&event(json!({
         "type": "task_failed", "taskId": 4, "kind": "pi.generation", "message": "429",
     })));
     assert!(failed.is_empty());
     assert_eq!(
-        translator.translate(&event(json!({ "type": "turn_end" }))),
+        translator.translate_wire(&event(json!({ "type": "turn_end" }))),
         [json!({ "type": "turn_end", "error": "429" })]
     );
-    translator.translate(&event(json!({ "type": "turn_start" })));
+    translator.translate_wire(&event(json!({ "type": "turn_start" })));
     assert_eq!(
-        translator.translate(&event(json!({ "type": "turn_end" }))),
+        translator.translate_wire(&event(json!({ "type": "turn_end" }))),
         [json!({ "type": "turn_end" })]
     );
 }
@@ -759,23 +793,23 @@ fn turn_end_carries_a_generation_failure_of_its_turn() {
 #[test]
 fn run_end_clears_the_live_state() {
     let mut translator = translator(CoalesceMode::Coalesced);
-    translator.translate(&event(json!({ "type": "run_start", "inputs": [3] })));
+    translator.translate_wire(&event(json!({ "type": "run_start", "inputs": [3] })));
     assert!(translator.mirror().is_streaming());
     start_streaming(&mut translator);
-    translator.translate(&update(json!([
+    translator.translate_wire(&update(json!([
         { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
     ])));
     // Any other frame flushes the parked update first.
-    let frames = translator.translate(&event(json!({
+    let frames = translator.translate_wire(&event(json!({
         "type": "tool_execution_start", "toolCallId": "c1", "toolName": "bash", "args": {},
     })));
     assert_eq!(types(&frames), ["message_update", "tool_execution_start"]);
     assert!(!translator.has_parked());
-    translator.translate(&event(json!({
+    translator.translate_wire(&event(json!({
         "type": "auto_retry_start", "attempt": 1, "at": 0.0, "errorMessage": "overloaded",
     })));
     assert_eq!(translator.mirror().retry_attempt, Some(1));
-    let frames = translator.translate(&event(json!({ "type": "run_end", "inputs": [3] })));
+    let frames = translator.translate_wire(&event(json!({ "type": "run_end", "inputs": [3] })));
     // The run ended inside the retry episode: it closes failed first.
     assert_eq!(
         frames,
@@ -817,7 +851,7 @@ fn auto_retry_frames() {
     // The second attempt's retry ends a minute from now: the frame carries
     // what is left of that wait.
     let at = now_ms() + 60_000.0;
-    let frames = translator.translate_batch(&[
+    let frames = translator.translate_batch_wire(&[
         failed(4, "overloaded"),
         event(json!({
             "type": "auto_retry_start", "attempt": 2, "at": at, "errorMessage": "overloaded",
@@ -830,10 +864,11 @@ fn auto_retry_frames() {
         json!({ "type": "auto_retry_start", "attempt": 2, "delayMs": delay,
                 "errorMessage": "overloaded", "maxAttempts": 2 })
     );
-    let frames = translator.translate(&event(json!({ "type": "auto_retry_end", "attempt": 2 })));
+    let frames =
+        translator.translate_wire(&event(json!({ "type": "auto_retry_end", "attempt": 2 })));
     assert!(frames.is_empty(), "{frames:?}");
     let answer = assistant(json!([{ "type": "text", "text": "ok" }]), "stop", 1);
-    let frames = translator.translate(&event(json!({
+    let frames = translator.translate_wire(&event(json!({
         "type": "message_end", "entry": entry(5, "pi.assistant", Some(answer), None),
     })));
     assert_eq!(
@@ -842,14 +877,14 @@ fn auto_retry_frames() {
     );
 
     // A second episode that gives up closes at the turn's end.
-    translator.translate_batch(&[
+    translator.translate_batch_wire(&[
         failed(6, "down"),
         event(
             json!({ "type": "auto_retry_start", "attempt": 1, "at": 0.0, "errorMessage": "down" }),
         ),
     ]);
-    translator.translate(&failed(7, "still down"));
-    let frames = translator.translate(&event(json!({ "type": "turn_end" })));
+    translator.translate_wire(&failed(7, "still down"));
+    let frames = translator.translate_wire(&event(json!({ "type": "turn_end" })));
     assert_eq!(
         frames[0],
         json!({ "type": "auto_retry_end", "success": false, "attempt": 1,
@@ -903,10 +938,10 @@ fn a_snapshot_seeds_and_replaces_the_mirror() {
     assert_eq!(mirror.inbox.len(), 1);
 
     start_streaming(&mut translator);
-    translator.translate(&update(json!([
+    translator.translate_wire(&update(json!([
         { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
     ])));
-    let frames = translator.translate(&AgentEvent::Snapshot(snapshot(Vec::new(), &json!({}))));
+    let frames = translator.translate_wire(&AgentEvent::Snapshot(snapshot(Vec::new(), &json!({}))));
     assert!(frames.is_empty());
     assert!(!translator.has_parked());
     assert_eq!(
@@ -918,7 +953,7 @@ fn a_snapshot_seeds_and_replaces_the_mirror() {
 #[test]
 fn bookkeeping_events_update_only_the_mirror() {
     let mut translator = translator(CoalesceMode::Immediate);
-    let inbox = translator.translate(&event(json!({
+    let inbox = translator.translate_wire(&event(json!({
         "type": "inbox_update", "items": [{ "id": 5, "mode": "followUp" }],
     })));
     assert!(inbox.is_empty());
@@ -930,10 +965,10 @@ fn bookkeeping_events_update_only_the_mirror() {
         Some(json!({ "command": "ls", "output": "", "cancelled": false })),
     );
     assert!(translator
-        .translate(&event(json!({ "type": "message_end", "entry": bash })))
+        .translate_wire(&event(json!({ "type": "message_end", "entry": bash })))
         .is_empty());
     assert!(translator
-        .translate(&event(json!({ "type": "deferred_poll", "pollAt": 1.0 })))
+        .translate_wire(&event(json!({ "type": "deferred_poll", "pollAt": 1.0 })))
         .is_empty());
     assert_eq!(translator.mirror().entries.len(), 1);
 }

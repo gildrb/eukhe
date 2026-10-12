@@ -28,14 +28,10 @@ async fn manual_compaction_answers_the_ts_result_and_places_the_summary() {
     )
     .await
     .expect("compacted");
-    assert_eq!(result["summary"], "The user asked two questions.");
-    assert!(result["tokensBefore"].as_u64().unwrap() > 0);
-    let first_kept = result["firstKeptEntryId"].as_str().unwrap().to_owned();
+    assert_eq!(result.summary, "The user asked two questions.");
+    assert!(result.tokens_before > 0);
+    let first_kept = result.first_kept_entry_id.expect("a kept entry");
     assert!(!first_kept.is_empty());
-    assert_eq!(
-        result.as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["summary", "firstKeptEntryId", "tokensBefore"]
-    );
     assert_eq!(
         kinds(&root).await.last().map(String::as_str),
         Some("pi.compaction")

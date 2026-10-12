@@ -2,14 +2,14 @@
 //!
 //! Port of the TS daemon-mode compaction surface: the `compact` /
 //! `abort_compaction` handlers over the durable session ([`durable`]), and
-//! the `compaction_start`/`compaction_end` event payloads with their exact
-//! TS shapes.
+//! the unsuccessful `compaction_end` event they and the event bridge share.
 
 use std::sync::{Arc, Mutex};
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::types::ConversationAbortOptions;
-use serde_json::{json, Value};
+use eukhe_types::daemon::{CompactionReason, CompactionResult, ErrorSeverity, SessionEvent};
+use serde_json::Value;
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::durable_host::translator::ManualSettle;
@@ -51,7 +51,10 @@ impl CompactionManager {
     /// error message exactly like the TS daemon catch.
     pub(crate) async fn run(&self, custom_instructions: Option<String>) -> DaemonResponse {
         match self.compact(custom_instructions).await {
-            Ok(result) => response_success(None, "compact", Some(result)),
+            Ok(result) => match serde_json::to_value(result) {
+                Ok(result) => response_success(None, "compact", Some(result)),
+                Err(error) => response_failure(None, "compact", &error.to_string(), None),
+            },
             Err(error) => response_failure(None, "compact", &error.to_string(), None),
         }
     }
@@ -63,7 +66,7 @@ impl CompactionManager {
     pub(crate) async fn compact(
         &self,
         custom_instructions: Option<String>,
-    ) -> Result<Value, ManualCompactionError> {
+    ) -> Result<CompactionResult, ManualCompactionError> {
         let Some(hosted) = self.session.get() else {
             return Err(ManualCompactionError::Failed(
                 "Session is still initializing".to_string(),
@@ -93,11 +96,18 @@ impl CompactionManager {
             cx(),
         )
         .await;
-        let instructions = custom_instructions.as_deref();
         match &outcome {
             Ok(result) => {
                 self.settle(
-                    compaction_end_success("manual", result, false, instructions),
+                    SessionEvent::CompactionEnd {
+                        reason: CompactionReason::Manual,
+                        result: Some(result.clone()),
+                        aborted: false,
+                        will_retry: false,
+                        error_message: None,
+                        error_severity: None,
+                        custom_instructions: custom_instructions.clone(),
+                    },
                     true,
                 );
                 // The abort before the compaction ended an active goal's
@@ -116,11 +126,11 @@ impl CompactionManager {
             }
             Err(ManualCompactionError::Skipped(message)) => {
                 let end = compaction_end_unsuccessful(
-                    "manual",
+                    CompactionReason::Manual,
                     false,
-                    Some(message),
-                    Some("warning"),
-                    instructions,
+                    Some((*message).to_owned()),
+                    Some(ErrorSeverity::Warning),
+                    custom_instructions.clone(),
                 );
                 // A skip before the task starts reaches the bridge as
                 // nothing: the TS run still announced its start and the
@@ -129,25 +139,34 @@ impl CompactionManager {
                     emit_worker_event_with(
                         &self.core,
                         &self.events,
-                        compaction_start_event("manual", instructions),
+                        SessionEvent::CompactionStart {
+                            reason: CompactionReason::Manual,
+                            custom_instructions,
+                        },
                     );
                     emit_worker_event_with(&self.core, &self.events, end);
                 }
             }
             Err(ManualCompactionError::Aborted) => {
                 self.settle(
-                    compaction_end_unsuccessful("manual", true, None, Some("error"), instructions),
+                    compaction_end_unsuccessful(
+                        CompactionReason::Manual,
+                        true,
+                        None,
+                        Some(ErrorSeverity::Error),
+                        custom_instructions,
+                    ),
                     true,
                 );
             }
             Err(ManualCompactionError::Failed(error)) => {
                 self.settle(
                     compaction_end_unsuccessful(
-                        "manual",
+                        CompactionReason::Manual,
                         false,
-                        Some(error),
-                        Some("error"),
-                        instructions,
+                        Some(error.clone()),
+                        Some(ErrorSeverity::Error),
+                        custom_instructions,
                     ),
                     false,
                 );
@@ -160,14 +179,14 @@ impl CompactionManager {
     /// emitting it now when the claimed task already ended (else the
     /// task's end emits it). `false` when no task started: nothing of the
     /// run reached the wire.
-    fn settle(&self, end: Value, task_started: bool) -> bool {
+    fn settle(&self, end: SessionEvent, task_started: bool) -> bool {
         let settled = match self.core.lock().unwrap().view.as_mut() {
             Some(view) => view.translator.settle_manual_compaction(end, task_started),
             None => ManualSettle::NoTask,
         };
         match settled {
             ManualSettle::Emit(frame) => {
-                emit_worker_event_with(&self.core, &self.events, frame);
+                emit_worker_event_with(&self.core, &self.events, *frame);
                 true
             }
             ManualSettle::Deferred => true,
@@ -214,71 +233,26 @@ impl Worker {
     }
 }
 
-/// The `compaction_start` event payload (TS `AgentSessionEvent`). Shared by
-/// every compaction surface: the `compact` RPC, the `/compact` session
-/// command, and the automatic threshold compaction all emit the same shape
-/// with their own `reason` (`manual` / `threshold`; TS
-/// `CompactionOutcomeReason`).
-pub(crate) fn compaction_start_event(reason: &str, custom_instructions: Option<&str>) -> Value {
-    let mut event = json!({ "type": "compaction_start", "reason": reason });
-    if let Some(custom_instructions) = custom_instructions {
-        event["customInstructions"] = json!(custom_instructions);
-    }
-    event
-}
-
-/// The `compaction_end` event payload of a successful compaction (TS
-/// `AgentSessionEvent`): the client-facing `CompactionResult` plus whether
-/// the session retries the failed turn on the compacted context (the
-/// overflow compact-and-retry arm is the only `willRetry: true` source).
-/// `reason` is the TS `CompactionOutcomeReason` (`manual` for user-initiated
-/// runs, `requested` for model-requested boundary compactions).
-pub(crate) fn compaction_end_success(
-    reason: &str,
-    result: &Value,
-    will_retry: bool,
-    custom_instructions: Option<&str>,
-) -> Value {
-    let mut event = json!({
-        "type": "compaction_end",
-        "reason": reason,
-        "result": result,
-        "aborted": false,
-        "willRetry": will_retry,
-    });
-    if let Some(custom_instructions) = custom_instructions {
-        event["customInstructions"] = json!(custom_instructions);
-    }
-    event
-}
-
-/// The `compaction_end` event payload of an unsuccessful compaction (TS
+/// The `compaction_end` event of an unsuccessful compaction (TS
 /// `_endCompactionUnsuccessfully`'s event shape): `aborted` marks a
-/// cancelled run; a skip or failure carries its `errorMessage` with the
-/// matching `errorSeverity`.
+/// cancelled run; a skip or failure carries its `error_message` with the
+/// matching `error_severity`.
 pub(crate) fn compaction_end_unsuccessful(
-    reason: &str,
+    reason: CompactionReason,
     aborted: bool,
-    error_message: Option<&str>,
-    error_severity: Option<&str>,
-    custom_instructions: Option<&str>,
-) -> Value {
-    let mut event = json!({
-        "type": "compaction_end",
-        "reason": reason,
-        "aborted": aborted,
-        "willRetry": false,
-    });
-    if let Some(error_message) = error_message {
-        event["errorMessage"] = json!(error_message);
+    error_message: Option<String>,
+    error_severity: Option<ErrorSeverity>,
+    custom_instructions: Option<String>,
+) -> SessionEvent {
+    SessionEvent::CompactionEnd {
+        reason,
+        result: None,
+        aborted,
+        will_retry: false,
+        error_message,
+        error_severity,
+        custom_instructions,
     }
-    if let Some(error_severity) = error_severity {
-        event["errorSeverity"] = json!(error_severity);
-    }
-    if let Some(custom_instructions) = custom_instructions {
-        event["customInstructions"] = json!(custom_instructions);
-    }
-    event
 }
 
 pub(crate) mod durable;
@@ -287,65 +261,7 @@ pub(crate) mod durable;
 mod tests {
     use super::*;
     use crate::durable_test_support::{answer, ask, hosted, kinds, Fixture};
-
-    #[test]
-    fn event_shapes_match_ts() {
-        assert_eq!(
-            compaction_start_event("manual", Some("focus on the goal")),
-            json!({
-                "type": "compaction_start",
-                "reason": "manual",
-                "customInstructions": "focus on the goal",
-            })
-        );
-        assert_eq!(
-            compaction_start_event("manual", None),
-            json!({ "type": "compaction_start", "reason": "manual" })
-        );
-        assert_eq!(
-            compaction_end_success(
-                "manual",
-                &json!({ "summary": "the story so far", "tokensBefore": 1234 }),
-                false,
-                Some("focus"),
-            ),
-            json!({
-                "type": "compaction_end",
-                "reason": "manual",
-                "result": { "summary": "the story so far", "tokensBefore": 1234 },
-                "aborted": false,
-                "willRetry": false,
-                "customInstructions": "focus",
-            })
-        );
-        assert_eq!(
-            compaction_end_unsuccessful(
-                "manual",
-                false,
-                Some(durable::TOO_SHORT_TO_COMPACT),
-                Some("warning"),
-                None,
-            ),
-            json!({
-                "type": "compaction_end",
-                "reason": "manual",
-                "aborted": false,
-                "willRetry": false,
-                "errorMessage": "Session is too short to compact -- try again once it grows",
-                "errorSeverity": "warning",
-            })
-        );
-        assert_eq!(
-            compaction_end_unsuccessful("manual", true, None, Some("error"), None),
-            json!({
-                "type": "compaction_end",
-                "reason": "manual",
-                "aborted": true,
-                "willRetry": false,
-                "errorSeverity": "error",
-            })
-        );
-    }
+    use serde_json::json;
 
     fn manager(slot: &SessionSlot) -> (CompactionManager, Arc<EventPump>) {
         let pump = Arc::new(EventPump::new());

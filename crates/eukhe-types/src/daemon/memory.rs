@@ -56,13 +56,6 @@ pub enum MemoryUpdate {
     },
 }
 
-/// One `memory_update` session event.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename = "memory_update")]
-pub struct MemoryUpdateEvent {
-    pub update: MemoryUpdate,
-}
-
 /// The chat memory's state for the `/memory` header and the status gauge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -120,10 +113,10 @@ mod tests {
 
     #[test]
     fn memory_update_event_roundtrip() {
-        crate::daemon::rt::<MemoryUpdateEvent>(
+        crate::daemon::rt::<crate::daemon::SessionEvent>(
             r#"{"type":"memory_update","update":{"kind":"summarized","lines":[{"id":41,"count":1,"text":"user: hi"}],"viewBytes":87200}}"#,
         );
-        crate::daemon::rt::<MemoryUpdateEvent>(
+        crate::daemon::rt::<crate::daemon::SessionEvent>(
             r#"{"type":"memory_update","update":{"kind":"merged","pairs":37,"beforeBytes":128400,"afterBytes":63900}}"#,
         );
     }

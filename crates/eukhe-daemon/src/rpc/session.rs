@@ -14,7 +14,7 @@ use eukhe_core::durable::goals::goal_state;
 use eukhe_core::durable::{EukheSession, TurnWait, TurnWaitSink};
 use eukhe_core::goals::GoalState;
 use eukhe_durable::harness::types::ConversationAbortOptions;
-use eukhe_types::daemon::ChatTurnWaitEvent;
+use eukhe_types::daemon::SessionEvent;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -140,14 +140,30 @@ impl ConnectionOutputs {
         }
     }
 
+    /// Publish session events in order, in their pi event shapes.
+    pub(crate) fn write_events(&self, events: impl IntoIterator<Item = SessionEvent>) {
+        let frames = events
+            .into_iter()
+            .filter_map(|event| match serde_json::to_value(&event) {
+                Ok(frame) => Some(frame),
+                Err(error) => {
+                    eprintln!(
+                        "eukhe rpc: dropped a session event that does not serialize: {error}"
+                    );
+                    None
+                }
+            })
+            .collect();
+        self.write_all(frames);
+    }
+
     /// The chat turn-wait sink publishing `chat_turn_wait` frames.
     pub(crate) fn turn_wait_sink(&self) -> TurnWaitSink {
         let outputs = self.clone();
         Arc::new(move |wait: TurnWait| {
-            let event = ChatTurnWaitEvent {
+            outputs.write_events([SessionEvent::ChatTurnWait {
                 waiting: matches!(wait, TurnWait::Waiting),
-            };
-            outputs.write(serde_json::json!(event));
+            }]);
         })
     }
 }

@@ -195,16 +195,14 @@ pub fn event_to_update(event: &Value) -> Option<TurnUpdate> {
                 .to_string(),
         }),
         "chat_turn_wait" => Some(TurnUpdate::ChatTurnWait {
-            waiting: <eukhe_types::daemon::ChatTurnWaitEvent as serde::Deserialize>::deserialize(
-                event,
-            )
-            .is_ok_and(|wait| wait.waiting),
+            waiting: event.get("waiting") == Some(&Value::Bool(true)),
         }),
-        "memory_update" => {
-            <eukhe_types::daemon::MemoryUpdateEvent as serde::Deserialize>::deserialize(event)
-                .ok()
-                .map(|event| TurnUpdate::MemoryUpdate(event.update))
-        }
+        "memory_update" => event
+            .get("update")
+            .and_then(|update| {
+                <eukhe_types::daemon::MemoryUpdate as serde::Deserialize>::deserialize(update).ok()
+            })
+            .map(TurnUpdate::MemoryUpdate),
         "agent_relay" => {
             <eukhe_types::daemon::AgentRelayEvent as serde::Deserialize>::deserialize(event)
                 .ok()

@@ -6,7 +6,7 @@ use super::rt;
 use super::{
     AgentMessage, DaemonClientId, DaemonCommandId, DaemonEventCursor, DaemonEventId,
     DaemonEventMeta, DaemonEventSequence, DaemonProtocolInfo, DaemonReplayInfo,
-    DaemonServerCapability, Deserialize, JsonMap, Serialize, Value,
+    DaemonServerCapability, Deserialize, JsonMap, Serialize, SessionEvent, Value,
 };
 
 // ---------------------------------------------------------------------------
@@ -290,7 +290,7 @@ pub enum DaemonOutbound {
     },
     SessionEvent {
         active_session_id: String,
-        event: Value,
+        event: SessionEvent,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         meta: Option<DaemonEventMeta>,
         #[serde(flatten)]
