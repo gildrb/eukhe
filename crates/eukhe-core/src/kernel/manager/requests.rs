@@ -14,12 +14,18 @@ use super::{
 
 pub(crate) use crate::platform::process::Signal;
 
+/// Text a cap dropped.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct DroppedText {
+    pub(crate) bytes: usize,
+    pub(crate) newlines: usize,
+}
+
 /// Append `text` up to `max_chars` Unicode scalars in all, keeping the
-/// buffered count in sync and adding the characters past the cap to
-/// `dropped`.
+/// buffered count in sync and adding the text past the cap to `dropped`.
 pub(crate) fn append_capped(
     buffer: &mut String,
-    dropped: &mut usize,
+    dropped: &mut DroppedText,
     chars: &mut usize,
     text: &str,
     max_chars: usize,
@@ -33,7 +39,9 @@ pub(crate) fn append_capped(
         Some((end, _)) => {
             buffer.push_str(&text[..end]);
             *chars = max_chars;
-            *dropped += text[end..].chars().count();
+            let rest = &text[end..];
+            dropped.bytes += rest.len();
+            dropped.newlines += rest.matches('\n').count();
         }
     }
 }
@@ -304,7 +312,7 @@ impl ReplKernelManager {
 
 #[cfg(test)]
 mod tests {
-    use super::append_capped;
+    use super::{append_capped, DroppedText};
 
     #[cfg(unix)]
     #[tokio::test]
@@ -350,20 +358,23 @@ mod tests {
 
     #[test]
     fn capped_append_keeps_whole_characters_and_counts_the_dropped_rest() {
-        let frames = ["", "a", "é", "🍁", "xy", "é🍁abc", "", "tail"];
+        let frames = ["", "a", "é", "🍁", "x\ny", "é🍁a\nbc", "", "tail"];
         let all: String = frames.concat();
         for cap in [0, 1, 2, 3, 4, 7, 65_536] {
-            let mut actual = (String::new(), 0, 0);
+            let mut actual = (String::new(), DroppedText::default(), 0);
             for text in frames {
                 append_capped(&mut actual.0, &mut actual.1, &mut actual.2, text, cap);
             }
             let kept: String = all.chars().take(cap).collect();
-            let total = all.chars().count();
+            let rest = &all[kept.len()..];
             assert_eq!(
                 actual,
                 (
                     kept.clone(),
-                    total - kept.chars().count(),
+                    DroppedText {
+                        bytes: rest.len(),
+                        newlines: rest.matches('\n').count(),
+                    },
                     kept.chars().count()
                 )
             );

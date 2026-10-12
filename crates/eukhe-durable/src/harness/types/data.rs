@@ -32,6 +32,17 @@ pub struct ToolDiagnostic {
     /// Where the complete output is stored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact: Option<String>,
+    /// The lines of the complete output the remark is about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lines: Option<LineSpan>,
+}
+
+/// Lines `first..=last` of an output (1-based).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineSpan {
+    pub first: u64,
+    pub last: u64,
 }
 
 /// Output a bound left out of a result.

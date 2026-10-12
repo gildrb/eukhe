@@ -32,7 +32,7 @@ pub const MAX_LATE_SENT_AGENT_MESSAGE_HANDLERS: usize = 256;
 
 /// Host memory ceiling for unattributed background output buffered between
 /// and during cells: nobody consumes it while it waits, so the rest is
-/// dropped and counted ([`BackgroundOutput::dropped_chars`]).
+/// dropped and counted ([`BackgroundOutput::dropped_bytes`]).
 pub const MAX_BACKGROUND_OUTPUT_CHARS: usize = 64 * 1024;
 
 pub const MAX_KERNEL_STDERR_CHARS: usize = 8 * 1024;
@@ -127,8 +127,10 @@ pub enum OutputSink {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackgroundOutput {
     pub text: String,
-    /// Characters past the ceiling, dropped.
-    pub dropped_chars: usize,
+    /// Bytes past the ceiling, dropped.
+    pub dropped_bytes: usize,
+    /// Line breaks in the dropped bytes.
+    pub dropped_newlines: usize,
 }
 
 /// Fires when the kernel's last live background `bash()` handle settles

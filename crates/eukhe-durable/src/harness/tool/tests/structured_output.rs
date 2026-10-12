@@ -110,6 +110,7 @@ async fn gives_callers_the_bounded_output_as_the_model_sees_it_without_the_rende
         diagnostics: Some(vec![ToolDiagnostic {
             omitted: None,
             artifact: None,
+            lines: None,
             severity: ToolDiagnosticSeverity::Info,
             code: None,
             message: "note".to_owned(),

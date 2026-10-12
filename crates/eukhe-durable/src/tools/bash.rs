@@ -255,6 +255,7 @@ async fn run_command(
             message: "Output saved.".to_owned(),
             omitted: None,
             artifact: Some(spill_path.clone()),
+            lines: None,
         })?;
     }
     let exit_code = match result {
@@ -294,6 +295,7 @@ async fn run_command(
         diagnostics: Some(vec![ToolDiagnostic {
             omitted: None,
             artifact: None,
+            lines: None,
             severity: ToolDiagnosticSeverity::Error,
             code: Some("exit_code".to_owned()),
             message: format!("Command exited with code {exit_code}"),

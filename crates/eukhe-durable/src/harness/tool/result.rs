@@ -34,6 +34,7 @@ pub(super) fn tool_diagnostic(code: &str, message: &str) -> ToolDiagnostic {
     ToolDiagnostic {
         omitted: None,
         artifact: None,
+        lines: None,
         severity: ToolDiagnosticSeverity::Error,
         code: Some(code.to_owned()),
         message: message.to_owned(),
@@ -73,6 +74,7 @@ pub(super) fn truncated(
             at,
         }),
         artifact: None,
+        lines: None,
     }
 }
 
@@ -134,6 +136,9 @@ fn render_diagnostics(diagnostics: &[ToolDiagnostic]) -> String {
                     OmittedAt::End => write!(line, " at the end."),
                     OmittedAt::AfterLine(kept) => write!(line, " after line {kept}."),
                 };
+            }
+            if let Some(lines) = &diagnostic.lines {
+                let _infallible = write!(line, " Lines {}-{}.", lines.first, lines.last);
             }
             if let Some(artifact) = &diagnostic.artifact {
                 let _infallible = write!(line, " Full output: {artifact}");

@@ -463,6 +463,7 @@ fn diagnostic(
     ToolDiagnostic {
         omitted: None,
         artifact: None,
+        lines: None,
         severity,
         code: code.map(str::to_owned),
         message,

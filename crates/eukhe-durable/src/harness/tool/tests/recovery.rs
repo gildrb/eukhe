@@ -747,6 +747,7 @@ fn info(message: &str) -> ToolDiagnostic {
     ToolDiagnostic {
         omitted: None,
         artifact: None,
+        lines: None,
         severity: ToolDiagnosticSeverity::Info,
         code: None,
         message: message.to_owned(),

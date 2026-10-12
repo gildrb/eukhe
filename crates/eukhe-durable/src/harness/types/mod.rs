@@ -26,7 +26,7 @@ pub use conversation::{
     WriteSubmissionDraft,
 };
 pub use data::{
-    CompactionReason, OmittedAt, OmittedOutput, ToolDiagnostic, ToolDiagnosticSeverity,
+    CompactionReason, LineSpan, OmittedAt, OmittedOutput, ToolDiagnostic, ToolDiagnosticSeverity,
 };
 pub use extension::{
     Extension, HookHandlers, HookRegistration, PromptInput, PromptSection, SectionRender,

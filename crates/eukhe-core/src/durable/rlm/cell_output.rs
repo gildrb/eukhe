@@ -13,7 +13,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 
 use eukhe_durable::harness::types::{
-    OmittedAt, OmittedOutput, OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity,
+    LineSpan, OmittedAt, OmittedOutput, OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity,
 };
 use eukhe_durable::harness::{bound_output, OutputLimits};
 use eukhe_durable::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
@@ -102,12 +102,17 @@ impl CellOutput {
     }
 
     /// Append a part that starts on its own line (the result value, a
-    /// traceback, background output).
-    pub(crate) fn push_part(&mut self, text: &str) {
+    /// traceback, background output); returns the lines it fills.
+    pub(crate) fn push_part(&mut self, text: &str) -> LineSpan {
         if self.bytes > 0 && !self.window.ends_with('\n') {
             self.push("\n");
         }
+        let first = self.newlines + 1;
         self.push(text);
+        LineSpan {
+            first,
+            last: self.newlines + u64::from(!text.ends_with('\n')),
+        }
     }
 
     fn spill(&mut self) {
@@ -162,6 +167,7 @@ impl CellOutput {
             message,
             omitted: Some(omitted),
             artifact,
+            lines: None,
         };
         (head + &tail, Some(diagnostic))
     }
@@ -214,6 +220,7 @@ mod tests {
                         at: OmittedAt::AfterLine(1000),
                     }),
                     artifact: Some(path.to_string_lossy().into_owned()),
+                    lines: None,
                 })
             )
         );
@@ -232,6 +239,20 @@ mod tests {
             (
                 "Output bounded to its head and tail; the full output was not kept: the session has no storage directory.",
                 None
+            )
+        );
+    }
+
+    #[test]
+    fn a_part_starts_on_its_own_line_and_reports_its_lines() {
+        let mut output = CellOutput::new(Err("no storage".into()));
+        output.push("cell");
+        let span = output.push_part("late\nfrom a thread\n");
+        assert_eq!(
+            (span, output.finish()),
+            (
+                LineSpan { first: 2, last: 3 },
+                ("cell\nlate\nfrom a thread\n".to_owned(), None)
             )
         );
     }

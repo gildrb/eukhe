@@ -108,6 +108,7 @@ fn probe_tool(after: AfterDetails, runs: Arc<AtomicUsize>) -> Arc<ToolRegistrati
                 api.diagnostic(ToolDiagnostic {
                     omitted: None,
                     artifact: None,
+                    lines: None,
                     severity: ToolDiagnosticSeverity::Info,
                     code: Some("probe".to_owned()),
                     message: "probe started".to_owned(),

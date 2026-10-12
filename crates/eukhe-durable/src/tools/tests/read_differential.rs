@@ -87,6 +87,7 @@ fn reference_read(
             diagnostics: Some(vec![ToolDiagnostic {
                 omitted: None,
                 artifact: None,
+                lines: None,
                 severity: ToolDiagnosticSeverity::Info,
                 code: Some("image".to_owned()),
                 message: format!("Read image file [{mime_type}]."),
@@ -146,6 +147,7 @@ fn reference_read(
         diagnostics.push(ToolDiagnostic {
             omitted: None,
             artifact: None,
+            lines: None,
             severity: ToolDiagnosticSeverity::Warn,
             code: Some("truncated".to_owned()),
             message: format!(
@@ -171,6 +173,7 @@ fn reference_read(
         diagnostics.push(ToolDiagnostic {
             omitted: None,
             artifact: None,
+            lines: None,
             severity: ToolDiagnosticSeverity::Info,
             code: Some("truncated".to_owned()),
             message: format!(
@@ -189,6 +192,7 @@ fn reference_read(
             diagnostics.push(ToolDiagnostic {
                 omitted: None,
                 artifact: None,
+                lines: None,
                 severity: ToolDiagnosticSeverity::Info,
                 code: None,
                 message: format!(

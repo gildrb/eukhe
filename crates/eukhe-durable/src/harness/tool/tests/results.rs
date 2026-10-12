@@ -77,6 +77,7 @@ async fn uses_retained_output_and_the_last_details_when_the_result_omits_them_wi
                 api.diagnostic(ToolDiagnostic {
                     omitted: None,
                     artifact: None,
+                    lines: None,
                     severity: ToolDiagnosticSeverity::Info,
                     code: None,
                     message: "from api".to_owned(),
@@ -87,6 +88,7 @@ async fn uses_retained_output_and_the_last_details_when_the_result_omits_them_wi
                     diagnostics: Some(vec![ToolDiagnostic {
                         omitted: None,
                         artifact: None,
+                        lines: None,
                         severity: ToolDiagnosticSeverity::Warn,
                         code: None,
                         message: "from result".to_owned(),
@@ -867,6 +869,7 @@ fn a_recovered_slot_reports_the_dropped_output_where_the_tool_dropped_it() {
                     at: crate::harness::types::OmittedAt::Start,
                 }),
                 artifact: None,
+                lines: None,
             },
             ToolDiagnostic {
                 severity: ToolDiagnosticSeverity::Error,
@@ -874,6 +877,7 @@ fn a_recovered_slot_reports_the_dropped_output_where_the_tool_dropped_it() {
                 message: "Tool t was interrupted".to_owned(),
                 omitted: None,
                 artifact: None,
+                lines: None,
             },
         ])
     );

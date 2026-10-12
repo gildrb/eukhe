@@ -533,6 +533,7 @@ async fn diffs_details_leaf_by_leaf_and_appends_diagnostics() {
     let first = ToolDiagnostic {
         omitted: None,
         artifact: None,
+        lines: None,
         severity: ToolDiagnosticSeverity::Info,
         code: None,
         message: "first".to_owned(),
@@ -540,6 +541,7 @@ async fn diffs_details_leaf_by_leaf_and_appends_diagnostics() {
     let next = ToolDiagnostic {
         omitted: None,
         artifact: None,
+        lines: None,
         severity: ToolDiagnosticSeverity::Warn,
         code: None,
         message: "second".to_owned(),

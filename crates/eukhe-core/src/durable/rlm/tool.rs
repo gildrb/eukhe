@@ -18,9 +18,9 @@ use eukhe_chord::context::Context;
 use eukhe_chord::json::JsonValue;
 use eukhe_durable::harness::define::define_tool;
 use eukhe_durable::harness::types::{
-    OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionApi, ToolExecutionApiExt,
-    ToolExecutionMode, ToolExecutionResult, ToolOutputChunk, ToolOutputLimits, ToolRegistration,
-    ToolReplay,
+    OmittedAt, OmittedOutput, OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity,
+    ToolExecutionApi, ToolExecutionApiExt, ToolExecutionMode, ToolExecutionResult, ToolOutputChunk,
+    ToolOutputLimits, ToolRegistration, ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, UserContentBlock};
@@ -34,7 +34,6 @@ use crate::kernel::cancellation::AbortSignal as KernelAbortSignal;
 use crate::kernel::shared::{
     ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment, KernelSentAgentMessage,
     LateSentAgentMessageCallback, OutputSink, StreamCallback, StreamName, KERNEL_ABORT_GRACE_MS,
-    MAX_BACKGROUND_OUTPUT_CHARS,
 };
 use crate::kernel::state_snapshot::snapshot_path_in;
 use crate::kernel::KernelBootstrapProgressHandler;
@@ -226,22 +225,24 @@ async fn execute(
         }
     }
     if let Some(background) = &result.background_output {
-        cell_output.push_part(&format!(
-            "[background output (unattributed)]\n{}",
-            background.text
-        ));
-        if background.dropped_chars > 0 {
-            diagnostics.push(ToolDiagnostic {
-                severity: ToolDiagnosticSeverity::Warn,
-                code: Some("background_output_dropped".to_owned()),
-                message: format!(
-                    "{} characters of background output past the {MAX_BACKGROUND_OUTPUT_CHARS}-character ceiling were dropped.",
-                    background.dropped_chars
-                ),
-                omitted: None,
-                artifact: None,
-            });
-        }
+        let lines = (!background.text.is_empty()).then(|| cell_output.push_part(&background.text));
+        let omitted = (background.dropped_bytes > 0).then_some(OmittedOutput {
+            bytes: background.dropped_bytes as u64,
+            lines: background.dropped_newlines as u64,
+            at: OmittedAt::End,
+        });
+        diagnostics.push(ToolDiagnostic {
+            severity: if omitted.is_some() {
+                ToolDiagnosticSeverity::Warn
+            } else {
+                ToolDiagnosticSeverity::Info
+            },
+            code: Some("background_output".to_owned()),
+            message: "Output from background work, not from this cell.".to_owned(),
+            omitted,
+            artifact: None,
+            lines,
+        });
     }
     let (text, bounded) = cell_output.finish();
     diagnostics.extend(bounded);
@@ -266,6 +267,7 @@ async fn execute(
             ),
             omitted: None,
             artifact: None,
+            lines: None,
         });
     }
     let mut settled = tool_result(&result, text);

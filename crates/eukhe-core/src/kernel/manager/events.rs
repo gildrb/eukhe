@@ -318,7 +318,10 @@ mod tests {
         let pending = lock(&manager.inner.guarded);
         assert_eq!(pending.pending_background_output, "new🍁");
         assert_eq!(pending.pending_background_output_chars, 4);
-        assert_eq!(pending.pending_background_output_dropped, 0);
+        assert_eq!(
+            pending.pending_background_output_dropped,
+            super::super::DroppedText::default()
+        );
     }
 
     /// Deliver one bash-activity display event into the manager (the

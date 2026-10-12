@@ -97,7 +97,7 @@ struct ExecBuffers {
     bash_commands: Option<KernelBashCommands>,
     background_output: String,
     background_output_chars: usize,
-    background_output_dropped: usize,
+    background_output_dropped: DroppedText,
     error: Option<KernelError>,
     status: ExecuteStatus,
     done_fields: Option<Value>,
@@ -334,7 +334,7 @@ struct Guarded {
     /// Unattributed stream text that arrived between cells; surfaced on the next execution.
     pending_background_output: String,
     pending_background_output_chars: usize,
-    pending_background_output_dropped: usize,
+    pending_background_output_dropped: DroppedText,
     flushing_snapshot_for_dispose: bool,
     protocol_repair: Option<Arc<RepairHandle>>,
     kernel_stderr: String,
@@ -456,7 +456,7 @@ mod snapshot;
 mod startup;
 mod teardown;
 
-use requests::{append_capped, describe_failure, Signal};
+use requests::{append_capped, describe_failure, DroppedText, Signal};
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -488,7 +488,7 @@ impl ReplKernelManager {
                 capture_sequence: 0,
                 pending_background_output: String::new(),
                 pending_background_output_chars: 0,
-                pending_background_output_dropped: 0,
+                pending_background_output_dropped: DroppedText::default(),
                 flushing_snapshot_for_dispose: false,
                 protocol_repair: None,
                 kernel_stderr: String::new(),

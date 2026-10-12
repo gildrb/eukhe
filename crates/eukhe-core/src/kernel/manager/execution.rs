@@ -143,10 +143,11 @@ impl Inner {
                 sent_agent_messages: (!buffers.sent_agent_messages.is_empty())
                     .then(|| std::mem::take(&mut buffers.sent_agent_messages)),
                 bash_commands: buffers.bash_commands.take(),
-                background_output: (!background_output.is_empty() || background_dropped > 0)
+                background_output: (!background_output.is_empty() || background_dropped.bytes > 0)
                     .then_some(BackgroundOutput {
                         text: background_output,
-                        dropped_chars: background_dropped,
+                        dropped_bytes: background_dropped.bytes,
+                        dropped_newlines: background_dropped.newlines,
                     }),
                 status,
                 error: buffers.error.take(),

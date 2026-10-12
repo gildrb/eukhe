@@ -177,7 +177,7 @@ impl Inner {
             // Stale pre-teardown background output must not surface after a restart.
             g.pending_background_output.clear();
             g.pending_background_output_chars = 0;
-            g.pending_background_output_dropped = 0;
+            g.pending_background_output_dropped = super::DroppedText::default();
             had_background_work
         };
         // Teardown kills the handles with the kernel, so owed continuations
