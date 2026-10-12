@@ -26,10 +26,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 struct Daemon {
     child: Child,
@@ -46,7 +50,7 @@ impl Drop for Daemon {
 
 #[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe"));
+    let mut command = eukhe_command();
     command
         .args(["--mode", "daemon", "--daemon-socket"])
         .arg(socket)
@@ -144,7 +148,7 @@ fn make_session_active(socket: &Path, session_path: &Path, cwd: &Path) -> String
 }
 
 fn run_print(args: &[&str], env: &[(String, String)]) -> (String, String, i32) {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe"));
+    let mut command = eukhe_command();
     command.args(args);
     for (key, value) in env {
         command.env(key, value);

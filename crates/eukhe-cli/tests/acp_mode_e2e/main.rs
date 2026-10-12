@@ -30,9 +30,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "../support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 #[path = "../support/durable_store.rs"]
 mod durable_store;
@@ -111,14 +111,11 @@ impl AcpChild {
 
     /// The daemon-attached lane whose `rlm.spawn` children are scripted:
     /// `<home>/child-script.json` rides the `EUKHE_FAUX_CHILD_SCRIPT`
-    /// create-config seam (the worker already consumes the key), and the
-    /// parent worker's kernel runs the given interpreter (the env flows
-    /// ACP -> supervisor -> worker).
+    /// create-config seam (the worker already consumes the key).
     fn spawn_with_child_script(
         args: &[&str],
         script: &serde_json::Value,
         child_script: &serde_json::Value,
-        kernel_python: &std::path::Path,
     ) -> AcpChild {
         let home = tempfile::TempDir::new().unwrap();
         let socket = home.path().join("daemon.sock");
@@ -127,7 +124,6 @@ impl AcpChild {
         std::fs::write(&child_script_path, child_script.to_string()).unwrap();
         let child = daemon_attached_command(home.path(), &socket, args)
             .env("EUKHE_FAUX_CHILD_SCRIPT", &child_script_path)
-            .env("EUKHE_KERNEL_PYTHON", kernel_python)
             .spawn()
             .expect("binary present");
         Self::wrap(child, Some(home), socket)
@@ -233,7 +229,7 @@ fn daemon_attached_command(
     socket: &std::path::Path,
     args: &[&str],
 ) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe"));
+    let mut command = eukhe_command();
     command
         .args(args)
         .arg("--daemon-socket")

@@ -28,11 +28,15 @@
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use eukhe_types::daemon::DaemonCommand;
 use serde_json::{json, Value};
+
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 /// The committed stdio echo fixture (pure stdlib; any Python 3 runs it).
 fn echo_fixture() -> PathBuf {
@@ -195,7 +199,7 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
         .to_string(),
     )
     .expect("write settings");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe"));
+    let mut command = eukhe_command();
     command
         .args(["--mode", "daemon", "--daemon-socket"])
         .arg(&socket)

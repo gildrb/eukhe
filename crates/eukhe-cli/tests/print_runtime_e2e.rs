@@ -22,7 +22,9 @@
 //! pipeline — CLI parse, session assembly, agent loop, tool bridge seam, event
 //! emission, headless terminal selection — deterministically.
 
-use std::process::Command;
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 #[path = "support/durable_store.rs"]
 mod durable_store;
@@ -31,8 +33,7 @@ use durable_store::{read_transcript, session_dirs};
 
 fn run(args: &[&str], script: &serde_json::Value) -> (String, String, i32) {
     let home = tempfile::TempDir::new().unwrap();
-    let bin = env!("CARGO_BIN_EXE_eukhe");
-    let output = Command::new(bin)
+    let output = eukhe_command()
         .args(args)
         .env("HOME", home.path())
         .env("EUKHE_AGENT_DIR", home.path().join("agent"))
@@ -129,8 +130,7 @@ fn run_in_home(
     args: &[&str],
     script: &serde_json::Value,
 ) -> (String, String, i32) {
-    let bin = env!("CARGO_BIN_EXE_eukhe");
-    let output = Command::new(bin)
+    let output = eukhe_command()
         .args(args)
         .env("HOME", home)
         .env("EUKHE_FAUX_SCRIPT", script.to_string())
@@ -916,8 +916,7 @@ fn run_in_home_cwd(
     args: &[&str],
     script: &serde_json::Value,
 ) -> (String, String, i32) {
-    let bin = env!("CARGO_BIN_EXE_eukhe");
-    let output = Command::new(bin)
+    let output = eukhe_command()
         .args(args)
         .env("HOME", home)
         .env("EUKHE_FAUX_SCRIPT", script.to_string())

@@ -31,6 +31,10 @@ use nix::fcntl::{fcntl, FcntlArg::F_SETFL, OFlag};
 use nix::pty::{openpty, Winsize};
 use serde_json::{json, Value};
 
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
+
 /// The parent hands the child its launch through this env var; unset, the
 /// child test passes trivially (a plain `cargo test` runs only parents).
 const CHILD_ENV: &str = "EUKHE_ANTHROPIC_REMOTE_LOGIN_CHILD";
@@ -236,7 +240,7 @@ impl World {
         )
         .expect("faux script");
         let socket = dir.path().join("daemon.sock");
-        let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe"));
+        let mut command = eukhe_command();
         command
             .args(["--mode", "daemon", "--daemon-socket"])
             .arg(&socket)

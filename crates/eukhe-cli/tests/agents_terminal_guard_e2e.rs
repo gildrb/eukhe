@@ -2,12 +2,16 @@
 //! must refuse with a pointer to `eukhe list`, not fall into an empty
 //! print run that starts (and then cancels) the kernel setup.
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
+
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 #[test]
 fn agents_without_a_terminal_refuses_instead_of_running_print_mode() {
     let dir = tempfile::tempdir().expect("temp dir");
-    let output = Command::new(env!("CARGO_BIN_EXE_eukhe"))
+    let output = eukhe_command()
         .arg("agents")
         .current_dir(dir.path())
         .env_clear()

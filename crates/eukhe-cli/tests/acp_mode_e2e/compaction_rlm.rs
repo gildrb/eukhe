@@ -331,14 +331,10 @@ fn spawn_parent_script(spawn_cell: &str) -> Value {
 /// ledger needs the parent's session file — a `--no-session` parent cannot
 /// spawn children). The parent's active session id is read at setup, before
 /// the spawn: once a child runs, `live_sessions` lists both workers.
-fn spawn_lane(
-    args: &[&str],
-    child_hold_ms: u64,
-    kernel_python: &std::path::Path,
-) -> (AcpChild, String, String) {
+fn spawn_lane(args: &[&str], child_hold_ms: u64) -> (AcpChild, String, String) {
     let parent = spawn_parent_script(spawn_cell());
     let child_script = json!({ "responses": [ { "text": "kid done", "delayMs": child_hold_ms } ] });
-    let mut client = AcpChild::spawn_with_child_script(args, &parent, &child_script, kernel_python);
+    let mut client = AcpChild::spawn_with_child_script(args, &parent, &child_script);
     let init = client.request("initialize", &initialize_params());
     let _ = client.wait_response(init, TIMEOUT);
     let session_id = new_session(&mut client);
@@ -356,8 +352,7 @@ fn spawn_lane(
 /// seen") drains inside the barrier, between the two.
 #[test]
 fn acp_prompt_settles_after_rlm_quiescence() {
-    let kernel_python = kernel_python();
-    let (mut client, session_id, _) = spawn_lane(&["--mode", "acp"], 5_000, &kernel_python);
+    let (mut client, session_id, _) = spawn_lane(&["--mode", "acp"], 5_000);
     let prompt = client.request(
         "session/prompt",
         &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "spawn the kid" }] }),
@@ -413,9 +408,7 @@ fn acp_prompt_settles_after_rlm_quiescence() {
 /// stop sequence, so it is not retested here.
 #[test]
 fn acp_cancel_during_settle_cancels_the_subagents() {
-    let kernel_python = kernel_python();
-    let (mut client, session_id, active_session_id) =
-        spawn_lane(&["--mode", "acp"], 120_000, &kernel_python);
+    let (mut client, session_id, active_session_id) = spawn_lane(&["--mode", "acp"], 120_000);
     let socket = client.socket.clone();
     let prompt = client.request(
         "session/prompt",
@@ -457,9 +450,7 @@ fn acp_cancel_during_settle_cancels_the_subagents() {
 /// cancel a resident session's children.
 #[test]
 fn acp_eof_during_settle_exits_and_leaves_resident_subagents() {
-    let kernel_python = kernel_python();
-    let (mut client, session_id, active_session_id) =
-        spawn_lane(&["--mode", "acp"], 120_000, &kernel_python);
+    let (mut client, session_id, active_session_id) = spawn_lane(&["--mode", "acp"], 120_000);
     let socket = client.socket.clone();
     client.request(
         "session/prompt",

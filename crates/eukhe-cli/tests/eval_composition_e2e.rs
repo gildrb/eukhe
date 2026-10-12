@@ -26,9 +26,12 @@
 //! code must follow the TS print-mode contract (print-mode.ts).
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::{json, Value};
+
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 #[path = "support/durable_store.rs"]
 mod durable_store;
@@ -40,8 +43,7 @@ fn isolated_home() -> tempfile::TempDir {
 }
 
 fn run(home: &Path, args: &[&str], script: &Value) -> (String, String, i32) {
-    let bin = env!("CARGO_BIN_EXE_eukhe");
-    let output = Command::new(bin)
+    let output = eukhe_command()
         .args(args)
         .env("HOME", home)
         .env("EUKHE_FAUX_SCRIPT", script.to_string())

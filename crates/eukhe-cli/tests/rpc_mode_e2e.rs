@@ -26,11 +26,15 @@
 //! lifecycle (stdin close settles and exits 0).
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::mpsc::{channel, Receiver};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 /// The lane of the RPC children: plain children share it; the corpus
 /// children (10 MiB fixtures, the stalled-reader oracle's bounded poll)
@@ -79,8 +83,7 @@ impl RpcChild {
             std::fs::create_dir_all(&agent_dir).unwrap();
             std::fs::write(agent_dir.join("models.json"), models.to_string()).unwrap();
         }
-        let bin = env!("CARGO_BIN_EXE_eukhe");
-        let mut child = Command::new(bin)
+        let mut child = eukhe_command()
             .args(args)
             .env("HOME", home.path())
             .env("EUKHE_CODING_AGENT_DIR", home.path().join("agent"))
@@ -1259,8 +1262,7 @@ impl CorpusRpcChild {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let home = tempfile::TempDir::new().unwrap();
-        let bin = env!("CARGO_BIN_EXE_eukhe");
-        let mut child = Command::new(bin)
+        let mut child = eukhe_command()
             .args(["--mode", "rpc", "--resume", fixture.to_str().unwrap()])
             .env("HOME", home.path())
             .env("EUKHE_FAUX_SCRIPT", script.to_string())
