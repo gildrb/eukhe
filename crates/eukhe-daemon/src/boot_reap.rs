@@ -541,16 +541,6 @@ fn proc_environ_names_active_session(pid: u32, active_session: &str) -> bool {
     })
 }
 
-/// The macOS stub: the only caller is the linux worker census, so it
-/// stays compiled for the signature's parity and is inert there
-/// (`allow(dead_code)` is the honest parity mark — the linux side owns
-/// the real read).
-#[cfg(not(target_os = "linux"))]
-#[allow(dead_code)]
-fn proc_environ_names_active_session(_pid: u32, _active_session: &str) -> bool {
-    false
-}
-
 /// The wedged supervisors of this socket path: a supervisor-shaped process
 /// whose command line names this socket (the CLI's `--mode daemon
 /// --daemon-socket <path>` product form, or the `supervisor --socket <path>`
