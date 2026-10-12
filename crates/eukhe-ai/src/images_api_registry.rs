@@ -27,18 +27,10 @@ pub struct ImagesApiProvider {
     pub generate_images: ImagesApiFunction,
 }
 
-struct RegisteredImagesApiProvider {
-    provider: ImagesApiProvider,
-    // TS records the registering source; no image API reads it back.
-    #[allow(dead_code)]
-    source_id: Option<String>,
-}
+static IMAGES_API_PROVIDER_REGISTRY: LazyLock<Mutex<IndexMap<String, ImagesApiProvider>>> =
+    LazyLock::new(|| Mutex::new(IndexMap::new()));
 
-static IMAGES_API_PROVIDER_REGISTRY: LazyLock<
-    Mutex<IndexMap<String, RegisteredImagesApiProvider>>,
-> = LazyLock::new(|| Mutex::new(IndexMap::new()));
-
-fn registry() -> MutexGuard<'static, IndexMap<String, RegisteredImagesApiProvider>> {
+fn registry() -> MutexGuard<'static, IndexMap<String, ImagesApiProvider>> {
     IMAGES_API_PROVIDER_REGISTRY
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -56,23 +48,17 @@ fn wrap_generate_images(api: ImageApi, generate_images: ImagesApiFunction) -> Im
 }
 
 /// Registers (or replaces) the implementation for `provider.api`.
-pub fn register_images_api_provider(provider: ImagesApiProvider, source_id: Option<String>) {
+pub fn register_images_api_provider(provider: ImagesApiProvider) {
     let api = provider.api.clone();
     let wrapped = ImagesApiProvider {
         api: api.clone(),
         generate_images: wrap_generate_images(api.clone(), provider.generate_images),
     };
-    registry().insert(
-        api,
-        RegisteredImagesApiProvider {
-            provider: wrapped,
-            source_id,
-        },
-    );
+    registry().insert(api, wrapped);
 }
 
 /// The registered implementation for `api`.
 #[must_use]
 pub fn get_images_api_provider(api: &str) -> Option<ImagesApiProvider> {
-    registry().get(api).map(|entry| entry.provider.clone())
+    registry().get(api).cloned()
 }

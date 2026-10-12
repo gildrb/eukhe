@@ -285,17 +285,14 @@ async fn survives_direct_and_models_image_dispatch() {
     let image_model = image_model();
     let images_context = images_context();
     let on_direct = Arc::clone(&observed);
-    register_images_api_provider(
-        ImagesApiProvider {
-            api: image_model.api.clone(),
-            generate_images: Arc::new(move |request_model, _context, options| {
-                observe(&on_direct, options.images.request.telemetry_context);
-                let result = images_result(request_model);
-                Box::pin(async move { Ok(result) })
-            }),
-        },
-        None,
-    );
+    register_images_api_provider(ImagesApiProvider {
+        api: image_model.api.clone(),
+        generate_images: Arc::new(move |request_model, _context, options| {
+            observe(&on_direct, options.images.request.telemetry_context);
+            let result = images_result(request_model);
+            Box::pin(async move { Ok(result) })
+        }),
+    });
     generate_images(
         &image_model,
         &images_context,

@@ -48,13 +48,10 @@ pub fn generate_images_openrouter(
 
 /// Registers the built-in image API implementations.
 pub fn register_builtin_images_api_providers() {
-    register_images_api_provider(
-        ImagesApiProvider {
-            api: "openrouter-images".to_owned(),
-            generate_images: Arc::new(generate_images_openrouter),
-        },
-        None,
-    );
+    register_images_api_provider(ImagesApiProvider {
+        api: "openrouter-images".to_owned(),
+        generate_images: Arc::new(generate_images_openrouter),
+    });
 }
 
 static REGISTERED: Once = Once::new();
