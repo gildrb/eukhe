@@ -49,15 +49,6 @@ impl AppMode {
             AppMode::Daemon => "daemon",
         }
     }
-
-    /// The print output mode, mirroring `toPrintOutputMode`.
-    #[must_use]
-    pub fn print_output_mode(&self) -> Mode {
-        match self {
-            AppMode::Json => Mode::Json,
-            _ => Mode::Text,
-        }
-    }
 }
 
 /// A seeded persistent goal (`initialGoal` in the runtime config).
