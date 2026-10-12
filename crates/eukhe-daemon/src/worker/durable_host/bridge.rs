@@ -20,8 +20,10 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::session::{SessionError, SessionResult, WatchListenerError};
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, SubmissionId};
+use eukhe_types::daemon::SessionEvent;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{UserContent, UserContentBlock};
+use eukhe_types::session::AgentMessage;
 use futures::FutureExt as _;
 use serde_json::{json, Value};
 use tokio::task::JoinHandle;
@@ -295,7 +297,7 @@ fn apply_batch(
         for step in steps {
             match step {
                 Step::Frame(frame) => {
-                    crate::worker::emit_event_locked(&mut core, &sink.events, frame);
+                    crate::worker::emit_event_locked(&mut core, &sink.events, *frame);
                 }
                 Step::Inbox => {
                     if let Some(inbox) = inbox.take() {
@@ -322,8 +324,8 @@ fn apply_batch(
 /// One step of a batch's emission ([`plan_batch`]).
 #[derive(Debug, PartialEq)]
 enum Step {
-    /// A wire frame.
-    Frame(Value),
+    /// A session event.
+    Frame(Box<SessionEvent>),
     /// Apply the batch's inbox read: the lanes lose the picked-up rows.
     Inbox,
     /// Project the queue with this active action.
@@ -360,7 +362,7 @@ fn armed_pickup(
 /// moved it, and once more at the batch end.
 fn plan_batch(
     mut active: Option<eukhe_types::daemon::SessionActionActive>,
-    frames: Vec<Value>,
+    frames: Vec<SessionEvent>,
     mut armed: Option<eukhe_types::daemon::SessionActionActive>,
 ) -> Vec<Step> {
     let count = frames.len();
@@ -377,7 +379,7 @@ fn plan_batch(
             steps.push(Step::Project(active.clone()));
         }
         let moved = step_active(&mut active, &frame);
-        steps.push(Step::Frame(frame));
+        steps.push(Step::Frame(Box::new(frame)));
         if moved {
             steps.push(Step::Project(active.clone()));
         }
@@ -392,29 +394,18 @@ fn plan_batch(
     steps
 }
 
-fn frame_type(frame: &Value) -> Option<&str> {
-    frame.get("type").and_then(Value::as_str)
-}
-
-fn frame_role(frame: &Value) -> Option<&str> {
-    frame
-        .get("message")
-        .and_then(|message| message.get("role"))
-        .and_then(Value::as_str)
-}
-
 /// Where a live pickup projects: before the delivered run's `agent_start`
 /// (a run's end starts the next run on its picked-up inputs in one
 /// commit), else, for inputs placed into the running run at a tool
 /// boundary, before their first user row.
-fn pickup_frame(frames: &[Value]) -> usize {
+fn pickup_frame(frames: &[SessionEvent]) -> usize {
     frames
         .iter()
-        .rposition(|frame| frame_type(frame) == Some("agent_start"))
+        .rposition(|frame| matches!(frame, SessionEvent::AgentStart))
         .or_else(|| {
             frames
                 .iter()
-                .position(|frame| frame_role(frame) == Some("user"))
+                .position(|frame| matches!(frame.message(), Some(AgentMessage::User(_))))
         })
         .unwrap_or(frames.len())
 }
@@ -425,9 +416,9 @@ fn pickup_frame(frames: &[Value]) -> usize {
 /// moved.
 fn step_active(
     active: &mut Option<eukhe_types::daemon::SessionActionActive>,
-    frame: &Value,
+    frame: &SessionEvent,
 ) -> bool {
-    if frame_type(frame) == Some("agent_end") {
+    if matches!(frame, SessionEvent::AgentEnd { .. }) {
         return active.take().is_some();
     }
     let Some(active) = active.as_mut() else {
@@ -438,10 +429,17 @@ fn step_active(
         "committing" => 1,
         _ => 0,
     };
-    let phase = match frame_role(frame) {
-        Some("user") => "committing",
-        Some("assistant") => "running",
-        _ => return false,
+    let phase = match frame.message() {
+        Some(AgentMessage::User(_)) => "committing",
+        Some(AgentMessage::Assistant(_)) => "running",
+        Some(
+            AgentMessage::ToolResult(_)
+            | AgentMessage::BashExecution(_)
+            | AgentMessage::Custom(_)
+            | AgentMessage::BranchSummary(_)
+            | AgentMessage::CompactionSummary(_),
+        )
+        | None => return false,
     };
     if phase_rank(phase) <= phase_rank(&active.phase) {
         return false;
@@ -453,19 +451,40 @@ fn step_active(
 /// The run boundaries one batch's wire frames carry, in order: a run's
 /// start, an automatic retry, and its end with the pane's error hold (a
 /// follow-up run may end one run and start the next in one batch).
-fn run_changes(frames: &[Value]) -> Vec<RunChange> {
+fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
     frames
         .iter()
-        .filter_map(|frame| match frame.get("type").and_then(Value::as_str)? {
-            "agent_start" => Some(RunChange::Started),
-            "auto_retry_start" => Some(RunChange::RetryStarted),
-            "agent_end" => Some(RunChange::Ended {
-                error_hold: frame
-                    .get("messages")
-                    .and_then(Value::as_array)
-                    .and_then(|messages| crate::herdr::error_hold_message(messages)),
+        .filter_map(|frame| match frame {
+            SessionEvent::AgentStart => Some(RunChange::Started),
+            SessionEvent::AutoRetryStart { .. } => Some(RunChange::RetryStarted),
+            SessionEvent::AgentEnd { messages } => Some(RunChange::Ended {
+                error_hold: crate::herdr::error_hold_message(messages),
             }),
-            _ => None,
+            SessionEvent::TurnStart
+            | SessionEvent::TurnEnd { .. }
+            | SessionEvent::MessageStart { .. }
+            | SessionEvent::MessageUpdate { .. }
+            | SessionEvent::MessageEnd { .. }
+            | SessionEvent::ToolExecutionStart { .. }
+            | SessionEvent::ToolExecutionUpdate { .. }
+            | SessionEvent::ToolExecutionEnd { .. }
+            | SessionEvent::AutoRetryEnd { .. }
+            | SessionEvent::CompactionStart { .. }
+            | SessionEvent::CompactionSummaryDelta { .. }
+            | SessionEvent::CompactionEnd { .. }
+            | SessionEvent::SessionInfoChanged { .. }
+            | SessionEvent::ServiceTierChanged { .. }
+            | SessionEvent::SessionActionUpdate { .. }
+            | SessionEvent::GoalUpdate { .. }
+            | SessionEvent::ChatTurnWait { .. }
+            | SessionEvent::MemoryUpdate { .. }
+            | SessionEvent::AgentRelay(_)
+            | SessionEvent::BashStart { .. }
+            | SessionEvent::BashOutput { .. }
+            | SessionEvent::BashEnd { .. }
+            | SessionEvent::RefineComplete { .. }
+            | SessionEvent::RefineFailed { .. }
+            | SessionEvent::IpythonSentAgentMessage { .. } => None,
         })
         .collect()
 }
@@ -501,19 +520,19 @@ async fn goal_loop(
             }
         };
     while let Some(goal) = updates.next().await {
-        let goal = json!(goal);
         let mut core = lock(&sink.core);
         let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
             return;
         };
-        if view.goal == goal {
+        let wire_goal = json!(goal);
+        if view.goal == wire_goal {
             continue;
         }
-        view.goal = goal.clone();
+        view.goal = wire_goal;
         crate::worker::emit_event_locked(
             &mut core,
             &sink.events,
-            json!({ "type": "goal_update", "goal": goal }),
+            SessionEvent::GoalUpdate { goal },
         );
     }
 }
@@ -642,8 +661,29 @@ mod tests {
         }
     }
 
-    fn message_frame(kind: &str, role: &str) -> Value {
-        json!({ "type": kind, "message": { "role": role } })
+    fn message_frame(kind: &str, role: &str) -> SessionEvent {
+        let message = match role {
+            "assistant" => json!({
+                "role": "assistant", "content": [], "api": "a", "provider": "p", "model": "m",
+                "usage": {
+                    "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                    "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+                },
+                "stopReason": "stop", "timestamp": 0,
+            }),
+            "toolResult" => json!({
+                "role": "toolResult", "toolCallId": "c", "toolName": "t", "content": [],
+                "isError": false, "timestamp": 0,
+            }),
+            _ => json!({ "role": role, "content": "", "timestamp": 0 }),
+        };
+        serde_json::from_value(json!({ "type": kind, "message": message })).expect("frame")
+    }
+
+    fn agent_end() -> SessionEvent {
+        SessionEvent::AgentEnd {
+            messages: Vec::new(),
+        }
     }
 
     fn active(phase: &str, label: &str) -> eukhe_types::daemon::SessionActionActive {
@@ -667,10 +707,13 @@ mod tests {
         assert_eq!(armed, Some(active("preparing", "please do the thing")));
         let pickup = [
             message_frame("message_end", "assistant"),
-            json!({ "type": "turn_end" }),
-            json!({ "type": "agent_end" }),
-            json!({ "type": "agent_start" }),
-            json!({ "type": "turn_start" }),
+            SessionEvent::TurnEnd {
+                answer: None,
+                error: None,
+            },
+            agent_end(),
+            SessionEvent::AgentStart,
+            SessionEvent::TurnStart,
             message_frame("message_start", "user"),
             message_frame("message_end", "user"),
         ];
@@ -678,16 +721,16 @@ mod tests {
         assert_eq!(
             plan_batch(None, pickup.to_vec(), armed.clone()),
             vec![
-                Step::Frame(pickup[0].clone()),
-                Step::Frame(pickup[1].clone()),
-                Step::Frame(pickup[2].clone()),
+                Step::Frame(Box::new(pickup[0].clone())),
+                Step::Frame(Box::new(pickup[1].clone())),
+                Step::Frame(Box::new(pickup[2].clone())),
                 Step::Inbox,
                 Step::Project(armed),
-                Step::Frame(pickup[3].clone()),
-                Step::Frame(pickup[4].clone()),
-                Step::Frame(pickup[5].clone()),
+                Step::Frame(Box::new(pickup[3].clone())),
+                Step::Frame(Box::new(pickup[4].clone())),
+                Step::Frame(Box::new(pickup[5].clone())),
                 Step::Project(committing.clone()),
-                Step::Frame(pickup[6].clone()),
+                Step::Frame(Box::new(pickup[6].clone())),
                 Step::Project(committing.clone()),
             ]
         );
@@ -702,20 +745,20 @@ mod tests {
         assert_eq!(
             plan_batch(committing, streaming.to_vec(), None),
             vec![
-                Step::Frame(streaming[0].clone()),
+                Step::Frame(Box::new(streaming[0].clone())),
                 Step::Project(running.clone()),
-                Step::Frame(streaming[1].clone()),
+                Step::Frame(Box::new(streaming[1].clone())),
                 Step::Inbox,
                 Step::Project(running.clone()),
             ]
         );
 
         // The run end clears it.
-        let end = json!({ "type": "agent_end" });
+        let end = agent_end();
         assert_eq!(
             plan_batch(running, vec![end.clone()], None),
             vec![
-                Step::Frame(end),
+                Step::Frame(Box::new(end)),
                 Step::Project(None),
                 Step::Inbox,
                 Step::Project(None),
@@ -729,7 +772,15 @@ mod tests {
     fn a_mid_run_pickup_projects_before_its_first_user_row() {
         let armed = Some(active("preparing", "steer"));
         let frames = [
-            json!({ "type": "tool_execution_end" }),
+            SessionEvent::ToolExecutionEnd {
+                tool_call_id: "c".to_owned(),
+                tool_name: "t".to_owned(),
+                result: eukhe_types::daemon::ToolOutput {
+                    content: Vec::new(),
+                    details: None,
+                },
+                is_error: false,
+            },
             message_frame("message_end", "toolResult"),
             message_frame("message_start", "user"),
         ];
@@ -737,11 +788,11 @@ mod tests {
         assert_eq!(
             plan_batch(None, frames.to_vec(), armed.clone()),
             vec![
-                Step::Frame(frames[0].clone()),
-                Step::Frame(frames[1].clone()),
+                Step::Frame(Box::new(frames[0].clone())),
+                Step::Frame(Box::new(frames[1].clone())),
                 Step::Inbox,
                 Step::Project(armed),
-                Step::Frame(frames[2].clone()),
+                Step::Frame(Box::new(frames[2].clone())),
                 Step::Project(committing.clone()),
                 Step::Project(committing),
             ]
@@ -756,10 +807,10 @@ mod tests {
         let before = [queued(1, QueuedMode::FollowUp, "x")];
         assert_eq!(armed_pickup(&before, &[], false), None);
         assert_eq!(armed_pickup(&before, &before, true), None);
-        let end = json!({ "type": "agent_end" });
+        let end = agent_end();
         assert_eq!(
             plan_batch(None, vec![end.clone()], None),
-            vec![Step::Frame(end), Step::Inbox, Step::Project(None)]
+            vec![Step::Frame(Box::new(end)), Step::Inbox, Step::Project(None)]
         );
     }
 
@@ -779,9 +830,15 @@ mod tests {
     #[test]
     fn run_changes_carry_the_retry_boundary() {
         let changes = run_changes(&[
-            json!({ "type": "agent_start" }),
-            json!({ "type": "auto_retry_start", "attempt": 1 }),
-            json!({ "type": "agent_end", "messages": [] }),
+            SessionEvent::AgentStart,
+            SessionEvent::AutoRetryStart {
+                attempt: 1,
+                max_attempts: None,
+                delay_ms: 0,
+                error_message: "e".to_owned(),
+                failover: None,
+            },
+            agent_end(),
         ]);
         assert_eq!(
             changes,

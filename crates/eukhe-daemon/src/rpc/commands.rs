@@ -14,6 +14,7 @@ use eukhe_core::settings::QueueModeSetting;
 use eukhe_core::settings::SettingsManager;
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_durable::harness::InboxItem;
+use eukhe_types::daemon::{CompactionReason, SessionEvent};
 use serde_json::{json, Value};
 
 use super::model_commands;
@@ -244,45 +245,29 @@ async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData,
     )
     .await
     {
-        Ok(result) => Ok(ResponseData::Present(result)),
+        Ok(result) => serde_json::to_value(result)
+            .map(ResponseData::Present)
+            .map_err(|error| error.to_string()),
         Err(ManualCompactionError::Skipped(message)) => {
-            let outputs = state.session.outputs();
-            outputs.write(compaction_frame(
-                "compaction_start",
-                instructions.as_deref(),
-                None,
-            ));
-            outputs.write(compaction_frame(
-                "compaction_end",
-                instructions.as_deref(),
-                None,
-            ));
+            state.session.outputs().write_events([
+                SessionEvent::CompactionStart {
+                    reason: CompactionReason::Manual,
+                    custom_instructions: instructions.clone(),
+                },
+                SessionEvent::CompactionEnd {
+                    reason: CompactionReason::Manual,
+                    result: None,
+                    aborted: false,
+                    will_retry: false,
+                    error_message: None,
+                    error_severity: None,
+                    custom_instructions: instructions,
+                },
+            ]);
             Err(message.to_string())
         }
         Err(error) => Err(error.to_string()),
     }
-}
-
-/// One manual-compaction frame (pi-durable's `manual` reason, as the
-/// translated compaction events carry it) in the TS key order, omitting the
-/// optional fields that are absent (TS `JSON.stringify`'s `undefined`
-/// handling): `compaction_start {type, reason, customInstructions?}` and
-/// `compaction_end {type, reason, result?, aborted, willRetry,
-/// customInstructions?}`.
-#[must_use]
-pub fn compaction_frame(kind: &str, instructions: Option<&str>, result: Option<&Value>) -> Value {
-    let mut frame = json!({ "type": kind, "reason": "manual" });
-    if kind != "compaction_start" {
-        if let Some(result) = result {
-            frame["result"] = result.clone();
-        }
-        frame["aborted"] = json!(false);
-        frame["willRetry"] = json!(false);
-    }
-    if let Some(instructions) = instructions {
-        frame["customInstructions"] = json!(instructions);
-    }
-    frame
 }
 
 /// `refine` (TS `session.refine`): run the refinement on the main
@@ -378,20 +363,6 @@ mod tests {
         assert_eq!(
             session_actions_snapshot(&[], false),
             json!({ "queuedCount": 0, "steering": [], "followUps": [] })
-        );
-    }
-
-    #[test]
-    fn compaction_frames_keep_the_ts_key_order() {
-        let start = compaction_frame("compaction_start", Some("focus"), None);
-        assert_eq!(
-            serde_json::to_string(&start).unwrap(),
-            r#"{"type":"compaction_start","reason":"manual","customInstructions":"focus"}"#
-        );
-        let end = compaction_frame("compaction_end", None, None);
-        assert_eq!(
-            serde_json::to_string(&end).unwrap(),
-            r#"{"type":"compaction_end","reason":"manual","aborted":false,"willRetry":false}"#
         );
     }
 }

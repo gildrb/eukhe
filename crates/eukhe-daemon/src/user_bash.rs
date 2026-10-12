@@ -20,6 +20,7 @@ use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::rlm::{kernel_bash_activity, BashActivityAction, BashActivityRequest};
 use eukhe_core::durable::{bash_entry_draft, BashEntryData};
 use eukhe_durable::harness::types::WriteSubmissionDraft;
+use eukhe_types::daemon::{BashRun, SessionEvent};
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Mutex;
@@ -211,14 +212,15 @@ impl Worker {
             .unwrap_or(false);
         let run_id = payload.get("runId").and_then(Value::as_str);
         let request_id = bash_request_id(run_id);
-        let identity = bash_identity(transient, run_id);
-        let start = json!({
-            "type": "bash_start",
-            "command": command,
-            "excludeFromContext": exclude_from_context,
+        let run = BashRun {
+            transient,
+            run_id: run_id.map(str::to_owned),
+        };
+        self.emit_worker_event(SessionEvent::BashStart {
+            command: command.to_owned(),
+            exclude_from_context,
+            run: run.clone(),
         });
-        let start = merge_identity(start, &identity);
-        self.emit_worker_event(start);
         // The run outlives the response (bash can exceed the client's
         // request timeout); completion streams via bash_end.
         let core = Arc::clone(&self.core);
@@ -267,23 +269,19 @@ impl Worker {
                 }
             }
             user_bash.release();
-            let mut event = json!({
-                "type": "bash_end",
-                "exitCode": end.exit_code,
-                "cancelled": end.cancelled,
-                "output": end.output,
-            });
-            if let Some(omitted) = &end.omitted {
-                event["omitted"] = json!(omitted);
-            }
-            if let Some(path) = &end.artifact {
-                event["artifact"] = json!(path);
-            }
-            if let Some(error) = &end.error_message {
-                event["errorMessage"] = json!(error);
-            }
-            let event = merge_identity(event, &identity);
-            emit_worker_event_with(&core, &events, event);
+            emit_worker_event_with(
+                &core,
+                &events,
+                SessionEvent::BashEnd {
+                    exit_code: end.exit_code,
+                    cancelled: end.cancelled,
+                    output: end.output,
+                    omitted: end.omitted,
+                    artifact: end.artifact,
+                    error_message: end.error_message,
+                    run,
+                },
+            );
         });
         response_success(None, "execute_bash", None)
     }
@@ -404,26 +402,6 @@ fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// The wire identity echoed on `bash_start`/`bash_end` (TS `identity`).
-fn bash_identity(transient: bool, run_id: Option<&str>) -> Value {
-    let mut identity = serde_json::Map::new();
-    if transient {
-        identity.insert("transient".to_string(), json!(true));
-    }
-    if let Some(run_id) = run_id {
-        identity.insert("runId".to_string(), json!(run_id));
-    }
-    Value::Object(identity)
-}
-
-fn merge_identity(mut event: Value, identity: &Value) -> Value {
-    if let (Some(event), Some(identity)) = (event.as_object_mut(), identity.as_object()) {
-        for (key, value) in identity {
-            event.insert(key.clone(), value.clone());
-        }
-    }
-    event
-}
-
 /// The drop-bracket [`UserBash::begin_awaited`] returns: one awaited run's
 /// contribution to the `isBashRunning` flag, released even when the run's
 /// future is dropped mid-await.
@@ -500,11 +478,7 @@ impl OutputStream {
         }
         self.output.push(&text);
         if let Some((core, events)) = &self.on_chunk {
-            emit_worker_event_with(
-                core,
-                events,
-                json!({ "type": "bash_output", "chunk": text }),
-            );
+            emit_worker_event_with(core, events, SessionEvent::BashOutput { chunk: text });
         }
     }
 }

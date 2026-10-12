@@ -14,6 +14,7 @@ use super::{
 };
 
 use eukhe_durable::harness::usage::UsageState;
+use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::Model;
 use serde_json::json;
 
@@ -214,7 +215,7 @@ impl Worker {
     }
 
     /// Sequence and broadcast one `session_event` frame at the worker level.
-    pub(crate) fn emit_worker_event(&self, event: Value) {
+    pub(crate) fn emit_worker_event(&self, event: SessionEvent) {
         emit_worker_event_with(&self.core, &self.events, event);
     }
 
@@ -258,7 +259,7 @@ impl Worker {
 
 /// Sequence and broadcast one `session_event` under the held core lock (the
 /// event bridge's path: the mirror and the sequence advance together).
-pub(crate) fn emit_event_locked(core: &mut SessionCore, events: &EventPump, event: Value) {
+pub(crate) fn emit_event_locked(core: &mut SessionCore, events: &EventPump, event: SessionEvent) {
     let sequence = core.last_event_sequence + 1;
     core.last_event_sequence = sequence;
     let meta = create_daemon_event_meta(
@@ -290,14 +291,14 @@ pub(crate) fn emit_action_update_locked(core: &mut SessionCore, events: &EventPu
     emit_event_locked(
         core,
         events,
-        json!({ "type": "session_action_update", "actions": snapshot }),
+        SessionEvent::SessionActionUpdate { actions: snapshot },
     );
 }
 
 pub(crate) fn emit_worker_event_with(
     core: &Arc<Mutex<SessionCore>>,
     events: &Arc<EventPump>,
-    event: Value,
+    event: SessionEvent,
 ) {
     let mut core = core
         .lock()

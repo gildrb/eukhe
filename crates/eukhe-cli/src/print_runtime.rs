@@ -610,8 +610,8 @@ impl JsonEvents {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .translate_batch(&batch);
-                for frame in frames {
-                    println!("{frame}");
+                for frame in &frames {
+                    print_event(frame);
                 }
                 futures::future::ready(Ok(())).boxed()
             }))
@@ -630,8 +630,16 @@ impl JsonEvents {
             .unwrap_or_else(PoisonError::into_inner)
             .flush();
         if let Some(frame) = parked {
-            println!("{frame}");
+            print_event(&frame);
         }
+    }
+}
+
+/// Print one session event as its JSON line.
+fn print_event(event: &eukhe_types::daemon::SessionEvent) {
+    match serde_json::to_string(event) {
+        Ok(line) => println!("{line}"),
+        Err(error) => eprintln!("a session event does not serialize: {error}"),
     }
 }
 

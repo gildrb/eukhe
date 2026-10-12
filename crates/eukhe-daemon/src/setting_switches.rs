@@ -16,6 +16,7 @@ use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::settings::{QueueModeSetting, SettingsManager, TransportSetting};
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_types::ai::{ServiceTier, Transport};
+use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
@@ -211,10 +212,9 @@ impl Worker {
             (clamped != previous_active, clamped)
         };
         if changed {
-            self.emit_worker_event(json!({
-                "type": "service_tier_changed",
-                "serviceTier": service_tier_wire_name(clamped.unwrap_or(ServiceTier::Auto)),
-            }));
+            self.emit_worker_event(SessionEvent::ServiceTierChanged {
+                service_tier: clamped.unwrap_or(ServiceTier::Auto),
+            });
         }
     }
 
@@ -402,10 +402,9 @@ impl Worker {
             }
         }
         if effective_changed {
-            self.emit_worker_event(json!({
-                "type": "service_tier_changed",
-                "serviceTier": service_tier_wire_name(effective),
-            }));
+            self.emit_worker_event(SessionEvent::ServiceTierChanged {
+                service_tier: effective,
+            });
         }
         response_success(None, COMMAND, None)
     }

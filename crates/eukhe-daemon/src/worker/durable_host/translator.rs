@@ -1,11 +1,11 @@
-//! Durable agent events -> the wire session events the TUI reads.
+//! Durable agent events -> the typed [`SessionEvent`]s every view folds.
 //!
 //! The Harness publishes one batch of [`AgentEvent`]s per commit for the
 //! shown conversation. [`EventTranslator`] keeps a [`ConversationMirror`] of
 //! that conversation (seeded by the stream's snapshot) and turns each event
-//! into the `{"type": ...}` objects the old worker broadcast: `agent_start`,
-//! `message_*`, `tool_execution_*`, `auto_retry_*`, `compaction_*`, and so
-//! on. Envelope and sequence stamping stay with the caller.
+//! into session events: `agent_start`, `message_*`, `tool_execution_*`,
+//! `auto_retry_*`, `compaction_*`, and so on. Envelope and sequence stamping
+//! stay with the caller.
 //!
 //! In [`CoalesceMode::Coalesced`] the streamed `message_update` frames park in
 //! one slot instead of going out per change: same-kind updates merge their
@@ -32,11 +32,17 @@ use eukhe_durable::harness::{
     ToolSlotStatus,
 };
 use eukhe_durable::types::{EntryId, EntryRecord, SubmissionId, TaskId};
+use eukhe_types::ai::{TextContent, UserContent, UserContentBlock};
+use eukhe_types::daemon::{
+    CompactionReason as WireCompactionReason, CompactionResult, ErrorSeverity, Failover,
+    FailoverReason, SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
+};
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, StopReason, Usage};
-use serde_json::{json, Map, Value};
+use eukhe_types::session::{AgentMessage, CustomMessage};
+use serde_json::{Map, Value};
 
 use super::wire_messages::{
-    assistant_context_tokens, assistant_wire_message, entry_data, entry_wire_message,
+    assistant_context_tokens, assistant_wire_message, entry_data, entry_wire_message, to_wire,
 };
 
 /// Task kind of a generation (its failures fail the turn).
@@ -146,13 +152,6 @@ impl ConversationMirror {
     }
 }
 
-/// The parked `message_update`: its stream event kind and merged delta run.
-#[derive(Debug)]
-struct Parked {
-    kind: &'static str,
-    delta: String,
-}
-
 /// A placed compaction summary waiting for its `compaction_end`.
 #[derive(Debug)]
 struct PlacedSummary {
@@ -183,7 +182,7 @@ struct ManualClaim {
     /// The claimed task's `compaction_end` arrived before the command's frame.
     ended: bool,
     /// The command's end frame, waiting for the task's `compaction_end`.
-    end_frame: Option<Value>,
+    end_frame: Option<SessionEvent>,
 }
 
 /// Where [`EventTranslator::settle_manual_compaction`] placed the `compact`
@@ -191,7 +190,7 @@ struct ManualClaim {
 #[derive(Debug, PartialEq)]
 pub enum ManualSettle {
     /// The claimed task already ended: the caller emits the frame now.
-    Emit(Value),
+    Emit(Box<SessionEvent>),
     /// The claimed task's `compaction_end` emits the frame.
     Deferred,
     /// No compaction task started: nothing of the run reached the wire.
@@ -203,7 +202,8 @@ pub enum ManualSettle {
 pub struct EventTranslator {
     mirror: ConversationMirror,
     mode: CoalesceMode,
-    parked: Option<Parked>,
+    /// The parked `message_update` change, its deltas merged.
+    parked: Option<StreamUpdate>,
     /// A generation failure since the last turn boundary.
     turn_error: Option<String>,
     /// Where the current turn's messages start in `run_messages`.
@@ -214,7 +214,7 @@ pub struct EventTranslator {
     /// A batch's failures were collected ahead ([`Self::translate_batch`]).
     failures_prescanned: bool,
     /// The running run's messages, carried by its `agent_end`.
-    run_messages: Vec<Value>,
+    run_messages: Vec<AgentMessage>,
     /// The `compact` command's manual run ([`Self::claim_manual_compaction`]).
     manual_claim: Option<ManualClaim>,
     /// Threshold/overflow compactions that ended without a summary, oldest
@@ -375,7 +375,7 @@ impl EventTranslator {
     /// or was aborted); otherwise only a bound claim proves one.
     pub fn settle_manual_compaction(
         &mut self,
-        end_frame: Value,
+        end_frame: SessionEvent,
         task_started: bool,
     ) -> ManualSettle {
         let Some(claim) = self.manual_claim.as_mut() else {
@@ -383,7 +383,7 @@ impl EventTranslator {
         };
         if claim.ended {
             self.manual_claim = None;
-            return ManualSettle::Emit(end_frame);
+            return ManualSettle::Emit(Box::new(end_frame));
         }
         if claim.task_id.is_some() || task_started {
             claim.end_frame = Some(end_frame);
@@ -398,7 +398,7 @@ impl EventTranslator {
     /// faulted tool's `tool_execution_end` and a faulted compaction's
     /// `compaction_end` carry their failure message although the durable
     /// events list failures after those ends.
-    pub fn translate_batch(&mut self, events: &[AgentEvent]) -> Vec<Value> {
+    pub fn translate_batch(&mut self, events: &[AgentEvent]) -> Vec<SessionEvent> {
         for event in events {
             if let AgentEvent::TaskFailed {
                 task_id,
@@ -426,13 +426,12 @@ impl EventTranslator {
         frames
     }
 
-    /// Apply one event to the mirror and return the wire event objects
-    /// (`{"type": ...}`, no envelope/meta) in emit order. Coalesced mode:
-    /// `message_update` frames park (single slot; same
-    /// `assistantMessageEvent` kind merges delta text, kind switch replaces;
-    /// a block-end kind flushes instead of superseding); any other emitted
+    /// Apply one event to the mirror and return the session events in emit
+    /// order. Coalesced mode: `message_update` frames park (single slot; the
+    /// same stream update kind merges delta text, a kind switch replaces; a
+    /// block-end kind flushes instead of superseding); any other emitted
     /// frame is preceded by the flushed parked update in the returned Vec.
-    pub fn translate(&mut self, event: &AgentEvent) -> Vec<Value> {
+    pub fn translate(&mut self, event: &AgentEvent) -> Vec<SessionEvent> {
         let mut out = Vec::new();
         match event {
             AgentEvent::Snapshot(snapshot) => self.reset(snapshot),
@@ -447,7 +446,7 @@ impl EventTranslator {
             AgentEvent::MessageEnd { entry } => self.message_end(entry, &mut out),
             AgentEvent::EntryAppended { entry } => {
                 if entry.kind == CUSTOM_ENTRY.kind() {
-                    if let Some(message) = entry_wire_message(entry) {
+                    if let Some(message) = entry_wire_message(entry).as_ref().and_then(to_wire) {
                         self.shown_message(&message, &mut out);
                     }
                 } else if let Some(frame) = refine_complete_frame(entry) {
@@ -505,18 +504,19 @@ impl EventTranslator {
                 if !self.mirror.compactions.iter().any(|(id, _)| id == task_id) {
                     self.mirror.compactions.push((*task_id, *reason));
                 }
-                let mut frame = json!({ "type": "compaction_start", "reason": reason });
+                let mut custom_instructions = None;
                 if let Some(claim) = self.manual_claim.as_mut() {
                     if claim.task_id.is_none() && *reason == CompactionReason::Manual {
                         claim.task_id = Some(*task_id);
                     }
                     if claim.task_id == Some(*task_id) {
-                        if let Some(instructions) = &claim.instructions {
-                            frame["customInstructions"] = Value::from(instructions.as_str());
-                        }
+                        custom_instructions.clone_from(&claim.instructions);
                     }
                 }
-                out.push(frame);
+                out.push(SessionEvent::CompactionStart {
+                    reason: wire_reason(*reason),
+                    custom_instructions,
+                });
             }
             AgentEvent::CompactionEnd { task_id, reason } => {
                 self.compaction_end(*task_id, *reason, &mut out);
@@ -533,58 +533,77 @@ impl EventTranslator {
     /// assistant message and the tool results after it (TS `turn_end
     /// {message, toolResults}`); its separate `error` stays only for a turn
     /// that failed without an assistant message to carry the failure.
-    fn collect_run_messages(&mut self, out: &mut [Value]) {
+    fn collect_run_messages(&mut self, out: &mut [SessionEvent]) {
         for frame in out {
-            match frame.get("type").and_then(Value::as_str) {
-                Some("agent_start") => {
+            match frame {
+                SessionEvent::AgentStart => {
                     self.run_messages.clear();
                     self.turn_from = 0;
                 }
-                Some("turn_start") => self.turn_from = self.run_messages.len(),
-                Some("message_end") => {
-                    if let Some(message) = frame.get("message") {
-                        self.run_messages.push(message.clone());
-                    }
-                }
-                Some("turn_end") => {
+                SessionEvent::TurnStart => self.turn_from = self.run_messages.len(),
+                SessionEvent::MessageEnd { message } => self.run_messages.push(message.clone()),
+                SessionEvent::TurnEnd { answer, error } => {
                     let turn = self.run_messages.get(self.turn_from..).unwrap_or_default();
                     if let Some(at) = turn
                         .iter()
-                        .rposition(|message| message["role"] == "assistant")
+                        .rposition(|message| matches!(message, AgentMessage::Assistant(_)))
                     {
-                        let results: Vec<Value> = turn[at + 1..]
-                            .iter()
-                            .filter(|message| message["role"] == "toolResult")
-                            .cloned()
-                            .collect();
-                        frame["message"] = turn[at].clone();
-                        frame["toolResults"] = Value::Array(results);
-                        if let Some(fields) = frame.as_object_mut() {
-                            fields.remove("error");
-                        }
+                        *answer = Some(TurnAnswer {
+                            message: turn[at].clone(),
+                            tool_results: turn[at + 1..]
+                                .iter()
+                                .filter(|message| matches!(message, AgentMessage::ToolResult(_)))
+                                .cloned()
+                                .collect(),
+                        });
+                        *error = None;
                     }
                 }
-                Some("agent_end") => {
-                    frame["messages"] = Value::Array(std::mem::take(&mut self.run_messages));
+                SessionEvent::AgentEnd { messages } => {
+                    *messages = std::mem::take(&mut self.run_messages);
                     self.turn_from = 0;
                 }
-                _ => {}
+                SessionEvent::MessageStart { .. }
+                | SessionEvent::MessageUpdate { .. }
+                | SessionEvent::ToolExecutionStart { .. }
+                | SessionEvent::ToolExecutionUpdate { .. }
+                | SessionEvent::ToolExecutionEnd { .. }
+                | SessionEvent::AutoRetryStart { .. }
+                | SessionEvent::AutoRetryEnd { .. }
+                | SessionEvent::CompactionStart { .. }
+                | SessionEvent::CompactionSummaryDelta { .. }
+                | SessionEvent::CompactionEnd { .. }
+                | SessionEvent::SessionInfoChanged { .. }
+                | SessionEvent::ServiceTierChanged { .. }
+                | SessionEvent::SessionActionUpdate { .. }
+                | SessionEvent::GoalUpdate { .. }
+                | SessionEvent::ChatTurnWait { .. }
+                | SessionEvent::MemoryUpdate { .. }
+                | SessionEvent::AgentRelay(_)
+                | SessionEvent::BashStart { .. }
+                | SessionEvent::BashOutput { .. }
+                | SessionEvent::BashEnd { .. }
+                | SessionEvent::RefineComplete { .. }
+                | SessionEvent::RefineFailed { .. }
+                | SessionEvent::IpythonSentAgentMessage { .. } => {}
             }
         }
     }
 
     /// Run and turn boundaries. The durable run start is followed by its own
     /// `TurnStart`, so `agent_start` comes alone.
-    fn lifecycle(&mut self, event: &AgentEvent, out: &mut Vec<Value>) {
+    fn lifecycle(&mut self, event: &AgentEvent, out: &mut Vec<SessionEvent>) {
         self.flush_into(out);
         match event {
             AgentEvent::RunStart { inputs } => {
                 self.mirror.run = Some(inputs.clone());
-                out.push(json!({ "type": "agent_start" }));
+                out.push(SessionEvent::AgentStart);
             }
             AgentEvent::RunEnd { .. } => {
                 self.end_failed_episode(out);
-                out.push(json!({ "type": "agent_end", "messages": [] }));
+                out.push(SessionEvent::AgentEnd {
+                    messages: Vec::new(),
+                });
                 self.mirror.run = None;
                 self.mirror.partial = None;
                 self.mirror.tools.clear();
@@ -592,29 +611,33 @@ impl EventTranslator {
             }
             AgentEvent::TurnStart => {
                 self.turn_error = None;
-                out.push(json!({ "type": "turn_start" }));
+                out.push(SessionEvent::TurnStart);
             }
             AgentEvent::TurnEnd => {
                 self.end_failed_episode(out);
-                let mut frame = json!({ "type": "turn_end" });
-                if let Some(error) = self.turn_error.take() {
-                    frame["error"] = Value::from(error);
-                }
-                out.push(frame);
+                out.push(SessionEvent::TurnEnd {
+                    answer: None,
+                    error: self.turn_error.take(),
+                });
             }
             _ => {}
         }
     }
 
-    fn tool_start(&mut self, call_id: &str, name: &str, args: &JsonValue, out: &mut Vec<Value>) {
+    fn tool_start(
+        &mut self,
+        call_id: &str,
+        name: &str,
+        args: &JsonValue,
+        out: &mut Vec<SessionEvent>,
+    ) {
         self.flush_into(out);
         let args = Value::from(args);
-        out.push(json!({
-            "type": "tool_execution_start",
-            "toolCallId": call_id,
-            "toolName": name,
-            "args": args,
-        }));
+        out.push(SessionEvent::ToolExecutionStart {
+            tool_call_id: call_id.to_owned(),
+            tool_name: name.to_owned(),
+            args: args.clone(),
+        });
         let tool = RunningTool {
             call_id: call_id.to_owned(),
             name: name.to_owned(),
@@ -628,7 +651,13 @@ impl EventTranslator {
         }
     }
 
-    fn retry_start(&mut self, attempt: u64, at: f64, error_message: &str, out: &mut Vec<Value>) {
+    fn retry_start(
+        &mut self,
+        attempt: u64,
+        at: f64,
+        error_message: &str,
+        out: &mut Vec<SessionEvent>,
+    ) {
         self.flush_into(out);
         // The failed attempt's partial is gone; the next attempt starts a
         // new message.
@@ -641,30 +670,34 @@ impl EventTranslator {
         // jitter under the policy's ladder step, never shorter than the
         // server's Retry-After) and commits its end as `at`, so the wire
         // carries what is left of it from now.
-        let mut frame = json!({
-            "type": "auto_retry_start",
-            "attempt": attempt,
-            "delayMs": retry_delay_ms(at, now_ms()),
-            "errorMessage": error_message,
+        out.push(SessionEvent::AutoRetryStart {
+            attempt,
+            max_attempts: self
+                .retry_policy
+                .as_ref()
+                .map(|source| u64::from((source.0)().max_retries)),
+            delay_ms: retry_delay_ms(at, now_ms()),
+            error_message: error_message.to_owned(),
+            failover: None,
         });
-        if let Some(source) = &self.retry_policy {
-            frame["maxAttempts"] = Value::from((source.0)().max_retries);
-        }
-        out.push(frame);
     }
 
     /// The failed close of an open retry episode at the turn's end (TS
     /// `auto_retry_end {success: false, attempt, finalError}`).
-    fn end_failed_episode(&mut self, out: &mut Vec<Value>) {
+    fn end_failed_episode(&mut self, out: &mut Vec<SessionEvent>) {
         let Some(episode) = self.retry_episode.take() else {
             return;
         };
-        out.push(json!({
-            "type": "auto_retry_end",
-            "success": false,
-            "attempt": episode.retries,
-            "finalError": episode.final_error.unwrap_or_else(|| "Unknown error".to_owned()),
-        }));
+        out.push(SessionEvent::AutoRetryEnd {
+            success: false,
+            attempt: episode.retries,
+            final_error: Some(
+                episode
+                    .final_error
+                    .unwrap_or_else(|| "Unknown error".to_owned()),
+            ),
+            restored_model: None,
+        });
     }
 
     /// A provider failover event of the session's provider runtime (the
@@ -672,7 +705,7 @@ impl EventTranslator {
     /// Harness itself does not emit): flushed after any parked update,
     /// like the harness's own retry frames. A switch joins the open retry
     /// episode; a successful switch's end closes it.
-    pub fn provider_event(&mut self, event: &ProviderWireEvent, out: &mut Vec<Value>) {
+    pub fn provider_event(&mut self, event: &ProviderWireEvent, out: &mut Vec<SessionEvent>) {
         self.flush_into(out);
         match event {
             ProviderWireEvent::AutoRetryStart { error_message, .. } => {
@@ -689,7 +722,7 @@ impl EventTranslator {
     /// attempt records its error (a retry or the turn's end follows), a
     /// settled answer closes the episode recovered, and an abort leaves it
     /// to the turn's end.
-    fn settle_retry_episode(&mut self, message: &AssistantMessage, out: &mut Vec<Value>) {
+    fn settle_retry_episode(&mut self, message: &AssistantMessage, out: &mut Vec<SessionEvent>) {
         match message.stop_reason {
             StopReason::Error => {
                 if let Some(episode) = self.retry_episode.as_mut() {
@@ -709,9 +742,12 @@ impl EventTranslator {
             | StopReason::Pending
             | StopReason::Deferred => {
                 if let Some(episode) = self.retry_episode.take() {
-                    out.push(json!({
-                        "type": "auto_retry_end", "success": true, "attempt": episode.retries,
-                    }));
+                    out.push(SessionEvent::AutoRetryEnd {
+                        success: true,
+                        attempt: episode.retries,
+                        final_error: None,
+                        restored_model: None,
+                    });
                 }
             }
         }
@@ -719,10 +755,10 @@ impl EventTranslator {
 
     /// The parked `message_update` (built from the CURRENT partial), if any;
     /// called by the worker's 50 ms timer and at stream end.
-    pub fn flush(&mut self) -> Option<Value> {
+    pub fn flush(&mut self) -> Option<SessionEvent> {
         let parked = self.parked.take()?;
         let partial = self.mirror.partial.as_ref()?;
-        Some(update_frame(partial, parked.kind, &parked.delta))
+        update_frame(partial, parked)
     }
 
     #[must_use]
@@ -730,7 +766,7 @@ impl EventTranslator {
         self.parked.is_some()
     }
 
-    fn flush_into(&mut self, out: &mut Vec<Value>) {
+    fn flush_into(&mut self, out: &mut Vec<SessionEvent>) {
         if let Some(frame) = self.flush() {
             out.push(frame);
         }
@@ -758,24 +794,34 @@ impl EventTranslator {
     }
 
     /// `message_start` + `message_end` of a non-streamed message.
-    fn message_pair(&mut self, message: &Value, out: &mut Vec<Value>) {
+    fn message_pair(&mut self, message: &AgentMessage, out: &mut Vec<SessionEvent>) {
         self.flush_into(out);
-        out.push(json!({ "type": "message_start", "message": message }));
-        out.push(json!({ "type": "message_end", "message": message }));
+        out.push(SessionEvent::MessageStart {
+            message: message.clone(),
+            assistant_message_event: None,
+        });
+        out.push(SessionEvent::MessageEnd {
+            message: message.clone(),
+        });
     }
 
-    fn message_start(&mut self, message: &Message, out: &mut Vec<Value>) {
+    fn message_start(&mut self, message: &Message, out: &mut Vec<SessionEvent>) {
         // Other roles go out from their paired `MessageEnd`, which carries the
         // entry and its kind.
         let Message::Assistant(message) = message else {
             return;
         };
         self.flush_into(out);
-        out.push(start_frame(message));
+        out.extend(start_frame(message));
         self.mirror.partial = Some(message.clone());
     }
 
-    fn message_update(&mut self, usage: Usage, changes: &[MessageChange], out: &mut Vec<Value>) {
+    fn message_update(
+        &mut self,
+        usage: Usage,
+        changes: &[MessageChange],
+        out: &mut Vec<SessionEvent>,
+    ) {
         if let Some(partial) = &mut self.mirror.partial {
             partial.usage = usage;
         }
@@ -783,8 +829,8 @@ impl EventTranslator {
             if self.mirror.partial.is_none() && !matches!(change, MessageChange::Message { .. }) {
                 continue;
             }
-            let (kind, delta) = change_event(change);
-            let parks = self.mode == CoalesceMode::Coalesced && is_parkable(kind);
+            let update = change_event(change);
+            let parks = self.mode == CoalesceMode::Coalesced && is_parkable(&update);
             if !parks {
                 self.flush_into(out);
             }
@@ -795,26 +841,34 @@ impl EventTranslator {
                 partial.usage = usage;
             }
             if parks {
-                self.park(kind, delta);
+                self.park(update);
             } else if let Some(partial) = &self.mirror.partial {
-                out.push(update_frame(partial, kind, delta));
+                out.extend(update_frame(partial, update));
             }
         }
     }
 
-    fn park(&mut self, kind: &'static str, delta: &str) {
-        match &mut self.parked {
-            Some(parked) if parked.kind == kind => parked.delta.push_str(delta),
-            parked => {
-                *parked = Some(Parked {
-                    kind,
-                    delta: delta.to_owned(),
-                });
-            }
+    /// Park `update`: a delta of the parked kind merges into it, any other
+    /// update replaces it.
+    fn park(&mut self, update: StreamUpdate) {
+        match (&mut self.parked, update) {
+            (
+                Some(StreamUpdate::TextDelta { delta: parked }),
+                StreamUpdate::TextDelta { delta },
+            )
+            | (
+                Some(StreamUpdate::ThinkingDelta { delta: parked }),
+                StreamUpdate::ThinkingDelta { delta },
+            )
+            | (
+                Some(StreamUpdate::ToolcallDelta { delta: parked }),
+                StreamUpdate::ToolcallDelta { delta },
+            ) => parked.push_str(&delta),
+            (parked, update) => *parked = Some(update),
         }
     }
 
-    fn message_end(&mut self, entry: &EntryRecord, out: &mut Vec<Value>) {
+    fn message_end(&mut self, entry: &EntryRecord, out: &mut Vec<SessionEvent>) {
         let kind = entry.kind.as_str();
         if kind == ASSISTANT_ENTRY.kind() {
             let message = entry
@@ -825,12 +879,11 @@ impl EventTranslator {
             if let Some(message) = message {
                 self.flush_into(out);
                 if self.mirror.partial.is_none() {
-                    out.push(start_frame(message));
+                    out.extend(start_frame(message));
                 }
-                out.push(json!({
-                    "type": "message_end",
-                    "message": assistant_wire_message(message),
-                }));
+                if let Some(message) = assistant_wire_message(message) {
+                    out.push(SessionEvent::MessageEnd { message });
+                }
                 self.settle_retry_episode(message, out);
             }
             self.mirror.partial = None;
@@ -858,7 +911,7 @@ impl EventTranslator {
             // shows the user message (an injected custom turn).
         } else if kind != BASH_ENTRY.kind() && kind != BRANCH_SUMMARY_ENTRY.kind() {
             // Bash runs and branch summaries are shown by their features' own events.
-            if let Some(message) = entry_wire_message(entry) {
+            if let Some(message) = entry_wire_message(entry).as_ref().and_then(to_wire) {
                 self.shown_message(&message, out);
             }
         }
@@ -882,7 +935,7 @@ impl EventTranslator {
         name: &str,
         output: Option<&ToolOutputUpdate>,
         details: Option<&JsonValue>,
-        out: &mut Vec<Value>,
+        out: &mut Vec<SessionEvent>,
     ) {
         self.flush_into(out);
         if self.tool_mut(call_id).is_none() {
@@ -905,17 +958,15 @@ impl EventTranslator {
             tool.details = (!details.is_null()).then_some(details);
         }
         let text = starting_note(tool.details.as_ref()).unwrap_or(&tool.output);
-        let frame = json!({
-            "type": "tool_execution_update",
-            "toolCallId": tool.call_id,
-            "toolName": tool.name,
-            "args": tool.args,
-            "partialResult": {
-                "content": [{ "type": "text", "text": text }],
-                "details": tool.details.clone().unwrap_or(Value::Null),
+        out.push(SessionEvent::ToolExecutionUpdate {
+            tool_call_id: tool.call_id.clone(),
+            tool_name: tool.name.clone(),
+            args: tool.args.clone(),
+            partial_result: ToolOutput {
+                content: vec![text_block(text)],
+                details: tool.details.clone(),
             },
         });
-        out.push(frame);
     }
 
     fn tool_end(
@@ -923,7 +974,7 @@ impl EventTranslator {
         call_id: &str,
         name: &str,
         entry: Option<&EntryRecord>,
-        out: &mut Vec<Value>,
+        out: &mut Vec<SessionEvent>,
     ) {
         self.flush_into(out);
         self.mirror.tools.retain(|tool| tool.call_id != call_id);
@@ -936,10 +987,12 @@ impl EventTranslator {
             });
         let (result, is_error) = if let Some(result) = result {
             (
-                json!({
-                    "content": result.content,
-                    "details": result.details.clone().unwrap_or(Value::Null),
-                }),
+                ToolOutput {
+                    // A content block the wire cannot carry is logged; the
+                    // end still settles the tool.
+                    content: to_wire(&result.content).unwrap_or_default(),
+                    details: result.details.clone().filter(|details| !details.is_null()),
+                },
                 result.is_error,
             )
         } else {
@@ -954,20 +1007,19 @@ impl EventTranslator {
                     |index| self.failures.remove(index).message,
                 );
             (
-                json!({
-                    "content": [{ "type": "text", "text": message }],
-                    "details": Value::Null,
-                }),
+                ToolOutput {
+                    content: vec![text_block(&message)],
+                    details: None,
+                },
                 true,
             )
         };
-        out.push(json!({
-            "type": "tool_execution_end",
-            "toolCallId": call_id,
-            "toolName": name,
-            "result": result,
-            "isError": is_error,
-        }));
+        out.push(SessionEvent::ToolExecutionEnd {
+            tool_call_id: call_id.to_owned(),
+            tool_name: name.to_owned(),
+            result,
+            is_error,
+        });
     }
 
     fn task_failed(&mut self, task_id: TaskId, kind: &str, message: &str) {
@@ -995,11 +1047,12 @@ impl EventTranslator {
     /// A committed non-assistant message: its pair, then the
     /// `compaction_end` an outcome row stands for (a reported overflow, or
     /// a held automatic end).
-    fn shown_message(&mut self, message: &Value, out: &mut Vec<Value>) {
+    fn shown_message(&mut self, message: &AgentMessage, out: &mut Vec<SessionEvent>) {
         self.message_pair(message, out);
-        if let Some(frame) =
-            reported_overflow_end(message).or_else(|| self.settle_held_end(message))
-        {
+        let AgentMessage::Custom(row) = message else {
+            return;
+        };
+        if let Some(frame) = reported_overflow_end(row).or_else(|| self.settle_held_end(row)) {
             out.push(frame);
         }
     }
@@ -1008,15 +1061,15 @@ impl EventTranslator {
     /// settles (oldest of the row's reason), shaped like TS
     /// `_endCompactionUnsuccessfully`: a skip carries the row text with the
     /// `warning` severity, a failure the row text, a cancel `aborted` alone.
-    fn settle_held_end(&mut self, message: &Value) -> Option<Value> {
-        let details = &message["details"];
-        if message["customType"] != "compaction_outcome" || details["reported"] == true {
+    fn settle_held_end(&mut self, row: &CustomMessage) -> Option<SessionEvent> {
+        let details = row.details.as_ref()?;
+        if row.custom_type != "compaction_outcome" || details["reported"] == true {
             return None;
         }
-        let text = content_text(&message["content"])?;
+        let text = content_text(&row.content);
         let (aborted, error_message, error_severity) = match details["outcome"].as_str()? {
-            "skipped" => (false, Some(text.as_str()), Some("warning")),
-            "failed" => (false, Some(text.as_str()), None),
+            "skipped" => (false, Some(text), Some(ErrorSeverity::Warning)),
+            "failed" => (false, Some(text), None),
             "cancelled" => (true, None, None),
             _ => return None,
         };
@@ -1024,10 +1077,10 @@ impl EventTranslator {
         let index = self
             .held_ends
             .iter()
-            .position(|held| json!(held) == reason)?;
-        self.held_ends.remove(index);
+            .position(|held| wire_reason(*held).as_str() == reason)?;
+        let held = self.held_ends.remove(index);
         Some(crate::compaction::compaction_end_unsuccessful(
-            reason,
+            wire_reason(held),
             aborted,
             error_message,
             error_severity,
@@ -1035,7 +1088,12 @@ impl EventTranslator {
         ))
     }
 
-    fn compaction_end(&mut self, task_id: TaskId, reason: CompactionReason, out: &mut Vec<Value>) {
+    fn compaction_end(
+        &mut self,
+        task_id: TaskId,
+        reason: CompactionReason,
+        out: &mut Vec<SessionEvent>,
+    ) {
         self.flush_into(out);
         self.mirror.compactions.retain(|(id, _)| *id != task_id);
         // Its own summary, else the latest one placed (a summary placed
@@ -1074,59 +1132,64 @@ impl EventTranslator {
             self.held_ends.push(reason);
             return;
         }
-        let mut frame = json!({
-            "type": "compaction_end",
-            "reason": reason,
-            "result": summary.as_ref().map_or(Value::Null, |summary| json!({
-                "summary": summary.summary,
-                "tokensBefore": summary.tokens_before,
-            })),
-            "aborted": false,
-            // pi-durable re-issues the request after a summarized overflow
-            // compaction.
-            "willRetry": reason == CompactionReason::Overflow && summary.is_some(),
+        // pi-durable re-issues the request after a summarized overflow
+        // compaction.
+        let will_retry = reason == CompactionReason::Overflow && summary.is_some();
+        let error_message = match (&summary, failure) {
+            (None, Some(failure)) => Some(failure.message),
+            (Some(_) | None, _) => None,
+        };
+        out.push(SessionEvent::CompactionEnd {
+            reason: wire_reason(reason),
+            result: summary.map(|summary| CompactionResult {
+                summary: summary.summary,
+                first_kept_entry_id: None,
+                tokens_before: summary.tokens_before,
+            }),
+            aborted: false,
+            will_retry,
+            error_message,
+            error_severity: None,
+            custom_instructions: None,
         });
-        if let (None, Some(failure)) = (&summary, failure) {
-            frame["errorMessage"] = Value::from(failure.message);
-        }
-        out.push(frame);
+    }
+}
+
+/// The wire form of a durable compaction reason.
+fn wire_reason(reason: CompactionReason) -> WireCompactionReason {
+    match reason {
+        CompactionReason::Manual => WireCompactionReason::Manual,
+        CompactionReason::Threshold => WireCompactionReason::Threshold,
+        CompactionReason::Overflow => WireCompactionReason::Overflow,
     }
 }
 
 /// The `compaction_end` that reports a run's failed overflow recovery,
 /// after its `compaction_outcome` row (TS `_checkCompaction`
 /// reported state: no result, no retry, the row's text as the error).
-fn reported_overflow_end(message: &Value) -> Option<Value> {
-    let details = &message["details"];
-    let reported = message["customType"] == "compaction_outcome"
+fn reported_overflow_end(row: &CustomMessage) -> Option<SessionEvent> {
+    let details = row.details.as_ref()?;
+    let reported = row.custom_type == "compaction_outcome"
         && details["reported"] == true
         && details["reason"] == "overflow"
         && details["outcome"] == "failed";
-    if !reported {
-        return None;
-    }
-    let text = content_text(&message["content"])?;
-    Some(json!({
-        "type": "compaction_end",
-        "reason": "overflow",
-        "result": Value::Null,
-        "aborted": false,
-        "willRetry": false,
-        "errorMessage": text,
-    }))
+    reported.then(|| SessionEvent::CompactionEnd {
+        reason: WireCompactionReason::Overflow,
+        result: None,
+        aborted: false,
+        will_retry: false,
+        error_message: Some(content_text(&row.content)),
+        error_severity: None,
+        custom_instructions: None,
+    })
 }
 
-/// The text of a custom message's content (a string or text blocks).
-fn content_text(content: &Value) -> Option<String> {
+/// The text of a custom message's content: the string, or every block's
+/// text run together.
+fn content_text(content: &UserContent) -> String {
     match content {
-        Value::String(text) => Some(text.clone()),
-        Value::Array(blocks) => Some(
-            blocks
-                .iter()
-                .filter_map(|block| block["text"].as_str())
-                .collect(),
-        ),
-        _ => None,
+        UserContent::Text(text) => text.clone(),
+        UserContent::Blocks(blocks) => blocks.iter().filter_map(UserContentBlock::text).collect(),
     }
 }
 
@@ -1134,7 +1197,7 @@ fn content_text(content: &Value) -> Option<String> {
 /// refinement (the `refine` command, `/refine`, a kernel-requested
 /// boundary refinement, the compact-trigger auto-refine) commits one
 /// `eukhe.refinement` custom-state row carrying the `RefinementResult`.
-fn refine_complete_frame(entry: &EntryRecord) -> Option<Value> {
+fn refine_complete_frame(entry: &EntryRecord) -> Option<SessionEvent> {
     if entry.kind != CUSTOM_STATE_ENTRY.kind() {
         return None;
     }
@@ -1142,66 +1205,76 @@ fn refine_complete_frame(entry: &EntryRecord) -> Option<Value> {
     if data.custom_type != REFINEMENT_AUDIT_CUSTOM_TYPE {
         return None;
     }
-    Some(json!({
-        "type": "refine_complete",
-        "result": data.data.unwrap_or(Value::Null),
-    }))
+    Some(SessionEvent::RefineComplete {
+        result: data.data.unwrap_or(Value::Null),
+    })
 }
 
 /// `message_start` of a streamed assistant message.
-fn start_frame(message: &AssistantMessage) -> Value {
-    json!({
-        "type": "message_start",
-        "message": assistant_wire_message(message),
-        "assistantMessageEvent": { "type": "start" },
+fn start_frame(message: &AssistantMessage) -> Option<SessionEvent> {
+    Some(SessionEvent::MessageStart {
+        message: assistant_wire_message(message)?,
+        assistant_message_event: Some(StreamUpdate::Start),
     })
 }
 
-/// `message_update` carrying the full partial and its stream event.
-fn update_frame(partial: &AssistantMessage, kind: &str, delta: &str) -> Value {
-    let mut event = json!({ "type": kind });
-    if !delta.is_empty() {
-        event["delta"] = Value::from(delta);
+/// `message_update` carrying the full partial and its stream update.
+fn update_frame(partial: &AssistantMessage, update: StreamUpdate) -> Option<SessionEvent> {
+    Some(SessionEvent::MessageUpdate {
+        message: assistant_wire_message(partial)?,
+        assistant_message_event: update,
+    })
+}
+
+/// One text content block.
+fn text_block(text: &str) -> UserContentBlock {
+    UserContentBlock::Text(TextContent {
+        text: text.to_owned(),
+        text_signature: None,
+        cache_breakpoint: None,
+        rest: Map::new(),
+    })
+}
+
+/// Whether `update` parks in coalesced mode (block ends and whole message
+/// replacements go out at once).
+fn is_parkable(update: &StreamUpdate) -> bool {
+    match update {
+        StreamUpdate::TextStart
+        | StreamUpdate::TextDelta { .. }
+        | StreamUpdate::ThinkingStart
+        | StreamUpdate::ThinkingDelta { .. }
+        | StreamUpdate::ToolcallStart
+        | StreamUpdate::ToolcallDelta { .. } => true,
+        StreamUpdate::Start
+        | StreamUpdate::TextEnd
+        | StreamUpdate::ThinkingEnd
+        | StreamUpdate::ToolcallEnd
+        | StreamUpdate::Message => false,
     }
-    json!({
-        "type": "message_update",
-        "message": assistant_wire_message(partial),
-        "assistantMessageEvent": event,
-    })
 }
 
-/// Whether updates of `kind` park in coalesced mode (block ends and whole
-/// message replacements go out at once).
-fn is_parkable(kind: &str) -> bool {
-    matches!(
-        kind,
-        "text_start"
-            | "text_delta"
-            | "thinking_start"
-            | "thinking_delta"
-            | "toolcall_start"
-            | "toolcall_delta"
-    )
-}
-
-/// The stream event kind and delta text of one change.
-fn change_event(change: &MessageChange) -> (&'static str, &str) {
+/// The stream update of one change.
+fn change_event(change: &MessageChange) -> StreamUpdate {
     match change {
-        MessageChange::TextStart { .. } => ("text_start", ""),
-        MessageChange::ThinkingStart { .. } => ("thinking_start", ""),
-        MessageChange::ToolcallStart { .. } => ("toolcall_start", ""),
-        MessageChange::TextDelta { delta, .. } => ("text_delta", delta),
-        MessageChange::ThinkingDelta { delta, .. } => ("thinking_delta", delta),
-        MessageChange::ToolcallDelta { delta, .. } => ("toolcall_delta", delta),
-        MessageChange::Block { block, .. } => (
-            match block {
-                AssistantContentBlock::Text(_) => "text_end",
-                AssistantContentBlock::Thinking(_) => "thinking_end",
-                AssistantContentBlock::ToolCall(_) => "toolcall_end",
-            },
-            "",
-        ),
-        MessageChange::Message { .. } => ("message", ""),
+        MessageChange::TextStart { .. } => StreamUpdate::TextStart,
+        MessageChange::ThinkingStart { .. } => StreamUpdate::ThinkingStart,
+        MessageChange::ToolcallStart { .. } => StreamUpdate::ToolcallStart,
+        MessageChange::TextDelta { delta, .. } => StreamUpdate::TextDelta {
+            delta: delta.clone(),
+        },
+        MessageChange::ThinkingDelta { delta, .. } => StreamUpdate::ThinkingDelta {
+            delta: delta.clone(),
+        },
+        MessageChange::ToolcallDelta { delta, .. } => StreamUpdate::ToolcallDelta {
+            delta: delta.clone(),
+        },
+        MessageChange::Block { block, .. } => match block {
+            AssistantContentBlock::Text(_) => StreamUpdate::TextEnd,
+            AssistantContentBlock::Thinking(_) => StreamUpdate::ThinkingEnd,
+            AssistantContentBlock::ToolCall(_) => StreamUpdate::ToolcallEnd,
+        },
+        MessageChange::Message { .. } => StreamUpdate::Message,
     }
 }
 
@@ -1367,46 +1440,36 @@ fn retry_delay_ms(at: f64, from: f64) -> u64 {
     })
 }
 
-/// The wire frame of one provider failover event (TS backup-switch
-/// shapes: `maxAttempts`/`delayMs`/`errorMessage`/`backupModel` on the
-/// start, `restoredModel` on the end).
-fn provider_wire_frame(event: &ProviderWireEvent) -> Value {
+/// The session event of one provider failover event.
+fn provider_wire_frame(event: &ProviderWireEvent) -> SessionEvent {
     match event {
         ProviderWireEvent::AutoRetryStart {
             attempt,
             max_attempts,
             delay_ms,
             error_message,
-            reason,
             backup_model,
-        } => json!({
-            "type": "auto_retry_start",
-            "attempt": attempt,
-            "maxAttempts": max_attempts,
-            "delayMs": delay_ms,
-            "errorMessage": error_message,
-            "reason": reason,
-            "backupModel": backup_model,
-        }),
+        } => SessionEvent::AutoRetryStart {
+            attempt: u64::from(*attempt),
+            max_attempts: Some(u64::from(*max_attempts)),
+            delay_ms: *delay_ms,
+            error_message: error_message.clone(),
+            failover: Some(Failover {
+                reason: FailoverReason::Backup,
+                backup_model: backup_model.clone(),
+            }),
+        },
         ProviderWireEvent::AutoRetryEnd {
             success,
             attempt,
             final_error,
             restored_model,
-        } => {
-            let mut frame = json!({
-                "type": "auto_retry_end",
-                "success": success,
-                "attempt": attempt,
-            });
-            if let Some(error) = final_error {
-                frame["finalError"] = Value::from(error.clone());
-            }
-            if let Some(model) = restored_model {
-                frame["restoredModel"] = Value::from(model.clone());
-            }
-            frame
-        }
+        } => SessionEvent::AutoRetryEnd {
+            success: *success,
+            attempt: u64::from(*attempt),
+            final_error: final_error.clone(),
+            restored_model: restored_model.clone(),
+        },
     }
 }
 

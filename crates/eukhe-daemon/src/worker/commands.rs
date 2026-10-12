@@ -7,6 +7,7 @@ use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::agent_messaging::AgentFamilyRelationship;
 use eukhe_core::durable::messages::SESSION_RENAMED_CUSTOM_TYPE;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
+use eukhe_types::daemon::SessionEvent;
 use serde_json::{json, Value};
 
 use super::durable_host::bridge::{QueuedInput, QueuedMode};
@@ -684,11 +685,9 @@ impl Worker {
         let (Some(from), Some(to), Some(text)) = (field("from"), field("to"), field("text")) else {
             return response_failure(None, NAME, "agent_relay needs from, to, and text", None);
         };
-        self.emit_worker_event(json!(eukhe_types::daemon::AgentRelayEvent {
-            from,
-            to,
-            text
-        }));
+        self.emit_worker_event(SessionEvent::AgentRelay(
+            eukhe_types::daemon::AgentRelayEvent { from, to, text },
+        ));
         response_success(None, NAME, None)
     }
 
@@ -730,7 +729,9 @@ impl Worker {
         };
         self.publish_own_summary(&summary);
         // Every attached client re-reads the name.
-        self.emit_worker_event(json!({ "type": "session_info_changed", "name": name }));
+        self.emit_worker_event(SessionEvent::SessionInfoChanged {
+            name: Some(name.to_string()),
+        });
         self.push_roster_delta();
         // TS #2529 `applyStateSessionName`: a rename that changed an
         // existing name leaves the renamed session a displayed transcript

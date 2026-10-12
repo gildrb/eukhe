@@ -117,19 +117,20 @@ pub mod herdr_env;
 mod memory;
 mod outbound;
 mod plane;
+mod session_event;
 mod session_state;
 mod worker;
 
 pub use agent_relay::AgentRelayEvent;
-pub use chat_turn_wait::{ChatTurnWaitEvent, CHAT_TURN_WAIT_NOTICE};
+pub use chat_turn_wait::CHAT_TURN_WAIT_NOTICE;
 pub use chat_view::{ChatViewReply, ChatViewSnapshot, CHAT_VIEW_CAPABILITY};
 pub use command::{
     AgentPeerScope, CycleDirection, DaemonCommand, DaemonCommandEnvelope, DaemonCommandFrameType,
     DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput, StreamingBehavior,
 };
 pub use memory::{
-    MemoryLine, MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryUpdate, MemoryUpdateEvent,
-    MemoryZoom, MEMORY_CAPABILITY, MEMORY_VIEW_CEILING, MEMORY_VIEW_FLOOR,
+    MemoryLine, MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryUpdate, MemoryZoom,
+    MEMORY_CAPABILITY, MEMORY_VIEW_CEILING, MEMORY_VIEW_FLOOR,
 };
 pub use outbound::{
     DaemonClosingReason, DaemonErrorInfo, DaemonEventEnvelope, DaemonOutbound,
@@ -138,6 +139,10 @@ pub use outbound::{
     KERNEL_NOT_RUNNING_MESSAGE,
 };
 pub use plane::{command_plane, is_session_plane_daemon_command, DaemonCommandPlane};
+pub use session_event::{
+    BashRun, CompactionReason, CompactionResult, ErrorSeverity, Failover, FailoverReason,
+    SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
+};
 pub use session_state::{
     AgentConnectionState, QueueLaneIndices, SessionActionActive, SessionActionSnapshot,
     SessionSummary,

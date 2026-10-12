@@ -56,7 +56,6 @@ use eukhe_types::pi_ai::{
     TranscriptContext, Usage, UserContent, UserContentBlock,
 };
 use futures::{FutureExt, StreamExt};
-use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
@@ -84,31 +83,26 @@ use crate::settings::SettingsManager;
 
 const SWITCH_BUDGET: u32 = MAX_TOTAL_PROVIDER_RETRIES;
 
-/// Wire-shaped provider events of the runtime (the backup-switch
-/// `auto_retry_*` failover vocabulary the durable Harness does not emit):
-/// broadcast to every subscriber; the daemon worker translates them onto
-/// the wire.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+/// The provider runtime's failover events (the backup-switch
+/// `auto_retry_*` vocabulary the durable Harness does not emit): broadcast
+/// to every subscriber; the daemon worker translates them onto the wire.
+#[derive(Debug, Clone)]
 pub enum ProviderWireEvent {
-    /// `auto_retry_start` with `reason: "backup"`: the failed request
-    /// re-routes to `backup_model` ("provider/model-id") immediately.
+    /// The failed request re-routes to `backup_model` ("provider/model-id")
+    /// immediately.
     AutoRetryStart {
         attempt: u32,
         max_attempts: u32,
         delay_ms: u64,
         error_message: String,
-        reason: String,
-        backup_model: Option<String>,
+        backup_model: String,
     },
-    /// `auto_retry_end` after a failover episode: `restored_model` is the
+    /// A failover episode ended: `restored_model` is the
     /// "provider/model-id" primary a successful switch restored.
     AutoRetryEnd {
         success: bool,
         attempt: u32,
-        #[serde(skip_serializing_if = "Option::is_none")]
         final_error: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         restored_model: Option<String>,
     },
 }
@@ -352,8 +346,7 @@ async fn run_request(
             max_attempts: failover.max_switches,
             delay_ms: 0,
             error_message: final_error_of(&message),
-            reason: "backup".to_owned(),
-            backup_model: Some(model_reference(&candidate)),
+            backup_model: model_reference(&candidate),
         });
         // The re-routed request dispatches through the sibling provider's
         // original stream function (never its wrapper).
@@ -1174,10 +1167,9 @@ mod tests {
                 ProviderWireEvent::AutoRetryStart {
                     attempt: 1,
                     delay_ms: 0,
-                    reason,
-                    backup_model: Some(backup_model),
+                    backup_model,
                     ..
-                } if reason == "backup" && backup_model == "faux-b/shared-1"
+                } if backup_model == "faux-b/shared-1"
             ),
             "{start:?}"
         );
