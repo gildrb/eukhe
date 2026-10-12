@@ -137,7 +137,7 @@ async fn mid_convo_effort_with_fallbacks() {
 async fn openrouter_session_affinity() {
     let (actual, error) = capture(
         "openrouter",
-        json!({}),
+        json!({"compat": {"sendSessionAffinityHeaders": true, "sessionAffinityFormat": "openrouter"}}),
         "sk-test",
         json!({"cacheRetention": "short"}),
     )

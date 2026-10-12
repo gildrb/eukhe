@@ -1,0 +1,179 @@
+{
+  "ant-ling": {
+    "openai-completions": {
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens",
+      "thinkingFormat": "ant-ling",
+      "supportsLongCacheRetention": false
+    }
+  },
+  "azure": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "baseten": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "cloudflare-ai-gateway": {
+    "openai-completions": {
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens",
+      "supportsLongCacheRetention": false
+    }
+  },
+  "cloudflare-workers-ai": {
+    "openai-completions": {
+      "supportsLongCacheRetention": false
+    }
+  },
+  "deepseek": {
+    "openai-completions": {
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true,
+      "thinkingFormat": "deepseek"
+    }
+  },
+  "fireworks": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "github-copilot": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "groq": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "huggingface": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "moonshotai": {
+    "openai-completions": {
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens"
+    }
+  },
+  "moonshotai-cn": {
+    "openai-completions": {
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens"
+    }
+  },
+  "nvidia": {
+    "openai-completions": {
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens",
+      "supportsLongCacheRetention": false
+    }
+  },
+  "openai": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "openrouter": {
+    "openai-completions": {
+      "supportsStore": true,
+      "thinkingFormat": "openrouter",
+      "sendSessionAffinityHeaders": true,
+      "sessionAffinityFormat": "openrouter"
+    },
+    "anthropic-messages": {
+      "sendSessionAffinityHeaders": true,
+      "sessionAffinityFormat": "openrouter"
+    },
+    "openai-responses": {
+      "sessionAffinityFormat": "openrouter"
+    }
+  },
+  "prime-inference": {
+    "openai-completions": {
+      "maxTokensField": "max_tokens"
+    }
+  },
+  "qwen-token-plan": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "qwen-token-plan-cn": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "qwen-token-plan-individual": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "together": {
+    "openai-completions": {
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens",
+      "thinkingFormat": "together",
+      "supportsLongCacheRetention": false
+    }
+  },
+  "xai": {
+    "openai-completions": {
+      "supportsReasoningEffort": false
+    }
+  },
+  "xiaomi": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "xiaomi-token-plan-ams": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "xiaomi-token-plan-cn": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "xiaomi-token-plan-sgp": {
+    "openai-completions": {
+      "supportsStore": true,
+      "supportsDeveloperRole": true
+    }
+  },
+  "zai": {
+    "openai-completions": {
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens",
+      "thinkingFormat": "zai"
+    }
+  },
+  "zai-coding-cn": {
+    "openai-completions": {
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens",
+      "thinkingFormat": "zai"
+    }
+  }
+}

@@ -648,6 +648,28 @@ mod tests {
     }
 
     #[test]
+    fn a_models_json_model_under_a_built_in_provider_gets_its_compat_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let models = battery_models(
+            dir.path(),
+            r#"{ "providers": { "deepseek": {
+                "compat": { "supportsStore": true },
+                "models": [ { "id": "deepseek-next", "api": "openai-completions" } ]
+            } } }"#,
+        );
+        let model = models.get_model("deepseek", "deepseek-next").unwrap();
+        assert_eq!(
+            serde_json::to_value(model.compat).unwrap(),
+            json!({
+                "maxTokensField": "max_tokens",
+                "requiresReasoningContentOnAssistantMessages": true,
+                "thinkingFormat": "deepseek",
+                "supportsStore": true,
+            })
+        );
+    }
+
+    #[test]
     fn an_invalid_models_json_fails_with_the_file_named() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(

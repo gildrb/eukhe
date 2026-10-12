@@ -12,6 +12,7 @@ use eukhe_ai::auth::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthResult, LoginOptions, ModelAuth,
     OAuthAuth, OAuthCredential, ProviderAuth, ProviderAuthInteraction,
 };
+use eukhe_ai::model_catalog::with_provider_compat_defaults;
 use eukhe_ai::models::{GetAllModelsFn, GetModelsFn, Provider};
 use eukhe_ai::utils::diagnostics::Thrown;
 use eukhe_chord::context::AbortSignal;
@@ -343,6 +344,9 @@ fn custom_model(
         .filter(|headers| !headers.is_empty())
     {
         object.insert("headers".to_owned(), json!(headers));
+    }
+    if let Some(defaults) = with_provider_compat_defaults(provider_id, &api, None) {
+        object.insert("compat".to_owned(), Value::Object(defaults));
     }
     if let Some(compat) = &config.compat {
         merge_compat_value(&mut object, compat);

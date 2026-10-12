@@ -165,10 +165,9 @@ fn create_anthropic_model() -> Model {
 }
 
 fn create_open_router_model_json() -> Value {
-    let mut model = create_anthropic_model_json();
-    model["id"] = json!("anthropic/claude-opus-4.8");
-    model["provider"] = json!("openrouter");
-    model["baseUrl"] = json!("https://openrouter.ai/api");
+    let catalog = get_model("openrouter", "anthropic/claude-opus-4.8").expect("openrouter model");
+    let mut model = serde_json::to_value(catalog).expect("model JSON");
+    model["baseUrl"] = create_anthropic_model_json()["baseUrl"].clone();
     model
 }
 
@@ -298,7 +297,7 @@ async fn omits_openrouter_session_headers_when_cache_retention_is_none() {
 #[tokio::test]
 async fn allows_openrouter_session_headers_to_be_disabled() {
     let mut model = create_open_router_model_json();
-    model["compat"] = json!({ "sendSessionAffinityHeaders": false });
+    model["compat"]["sendSessionAffinityHeaders"] = json!(false);
     let model: Model = serde_json::from_value(model).expect("model");
     let request = capture_anthropic_request(
         &model,

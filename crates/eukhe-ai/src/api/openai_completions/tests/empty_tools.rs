@@ -175,66 +175,37 @@ async fn clamps_explicit_max_tokens_to_remaining_context() {
     assert_eq!(params.get("max_completion_tokens"), Some(&json!(3618)));
 }
 
-/// eukhe addition: a custom model on a loopback OpenAI-compatible server
-/// (`llama.cpp`, vLLM, `SGLang`) must not receive `store` — those servers reject
-/// unknown fields with a 400 ("Unsupported chat request field: store").
+/// A custom provider without compat gets this API's defaults: no `store`
+/// field and the `system` role, which local OpenAI-compatible servers
+/// (`llama.cpp`, vLLM, `SGLang`) accept. Declared compat enables both.
 #[tokio::test]
-async fn loopback_custom_models_omit_the_store_field() {
-    let model = gpt_4o_mini_completions(&json!({
-        "provider": "elpis-fast",
-        "baseUrl": "http://127.0.0.1:18020/v1",
-    }));
-    let params = simple_payload(&model, &hi_context(), None).await;
-    assert_eq!(params.get("store"), None);
-
-    let localhost = gpt_4o_mini_completions(&json!({
-        "provider": "elpis-fast",
-        "baseUrl": "http://localhost:18020/v1",
-    }));
-    let params = simple_payload(&localhost, &hi_context(), None).await;
-    assert_eq!(params.get("store"), None);
-
-    // A non-loopback custom endpoint keeps the detected default.
-    let remote = gpt_4o_mini_completions(&json!({
-        "provider": "elpis-fast",
-        "baseUrl": "http://10.0.0.7:18020/v1",
-    }));
-    let params = simple_payload(&remote, &hi_context(), None).await;
-    assert_eq!(params.get("store"), Some(&json!(false)));
-}
-
-/// eukhe addition: a reasoning model on a loopback server sends its system
-/// prompt as `system` — vLLM/SGLang reject the `developer` role with a 400
-/// ("Supported message roles: system, user, assistant, tool").
-#[tokio::test]
-async fn loopback_reasoning_models_send_the_system_role() {
-    let system_role = |base_url: &str| {
-        let model = gpt_4o_mini_completions(&json!({
+async fn custom_providers_get_the_api_defaults_until_their_compat_declares_more() {
+    let payload = |overrides: JsonValue| async move {
+        let mut fields = json!({
             "provider": "elpis-fast",
-            "baseUrl": base_url,
+            "baseUrl": "http://127.0.0.1:18020/v1",
             "reasoning": true,
-        }));
-        async move {
-            let ctx = context(json!({
-                "systemPrompt": "You are helpful.",
-                "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }],
-            }));
-            simple_payload(&model, &ctx, None).await["messages"][0]["role"].clone()
+        });
+        if let (Some(fields), Some(overrides)) = (fields.as_object_mut(), overrides.as_object()) {
+            fields.extend(overrides.clone());
         }
+        let ctx = context(json!({
+            "systemPrompt": "You are helpful.",
+            "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }],
+        }));
+        simple_payload(&gpt_4o_mini_completions(&fields), &ctx, None).await
     };
-    assert_eq!(
-        system_role("http://127.0.0.1:18020/v1").await,
-        json!("system")
-    );
-    assert_eq!(
-        system_role("http://localhost:18020/v1").await,
-        json!("system")
-    );
-    // A non-loopback standard endpoint keeps the detected developer role.
-    assert_eq!(
-        system_role("http://10.0.0.7:18020/v1").await,
-        json!("developer")
-    );
+
+    let defaults = payload(json!({})).await;
+    assert_eq!(defaults.get("store"), None);
+    assert_eq!(defaults["messages"][0]["role"], json!("system"));
+
+    let declared = payload(json!({
+        "compat": { "supportsStore": true, "supportsDeveloperRole": true },
+    }))
+    .await;
+    assert_eq!(declared.get("store"), Some(&json!(false)));
+    assert_eq!(declared["messages"][0]["role"], json!("developer"));
 }
 
 #[tokio::test]

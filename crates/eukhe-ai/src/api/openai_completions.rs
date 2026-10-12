@@ -286,7 +286,7 @@ async fn run(
     .and_then(|api_key| {
         create_grammar_tool_input_properties(
             Some(&get_declared_tools(context.messages())),
-            compat.supports_openai_grammar_tools,
+            compat.supports_openai_grammar_tools == Some(true),
         )
         .map(|properties| (api_key, properties))
         .map_err(Thrown::from)

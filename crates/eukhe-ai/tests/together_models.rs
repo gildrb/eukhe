@@ -101,7 +101,10 @@ fn models_together_reasoning_controls_from_the_together_api_surface() {
         &json!({ "off": null, "minimal": null, "low": null, "medium": null }),
     );
     let minimax_compat = compat(&minimax);
-    assert_eq!(minimax_compat.get("thinkingFormat"), None);
+    assert_eq!(
+        minimax_compat.get("thinkingFormat"),
+        Some(&json!("together"))
+    );
     assert_eq!(
         minimax_compat.get("supportsReasoningEffort"),
         Some(&json!(false))

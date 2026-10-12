@@ -233,7 +233,6 @@ pub(crate) struct ResolvedCompat {
 }
 
 pub(crate) fn get_anthropic_compat(model: &Model) -> ResolvedCompat {
-    let is_open_router = model.provider == "openrouter" || model.base_url.contains("openrouter.ai");
     let compat = model_compat(model);
     let flag = |get: fn(&AnthropicMessagesCompat) -> Option<bool>, default: bool| {
         compat.and_then(get).unwrap_or(default)
@@ -241,10 +240,8 @@ pub(crate) fn get_anthropic_compat(model: &Model) -> ResolvedCompat {
     ResolvedCompat {
         supports_eager_tool_input_streaming: flag(|c| c.supports_eager_tool_input_streaming, true),
         supports_long_cache_retention: flag(|c| c.supports_long_cache_retention, true),
-        send_session_affinity_headers: flag(|c| c.send_session_affinity_headers, is_open_router),
-        session_affinity_format: compat
-            .and_then(|c| c.session_affinity_format)
-            .or(is_open_router.then_some(AnthropicSessionAffinityFormat::OpenRouter)),
+        send_session_affinity_headers: flag(|c| c.send_session_affinity_headers, false),
+        session_affinity_format: compat.and_then(|c| c.session_affinity_format),
         supports_cache_control_on_tools: flag(|c| c.supports_cache_control_on_tools, true),
         supports_temperature: flag(|c| c.supports_temperature, true),
         allow_empty_signature: flag(|c| c.allow_empty_signature, false),

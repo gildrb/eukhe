@@ -584,9 +584,10 @@ pub(crate) fn convert_tools(
     tools
         .iter()
         .map(|tool| {
-            if let Some(grammar) =
-                resolve_grammar_constrained_sampling(tool, compat.supports_openai_grammar_tools)?
-            {
+            if let Some(grammar) = resolve_grammar_constrained_sampling(
+                tool,
+                compat.supports_openai_grammar_tools == Some(true),
+            )? {
                 return Ok(json!({
                     "type": "custom",
                     "custom": {
@@ -602,8 +603,11 @@ pub(crate) fn convert_tools(
                     },
                 }));
             }
-            let strict =
-                resolve_json_schema_strict_sampling(tool, compat.supports_strict_mode, None)?;
+            let strict = resolve_json_schema_strict_sampling(
+                tool,
+                compat.supports_strict_mode == Some(true),
+                None,
+            )?;
             let mut function = json!({
                 "name": tool.name,
                 "description": tool.description,
@@ -617,7 +621,7 @@ pub(crate) fn convert_tools(
                 )?,
             });
             // Only include strict if provider supports it. Some reject unknown fields.
-            if compat.supports_strict_mode {
+            if compat.supports_strict_mode == Some(true) {
                 if let Some(function) = function.as_object_mut() {
                     function.insert("strict".into(), json!(strict.unwrap_or(false)));
                 }

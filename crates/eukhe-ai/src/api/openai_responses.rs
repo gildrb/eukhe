@@ -87,14 +87,6 @@ enum AffinityFormat {
     OpenRouter,
 }
 
-fn detect_session_affinity_format(model: &Model) -> AffinityFormat {
-    if model.provider == "openrouter" || model.base_url.contains("openrouter.ai") {
-        AffinityFormat::OpenRouter
-    } else {
-        AffinityFormat::OpenAI
-    }
-}
-
 /// Resolve cache retention preference. Defaults to "short" and uses
 /// `PI_CACHE_RETENTION` for backward compatibility.
 fn resolve_cache_retention(
@@ -140,16 +132,13 @@ fn get_compat(model: &Model) -> ResolvedCompat {
         ),
         session_affinity_format: compat
             .and_then(|compat| compat.session_affinity_format)
-            .map_or_else(
-                || detect_session_affinity_format(model),
-                |format| match format {
-                    crate::types::SessionAffinityFormat::OpenRouter => AffinityFormat::OpenRouter,
-                    crate::types::SessionAffinityFormat::OpenAI => AffinityFormat::OpenAI,
-                    crate::types::SessionAffinityFormat::OpenAINoSession => {
-                        AffinityFormat::OpenAINoSession
-                    }
-                },
-            ),
+            .map_or(AffinityFormat::OpenAI, |format| match format {
+                crate::types::SessionAffinityFormat::OpenRouter => AffinityFormat::OpenRouter,
+                crate::types::SessionAffinityFormat::OpenAI => AffinityFormat::OpenAI,
+                crate::types::SessionAffinityFormat::OpenAINoSession => {
+                    AffinityFormat::OpenAINoSession
+                }
+            }),
         supports_long_cache_retention: flag(|compat| compat.supports_long_cache_retention, true),
         supports_strict_mode: flag(|compat| compat.supports_strict_mode, false),
         supports_openai_grammar_tools: flag(|compat| compat.supports_openai_grammar_tools, false),

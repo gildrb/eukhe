@@ -1,18 +1,15 @@
 //! eukhe additions (no TS counterpart): the `provider_stream_failure`
-//! diagnostic on failed streams and the `prime-inference` compat detection.
+//! diagnostic on failed streams and the `prime-inference` request shape.
 
 use serde_json::json;
 
-use super::super::compat::{detect_compat, get_compat, ResolvedCompat};
 use super::support::{
     capture_payload, collect, options_with_fetch, run_with_chunks, test_model, user_context,
 };
 use crate::api::openai_completions::{stream_with_options, OpenAICompletionsOptions};
 use crate::api::system_one_shared::test_fetch::{mock_fetch, recorded, response};
-use crate::types::{
-    AssistantMessageDiagnostic, CacheControlFormat, IndexMap, JsonValue, MaxTokensField,
-    SessionAffinityFormat, StopReason, ThinkingFormat,
-};
+use crate::providers::prime_inference_models::PRIME_INFERENCE_MODELS;
+use crate::types::{AssistantMessageDiagnostic, JsonValue, StopReason};
 
 fn details(diagnostic: &AssistantMessageDiagnostic) -> JsonValue {
     JsonValue::Object(diagnostic.details.clone().expect("diagnostic details"))
@@ -106,88 +103,12 @@ async fn a_successful_stream_records_no_diagnostic() {
     assert_eq!(message.diagnostics, None);
 }
 
-/// The compat the `prime-inference` gateway resolves to; only the cache
-/// format depends on the model id.
-fn prime_inference_compat(cache_control_format: Option<CacheControlFormat>) -> ResolvedCompat {
-    ResolvedCompat {
-        supports_store: false,
-        supports_developer_role: false,
-        supports_reasoning_effort: true,
-        supports_usage_in_streaming: true,
-        supports_finish_reason: true,
-        max_tokens_field: MaxTokensField::MaxTokens,
-        requires_tool_result_name: false,
-        requires_assistant_after_tool_result: false,
-        requires_thinking_as_text: false,
-        requires_reasoning_content_on_assistant_messages: false,
-        thinking_format: ThinkingFormat::OpenAI,
-        chat_template_kwargs: IndexMap::new(),
-        chat_template_args: IndexMap::new(),
-        zai_tool_stream: false,
-        supports_thinking_token_budget: Some(false),
-        thinking_token_budget_field: None,
-        supports_strict_mode: false,
-        supports_openai_grammar_tools: false,
-        supports_mid_convo_system_messages: Some(false),
-        supports_mid_convo_tool_additions: Some(false),
-        cache_control_format,
-        send_session_affinity_headers: false,
-        session_affinity_format: SessionAffinityFormat::OpenAI,
-        supports_long_cache_retention: true,
-        vllm_priority: None,
-    }
-}
-
-#[test]
-fn detects_prime_inference_by_provider() {
-    let model = test_model(json!({
-        "id": "anthropic/claude-sonnet-4.5",
-        "provider": "prime-inference",
-        "baseUrl": "https://example.invalid/v1",
-    }));
-
-    assert_eq!(
-        detect_compat(&model),
-        prime_inference_compat(Some(CacheControlFormat::Anthropic))
-    );
-    assert_eq!(get_compat(&model), detect_compat(&model));
-}
-
-#[test]
-fn detects_prime_inference_by_base_url() {
-    let model = test_model(json!({
-        "id": "anthropic/claude-sonnet-4.5",
-        "provider": "custom",
-        "baseUrl": "https://api.pinference.ai/api/v1",
-    }));
-
-    assert_eq!(
-        detect_compat(&model),
-        prime_inference_compat(Some(CacheControlFormat::Anthropic))
-    );
-}
-
-#[test]
-fn uses_no_cache_format_for_non_anthropic_prime_inference_models() {
-    let model = test_model(json!({
-        "id": "openai/gpt-5",
-        "provider": "prime-inference",
-        "baseUrl": "https://api.pinference.ai/api/v1",
-    }));
-
-    assert_eq!(detect_compat(&model), prime_inference_compat(None));
-}
-
 #[tokio::test]
 async fn prime_inference_payload_uses_max_tokens_and_no_store() {
     let mut options = OpenAICompletionsOptions::default();
     options.stream.max_tokens = Some(1000);
     let payload = capture_payload(
-        &test_model(json!({
-            "id": "anthropic/claude-sonnet-4.5",
-            "provider": "prime-inference",
-            "baseUrl": "https://api.pinference.ai/api/v1",
-        })),
+        &PRIME_INFERENCE_MODELS["anthropic/claude-sonnet-4.5"],
         &user_context("hi"),
         options,
     )

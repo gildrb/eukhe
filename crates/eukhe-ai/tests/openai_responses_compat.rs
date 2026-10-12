@@ -328,23 +328,6 @@ async fn uses_openrouter_session_affinity_header_when_configured() {
 }
 
 #[tokio::test]
-async fn auto_detects_openrouter_session_affinity_header_for_openrouter_responses_endpoints() {
-    let open_router_model = with_fields(
-        &gpt_5_4(),
-        &json!({ "provider": "openrouter", "baseUrl": "https://openrouter.ai/api/v1" }),
-    );
-    let (captured, payload) =
-        capture_openai_response_headers(session_options("session-openrouter"), &open_router_model)
-            .await;
-
-    assert_eq!(captured.session_id, None);
-    assert_eq!(captured.client_request_id, None);
-    assert_eq!(captured.x_session_id.as_deref(), Some("session-openrouter"));
-    assert_eq!(payload.get("session_id"), None);
-    assert_eq!(payload["prompt_cache_key"], json!("session-openrouter"));
-}
-
-#[tokio::test]
 async fn uses_openai_no_session_format_when_configured() {
     let proxy_model = with_fields(
         &gpt_5_4(),

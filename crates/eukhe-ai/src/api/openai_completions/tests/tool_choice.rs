@@ -14,7 +14,7 @@ use serde_json::json;
 
 use super::support::{collect, context, model, payload_recorder, sse_fetch};
 use crate::api::openai_completions::{stream, stream_simple};
-use crate::model_catalog::ChatModelCatalog;
+use crate::model_catalog::{with_provider_compat_defaults, ChatModelCatalog};
 use crate::providers::{
     ant_ling_models, deepseek_models, groq_models, moonshotai_cn_models, moonshotai_models,
     openai_models, opencode_go_models, opencode_models, openrouter_models,
@@ -73,7 +73,11 @@ pub(super) fn compat_json(model: &Model) -> JsonValue {
 pub(super) fn completions_model(provider: &str, id: &str, extra: &JsonValue) -> Model {
     let mut value = model_json(&catalog_model(provider, id));
     let object = value.as_object_mut().expect("model JSON object");
-    object.remove("compat");
+    // A completions model added under a built-in provider gets that provider's compat defaults.
+    match with_provider_compat_defaults(provider, "openai-completions", None) {
+        Some(defaults) => object.insert("compat".to_owned(), JsonValue::Object(defaults)),
+        None => object.remove("compat"),
+    };
     object.insert("api".to_owned(), json!("openai-completions"));
     if let Some(extra) = extra.as_object() {
         for (key, field) in extra {

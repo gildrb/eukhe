@@ -10,8 +10,8 @@ use super::super::compat::ResolvedCompat;
 use super::super::convert::{convert_messages, ConvertCompletionsMessagesOptions};
 use super::support::context;
 use super::tool_choice::{
-    assert_match_object, catalog_model, compat_json, completions_model, ctx, local_model,
-    provider_payload, run_simple, simple_options, simple_payload, simple_reasoning, zero_usage,
+    assert_match_object, catalog_model, compat_json, completions_model, ctx, provider_payload,
+    run_simple, simple_options, simple_payload, simple_reasoning, zero_usage,
 };
 use crate::types::{
     AssistantMessageEvent, CacheRetention, IndexMap, JsonValue, MaxTokensField,
@@ -427,7 +427,7 @@ fn stores_xiaomi_mimo_reasoning_replay_compat_in_built_in_metadata() {
         );
         assert_eq!(compat["thinkingFormat"], json!("deepseek"), "{provider}");
         assert!(compat.get("maxTokensField").is_none(), "{provider}");
-        assert!(compat.get("supportsDeveloperRole").is_none(), "{provider}");
+        assert_eq!(compat["supportsDeveloperRole"], json!(true), "{provider}");
     }
 }
 
@@ -561,8 +561,8 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
         zai_tool_stream: false,
         supports_thinking_token_budget: None,
         thinking_token_budget_field: None,
-        supports_strict_mode: true,
-        supports_openai_grammar_tools: false,
+        supports_strict_mode: Some(true),
+        supports_openai_grammar_tools: None,
         supports_mid_convo_system_messages: None,
         supports_mid_convo_tool_additions: None,
         cache_control_format: None,
@@ -674,19 +674,7 @@ async fn sends_max_tokens_for_opencode_completions_models() {
 }
 
 #[tokio::test]
-async fn sends_max_tokens_for_built_in_and_custom_deepseek_api_models() {
-    let custom_model = local_model(&json!({
-        "id": "custom-deepseek-model",
-        "name": "Custom DeepSeek Model",
-        "provider": "custom-deepseek",
-        "baseUrl": "https://api.deepseek.com",
-    }));
-    let custom_uppercase_model = local_model(&json!({
-        "id": "custom-uppercase-deepseek-model",
-        "name": "Custom Uppercase DeepSeek Model",
-        "provider": "custom-deepseek",
-        "baseUrl": "https://API.DeepSeek.COM",
-    }));
+async fn sends_max_tokens_for_built_in_deepseek_api_models() {
     let native_models = [
         catalog_model("deepseek", "deepseek-flash"),
         catalog_model("deepseek", "deepseek-v4-pro"),
@@ -696,10 +684,7 @@ async fn sends_max_tokens_for_built_in_and_custom_deepseek_api_models() {
         assert_eq!(compat_json(model)["maxTokensField"], json!("max_tokens"));
     }
 
-    for model in native_models
-        .iter()
-        .chain([&custom_model, &custom_uppercase_model])
-    {
+    for model in &native_models {
         assert_sends_max_tokens(model).await;
     }
 }
