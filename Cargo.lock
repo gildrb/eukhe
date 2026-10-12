@@ -529,6 +529,7 @@ version = "0.9.9-eukhe.1"
 dependencies = [
  "parking_lot",
  "regex",
+ "similar",
  "tempfile",
  "thiserror",
  "twox-hash",
@@ -1995,6 +1996,15 @@ checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "digest",
  "rand_core 0.6.4",
+]
+
+[[package]]
+name = "similar"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f66ca1f7aca2474dc10c942eb22feffc897735f54cd1db90138c2fddb490987"
+dependencies = [
+ "bstr",
 ]
 
 [[package]]
