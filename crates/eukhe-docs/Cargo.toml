@@ -15,7 +15,7 @@ parking_lot = "0.12"
 regex = "1"
 # The file tag is omp's xxh32 (seed 0) of the normalized text; MIT, unlike
 # xxhash-rust (BSL-1.0).
-twox-hash = { version = "2", default-features = false, features = ["std", "xxhash32"] }
+twox-hash = { version = "2", default-features = false, features = ["std", "xxhash32", "xxhash64"] }
 
 [dev-dependencies]
 tempfile = "3"
