@@ -384,7 +384,7 @@ mod tests {
             ("openai-completions", json!({"supportsStore": "yes"})),
             ("openai-completions", json!({"thinkingFormat": "ultra"})),
             ("openai-completions", json!({"supportsStore": null})),
-            ("google-generative-ai", json!({"supportsStrictMode": true})),
+            ("google-generative-ai", json!({"supportsStore": true})),
         ] {
             let error = parse(api, compat).expect_err("rejected");
             assert!(error.contains("[\"openai\",\"model-a\"]"), "{error}");

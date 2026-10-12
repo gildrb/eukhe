@@ -50,6 +50,7 @@ pub(crate) fn model_compat(model: &Model) -> Option<&OpenAICompletionsCompat> {
         ModelCompat::OpenAIResponses(_)
         | ModelCompat::AnthropicMessages(_)
         | ModelCompat::Bedrock(_)
+        | ModelCompat::Google(_)
         | ModelCompat::MistralConversations(_)
         | ModelCompat::Other(_) => None,
     }

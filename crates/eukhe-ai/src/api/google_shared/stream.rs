@@ -107,7 +107,7 @@ pub(crate) fn build_params(
         config.insert("maxOutputTokens".into(), json!(max_tokens));
     }
 
-    let supports_strict_mode = supports_google_strict_tool_sampling(&model.id);
+    let supports_strict_mode = supports_google_strict_tool_sampling(model) == Some(true);
     let function_calling_mode = if current_tools.is_empty() {
         None
     } else {

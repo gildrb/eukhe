@@ -4,8 +4,8 @@
 
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
-    IndexMap, JsonObject, JsonValue, Model, ModelThinkingLevel, ProviderHeaders, ThinkingBudgets,
-    TranscriptContext,
+    IndexMap, JsonObject, JsonValue, Model, ModelCompat, ModelThinkingLevel, ProviderHeaders,
+    ThinkingBudgets, TranscriptContext,
 };
 use serde::Deserialize;
 
@@ -83,10 +83,6 @@ impl GoogleRequestOptions {
     }
 }
 
-/// A module's `getGoogleBudget(model, level, customBudgets)`.
-pub(crate) type GetGoogleBudget =
-    fn(&Model, ResolvedGoogleThinkingLevel, Option<&ThinkingBudgets>) -> i64;
-
 /// The `streamSimple` body shared by both TS modules: base options plus
 /// `toolChoice`, and `thinking` disabled, level-based, or budget-based.
 ///
@@ -98,7 +94,6 @@ pub(crate) fn simple_request_options(
     context: &TranscriptContext,
     options: SimpleStreamOptions,
     api_key: Option<&str>,
-    get_google_budget: GetGoogleBudget,
 ) -> Result<GoogleRequestOptions, Thrown> {
     let stream = build_base_options(model, context, Some(&options), api_key);
     let SimpleStreamOptions {
@@ -138,11 +133,17 @@ pub(crate) fn simple_request_options(
     } else {
         GoogleThinkingOptions {
             enabled: true,
-            budget_tokens: Some(get_google_budget(
-                model,
-                resolved,
-                thinking_budgets.as_ref(),
-            )),
+            budget_tokens: Some(
+                custom_budget(thinking_budgets.as_ref(), resolved)
+                    .or_else(|| {
+                        let compat = model.compat.as_ref().and_then(ModelCompat::as_google);
+                        custom_budget(
+                            compat.and_then(|compat| compat.thinking_budgets.as_ref()),
+                            resolved,
+                        )
+                    })
+                    .unwrap_or(-1),
+            ),
             level: None,
         }
     };
@@ -186,14 +187,4 @@ pub(crate) fn custom_budget(
         ResolvedGoogleThinkingLevel::High => budgets.high,
     }?;
     Some(i64::try_from(budget).unwrap_or(i64::MAX))
-}
-
-/// The `[minimal, low, medium, high]` table entry for `level`.
-pub(crate) const fn budget_for(budgets: [i64; 4], level: ResolvedGoogleThinkingLevel) -> i64 {
-    match level {
-        ResolvedGoogleThinkingLevel::Minimal => budgets[0],
-        ResolvedGoogleThinkingLevel::Low => budgets[1],
-        ResolvedGoogleThinkingLevel::Medium => budgets[2],
-        ResolvedGoogleThinkingLevel::High => budgets[3],
-    }
 }

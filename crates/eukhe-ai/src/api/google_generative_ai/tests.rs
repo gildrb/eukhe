@@ -185,15 +185,18 @@ async fn lets_explicit_headers_override_the_default_user_agent() {
 // google-thinking-level-map.test.ts (Google Generative AI)
 // ---------------------------------------------------------------------------
 
+/// A test model with the compat of the catalog's `google` model `id`.
 fn level_map_model(id: &str, map: &JsonValue) -> Model {
-    model(&json!({
+    let mut model = model(&json!({
         "id": id,
         "api": "google-generative-ai",
         "provider": "test-google",
         "baseUrl": "https://example.invalid/v1beta",
         "thinkingLevelMap": map,
         "maxTokens": 4096
-    }))
+    }));
+    model.compat = builtin_model("google", id).compat;
+    model
 }
 
 async fn capture(id: &str, map: &JsonValue, reasoning: Option<ThinkingLevel>) -> JsonValue {

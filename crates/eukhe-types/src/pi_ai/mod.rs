@@ -37,7 +37,7 @@ pub use classifier::{
 };
 pub use compat::{
     AnthropicAllowedFallbackModel, AnthropicMessagesCompat, AnthropicSessionAffinityFormat,
-    BedrockCompat, BedrockThinkingFormat, CacheControlFormat, MaxTokensField,
+    BedrockCompat, BedrockThinkingFormat, CacheControlFormat, GoogleCompat, MaxTokensField,
     MistralConversationsCompat, ModelCompat, OpenAICompletionsCompat, OpenAIResponsesCompat,
     ThinkingFormat,
 };

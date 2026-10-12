@@ -69,7 +69,7 @@ pub fn convert_messages(model: &Model, context: &TranscriptContext) -> Vec<JsonV
     let collapsed = collapse_system_messages(context.clone());
     let conversation = without_initial_system_message(collapsed.messages());
     let normalize_tool_call_id = |id: &str, _model: &Model, _source: &AssistantMessage| -> String {
-        if requires_tool_call_id(&model.id) {
+        if requires_tool_call_id(model) {
             sanitize_tool_call_id(id)
         } else {
             id.to_owned()
@@ -171,7 +171,7 @@ fn convert_assistant(model: &Model, assistant: &AssistantMessage) -> Vec<JsonVal
                     "args".into(),
                     JsonValue::Object(tool_call.arguments.clone()),
                 );
-                if requires_tool_call_id(&model.id) {
+                if requires_tool_call_id(model) {
                     function_call.insert("id".into(), tool_call.id.clone().into());
                 }
                 let mut part = JsonObject::new();
@@ -216,7 +216,7 @@ fn convert_tool_result(model: &Model, result: &ToolResultMessage, contents: &mut
     // inside functionResponse.parts; Claude and other non-Gemini models
     // behind Cloud Code Assist and Gemini < 3 still need a separate user
     // image turn.
-    let multimodal_response = supports_multimodal_function_response(&model.id);
+    let multimodal_response = supports_multimodal_function_response(model);
 
     // "output" key for success, "error" key for errors.
     let response_value = if has_text {
@@ -239,7 +239,7 @@ fn convert_tool_result(model: &Model, result: &ToolResultMessage, contents: &mut
     if has_images && multimodal_response {
         function_response.insert("parts".into(), JsonValue::Array(image_parts.clone()));
     }
-    if requires_tool_call_id(&model.id) {
+    if requires_tool_call_id(model) {
         function_response.insert("id".into(), result.tool_call_id.clone().into());
     }
     let function_response_part =

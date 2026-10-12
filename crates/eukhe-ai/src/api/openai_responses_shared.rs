@@ -212,6 +212,7 @@ fn compat_supports_developer_role(model: &Model) -> Option<bool> {
             .and_then(JsonValue::as_bool),
         ModelCompat::AnthropicMessages(_)
         | ModelCompat::Bedrock(_)
+        | ModelCompat::Google(_)
         | ModelCompat::MistralConversations(_) => None,
     }
 }

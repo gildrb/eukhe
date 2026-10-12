@@ -311,15 +311,18 @@ async fn forwards_each_sdk_chunk_in_order_before_normalizing_it() {
 // google-thinking-level-map.test.ts (Google Vertex)
 // ---------------------------------------------------------------------------
 
+/// A test model with the compat of the catalog's `google-vertex` model `id`.
 fn level_map_model(id: &str, map: &JsonValue) -> Model {
-    model(&json!({
+    let mut model = model(&json!({
         "id": id,
         "api": "google-vertex",
         "provider": "test-vertex",
         "baseUrl": "https://example.invalid/v1",
         "thinkingLevelMap": map,
         "maxTokens": 4096
-    }))
+    }));
+    model.compat = builtin_model("google-vertex", id).compat;
+    model
 }
 
 async fn capture(

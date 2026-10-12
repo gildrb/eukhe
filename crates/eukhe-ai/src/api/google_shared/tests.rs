@@ -143,10 +143,6 @@ fn uses_validated_function_calling_for_strict_tools_on_gemini_3() {
     tool.constrained_sampling =
         serde_json::from_value(json!({ "type": "json_schema", "strict": "require" })).unwrap();
 
-    assert!(supports_google_strict_tool_sampling(
-        "gemini-3.1-pro-preview"
-    ));
-    assert!(!supports_google_strict_tool_sampling("gemini-2.5-pro"));
     assert_eq!(
         resolve_google_function_calling_mode(std::slice::from_ref(&tool), None, true).unwrap(),
         Some(FunctionCallingConfigMode::Validated)
@@ -180,7 +176,12 @@ fn gemini3_model(api: &str, provider: &str, id: &str) -> Model {
         "name": "Gemini 3 Pro Preview",
         "api": api,
         "provider": provider,
-        "baseUrl": "https://example.com"
+        "baseUrl": "https://example.com",
+        "compat": {
+            "supportsThinkingLevel": true,
+            "requiresToolCallId": true,
+            "supportsStrictMode": true
+        }
     }))
 }
 
@@ -330,7 +331,8 @@ fn preserves_valid_thought_signature_when_present_for_the_same_provider_and_mode
 
 #[test]
 fn does_not_add_a_thought_signature_for_non_gemini_3_models() {
-    let model = gemini3_model("google-generative-ai", "google", "gemini-2.5-flash");
+    let model = crate::providers::all::get_builtin_model("google", "gemini-2.5-flash")
+        .expect("catalog model");
     let contents = convert_messages(
         &model,
         &unsigned_context(&model.api, &model.provider, "other-model", None),
@@ -353,30 +355,22 @@ fn does_not_add_a_thought_signature_for_non_gemini_3_models() {
         .all(|part| part["functionResponse"].get("id").is_none()));
 }
 
-#[test]
-fn requires_tool_call_id_by_model() {
-    for (expected, model_id) in [
-        (false, "gemini-2.5-flash"),
-        (true, "gemini-3.6-flash"),
-        (true, "claude-sonnet-4-5"),
-        (true, "gpt-oss-120b"),
-    ] {
-        assert_eq!(requires_tool_call_id(model_id), expected, "{model_id}");
-    }
-}
-
 // ---------------------------------------------------------------------------
 // google-shared-image-tool-result-routing.test.ts
 // ---------------------------------------------------------------------------
 
+/// A test model with the compat of the catalog's `google` model `id`, when there is one.
 fn image_model(id: &str) -> Model {
-    model(&json!({
+    let mut model = model(&json!({
         "id": id,
         "api": "google-generative-ai",
         "provider": "google",
         "baseUrl": "https://example.com",
         "input": ["text", "image"]
-    }))
+    }));
+    model.compat =
+        crate::providers::all::get_builtin_model("google", id).and_then(|model| model.compat);
+    model
 }
 
 fn image_context(model: &Model) -> TranscriptContext {

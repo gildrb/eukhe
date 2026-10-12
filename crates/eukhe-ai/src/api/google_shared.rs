@@ -16,13 +16,13 @@ pub(crate) mod test_support;
 mod tests;
 
 use std::future::Future;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
-    JsonObject, JsonValue, Model, ModelThinkingLevel, StopReason, ThinkingLevel, Tool,
+    GoogleCompat, JsonObject, JsonValue, Model, ModelCompat, ModelThinkingLevel, StopReason,
+    ThinkingLevel, Tool,
 };
-use regex::Regex;
 use serde_json::json;
 
 use super::constrained_sampling::{
@@ -33,9 +33,7 @@ use crate::utils::diagnostics::{thrown, ErrorObject, Thrown};
 use crate::utils::provider_retry::{retry_provider_request, ProviderRetryOptions};
 
 pub use messages::convert_messages;
-pub(crate) use options::{
-    budget_for, custom_budget, pi_headers, simple_request_options, GoogleRequestOptions,
-};
+pub(crate) use options::{pi_headers, simple_request_options, GoogleRequestOptions};
 pub(crate) use stream::{run_google_stream, GoogleApiKind};
 
 /// Thinking level for Gemini 3 models: mirrors Google's `ThinkingLevel`
@@ -145,28 +143,17 @@ pub fn resolve_google_thinking_level(
     }
 }
 
-/// Matches Gemini 3 Pro/Flash IDs with or without a minor version, such as
-/// gemini-3-flash-preview, gemini-3.1-pro-preview, and gemini-3.8-flash.
-static GEMINI_3_LEVEL_MODEL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"gemini-3(?:\.\d+)?-(?:pro|flash)").unwrap_or_else(|error| panic!("{error}"))
-});
-/// Matches both hosted Gemma 4 naming forms: gemma-4-* and gemma4-*.
-static GEMMA_4_MODEL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"gemma-?4").unwrap_or_else(|error| panic!("{error}")));
-static GEMINI_MAJOR_VERSION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^gemini(?:-live)?-(\d+)").unwrap_or_else(|error| panic!("{error}"))
-});
+/// The model's Google compat block.
+fn google_compat(model: &Model) -> Option<&GoogleCompat> {
+    model.compat.as_ref().and_then(ModelCompat::as_google)
+}
 
 /// Whether this model uses Gemini's discrete `thinkingLevel` control instead
 /// of the token-based `thinkingBudget` control. Supported levels come from
 /// the model's `thinkingLevelMap`; this only selects the Google wire format.
 #[must_use]
 pub fn uses_google_thinking_level(model: &Model) -> bool {
-    let id = model.id.to_lowercase();
-    GEMINI_3_LEVEL_MODEL.is_match(&id)
-        || id == "gemini-flash-latest"
-        || id == "gemini-flash-lite-latest"
-        || GEMMA_4_MODEL.is_match(&id)
+    google_compat(model).and_then(|compat| compat.supports_thinking_level) == Some(true)
 }
 
 /// TS `toGoogleThinkingLevel`.
@@ -273,29 +260,17 @@ fn resolve_thought_signature(
         .flatten()
 }
 
-/// Models via Google APIs that require explicit tool call IDs in function
-/// calls/responses.
+/// Whether function calls and responses must carry the tool call id.
 #[must_use]
-pub fn requires_tool_call_id(model_id: &str) -> bool {
-    model_id.starts_with("claude-")
-        || model_id.starts_with("gpt-oss-")
-        || get_gemini_major_version(model_id).is_some_and(|major| major >= 3)
+pub fn requires_tool_call_id(model: &Model) -> bool {
+    google_compat(model).and_then(|compat| compat.requires_tool_call_id) == Some(true)
 }
 
-/// `Number.parseInt` of the leading `gemini[-live]-<digits>` version; digit
-/// runs beyond `u64` saturate (they compare as large numbers in JS too).
-fn get_gemini_major_version(model_id: &str) -> Option<u64> {
-    let lowered = model_id.to_lowercase();
-    let digits = GEMINI_MAJOR_VERSION
-        .captures(&lowered)?
-        .get(1)?
-        .as_str()
-        .to_owned();
-    Some(digits.parse::<u64>().unwrap_or(u64::MAX))
-}
-
-fn supports_multimodal_function_response(model_id: &str) -> bool {
-    get_gemini_major_version(model_id).is_none_or(|major| major >= 3)
+/// Whether function responses may carry images and files.
+pub(crate) fn supports_multimodal_function_response(model: &Model) -> bool {
+    google_compat(model)
+        .and_then(|compat| compat.supports_multimodal_function_response)
+        .unwrap_or(true)
 }
 
 const JSON_SCHEMA_META_DECLARATIONS: [&str; 8] = [
@@ -379,11 +354,10 @@ pub fn convert_tools(
     Ok(Some(vec![json!({ "functionDeclarations": declarations })]))
 }
 
-/// Gemini 3+ enforces required function parameters in validated
-/// tool-calling modes.
+/// Whether validated tool-calling modes enforce required function parameters.
 #[must_use]
-pub fn supports_google_strict_tool_sampling(model_id: &str) -> bool {
-    get_gemini_major_version(model_id).is_some_and(|major| major >= 3)
+pub fn supports_google_strict_tool_sampling(model: &Model) -> Option<bool> {
+    google_compat(model).and_then(|compat| compat.supports_strict_mode)
 }
 
 /// The SDK `FunctionCallingConfigMode` values pi-ai sends.

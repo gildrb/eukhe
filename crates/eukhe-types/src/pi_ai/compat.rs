@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use super::model::ModelCost;
 use super::routing::{OpenRouterRouting, VercelGatewayRouting};
-use super::settings::{ChatTemplateKwargValue, SessionAffinityFormat, ThinkingTokenBudgetField};
+use super::settings::{
+    ChatTemplateKwargValue, SessionAffinityFormat, ThinkingBudgets, ThinkingTokenBudgetField,
+};
 use super::string_enum::string_enum;
 use super::{JsonValue, ProviderId};
 
@@ -290,6 +292,28 @@ pub struct BedrockCompat {
     pub supports_prompt_caching: Option<bool>,
 }
 
+/// Compatibility settings for the Google Generative AI and Vertex AI APIs.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleCompat {
+    /// Whether thinking takes the discrete `thinkingLevel` control instead
+    /// of a `thinkingBudget`. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_thinking_level: Option<bool>,
+    /// Default `thinkingBudget` per level. Default: none (`-1`, dynamic).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_budgets: Option<ThinkingBudgets>,
+    /// Whether function calls and responses must carry the tool call id. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires_tool_call_id: Option<bool>,
+    /// Whether validated function calling enforces required parameters. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_strict_mode: Option<bool>,
+    /// Whether function responses may carry images and files. Default: true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_multimodal_function_response: Option<bool>,
+}
+
 /// Compatibility settings for the Mistral chat API.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -317,6 +341,8 @@ pub enum ModelCompat {
     AnthropicMessages(AnthropicMessagesCompat),
     /// `bedrock-converse-stream`.
     Bedrock(BedrockCompat),
+    /// `google-generative-ai`, `google-vertex`.
+    Google(GoogleCompat),
     /// `mistral-conversations`.
     MistralConversations(MistralConversationsCompat),
     /// Any other API.
@@ -337,6 +363,9 @@ impl ModelCompat {
             }
             "anthropic-messages" => Self::AnthropicMessages(serde_json::from_value(value)?),
             "bedrock-converse-stream" => Self::Bedrock(serde_json::from_value(value)?),
+            "google-generative-ai" | "google-vertex" => {
+                Self::Google(serde_json::from_value(value)?)
+            }
             "mistral-conversations" => Self::MistralConversations(serde_json::from_value(value)?),
             _ => Self::Other(value),
         })
@@ -350,6 +379,7 @@ impl ModelCompat {
             Self::OpenAIResponses(_)
             | Self::AnthropicMessages(_)
             | Self::Bedrock(_)
+            | Self::Google(_)
             | Self::MistralConversations(_)
             | Self::Other(_) => None,
         }
@@ -363,6 +393,7 @@ impl ModelCompat {
             Self::OpenAICompletions(_)
             | Self::AnthropicMessages(_)
             | Self::Bedrock(_)
+            | Self::Google(_)
             | Self::MistralConversations(_)
             | Self::Other(_) => None,
         }
@@ -376,6 +407,7 @@ impl ModelCompat {
             Self::OpenAICompletions(_)
             | Self::OpenAIResponses(_)
             | Self::Bedrock(_)
+            | Self::Google(_)
             | Self::MistralConversations(_)
             | Self::Other(_) => None,
         }
@@ -389,6 +421,21 @@ impl ModelCompat {
             Self::OpenAICompletions(_)
             | Self::OpenAIResponses(_)
             | Self::AnthropicMessages(_)
+            | Self::Google(_)
+            | Self::MistralConversations(_)
+            | Self::Other(_) => None,
+        }
+    }
+
+    /// The Google compat, when this is one.
+    #[must_use]
+    pub const fn as_google(&self) -> Option<&GoogleCompat> {
+        match self {
+            Self::Google(compat) => Some(compat),
+            Self::OpenAICompletions(_)
+            | Self::OpenAIResponses(_)
+            | Self::AnthropicMessages(_)
+            | Self::Bedrock(_)
             | Self::MistralConversations(_)
             | Self::Other(_) => None,
         }
@@ -403,6 +450,7 @@ impl ModelCompat {
             | Self::OpenAIResponses(_)
             | Self::AnthropicMessages(_)
             | Self::Bedrock(_)
+            | Self::Google(_)
             | Self::Other(_) => None,
         }
     }
