@@ -156,7 +156,7 @@ fn create_client(
     for (name, value) in model.headers.iter().flatten() {
         headers.insert(name.clone(), Some(value.clone()));
     }
-    if model.provider == "github-copilot" {
+    if compat.send_copilot_headers {
         let has_images = has_copilot_vision_input(context.messages());
         for (name, value) in build_copilot_dynamic_headers(context.messages(), has_images) {
             headers.insert(name, Some(value));

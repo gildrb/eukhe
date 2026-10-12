@@ -6,7 +6,8 @@ use crate::types::IndexMap;
 
 use crate::types::{
     CacheControlFormat, ChatTemplateKwargValue, MaxTokensField, Model, ModelCompat,
-    OpenAICompletionsCompat, SessionAffinityFormat, ThinkingFormat, ThinkingTokenBudgetField,
+    OpenAICompletionsCompat, ReasoningField, SessionAffinityFormat, ThinkingFormat,
+    ThinkingTokenBudgetField,
 };
 
 /// TS `ResolvedOpenAICompletionsCompat`: every setting resolved except the
@@ -40,6 +41,11 @@ pub(crate) struct ResolvedCompat {
     pub(crate) send_session_affinity_headers: bool,
     pub(crate) session_affinity_format: SessionAffinityFormat,
     pub(crate) supports_long_cache_retention: bool,
+    pub(crate) send_copilot_headers: bool,
+    pub(crate) supports_service_tier: bool,
+    pub(crate) supports_prompt_cache_key: bool,
+    pub(crate) max_tool_call_id_length: Option<usize>,
+    pub(crate) replay_reasoning_as: Option<ReasoningField>,
     pub(crate) vllm_priority: Option<f64>,
 }
 
@@ -105,6 +111,11 @@ pub(crate) fn get_compat(model: &Model) -> ResolvedCompat {
             .and_then(|c| c.session_affinity_format)
             .unwrap_or(SessionAffinityFormat::OpenAI),
         supports_long_cache_retention: flag(|c| c.supports_long_cache_retention, true),
+        send_copilot_headers: flag(|c| c.send_copilot_headers, false),
+        supports_service_tier: flag(|c| c.supports_service_tier, false),
+        supports_prompt_cache_key: flag(|c| c.supports_prompt_cache_key, false),
+        max_tool_call_id_length: compat.and_then(|c| c.max_tool_call_id_length),
+        replay_reasoning_as: compat.and_then(|c| c.replay_reasoning_as),
         vllm_priority: compat.and_then(|c| c.vllm_priority),
     }
 }

@@ -110,7 +110,7 @@ pub(crate) fn build_params(
     // `messages` is placed here and filled once cache marks are applied.
     insert(&mut params, "messages", JsonValue::Null);
     insert(&mut params, "stream", json!(true));
-    if (model.base_url.contains("api.openai.com") && cache_retention != CacheRetention::None)
+    if (compat.supports_prompt_cache_key && cache_retention != CacheRetention::None)
         || long_retention
     {
         if let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_deref()) {
@@ -208,12 +208,10 @@ pub(crate) fn build_params(
         insert(&mut params, field.as_str(), json!(budget));
     }
 
-    // eukhe addition: OpenAI and OpenRouter accept a top-level service_tier
-    // (OpenRouter: flex and priority for every model). Other
-    // OpenAI-compatible gateways may reject unknown fields, and Prime
-    // Inference ignores it, so only those two receive it.
+    // eukhe addition: a top-level service_tier only where the host accepts
+    // it; other OpenAI-compatible gateways may reject unknown fields.
     if let Some(service_tier) = stream_options.service_tier {
-        if model.provider == "openai" || model.provider == "openrouter" {
+        if compat.supports_service_tier {
             insert(&mut params, "service_tier", json!(service_tier.as_str()));
         }
     }

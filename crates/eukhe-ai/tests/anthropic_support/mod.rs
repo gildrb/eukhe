@@ -210,6 +210,15 @@ pub fn model(overrides: &JsonValue) -> Model {
             base.insert(key.clone(), value.clone());
         }
     }
+    // A models.json model under its provider gets the provider's compat defaults.
+    let provider = base["provider"].as_str().unwrap_or_default().to_owned();
+    if let Some(compat) = eukhe_ai::model_catalog::with_provider_compat_defaults(
+        &provider,
+        "anthropic-messages",
+        base["compat"].as_object(),
+    ) {
+        base["compat"] = JsonValue::Object(compat);
+    }
     serde_json::from_value(base).expect("model")
 }
 

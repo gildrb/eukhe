@@ -45,12 +45,10 @@ const OPENAI_TOOL_CALL_PROVIDERS: &[&str] = &["openai", "openai-codex", "opencod
 pub(crate) const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS: u64 = 16;
 const CHATGPT_USAGE_URL: &str = "https://chatgpt.com/settings/usage";
 
-/// `OpenAI` API keys start with `sk-`; a different credential sent directly
-/// to `OpenAI` is a Sign in with `ChatGPT` access token.
-fn is_chatgpt_sign_in(model: &Model, api_key: Option<&str>) -> bool {
-    model.provider == "openai"
-        && model.base_url == "https://api.openai.com/v1"
-        && api_key.is_some_and(|key| !key.starts_with("sk-"))
+/// `OpenAI` API keys start with `sk-`; on a host that accepts Sign in with
+/// `ChatGPT`, a different credential is a `ChatGPT` access token.
+fn is_chatgpt_sign_in(compat: &ResolvedCompat, api_key: Option<&str>) -> bool {
+    compat.accepts_chatgpt_sign_in && api_key.is_some_and(|key| !key.starts_with("sk-"))
 }
 
 fn has_header(headers: Option<&ProviderHeaders>, name: &str) -> bool {
@@ -115,6 +113,11 @@ struct ResolvedCompat {
     supports_tool_search: bool,
     supports_explicit_prompt_cache_mode: bool,
     supports_max_output_tokens: bool,
+    send_copilot_headers: bool,
+    supports_service_tier: bool,
+    send_reasoning_off: bool,
+    include_encrypted_reasoning: bool,
+    accepts_chatgpt_sign_in: bool,
 }
 
 fn get_compat(model: &Model) -> ResolvedCompat {
@@ -149,6 +152,11 @@ fn get_compat(model: &Model) -> ResolvedCompat {
             false,
         ),
         supports_max_output_tokens: flag(|compat| compat.supports_max_output_tokens, true),
+        send_copilot_headers: flag(|compat| compat.send_copilot_headers, false),
+        supports_service_tier: flag(|compat| compat.supports_service_tier, true),
+        send_reasoning_off: flag(|compat| compat.send_reasoning_off, true),
+        include_encrypted_reasoning: flag(|compat| compat.include_encrypted_reasoning, false),
+        accepts_chatgpt_sign_in: flag(|compat| compat.accepts_chatgpt_sign_in, false),
     }
 }
 
@@ -242,10 +250,10 @@ pub fn apply_service_tier_pricing(usage: &mut Usage, service_tier: Option<&str>,
 }
 
 /// The effective `serviceTier`: the API option, else the eukhe addition
-/// [`StreamOptions::service_tier`](crate::types::StreamOptions) (never sent
-/// to GitHub Copilot, which rejects the field itself with a 400).
+/// [`StreamOptions::service_tier`](crate::types::StreamOptions) where the
+/// host accepts the field (GitHub Copilot rejects it with a 400).
 fn effective_service_tier(
-    model: &Model,
+    compat: &ResolvedCompat,
     options: &ProviderStreamOptions,
     api: &OpenAIResponsesOptions,
 ) -> Option<JsonValue> {
@@ -253,7 +261,7 @@ fn effective_service_tier(
         options
             .stream
             .service_tier
-            .filter(|_| model.provider != "github-copilot")
+            .filter(|_| compat.supports_service_tier)
             .map(|tier| json!(tier.as_str()))
     })
 }
@@ -274,7 +282,7 @@ fn create_client(
     for (name, value) in model.headers.iter().flatten() {
         headers.insert(name.clone(), Some(value.clone()));
     }
-    if model.provider == "github-copilot" {
+    if compat.send_copilot_headers {
         let has_images = has_copilot_vision_input(context.messages());
         for (name, value) in build_copilot_dynamic_headers(context.messages(), has_images) {
             headers.insert(name, Some(value));
@@ -354,7 +362,7 @@ fn build_params(
     );
     // Sign in with ChatGPT rejects these request fields.
     let omit_unsupported_fields =
-        is_chatgpt_sign_in(model, stream_options.request.api_key.as_deref());
+        is_chatgpt_sign_in(compat, stream_options.request.api_key.as_deref());
     let mut params = JsonObject::new();
     params.insert("model".to_owned(), json!(model.id));
     params.insert("input".to_owned(), JsonValue::Array(messages));
@@ -387,7 +395,7 @@ fn build_params(
             params.insert("temperature".to_owned(), json!(temperature));
         }
     }
-    if let Some(service_tier) = effective_service_tier(model, options, api) {
+    if let Some(service_tier) = effective_service_tier(compat, options, api) {
         params.insert("service_tier".to_owned(), service_tier);
     }
     if !transcript_tools.request_tools.is_empty() {
@@ -412,10 +420,10 @@ fn build_params(
     if model.reasoning {
         if let Some(effort) = reasoning_effort {
             insert_reasoning(model, api, effort, &mut params);
-        } else if model.provider != "github-copilot" {
+        } else if compat.send_reasoning_off {
             insert_reasoning_off(model, &mut params);
         }
-        if model.provider == "xai" {
+        if compat.include_encrypted_reasoning {
             params.insert("include".to_owned(), json!(["reasoning.encrypted_content"]));
         }
     }
@@ -660,7 +668,7 @@ async fn run(
     let model_id = model.id.clone();
     let stream_options = OpenAIResponsesStreamOptions {
         on_provider_stream_event: options.stream.on_provider_stream_event.clone(),
-        service_tier: effective_service_tier(model, options, &api)
+        service_tier: effective_service_tier(&get_compat(model), options, &api)
             .and_then(|tier| tier.as_str().map(str::to_owned)),
         grammar_tool_input_properties: Some(grammar),
         resolve_service_tier: None,

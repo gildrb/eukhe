@@ -12,6 +12,7 @@ use serde_json::json;
 use crate::api::system_one_shared::test_fetch::{
     mock_fetch, recorded, response, Recorded, Requests,
 };
+use crate::model_catalog::with_provider_compat_defaults;
 use crate::types::{
     AssistantMessage, AssistantMessageEvent, Context, FetchFunction, JsonValue, Model,
     ProviderRequestOptions, StreamOptions, TranscriptContext,
@@ -49,7 +50,19 @@ pub(crate) fn test_model(overrides: JsonValue) -> Model {
             base.insert(key.clone(), value.clone());
         }
     }
-    model(base)
+    model(with_provider_defaults(base))
+}
+
+/// `value` with its provider's compat defaults under its own compat, as a
+/// models.json model added under that provider gets them.
+pub(crate) fn with_provider_defaults(mut value: JsonValue) -> JsonValue {
+    let provider = value["provider"].as_str().unwrap_or_default().to_owned();
+    let api = value["api"].as_str().unwrap_or_default().to_owned();
+    let compat = with_provider_compat_defaults(&provider, &api, value["compat"].as_object());
+    if let (Some(object), Some(compat)) = (value.as_object_mut(), compat) {
+        object.insert("compat".to_owned(), JsonValue::Object(compat));
+    }
+    value
 }
 
 /// `normalizeContext(context)` of TS-shaped context JSON.

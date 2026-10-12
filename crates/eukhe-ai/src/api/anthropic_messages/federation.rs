@@ -11,6 +11,7 @@ use eukhe_types::pi_ai::{JsonObject, JsonValue, Model, ProviderEnv, ProviderHead
 use serde::Serialize;
 
 use super::client::SDK_VERSION;
+use super::get_anthropic_compat;
 use crate::env_api_keys::{
     ANTHROPIC_FEDERATION_RULE_ID_ENV, ANTHROPIC_IDENTITY_TOKEN_FILE_ENV,
     ANTHROPIC_ORGANIZATION_ID_ENV, ANTHROPIC_SERVICE_ACCOUNT_ID_ENV, ANTHROPIC_WORKSPACE_ID_ENV,
@@ -69,15 +70,15 @@ pub(crate) fn has_request_auth(api_key: Option<&str>, headers: Option<&ProviderH
         || has_header(headers, "cf-aig-authorization")
 }
 
-/// TS `getAnthropicFederation`: only for the `anthropic` provider and only
-/// when no key or auth header was resolved.
+/// TS `getAnthropicFederation`: only for hosts whose compat supports OIDC
+/// federation and only when no key or auth header was resolved.
 pub(crate) fn get_anthropic_federation(
     model: &Model,
     api_key: Option<&str>,
     headers: Option<&ProviderHeaders>,
     env: Option<&ProviderEnv>,
 ) -> Option<AnthropicFederationConfig> {
-    if model.provider != "anthropic" || has_request_auth(api_key, headers) {
+    if !get_anthropic_compat(model).supports_oidc_federation || has_request_auth(api_key, headers) {
         return None;
     }
     let federation_rule_id = get_provider_env_value(ANTHROPIC_FEDERATION_RULE_ID_ENV, env)?;

@@ -48,6 +48,15 @@ string_enum! {
 }
 
 string_enum! {
+    /// An assistant message field that carries reasoning on OpenAI-compatible completions APIs.
+    pub enum ReasoningField {
+        Reasoning => "reasoning",
+        ReasoningContent => "reasoning_content",
+        ReasoningText => "reasoning_text",
+    }
+}
+
+string_enum! {
     /// Cache control convention for prompt caching on OpenAI-compatible completions APIs.
     pub enum CacheControlFormat {
         /// Anthropic-style `cache_control` markers on the system prompt, last tool
@@ -145,6 +154,22 @@ pub struct OpenAICompletionsCompat {
     /// Whether the provider supports long prompt cache retention. Default: true.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_long_cache_retention: Option<bool>,
+    /// Whether requests carry GitHub Copilot's initiator and vision headers. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_copilot_headers: Option<bool>,
+    /// Whether the top-level `service_tier` request field is accepted. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_service_tier: Option<bool>,
+    /// Whether `prompt_cache_key` is sent with any cache retention. Default:
+    /// false (sent only with long retention).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_prompt_cache_key: Option<bool>,
+    /// Longest tool call id the provider accepts; longer ids are cut. Default: no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tool_call_id_length: Option<usize>,
+    /// The field that replays thinking streamed in `reasoning`. Default: `reasoning`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_reasoning_as: Option<ReasoningField>,
     /// vLLM scheduler priority sent as the top-level `priority` request field.
     #[serde(
         default,
@@ -196,6 +221,23 @@ pub struct OpenAIResponsesCompat {
     /// Whether the provider accepts the `max_output_tokens` parameter. Default: true.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_max_output_tokens: Option<bool>,
+    /// Whether requests carry GitHub Copilot's initiator and vision headers. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_copilot_headers: Option<bool>,
+    /// Whether the `service_tier` request field is accepted. Default: true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_service_tier: Option<bool>,
+    /// Whether a reasoning model with thinking off gets an explicit off
+    /// effort. Default: true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_reasoning_off: Option<bool>,
+    /// Whether reasoning requests include `reasoning.encrypted_content`. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_encrypted_reasoning: Option<bool>,
+    /// Whether a credential other than an `sk-` API key is a Sign in with
+    /// `ChatGPT` token. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepts_chatgpt_sign_in: Option<bool>,
 }
 
 string_enum! {
@@ -254,6 +296,14 @@ pub struct AnthropicMessagesCompat {
     /// Whether mid-conversation `tool_addition`/`tool_removal` blocks are accepted. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_mid_convo_tool_changes: Option<bool>,
+    /// Whether requests use GitHub Copilot's client: bearer token, browser
+    /// identity, initiator and vision headers. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_copilot_headers: Option<bool>,
+    /// Whether a request without credentials may authenticate through
+    /// workload identity federation. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_oidc_federation: Option<bool>,
     /// Models Anthropic accepts in `fallbacks` for server-side refusal fallback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_fallback_models: Option<Vec<AnthropicAllowedFallbackModel>>,

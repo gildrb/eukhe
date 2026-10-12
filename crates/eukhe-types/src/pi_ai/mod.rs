@@ -39,7 +39,7 @@ pub use compat::{
     AnthropicAllowedFallbackModel, AnthropicMessagesCompat, AnthropicSessionAffinityFormat,
     BedrockCompat, BedrockThinkingFormat, CacheControlFormat, GoogleCompat, MaxTokensField,
     MistralConversationsCompat, ModelCompat, OpenAICompletionsCompat, OpenAIResponsesCompat,
-    ThinkingFormat,
+    ReasoningField, ThinkingFormat,
 };
 pub use content::{
     AssistantContentBlock, CacheBreakpoint, ContentBlockText, ImageContent, SystemContent,

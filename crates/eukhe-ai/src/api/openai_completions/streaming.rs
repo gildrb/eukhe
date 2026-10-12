@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use crate::types::IndexMap;
 
+use super::compat::model_compat;
 use super::convert::{append_openai_reasoning_detail, is_openai_reasoning_detail, js_truthy};
 use crate::api::constrained_sampling::{
     append_grammar_tool_input_json_delta, GrammarInputClose, GrammarToolInputJsonBuffer,
@@ -12,7 +13,7 @@ use crate::api::constrained_sampling::{
 use crate::models::calculate_cost;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, JsonObject, JsonValue, Model,
-    StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
+    ReasoningField, StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
 };
 use crate::utils::diagnostics::{thrown, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -488,12 +489,10 @@ impl<'a> StreamState<'a> {
                     .map(|value| (field, value))
             });
         if let Some((field, reasoning_delta)) = reasoning {
-            let thinking_signature = if self.model.provider == "opencode-go" && field == "reasoning"
-            {
-                "reasoning_content"
-            } else {
-                field
-            };
+            let replay_as = (field == ReasoningField::Reasoning.as_str())
+                .then(|| model_compat(self.model).and_then(|compat| compat.replay_reasoning_as))
+                .flatten();
+            let thinking_signature = replay_as.map_or(field, ReasoningField::as_str);
             let index = self.ensure_thinking_block(thinking_signature);
             if let AssistantContentBlock::Thinking(thinking) = &mut self.output.content[index] {
                 thinking.thinking.push_str(reasoning_delta);

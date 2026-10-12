@@ -3,6 +3,7 @@
 mod openai_responses_support;
 
 use eukhe_ai::api::openai_responses::stream as stream_openai_responses;
+use eukhe_ai::model_catalog::with_provider_compat_defaults;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{CacheRetention, Context, JsonValue, Model, TranscriptContext};
@@ -24,10 +25,17 @@ fn model_json() -> JsonValue {
     })
 }
 
+/// The model JSON with `patch` laid over it, under its provider's compat defaults.
 fn model_with(patch: &JsonValue) -> Model {
     let mut value = model_json();
     for (key, field) in patch.as_object().expect("patch object") {
         value[key] = field.clone();
+    }
+    let provider = value["provider"].as_str().unwrap_or_default().to_owned();
+    if let Some(compat) =
+        with_provider_compat_defaults(&provider, "openai-responses", value["compat"].as_object())
+    {
+        value["compat"] = JsonValue::Object(compat);
     }
     serde_json::from_value(value).expect("model")
 }
@@ -102,7 +110,9 @@ async fn keeps_those_fields() {
         (
             "other OpenAI-compatible endpoints",
             "gateway-key",
-            model_with(&json!({ "baseUrl": "https://gateway.example.com/v1" })),
+            model_with(
+                &json!({ "provider": "gateway", "baseUrl": "https://gateway.example.com/v1" }),
+            ),
         ),
     ] {
         let payload = capture_payload(api_key, &request_model).await;

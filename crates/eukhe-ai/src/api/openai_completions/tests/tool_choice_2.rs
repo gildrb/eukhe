@@ -14,7 +14,7 @@ use super::tool_choice::{
     run_simple, simple_options, simple_payload, simple_reasoning, zero_usage,
 };
 use crate::types::{
-    AssistantMessageEvent, CacheRetention, IndexMap, JsonValue, MaxTokensField,
+    AssistantMessageEvent, CacheRetention, IndexMap, JsonValue, MaxTokensField, ReasoningField,
     SessionAffinityFormat, SimpleStreamOptions, StopReason, StreamOptions, ThinkingFormat,
     ThinkingLevel,
 };
@@ -569,6 +569,12 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
         send_session_affinity_headers: false,
         session_affinity_format: SessionAffinityFormat::OpenAI,
         supports_long_cache_retention: true,
+        send_copilot_headers: false,
+        supports_service_tier: false,
+        supports_prompt_cache_key: false,
+        max_tool_call_id_length: None,
+        // opencode-go's provider default.
+        replay_reasoning_as: Some(ReasoningField::ReasoningContent),
         vllm_priority: None,
     };
     let transcript = context(json!({

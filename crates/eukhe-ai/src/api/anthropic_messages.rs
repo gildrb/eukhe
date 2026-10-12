@@ -230,6 +230,8 @@ pub(crate) struct ResolvedCompat {
     pub(crate) supports_strict_tools: bool,
     pub(crate) supports_mid_convo_system_messages: bool,
     pub(crate) supports_mid_convo_tool_changes: bool,
+    pub(crate) send_copilot_headers: bool,
+    pub(crate) supports_oidc_federation: bool,
 }
 
 pub(crate) fn get_anthropic_compat(model: &Model) -> ResolvedCompat {
@@ -248,6 +250,8 @@ pub(crate) fn get_anthropic_compat(model: &Model) -> ResolvedCompat {
         supports_strict_tools: flag(|c| c.supports_strict_tools, false),
         supports_mid_convo_system_messages: flag(|c| c.supports_mid_convo_system_messages, false),
         supports_mid_convo_tool_changes: flag(|c| c.supports_mid_convo_tool_changes, false),
+        send_copilot_headers: flag(|c| c.send_copilot_headers, false),
+        supports_oidc_federation: flag(|c| c.supports_oidc_federation, false),
     }
 }
 
@@ -306,7 +310,8 @@ struct ClientInputs<'a> {
 fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) {
     let model_headers = model.headers.as_ref().map(to_provider_headers);
     let fetch = inputs.fetch.cloned();
-    if model.provider == "github-copilot" {
+    let compat = get_anthropic_compat(model);
+    if compat.send_copilot_headers {
         let client = SdkClient {
             base_url: model.base_url.clone(),
             auth: ClientAuth::Static {
@@ -347,7 +352,6 @@ fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) 
         return (client, true);
     }
 
-    let compat = get_anthropic_compat(model);
     let mut session_affinity = ProviderHeaders::new();
     if let Some(session_id) = inputs.session_id.filter(|id| !id.is_empty()) {
         if compat.send_session_affinity_headers {
@@ -555,7 +559,7 @@ async fn run(
                 model.provider
             )));
         }
-        let copilot_headers = (model.provider == "github-copilot").then(|| {
+        let copilot_headers = get_anthropic_compat(model).send_copilot_headers.then(|| {
             let has_images = has_copilot_vision_input(context.messages());
             to_provider_headers(&build_copilot_dynamic_headers(
                 context.messages(),

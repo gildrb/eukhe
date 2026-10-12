@@ -5,7 +5,7 @@
 
 use serde_json::json;
 
-use super::support::{context, model, run_with_chunks, stop_chunks};
+use super::support::{context, model, run_with_chunks, stop_chunks, with_provider_defaults};
 use crate::api::openai_completions::OpenAICompletionsOptions;
 use crate::api::system_one_shared::test_fetch::Recorded;
 use crate::providers::all::get_builtin_model;
@@ -29,7 +29,7 @@ fn create_model(overrides: JsonValue) -> Model {
             object.insert(key.clone(), value.clone());
         }
     }
-    model(value)
+    model(with_provider_defaults(value))
 }
 
 #[derive(Default)]
@@ -127,6 +127,7 @@ async fn omits_prompt_cache_fields_when_cache_retention_is_none() {
 #[tokio::test]
 async fn omits_prompt_cache_fields_for_non_openai_base_urls_without_compatible_long_retention() {
     let model = create_model(json!({
+        "provider": "proxy",
         "baseUrl": "https://proxy.example.com/v1",
         "compat": { "supportsLongCacheRetention": false },
     }));
@@ -243,6 +244,7 @@ async fn uses_openai_no_session_format_when_configured() {
 #[tokio::test]
 async fn uses_openrouter_session_affinity_header_when_configured() {
     let model = create_model(json!({
+        "provider": "proxy",
         "baseUrl": "https://proxy.example.com/v1",
         "compat": { "sendSessionAffinityHeaders": true, "sessionAffinityFormat": "openrouter" },
     }));

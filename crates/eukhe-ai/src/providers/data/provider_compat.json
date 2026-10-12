@@ -7,6 +7,11 @@
       "supportsLongCacheRetention": false
     }
   },
+  "anthropic": {
+    "anthropic-messages": {
+      "supportsOidcFederation": true
+    }
+  },
   "azure": {
     "openai-completions": {
       "supportsStore": true,
@@ -47,7 +52,16 @@
   "github-copilot": {
     "openai-completions": {
       "supportsStore": true,
-      "supportsDeveloperRole": true
+      "supportsDeveloperRole": true,
+      "sendCopilotHeaders": true
+    },
+    "openai-responses": {
+      "sendCopilotHeaders": true,
+      "supportsServiceTier": false,
+      "sendReasoningOff": false
+    },
+    "anthropic-messages": {
+      "sendCopilotHeaders": true
     }
   },
   "groq": {
@@ -84,7 +98,18 @@
   "openai": {
     "openai-completions": {
       "supportsStore": true,
-      "supportsDeveloperRole": true
+      "supportsDeveloperRole": true,
+      "supportsServiceTier": true,
+      "supportsPromptCacheKey": true,
+      "maxToolCallIdLength": 40
+    },
+    "openai-responses": {
+      "acceptsChatgptSignIn": true
+    }
+  },
+  "opencode-go": {
+    "openai-completions": {
+      "replayReasoningAs": "reasoning_content"
     }
   },
   "openrouter": {
@@ -92,7 +117,8 @@
       "supportsStore": true,
       "thinkingFormat": "openrouter",
       "sendSessionAffinityHeaders": true,
-      "sessionAffinityFormat": "openrouter"
+      "sessionAffinityFormat": "openrouter",
+      "supportsServiceTier": true
     },
     "anthropic-messages": {
       "sendSessionAffinityHeaders": true,
@@ -136,6 +162,9 @@
   "xai": {
     "openai-completions": {
       "supportsReasoningEffort": false
+    },
+    "openai-responses": {
+      "includeEncryptedReasoning": true
     }
   },
   "xiaomi": {

@@ -12,7 +12,8 @@ use crate::api::constrained_sampling::{
 use crate::api::transform_messages::transform_messages;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, JsonObject, JsonValue, Message, Modality, Model,
-    ThinkingContent, Tool, ToolCall, TranscriptContext, UserContent, UserContentBlock,
+    ReasoningField, ThinkingContent, Tool, ToolCall, TranscriptContext, UserContent,
+    UserContentBlock,
 };
 use crate::utils::diagnostics::Thrown;
 use crate::utils::hash::short_hash;
@@ -170,7 +171,7 @@ pub(crate) fn append_openai_reasoning_detail(details: &mut Vec<JsonValue>, detai
 }
 
 /// TS `normalizeToolCallId` inside `convertMessages`.
-fn normalize_tool_call_id(model: &Model, id: &str) -> String {
+fn normalize_tool_call_id(id: &str, max_length: Option<usize>) -> String {
     // JS `replace(/[^a-zA-Z0-9_-]/g, "_")` works on UTF-16 code units.
     fn sanitize(text: &str) -> String {
         let mut out = String::with_capacity(text.len());
@@ -201,8 +202,8 @@ fn normalize_tool_call_id(model: &Model, id: &str) -> String {
         let prefix: String = call_id.chars().take(prefix_len).collect();
         return format!("{prefix}_{hash}");
     }
-    if model.provider == "openai" && utf16_len(id) > 40 {
-        return utf16_prefix(id, 40).to_owned();
+    if let Some(max_length) = max_length.filter(|max_length| utf16_len(id) > *max_length) {
+        return utf16_prefix(id, max_length).to_owned();
     }
     id.to_owned()
 }
@@ -232,7 +233,9 @@ pub(crate) fn convert_messages(
         resolve_transcript(context.clone(), compat.supports_mid_convo_system_messages);
     let mut params: Vec<JsonValue> = Vec::new();
 
-    let normalize = |id: &str, _: &Model, _: &AssistantMessage| normalize_tool_call_id(model, id);
+    let normalize = |id: &str, _: &Model, _: &AssistantMessage| {
+        normalize_tool_call_id(id, compat.max_tool_call_id_length)
+    };
     let transformed_messages =
         transform_messages(normalized_context.messages(), model, Some(&normalize));
     let transcript_tools = resolve_transcript_tools(
@@ -501,8 +504,10 @@ fn convert_assistant(
             // reasoning_details is the structured alternative to a raw reasoning field.
             if preserved_reasoning_details.is_none() {
                 let mut signature = first_thinking.thinking_signature.as_deref();
-                if model.provider == "opencode-go" && signature == Some("reasoning") {
-                    signature = Some("reasoning_content");
+                if signature == Some(ReasoningField::Reasoning.as_str()) {
+                    if let Some(field) = compat.replay_reasoning_as {
+                        signature = Some(field.as_str());
+                    }
                 }
                 if let Some(field) =
                     signature.filter(|field| OPENAI_COMPLETIONS_REASONING_FIELDS.contains(field))
