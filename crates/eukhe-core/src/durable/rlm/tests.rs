@@ -344,6 +344,37 @@ async fn long_cell_output_keeps_its_end_and_spills_the_whole_to_an_artifact() {
     session.close(cx()).await.expect("close");
 }
 
+/// A result value past the runtime's frame size reaches the artifact whole:
+/// nothing clips it before the one bound.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_huge_result_value_reaches_the_artifact_whole() {
+    if kernel_python().is_none() {
+        return;
+    }
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    fixture
+        .faux
+        .set_responses(vec![ipython("c1", "'a' * 1_500_000 + 'z'"), text("done")]);
+    let session = fixture.open().await;
+    let id = submit(&session, "go").await;
+    assert_eq!(settle(&session, id).await, SubmissionStatus::Done);
+    let all = entries(&session).await;
+    let text = result_text(&results(&all)[0]);
+    assert!(
+        text.contains("az'"),
+        "the value's end reaches the model: {text}"
+    );
+    let artifact = text
+        .split("Full output: ")
+        .nth(1)
+        .and_then(|rest| rest.lines().next())
+        .expect("the diagnostic names the artifact");
+    let saved = std::fs::read_to_string(artifact).expect("the artifact");
+    assert_eq!(saved, format!("'{}z'", "a".repeat(1_500_000)));
+    session.close(cx()).await.expect("close");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn abort_interrupts_the_running_cell_and_the_kernel_stays_usable() {
     if kernel_python().is_none() {

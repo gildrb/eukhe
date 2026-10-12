@@ -69,8 +69,12 @@ impl Inner {
             }
             Event::Result { id, text } => {
                 let execution = lock(&self.guarded).active_execution.clone();
+                // A long value arrives in several frames, in order.
                 if let Some(execution) = execution.filter(|e| e.request_id == id) {
-                    lock(&execution.buffers).result = Some(text);
+                    lock(&execution.buffers)
+                        .result
+                        .get_or_insert_with(String::new)
+                        .push_str(&text);
                 }
             }
             Event::Error {

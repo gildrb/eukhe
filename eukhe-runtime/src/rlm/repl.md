@@ -55,10 +55,9 @@ runtime keeps serving. Closing stdin is equivalent to `shutdown`.
   characters per frame; a larger write arrives as multiple events in order.
 - `{"event":"result","id":str,"text":str}` — `repr` of the cell's trailing
   expression when the body ends in an expression whose value is not `None`.
-  The value is also bound to `_` in the namespace. The `repr` content is capped
-  at 1,048,576 characters; a longer `repr` is truncated to the cap and a trailing
-  truncation marker is appended after it, so the total `text` can exceed the cap
-  by the marker's length.
+  The value is also bound to `_` in the namespace. The `repr` ships whole: at
+  most 64 Ki characters per frame, a longer `repr` as several `result` events
+  in order, which the host joins.
 - `{"event":"display","id":str|null,"data":{mime:payload,...}}` — one dict of
   MIME type to JSON payload, shipped verbatim from `emit()`. A payload whose
   JSON encoding exceeds 16 Mi characters is refused: `emit()` raises
@@ -71,8 +70,8 @@ runtime keeps serving. Closing stdin is equivalent to `shutdown`.
   `display` payload: `host_request()` raises `ValueError` in the calling cell
   instead of sending an oversized request.
 - `{"event":"error","id":str|null,"ename":str,"evalue":str,"traceback":[str,...]}`
-  — `evalue` and each `traceback` entry are capped like `result` text (same
-  cap, same trailing marker).
+  — `evalue` and each `traceback` entry are capped at 1,048,576 characters,
+  with a trailing truncation marker, so one error event fits one frame.
 - `{"event":"done","id":str,"status":"ok"|"error"}` — exactly one per id'd
   request, always after all of that request's other events. A snapshot `done`
   adds `saved`, `skipped`, `pruned`, `bytes`; a restore `done` adds `restored`,

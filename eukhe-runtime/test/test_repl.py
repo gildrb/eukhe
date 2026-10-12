@@ -1069,11 +1069,15 @@ class ReplTest(unittest.TestCase):
         self.assertEqual("".join(frames), "x" * 300_000)
         self.assertTrue(all(len(frame) <= 65536 for frame in frames))
 
-    def test_oversized_text_and_payloads_are_capped(self):
+    def test_large_result_ships_whole_in_bounded_frames(self):
         code = "class C:\n    def __repr__(self):\n        return 'x' * 3_000_000\nC()"
         events = self.repl.execute("big-repr", code)
-        expected = "x" * 1_048_576 + "\n[... result truncated at 1048576 characters ...]"
-        self.assertEqual(one(events, "result")["text"], expected)
+        frames = [e["text"] for e in events if e.get("event") == "result"]
+        self.assertEqual("".join(frames), "x" * 3_000_000)
+        self.assertTrue(all(len(frame) <= 65536 for frame in frames))
+
+    def test_oversized_error_text_and_payloads_are_capped(self):
+        expected = "x" * 1_048_576 + "\n[... error text truncated at 1048576 characters ...]"
         error = one(self.repl.execute("big-error", "raise ValueError('x' * 3_000_000)"), "error")
         self.assertEqual(error["evalue"], expected)
         self.assertEqual(error["traceback"][-1], "ValueError: " + expected[len("ValueError: ") :])

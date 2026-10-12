@@ -47,10 +47,10 @@ _SNAPSHOT_MAGIC = b"EUKHE-KERNEL-SNAPSHOT-V2\n"
 # before it reads them, and raw fd writes already arrive as 64 KiB pump
 # chunks.
 _STREAM_FRAME_TEXT_CAP = 64 * 1024
-# The host bounds the model's view of a cell once; this only keeps a
-# pathological repr or exception text within one protocol frame in transit.
+# Keeps a pathological exception text within one protocol frame in transit
+# (a result value ships whole, in stream-sized frames).
 _RESULT_TEXT_CAP = 1_048_576
-_RESULT_TRUNCATION_MARKER = f"\n[... result truncated at {_RESULT_TEXT_CAP} characters ...]"
+_RESULT_TRUNCATION_MARKER = f"\n[... error text truncated at {_RESULT_TEXT_CAP} characters ...]"
 # Oversized display and host_request payloads fail the cell instead of wedging host memory.
 _PAYLOAD_CAP = 16 * 1024 * 1024
 
@@ -660,15 +660,16 @@ async def _handle_execute(req: dict[str, Any], ns: dict[str, Any]) -> None:
                     result_text = repr(value)
                 except BaseException as exc:  # noqa: BLE001 - a broken __repr__ is a cell error
                     status, error = "error", _error_event(cell_id, exc)
-            if result_text is not None:
-                result_text = _cap_text(result_text)
             _drain_output()
         finally:
             # Close the interrupt window before the protocol sends so a
             # handler-raised KeyboardInterrupt can never tear a frame mid-_send.
             _finish_request(cell_id)
         if result_text is not None:
-            _send({"event": "result", "id": cell_id, "text": result_text})
+            # Whole, in frames: the host joins them, and its one bound owns
+            # what the model sees.
+            for start in range(0, max(len(result_text), 1), _STREAM_FRAME_TEXT_CAP):
+                _send({"event": "result", "id": cell_id, "text": result_text[start : start + _STREAM_FRAME_TEXT_CAP]})
         if error is not None:
             _send(error)
         _send({"event": "done", "id": cell_id, "status": status})
