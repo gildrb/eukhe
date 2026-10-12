@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use twox_hash::XxHash64;
 
+use crate::error::EditError;
+use crate::hashline::{EditWriter, WriteOp, WriteRequest as EditWriteRequest, WriteResponse};
 use crate::store::EditStore;
 use crate::text::{detect_line_ending, normalize_to_lf, restore_line_endings, strip_bom};
 
@@ -192,6 +194,103 @@ pub(crate) fn write_file(
         made_executable,
         rendered,
     })
+}
+
+/// The [`EditWriter`] of a session: every hashline write takes the path
+/// lock, compares the file's current bytes with the bytes the edit was
+/// applied to, and replaces the file atomically (mode kept).
+pub(crate) struct LockedWriter<'a> {
+    pub(crate) lock_dir: &'a Path,
+}
+
+impl LockedWriter<'_> {
+    fn lock_all(&self, paths: &[&Path]) -> Result<Vec<PathLock>, EditError> {
+        let mut keys: Vec<&Path> = paths.to_vec();
+        // One global order keeps two movers from deadlocking.
+        keys.sort_unstable();
+        keys.dedup();
+        keys.into_iter()
+            .map(|key| lock(self.lock_dir, key).map_err(|source| io_error(key, source)))
+            .collect()
+    }
+}
+
+fn io_error(path: &Path, source: std::io::Error) -> EditError {
+    EditError::Io {
+        path: path.to_path_buf(),
+        source,
+    }
+}
+
+/// Fail unless `canonical` still holds `before_raw`; return its permissions.
+fn compare(canonical: &Path, display: &str, before_raw: &str) -> Result<Permissions, EditError> {
+    let current = std::fs::read(canonical).map_err(|source| io_error(canonical, source))?;
+    if current != before_raw.as_bytes() {
+        return Err(EditError::apply(format!(
+            "Edit rejected for {display}: the file changed on disk while the edit was being \
+             applied. Nothing was written. Re-read the file and retry."
+        )));
+    }
+    Ok(std::fs::metadata(canonical)
+        .map_err(|source| io_error(canonical, source))?
+        .permissions())
+}
+
+impl EditWriter for LockedWriter<'_> {
+    fn write(&self, request: &EditWriteRequest<'_>) -> Result<WriteResponse, EditError> {
+        let source = crate::path::canonical_key(request.absolute);
+        match request.op {
+            WriteOp::Create { content } => {
+                let _locks = self.lock_all(&[&source])?;
+                if let Some(parent) = source.parent() {
+                    std::fs::create_dir_all(parent).map_err(|error| io_error(parent, error))?;
+                }
+                replace_atomic(&source, content.as_bytes(), None)
+                    .map_err(|error| io_error(&source, error))?;
+                Ok(WriteResponse {
+                    written: content.to_owned(),
+                })
+            }
+            WriteOp::Update {
+                before_raw,
+                content,
+            } => {
+                let _locks = self.lock_all(&[&source])?;
+                let permissions = compare(&source, request.display, before_raw)?;
+                replace_atomic(&source, content.as_bytes(), Some(permissions))
+                    .map_err(|error| io_error(&source, error))?;
+                Ok(WriteResponse {
+                    written: content.to_owned(),
+                })
+            }
+            WriteOp::Delete { before_raw } => {
+                let _locks = self.lock_all(&[&source])?;
+                compare(&source, request.display, before_raw)?;
+                std::fs::remove_file(&source).map_err(|error| io_error(&source, error))?;
+                Ok(WriteResponse {
+                    written: String::new(),
+                })
+            }
+            WriteOp::Move {
+                before_raw,
+                destination,
+                content,
+            } => {
+                let target = crate::path::canonical_key(destination);
+                let _locks = self.lock_all(&[&source, &target])?;
+                let permissions = compare(&source, request.display, before_raw)?;
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent).map_err(|error| io_error(parent, error))?;
+                }
+                replace_atomic(&target, content.as_bytes(), Some(permissions))
+                    .map_err(|error| io_error(&target, error))?;
+                std::fs::remove_file(&source).map_err(|error| io_error(&source, error))?;
+                Ok(WriteResponse {
+                    written: content.to_owned(),
+                })
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -18,8 +18,18 @@ regex = "1"
 twox-hash = { version = "2", default-features = false, features = ["std", "xxhash32", "xxhash64"] }
 # The byte rebase is omp's deadline-bounded Myers diff (`capture_diff_slices_deadline`).
 similar = "3"
+# grep and glob walk the tree as ripgrep does: gitignore-aware, path-ordered.
+ignore = "0.4"
+# Walk filters are omp's literal-separator globs.
+globset = "0.4"
+# grep matches with ripgrep's Rust regex engine; the searcher merges
+# overlapping match context so a line is shown once.
+grep-regex = "0.1"
+grep-searcher = "0.1"
 
 [dev-dependencies]
+# omp's hashline parity fixtures are JSON.
+serde_json.workspace = true
 tempfile = "3"
 
 [lints]

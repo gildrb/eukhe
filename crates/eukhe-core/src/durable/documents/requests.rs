@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use eukhe_docs::{
-    Diag, Documents, ReadContent, ReadError, ReadView, WriteDisposition, WriteError, WriteOutcome,
+    Documents, Notice, ReadContent, ReadError, ReadView, WriteDisposition, WriteError,
+    WriteOutcome,
 };
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
@@ -89,7 +90,7 @@ struct WriteReply {
     rendered: String,
 }
 
-fn diag_lines(diags: &[Diag]) -> Vec<String> {
+fn diag_lines(diags: &[Notice]) -> Vec<String> {
     diags.iter().map(ToString::to_string).collect()
 }
 
