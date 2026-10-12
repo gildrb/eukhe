@@ -54,6 +54,7 @@ programs.eukhe.gateway.enable = true;
 |`gateway.command`|`lib.getExe programs.eukhe.package`|The eukhe executable. Set it when `package` is `null` (mise: `~/.local/share/mise/shims/eukhe`)|
 |`gateway.signalCli`|`pkgs.signal-cli`|The signal-cli package|
 |`gateway.path`|`[]`|More PATH directories. A daemon that the gateway starts uses this PATH for tools|
+|`gateway.environment`|`{}`|More environment variables, for the gateway and a daemon that it starts|
 
 - The service starts only after the link (it needs
   `~/.local/share/signal-cli/data/accounts.json`).

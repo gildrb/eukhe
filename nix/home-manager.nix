@@ -85,6 +85,15 @@ in
           and the agent's tools run with it.
         '';
       };
+
+      environment = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { };
+        example = {
+          SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
+        };
+        description = "More service environment variables. A daemon that the gateway starts inherits them.";
+      };
     };
   };
 
@@ -152,7 +161,8 @@ in
               ]
             )
           }"
-        ];
+        ]
+        ++ lib.mapAttrsToList (name: value: "${name}=${value}") cfg.gateway.environment;
         Restart = "always";
         RestartSec = 5;
         KillMode = "process";
