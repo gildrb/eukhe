@@ -1003,10 +1003,9 @@ def _process_start_id(pid: int) -> str | None:
 
 
 def _record_journal(pid: int, active: bool) -> bool:
-    # Best-effort per the TS (core/orphan-process-journal.ts): journaling
-    # failures never fail the spawn - a misconfigured owner pid is the only
-    # hard False. Identity-free records (no processStartId) are valid and
-    # still safely reaped on POSIX (the group-scoped kill).
+    # Fail closed: once a journal is configured, True means the whole record
+    # is on disk. Enrollment (active=True) also needs the process start id:
+    # without it the host reaper cannot tell the group from a reused pid.
     path = os.environ.get("EUKHE_INTERNAL_ORPHAN_PROCESS_JOURNAL")
     owner = os.environ.get("EUKHE_KERNEL_OWNER_PID")
     if not path or not owner:
@@ -1016,6 +1015,8 @@ def _record_journal(pid: int, active: bool) -> bool:
     except ValueError:
         return False
     start_id = _process_start_id(pid) if active else None
+    if active and start_id is None:
+        return False
     record: dict[str, Any] = {
         "version": 1,
         "pid": pid,
@@ -1027,11 +1028,6 @@ def _record_journal(pid: int, active: bool) -> bool:
         "recordedAt": datetime.now(timezone.utc).isoformat(),
     }
     data = (json.dumps(record) + "\n").encode()
-    # TS parity (core/orphan-process-journal.ts): process tracking must not
-    # make a successfully spawned command fail - a journal that cannot be
-    # written (a vanished dir, a full disk) means the command runs untracked,
-    # never that the spawn dies. The short-write guard still drops truncated
-    # lines (the host discards them) but returns True: the command is alive.
     try:
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         try:
@@ -1039,13 +1035,14 @@ def _record_journal(pid: int, active: bool) -> bool:
             while view:
                 written = os.write(fd, view)
                 if written <= 0:
-                    break
+                    # A truncated line is discarded by the host: not recorded.
+                    return False
                 view = view[written:]
             os.fsync(fd)
         finally:
             os.close(fd)
     except OSError:
-        pass
+        return False
     return True
 
 
