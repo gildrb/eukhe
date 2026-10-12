@@ -7,13 +7,16 @@
 //! restart (the supervisor relaunches the worker over the same storage)
 //! all read the same durable truth, which a crash cannot lose.
 
+use std::sync::Arc;
+
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue};
-use eukhe_durable::documents::{ConversationDoc, DocDefinition};
+use eukhe_durable::documents::{CallbackError, ConversationDoc, DocDefinition};
 use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{CheckpointInfo, ConversationId, DocumentReaderExt, LatestFork};
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 use serde::{Deserialize, Serialize};
 
@@ -56,16 +59,17 @@ impl From<eukhe_durable::harness::types::WhenBusy> for WithdrawnMode {
     }
 }
 
-/// One withdrawn input: its lane and content. `id` is the withdrawn
-/// submission's id when the input had one (an abort withdrew it from the
-/// inbox); admissions an input pause held before their submission carry
-/// none and preview by content alone.
+/// One withdrawn input: its lane, content, and origin. `id` is the
+/// withdrawn submission's id when the input had one (an abort withdrew it
+/// from the inbox); admissions an input pause held before their submission
+/// carry none and preview by content alone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct WithdrawnInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) id: Option<eukhe_durable::types::SubmissionId>,
     pub(crate) mode: WithdrawnMode,
     pub(crate) content: UserContent,
+    pub(crate) origin: InputOrigin,
 }
 
 impl From<&QueuedInput> for WithdrawnInput {
@@ -74,6 +78,7 @@ impl From<&QueuedInput> for WithdrawnInput {
             id: Some(input.id),
             mode: input.mode.into(),
             content: input.content.clone(),
+            origin: input.origin.clone(),
         }
     }
 }
@@ -90,6 +95,7 @@ impl WithdrawnInput {
             mode: self.mode.into(),
             text: content_preview(&self.content),
             content: self.content.clone(),
+            origin: self.origin.clone(),
         }
     }
 }
@@ -132,13 +138,31 @@ fn suspended_checkpoint_when(
     empty("suspended") && empty("held")
 }
 
-/// The conversation-scope `eukhe.daemon.suspended` document (version 1).
+/// Version 1 inputs carry no origin: they read as the user's input.
+fn migrate_suspended(value: &JsonObject, _from: u64) -> Result<SuspendedState, CallbackError> {
+    let origin = to_json(&InputOrigin::User)?;
+    let mut value = value.clone();
+    for list in ["suspended", "held"] {
+        let Some(inputs) = value.get_mut(list).and_then(JsonValue::as_array_mut) else {
+            continue;
+        };
+        for input in inputs {
+            input
+                .as_object_mut()
+                .ok_or("eukhe.daemon.suspended input is not an object")?
+                .insert("origin", origin.clone());
+        }
+    }
+    Ok(from_json(&JsonValue::Object(Arc::new(value)))?)
+}
+
+/// The conversation-scope `eukhe.daemon.suspended` document (version 2).
 static SUSPENDED_DOC: ConversationDoc<SuspendedState> = match ConversationDoc::define(
     DocDefinition {
         kind: "eukhe.daemon.suspended",
-        version: 1,
+        version: 2,
         initial: SuspendedState::default,
-        migrate: None,
+        migrate: Some(migrate_suspended),
         checkpoint_when: Some(suspended_checkpoint_when),
     },
     LatestFork::Current,

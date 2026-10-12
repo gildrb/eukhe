@@ -354,6 +354,7 @@ mod tests {
             InboxItem::Steer {
                 id: SubmissionId::from_number(1),
                 content: UserContent::Text("steer this".into()),
+                origin: eukhe_types::input_origin::InputOrigin::User,
             },
             InboxItem::Write {
                 id: SubmissionId::from_number(2),
@@ -362,6 +363,7 @@ mod tests {
             InboxItem::FollowUp {
                 id: SubmissionId::from_number(3),
                 content: UserContent::Text("fu this".into()),
+                origin: eukhe_types::input_origin::InputOrigin::User,
             },
         ];
         assert_eq!(

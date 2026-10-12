@@ -83,13 +83,13 @@ fn target_and_capacity_guards() {
 }
 
 #[test]
-fn message_prompts_and_id_parsing() {
+fn message_prompts() {
     let payload = AgentMessagePromptPayload {
         message: "keep going".to_string(),
         sender_name: "worker-1".to_string(),
         from_relationship: Some(AgentFamilyRelationship::Child),
     };
-    let prompt = create_agent_session_message_prompt(&payload);
+    let prompt = agent_session_message_report(&payload).render(&payload.message);
     assert_eq!(prompt, "[agent-message from child:worker-1]\n\nkeep going");
     // Header values are sanitized.
     let evil = AgentMessagePromptPayload {
@@ -98,16 +98,11 @@ fn message_prompts_and_id_parsing() {
         from_relationship: None,
     };
     assert_eq!(
-        create_agent_session_message_prompt(&evil),
-        "[agent-message from bad name!]\n\nm"
+        agent_session_message_report(&evil),
+        Report::AgentMessage {
+            sender: "bad name!".to_owned()
+        }
     );
-    // Legacy transcript header parsing.
-    let header = format!(
-        "Agent-to-agent message received.\nSource: {AGENT_MESSAGE_SOURCE}\nTo: worker\nMessage id: {}",
-        create_agent_session_message_id()
-    );
-    let parsed = parse_agent_session_message_prompt_id(&header).unwrap();
-    assert!(parsed.starts_with("agentmsg_"));
 }
 
 #[test]

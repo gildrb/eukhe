@@ -12,6 +12,7 @@ use eukhe_chord::context::Context;
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, DocumentReader};
+use eukhe_types::input_origin::AutonomousNudge;
 use eukhe_types::pi_ai::{StopReason, Usage, UserContent};
 use serde::{Deserialize, Serialize};
 
@@ -206,7 +207,10 @@ pub(crate) enum AutonomousYield {
     /// Autonomous mode does not apply.
     Inactive,
     /// Continue the run with this user text (one continuation consumed).
-    Continue(String),
+    Continue {
+        text: String,
+        nudge: AutonomousNudge,
+    },
     /// Stop the run.
     Stop(AutonomousStop),
 }
@@ -233,21 +237,27 @@ pub(crate) async fn decide(
     match decision.reason {
         AutonomousDecisionReason::MissingTerminalEvidence => {
             add_autonomous_continuation(state);
-            AutonomousYield::Continue(autonomous_continuation_text(state))
+            AutonomousYield::Continue {
+                text: autonomous_continuation_text(state),
+                nudge: AutonomousNudge::Continuation,
+            }
         }
         AutonomousDecisionReason::GateFailed => {
             add_autonomous_continuation(state);
-            let text = state.last_gate_failure.as_ref().map_or_else(
-                || autonomous_continuation_text(state),
-                |failure| {
-                    build_autonomous_gate_failure_continuation(
+            match state.last_gate_failure.as_ref() {
+                Some(failure) => AutonomousYield::Continue {
+                    text: build_autonomous_gate_failure_continuation(
                         failure,
                         state.gates.max_retries,
                         now_millis(),
-                    )
+                    ),
+                    nudge: AutonomousNudge::GateFailed,
                 },
-            );
-            AutonomousYield::Continue(text)
+                None => AutonomousYield::Continue {
+                    text: autonomous_continuation_text(state),
+                    nudge: AutonomousNudge::Continuation,
+                },
+            }
         }
         AutonomousDecisionReason::NotNeeded => AutonomousYield::Stop(AutonomousStop::GatePassed),
         AutonomousDecisionReason::LimitReached => AutonomousYield::Stop(

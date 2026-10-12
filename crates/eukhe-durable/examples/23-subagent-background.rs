@@ -277,6 +277,7 @@ static REPORTER: LazyLock<ReporterTask> = LazyLock::new(|| {
                 } else {
                     WhenBusy::Steer
                 }),
+                origin: eukhe_types::input_origin::InputOrigin::User,
             };
             let submission = subagent.submit(request, &task_context).await?;
             let settled = submission.wait(&task_context).await?;
@@ -349,6 +350,7 @@ static REPORTER: LazyLock<ReporterTask> = LazyLock::new(|| {
                     request_id: Some(format!("subagent-report:{}", reporter.id)),
                     content: UserContent::Text(report),
                     when_busy: Some(WhenBusy::FollowUp),
+                    origin: eukhe_types::input_origin::InputOrigin::User,
                 };
                 main.submit(input, &task_context).await?;
             }
@@ -908,6 +910,7 @@ async fn say(root: &Conversation, text: &str) -> SessionResult<()> {
             request_id: None,
             content: UserContent::Text(text.to_owned()),
             when_busy: None,
+            origin: eukhe_types::input_origin::InputOrigin::User,
         },
         context,
     )
@@ -1035,6 +1038,7 @@ async fn background(ui: Ui, openai: bool) -> Result<(), BoxError> {
             request_id: None,
             content: UserContent::Text("Ask reader for the whale's name.".to_owned()),
             when_busy: None,
+            origin: eukhe_types::input_origin::InputOrigin::User,
         },
         context,
     )

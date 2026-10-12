@@ -1,10 +1,9 @@
 //! The built-in `pi.inbox` document and boundaries (`harness/inbox.ts`, spec
 //! §6): queued submissions of one conversation and their placement.
 
-use std::sync::Arc;
-
 use eukhe_chord::delta::{Draft, DraftItem, Op};
 use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue};
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{Message, UserContent, UserMessage};
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -12,8 +11,10 @@ use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 
 use crate::documents::{ConversationDoc, DocDefinition};
-use crate::entries::USER_ENTRY;
-use crate::harness::types::QueueMode;
+use crate::entries::{UserData, USER_ENTRY};
+use crate::harness::types::{
+    InputSubmissionDraft, QueueMode, SubmissionDraft, WhenBusy, WriteSubmissionDraft,
+};
 use crate::session::{SessionResult, Tx};
 use crate::types::{
     CheckpointInfo, ConversationId, EntryDraft, EntryHead, EntryId, LatestFork, SubmissionId,
@@ -29,12 +30,16 @@ pub enum InboxItem {
     Steer {
         id: SubmissionId,
         content: UserContent,
+        #[serde(default = "user_origin")]
+        origin: InputOrigin,
     },
     /// Input admitted with `whenBusy: "followUp"` or no `whenBusy`.
     #[serde(rename = "followUp")]
     FollowUp {
         id: SubmissionId,
         content: UserContent,
+        #[serde(default = "user_origin")]
+        origin: InputOrigin,
     },
     /// A passive write; `entry` is an `EntryDraft`, stored as plain JSON.
     #[serde(rename = "write")]
@@ -42,6 +47,37 @@ pub enum InboxItem {
 }
 
 impl InboxItem {
+    /// The queued item of submission `id` admitted as `draft`.
+    ///
+    /// # Errors
+    ///
+    /// A write entry that is not strict JSON.
+    pub(crate) fn queued(id: SubmissionId, draft: SubmissionDraft) -> SessionResult<Self> {
+        Ok(match draft {
+            SubmissionDraft::Write(WriteSubmissionDraft { entry, .. }) => Self::Write {
+                id,
+                entry: to_json(&entry)?,
+            },
+            SubmissionDraft::Input(InputSubmissionDraft {
+                content,
+                when_busy,
+                origin,
+                ..
+            }) => match when_busy {
+                Some(WhenBusy::Steer) => Self::Steer {
+                    id,
+                    content,
+                    origin,
+                },
+                Some(WhenBusy::FollowUp | WhenBusy::Reject) | None => Self::FollowUp {
+                    id,
+                    content,
+                    origin,
+                },
+            },
+        })
+    }
+
     /// The queued submission.
     #[must_use]
     pub fn id(&self) -> SubmissionId {
@@ -51,12 +87,27 @@ impl InboxItem {
     }
 }
 
-/// TS object-literal order: `{ id, mode, content }` / `{ id, mode, entry }`.
+/// An input item without `origin` is the user's input.
+fn user_origin() -> InputOrigin {
+    InputOrigin::User
+}
+
+/// TS object-literal order: `{ id, mode, content }` / `{ id, mode, entry }`;
+/// an eukhe `origin` follows the content unless the input is the user's.
 impl Serialize for InboxItem {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut item = serializer.serialize_struct("InboxItem", 3)?;
         match self {
-            Self::Steer { id, content } | Self::FollowUp { id, content } => {
+            Self::Steer {
+                id,
+                content,
+                origin,
+            }
+            | Self::FollowUp {
+                id,
+                content,
+                origin,
+            } => {
+                let mut item = serializer.serialize_struct("InboxItem", 4)?;
                 item.serialize_field("id", id)?;
                 let mode = if matches!(self, Self::Steer { .. }) {
                     "steer"
@@ -65,14 +116,23 @@ impl Serialize for InboxItem {
                 };
                 item.serialize_field("mode", mode)?;
                 item.serialize_field("content", content)?;
+                match origin {
+                    InputOrigin::User => item.skip_field("origin")?,
+                    InputOrigin::Goal { .. }
+                    | InputOrigin::Autonomous { .. }
+                    | InputOrigin::QuotaResume
+                    | InputOrigin::Report { .. } => item.serialize_field("origin", origin)?,
+                }
+                item.end()
             }
             Self::Write { id, entry } => {
+                let mut item = serializer.serialize_struct("InboxItem", 3)?;
                 item.serialize_field("id", id)?;
                 item.serialize_field("mode", "write")?;
                 item.serialize_field("entry", entry)?;
+                item.end()
             }
         }
-        item.end()
     }
 }
 
@@ -269,6 +329,10 @@ pub async fn apply_boundary(
         let item = &items[index];
         let id = submission_id_of(item)?;
         let content: UserContent = from_json(&item["content"])?;
+        let origin = match item.get("origin") {
+            Some(origin) => from_json(origin)?,
+            None => user_origin(),
+        };
         let message = Message::User(UserMessage {
             content,
             timestamp: now,
@@ -279,7 +343,9 @@ pub async fn apply_boundary(
                 conversation_id,
                 TypedEntryDraft {
                     model: Some(vec![message]),
-                    ..TypedEntryDraft::default()
+                    data: UserData { origin },
+                    head: None,
+                    edits: None,
                 },
             )
             .await?;
@@ -374,18 +440,4 @@ pub fn withdraw_queued_inputs(
         Ok(())
     }
     .boxed()
-}
-
-/// The JSON of a queued item, in TS object-literal order.
-pub(crate) fn item_json(
-    id: SubmissionId,
-    mode: &str,
-    field: &str,
-    value: JsonValue,
-) -> SessionResult<JsonValue> {
-    let mut item = JsonObject::with_capacity(3);
-    item.insert("id", to_json(&id)?);
-    item.insert("mode", JsonValue::from(mode));
-    item.insert(field, value);
-    Ok(JsonValue::Object(Arc::new(item)))
 }

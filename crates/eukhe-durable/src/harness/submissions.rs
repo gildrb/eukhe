@@ -11,10 +11,10 @@ use eukhe_types::pi_ai::{Message, UserMessage};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
-use crate::entries::USER_ENTRY;
+use crate::entries::{UserData, USER_ENTRY};
 use crate::errors::ConversationBusy;
 use crate::harness::inbox::{
-    apply_boundary, is_stale, item_json, prepare_boundary, remove_inbox_item, BoundaryAt,
+    apply_boundary, is_stale, prepare_boundary, remove_inbox_item, BoundaryAt, InboxItem,
     QueueModes, INBOX_DOC,
 };
 use crate::harness::live::run::{start_run, timestamp};
@@ -470,27 +470,12 @@ pub async fn admit_submission(
         })
         .await?;
     let id = record.id;
-    // Typed drafts serialize as strict JSON, omitting absent optional fields.
-    let item = match &draft {
-        SubmissionDraft::Write(WriteSubmissionDraft { entry, .. }) => {
-            item_json(id, "write", "entry", to_json(entry)?)?
-        }
-        SubmissionDraft::Input(InputSubmissionDraft {
-            content, when_busy, ..
-        }) => {
-            let mode = if *when_busy == Some(WhenBusy::Steer) {
-                "steer"
-            } else {
-                "followUp"
-            };
-            item_json(id, mode, "content", to_json(content)?)?
-        }
-    };
+    let item = InboxItem::queued(id, draft)?;
     let items = match &boundary {
         Some(boundary) => boundary.items()?,
         None => tx.doc(&INBOX_DOC, conversation_id).await?.child("items")?,
     };
-    items.push([item])?;
+    items.push([to_json(&item)?])?;
     let Some(boundary) = boundary.as_mut() else {
         return Ok(id);
     };
@@ -537,7 +522,9 @@ async fn admit_idle(
             };
             Ok(tx.create_submission(write).await?.id)
         }
-        SubmissionDraft::Input(InputSubmissionDraft { content, .. }) => {
+        SubmissionDraft::Input(InputSubmissionDraft {
+            content, origin, ..
+        }) => {
             let message = Message::User(UserMessage {
                 content,
                 timestamp: timestamp(now)?,
@@ -548,7 +535,9 @@ async fn admit_idle(
                     conversation_id,
                     TypedEntryDraft {
                         model: Some(vec![message]),
-                        ..TypedEntryDraft::default()
+                        data: UserData { origin },
+                        head: None,
+                        edits: None,
                     },
                 )
                 .await?;

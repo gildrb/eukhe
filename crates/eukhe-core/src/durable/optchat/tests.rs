@@ -21,6 +21,8 @@ use eukhe_durable::session::SessionError;
 use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
+use eukhe_types::goal::GoalContextKind;
+use eukhe_types::input_origin::{AutonomousNudge, ChildExit, InputOrigin, Report};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, CacheBreakpoint, ImageContent, Message, StopReason, SystemContent,
     SystemMessage, TextContent, UserContent, UserContentBlock, UserMessage,
@@ -327,6 +329,7 @@ impl Session {
                     request_id: None,
                     content: UserContent::Text(text.to_string()),
                     when_busy: None,
+                    origin: eukhe_types::input_origin::InputOrigin::User,
                 },
                 cx(),
             )
@@ -840,29 +843,74 @@ fn tool_results_over_the_cap_keep_head_and_tail_and_images() {
     );
 }
 
-#[test]
-fn reports_delivered_as_input_are_logged_as_their_id_line() {
-    use eukhe_durable::types::{EntryId, EntryRecord};
-    let input = |text: &str| EntryRecord {
-        model: Some(vec![user(text, 1)]),
-        data: None,
+/// A `pi.user` entry of `text` placed by an input of `origin`, as the
+/// boundary commits it.
+fn user_entry(text: &str, origin: InputOrigin) -> eukhe_durable::types::EntryRecord {
+    use eukhe_durable::entries::{UserData, USER_ENTRY};
+    use eukhe_durable::types::{EntryId, TypedEntryDraft};
+    let draft = USER_ENTRY
+        .draft(&TypedEntryDraft {
+            model: Some(vec![user(text, 1)]),
+            data: UserData { origin },
+            head: None,
+            edits: None,
+        })
+        .unwrap();
+    eukhe_durable::types::EntryRecord {
+        model: draft.model,
+        data: draft.data,
         edits: None,
-        kind: "pi.user".to_string(),
+        kind: draft.kind,
         id: EntryId::from_number(1),
         conversation_id: ROOT_CONVERSATION_ID,
         head: None,
         by_task_id: None,
+    }
+}
+
+#[test]
+fn reports_delivered_as_input_are_logged_as_their_id_line() {
+    let exited = Report::ChildExited {
+        child: "scout".to_owned(),
+        exit: ChildExit::NoReply,
     };
-    let lines: Vec<_> = [
-        "[child-exited: no-reply child:scout]\n\nLast assistant text: hi",
-        "[child-failed child:scout]\n\nboom",
-        "[agent-message from child:x]\n\nbody",
-        "[goal: continuation] keep going",
-        "plain words",
-    ]
-    .iter()
-    .flat_map(|text| super::lines::entry_lines(&input(text)))
-    .collect();
+    let failed = Report::ChildFailed {
+        child: "scout".to_owned(),
+    };
+    let message = Report::AgentMessage {
+        sender: "child:x".to_owned(),
+    };
+    let entries = [
+        user_entry(
+            &exited.render("Last assistant text: hi"),
+            InputOrigin::Report { report: exited },
+        ),
+        user_entry(
+            &failed.render("boom"),
+            InputOrigin::Report { report: failed },
+        ),
+        user_entry(
+            &message.render("body"),
+            InputOrigin::Report { report: message },
+        ),
+        user_entry(
+            "keep going",
+            InputOrigin::Goal {
+                context: GoalContextKind::Continuation,
+            },
+        ),
+        user_entry(
+            "go on",
+            InputOrigin::Autonomous {
+                nudge: AutonomousNudge::Continuation,
+            },
+        ),
+        user_entry("plain words", InputOrigin::User),
+    ];
+    let lines: Vec<_> = entries
+        .iter()
+        .flat_map(|entry| super::lines::entry_lines(entry).unwrap())
+        .collect();
     assert_eq!(
         lines,
         vec![
@@ -874,6 +922,28 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
             (Kind::Work, "[child:x] body".to_string()),
             (Kind::User, "plain words".to_string()),
         ]
+    );
+}
+
+/// Regression: the user's own words that look like a harness header are
+/// logged as the user's words.
+#[test]
+fn user_words_shaped_like_a_harness_header_are_logged_as_typed() {
+    let texts = [
+        "[goal: continuation] keep going",
+        "[autonomous-continuation]\n\nmore",
+        "[child-failed child:scout]\n\nboom",
+    ];
+    let lines: Vec<_> = texts
+        .iter()
+        .flat_map(|text| super::lines::entry_lines(&user_entry(text, InputOrigin::User)).unwrap())
+        .collect();
+    assert_eq!(
+        lines,
+        texts
+            .iter()
+            .map(|text| (Kind::User, (*text).to_string()))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -900,7 +970,7 @@ fn agent_replies_are_logged_as_work_and_owed_rows_are_not() {
             "I reported 42.",
         )),
         true,
-        None,
+        Some(serde_json::json!({ "id": "r1", "from": "alpha", "message": "I reported 42." })),
         1,
     )
     .unwrap();
@@ -914,8 +984,8 @@ fn agent_replies_are_logged_as_work_and_owed_rows_are_not() {
     .unwrap();
     assert_eq!(
         [
-            super::lines::entry_lines(&custom(reply)),
-            super::lines::entry_lines(&custom(owed)),
+            super::lines::entry_lines(&custom(reply)).unwrap(),
+            super::lines::entry_lines(&custom(owed)).unwrap(),
         ],
         [
             vec![(Kind::Work, "[alpha] I reported 42.".to_string())],
@@ -941,7 +1011,7 @@ fn long_user_texts_are_logged_as_several_messages() {
         by_task_id: None,
     };
     assert_eq!(
-        super::lines::entry_lines(&entry),
+        super::lines::entry_lines(&entry).unwrap(),
         vec![(Kind::User, "a".repeat(CAP)), (Kind::User, "b".repeat(7)),]
     );
 }

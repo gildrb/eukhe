@@ -595,6 +595,7 @@ async fn spawn_child(opened: &Opened, setup: &Setup) -> ChildRow {
                 request_id: None,
                 content: UserContent::Text("go".to_owned()),
                 when_busy: None,
+                origin: eukhe_types::input_origin::InputOrigin::User,
             },
             cx(),
         )
@@ -1539,6 +1540,7 @@ async fn spawn_batch_turn(opened: &Opened, setup: &Setup, tasks: Value) -> Strin
                 request_id: None,
                 content: UserContent::Text("go".to_owned()),
                 when_busy: None,
+                origin: eukhe_types::input_origin::InputOrigin::User,
             },
             cx(),
         )

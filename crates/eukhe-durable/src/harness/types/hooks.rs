@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json};
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{AssistantMessage, JsonObject as PiJsonObject, Message, ToolCall};
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -130,6 +131,8 @@ pub struct RequestMessages {
 #[derive(Debug, Clone, PartialEq)]
 pub struct YieldContinuation {
     pub r#continue: UserInput,
+    /// Who produced the continuation input.
+    pub origin: InputOrigin,
 }
 
 /// Before every request attempt, including recovery.

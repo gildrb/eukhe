@@ -9,8 +9,10 @@
 //! tail; any other text longer than [`crate::memory::CAP`] characters is
 //! logged as several messages in a row, never cut.
 
-use eukhe_durable::entries::{ASSISTANT_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
-use eukhe_durable::types::EntryRecord;
+use eukhe_durable::entries::{UserData, ASSISTANT_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
+use eukhe_durable::session::{SessionError, SessionResult};
+use eukhe_durable::types::{EntryData, EntryRecord};
+use eukhe_types::input_origin::{InputOrigin, Report};
 use eukhe_types::pi_ai::{AssistantContentBlock, Message, UserContent, UserContentBlock};
 
 use crate::durable::entries::{BASH_ENTRY, CUSTOM_ENTRY};
@@ -43,28 +45,40 @@ pub(crate) fn lead_of(entry: &EntryRecord) -> Lead {
 
 /// The chat log lines of one committed entry, in order: a long text is
 /// split over several lines of the same kind.
-pub(crate) fn entry_lines(entry: &EntryRecord) -> Vec<(Kind, String)> {
-    whole_lines(entry)
+///
+/// # Errors
+///
+/// A `pi.user` entry whose origin does not decode, or a report whose text
+/// does not start with its header.
+pub(crate) fn entry_lines(entry: &EntryRecord) -> SessionResult<Vec<(Kind, String)>> {
+    Ok(whole_lines(entry)?
         .into_iter()
         .flat_map(|(kind, text)| {
             split_text(&text)
                 .into_iter()
                 .map(move |piece| (kind, piece))
         })
-        .collect()
+        .collect())
 }
 
 /// The lines of one entry before long texts are split.
-fn whole_lines(entry: &EntryRecord) -> Vec<(Kind, String)> {
+fn whole_lines(entry: &EntryRecord) -> SessionResult<Vec<(Kind, String)>> {
     let messages = entry.model.as_deref().unwrap_or_default();
     if entry.kind == USER_ENTRY.kind() {
-        return messages.iter().filter_map(user_input_line).collect();
+        let origin = UserData::decode(entry.data.as_ref())?.origin;
+        let mut lines = Vec::new();
+        for message in messages {
+            if let Some(line) = user_input_line(message, &origin)? {
+                lines.push(line);
+            }
+        }
+        return Ok(lines);
     }
     if entry.kind == ASSISTANT_ENTRY.kind() {
-        return messages.iter().flat_map(assistant_lines).collect();
+        return Ok(messages.iter().flat_map(assistant_lines).collect());
     }
     if entry.kind == TOOL_RESULT_ENTRY.kind() {
-        return messages.iter().filter_map(tool_result_line).collect();
+        return Ok(messages.iter().filter_map(tool_result_line).collect());
     }
     if entry.kind == CUSTOM_ENTRY.kind() {
         let text = messages
@@ -76,44 +90,45 @@ fn whole_lines(entry: &EntryRecord) -> Vec<(Kind, String)> {
             .collect::<Vec<_>>()
             .join("\n");
         if text.trim().is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let custom_type = custom_type(entry);
-        return match classify_custom(&custom_type) {
-            CustomRow::Report => vec![(Kind::Work, report_line(&custom_type, &text))],
+        return Ok(match classify_custom(&custom_type) {
+            CustomRow::Report => vec![(Kind::Work, custom_report_line(entry, &custom_type, &text))],
             CustomRow::Nudge | CustomRow::State => Vec::new(),
-        };
+        });
     }
     if entry.kind == BASH_ENTRY.kind() {
-        return bash_line(entry).into_iter().collect();
+        return Ok(bash_line(entry).into_iter().collect());
     }
     // `pi.system`, `pi.reset`, `pi.compaction`, branch and compaction
     // summaries, custom state: the harness's own rows and rewrites of
     // history already in the log.
-    Vec::new()
+    Ok(Vec::new())
 }
 
-/// A user input: the user's words, or a report delivered as input (a
-/// child's notice) normalized to its `[id] ` line; harness nudges are not
-/// logged.
-fn user_input_line(message: &Message) -> Option<(Kind, String)> {
+/// A user input by its origin: the user's words, or a report normalized
+/// to its `[id] ` line; harness nudges are not logged.
+fn user_input_line(
+    message: &Message,
+    origin: &InputOrigin,
+) -> SessionResult<Option<(Kind, String)>> {
     let Message::User(user) = message else {
-        return None;
+        return Ok(None);
     };
     let text = user_text(&user.content);
-    if text.trim().is_empty()
-        || crate::autonomous::is_autonomous_continuation(&text)
-        || crate::durable::goals::is_goal_nudge(&text)
-    {
-        return None;
+    if text.trim().is_empty() {
+        return Ok(None);
     }
-    let report = REPORT_HEADERS
-        .iter()
-        .find(|(header, _)| text.starts_with(header))
-        .and_then(|(_, custom_type)| normalized_report(custom_type, &text));
-    Some(match report {
-        Some(report) => (Kind::Work, report),
-        None => (Kind::User, text),
+    Ok(match origin {
+        InputOrigin::User => Some((Kind::User, text)),
+        InputOrigin::Goal { .. } | InputOrigin::Autonomous { .. } | InputOrigin::QuotaResume => {
+            None
+        }
+        InputOrigin::Report { report } => {
+            let body = report.body(&text).map_err(SessionError::other)?;
+            Some((Kind::Work, report_line(report, body)))
+        }
     })
 }
 
@@ -222,62 +237,58 @@ fn classify_custom(custom_type: &str) -> CustomRow {
     }
 }
 
-/// The headers of reports that arrive as plain user input (a child's
-/// terminal notice, a forwarded message), with the custom type whose
-/// normalization they take.
-const REPORT_HEADERS: [(&str, &str); 5] = [
-    ("[agent-message from ", "agent_message"),
-    ("[child-exited: ", "rlm_child_terminal_notice"),
-    ("[child-failed ", "rlm_child_failure"),
-    ("[heartbeat: ", "heartbeat_prompt"),
-    ("[bash-", "async_bash_completion"),
-];
-
-/// A report's log line: ONE leading `[id] `, then the report (§9), so the
-/// compactor and the view tag it `work`. The delivered row keeps its own
-/// header (`[agent-message from child:x]\n\nbody` and the like); the log
-/// holds `[child:x] body`.
-pub(crate) fn report_line(custom_type: &str, text: &str) -> String {
-    normalized_report(custom_type, text).unwrap_or_else(|| format!("[{custom_type}] {text}"))
+/// A report's log line: ONE leading `[id] `, then the headline and the
+/// body (§9), so the compactor and the view tag it `work`. The delivered
+/// input keeps its own header (`[agent-message from child:x]\n\nbody` and
+/// the like); the log holds `[child:x] body`.
+fn report_line(report: &Report, body: &str) -> String {
+    let (id, headline) = match report {
+        Report::AgentMessage { sender } => (sender.clone(), String::new()),
+        Report::ChildExited { child, exit } => (
+            format!("child:{child}"),
+            format!("exited ({})", exit.label()),
+        ),
+        Report::ChildFailed { child } => (format!("child:{child}"), "failed".to_owned()),
+        Report::Heartbeat { schedule, run } => {
+            ("heartbeat".to_owned(), format!("{schedule} run#{run}"))
+        }
+        Report::BashDone { pid, exit_code } => (
+            "bash".to_owned(),
+            format!("done pid:{pid} exit:{exit_code}"),
+        ),
+    };
+    let mut line = format!("[{id}] {headline}");
+    if !body.is_empty() {
+        if !headline.is_empty() {
+            line.push('\n');
+        }
+        line.push_str(body);
+    }
+    line
 }
 
-/// The `[id] headline\nbody` form of a report whose header `custom_type`
-/// knows; `None` for other headers.
-fn normalized_report(custom_type: &str, text: &str) -> Option<String> {
-    let (header, body) = text.strip_prefix('[').and_then(|rest| {
-        let end = rest.find(']')?;
-        Some((&rest[..end], rest[end + 1..].trim_start_matches('\n')))
-    })?;
-    // `[id] headline`, the body on its own line after a headline.
-    let line = |id: &str, headline: &str| {
-        let mut line = format!("[{id}] {headline}");
-        if !body.is_empty() {
-            if !headline.is_empty() {
-                line.push('\n');
-            }
-            line.push_str(body);
+/// A custom report row's log line: an agent's answer as `[name] answer`
+/// from its details, any other report as `[custom_type] text`.
+fn custom_report_line(entry: &EntryRecord, custom_type: &str, text: &str) -> String {
+    let details = entry
+        .data
+        .as_ref()
+        .map(serde_json::Value::from)
+        .and_then(|data| data.get("details").cloned());
+    let reply = details.as_ref().and_then(|details| {
+        Some((
+            details.get("from")?.as_str()?,
+            details.get("message")?.as_str()?,
+        ))
+    });
+    match reply {
+        Some((from, message)) if custom_type == crate::agent_messaging::AGENT_REPLY_CUSTOM_TYPE => {
+            format!(
+                "[{}] {message}",
+                crate::agent_messaging::sanitize_message_header_value(from)
+            )
         }
-        line
-    };
-    match custom_type {
-        "agent_message" => header
-            .strip_prefix("agent-message from ")
-            .map(|sender| line(sender, "")),
-        crate::agent_messaging::AGENT_REPLY_CUSTOM_TYPE => header
-            .strip_prefix("agent-reply from ")
-            .map(|sender| line(sender, "")),
-        "rlm_child_terminal_notice" => header
-            .strip_prefix("child-exited: ")
-            .and_then(|rest| rest.split_once(' '))
-            .map(|(how, child)| line(child, &format!("exited ({how})"))),
-        "rlm_child_failure" => header
-            .strip_prefix("child-failed ")
-            .map(|child| line(child, "failed")),
-        "heartbeat_prompt" => header
-            .strip_prefix("heartbeat: ")
-            .map(|run| line("heartbeat", run)),
-        "async_bash_completion" => header.strip_prefix("bash-").map(|done| line("bash", done)),
-        _ => None,
+        Some(_) | None => format!("[{custom_type}] {text}"),
     }
 }
 

@@ -382,6 +382,7 @@ fn yield_hooks(continue_first: bool, always: bool) -> GenerationHooks {
             let first = yields.fetch_add(1, Ordering::SeqCst) == 0;
             let decision = (always || (continue_first && first)).then(|| YieldContinuation {
                 r#continue: "more".into(),
+                origin: eukhe_types::input_origin::InputOrigin::User,
             });
             futures::future::ready(Ok(decision)).boxed()
         })),

@@ -362,7 +362,10 @@ impl Logger {
             return Ok(true);
         };
         let through = last.id;
-        let lines: Vec<_> = entries.iter().flat_map(entry_lines).collect();
+        let mut lines = Vec::new();
+        for entry in &entries {
+            lines.extend(entry_lines(entry)?);
+        }
         if !lines.is_empty() {
             match mode {
                 PassMode::Normal => chat

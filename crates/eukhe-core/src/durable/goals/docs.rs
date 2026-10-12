@@ -9,17 +9,21 @@
 //!   last `on_yield` decision, both keyed by the generation task).
 //! - `eukhe.autonomous`: the autonomous run state (see `autonomous.rs`).
 
+use std::sync::Arc;
+
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::Draft;
-use eukhe_chord::json::{from_json, to_json, JsonValue};
+use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue};
 use eukhe_durable::documents::{
-    ConversationDoc, DocDefinition, DocToken, RewindableConversationDoc, SingletonDocToken,
+    CallbackError, ConversationDoc, DocDefinition, DocToken, RewindableConversationDoc,
+    SingletonDocToken,
 };
 use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{
     ConversationId, DocumentReader, DocumentReaderExt, LatestFork, RewindableFork, TaskId,
 };
+use eukhe_types::input_origin::InputOrigin;
 use serde::{Deserialize, Serialize};
 
 use super::autonomous::AutonomousDocState;
@@ -40,13 +44,29 @@ pub static GOAL_DOC: RewindableConversationDoc<GoalState> = match RewindableConv
     Err(_) => panic!("eukhe.goal has a valid version"),
 };
 
+/// Version 1 recorded a continuation without its origin. The record only
+/// replays a decision on a crash rerun, so a continuation record is
+/// dropped and the rerun decides again.
+fn migrate_loop(value: &JsonObject, _from: u64) -> Result<GoalLoopState, CallbackError> {
+    let mut value = value.clone();
+    let outcome = value
+        .get("yield")
+        .and_then(|record| record.get("outcome"))
+        .and_then(|outcome| outcome.get("type"))
+        .and_then(JsonValue::as_str);
+    if outcome == Some("continue") {
+        value.remove("yield");
+    }
+    Ok(from_json(&JsonValue::Object(Arc::new(value)))?)
+}
+
 /// Continuation bookkeeping of one conversation; a fork starts empty.
 pub(crate) static LOOP_DOC: ConversationDoc<GoalLoopState> = match ConversationDoc::define(
     DocDefinition {
         kind: "eukhe.goal.loop",
-        version: 1,
+        version: 2,
         initial: GoalLoopState::default,
-        migrate: None,
+        migrate: Some(migrate_loop),
         checkpoint_when: Some(|_, _, _| true),
     },
     LatestFork::Initial,
@@ -97,7 +117,7 @@ pub(crate) struct YieldRecord {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(crate) enum YieldOutcome {
     /// Continue the run with this user text.
-    Continue { text: String },
+    Continue { text: String, origin: InputOrigin },
     /// End the run.
     End,
     /// The no-progress backoff: decide again once the wall clock reaches

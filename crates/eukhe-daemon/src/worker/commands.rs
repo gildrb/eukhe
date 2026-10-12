@@ -796,6 +796,7 @@ async fn resubmit(hosted: &HostedSession, inputs: Vec<QueuedInput>) -> Result<()
                     QueuedMode::Steer => WhenBusy::Steer,
                     QueuedMode::FollowUp => WhenBusy::FollowUp,
                 }),
+                origin: input.origin,
             },
             &BACKGROUND_CONTEXT,
         )

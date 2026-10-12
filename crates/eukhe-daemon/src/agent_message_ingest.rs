@@ -109,8 +109,8 @@ pub(crate) async fn withdraw_queued(
     let mut withdrawn = Vec::new();
     for item in inbox.items {
         let (id, lane, content): (SubmissionId, WithdrawnLane, Option<UserContent>) = match item {
-            InboxItem::Steer { id, content } => (id, WithdrawnLane::Steer, Some(content)),
-            InboxItem::FollowUp { id, content } => (id, WithdrawnLane::FollowUp, Some(content)),
+            InboxItem::Steer { id, content, .. } => (id, WithdrawnLane::Steer, Some(content)),
+            InboxItem::FollowUp { id, content, .. } => (id, WithdrawnLane::FollowUp, Some(content)),
             InboxItem::Write { id, .. } => (id, WithdrawnLane::Write, None),
         };
         let Some(handle) = harness.submission(id, cx).await? else {

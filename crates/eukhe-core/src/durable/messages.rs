@@ -4,6 +4,7 @@
 use crate::agent_messaging::sanitize_message_header_value;
 use crate::cron::AgentCronJob;
 use eukhe_types::ai::{TextContent, UserContent, UserContentBlock, UserMessage};
+use eukhe_types::input_origin::Report;
 use eukhe_types::session::AgentMessage;
 use std::fmt::Write as _;
 
@@ -183,6 +184,15 @@ pub fn create_compaction_outcome_message(
     }
 }
 
+/// The report of one heartbeat fire: the sanitized schedule and the run.
+#[must_use]
+pub fn heartbeat_report(job: &AgentCronJob) -> Report {
+    Report::Heartbeat {
+        schedule: sanitize_message_header_value(&job.schedule.expression),
+        run: job.run_count,
+    }
+}
+
 /// The durable heartbeat delivery row (TS `createHeartbeatPromptMessage`):
 /// a `heartbeat_prompt` custom message carrying the job's prompt under the
 /// `[heartbeat: <schedule> run#<n>]` header, with the job's run bookkeeping
@@ -195,11 +205,7 @@ pub fn create_heartbeat_prompt_message(
     job: &AgentCronJob,
     timestamp: u64,
 ) -> eukhe_types::session::CustomMessage {
-    let schedule = sanitize_message_header_value(&job.schedule.expression);
-    let content = format!(
-        "[heartbeat: {schedule} run#{}]\n\n{}",
-        job.run_count, job.prompt
-    );
+    let content = heartbeat_report(job).render(&job.prompt);
     // The details block mirrors the TS JSON exactly: the fixed keys in
     // the TS order, and the optional `nextRunAt`/`lastRunAt` omitted
     // while undefined (TS `JSON.stringify` drops undefined fields, so a
@@ -249,7 +255,8 @@ pub fn create_async_bash_completion_message(
 ) -> eukhe_types::session::CustomMessage {
     // TS `JSON.stringify(details.command)`: the quoted, escaped command.
     let encoded_command = serde_json::to_string(command).unwrap_or_default();
-    let content = format!("[bash-done pid:{pid} exit:{exit_code}]\n\nCommand: {encoded_command}");
+    let content =
+        Report::BashDone { pid, exit_code }.render(&format!("Command: {encoded_command}"));
     eukhe_types::session::CustomMessage {
         custom_type: ASYNC_BASH_COMPLETION_CUSTOM_TYPE.to_string(),
         content: UserContent::Text(content),

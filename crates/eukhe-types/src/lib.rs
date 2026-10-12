@@ -17,6 +17,7 @@ pub mod ai;
 pub mod daemon;
 pub mod goal;
 pub mod incident;
+pub mod input_origin;
 pub mod memory_release;
 pub mod pi_ai;
 pub mod platform;

@@ -16,6 +16,7 @@ use eukhe_core::session::discovery::SessionSelectorError;
 use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
 use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, UserContent, UserContentBlock};
 use futures::FutureExt;
 
@@ -528,6 +529,7 @@ async fn drive_prompts(
                         request_id: None,
                         content: user_content(&prompt, images),
                         when_busy: None,
+                        origin: InputOrigin::User,
                     },
                     cx,
                 )

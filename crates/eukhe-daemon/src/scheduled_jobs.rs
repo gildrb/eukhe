@@ -33,6 +33,7 @@ use anyhow::Context as _;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::WhenBusy;
 use eukhe_durable::types::SubmissionStatus;
+use eukhe_types::input_origin::InputOrigin;
 use serde_json::{json, Value};
 
 use eukhe_core::cron::rlm_heartbeat::{KernelCronBinding, KernelCronWiring};
@@ -183,6 +184,7 @@ impl QueueHooks {
                 custom_row: None,
                 when_busy: WhenBusy::FollowUp,
                 request_id,
+                origin: InputOrigin::User,
             };
         }
         // TS `runCronJob`: a heartbeat fire delivers through
@@ -203,6 +205,9 @@ impl QueueHooks {
                 WhenBusy::Steer
             },
             request_id,
+            origin: InputOrigin::Report {
+                report: eukhe_core::durable::messages::heartbeat_report(job),
+            },
         }
     }
 }

@@ -424,13 +424,6 @@ pub fn autonomous_continuation_text(state: &AutonomousRuntimeState) -> String {
     format!("[autonomous-continuation]\n\n{}", state.continuation_prompt)
 }
 
-/// Whether `text` is an autonomous continuation (plain, gate-failed, or
-/// subagent keep-alive): a harness nudge, not the user's words.
-#[must_use]
-pub fn is_autonomous_continuation(text: &str) -> bool {
-    text.starts_with("[autonomous-continuation]") || text.starts_with("[autonomous-continuation: ")
-}
-
 /// Highest recorded gate attempt (across the failure record and per-command
 /// counts): the terminal-gate headline a headless client prints.
 #[must_use]

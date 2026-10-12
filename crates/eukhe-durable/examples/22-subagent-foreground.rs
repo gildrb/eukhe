@@ -205,6 +205,7 @@ fn subagent_extension() -> Arc<Extension> {
                     request_id: Some(format!("subagent:{task_id}")),
                     content: UserContent::Text(task),
                     when_busy: None,
+                    origin: eukhe_types::input_origin::InputOrigin::User,
                 };
                 let settled = handle
                     .submit(request, &call_context)
@@ -409,6 +410,7 @@ async fn foreground(print: UnboundedSender<String>, openai: bool) -> Result<(), 
                         .to_owned(),
                 ),
                 when_busy: None,
+                origin: eukhe_types::input_origin::InputOrigin::User,
             },
             context,
         )

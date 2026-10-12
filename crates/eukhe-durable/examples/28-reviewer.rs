@@ -79,6 +79,7 @@ fn reviewer_extension() -> Arc<Extension> {
                             r#continue: UserContent::Text(format!(
                                 "Look again for anything you missed. Say \"{DONE}\" when there is nothing left."
                             )),
+                            origin: eukhe_types::input_origin::InputOrigin::User,
                         })
                     };
                     async move { Ok(decision) }.boxed()

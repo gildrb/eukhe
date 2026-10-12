@@ -9,6 +9,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{Message, UserContent};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -42,16 +43,20 @@ pub struct InputSubmissionDraft {
     pub request_id: Option<String>,
     pub content: UserInput,
     pub when_busy: Option<WhenBusy>,
+    /// Who produced the input; the queued item and the placed `pi.user`
+    /// entry carry it.
+    pub origin: InputOrigin,
 }
 
 impl InputSubmissionDraft {
-    /// Input `content` without a request ID or busy mode.
+    /// The user's input `content` without a request ID or busy mode.
     #[must_use]
     pub fn new(content: impl Into<UserInput>) -> Self {
         Self {
             request_id: None,
             content: content.into(),
             when_busy: None,
+            origin: InputOrigin::User,
         }
     }
 }

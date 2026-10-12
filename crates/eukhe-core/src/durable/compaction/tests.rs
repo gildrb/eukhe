@@ -98,6 +98,7 @@ impl Fixture {
                     request_id: None,
                     content: UserContent::Text(prompt.to_owned()),
                     when_busy: None,
+                    origin: eukhe_types::input_origin::InputOrigin::User,
                 },
                 cx(),
             )

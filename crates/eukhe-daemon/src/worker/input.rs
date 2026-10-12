@@ -15,6 +15,7 @@ use eukhe_core::durable::input_row_draft;
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy, WriteSubmissionDraft};
 use eukhe_durable::harness::{Conversation, SubmissionHandle};
 use eukhe_durable::types::SubmissionStatus;
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, TextContent, UserContent, UserContentBlock};
 use serde_json::{json, Value};
 
@@ -33,6 +34,7 @@ pub(crate) struct InputRequest {
     pub(crate) when_busy: WhenBusy,
     /// Submission dedupe key (the prompt admission id, `rlm:<task>:...`).
     pub(crate) request_id: Option<String>,
+    pub(crate) origin: InputOrigin,
 }
 
 impl InputRequest {
@@ -111,6 +113,7 @@ pub(crate) async fn submit_input(
                 request_id: request.request_id.clone(),
                 content: request.content(),
                 when_busy: Some(request.when_busy),
+                origin: request.origin.clone(),
             },
             cx,
         )
@@ -233,6 +236,7 @@ impl Worker {
             id: None,
             mode: request.when_busy.into(),
             content: request.content(),
+            origin: request.origin.clone(),
         };
         let held = (|| async {
             let main = hosted.main().map_err(|error| error.to_string())?;
@@ -319,6 +323,7 @@ impl Worker {
             custom_row,
             when_busy,
             request_id: admission_id.clone(),
+            origin: InputOrigin::User,
         };
         // A user's `@name` message from another session owes that session
         // the run's final answer: the bookkeeping row commits before the
@@ -502,6 +507,7 @@ impl Worker {
                 .get("requestId")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            origin: InputOrigin::User,
         };
         // A live input-pause lease holds the delivery like any admission;
         // the release delivers it.
@@ -587,13 +593,13 @@ impl Worker {
                 eprintln!("eukhe-daemon worker: recording the child's reply failed: {error:#}");
             }
         }
-        let prompt = eukhe_core::agent_messaging::create_agent_session_message_prompt(
-            &AgentMessagePromptPayload {
+        let report =
+            eukhe_core::agent_messaging::agent_session_message_report(&AgentMessagePromptPayload {
                 message: message.to_string(),
                 sender_name,
                 from_relationship,
-            },
-        );
+            });
+        let prompt = report.render(message);
         let id = eukhe_core::agent_messaging::create_agent_session_message_id();
         let mut target = json!({
             "activeSessionId": summary.active_session_id.clone().unwrap_or_default(),
@@ -628,6 +634,7 @@ impl Worker {
                 WhenBusy::Steer
             },
             request_id: Some(format!("agent-message:{id}")),
+            origin: InputOrigin::Report { report },
         };
         // A live input-pause lease holds the delivery's input like any
         // admission; the card row above already committed, and the

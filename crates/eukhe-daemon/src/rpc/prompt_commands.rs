@@ -15,6 +15,7 @@ use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::SessionError;
 use eukhe_durable::types::TaskOutcome;
+use eukhe_types::input_origin::InputOrigin;
 use serde_json::Value;
 
 use super::commands::RpcState;
@@ -64,6 +65,7 @@ pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseDa
         request_id: None,
         content: protocol::command_content(message, images),
         when_busy: Some(behavior.unwrap_or(WhenBusy::Reject)),
+        origin: InputOrigin::User,
     };
     main.submit(draft, &cx).await.map_err(|error| {
         if is_busy_refusal(&error) {
@@ -149,6 +151,7 @@ pub async fn steer_or_follow_up(
         request_id: None,
         content: protocol::command_content(message, images),
         when_busy: Some(when_busy),
+        origin: InputOrigin::User,
     };
     handle
         .session

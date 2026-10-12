@@ -49,6 +49,7 @@ use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, TypedEntryDraft};
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason, Message, Model, StopReason,
     TranscriptContext, Usage, UserContent, UserContentBlock,
@@ -857,7 +858,10 @@ async fn resume_if_parked(inner: &Arc<Inner>, context: &TranscriptContext) {
     if let Some(root) = inner.deps.harness.root() {
         let _ = root
             .submit(
-                InputSubmissionDraft::new(QUOTA_RESUME_MARKER_TEXT.to_owned()),
+                InputSubmissionDraft {
+                    origin: InputOrigin::QuotaResume,
+                    ..InputSubmissionDraft::new(QUOTA_RESUME_MARKER_TEXT.to_owned())
+                },
                 &BACKGROUND_CONTEXT,
             )
             .await;

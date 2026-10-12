@@ -5,6 +5,7 @@
 
 use std::future::Future;
 
+use eukhe_types::input_origin::Report;
 use serde_json::{json, Value};
 
 use crate::kernel::shared::{host_handler, HostRequestHandlers};
@@ -279,9 +280,10 @@ pub(crate) fn sanitize_message_header_value(value: &str) -> String {
     out
 }
 
-/// The rendered prompt a receiving context sees.
+/// The report a receiving context gets; its prompt is
+/// `report.render(&payload.message)`.
 #[must_use]
-pub fn create_agent_session_message_prompt(payload: &AgentMessagePromptPayload) -> String {
+pub fn agent_session_message_report(payload: &AgentMessagePromptPayload) -> Report {
     let sender = sanitize_message_header_value(&payload.sender_name);
     let sender = if sender.is_empty() {
         "unknown".to_string()
@@ -292,7 +294,7 @@ pub fn create_agent_session_message_prompt(payload: &AgentMessagePromptPayload) 
         Some(relationship) => format!("{}:{sender}", relationship.as_str()),
         None => sender,
     };
-    format!("[agent-message from {sender}]\n\n{}", payload.message)
+    Report::AgentMessage { sender }
 }
 
 /// The model text of an [`AGENT_REPLY_CUSTOM_TYPE`] row:
@@ -353,36 +355,6 @@ pub fn create_agent_session_message_row(payload: &AgentSessionMessageRowPayload<
         "details": Value::Object(details),
         "timestamp": payload.timestamp,
     })
-}
-
-/// Parse the message id out of the pre-bracket-grammar transcript header.
-#[must_use]
-pub fn parse_agent_session_message_prompt_id(text: &str) -> Option<String> {
-    let lines: Vec<&str> = text.split('\n').collect();
-    let offset = usize::from(lines.first().is_some_and(|line| line.starts_with("[from ")));
-    if lines.get(offset).copied() != Some("Agent-to-agent message received.")
-        || lines.get(offset + 1).copied()
-            != Some(format!("Source: {AGENT_MESSAGE_SOURCE}").as_str())
-    {
-        return None;
-    }
-    let to_line_index = if lines
-        .get(offset + 2)
-        .is_some_and(|line| line.starts_with("From: "))
-    {
-        offset + 3
-    } else {
-        offset + 2
-    };
-    if !lines
-        .get(to_line_index)
-        .is_some_and(|line| line.starts_with("To: "))
-    {
-        return None;
-    }
-    let id_line = lines.get(to_line_index + 1)?;
-    let id = id_line.strip_prefix("Message id: ")?;
-    (!id.is_empty() && id.starts_with(AGENT_MESSAGE_ID_PREFIX)).then(|| id.to_string())
 }
 
 /// The TS `AgentSessionMessageEndpoint` the receipt carries as `target`.

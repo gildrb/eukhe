@@ -28,6 +28,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::{SessionConfig, SessionStorage};
 use eukhe_durable::harness::types::WhenBusy;
+use eukhe_types::input_origin::{InputOrigin, Report};
 use serde_json::Value;
 
 use eukhe_core::kernel::shared::{host_handler, HostRequestHandlers};
@@ -144,6 +145,12 @@ impl BashNotices {
             custom_row: Some(crate::session_custom::custom_row_value(&row)),
             when_busy: WhenBusy::Steer,
             request_id: Some(request_id.clone()),
+            origin: InputOrigin::Report {
+                report: Report::BashDone {
+                    pid: notice.pid,
+                    exit_code: notice.exit_code,
+                },
+            },
         };
         submit_input(&hosted.main()?, &request, &BACKGROUND_CONTEXT).await?;
         self.pending().push(PendingNotice {

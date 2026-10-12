@@ -1610,7 +1610,11 @@ async fn orphans_a_blocked_run_task_with_full_run_cleanup() {
                                 content: UserContent::Text("hi".to_owned()),
                                 timestamp: 1,
                             })]),
-                            ..TypedEntryDraft::default()
+                            data: crate::entries::UserData {
+                                origin: eukhe_types::input_origin::InputOrigin::User,
+                            },
+                            head: None,
+                            edits: None,
                         },
                     )
                     .await?;

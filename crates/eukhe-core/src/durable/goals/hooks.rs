@@ -32,6 +32,7 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, GENERATION_TASK};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryRecord, TaskId};
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{AssistantMessage, Message, UserContent};
 use futures::FutureExt;
 
@@ -86,8 +87,9 @@ pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
                     Ok(host
                         .on_yield(&message, &api, &cx)
                         .await?
-                        .map(|text| YieldContinuation {
+                        .map(|(text, origin)| YieldContinuation {
                             r#continue: UserContent::Text(text),
+                            origin,
                         }))
                 }
                 .boxed()
@@ -238,6 +240,7 @@ impl GoalsHost {
                 submit_goal_context(
                     &conversation,
                     format!("goal:{goal_id}:budget-limit"),
+                    GoalContextKind::BudgetLimit,
                     text,
                     WhenBusy::Steer,
                     cx,
@@ -249,13 +252,13 @@ impl GoalsHost {
     }
 
     /// The continuation decision at a final answer; `Some` continues the run
-    /// with that user text.
+    /// with that user text and origin.
     async fn on_yield(
         &self,
         answer: &AssistantMessage,
         api: &HookApi,
         cx: &Context,
-    ) -> SessionResult<Option<String>> {
+    ) -> SessionResult<Option<(String, InputOrigin)>> {
         let conversation_id = api.conversation_id();
         let task_id = api.task_id();
         let recorded = read_doc(api, &LOOP_DOC, conversation_id, cx)
@@ -292,7 +295,7 @@ impl GoalsHost {
         };
         loop {
             match outcome {
-                YieldOutcome::Continue { text } => return Ok(Some(text)),
+                YieldOutcome::Continue { text, origin } => return Ok(Some((text, origin))),
                 YieldOutcome::End => return Ok(None),
                 YieldOutcome::Wait { until } => {
                     let now = now_millis();
@@ -327,7 +330,7 @@ impl GoalsHost {
         answer: &AssistantMessage,
         task_id: TaskId,
         cx: &Context,
-    ) -> SessionResult<Option<String>> {
+    ) -> SessionResult<Option<(String, InputOrigin)>> {
         let conversation_id = conversation.id();
         let Some(before) = read_doc(
             &self.harness.require()?,
@@ -341,9 +344,11 @@ impl GoalsHost {
         };
         let mut runtime = before.to_runtime();
         let decided = decide(&mut runtime, answer.stop_reason, self.gates.as_ref()).await;
-        let (text, stop) = match decided {
+        let (continuation, stop) = match decided {
             AutonomousYield::Inactive => return Ok(None),
-            AutonomousYield::Continue(text) => (Some(text), None),
+            AutonomousYield::Continue { text, nudge } => {
+                (Some((text, InputOrigin::Autonomous { nudge })), None)
+            }
             AutonomousYield::Stop(stop) => (None, Some(stop)),
         };
         conversation
@@ -354,8 +359,11 @@ impl GoalsHost {
                     let (draft, current) = open_doc(&tx, &AUTONOMOUS_DOC, conversation_id).await?;
                     // An `/autonomous` change while the gates ran wins.
                     let unchanged = current.enabled && current.started_at == before.started_at;
-                    let outcome = match (&text, unchanged) {
-                        (Some(text), true) => YieldOutcome::Continue { text: text.clone() },
+                    let outcome = match (&continuation, unchanged) {
+                        (Some((text, origin)), true) => YieldOutcome::Continue {
+                            text: text.clone(),
+                            origin: origin.clone(),
+                        },
                         (None, true) | (_, false) => YieldOutcome::End,
                     };
                     if unchanged {
@@ -371,7 +379,7 @@ impl GoalsHost {
                     });
                     write_doc(&loop_draft, &loop_state)?;
                     Ok(match outcome {
-                        YieldOutcome::Continue { text } => Some(text),
+                        YieldOutcome::Continue { text, origin } => Some((text, origin)),
                         YieldOutcome::End | YieldOutcome::Wait { .. } => None,
                     })
                 },
@@ -417,7 +425,12 @@ where
                         let (text, context) =
                             goal_context(&written, GoalContextKind::Continuation)?;
                         row = Some(context);
-                        YieldOutcome::Continue { text }
+                        YieldOutcome::Continue {
+                            text,
+                            origin: InputOrigin::Goal {
+                                context: GoalContextKind::Continuation,
+                            },
+                        }
                     }
                 };
                 loop_state.yield_record = Some(YieldRecord {

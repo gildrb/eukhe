@@ -295,6 +295,7 @@ fn types_submissions_task_waits_compaction_and_tasks_erased_into_extensions() {
             request_id: None,
             content: "hi".into(),
             when_busy: Some(WhenBusy::Steer),
+            origin: eukhe_types::input_origin::InputOrigin::User,
         })
     );
     assert_eq!(

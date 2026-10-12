@@ -12,10 +12,11 @@
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
+use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::tasks::{
-    define_task, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime,
+    define_task, Migrated, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime,
 };
 use eukhe_durable::types::{JoinPolicy, TaskId, TaskOutcome, TaskOutcomeError};
 use eukhe_types::pi_ai::UserContent;
@@ -99,7 +100,7 @@ pub(crate) enum ChildCheckpoint {
         unreachable_polls: u32,
     },
     Report {
-        text: String,
+        report: ChildReport,
     },
 }
 
@@ -125,10 +126,27 @@ pub(crate) fn child_task(services: &Arc<ChildrenServices>) -> ChildTask {
     define_task(
         TaskDefinition::new(
             CHILD_TASK_KIND,
-            1,
+            2,
             |_: &ChildTaskInput| Ok(ChildCheckpoint::Spawn),
             phase(|services, task, runtime, cx| Box::pin(abort(services, task, runtime, cx))),
         )
+        // Version 1 stored a report as its text only: the watch derives the
+        // report again from the settled child, and the request id keeps a
+        // report already submitted from queueing twice.
+        .migrate(|input, checkpoint, _version| {
+            let checkpoint = match checkpoint.get("phase").and_then(JsonValue::as_str) {
+                Some("report") => ChildCheckpoint::Watch {
+                    poll: 0,
+                    next_poll_at: 0.0,
+                    unreachable_polls: 0,
+                },
+                Some(_) | None => from_json(checkpoint)?,
+            };
+            Ok(Migrated {
+                input: from_json(input)?,
+                checkpoint,
+            })
+        })
         .phase(
             "spawn",
             phase(|services, task, runtime, cx| Box::pin(spawn(services, task, runtime, cx))),
@@ -300,7 +318,7 @@ async fn prompt(
                     row.error = Some(error.clone());
                 })
                 .await?;
-                Ok(Some(report_next(&ChildReport::Failed {
+                Ok(Some(report_next(ChildReport::Failed {
                     session_name: row.session_name,
                     error,
                 })))
@@ -310,11 +328,9 @@ async fn prompt(
         .await
 }
 
-fn report_next(report: &ChildReport) -> Next {
+fn report_next(report: ChildReport) -> Next {
     NextTaskState::Running {
-        checkpoint: ChildCheckpoint::Report {
-            text: report.text(),
-        },
+        checkpoint: ChildCheckpoint::Report { report },
     }
 }
 
@@ -402,7 +418,7 @@ async fn watch(
                     Err(_) if unreachable_polls + 1 >= WATCH_MAX_UNREACHABLE_POLLS => {
                         row.status = ChildStatus::Error;
                         row.error = Some(UNREACHABLE_ERROR.to_owned());
-                        report_next(&ChildReport::Failed {
+                        report_next(ChildReport::Failed {
                             session_name: row.session_name.clone(),
                             error: UNREACHABLE_ERROR.to_owned(),
                         })
@@ -445,7 +461,7 @@ fn settle_next(row: &mut ChildRow, state: RlmChildRunState, poll: u64, next_poll
                     },
                 };
             }
-            report_next(&ChildReport::CompletedWithoutReply {
+            report_next(ChildReport::CompletedWithoutReply {
                 session_name: row.session_name.clone(),
                 last_assistant_text_preview: answer_preview,
             })
@@ -453,7 +469,7 @@ fn settle_next(row: &mut ChildRow, state: RlmChildRunState, poll: u64, next_poll
         RlmChildRunState::Failed { error } => {
             row.status = ChildStatus::Error;
             row.error = Some(error.clone());
-            report_next(&ChildReport::Failed {
+            report_next(ChildReport::Failed {
                 session_name: row.session_name.clone(),
                 error,
             })
@@ -461,13 +477,13 @@ fn settle_next(row: &mut ChildRow, state: RlmChildRunState, poll: u64, next_poll
     }
 }
 
-/// Submit `text` to the parent as a follow-up. The request id makes a rerun
-/// (a crash between the submission and the terminal commit) return the
-/// first submission instead of queueing a second report.
+/// Submit `report` to the parent as a follow-up. The request id makes a
+/// rerun (a crash between the submission and the terminal commit) return
+/// the first submission instead of queueing a second report.
 async fn submit_report(
     runtime: &Runtime,
     task: &Running,
-    text: String,
+    report: &ChildReport,
     cx: &Context,
 ) -> SessionResult<()> {
     let conversation = runtime
@@ -483,8 +499,9 @@ async fn submit_report(
         .submit(
             InputSubmissionDraft {
                 request_id: Some(report_request_id(task.id.erase())),
-                content: UserContent::Text(text),
+                content: UserContent::Text(report.text()),
                 when_busy: Some(WhenBusy::FollowUp),
+                origin: report.origin(),
             },
             cx,
         )
@@ -494,12 +511,12 @@ async fn submit_report(
 
 /// `report`: deliver the owed report, then end the task.
 async fn report(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
-    let ChildCheckpoint::Report { text } = task.checkpoint.clone() else {
+    let ChildCheckpoint::Report { report } = &task.checkpoint else {
         return Err(SessionError::error(
             "RLM child report phase without its checkpoint",
         ));
     };
-    submit_report(&runtime, &task, text, &cx).await?;
+    submit_report(&runtime, &task, report, &cx).await?;
     let (conversation_id, task_id) = (task.conversation_id, task.id.erase());
     runtime
         .commit(
@@ -530,14 +547,11 @@ async fn abort(
     let task_id = task.id.erase();
     let running = !row.status.is_terminal();
     let owed = match &task.checkpoint {
-        ChildCheckpoint::Report { text } => Some(text.clone()),
+        ChildCheckpoint::Report { report } => Some(report.clone()),
         ChildCheckpoint::Spawn | ChildCheckpoint::Prompt { .. } | ChildCheckpoint::Watch { .. } => {
-            (row.delete_requested() && running).then(|| {
-                ChildReport::Cancelled {
-                    session_name: row.session_name.clone(),
-                    reason: Some(DELETED_BY_PARENT.to_owned()),
-                }
-                .text()
+            (row.delete_requested() && running).then(|| ChildReport::Cancelled {
+                session_name: row.session_name.clone(),
+                reason: Some(DELETED_BY_PARENT.to_owned()),
             })
         }
     };
@@ -553,8 +567,8 @@ async fn abort(
             )))?;
         }
     }
-    if let Some(text) = owed {
-        submit_report(&runtime, &task, text, &cx).await?;
+    if let Some(report) = owed {
+        submit_report(&runtime, &task, &report, &cx).await?;
     }
     let reason = if row.delete_requested() {
         DELETED_BY_PARENT

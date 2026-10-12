@@ -13,25 +13,7 @@ pub const MAX_THREAD_GOAL_OBJECTIVE_CHARS: usize = 4000;
 // eukhe-types (shared with the attached surfaces); this module owns the goal
 // engine: validation, accounting, host responses, and continuation
 // prompts. The slug (`"budget_limited"`) is `GoalStatus::slug`.
-pub use eukhe_types::goal::{empty_goal_state, GoalState, GoalStatus};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GoalContextKind {
-    Continuation,
-    BudgetLimit,
-    ObjectiveUpdated,
-}
-
-impl GoalContextKind {
-    fn label(self) -> &'static str {
-        match self {
-            GoalContextKind::Continuation => "continuation",
-            GoalContextKind::BudgetLimit => "budget-limit",
-            GoalContextKind::ObjectiveUpdated => "objective-updated",
-        }
-    }
-}
+pub use eukhe_types::goal::{empty_goal_state, GoalContextKind, GoalState, GoalStatus};
 
 /// Goal payload returned to the kernel-side goal skill (`snake_case`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

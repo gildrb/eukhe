@@ -35,6 +35,28 @@ impl GoalStatus {
     }
 }
 
+/// The kind of goal context the goal engine submits as input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalContextKind {
+    Continuation,
+    BudgetLimit,
+    ObjectiveUpdated,
+}
+
+impl GoalContextKind {
+    /// The header word: `continuation`, `budget-limit`, or
+    /// `objective-updated`.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Continuation => "continuation",
+            Self::BudgetLimit => "budget-limit",
+            Self::ObjectiveUpdated => "objective-updated",
+        }
+    }
+}
+
 /// The persisted thread-goal state (custom entry data of the
 /// `thread_goal_state` session record, and the `goal_update` event payload).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

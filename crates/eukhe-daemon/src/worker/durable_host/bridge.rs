@@ -19,6 +19,7 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::session::{SessionError, SessionResult, WatchListenerError};
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, SubmissionId};
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{UserContent, UserContentBlock};
 use futures::FutureExt as _;
 use serde_json::{json, Value};
@@ -53,6 +54,7 @@ pub(crate) struct QueuedInput {
     /// The queue-strip preview.
     pub(crate) text: String,
     pub(crate) content: UserContent,
+    pub(crate) origin: InputOrigin,
 }
 
 /// The shown conversation's state on the session core.
@@ -537,17 +539,27 @@ pub async fn inbox_previews(
         .items
         .into_iter()
         .filter_map(|item| match item {
-            InboxItem::Steer { id, content } => Some(QueuedInput {
+            InboxItem::Steer {
+                id,
+                content,
+                origin,
+            } => Some(QueuedInput {
                 id,
                 mode: QueuedMode::Steer,
                 text: content_preview(&content),
                 content,
+                origin,
             }),
-            InboxItem::FollowUp { id, content } => Some(QueuedInput {
+            InboxItem::FollowUp {
+                id,
+                content,
+                origin,
+            } => Some(QueuedInput {
                 id,
                 mode: QueuedMode::FollowUp,
                 text: content_preview(&content),
                 content,
+                origin,
             }),
             InboxItem::Write { .. } => None,
         })
@@ -594,6 +606,7 @@ mod tests {
             mode,
             text: text.to_owned(),
             content: UserContent::Text(text.to_owned()),
+            origin: InputOrigin::User,
         }
     }
 

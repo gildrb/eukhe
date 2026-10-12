@@ -11,6 +11,7 @@ use eukhe_core::durable::custom_entry_draft;
 use eukhe_core::durable::rlm::{refine_now, RefineRequest};
 use eukhe_durable::harness::types::{WhenBusy, WriteSubmissionDraft};
 use eukhe_durable::harness::Conversation;
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 use serde_json::{json, Value};
 
@@ -221,6 +222,7 @@ impl Worker {
                     WhenBusy::FollowUp
                 },
                 request_id: Some(format!("restored-action:{id}")),
+                origin: InputOrigin::User,
             };
             if let Err(error) = submit_input(&main, &request, &BACKGROUND_CONTEXT).await {
                 return response_failure(None, "restore_actions", &format!("{error:#}"), None);

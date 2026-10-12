@@ -15,7 +15,8 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, DocumentReader, EntryDraft, TypedEntryDraft};
-use eukhe_types::pi_ai::{UserContent, UserContentBlock};
+use eukhe_types::input_origin::InputOrigin;
+use eukhe_types::pi_ai::UserContent;
 
 use super::docs::{open_doc, read_doc, write_doc, GOAL_DOC};
 use super::state::{completed, mint_after_backoff, new_goal, paused, resumed, served, stamp, Mint};
@@ -25,37 +26,6 @@ use crate::goals::{
     create_goal_context_message, is_persisted_goal_state, normalize_goal_state,
     stale_active_goal_failure, GoalContextKind, GoalState, GoalStatus, GOAL_STATE_CUSTOM_TYPE,
 };
-
-/// The goal-context prefixes (`[goal: <kind>]`, `crate::goals`' context
-/// message format) of every kind.
-const GOAL_NUDGE_PREFIXES: [&str; 3] = [
-    "[goal: continuation]",
-    "[goal: budget-limit]",
-    "[goal: objective-updated]",
-];
-
-/// Whether `text` is a goal-context nudge (a continuation, budget-limit, or
-/// objective-updated context): harness text, not the user's words.
-#[must_use]
-pub fn is_goal_nudge(text: &str) -> bool {
-    GOAL_NUDGE_PREFIXES
-        .iter()
-        .any(|prefix| text.starts_with(prefix))
-}
-
-/// The concatenated text blocks of user content.
-pub(crate) fn user_text(content: &UserContent) -> String {
-    match content {
-        UserContent::Text(text) => text.clone(),
-        UserContent::Blocks(blocks) => blocks
-            .iter()
-            .filter_map(|block| match block {
-                UserContentBlock::Text(text) => Some(text.text.as_str()),
-                UserContentBlock::Image(_) => None,
-            })
-            .collect(),
-    }
-}
 
 /// The served goal of `conversation_id` (the empty state when none): its
 /// `time_used_seconds` is the goal's age now.
@@ -170,6 +140,7 @@ where
 pub(crate) async fn submit_goal_context(
     conversation: &Conversation,
     request_id: String,
+    context: GoalContextKind,
     text: String,
     when_busy: WhenBusy,
     cx: &Context,
@@ -180,6 +151,7 @@ pub(crate) async fn submit_goal_context(
                 request_id: Some(request_id),
                 content: UserContent::Text(text),
                 when_busy: Some(when_busy),
+                origin: InputOrigin::Goal { context },
             },
             cx,
         )
@@ -223,8 +195,8 @@ pub async fn withdraw_queued_goal_contexts(
         .unwrap_or_default();
     for item in inbox.items {
         let queued = match &item {
-            InboxItem::Steer { content, .. } | InboxItem::FollowUp { content, .. } => {
-                is_goal_nudge(&user_text(content))
+            InboxItem::Steer { origin, .. } | InboxItem::FollowUp { origin, .. } => {
+                matches!(origin, InputOrigin::Goal { .. })
             }
             InboxItem::Write { .. } => false,
         };
@@ -267,6 +239,7 @@ pub async fn start_goal(
         submit_goal_context(
             &conversation,
             format!("goal:{goal_id}:start"),
+            GoalContextKind::Continuation,
             text,
             WhenBusy::FollowUp,
             cx,
@@ -327,6 +300,7 @@ pub async fn resume_goal(
         submit_goal_context(
             &conversation,
             format!("goal:{goal_id}:resume:{updated_at}"),
+            GoalContextKind::Continuation,
             text,
             WhenBusy::FollowUp,
             cx,
@@ -377,6 +351,7 @@ pub async fn continue_goal_after_compaction(
     submit_goal_context(
         &conversation,
         format!("goal:{goal_id}:compaction:{updated_at}"),
+        GoalContextKind::Continuation,
         text,
         WhenBusy::FollowUp,
         cx,

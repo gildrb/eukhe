@@ -3,7 +3,8 @@
 use std::fmt;
 use std::marker::PhantomData;
 
-use eukhe_chord::json::JsonError;
+use eukhe_chord::json::{from_json, to_json, JsonError, JsonValue};
+use eukhe_types::input_origin::InputOrigin;
 use serde::{Deserialize, Serialize};
 
 use crate::harness::types::{CompactionReason, ToolDiagnostic};
@@ -134,8 +135,47 @@ pub struct CompactionData {
     pub harness_state_fingerprint: Option<String>,
 }
 
-/// User input: `model` is `[UserMessage]`. Written by submissions.
-pub static USER_ENTRY: Entry = Entry::builtin("pi.user");
+/// Data of a [`USER_ENTRY`]: who produced the input. The user's own input
+/// stores no data, so its entry keeps the pi-durable shape; any other
+/// origin is stored as `{origin}`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserData {
+    pub origin: InputOrigin,
+}
+
+/// The stored form of a non-user [`UserData`].
+#[derive(Serialize, Deserialize)]
+struct StoredUserData {
+    origin: InputOrigin,
+}
+
+impl EntryData for UserData {
+    fn decode(data: Option<&JsonValue>) -> Result<Self, JsonError> {
+        Ok(Self {
+            origin: match data {
+                Some(data) => from_json::<StoredUserData>(data)?.origin,
+                None => InputOrigin::User,
+            },
+        })
+    }
+
+    fn encode(&self) -> Result<Option<JsonValue>, JsonError> {
+        match &self.origin {
+            InputOrigin::User => Ok(None),
+            InputOrigin::Goal { .. }
+            | InputOrigin::Autonomous { .. }
+            | InputOrigin::QuotaResume
+            | InputOrigin::Report { .. } => to_json(&StoredUserData {
+                origin: self.origin.clone(),
+            })
+            .map(Some),
+        }
+    }
+}
+
+/// User input: `model` is `[UserMessage]`, `data` its [`UserData`].
+/// Written by submissions and `on_yield` continuations.
+pub static USER_ENTRY: Entry<UserData> = Entry::builtin("pi.user");
 
 /// Provider result with any stop reason: `model` is `[AssistantMessage]`.
 /// Written by generation.

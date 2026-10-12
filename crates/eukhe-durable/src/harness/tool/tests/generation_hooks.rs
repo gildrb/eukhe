@@ -47,6 +47,7 @@ fn role(message: &Message) -> &'static str {
 fn continuation(text: &str) -> YieldContinuation {
     YieldContinuation {
         r#continue: UserContent::Text(text.to_owned()),
+        origin: eukhe_types::input_origin::InputOrigin::User,
     }
 }
 
@@ -121,6 +122,7 @@ async fn replaces_request_messages_observes_responses_and_continues_on_yield() {
                         r#continue: UserContent::Blocks(vec![UserContentBlock::Text(
                             TextContent::new("keep going"),
                         )]),
+                        origin: eukhe_types::input_origin::InputOrigin::User,
                     }))
                 }
                 .boxed()

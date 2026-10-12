@@ -3,6 +3,11 @@
 //! `createRlmChildTerminalNoticeMessage` / `createRlmChildFailureMessage`)
 //! and the roster's one-line labels (daemon `rlm_child_model.rs`).
 
+use eukhe_types::input_origin::{ChildExit, InputOrigin, Report};
+
+use crate::agent_messaging::sanitize_message_header_value;
+use serde::{Deserialize, Serialize};
+
 /// Cap on the one-line task label shown in kernel rosters.
 const LABEL_MAX_CHARS: usize = 200;
 const ELLIPSIS: &str = "...";
@@ -11,7 +16,12 @@ const ELLIPSIS: &str = "...";
 pub(crate) const DELETED_BY_PARENT: &str = "Deleted by parent orchestrator";
 
 /// How a child run ended, as reported to the parent.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub(crate) enum ChildReport {
     /// The parent deleted a still-running child.
     Cancelled {
@@ -28,68 +38,47 @@ pub(crate) enum ChildReport {
 }
 
 impl ChildReport {
+    /// The typed origin of the report input.
+    pub(crate) fn origin(&self) -> InputOrigin {
+        InputOrigin::Report {
+            report: self.report(),
+        }
+    }
+
     /// The follow-up text: `[child-exited: cancelled|no-reply child:<name>]`
     /// or `[child-failed child:<name>]` with the reason, preview, or error as
     /// the body.
     pub(crate) fn text(&self) -> String {
-        match self {
-            Self::Cancelled {
-                session_name,
-                reason,
-            } => {
-                let name = sanitize_message_header_value(session_name);
-                let mut content = format!("[child-exited: cancelled child:{name}]");
-                if let Some(reason) = reason.as_deref().filter(|reason| !reason.is_empty()) {
-                    content.push_str("\n\n");
-                    content.push_str(reason);
-                }
-                content
-            }
+        let body = match self {
+            Self::Cancelled { reason, .. } => reason.clone().unwrap_or_default(),
             Self::CompletedWithoutReply {
-                session_name,
                 last_assistant_text_preview,
-            } => {
-                let name = sanitize_message_header_value(session_name);
-                let mut content = format!("[child-exited: no-reply child:{name}]");
-                if let Some(preview) = last_assistant_text_preview
-                    .as_deref()
-                    .filter(|preview| !preview.is_empty())
-                {
-                    content.push_str("\n\nLast assistant text: ");
-                    content.push_str(preview);
-                }
-                content
-            }
-            Self::Failed {
-                session_name,
-                error,
-            } => {
-                let name = sanitize_message_header_value(session_name);
-                format!("[child-failed child:{name}]\n\n{error}")
-            }
-        }
+                ..
+            } => last_assistant_text_preview
+                .as_deref()
+                .filter(|preview| !preview.is_empty())
+                .map(|preview| format!("Last assistant text: {preview}"))
+                .unwrap_or_default(),
+            Self::Failed { error, .. } => error.clone(),
+        };
+        self.report().render(&body)
     }
-}
 
-/// Names interpolated into a `[<kind> ...]` header line must not carry the
-/// characters that delimit the header (brackets, newlines, commas, or ":"):
-/// runs of those collapse into one space, then the value trims (TS
-/// `sanitizeMessageHeaderValue`).
-fn sanitize_message_header_value(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    let mut pending_space = false;
-    for char in value.chars() {
-        if char.is_whitespace() || matches!(char, ',' | ':' | '[' | ']') {
-            pending_space = true;
-        } else {
-            if pending_space && !out.is_empty() {
-                out.push(' ');
-            }
-            pending_space = false;
-            out.push(char);
+    fn report(&self) -> Report {
+        match self {
+            Self::Cancelled { session_name, .. } => Report::ChildExited {
+                child: sanitize_message_header_value(session_name),
+                exit: ChildExit::Cancelled,
+            },
+            Self::CompletedWithoutReply { session_name, .. } => Report::ChildExited {
+                child: sanitize_message_header_value(session_name),
+                exit: ChildExit::NoReply,
+            },
+            Self::Failed { session_name, .. } => Report::ChildFailed {
+                child: sanitize_message_header_value(session_name),
+            },
         }
     }
-    out
 }
 
 /// One-line task label: the collapsed prompt, capped for roster rows.

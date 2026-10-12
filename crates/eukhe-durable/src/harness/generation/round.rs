@@ -14,7 +14,7 @@ use eukhe_types::pi_ai::{
 };
 
 use super::{GenerationCheckpoint, GenerationResult, Next, Request, Runtime};
-use crate::entries::{ASSISTANT_ENTRY, RESET_ENTRY, USER_ENTRY};
+use crate::entries::{UserData, ASSISTANT_ENTRY, RESET_ENTRY, USER_ENTRY};
 use crate::harness::agent::add_tools;
 use crate::harness::inbox::{apply_boundary, prepare_boundary, BoundaryAt, QueueModes};
 use crate::harness::live::run::{
@@ -25,7 +25,7 @@ use crate::harness::tool::{
     append_tool_result, harness_error, ToolResultMeta, ToolTaskInput, ToolTaskResult,
 };
 use crate::harness::types::{
-    ContextOptions, GenerationHooks, ToolControl, ToolExecutionMode, UserInput,
+    ContextOptions, GenerationHooks, ToolControl, ToolExecutionMode, YieldContinuation,
 };
 use crate::session::{SessionResult, Tx};
 use crate::tasks::AnyTask;
@@ -171,7 +171,7 @@ pub(super) async fn answer(
     message: AssistantMessage,
     cx: &Context,
 ) -> SessionResult<()> {
-    let continuation: Arc<Mutex<Option<UserInput>>> = Arc::default();
+    let continuation: Arc<Mutex<Option<YieldContinuation>>> = Arc::default();
     let api = runtime.hook_api();
     runtime
         .hooks()
@@ -186,7 +186,7 @@ pub(super) async fn answer(
                 let continuation = Arc::clone(&continuation);
                 async move {
                     if let Some(pending) = pending {
-                        let next = pending.await?.map(|yielded| yielded.r#continue);
+                        let next = pending.await?;
                         *continuation.lock().unwrap_or_else(PoisonError::into_inner) = next;
                     }
                     Ok(())
@@ -220,7 +220,11 @@ pub(super) async fn answer(
                     timestamp(runtime.now()?)?,
                 )
                 .await?;
-                if let Some(content) = continuation {
+                if let Some(YieldContinuation {
+                    r#continue: content,
+                    origin,
+                }) = continuation
+                {
                     if outcome.users.is_empty() && !outcome.reset {
                         let user = UserMessage {
                             content,
@@ -231,7 +235,9 @@ pub(super) async fn answer(
                             conversation_id,
                             TypedEntryDraft {
                                 model: Some(vec![Message::User(user)]),
-                                ..TypedEntryDraft::default()
+                                data: UserData { origin },
+                                head: None,
+                                edits: None,
                             },
                         )
                         .await?;

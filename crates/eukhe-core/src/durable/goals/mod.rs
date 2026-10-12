@@ -32,8 +32,7 @@ pub use autonomous::{
 pub use docs::{AUTONOMOUS_DOC, GOAL_DOC};
 pub use ops::{
     clear_goal, complete_goal, continue_goal_after_compaction, goal_state, import_legacy_goal,
-    is_goal_nudge, pause_goal, resume_goal, seed_initial_goal, start_goal,
-    withdraw_queued_goal_contexts,
+    pause_goal, resume_goal, seed_initial_goal, start_goal, withdraw_queued_goal_contexts,
 };
 pub use state::{
     creation_elapsed_seconds, owns_continuation_wakeup, served, terminal_provider_failure,

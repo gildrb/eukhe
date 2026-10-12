@@ -1,0 +1,143 @@
+//! Who produced a user-role input. A submission, its queued `pi.inbox`
+//! item, and the `pi.user` entry it places carry an [`InputOrigin`];
+//! consumers classify inputs by this tag, never by the text.
+
+use serde::{Deserialize, Serialize};
+
+use crate::goal::GoalContextKind;
+
+/// The producer of one user-role input.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum InputOrigin {
+    /// A person's words, or a client prompt sent on their behalf.
+    User,
+    /// A goal context the goal engine submitted.
+    Goal { context: GoalContextKind },
+    /// An autonomous-mode continuation.
+    Autonomous { nudge: AutonomousNudge },
+    /// The marker that resumes a session the provider quota parked.
+    QuotaResume,
+    /// A report of work outside this conversation.
+    Report { report: Report },
+}
+
+/// Why autonomous mode continued a run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AutonomousNudge {
+    /// The answer had no terminal evidence.
+    Continuation,
+    /// A quality gate failed.
+    GateFailed,
+}
+
+/// How a child run ended without an explicit reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChildExit {
+    /// The parent deleted the running child.
+    Cancelled,
+    /// The child finished without sending a message back.
+    NoReply,
+}
+
+impl ChildExit {
+    /// The header word: `cancelled` or `no-reply`.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Cancelled => "cancelled",
+            Self::NoReply => "no-reply",
+        }
+    }
+}
+
+/// A report delivered as input. Header values are sanitized by the
+/// producer: they hold no brackets, newlines, commas, or colons.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "report", rename_all = "camelCase")]
+pub enum Report {
+    /// A message from another agent session; `sender` is its label
+    /// (`child:name`, `parent:name`, or a bare name).
+    AgentMessage { sender: String },
+    /// A child run ended without an explicit reply.
+    ChildExited { child: String, exit: ChildExit },
+    /// A child run failed.
+    ChildFailed { child: String },
+    /// A heartbeat fire.
+    Heartbeat { schedule: String, run: u64 },
+    /// A detached kernel bash command finished.
+    #[serde(rename_all = "camelCase")]
+    BashDone { pid: u32, exit_code: i64 },
+}
+
+impl Report {
+    /// The header line the model text starts with.
+    #[must_use]
+    pub fn header(&self) -> String {
+        match self {
+            Self::AgentMessage { sender } => format!("[agent-message from {sender}]"),
+            Self::ChildExited { child, exit } => {
+                format!("[child-exited: {} child:{child}]", exit.label())
+            }
+            Self::ChildFailed { child } => format!("[child-failed child:{child}]"),
+            Self::Heartbeat { schedule, run } => format!("[heartbeat: {schedule} run#{run}]"),
+            Self::BashDone { pid, exit_code } => format!("[bash-done pid:{pid} exit:{exit_code}]"),
+        }
+    }
+
+    /// The model text: the header, then a blank line and `body` when the
+    /// body is not empty.
+    #[must_use]
+    pub fn render(&self, body: &str) -> String {
+        let header = self.header();
+        if body.is_empty() {
+            header
+        } else {
+            format!("{header}\n\n{body}")
+        }
+    }
+
+    /// The body of `text`, a text [`Report::render`] produced.
+    ///
+    /// # Errors
+    ///
+    /// `text` does not start with this report's header.
+    pub fn body<'a>(&self, text: &'a str) -> Result<&'a str, ReportTextError> {
+        let header = self.header();
+        let rest = text
+            .strip_prefix(&header)
+            .ok_or(ReportTextError { header })?;
+        Ok(rest.strip_prefix("\n\n").unwrap_or(rest))
+    }
+}
+
+/// A report's text that does not start with the report's header.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("report text does not start with its header {header}")]
+pub struct ReportTextError {
+    header: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_body_is_the_text_after_its_rendered_header() {
+        let report = Report::ChildExited {
+            child: "scout".to_owned(),
+            exit: ChildExit::NoReply,
+        };
+        let text = report.render("Last assistant text: hi");
+        assert_eq!(report.body(&text), Ok("Last assistant text: hi"));
+        assert_eq!(report.body(&report.render("")), Ok(""));
+        assert_eq!(
+            report.body("[child-failed child:scout]\n\nboom"),
+            Err(ReportTextError {
+                header: "[child-exited: no-reply child:scout]".to_owned()
+            })
+        );
+    }
+}

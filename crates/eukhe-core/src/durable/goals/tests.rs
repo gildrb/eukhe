@@ -20,12 +20,14 @@ use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::registry::{create_registry, Registry};
 use eukhe_durable::harness::types::{
     AgentChange, ConversationAbortOptions, Extension, FieldChange, HarnessOptions,
-    InputSubmissionDraft, ModelRef, ToolExecutionResult, ToolRegistration,
+    InputSubmissionDraft, ModelRef, ToolExecutionResult, ToolRegistration, WhenBusy,
 };
-use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
+use eukhe_durable::harness::{
+    Conversation, ConversationEntryQuery, Harness, RootOptions, SubmissionHandle,
+};
 use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
-use eukhe_durable::types::{EntryRecord, Storage};
+use eukhe_durable::types::{EntryRecord, Storage, SubmissionStatus};
 use eukhe_types::pi_ai::{
     AssistantMessage, JsonObject, Message, StopReason, UserContent, UserContentBlock,
 };
@@ -35,18 +37,17 @@ use serde_json::{json, Value};
 use tokio::sync::watch;
 
 use super::docs::{read_doc, AUTONOMOUS_DOC, GOAL_DOC};
-use super::ops::{is_goal_nudge, user_text};
 use super::{
     goal_state, goals_extension, set_autonomous, start_goal, watch_goal_updates, AutonomousChange,
     AutonomousStop,
 };
 use crate::autonomous::{
-    is_autonomous_continuation, AgentAutonomousConfig, AgentAutonomousGateConfig,
-    ChildProcessResult, GateCommandRunner,
+    AgentAutonomousConfig, AgentAutonomousGateConfig, ChildProcessResult, GateCommandRunner,
 };
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
-use crate::goals::{GoalState, GoalStatus};
+use crate::goals::{GoalContextKind, GoalState, GoalStatus};
+use eukhe_types::input_origin::{AutonomousNudge, InputOrigin};
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -241,6 +242,7 @@ async fn submit(root: &Conversation, text: &str) {
                 request_id: None,
                 content: UserContent::Text(text.to_owned()),
                 when_busy: None,
+                origin: eukhe_types::input_origin::InputOrigin::User,
             },
             cx(),
         )
@@ -256,6 +258,28 @@ async fn entries(conversation: &Conversation) -> Vec<EntryRecord> {
         .await
         .expect("entries read");
     page.items.into_iter().rev().collect()
+}
+
+/// The concatenated text blocks of user content.
+fn user_text(content: &UserContent) -> String {
+    match content {
+        UserContent::Text(text) => text.clone(),
+        UserContent::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|block| match block {
+                UserContentBlock::Text(text) => Some(text.text.as_str()),
+                UserContentBlock::Image(_) => None,
+            })
+            .collect(),
+    }
+}
+
+fn user_origins(entries: &[EntryRecord]) -> Vec<InputOrigin> {
+    entries
+        .iter()
+        .filter_map(|entry| USER_ENTRY.narrow(entry.clone()).expect("pi.user data"))
+        .map(|entry| entry.data().origin.clone())
+        .collect()
 }
 
 fn user_texts(entries: &[EntryRecord]) -> Vec<String> {
@@ -330,8 +354,13 @@ async fn a_goal_continues_with_its_context_until_completed() {
         .starts_with("[goal: continuation]\n\nContinue working toward the active thread goal."));
     assert!(texts[1].contains("<objective>\nship it\n</objective>"));
     assert!(texts[2].starts_with("[goal: continuation]"));
-    assert!(texts[1..].iter().all(|text| is_goal_nudge(text)));
-    assert!(!is_goal_nudge("work"));
+    let continuation = InputOrigin::Goal {
+        context: GoalContextKind::Continuation,
+    };
+    assert_eq!(
+        user_origins(&entries),
+        vec![InputOrigin::User, continuation.clone(), continuation]
+    );
     // One display row per continuation, never in model context.
     let contexts = goal_contexts(&entries);
     assert_eq!(contexts.len(), 2);
@@ -449,6 +478,7 @@ async fn goal_counters_survive_a_reopen_mid_continuation() {
             request_id: Some("work".to_owned()),
             content: UserContent::Text("work".to_owned()),
             when_busy: None,
+            origin: eukhe_types::input_origin::InputOrigin::User,
         },
         cx(),
     )
@@ -509,6 +539,7 @@ async fn no_continuation_after_an_abort() {
             request_id: None,
             content: UserContent::Text("work".to_owned()),
             when_busy: None,
+            origin: eukhe_types::input_origin::InputOrigin::User,
         },
         cx(),
     )
@@ -536,6 +567,62 @@ async fn no_continuation_after_an_abort() {
         .expect("read")
         .expect("exists");
     assert_eq!(autonomous.continuations_used, 0);
+    harness.close(cx()).await.expect("close");
+}
+
+/// Regression: withdrawing queued goal contexts keeps the user's own words
+/// even when they look like a goal context.
+#[tokio::test]
+async fn withdrawing_goal_contexts_keeps_user_words_shaped_like_one() {
+    let setup = setup();
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    let (stuck, mut reached) = blocked();
+    setup.faux.set_responses(vec![stuck]);
+    let queue = |text: &str, origin: InputOrigin| InputSubmissionDraft {
+        request_id: None,
+        content: UserContent::Text(text.to_owned()),
+        when_busy: Some(WhenBusy::FollowUp),
+        origin,
+    };
+    root.submit(queue("work", InputOrigin::User), cx())
+        .await
+        .expect("admitted");
+    reached
+        .wait_for(|reached| *reached)
+        .await
+        .expect("requested");
+    let typed = root
+        .submit(
+            queue("[goal: continuation] keep going", InputOrigin::User),
+            cx(),
+        )
+        .await
+        .expect("queued");
+    let nudge = root
+        .submit(
+            queue(
+                "keep going",
+                InputOrigin::Goal {
+                    context: GoalContextKind::Continuation,
+                },
+            ),
+            cx(),
+        )
+        .await
+        .expect("queued");
+    super::withdraw_queued_goal_contexts(&harness, root.id(), cx())
+        .await
+        .expect("withdrawn");
+    let status = |handle: SubmissionHandle| async move {
+        handle.status(cx()).await.expect("status").state.status()
+    };
+    assert_eq!(
+        [status(typed).await, status(nudge).await],
+        [SubmissionStatus::Queued, SubmissionStatus::Unanswered]
+    );
+    root.abort(ConversationAbortOptions::default(), cx())
+        .await
+        .expect("abort");
     harness.close(cx()).await.expect("close");
 }
 
@@ -569,9 +656,13 @@ async fn autonomous_runs_continue_until_their_continuation_limit() {
     let entries = entries(&root).await;
     let texts = user_texts(&entries);
     assert_eq!(texts.len(), 3, "{texts:?}");
-    assert!(texts[1..]
-        .iter()
-        .all(|text| is_autonomous_continuation(text)));
+    let continuation = InputOrigin::Autonomous {
+        nudge: AutonomousNudge::Continuation,
+    };
+    assert_eq!(
+        user_origins(&entries),
+        vec![InputOrigin::User, continuation.clone(), continuation]
+    );
     assert!(texts[1].starts_with("[autonomous-continuation]\n\nNo human input is available"));
     let state = read_doc(&harness, &AUTONOMOUS_DOC, root.id(), cx())
         .await

@@ -318,6 +318,7 @@ async fn resubmit(
                         QueuedMode::Steer => WhenBusy::Steer,
                         QueuedMode::FollowUp => WhenBusy::FollowUp,
                     }),
+                    origin: input.origin,
                 },
                 cx,
             )

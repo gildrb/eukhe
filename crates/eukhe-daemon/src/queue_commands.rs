@@ -12,6 +12,7 @@
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::AbortSubmissionResult;
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{TextContent, UserContent, UserContentBlock};
 use serde_json::{json, Value};
 
@@ -219,7 +220,9 @@ impl Worker {
                 lane: target,
             } => {
                 let (_, input) = &mut queue[position];
+                // The user rewrote the input: the words are now theirs.
                 input.content = content;
+                input.origin = InputOrigin::User;
                 input.text = if text.is_empty() {
                     content_preview(&input.content)
                 } else {
@@ -298,6 +301,7 @@ impl Worker {
                                 QueuedMode::Steer => WhenBusy::Steer,
                                 QueuedMode::FollowUp => WhenBusy::FollowUp,
                             }),
+                            origin: input.origin,
                         },
                         &BACKGROUND_CONTEXT,
                     )

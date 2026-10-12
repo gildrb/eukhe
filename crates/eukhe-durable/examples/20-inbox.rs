@@ -39,6 +39,7 @@ fn input(content: &str, when_busy: Option<WhenBusy>) -> InputSubmissionDraft {
         request_id: None,
         content: UserContent::Text(content.to_owned()),
         when_busy,
+        origin: eukhe_types::input_origin::InputOrigin::User,
     }
 }
 
