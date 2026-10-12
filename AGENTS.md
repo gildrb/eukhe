@@ -95,14 +95,15 @@ background bookkeeping.
 |Crate|Purpose|Direct workspace dependencies|
 |---|---|---|
 |`eukhe-types`|Shared wire and domain types|none|
+|`eukhe-build-info`|This build's identity (version + source commit, `build.rs`)|none|
 |`eukhe-chord`|Contexts, cancellation, JSON (port of chord)|none|
 |`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-chord`|
 |`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`|
 |`eukhe-models`|Bundled model catalog and transport pinning|`eukhe-types`, `eukhe-ai`|
 |`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`|
-|`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`|
-|`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`|
-|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`|
+|`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`|
+|`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-build-info`|
+|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`|
 
 - Dependencies point from higher crates to lower crates only. No cycles.
 - `eukhe-tui` renders from wire types and events; it does not link the session engine.
@@ -112,6 +113,15 @@ background bookkeeping.
 
 - The daemon is a supervisor. It spawns one worker process per active session.
   Workers restart with backoff. Sessions persist as durable storages under
-  `~/.eukhe/sessions/<id>/` (append-only commit logs; legacy `<id>.jsonl` files are
-  imported on open), so reattach works after a supervisor restart.
+  `~/.eukhe/sessions/<id>/`, so reattach works after a supervisor restart.
+- A storage is an append-only commit log (`main.jsonl`, fsync on each commit).
+  Legacy `<id>.jsonl` files are only read: open imports them once. Imports and
+  forks build in a staging directory, fsync it, and rename it into place. A
+  sweep removes staging directories untouched for 24 hours. A delete removes
+  the storage and its legacy file.
+- A worker whose supervisor stays unreachable for the lost-exit window
+  (default 5 minutes) exits. Work in flight defers the exit by one more window
+  at most; the session resumes on a later supervisor.
+- The daemon hello reports `eukhe-build-info::DAEMON_BUILD_ID`. A client
+  treats a daemon of another build as stale and replaces it on an idle start.
 - No stubs, no `todo!()`, no swallowed errors.
