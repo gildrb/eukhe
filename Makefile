@@ -4,7 +4,13 @@ check:
 	cargo clippy --workspace --all-targets --locked -- -D warnings
 	@command -v uv >/dev/null 2>&1 || { echo "uv not installed: the real-kernel tests build their venv from eukhe-runtime/uv.lock"; exit 1; }
 	cargo test --workspace --locked
+	$(MAKE) runtime-test
 	cargo build --release --workspace --locked
+
+# The eukhe-runtime Python suite on the uv-locked kernel env (the env the
+# real-kernel cargo tests build: crates/eukhe-core/tests/support/kernel_runtime.rs).
+runtime-test:
+	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.11 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
 
 
 # Supply-chain gates — local mirrors of the
@@ -172,4 +178,4 @@ runtime-lock-check:
 	cd eukhe-runtime && $(RUNTIME_LOCK_EXPORT) | diff -u requirements-kernel.txt -
 	python3 scripts/release/test_runtime_lock.py
 
-.PHONY: check deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates shard-gates runtime-lock runtime-lock-check
+.PHONY: check runtime-test deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates shard-gates runtime-lock runtime-lock-check
