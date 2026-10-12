@@ -1,11 +1,14 @@
 //! The `agent_message.send` controller (moved with its concern): the family
 //! roster + message delivery through the supervisor, the direct peer
-//! transport with the supervisor-routed fallback, and the wire receipt
-//! mapping.
+//! transport with the supervisor-routed fallback, the root relay of
+//! mesh traffic, and the wire receipt mapping.
+use std::collections::HashMap;
+
+use super::family::{family_of, row_active_id, row_display_name, row_is_subagent, row_target};
 use super::{
-    json, row_is_child, row_is_parent, row_is_sibling, row_str, AgentFamilyMember,
-    AgentFamilyRelationship, AgentMessageController, AgentMessageDeliveryStatus,
-    AgentMessageReceipt, AgentMessageSendInput, Arc, FamilyIdentity, SupervisorLink, Value,
+    json, row_str, AgentFamilyMember, AgentFamilyRelationship, AgentMessageController,
+    AgentMessageDeliveryStatus, AgentMessageReceipt, AgentMessageSendInput, Arc, FamilyIdentity,
+    SupervisorLink, Value,
 };
 
 /// `agent_message.send` controller for daemon workers. The family roster
@@ -26,6 +29,9 @@ pub struct LinkAgentMessageController {
     /// This session's resident RLM children (the same registry
     /// `rlm.list_subagents` reads); `None` for standalone workers.
     pub(super) children: Option<Arc<crate::rlm_children::SupervisorChildSessions>>,
+    /// The relay facts of the last `family()` read (the root and the
+    /// display names a send between two non-root agents relays with).
+    pub(super) relay: std::sync::Mutex<Option<RelayView>>,
 }
 
 impl LinkAgentMessageController {
@@ -42,7 +48,57 @@ impl LinkAgentMessageController {
             worker_token,
             own_summary,
             children,
+            relay: std::sync::Mutex::new(None),
         }
+    }
+}
+
+/// The family facts a send relays to the root with: the family root's
+/// live session, the sender's display name and whether it is a subagent,
+/// and every member target's display name and subagent-ness.
+#[derive(Debug, Clone, Default)]
+pub(super) struct RelayView {
+    root_active_session_id: Option<String>,
+    own_name: String,
+    own_is_subagent: bool,
+    targets: HashMap<String, RelayTarget>,
+}
+
+/// One member target's relay facts.
+#[derive(Debug, Clone)]
+struct RelayTarget {
+    name: String,
+    is_subagent: bool,
+}
+
+/// One root relay of a delivered send.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Relay {
+    root_active_session_id: String,
+    from: String,
+    to: String,
+}
+
+impl RelayView {
+    /// The relay of a send to `target`: only between two non-root agents,
+    /// and only when the family root is resident (and is neither end).
+    fn relay_for(&self, target: &str) -> Option<Relay> {
+        if !self.own_is_subagent {
+            return None;
+        }
+        let member = self
+            .targets
+            .get(target)
+            .filter(|member| member.is_subagent)?;
+        let root = self
+            .root_active_session_id
+            .as_deref()
+            .filter(|root| *root != target)?;
+        Some(Relay {
+            root_active_session_id: root.to_string(),
+            from: self.own_name.clone(),
+            to: member.name.clone(),
+        })
     }
 }
 
@@ -50,17 +106,21 @@ impl LinkAgentMessageController {
 /// `get_direct_worker_transport` window).
 const PEER_TICKET_TIMEOUT_MS: u64 = 5_000;
 
-/// The supervisor roster read behind `family()` and `agent_observe.list`.
+/// Budget for the root relay of a delivered send.
+const RELAY_TIMEOUT_MS: u64 = 5_000;
+
+/// The supervisor roster read behind `family()`: every roster row (live
+/// sessions, seeded passivated children, and the caller's own row), so
+/// the mesh reaches idle and passivated members too.
 async fn roster_summaries(
     link: &Arc<crate::supervisor_link::SupervisorLink>,
     worker_token: &str,
 ) -> anyhow::Result<Vec<Value>> {
-    // TS uses the supervisor's pushed in-memory peer roster, not `list`
-    // (which refreshes every worker serially). Surface an unavailable
-    // supervisor instead of silently claiming the caller has no siblings.
+    // Surface an unavailable supervisor instead of silently claiming the
+    // caller has no family.
     let data = link
         .request_success(
-            json!({ "type": "list_agent_peers", "workerToken": worker_token }),
+            json!({ "type": "list_agent_peers", "workerToken": worker_token, "scope": "roster" }),
             std::time::Duration::from_secs(5),
         )
         .await?;
@@ -69,6 +129,35 @@ async fn roster_summaries(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default())
+}
+
+/// Whether the registry child `child` owns roster `row`. The join is
+/// durable-keyed so a child worker replacement (a new live id, the same
+/// rlm child id / persisted session id) still matches its record.
+fn registry_owns(child: &crate::rlm_children::RlmChildIdentity, row: &Value) -> bool {
+    row_active_id(row)
+        .or_else(|| row_str(row, "id"))
+        .is_some_and(|id| id == child.active_session_id)
+        || row_str(row, "rlmChildId").is_some_and(|id| id == child.rlm_child_id)
+        || row_str(row, "sessionId").is_some_and(|id| child.session_id.as_deref() == Some(id))
+}
+
+/// Push `alias` onto `aliases` unless it is empty, the member id, or
+/// already listed.
+fn push_alias(aliases: &mut Vec<String>, id: &str, alias: &str) {
+    if !alias.is_empty() && alias != id && !aliases.iter().any(|known| known == alias) {
+        aliases.push(alias.to_string());
+    }
+}
+
+/// The member order: parent, siblings, children, relatives (each by name).
+fn relationship_rank(relationship: AgentFamilyRelationship) -> u8 {
+    match relationship {
+        AgentFamilyRelationship::Parent => 0,
+        AgentFamilyRelationship::Sibling => 1,
+        AgentFamilyRelationship::Child => 2,
+        AgentFamilyRelationship::Relative => 3,
+    }
 }
 
 impl AgentMessageController for LinkAgentMessageController {
@@ -85,117 +174,58 @@ impl AgentMessageController for LinkAgentMessageController {
             Some(children) => children.family_child_identities().await?,
             None => Vec::new(),
         };
-        let mut parent_member: Option<AgentFamilyMember> = None;
-        let mut siblings: Vec<AgentFamilyMember> = Vec::new();
-        let mut child_members: Vec<AgentFamilyMember> = Vec::new();
-        for session in sessions {
-            let Some(active_session_id) = session
-                .get("activeSessionId")
-                .or_else(|| session.get("id"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-            else {
+        let family = family_of(&sessions, &identity, |row| {
+            children.iter().any(|child| registry_owns(child, row))
+        });
+        let mut members = Vec::with_capacity(family.members.len() + children.len());
+        let mut targets = HashMap::new();
+        for family_row in &family.members {
+            let session = &sessions[family_row.index];
+            let Some(id) = row_target(session) else {
                 continue;
             };
-            if active_session_id == self.active_session_id {
+            if id == self.active_session_id {
                 continue;
             }
-            let session_id = session
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let name = session
-                .get("sessionName")
-                .and_then(Value::as_str)
-                .filter(|name| !name.is_empty())
-                .map(str::to_string);
-            // A roster row owned by this session's children registry is a
-            // Child member (keyed by its RLM child id and persisted session
-            // id as aliases, so every identifier form the roster exposes
-            // addresses it).
-            let row_rlm_child_id = row_str(&session, "rlmChildId").map(str::to_string);
-            if let Some(position) = children.iter().position(|child| {
-                // The join is durable-keyed so a child worker replacement
-                // (a new live id, the same rlm child id / persisted session
-                // id) consumes its registry record here instead of leaving
-                // it for the leftover loop below to append twice.
-                child.active_session_id == active_session_id
-                    || row_rlm_child_id
-                        .as_deref()
-                        .is_some_and(|id| id == child.rlm_child_id)
-                    || ((!session_id.is_empty()) && child.session_id.as_deref() == Some(session_id))
-            }) {
-                let child = children.swap_remove(position);
-                let mut member = child_member(&child, name);
-                // A worker replacement keeps the durable ids but swaps the
-                // live one: the roster row carries the CURRENT active id
-                // while the registry record holds the id from spawn. The
-                // member keys on the row's live id so role-addressed sends
-                // target the live worker, never the replaced id.
-                if active_session_id != child.active_session_id {
-                    member.id.clone_from(&active_session_id);
+            let mut name = row_str(session, "sessionName").map(str::to_string);
+            let mut aliases = Vec::new();
+            // A roster row owned by this session's children registry keeps
+            // the registry's RLM child id and persisted session id as
+            // aliases (every identifier `rlm.list_subagents` exposes); the
+            // member keys on the row's CURRENT address, never the replaced
+            // spawn-time live id (which stays an alias).
+            let registry_child = children
+                .iter()
+                .position(|child| registry_owns(child, session))
+                .map(|position| children.swap_remove(position));
+            if let Some(child) = &registry_child {
+                push_alias(&mut aliases, &id, &child.rlm_child_id);
+                if let Some(session_id) = &child.session_id {
+                    push_alias(&mut aliases, &id, session_id);
                 }
-                child_members.push(member);
-                continue;
-            }
-            // The session that spawned this worker (when this worker is a
-            // subagent): a Parent member resolved through the durable edge,
-            // never a name. The persisted session id decides first (it
-            // survives the parent's worker replacements and any storage
-            // move), then the live active id, then the session-file alias.
-            if row_is_parent(&session, &identity) {
-                parent_member = Some(AgentFamilyMember {
-                    relationship: AgentFamilyRelationship::Parent,
-                    id: active_session_id,
-                    name,
-                    aliases: (!session_id.is_empty())
-                        .then(|| session_id.to_string())
-                        .into_iter()
-                        .collect(),
-                });
-                continue;
-            }
-            // A row whose durable parent edge points back at this session
-            // is a Child (the registry may lose a record across a worker
-            // replacement; the recorded edge never lies).
-            if row_is_child(&session, &identity) {
-                let mut aliases = session
-                    .get("rlmChildId")
-                    .and_then(Value::as_str)
-                    .filter(|id| !id.is_empty())
-                    .map(str::to_string)
-                    .into_iter()
-                    .collect::<Vec<String>>();
-                if !session_id.is_empty() {
-                    aliases.push(session_id.to_string());
+                push_alias(&mut aliases, &id, &child.active_session_id);
+                if name.is_none() && !child.session_name.is_empty() {
+                    name = Some(child.session_name.clone());
                 }
-                child_members.push(AgentFamilyMember {
-                    relationship: AgentFamilyRelationship::Child,
-                    id: active_session_id,
-                    name,
-                    aliases,
-                });
-                continue;
             }
-            // Siblings share this session's durable parent edge (other
-            // subagents of the same parent); a top-level session's
-            // siblings are the other parentless top-level sessions.
-            // Everything else is outside the nuclear family: it is not
-            // addressable by role, so no name-keyed send can cross
-            // families.
-            if !row_is_sibling(&session, &identity) {
-                continue;
+            for key in ["sessionId", "rlmChildId", "agentId"] {
+                if let Some(alias) = row_str(session, key) {
+                    push_alias(&mut aliases, &id, alias);
+                }
             }
-            siblings.push(AgentFamilyMember {
-                relationship: AgentFamilyRelationship::Sibling,
-                id: active_session_id,
+            targets.insert(
+                id.clone(),
+                RelayTarget {
+                    name: name.clone().unwrap_or_else(|| id.clone()),
+                    is_subagent: registry_child.is_some() || row_is_subagent(session),
+                },
+            );
+            members.push(AgentFamilyMember {
+                relationship: family_row.relationship,
+                id,
                 name,
-                // The persisted session id also addresses a sibling
-                // (TS family entries are keyed by it).
-                aliases: (!session_id.is_empty())
-                    .then(|| session_id.to_string())
-                    .into_iter()
-                    .collect(),
+                aliases,
+                path: family_row.path.clone(),
             });
         }
         // Children the roster does not list (a passivated or
@@ -205,25 +235,61 @@ impl AgentMessageController for LinkAgentMessageController {
         // ledger and relaunches a passivated child. The spawn-time live id
         // stays an alias selector.
         for child in children {
-            let mut member = child_member(&child, None);
-            let durable = crate::rlm_children::durable_child_selector(
+            let id = crate::rlm_children::durable_child_selector(
                 child.session_id.as_deref(),
                 &child.rlm_child_id,
             );
-            member
-                .aliases
-                .push(std::mem::replace(&mut member.id, durable));
-            child_members.push(member);
+            let mut aliases = Vec::new();
+            push_alias(&mut aliases, &id, &child.rlm_child_id);
+            if let Some(session_id) = &child.session_id {
+                push_alias(&mut aliases, &id, session_id);
+            }
+            push_alias(&mut aliases, &id, &child.active_session_id);
+            let name = (!child.session_name.is_empty()).then(|| child.session_name.clone());
+            let path = identity
+                .session_name
+                .as_deref()
+                .zip(name.as_deref())
+                .map(|(parent, name)| format!("{parent}/{name}"));
+            targets.insert(
+                id.clone(),
+                RelayTarget {
+                    name: name.clone().unwrap_or_else(|| id.clone()),
+                    is_subagent: true,
+                },
+            );
+            members.push(AgentFamilyMember {
+                relationship: AgentFamilyRelationship::Child,
+                id,
+                name,
+                aliases,
+                path,
+            });
         }
-        // TS `selectAgentFamily` order: parent, siblings by name, then
-        // children by name.
-        siblings.sort_by(|left, right| left.member_name().cmp(right.member_name()));
-        child_members.sort_by(|left, right| left.member_name().cmp(right.member_name()));
-        Ok(parent_member
-            .into_iter()
-            .chain(siblings)
-            .chain(child_members)
-            .collect())
+        members.sort_by(|left, right| {
+            relationship_rank(left.relationship)
+                .cmp(&relationship_rank(right.relationship))
+                .then_with(|| left.member_name().cmp(right.member_name()))
+        });
+        let own_name = identity
+            .session_name
+            .clone()
+            .or_else(|| {
+                family
+                    .own_index
+                    .and_then(|index| row_display_name(&sessions[index]))
+            })
+            .unwrap_or_else(|| self.active_session_id.clone());
+        *self
+            .relay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(RelayView {
+            root_active_session_id: family.root_active_session_id,
+            own_name,
+            own_is_subagent: !identity.is_top_level(),
+            targets,
+        });
+        Ok(members)
     }
 
     async fn send_agent_message(
@@ -244,6 +310,7 @@ impl AgentMessageController for LinkAgentMessageController {
             DirectDelivery::Unavailable => self.deliver_via_supervisor(input.clone()).await?,
             DirectDelivery::Failed(error) => return Err(anyhow::anyhow!(error)),
         };
+        self.relay_to_root(&input).await;
         Ok(receipt)
     }
 }
@@ -346,6 +413,40 @@ impl LinkAgentMessageController {
             .ok_or_else(|| anyhow::anyhow!("Supervisor returned an invalid agent-message receipt"))
     }
 
+    /// Relay a delivered send between two non-root agents to the family
+    /// root (the display-only `agent_relay` event its clients render),
+    /// from the last `family()` read. Best-effort: a relay failure is
+    /// logged and never fails the delivered send.
+    async fn relay_to_root(&self, input: &AgentMessageSendInput) {
+        let relay = self
+            .relay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .and_then(|view| view.relay_for(&input.target));
+        let Some(relay) = relay else {
+            return;
+        };
+        let sent = self
+            .link
+            .request_success(
+                json!({
+                    "type": "agent_relay",
+                    "activeSessionId": relay.root_active_session_id,
+                    "from": relay.from,
+                    "to": relay.to,
+                    "text": input.message,
+                }),
+                std::time::Duration::from_millis(RELAY_TIMEOUT_MS),
+            )
+            .await;
+        if let Err(error) = sent {
+            eprintln!(
+                "eukhe-daemon worker: relaying the agent message to the family root failed: {error:#}"
+            );
+        }
+    }
+
     /// This session's durable family identity from its own pushed summary:
     /// the ids its family references it by, and its recorded parent edge.
     /// `None` fields degrade; the active session id always comes from the
@@ -411,29 +512,6 @@ impl LinkAgentMessageController {
             }
         }
         sender
-    }
-}
-
-/// One registry child as a family member: a Child relationship keyed by
-/// its live active session id, named by its session name, with the RLM
-/// child id and the persisted session id as alias selectors (every
-/// identifier form `rlm.list_subagents` and the roster expose). `name`
-/// from the roster row overrides the registry's when set (a fresh rename).
-fn child_member(
-    child: &crate::rlm_children::RlmChildIdentity,
-    name: Option<String>,
-) -> AgentFamilyMember {
-    let mut aliases = vec![child.rlm_child_id.clone()];
-    if let Some(session_id) = &child.session_id {
-        if !session_id.is_empty() {
-            aliases.push(session_id.clone());
-        }
-    }
-    AgentFamilyMember {
-        relationship: AgentFamilyRelationship::Child,
-        id: child.active_session_id.clone(),
-        name: name.or_else(|| (!child.session_name.is_empty()).then(|| child.session_name.clone())),
-        aliases,
     }
 }
 

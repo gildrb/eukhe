@@ -283,6 +283,18 @@ impl Editor {
         }
     }
 
+    /// Replace the provider's agent-family `@name` completions. An open
+    /// menu keeps its rows (the roster pushes often; the next keystroke
+    /// re-queries against the new list).
+    pub fn set_autocomplete_agent_mentions(
+        &mut self,
+        items: Vec<crate::autocomplete::CompletionItem>,
+    ) {
+        if let Some(provider) = self.autocomplete_provider.as_mut() {
+            provider.set_agent_mentions(items);
+        }
+    }
+
     #[must_use]
     pub fn is_showing_autocomplete(&self) -> bool {
         self.autocomplete.is_some()

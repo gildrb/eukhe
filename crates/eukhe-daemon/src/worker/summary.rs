@@ -404,6 +404,90 @@ fn first_message(view: &ShownView) -> Option<String> {
         .map(|message| crate::types::message_text(&message))
 }
 
+/// One timed roster-note candidate: its text and when it was written (ms).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TimedNote {
+    pub(crate) text: String,
+    pub(crate) at_ms: u64,
+}
+
+/// The candidates of the roster `note`: the task the session was given,
+/// its latest final report, and its latest accepted progress note.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct NoteCandidates {
+    /// The first user message, or the first agent message the session
+    /// received (a subagent's kickoff), whichever came first.
+    pub(crate) task: Option<String>,
+    /// The last assistant message that stopped (`stopReason: stop`) with
+    /// text.
+    pub(crate) report: Option<TimedNote>,
+    /// The latest accepted `rlm.progress.note`.
+    pub(crate) progress: Option<TimedNote>,
+}
+
+/// The task text one wire message carries: a user message's text, or an
+/// `agent_message` row's `details.message`.
+fn task_text(message: &Value) -> Option<String> {
+    let text = match crate::types::message_role(message)? {
+        "user" => crate::types::message_text(message),
+        "custom" if message.get("customType").and_then(Value::as_str) == Some("agent_message") => {
+            message
+                .get("details")?
+                .get("message")?
+                .as_str()?
+                .to_string()
+        }
+        _ => return None,
+    };
+    (!text.trim().is_empty()).then_some(text)
+}
+
+/// The final report one wire message carries: an assistant message that
+/// stopped with text, timed by its timestamp.
+fn report_note(message: &Value) -> Option<TimedNote> {
+    if crate::types::message_role(message) != Some("assistant")
+        || message.get("stopReason").and_then(Value::as_str) != Some("stop")
+    {
+        return None;
+    }
+    let text = crate::types::message_text(message);
+    (!text.trim().is_empty()).then(|| TimedNote {
+        text,
+        at_ms: crate::types::message_timestamp_ms(message).unwrap_or_default(),
+    })
+}
+
+/// The task and report candidates of a transcript's wire messages (the
+/// progress candidate lives on the core).
+pub(crate) fn note_candidates<I>(messages: I) -> NoteCandidates
+where
+    I: DoubleEndedIterator<Item = Value> + Clone,
+{
+    NoteCandidates {
+        task: messages.clone().find_map(|message| task_text(&message)),
+        report: messages.rev().find_map(|message| report_note(&message)),
+        progress: None,
+    }
+}
+
+/// The roster `note`: the first non-empty line of the newer of the report
+/// and the progress note, else of the task, whitespace-collapsed and
+/// capped at 160 chars.
+pub(crate) fn roster_note(candidates: &NoteCandidates) -> Option<String> {
+    let latest = match (&candidates.report, &candidates.progress) {
+        (Some(report), Some(progress)) if report.at_ms > progress.at_ms => Some(report),
+        (_, Some(progress)) => Some(progress),
+        (Some(report), None) => Some(report),
+        (None, None) => None,
+    };
+    let text = latest
+        .map(|note| note.text.as_str())
+        .or(candidates.task.as_deref())?;
+    text.lines()
+        .find(|line| !line.trim().is_empty())
+        .map(compact_action_label)
+}
+
 /// The newest message timestamp (ms) of the shown conversation.
 fn last_timestamp_ms(view: &ShownView) -> Option<u64> {
     view.translator
@@ -467,6 +551,13 @@ pub(crate) fn session_summary(
         created: core.created_at.clone(),
         modified: last_activity_at,
         first_message: view.and_then(first_message),
+        note: view.and_then(|view| {
+            let entries = view.translator.mirror().entries.iter();
+            roster_note(&NoteCandidates {
+                progress: core.progress_note.clone(),
+                ..note_candidates(entries.filter_map(entry_wire_message))
+            })
+        }),
         parent_session_path: core.parent_session_path.clone(),
         parent_active_session_id: core.parent_active_session_id.clone(),
         parent_session_id: core.parent_session_id.clone(),
@@ -697,5 +788,85 @@ mod tests {
         let long = compact_action_label(&"x".repeat(400));
         assert_eq!(long.chars().count(), 160);
         assert!(long.ends_with("..."));
+    }
+
+    /// The roster note's candidates: the kickoff agent message is the task
+    /// (before any later user row), the last stopped assistant text is the
+    /// report (tool-use turns and empty text never count).
+    #[test]
+    fn note_candidates_read_the_task_and_the_last_report() {
+        let messages = vec![
+            json!({ "role": "custom", "customType": "agent_message",
+                    "details": { "message": "  map the parser\nthen report" } }),
+            json!({ "role": "user", "content": "later user text" }),
+            json!({ "role": "assistant", "stopReason": "stop", "timestamp": 10,
+                    "content": [{ "type": "text", "text": "first report" }] }),
+            json!({ "role": "assistant", "stopReason": "toolUse", "timestamp": 20,
+                    "content": [{ "type": "text", "text": "calling a tool" }] }),
+            json!({ "role": "assistant", "stopReason": "stop", "timestamp": 30,
+                    "content": [{ "type": "text", "text": "  " }] }),
+        ];
+        assert_eq!(
+            note_candidates(messages.into_iter()),
+            NoteCandidates {
+                task: Some("  map the parser\nthen report".to_string()),
+                report: Some(TimedNote {
+                    text: "first report".to_string(),
+                    at_ms: 10,
+                }),
+                progress: None,
+            }
+        );
+    }
+
+    /// The note is the newer of report and progress, else the task: its
+    /// first non-empty line, whitespace-collapsed and capped at 160 chars.
+    #[test]
+    fn the_roster_note_prefers_the_newest_report_or_progress() {
+        let report = TimedNote {
+            text: "\nparser mapped:   three entry points\nsecond line".to_string(),
+            at_ms: 30,
+        };
+        let progress = TimedNote {
+            text: "reading lexer.rs".to_string(),
+            at_ms: 20,
+        };
+        let task = Some("map the parser".to_string());
+        let notes = [
+            roster_note(&NoteCandidates {
+                task: task.clone(),
+                report: Some(report.clone()),
+                progress: Some(progress.clone()),
+            }),
+            roster_note(&NoteCandidates {
+                task: task.clone(),
+                report: Some(TimedNote {
+                    at_ms: 10,
+                    ..report
+                }),
+                progress: Some(progress),
+            }),
+            roster_note(&NoteCandidates {
+                task,
+                report: None,
+                progress: None,
+            }),
+            roster_note(&NoteCandidates {
+                task: Some("x".repeat(400)),
+                report: None,
+                progress: None,
+            }),
+            roster_note(&NoteCandidates::default()),
+        ];
+        assert_eq!(
+            notes,
+            [
+                Some("parser mapped: three entry points".to_string()),
+                Some("reading lexer.rs".to_string()),
+                Some("map the parser".to_string()),
+                Some(format!("{}...", "x".repeat(157))),
+                None,
+            ]
+        );
     }
 }

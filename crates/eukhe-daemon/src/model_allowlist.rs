@@ -28,7 +28,14 @@ pub enum DaemonAllowlist {
 /// Load the daemon allowlist state (settings `allowedModels`, global
 /// scope).
 pub(crate) fn load(cwd: &Path, agent_dir: &Path) -> DaemonAllowlist {
-    let settings = eukhe_core::settings::SettingsManager::create(cwd, agent_dir);
+    from_settings(&eukhe_core::settings::SettingsManager::create(
+        cwd, agent_dir,
+    ))
+}
+
+/// The allowlist state of already-loaded settings (callers that read
+/// other keys from the same document load it once).
+pub(crate) fn from_settings(settings: &eukhe_core::settings::SettingsManager) -> DaemonAllowlist {
     // Only a global document that failed to load is an unknown policy; a
     // setting-level error (a relative `trustedProjects` entry) is not.
     if let Some(error) = settings.global_load_error() {

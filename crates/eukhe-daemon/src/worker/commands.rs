@@ -77,6 +77,8 @@ impl Worker {
             "rename" => self.handle_rename("rename", payload).await,
             "set_session_name" => self.handle_rename("set_session_name", payload).await,
             "mark_anthropic_warning_shown" => self.handle_mark_anthropic_warning_shown().await,
+            "agent_relay" => self.handle_agent_relay(payload),
+            "agent_reply" => self.handle_agent_reply(payload).await,
             "rename_saved_session" => self.handle_rename_saved_session(payload).await,
             "delete_saved_session" => self.handle_delete_saved_session(payload).await,
             "replace_acp_mcp_servers" => self.handle_replace_acp_mcp_servers(payload),
@@ -666,6 +668,27 @@ impl Worker {
             }
             Err(error) => response_failure(None, NAME, &error.to_string(), None),
         }
+    }
+
+    /// `agent_relay`: a peer message between two non-root agents of this
+    /// root's family, shown to the root's attached clients as the
+    /// display-only `agent_relay` session event. It never reaches the
+    /// model and never enters chat memory: only the event stream sees it.
+    fn handle_agent_relay(&self, payload: &Value) -> DaemonResponse {
+        const NAME: &str = "agent_relay";
+        if let Err(response) = self.require_created(NAME) {
+            return response;
+        }
+        let field = |key: &str| payload.get(key).and_then(Value::as_str).map(str::to_string);
+        let (Some(from), Some(to), Some(text)) = (field("from"), field("to"), field("text")) else {
+            return response_failure(None, NAME, "agent_relay needs from, to, and text", None);
+        };
+        self.emit_worker_event(json!(eukhe_types::daemon::AgentRelayEvent {
+            from,
+            to,
+            text
+        }));
+        response_success(None, NAME, None)
     }
 
     pub(crate) async fn handle_rename(&self, command: &str, payload: &Value) -> DaemonResponse {

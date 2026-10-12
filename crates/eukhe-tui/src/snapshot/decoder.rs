@@ -113,6 +113,10 @@ pub enum TurnUpdate {
     /// merged the view. A live transcript row (display only) and the
     /// status gauge's view size.
     MemoryUpdate(eukhe_types::daemon::MemoryUpdate),
+    /// `agent_relay`: two non-root agents of this session's family
+    /// exchanged a message. A display-only transcript row; never sent to
+    /// a model.
+    AgentRelay(eukhe_types::daemon::AgentRelayEvent),
     /// `goal_update`: the session goal state changed (raw wire `goal`
     /// payload; the session view owns announcement and tray rendering).
     GoalUpdate(Value),
@@ -198,6 +202,11 @@ pub fn event_to_update(event: &Value) -> Option<TurnUpdate> {
             <eukhe_types::daemon::MemoryUpdateEvent as serde::Deserialize>::deserialize(event)
                 .ok()
                 .map(|event| TurnUpdate::MemoryUpdate(event.update))
+        }
+        "agent_relay" => {
+            <eukhe_types::daemon::AgentRelayEvent as serde::Deserialize>::deserialize(event)
+                .ok()
+                .map(TurnUpdate::AgentRelay)
         }
         "compaction_end" => Some(TurnUpdate::CompactionEnd {
             reason: event

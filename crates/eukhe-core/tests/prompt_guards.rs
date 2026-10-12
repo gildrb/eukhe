@@ -174,6 +174,7 @@ fn prompt_token_for_host_request(request: &str) -> Option<String> {
     Some(
         match request {
             "rlm.run" => "rlm.spawn",
+            "rlm.run_batch" => "rlm.spawn_batch",
             "rlm.progress.note" => "rlm.progress_note",
             "agent_observe.list" | "agent_message.list_agents" => "agent_observe.list_agents",
             "agent_observe.get" => "agent_observe.get_agent",

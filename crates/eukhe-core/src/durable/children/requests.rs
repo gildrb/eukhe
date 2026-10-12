@@ -65,6 +65,7 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
     handler!("rlm.find_models", find_models);
     handler!("rlm.progress.note", progress_note);
     handler!("rlm.run", run);
+    handler!("rlm.run_batch", run_batch);
     handler!("rlm.create_session", create_session);
     handler!("rlm.list_subagents", list_subagents);
     handler!("rlm.delete_subagent", delete_subagent);
@@ -183,12 +184,18 @@ async fn progress_note(children: Arc<Children>, call: HostCall) -> anyhow::Resul
     let harness = children.harness.require().map_err(session_error)?;
     let conversation_id = conversation_of(&call);
     let now = now_ms();
+    let noted = message.clone();
     let outcome = commit(&harness, conversation_id, move |tx| async move {
-        tx_note(&tx, conversation_id, &message, now).await
+        tx_note(&tx, conversation_id, &noted, now).await
     })
     .await?;
     Ok(match outcome {
-        NoteOutcome::Accepted => json!({ "accepted": true }),
+        NoteOutcome::Accepted => {
+            if let Some(sink) = &children.progress_note {
+                sink(&message, now);
+            }
+            json!({ "accepted": true })
+        }
         NoteOutcome::Throttled { retry_after_ms } => json!({
             "accepted": false,
             "retry_after_ms": retry_after_ms
@@ -238,16 +245,69 @@ pub(super) fn spawn_name_unavailable(name: &str, depth: u32) -> String {
     )
 }
 
-/// `rlm.spawn`: admit an `eukhe.rlm.child` task in the calling tool's
-/// commit, together with its registry row (the name check and the row land
-/// atomically, so parallel same-name spawns cannot both admit), then wait
-/// for the task's `spawn` phase to create the child.
-async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
-    let Some(prompt) = call.data.get("prompt").and_then(Value::as_str) else {
+/// One validated spawn of an `rlm.run` / `rlm.run_batch` request.
+struct SpawnSpec {
+    prompt: String,
+    kwargs: SpawnKwargs,
+}
+
+/// Validate one `{prompt, kwargs}` spawn payload.
+fn spawn_spec(data: &Value) -> anyhow::Result<SpawnSpec> {
+    let Some(prompt) = data.get("prompt").and_then(Value::as_str) else {
         bail!("rlm.spawn prompt must be a string");
     };
-    let prompt = prompt.to_owned();
-    let kwargs = spawn_kwargs(&call.data)?;
+    Ok(SpawnSpec {
+        prompt: prompt.to_owned(),
+        kwargs: spawn_kwargs(data)?,
+    })
+}
+
+/// The spawn-cap refusal (omp2 `SpawnError::Concurrency`).
+pub(super) fn concurrency_limit_full(maximum: u32) -> String {
+    format!("subagent concurrency limit {maximum} is already full")
+}
+
+/// `rlm.spawn`: admit one `eukhe.rlm.child` task (see [`admit_spawns`]).
+async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
+    let spec = spawn_spec(&call.data)?;
+    let handles = admit_spawns(&children, &call, vec![spec]).await?;
+    let handle = handles
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("rlm.spawn admitted no child"))?;
+    Ok(serde_json::to_value(&handle)?)
+}
+
+/// `rlm.spawn_batch`: admit every `{prompt, kwargs}` of `tasks` together
+/// or none of them (see [`admit_spawns`]).
+async fn run_batch(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
+    let Some(tasks) = call.data.get("tasks").and_then(Value::as_array) else {
+        bail!("rlm.spawn_batch tasks must be a non-empty list");
+    };
+    if tasks.is_empty() {
+        bail!("rlm.spawn_batch tasks must be a non-empty list");
+    }
+    let specs = tasks
+        .iter()
+        .map(spawn_spec)
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let handles = admit_spawns(&children, &call, specs).await?;
+    Ok(json!({ "handles": handles }))
+}
+
+/// Admit `specs` as `eukhe.rlm.child` tasks in the calling tool's commit,
+/// together with their registry rows, then wait for each task's `spawn`
+/// phase to create its child. The name checks, the spawn cap, and the rows
+/// land atomically, so parallel same-name spawns cannot both admit and a
+/// batch is all-or-nothing: the cap counts the family's running or
+/// starting subagents (the host's view unioned with this session's
+/// not-yet-visible children) and refuses the whole batch when it would
+/// exceed `subagentMaxConcurrency`.
+async fn admit_spawns(
+    children: &Arc<Children>,
+    call: &HostCall,
+    specs: Vec<SpawnSpec>,
+) -> anyhow::Result<Vec<RlmSpawnHandle>> {
     if !children.has_runtime {
         bail!("{NO_SPAWN_RUNTIME}");
     }
@@ -270,90 +330,135 @@ async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let Some(api) = call.call.clone() else {
         bail!("rlm.spawn must run inside a tool call");
     };
+    let capacity = children.services.host.spawn_capacity().await?;
     let harness = children.harness.require().map_err(session_error)?;
     let conversation_id = api.conversation_id();
-    let input = ChildTaskInput {
-        prompt,
-        model: kwargs.model,
-        thinking: kwargs.thinking,
-        // The spawn anchors to the parent's in-flight model request (TS
-        // `spawnedByRequestId` from the semantic-edge recorder); the
-        // tool call id stands in when no recorder carries one.
-        spawned_by_request_id: children
-            .services
-            .semantic_edges
-            .as_ref()
-            .and_then(|recorder| recorder.last_turn_request_id())
-            .or_else(|| Some(api.call_id().to_owned())),
-        spawning_tool_task: Some(api.task_id().get()),
-        max_depth: Some(max_depth),
-    };
+    // The spawn anchors to the parent's in-flight model request (TS
+    // `spawnedByRequestId` from the semantic-edge recorder); the tool call
+    // id stands in when no recorder carries one.
+    let spawned_by_request_id = children
+        .services
+        .semantic_edges
+        .as_ref()
+        .and_then(|recorder| recorder.last_turn_request_id())
+        .or_else(|| Some(api.call_id().to_owned()));
+    let spawning_tool_task = Some(api.task_id().get());
+    let admitted: Vec<(Option<String>, ChildTaskInput)> = specs
+        .into_iter()
+        .map(|spec| {
+            (
+                spec.kwargs.name,
+                ChildTaskInput {
+                    prompt: spec.prompt,
+                    model: spec.kwargs.model,
+                    thinking: spec.kwargs.thinking,
+                    spawned_by_request_id: spawned_by_request_id.clone(),
+                    spawning_tool_task,
+                    max_depth: Some(max_depth),
+                },
+            )
+        })
+        .collect();
     let task = children.task.as_definition_ref();
     let parent_session_id = children.services.parent_session_id.clone();
-    let name = kwargs.name;
     let started_at = now_ms();
-    let task_id = api
+    let task_ids = api
         .commit(
             move |tx| async move {
                 let state = tx_children(&tx, conversation_id).await?;
-                if let Some(name) = &name {
-                    let taken = state
-                        .children
-                        .values()
-                        .any(|row| !row.is_deleted() && row.session_name == *name);
+                if capacity.max_concurrency != 0 {
+                    let mut active: std::collections::HashSet<&str> = capacity
+                        .active_session_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect();
+                    active.extend(
+                        state
+                            .children
+                            .values()
+                            .filter(|row| !row.is_deleted() && !row.status.is_terminal())
+                            .map(|row| row.session_id.as_str()),
+                    );
+                    let limit = usize::try_from(capacity.max_concurrency).unwrap_or(usize::MAX);
+                    if active.len().saturating_add(admitted.len()) > limit {
+                        return Err(SessionError::error(concurrency_limit_full(
+                            capacity.max_concurrency,
+                        )));
+                    }
+                }
+                let mut batch_names: Vec<&str> = Vec::new();
+                for name in admitted.iter().filter_map(|(name, _)| name.as_deref()) {
+                    let taken = batch_names.contains(&name)
+                        || state
+                            .children
+                            .values()
+                            .any(|row| !row.is_deleted() && row.session_name == name);
                     if taken {
                         return Err(SessionError::error(spawn_name_unavailable(name, depth + 1)));
                     }
+                    batch_names.push(name);
                 }
-                let task_id = tx
-                    .create_task(
-                        task,
-                        to_json(&input)?,
-                        TaskOptions {
-                            ownership: TaskOwnership::Conversation,
-                            conversation_id: Some(conversation_id),
-                            background: Some(true),
-                            abandon_on_restart: None,
-                        },
-                    )
-                    .await?;
-                let identity = child_identity(&parent_session_id, task_id);
-                let session_name = name.unwrap_or_else(|| {
-                    create_default_rlm_subagent_session_name(&input.prompt, &identity.rlm_child_id)
-                });
-                let row = ChildRow {
-                    task_id: task_id.get(),
-                    rlm_child_id: identity.rlm_child_id,
-                    session_id: identity.session_id,
-                    session_name,
-                    label: rlm_child_label(&input.prompt),
-                    started_at,
-                    status: ChildStatus::Spawning,
-                    active_session_id: None,
-                    session_dir: None,
-                    model: None,
-                    answer_preview: None,
-                    error: None,
-                    replied_since_task: false,
-                    deletion: None,
-                    settled: false,
-                    usage: None,
-                };
-                tx_put_row(&tx, conversation_id, &row).await?;
-                Ok(task_id)
+                let mut task_ids = Vec::with_capacity(admitted.len());
+                for (name, input) in admitted {
+                    let task_id = tx
+                        .create_task(
+                            task.clone(),
+                            to_json(&input)?,
+                            TaskOptions {
+                                ownership: TaskOwnership::Conversation,
+                                conversation_id: Some(conversation_id),
+                                background: Some(true),
+                                abandon_on_restart: None,
+                            },
+                        )
+                        .await?;
+                    let identity = child_identity(&parent_session_id, task_id);
+                    let session_name = name.unwrap_or_else(|| {
+                        create_default_rlm_subagent_session_name(
+                            &input.prompt,
+                            &identity.rlm_child_id,
+                        )
+                    });
+                    let row = ChildRow {
+                        task_id: task_id.get(),
+                        rlm_child_id: identity.rlm_child_id,
+                        session_id: identity.session_id,
+                        session_name,
+                        label: rlm_child_label(&input.prompt),
+                        started_at,
+                        status: ChildStatus::Spawning,
+                        active_session_id: None,
+                        session_dir: None,
+                        model: None,
+                        answer_preview: None,
+                        error: None,
+                        replied_since_task: false,
+                        deletion: None,
+                        settled: false,
+                        usage: None,
+                    };
+                    tx_put_row(&tx, conversation_id, &row).await?;
+                    task_ids.push(task_id);
+                }
+                Ok(task_ids)
             },
             &cx(),
         )
         .await
         .map_err(|error| anyhow!("{error}"))?;
-    let row = wait_for_admission(&harness, conversation_id, task_id).await?;
-    let handle = RlmSpawnHandle {
-        rlm_child_id: row.rlm_child_id,
-        name: row.session_name,
-        session_dir: row.session_dir.unwrap_or_default(),
-        model: row.model.unwrap_or_default(),
-    };
-    Ok(serde_json::to_value(&handle)?)
+    // Every task is admitted; a child whose create fails reports its own
+    // error (the batch's other children stay admitted and listed).
+    let mut handles = Vec::with_capacity(task_ids.len());
+    for task_id in task_ids {
+        let row = wait_for_admission(&harness, conversation_id, task_id).await?;
+        handles.push(RlmSpawnHandle {
+            rlm_child_id: row.rlm_child_id,
+            name: row.session_name,
+            session_dir: row.session_dir.unwrap_or_default(),
+            model: row.model.unwrap_or_default(),
+        });
+    }
+    Ok(handles)
 }
 
 /// The message of a terminal child task that left no admitted child.

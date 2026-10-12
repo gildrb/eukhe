@@ -16,15 +16,21 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-/// A scripted JSONL supervisor: answers `list` with a roster,
-/// `get_worker_peer_transport` per script, and `send_message` with a
-/// TS receipt.
+/// The `agent_relay` commands a fake supervisor received, in order.
+type RelayLog = Arc<std::sync::Mutex<Vec<Value>>>;
+
+/// A scripted JSONL supervisor: answers `list_agent_peers` with a roster,
+/// `get_worker_peer_transport` per script, `send_message` with a TS
+/// receipt addressed to the requested target, and `agent_relay` with
+/// success (recording each relay command).
 async fn spawn_fake_supervisor(
     socket: std::path::PathBuf,
     roster: Value,
     ticket_response: Option<Value>,
-) {
+) -> RelayLog {
     let listener = bind_transport(&socket).await.unwrap();
+    let relays = RelayLog::default();
+    let relay_log = Arc::clone(&relays);
     tokio::spawn(async move {
         loop {
             let Ok(stream) = listener.accept().await else {
@@ -32,6 +38,7 @@ async fn spawn_fake_supervisor(
             };
             let roster = roster.clone();
             let ticket_response = ticket_response.clone();
+            let relay_log = Arc::clone(&relay_log);
             tokio::spawn(async move {
                 let (reader, mut writer) = stream.split();
                 let mut reader = BufReader::new(reader);
@@ -74,7 +81,7 @@ async fn spawn_fake_supervisor(
                                 "id": "agentmsg_direct",
                                 "source": "agent_message",
                                 "target": {
-                                    "activeSessionId": "bbb222",
+                                    "activeSessionId": command["targetActiveSessionId"].clone(),
                                     "sessionId": "sess-b",
                                     "runtimeKind": "top-level",
                                 },
@@ -84,6 +91,10 @@ async fn spawn_fake_supervisor(
                                 "deliveryMode": "steer",
                             })),
                         ),
+                        "agent_relay" => {
+                            relay_log.lock().unwrap().push(command.clone());
+                            response_success(Some(&id), "agent_relay", None)
+                        }
                         other => response_failure(Some(&id), other, "unexpected command", None),
                     };
                     let mut line = serde_json::to_string(&response).unwrap();
@@ -95,6 +106,7 @@ async fn spawn_fake_supervisor(
             });
         }
     });
+    relays
 }
 
 fn controller(
@@ -107,6 +119,7 @@ fn controller(
         worker_token: "tok-a".to_string(),
         own_summary: Arc::new(std::sync::Mutex::new(own_summary)),
         children: None,
+        relay: std::sync::Mutex::new(None),
     }
 }
 
@@ -152,7 +165,7 @@ fn own_summary() -> Option<Value> {
 /// The observe roster reduced to what the family classifiers decide:
 /// each listed row's live id and relationship, in roster order.
 fn labeled(
-    sessions: Vec<Value>,
+    sessions: &[Value],
     identity: &FamilyIdentity,
 ) -> Vec<(Option<String>, Option<AgentFamilyRelationship>)> {
     summaries_from_roster(sessions, identity, &[])
@@ -320,7 +333,8 @@ async fn family_keeps_off_roster_children_addressable() {
     assert_eq!(family[0].relationship, AgentFamilyRelationship::Child);
     assert_eq!(family[0].id, "sess-e");
     assert_eq!(family[0].name.as_deref(), Some("worker-b"));
-    assert_eq!(family[0].aliases, vec!["sub-kid2", "sess-e", "eee555"]);
+    assert_eq!(family[0].aliases, vec!["sub-kid2", "eee555"]);
+    assert_eq!(family[0].path, None, "an unnamed caller gives no path");
 }
 
 /// A refused ticket falls back to the supervisor-routed `send_message`.
@@ -539,6 +553,7 @@ fn summaries_label_the_nuclear_family_by_durable_edges() {
         parent_session_id: Some("sess-p".to_string()),
         parent_session_path: Some("/agent/sessions/sess-p.jsonl".to_string()),
         rlm_depth: 1,
+        session_name: None,
     };
     let sessions = vec![
         json!({
@@ -569,7 +584,7 @@ fn summaries_label_the_nuclear_family_by_durable_edges() {
             "sessionName": "another-root", "runtimeKind": "top-level",
         }),
     ];
-    let summaries = summaries_from_roster(sessions, &identity, &[]);
+    let summaries = summaries_from_roster(&sessions, &identity, &[]);
     assert_eq!(summaries.len(), 4, "{summaries:?}");
     let current = summaries.iter().find(|s| s.is_current).unwrap();
     assert_eq!(current.active_session_id.as_deref(), Some("kid111"));
@@ -632,7 +647,7 @@ fn summaries_bind_a_child_one_level_down_and_leave_a_same_depth_fork_out() {
         }),
     ];
     assert_eq!(
-        labeled(sessions, &parent),
+        labeled(&sessions, &parent),
         vec![
             (Some("ppp000".to_string()), None),
             (
@@ -671,7 +686,7 @@ fn summaries_bind_a_child_one_level_down_and_leave_a_same_depth_fork_out() {
         }),
     ];
     assert_eq!(
-        labeled(sessions, &user_child),
+        labeled(&sessions, &user_child),
         vec![
             (Some("usr111".to_string()), None),
             (
@@ -715,7 +730,7 @@ fn summaries_treat_a_root_fork_as_a_root() {
         }),
     ];
     assert_eq!(
-        labeled(sessions, &parent),
+        labeled(&sessions, &parent),
         vec![
             (Some("ppp000".to_string()), None),
             (
@@ -757,7 +772,7 @@ fn summaries_treat_a_root_fork_as_a_root() {
         }),
     ];
     assert_eq!(
-        labeled(sessions, &fork),
+        labeled(&sessions, &fork),
         vec![
             (Some("frk222".to_string()), None),
             (
@@ -789,6 +804,7 @@ fn summaries_carry_the_typed_status_and_activity() {
         parent_session_id: Some("sess-p".to_string()),
         parent_session_path: Some("/agent/sessions/sess-p.jsonl".to_string()),
         rlm_depth: 1,
+        session_name: None,
     };
     let sessions = vec![
         // The current session streams a tool call: running, tool work.
@@ -828,7 +844,7 @@ fn summaries_carry_the_typed_status_and_activity() {
             "parentActiveSessionId": "me000", "parentSessionId": "sess-me",
         }),
     ];
-    let summaries = summaries_from_roster(sessions, &identity, &[]);
+    let summaries = summaries_from_roster(&sessions, &identity, &[]);
     assert_eq!(summaries.len(), 5, "{summaries:?}");
     let row = |id: &str| {
         summaries
@@ -879,7 +895,7 @@ fn summaries_label_root_siblings_and_never_foreign_children() {
             "runtimeKind": "subagent", "parentActiveSessionId": "root222",
         }),
     ];
-    let summaries = summaries_from_roster(sessions, &identity, &[]);
+    let summaries = summaries_from_roster(&sessions, &identity, &[]);
     assert_eq!(summaries.len(), 2, "{summaries:?}");
     assert!(summaries.iter().any(|s| s.is_current));
     let sibling = summaries
@@ -994,4 +1010,199 @@ async fn family_resolves_a_moved_parent_by_the_session_file_alias() {
     assert_eq!(family.len(), 1, "{family:?}");
     assert_eq!(family[0].relationship, AgentFamilyRelationship::Parent);
     assert_eq!(family[0].id, "rrr777");
+}
+
+/// Two branches under one root plus another root's family: the
+/// supervisor roster (`list_agent_peers` with `scope: roster`, the peer
+/// shape) the mesh tests read.
+fn mesh_roster() -> Value {
+    json!({ "sessions": [
+        { "activeSessionId": "root00", "sessionId": "sess-root", "sessionName": "boss",
+          "runtimeKind": "top-level", "status": "running" },
+        { "activeSessionId": "aaa111", "sessionId": "sess-a", "sessionName": "kid-a",
+          "runtimeKind": "subagent", "rlmDepth": 1, "status": "running",
+          "parentActiveSessionId": "root00", "parentSessionId": "sess-root" },
+        { "activeSessionId": "bbb222", "sessionId": "sess-b", "sessionName": "kid-b",
+          "runtimeKind": "subagent", "rlmDepth": 1, "status": "idle",
+          "parentActiveSessionId": "root00", "parentSessionId": "sess-root" },
+        { "activeSessionId": "ccc333", "sessionId": "sess-c", "sessionName": "cousin",
+          "runtimeKind": "subagent", "rlmDepth": 2, "status": "running", "rlmChildId": "sub-c",
+          "note": "mapping the parser",
+          "parentActiveSessionId": "bbb222", "parentSessionId": "sess-b" },
+        { "activeSessionId": "zzz900", "sessionId": "sess-z", "sessionName": "other-boss",
+          "runtimeKind": "top-level", "status": "running" },
+        { "activeSessionId": "yyy800", "sessionId": "sess-y", "sessionName": "stranger",
+          "runtimeKind": "subagent", "rlmDepth": 1, "status": "running",
+          "parentActiveSessionId": "zzz900", "parentSessionId": "sess-z" },
+    ]})
+}
+
+/// `kid-a`'s own summary: a subagent of `boss`.
+fn kid_a_summary() -> Option<Value> {
+    Some(json!({
+        "activeSessionId": "aaa111",
+        "sessionId": "sess-a",
+        "sessionName": "kid-a",
+        "runtimeKind": "subagent",
+        "rlmDepth": 1,
+        "parentActiveSessionId": "root00",
+        "parentSessionId": "sess-root",
+    }))
+}
+
+/// The mesh: a subagent reaches every agent under its root — its parent,
+/// its sibling, and a cousin on the other branch (a relative, named by
+/// its `parent/child` path too) — and a name-addressed send delivers to
+/// the cousin with the relative label.
+#[tokio::test]
+async fn a_subagent_reaches_a_cousin_on_another_branch_by_name() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let socket = dir.path().join("sup.sock");
+    spawn_fake_supervisor(socket.clone(), mesh_roster(), None).await;
+    let controller = controller(socket, kid_a_summary());
+    let family = controller.family().await.unwrap();
+    assert_eq!(
+        family,
+        vec![
+            AgentFamilyMember {
+                relationship: AgentFamilyRelationship::Parent,
+                id: "root00".to_string(),
+                name: Some("boss".to_string()),
+                aliases: vec!["sess-root".to_string()],
+                path: None,
+            },
+            AgentFamilyMember {
+                relationship: AgentFamilyRelationship::Sibling,
+                id: "bbb222".to_string(),
+                name: Some("kid-b".to_string()),
+                aliases: vec!["sess-b".to_string()],
+                path: Some("boss/kid-b".to_string()),
+            },
+            AgentFamilyMember {
+                relationship: AgentFamilyRelationship::Relative,
+                id: "ccc333".to_string(),
+                name: Some("cousin".to_string()),
+                aliases: vec!["sess-c".to_string(), "sub-c".to_string()],
+                path: Some("kid-b/cousin".to_string()),
+            },
+        ]
+    );
+    let receiver =
+        eukhe_core::agent_messaging::parse_receiver(&json!({ "receiver_name": "cousin" })).unwrap();
+    let member = eukhe_core::agent_messaging::resolve_receiver(family, &receiver).unwrap();
+    let receipt = controller
+        .send_agent_message(AgentMessageSendInput {
+            target: member.id,
+            message: "hello there".to_string(),
+            receiver_role: Some(member.relationship),
+        })
+        .await
+        .unwrap();
+    assert_eq!(receipt.target, "ccc333");
+    assert_eq!(
+        receipt.receiver_role,
+        Some(AgentFamilyRelationship::Relative)
+    );
+}
+
+/// A name that only exists under another root is outside the family:
+/// the mesh never crosses families.
+#[tokio::test]
+async fn a_name_under_another_root_is_rejected() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let socket = dir.path().join("sup.sock");
+    spawn_fake_supervisor(socket.clone(), mesh_roster(), None).await;
+    let controller = controller(socket, kid_a_summary());
+    let family = controller.family().await.unwrap();
+    let receiver =
+        eukhe_core::agent_messaging::parse_receiver(&json!({ "receiver_name": "stranger" }))
+            .unwrap();
+    let error = eukhe_core::agent_messaging::resolve_receiver(family, &receiver).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "No agent in this family matches \"stranger\""
+    );
+}
+
+/// A delivered send between two non-root agents is relayed to the
+/// resident family root exactly once; a send to the root relays nothing.
+#[tokio::test]
+async fn a_cross_branch_send_relays_to_the_root_once() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let socket = dir.path().join("sup.sock");
+    let relays = spawn_fake_supervisor(socket.clone(), mesh_roster(), None).await;
+    let controller = controller(socket, kid_a_summary());
+    controller.family().await.unwrap();
+    for target in ["ccc333", "root00"] {
+        controller
+            .send_agent_message(AgentMessageSendInput {
+                target: target.to_string(),
+                message: "hello there".to_string(),
+                receiver_role: None,
+            })
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        *relays.lock().unwrap(),
+        vec![json!({
+            "type": "agent_relay",
+            "activeSessionId": "root00",
+            "from": "kid-a",
+            "to": "cousin",
+            "text": "hello there",
+        })]
+    );
+}
+
+/// The spawn cap's family view: the running subagents of the caller's
+/// whole family (its own row included), never another root's, never an
+/// idle one or a root.
+#[test]
+fn running_family_subagents_cover_the_whole_family() {
+    let roster = mesh_roster();
+    let rows = roster["sessions"].as_array().unwrap();
+    assert_eq!(
+        running_family_subagents(rows, "aaa111"),
+        vec!["sess-c".to_string(), "sess-a".to_string()]
+    );
+}
+
+/// The observe roster spans the family mesh: the cousin on the other
+/// branch is a relative carrying its roster note; the other root's
+/// family stays out.
+#[test]
+fn summaries_reach_relatives_with_their_notes() {
+    let roster = mesh_roster();
+    let sessions = roster["sessions"].as_array().unwrap().clone();
+    let identity = FamilyIdentity::from_summary(kid_a_summary().as_ref(), "aaa111");
+    let summaries = summaries_from_roster(&sessions, &identity, &[]);
+    assert_eq!(
+        summaries
+            .iter()
+            .map(|summary| (
+                summary.active_session_id.clone(),
+                summary.relationship,
+                summary.note.clone()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                Some("root00".to_string()),
+                Some(AgentFamilyRelationship::Parent),
+                None
+            ),
+            (Some("aaa111".to_string()), None, None),
+            (
+                Some("bbb222".to_string()),
+                Some(AgentFamilyRelationship::Sibling),
+                None
+            ),
+            (
+                Some("ccc333".to_string()),
+                Some(AgentFamilyRelationship::Relative),
+                Some("mapping the parser".to_string())
+            ),
+        ]
+    );
 }

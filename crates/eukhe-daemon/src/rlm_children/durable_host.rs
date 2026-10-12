@@ -21,37 +21,41 @@ use eukhe_types::daemon::{DaemonCommand, PromptInput};
 use eukhe_types::pi_ai::{Usage, UsageCost};
 
 use super::{
-    assert_thinking_supported, json, now_ms, resolve_child_model, Arc, Context, Duration, Map,
-    Path, PathBuf, Result, SupervisorChildSessions, SupervisorChildSessionsInner, Value,
-    KILL_TIMEOUT_MS, PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS, STATE_TIMEOUT_MS, WATCH_SETTLE_GRACE_MS,
+    assert_thinking_supported, json, now_ms, resolve_child_model_from_settings, Arc, Context,
+    Duration, Map, Path, PathBuf, Result, SupervisorChildSessions, SupervisorChildSessionsInner,
+    UnpinnedChildModel, Value, KILL_TIMEOUT_MS, PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS,
+    STATE_TIMEOUT_MS, WATCH_SETTLE_GRACE_MS,
 };
 
 /// Resolve the child model with the daemon `allowedModels` allowlist
 /// enforced (the parent's cwd scopes the settings read), refusing a model
-/// outside the allowlist loudly with the typed error. The settings read
-/// (a synchronous file lock under `with_lock`) runs on the blocking pool,
-/// so a contended settings lock never stalls this async spawn path's
-/// Tokio worker.
+/// outside the allowlist loudly with the typed error; `unpinned` picks
+/// what a request without `model` resolves (a spawn reads
+/// `subagentDefaultModel`). The settings read (a synchronous file lock
+/// under `with_lock`) runs on the blocking pool, so a contended settings
+/// lock never stalls this async spawn path's Tokio worker.
 async fn resolve_child_model_allowlisted(
     this: &SupervisorChildSessionsInner,
     reference: Option<&str>,
-    target: &str,
+    target: &'static str,
+    unpinned: UnpinnedChildModel,
 ) -> Result<String> {
     let identity = this.identity.lock().expect("identity lock").clone();
     let cwd = identity.cwd.clone().unwrap_or_else(|| "/".to_string());
     let agent_dir = this.agent_dir.clone();
-    let allowlist = tokio::task::spawn_blocking(move || {
-        crate::model_allowlist::load(Path::new(&cwd), &agent_dir)
+    let reference = reference.map(str::to_string);
+    tokio::task::spawn_blocking(move || {
+        resolve_child_model_from_settings(
+            Path::new(&cwd),
+            &agent_dir,
+            reference.as_deref(),
+            identity.model.as_deref(),
+            target,
+            unpinned,
+        )
     })
     .await
-    .context("the allowlist load task join failed")?;
-    resolve_child_model(
-        &this.agent_dir,
-        reference,
-        identity.model.as_deref(),
-        target,
-        &allowlist,
-    )
+    .context("the child model resolution task join failed")?
 }
 
 /// The supervisor's error for a selector no resident worker answers.
@@ -87,9 +91,6 @@ pub(super) struct DurableCalls {
     created: HashMap<String, durable::RlmCreateSessionHandle>,
     /// Served prompt/cancel/delete keys.
     done: HashSet<String>,
-    /// Routing or durable ids of children that messaged this parent since
-    /// their task was admitted (TS `_parentReplyCount`).
-    replied: HashSet<String>,
     /// Durable ids of children whose run this process saw in flight: a
     /// resumed watch that later finds such a child idle saw it settle.
     seen_running: HashSet<String>,
@@ -262,17 +263,6 @@ fn summary_str(summary: &Value, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-impl SupervisorChildSessions {
-    /// Record that the child `child_id` (routing or durable id) sent an agent
-    /// message to this parent: its settle owes no no-reply notice.
-    pub fn mark_durable_child_replied(&self, child_id: &str) {
-        self.inner
-            .durable_calls()
-            .replied
-            .insert(child_id.to_owned());
-    }
-}
-
 impl durable::RlmSubagentHost for SupervisorChildSessions {
     fn spawn(
         &self,
@@ -285,9 +275,13 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 return Ok(child.clone());
             }
             this.refresh_parent_model().await;
-            let model =
-                resolve_child_model_allowlisted(&this, request.model.as_deref(), "subagent")
-                    .await?;
+            let model = resolve_child_model_allowlisted(
+                &this,
+                request.model.as_deref(),
+                "subagent",
+                UnpinnedChildModel::SubagentDefault,
+            )
+            .await?;
             assert_thinking_supported(&this.agent_dir, request.thinking.as_deref(), &model)?;
             let mut identity = this.identity.lock().expect("identity lock").clone();
             identity.rlm_max_depth = request.max_depth;
@@ -364,6 +358,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 &this,
                 request.model.as_deref(),
                 "top-level session",
+                UnpinnedChildModel::Parent,
             )
             .await?;
             assert_thinking_supported(&this.agent_dir, request.thinking.as_deref(), &model)?;
@@ -443,6 +438,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         // after a parent crash admits nothing twice.
                         admission_id: Some(key.clone()),
                         rlm_notice_nonce: None,
+                        reply_to: None,
                     },
                     rest: Map::default(),
                 }
@@ -527,10 +523,6 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 return Ok(interrupted().await);
             }
             let answer = this.child_answer(&selector).await.ok().flatten();
-            let replied_since_task = {
-                let calls = this.durable_calls();
-                calls.replied.contains(&selector) || calls.replied.contains(&request.session_id)
-            };
             // The settled run completes the child's display entry, so a
             // restarted parent relists it as completed.
             super::lifecycle::complete_child_display(child_dir, request.rlm_child_id.clone()).await;
@@ -538,7 +530,6 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 state: durable::RlmChildRunState::Settled {
                     // `child_answer` already compacts it for the roster.
                     answer_preview: answer,
-                    replied_since_task,
                 },
                 usage: this.child_usage(&request.session_id).await,
             })
@@ -693,6 +684,66 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 }
             }
             Ok(())
+        })
+    }
+
+    /// The spawn cap's inputs: `subagentMaxConcurrency` from the parent's
+    /// settings scope (read on the blocking pool like the child model), and
+    /// — unless the cap is unlimited — the durable session ids of the
+    /// family's running subagents from the supervisor roster.
+    fn spawn_capacity(&self) -> durable::RlmHostFuture<'_, durable::RlmSpawnCapacity> {
+        let this = Arc::clone(&self.inner);
+        Box::pin(async move {
+            let cwd = this
+                .identity
+                .lock()
+                .expect("identity lock")
+                .cwd
+                .clone()
+                .unwrap_or_else(|| "/".to_owned());
+            let agent_dir = this.agent_dir.clone();
+            let max_concurrency = tokio::task::spawn_blocking(move || {
+                eukhe_core::settings::SettingsManager::create(Path::new(&cwd), &agent_dir)
+                    .get_subagent_max_concurrency()
+            })
+            .await
+            .context("the subagent concurrency settings read task join failed")?;
+            if max_concurrency == 0 {
+                return Ok(durable::RlmSpawnCapacity {
+                    max_concurrency,
+                    active_session_ids: Vec::new(),
+                });
+            }
+            let worker_token = this
+                .worker_token
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+                .context("the subagent concurrency cap needs the worker's supervisor token")?;
+            let roster = this
+                .command(
+                    &DaemonCommand::ListAgentPeers {
+                        id: None,
+                        worker_token,
+                        scope: Some(eukhe_types::daemon::AgentPeerScope::Roster),
+                        rest: Map::default(),
+                    },
+                    STATE_TIMEOUT_MS,
+                )
+                .await
+                .context("read the family roster for the subagent concurrency cap")?;
+            let rows = roster
+                .get("peers")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            Ok(durable::RlmSpawnCapacity {
+                max_concurrency,
+                active_session_ids: crate::agent_messaging::running_family_subagents(
+                    rows,
+                    &this.parent_active_session_id,
+                ),
+            })
         })
     }
 }

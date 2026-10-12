@@ -628,6 +628,11 @@ impl SessionUi {
             "memory" => {
                 self.handle_memory_command(&resolved.args, text, view).await;
             }
+            // `/agents`: this session's agent family printed inline as
+            // tree-indented rows (the agents panel stays on Left).
+            "agents" => {
+                self.handle_agents_command(&resolved.args, text, view);
+            }
             // `/logs` (TS `handleLogsCommand`): a client-side read of the
             // logs directory (the daemon writes it, this client lists
             // it), rendered in the read-only info panel (the operator's

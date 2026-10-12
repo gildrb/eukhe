@@ -40,10 +40,10 @@ use serde_json::{json, Value};
 use super::registry::{read_children, ChildRow, ChildStatus, CHILD_USAGE_KEY};
 use super::task::{report_request_id, CHILD_TASK_KIND};
 use super::{
-    Children, ChildrenConfig, RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildListing,
-    RlmChildObservation, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
+    mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildDeleteRequest,
+    RlmChildListing, RlmChildObservation, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
     RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
-    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSubagentHost,
+    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
 use crate::durable::deps::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::durable::observe::rlm_usage::{
@@ -77,6 +77,9 @@ struct FakeState {
     renames: Vec<RlmRenameRequest>,
     /// The error the next renames answer with (the host refused).
     rename_error: Option<String>,
+    /// The spawn cap the host reports (`0` = unlimited) and the family's
+    /// active subagents outside this parent.
+    capacity: Option<RlmSpawnCapacity>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -212,6 +215,17 @@ impl RlmSubagentHost for FakeHost {
                 None => Ok(()),
             }
         })
+    }
+
+    fn spawn_capacity(&self) -> RlmHostFuture<'_, RlmSpawnCapacity> {
+        let capacity = lock(&self.state)
+            .capacity
+            .clone()
+            .unwrap_or(RlmSpawnCapacity {
+                max_concurrency: 0,
+                active_session_ids: Vec::new(),
+            });
+        Box::pin(async move { Ok(capacity) })
     }
 }
 
@@ -422,6 +436,51 @@ struct Opened {
     harness: Harness,
     root: Conversation,
     requests: HostRequestRegistry,
+    /// The `rlm.run_batch` payload the `spawn_batch` tool sends next, and
+    /// every reply it got (`error: ...` for a refusal).
+    batch: Arc<Mutex<(Value, Vec<String>)>>,
+}
+
+/// A tool whose call runs the kernel's `rlm.spawn_batch` host request with
+/// the payload the test staged in `batch`.
+fn spawn_batch_tool(
+    requests: HostRequestRegistry,
+    batch: Arc<Mutex<(Value, Vec<String>)>>,
+) -> Arc<Extension> {
+    let parameters: TSchema = Type::object(Vec::<(String, TSchema)>::new());
+    let tool = define_tool(ToolRegistration::new(
+        "spawn_batch",
+        "Spawn several RLM children",
+        parameters,
+        move |_args, api, _cx| {
+            let handler = requests
+                .get("rlm.run_batch")
+                .expect("rlm.run_batch is registered");
+            let batch = Arc::clone(&batch);
+            async move {
+                let data = lock(&batch).0.clone();
+                let reply = handler(HostCall {
+                    data,
+                    cell_source_code: None,
+                    call: Some(api),
+                })
+                .await;
+                let text = match reply {
+                    Ok(value) => value.to_string(),
+                    Err(error) => format!("error: {error:#}"),
+                };
+                lock(&batch).1.push(text.clone());
+                Ok(ToolExecutionResult {
+                    output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+                    ..ToolExecutionResult::default()
+                })
+            }
+        },
+    ));
+    define_extension(Extension {
+        tools: vec![tool],
+        ..Extension::named("test.spawn_batch")
+    })
 }
 
 /// A tool whose call runs the kernel's `rlm.spawn` host request.
@@ -468,10 +527,15 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         harness: cell.clone(),
         models: setup.models.clone(),
         semantic_edges: None,
+        progress_note: None,
     });
+    let batch = Arc::new(Mutex::new((Value::Null, Vec::new())));
     let registry = create_registry();
     registry.install(children.install(&requests)).unwrap();
     registry.install(spawn_tool(requests.clone())).unwrap();
+    registry
+        .install(spawn_batch_tool(requests.clone(), Arc::clone(&batch)))
+        .unwrap();
     let mut options = HarnessOptions::new(setup.models.clone(), Arc::new(registry));
     let reports = Arc::clone(&setup.reports);
     options.on_report = Some(Arc::new(move |error| lock(&reports).push(error)));
@@ -498,6 +562,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         harness,
         root,
         requests,
+        batch,
     }
 }
 
@@ -649,7 +714,6 @@ async fn spawn_reports_once_across_a_reopen_between_submit_and_terminal() {
         &row.session_id,
         RlmChildRunState::Settled {
             answer_preview: Some("the flake is a race".to_owned()),
-            replied_since_task: false,
         },
         None,
     );
@@ -807,6 +871,69 @@ async fn delete_aborts_the_child_task_and_reports_the_cancellation() {
     opened.harness.close(cx()).await.unwrap();
 }
 
+/// A child that already messaged its parent settles passively: its
+/// durable reply mark (taken by the parent's delivery path, any of the
+/// child's ids) ends the task without the no-reply notice, so the parent
+/// never wakes for a turn that only restates the report.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_that_replied_settles_without_a_notice() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let row = spawn_child(&opened, &setup).await;
+    eventually(|| async { !host.prompt_keys().is_empty() }).await;
+    let row = row_of(&opened.harness, row.task_id).await.unwrap();
+
+    let marked = mark_child_replied(
+        &opened.harness,
+        ROOT_CONVERSATION_ID,
+        vec!["unknown-live-id".to_owned(), row.session_id.clone()],
+    )
+    .await
+    .unwrap();
+    assert!(marked, "the unsettled child takes the mark");
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Settled {
+            answer_preview: Some("done".to_owned()),
+        },
+        None,
+    );
+    let settled = opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(row.task_id), cx())
+        .await
+        .unwrap();
+    assert_eq!(
+        settled.outcome,
+        TaskOutcome::Completed {
+            result: eukhe_chord::json::to_json(&ChildStatus::Done).unwrap()
+        }
+    );
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    assert_eq!(
+        row_of(&opened.harness, row.task_id).await.unwrap(),
+        ChildRow {
+            status: ChildStatus::Done,
+            answer_preview: Some("done".to_owned()),
+            replied_since_task: true,
+            settled: true,
+            ..row.clone()
+        }
+    );
+    assert_eq!(
+        user_texts(&opened.root, "[child-exited").await,
+        Vec::<String>::new()
+    );
+    assert!(lock(&setup.reports).is_empty());
+    // A settled child takes no mark.
+    let marked = mark_child_replied(&opened.harness, ROOT_CONVERSATION_ID, vec![row.session_id])
+        .await
+        .unwrap();
+    assert!(!marked, "a settled child is no longer marked");
+    opened.harness.close(cx()).await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn collect_waits_for_the_child_to_settle_and_attributes_its_usage() {
     let setup = setup();
@@ -848,7 +975,6 @@ async fn collect_waits_for_the_child_to_settle_and_attributes_its_usage() {
         &row.session_id,
         RlmChildRunState::Settled {
             answer_preview: Some("done".to_owned()),
-            replied_since_task: false,
         },
         Some(usage),
     );
@@ -916,7 +1042,6 @@ async fn child_usage_attribution_rows_target_the_spawning_assistant_row() {
         &row.session_id,
         RlmChildRunState::Settled {
             answer_preview: Some("done".to_owned()),
-            replied_since_task: false,
         },
         Some(usage(150, 30)),
     );
@@ -989,6 +1114,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         harness: HarnessCell::default(),
         models: setup.models.clone(),
         semantic_edges: None,
+        progress_note: None,
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1013,6 +1139,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         harness: HarnessCell::default(),
         models: setup.models,
         semantic_edges: None,
+        progress_note: None,
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1172,7 +1299,6 @@ async fn delete_inactive_child_refuses_a_running_child_and_deletes_a_settled_one
         &row.session_id,
         RlmChildRunState::Settled {
             answer_preview: Some("done".to_owned()),
-            replied_since_task: false,
         },
         None,
     );
@@ -1388,6 +1514,97 @@ async fn rename_keeps_sibling_names_unique_and_restores_a_refused_rename() {
     assert_eq!(refused.to_string(), "Unknown active session: gone");
     let row = row_of(&opened.harness, first.task_id).await.unwrap();
     assert_eq!(row.session_name, first.session_name);
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// Run one parent turn whose tool call sends `rlm.run_batch` with `tasks`;
+/// returns the tool's reply text.
+async fn spawn_batch_turn(opened: &Opened, setup: &Setup, tasks: Value) -> String {
+    lock(&opened.batch).0 = json!({ "tasks": tasks });
+    setup.faux.append_responses(vec![
+        FauxResponseStep::Message(Box::new(faux_assistant_message(
+            faux_tool_call("spawn_batch", JsonObject::new(), None),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(StopReason::ToolUse),
+                ..FauxAssistantMessageOptions::default()
+            },
+        ))),
+        answer("batched"),
+    ]);
+    let submission = opened
+        .root
+        .submit(
+            InputSubmissionDraft {
+                request_id: None,
+                content: UserContent::Text("go".to_owned()),
+                when_busy: None,
+            },
+            cx(),
+        )
+        .await
+        .unwrap();
+    submission.wait(cx()).await.unwrap();
+    lock(&opened.batch)
+        .1
+        .last()
+        .cloned()
+        .expect("the batch tool ran")
+}
+
+/// The spawn cap (omp2 `sv_task_max_concurrency`): the family's active
+/// subagents (the host's view unioned with this parent's live children)
+/// plus the batch must fit `subagentMaxConcurrency`, else the whole batch
+/// is refused and nothing admits.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_spawn_batch_over_the_concurrency_cap_admits_nothing() {
+    let setup = setup();
+    let host = FakeHost::new();
+    lock(&host.state).capacity = Some(RlmSpawnCapacity {
+        max_concurrency: 3,
+        active_session_ids: vec!["cousin-session".to_owned()],
+    });
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let task = |name: &str| json!({ "prompt": format!("do {name}"), "kwargs": { "name": name } });
+    let rows = || async {
+        let mut rows: Vec<(String, ChildStatus)> =
+            read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
+                .await
+                .unwrap()
+                .children
+                .values()
+                .map(|row| (row.session_name.clone(), row.status))
+                .collect();
+        rows.sort_by(|left, right| left.0.cmp(&right.0));
+        rows
+    };
+
+    let over = spawn_batch_turn(&opened, &setup, json!([task("a"), task("b"), task("c")])).await;
+    let after_refusal = rows().await;
+    let within = spawn_batch_turn(&opened, &setup, json!([task("a"), task("b")])).await;
+    let full = spawn_batch_turn(&opened, &setup, json!([task("c")])).await;
+    let handles: Vec<String> = serde_json::from_str::<Value>(&within).unwrap()["handles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|handle| handle["name"].as_str().unwrap().to_owned())
+        .collect();
+
+    let refusal = "error: subagent concurrency limit 3 is already full".to_owned();
+    assert_eq!(
+        (over, after_refusal, handles, full, rows().await),
+        (
+            refusal.clone(),
+            Vec::new(),
+            vec!["a".to_owned(), "b".to_owned()],
+            refusal,
+            vec![
+                ("a".to_owned(), ChildStatus::Running),
+                ("b".to_owned(), ChildStatus::Running),
+            ],
+        )
+    );
+    assert_eq!(host.spawn_keys().len(), 2);
     opened.root.wait_for_idle(cx()).await.unwrap();
     opened.harness.close(cx()).await.unwrap();
 }

@@ -4,9 +4,9 @@
 
 use super::{
     key_event_to_id, mpsc, paused_heartbeat_count, picker_viewport_rows, tray_goal_label,
-    AgentView, BashActivityUpdate, ChatViewUpdate, CommandCatalogUpdate, DaemonCommand,
-    DockFocusSource, FactoryUpdate, GoalPanel, HeartbeatsUpdate, InfoContent, InfoPanelAction,
-    KeyEvent, Map, Result, SessionUi, Value,
+    AgentMessageOutcome, AgentView, BashActivityUpdate, ChatViewUpdate, CommandCatalogUpdate,
+    DaemonCommand, DockFocusSource, FactoryUpdate, GoalPanel, HeartbeatsUpdate, InfoContent,
+    InfoPanelAction, KeyEvent, Map, Result, SessionUi, Value,
 };
 
 pub(crate) struct ActivityUpdates {
@@ -15,6 +15,8 @@ pub(crate) struct ActivityUpdates {
     pub factory: mpsc::UnboundedSender<FactoryUpdate>,
     pub commands: mpsc::UnboundedSender<CommandCatalogUpdate>,
     pub chat_view: mpsc::UnboundedSender<ChatViewUpdate>,
+    /// Settled `@name message` deliveries (see [`AgentMessageOutcome`]).
+    pub agent_messages: mpsc::UnboundedSender<AgentMessageOutcome>,
 }
 
 impl SessionUi {
@@ -75,15 +77,21 @@ impl SessionUi {
         }
     }
 
-    /// Refresh the one-line activity dock and the title's cost (the
-    /// only writer of `chrome.cost_usd`) from the existing session
-    /// feeds.
-    pub(super) fn update_subagent_summary(&mut self, view: &mut AgentView) {
-        let identity = crate::subagents::SessionIdentity::new(
+    /// This session's family identity: the keys its subagents' roster
+    /// rows reference it by.
+    pub(super) fn family_identity(&self) -> crate::subagents::SessionIdentity {
+        crate::subagents::SessionIdentity::new(
             (!self.active_session_id.is_empty()).then(|| self.active_session_id.clone()),
             (!self.session_id.is_empty()).then(|| self.session_id.clone()),
             self.session_file.clone(),
-        );
+        )
+    }
+
+    /// Refresh the one-line activity dock and the title's cost (the
+    /// only writer of `chrome.cost_usd`) from the existing session
+    /// feeds, and the prompt's `@name` completions from the family.
+    pub(super) fn update_subagent_summary(&mut self, view: &mut AgentView) {
+        let identity = self.family_identity();
         self.subagent_counts = crate::subagents::count_descendants(&self.roster, &identity);
         // The title's spend is the family rollup the agents view bills
         // the session's row, refreshed on every roster push.
@@ -106,6 +114,7 @@ impl SessionUi {
                 &self.bash_activities,
             ));
         }
+        self.refresh_agent_mentions(view);
     }
 
     /// The dock's feed state: the live counts, the goal row's label, and

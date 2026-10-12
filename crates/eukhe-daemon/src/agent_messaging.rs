@@ -48,6 +48,8 @@ pub(crate) struct FamilyIdentity {
     /// it — a child sits exactly one level down, a sibling at the same
     /// depth (TS `selectAgentFamily`).
     pub rlm_depth: u64,
+    /// This session's name (the `parent/child` path of its children).
+    pub session_name: Option<String>,
 }
 
 impl FamilyIdentity {
@@ -70,6 +72,7 @@ impl FamilyIdentity {
             parent_session_id: non_empty(summary_ref, "parentSessionId"),
             parent_session_path: summary_ref.and_then(parent_binding).map(str::to_string),
             rlm_depth: summary_ref.map_or(0, row_depth),
+            session_name: non_empty(summary_ref, "sessionName"),
         }
     }
 
@@ -127,7 +130,10 @@ fn session_file_id(path: &str) -> Option<String> {
 /// Whether `row` is the parent of the session `identity` describes: the
 /// persisted session id decides first (it survives worker replacements
 /// and storage moves), then the live active id, then the session-file
-/// alias (a passivated parent's seeded row carries only the path).
+/// alias (a passivated parent's seeded row carries only the path). A
+/// file-bound parent sits exactly one level up when the row records its
+/// depth: a same-depth binding is a fork, never a child (TS
+/// `selectAgentFamily`).
 fn row_is_parent(row: &Value, identity: &FamilyIdentity) -> bool {
     if let Some(parent_id) = identity.parent_session_id.as_deref() {
         if row_str(row, "sessionId") == Some(parent_id) {
@@ -146,38 +152,13 @@ fn row_is_parent(row: &Value, identity: &FamilyIdentity) -> bool {
         if row_str(row, "sessionFile")
             .or_else(|| row_str(row, "sessionPath"))
             .is_some_and(|file| same_session_file(file, parent_path))
+            && row
+                .get("rlmDepth")
+                .and_then(Value::as_u64)
+                .is_none_or(|depth| depth + 1 == identity.rlm_depth)
         {
             return true;
         }
-    }
-    false
-}
-
-/// Whether `row` is a child of the session `identity` describes: the row's
-/// durable parent edge points back at this session by its persisted id,
-/// its live id, or its session file. The spawn-id edges decide on their
-/// own (only spawned children carry them, and a spawn always sits one
-/// level below its parent); a file-bound row must sit exactly one level
-/// down as well — a same-depth binding is a fork of this session, never
-/// its child (TS `selectAgentFamily`).
-fn row_is_child(row: &Value, identity: &FamilyIdentity) -> bool {
-    if identity
-        .session_id
-        .as_deref()
-        .is_some_and(|id| row_str(row, "parentSessionId").is_some_and(|parent| parent == id))
-    {
-        return true;
-    }
-    if !identity.active_session_id.is_empty()
-        && row_str(row, "parentActiveSessionId") == Some(identity.active_session_id.as_str())
-    {
-        return true;
-    }
-    if identity.session_file.as_deref().is_some_and(|file| {
-        parent_binding(row).is_some_and(|parent| same_session_file(parent, file))
-            && row_depth(row) == identity.rlm_depth + 1
-    }) {
-        return true;
     }
     false
 }
@@ -231,9 +212,11 @@ fn row_is_sibling(row: &Value, identity: &FamilyIdentity) -> bool {
 // the observe family helper to the tests
 // glob. The durable family-edges concern (FamilyIdentity + the row
 // classification) stays facade-resident: both controllers drive it.
+mod family;
 mod message;
 mod observe;
 
+pub(crate) use family::running_family_subagents;
 pub use message::LinkAgentMessageController;
 pub(crate) use observe::LinkAgentObserveController;
 

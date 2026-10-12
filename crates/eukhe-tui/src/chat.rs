@@ -150,6 +150,10 @@ pub enum ChatEntry {
     /// One `/memory` answer (rendered by the `memory_block` module): the
     /// status header and the view's lines, or one zoom.
     MemoryView(Box<crate::memory_block::MemoryViewRow>),
+    /// One agent-family row (rendered by the `swarm_block` module): an
+    /// `@name` message the user sent to another agent, a relayed peer
+    /// message, or the `/agents` roster. Display only.
+    Swarm(Box<crate::swarm_block::SwarmRow>),
 }
 
 // The card types live in `tool_card`; re-exported here because the

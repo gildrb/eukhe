@@ -1006,14 +1006,22 @@ impl Supervisor {
 
     /// `list_agent_peers` (TS supervisor arm): the requester authenticates
     /// with its worker token; every other live ready connected worker with
-    /// a rostered root row answers as a peer summary.
+    /// a rostered root row answers as a peer summary. The `roster` scope
+    /// answers every roster row instead (live sessions, seeded passivated
+    /// children, and the requester's own row): the family mesh walks the
+    /// whole tree, idle members included.
     pub(crate) async fn handle_list_agent_peers(
         self: &Arc<Self>,
         command: &DaemonCommand,
         command_id: &str,
         type_name: &str,
     ) -> (Vec<Value>, bool) {
-        let DaemonCommand::ListAgentPeers { worker_token, .. } = command else {
+        let DaemonCommand::ListAgentPeers {
+            worker_token,
+            scope,
+            ..
+        } = command
+        else {
             return (
                 vec![response_line(&response_failure(
                     Some(command_id),
@@ -1035,6 +1043,23 @@ impl Supervisor {
                 false,
             );
         };
+        if *scope == Some(eukhe_types::daemon::AgentPeerScope::Roster) {
+            let peers: Vec<Value> = {
+                let roster = self
+                    .roster
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                roster.entries().iter().map(roster_peer_summary).collect()
+            };
+            return (
+                vec![response_line(&response_success(
+                    Some(command_id),
+                    type_name,
+                    Some(json!({ "peers": peers })),
+                ))],
+                false,
+            );
+        }
         let mut peers = Vec::new();
         for resident in self.registry.list().await {
             if resident.worker_id == requester.worker_id
@@ -1071,6 +1096,34 @@ impl Supervisor {
             false,
         )
     }
+}
+
+/// One roster entry on the peer shape, for the family mesh: the
+/// [`agent_peer_summary`] fields plus the roster's own classification
+/// (`status` from the entry, so a queued child counts as running), the
+/// durable `id` a passivated row is addressed by, and the one-line `note`.
+fn roster_peer_summary(entry: &eukhe_types::daemon::agent_roster::AgentRosterEntry) -> Value {
+    let summary = &entry.summary;
+    let mut peer = agent_peer_summary(summary);
+    let live = summary
+        .get("activeSessionId")
+        .and_then(Value::as_str)
+        .is_some_and(|id| !id.is_empty());
+    if !live {
+        // A seeded row has no live id: it is reached by its durable id.
+        if let Some(object) = peer.as_object_mut() {
+            object.remove("activeSessionId");
+        }
+    }
+    peer["id"] = summary.get("id").cloned().unwrap_or(Value::Null);
+    peer["agentId"] = json!(entry.agent_id);
+    peer["status"] = json!(entry.status);
+    for key in ["note", "rlmChildId"] {
+        if let Some(value) = summary.get(key).filter(|value| !value.is_null()) {
+            peer[key] = value.clone();
+        }
+    }
+    peer
 }
 
 /// TS `agentPeerSummary`: the roster row's summary projected onto the

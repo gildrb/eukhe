@@ -43,16 +43,37 @@ impl Drop for FileSearch {
 }
 
 /// Start the background search for the typed `@` token against the
-/// session cwd.
-pub(super) fn spawn(base: &Path, at_prefix: String) -> FileSearch {
+/// session cwd. `leading` (the matching agent mentions) heads the menu,
+/// ahead of the file matches, and keeps it open when no file matches.
+pub(super) fn spawn(base: &Path, at_prefix: String, leading: Vec<CompletionItem>) -> FileSearch {
     let (tx, results) = mpsc::channel();
     let cancel = Arc::new(AtomicBool::new(false));
     let base = base.to_path_buf();
     let thread_cancel = Arc::clone(&cancel);
     thread::spawn(move || {
-        let _ = tx.send(search(&base, &at_prefix, &thread_cancel));
+        let files = search(&base, &at_prefix, &thread_cancel);
+        let _ = tx.send(with_leading(leading, files, at_prefix));
     });
     FileSearch { results, cancel }
+}
+
+/// The file matches with `leading` ahead of them (`None` when both are
+/// empty).
+fn with_leading(
+    leading: Vec<CompletionItem>,
+    files: Option<Suggestions>,
+    at_prefix: String,
+) -> Option<Suggestions> {
+    if leading.is_empty() {
+        return files;
+    }
+    let mut items = leading;
+    items.extend(files.into_iter().flat_map(|files| files.items));
+    Some(Suggestions {
+        prefix: at_prefix,
+        kind: Some(SuggestionKind::File),
+        items,
+    })
 }
 
 /// One walk result in fd's printed form: relative to the walk base,

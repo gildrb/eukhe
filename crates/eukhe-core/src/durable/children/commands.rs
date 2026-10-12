@@ -9,8 +9,10 @@ use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{ConversationId, DocumentReader};
 
 use super::host::RlmSubagentHost;
-use super::registry::{read_children, resolve, ChildRow, ChildrenState, Resolved};
-use super::requests::{delete_child_row, entry, now_ms, session_error};
+use super::registry::{
+    read_children, resolve, tx_children, tx_put_row, ChildRow, ChildrenState, Resolved,
+};
+use super::requests::{commit, delete_child_row, entry, now_ms, session_error};
 use super::wire::RlmSubagentEntry;
 
 /// What `delete_inactive_child` did.
@@ -174,4 +176,38 @@ pub async fn cancel_child(
         .cloned()
         .unwrap_or(row);
     Ok(Some(entry(&row, None, now_ms())))
+}
+
+/// Record that the child named by any of `sender_ids` (its live id, durable
+/// session id, or RLM child id) sent an agent message to this parent: its
+/// unsettled task owes no no-reply notice (TS `_parentReplyCount`). The
+/// flag commits on the child's row, so a parent restart between the reply
+/// and the child's settle keeps it. Answers whether an unsettled row took
+/// the mark (a settled, deleted, or unknown sender is no child to mark).
+///
+/// # Errors
+///
+/// The conversation is gone or the commit fails.
+pub async fn mark_child_replied(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    sender_ids: Vec<String>,
+) -> anyhow::Result<bool> {
+    commit(harness, conversation_id, move |tx| async move {
+        let state = tx_children(&tx, conversation_id).await?;
+        let Some(mut row) = state
+            .children
+            .into_values()
+            .filter(|row| !row.is_deleted() && !row.settled)
+            .find(|row| sender_ids.iter().any(|id| row.matches_id(id)))
+        else {
+            return Ok(false);
+        };
+        if !row.replied_since_task {
+            row.replied_since_task = true;
+            tx_put_row(&tx, conversation_id, &row).await?;
+        }
+        Ok(true)
+    })
+    .await
 }

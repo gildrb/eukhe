@@ -1241,6 +1241,7 @@ async fn prompt_turn(
             prefix_messages: None,
             admission_id: Some(admission_id.to_string()),
             rlm_notice_nonce: None,
+            reply_to: None,
         },
         rest: Map::default(),
     };

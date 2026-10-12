@@ -30,8 +30,8 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::Extension;
 
 pub use commands::{
-    cancel_child, delete_inactive_child, find_child, list_children, DeleteChildOutcome,
-    RlmChildRecord,
+    cancel_child, delete_inactive_child, find_child, list_children, mark_child_replied,
+    DeleteChildOutcome, RlmChildRecord,
 };
 pub use depth::{read_max_depth_override, set_max_depth_override};
 pub use host::{
@@ -39,14 +39,14 @@ pub use host::{
     RlmChildIdentity, RlmChildListing, RlmChildObservation, RlmChildPromptRequest,
     RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest,
     RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
-    RlmRenameTarget, RlmSubagentHost,
+    RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
 pub use registry::{has_unsettled_children, unsettled_child_tasks};
 pub use wire::{
     RlmChildResult, RlmDeleteSubagentResult, RlmSpawnHandle, RlmSubagentActivity, RlmSubagentEntry,
 };
 
-use super::deps::{HarnessCell, HostDeps, HostRequestRegistry};
+use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink};
 use crate::durable::observe::semantic_edges::SemanticEdgeRecorder;
 use task::{child_task, ChildTask, ChildrenServices};
 
@@ -61,6 +61,8 @@ pub(crate) struct Children {
     task: ChildTask,
     harness: HarnessCell,
     models: Models,
+    /// Told every accepted progress note of this session.
+    progress_note: Option<ProgressNoteSink>,
 }
 
 /// Inputs of [`Children::new`].
@@ -75,6 +77,7 @@ pub(crate) struct ChildrenConfig {
     /// parent's in-flight request id, and a child's return is claimed on
     /// the ledger before its notice.
     pub(crate) semantic_edges: Option<Arc<SemanticEdgeRecorder>>,
+    pub(crate) progress_note: Option<ProgressNoteSink>,
 }
 
 impl Children {
@@ -94,6 +97,7 @@ impl Children {
             task,
             harness: config.harness,
             models: config.models,
+            progress_note: config.progress_note,
         })
     }
 
@@ -120,6 +124,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         harness: deps.harness.clone(),
         models: deps.models.clone(),
         semantic_edges: Some(Arc::clone(&deps.semantic_edges)),
+        progress_note: deps.progress_note.clone(),
     })
     .install(&deps.host_requests)
 }

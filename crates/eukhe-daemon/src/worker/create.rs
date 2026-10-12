@@ -402,9 +402,16 @@ impl Worker {
         );
         config.role = SessionRole {
             rlm_depth: params.rlm_depth.unwrap_or(0),
-            rlm_max_depth: params
-                .rlm_max_depth
-                .unwrap_or(crate::rlm_children::DEFAULT_RLM_MAX_DEPTH),
+            // A spawned child carries its parent's bound in the create;
+            // every other session starts from the global setting.
+            rlm_max_depth: params.rlm_max_depth.unwrap_or_else(|| {
+                crate::rlm_children::configured_rlm_max_depth(
+                    &eukhe_core::settings::SettingsManager::create(
+                        &params.cwd,
+                        &self.config.agent_dir,
+                    ),
+                )
+            }),
             parent: params
                 .parent_session_id
                 .clone()
@@ -502,6 +509,20 @@ impl Worker {
                     "message": eukhe_core::sent_agent_message_json(&message),
                 }),
             );
+        }));
+        // Each accepted `rlm.progress.note` is a roster `note` candidate:
+        // keep the latest on the core and push the changed summary.
+        let progress_core = Arc::clone(&self.core);
+        let progress_pushes = self.roster_pushes.clone();
+        config.progress_note = Some(Arc::new(move |text: &str, at_ms: f64| {
+            progress_core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .progress_note = Some(super::summary::TimedNote {
+                text: text.to_string(),
+                at_ms: at_ms as u64,
+            });
+            progress_pushes.push();
         }));
         // The kernel's `mcp.begin_login` host request: the worker runs the
         // OAuth login (browser + local callback) and persists the
@@ -727,6 +748,10 @@ impl Worker {
         // A fresh session parks immediately: the idle-passivation loop
         // arms from here.
         self.park_notify.notify_one();
+        drop(core);
+        // A reply owed from before a restart whose run already answered
+        // goes out now (the receiving row dedupes a repeat).
+        self.deliver_owed_reply();
         Ok(())
     }
 

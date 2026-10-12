@@ -98,6 +98,9 @@ pub(crate) struct SessionCore {
     /// `appendSystemPrompt`, `skills`, `promptTemplates`); a replacement
     /// session keeps them, like the TS runtime config.
     pub(crate) prompt: eukhe_core::durable::PromptConfig,
+    /// The session's latest accepted `rlm.progress.note` (a roster `note`
+    /// candidate); set by the session's progress-note sink.
+    pub(crate) progress_note: Option<super::summary::TimedNote>,
     /// Where the session's model requests stand against their provider's
     /// admission limit (summary `admission`); set by the session's
     /// admission sink.
@@ -139,6 +142,7 @@ impl SessionCore {
             active_service_tier: None,
             scoped_models: Vec::new(),
             prompt: eukhe_core::durable::PromptConfig::default(),
+            progress_note: None,
             model_admission: None,
         }
     }

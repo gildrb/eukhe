@@ -433,14 +433,10 @@ fn settle_next(row: &mut ChildRow, state: RlmChildRunState, poll: u64, next_poll
                 unreachable_polls: 0,
             },
         },
-        RlmChildRunState::Settled {
-            answer_preview,
-            replied_since_task,
-        } => {
+        RlmChildRunState::Settled { answer_preview } => {
             row.status = ChildStatus::Done;
             row.answer_preview.clone_from(&answer_preview);
-            row.replied_since_task = replied_since_task;
-            if replied_since_task {
+            if row.replied_since_task {
                 // The child answered through an agent message: no notice.
                 row.settled = true;
                 return NextTaskState::Terminal {

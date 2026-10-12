@@ -106,6 +106,10 @@ pub struct SessionSummary {
     pub modified: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_message: Option<String>,
+    /// The roster note: one line (at most 160 chars) naming what the agent
+    /// is on — its latest report or progress note, else its task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_session_path: Option<String>,
     /// The parent's live active-session id (subagent summaries).

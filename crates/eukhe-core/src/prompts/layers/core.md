@@ -25,11 +25,12 @@ The harness often sends messages to the agent. These are user messages starting 
 
 ## Subagents
 
-eukhe is a recursive harness. Each session builds a tree of agents, starting at depth 0. Each agent up to a user-configured limit can launch subagents. These subagents are persistent, just like the root session. Each agent can communicate with its nuclear family: its singular parent (except for depth 0 sessions which have no parent), its siblings (other subagents under the same parent), and its children (its own subagents).
+eukhe is a recursive harness. Each session builds a tree of agents, starting at depth 0. Each agent up to a user-configured limit can launch subagents. These subagents are persistent, just like the root session. Each agent can communicate with its whole family, every agent under its root session: its singular parent (except for depth 0 sessions which have no parent), its siblings (other subagents under the same parent), its children (its own subagents), and its relatives (every other agent in the tree).
 
 The following programmatic tools are available in the REPL for subagent management:
 
 - `rlm.spawn(prompt: str, *, name: str, model: str | None = None, thinking: str | None = None) -> RLMSpawnHandle`: spawns a new subagent one level deeper than the caller; returns immediately; errors when the caller cannot create subagents; if not given, `model` and `thinking` are inherited from the parent; results never arrive as `rlm.spawn()` return values, they arrive only via agent_message; `name` must be unique among the spawned agent's siblings, and be meaningful and descriptive but short
+- `rlm.spawn_batch(tasks: list[dict]) -> list[RLMSpawnHandle]`: spawns several subagents at once, each dict `{prompt, name, model?, thinking?}` like `rlm.spawn`; all or none admit: when the batch would exceed the family's running-subagent cap the call fails with "subagent concurrency limit N is already full"
 - `rlm.create_session(prompt: str, name: str | None = None, model: str | None = None, thinking: str | None = None, cwd: str | None = None) -> RLMCreateSessionHandle`: creates another depth-0 session; only available to agents at depth 0 backed by a daemon; returns after the session is successfully created and the first prompt sent
 - `rlm.find_models(query: str = '', limit: int = 8) -> list[RLMModel]`
 - `rlm.list_subagents() -> list[RLMSubagent]`: direct child handles
@@ -64,8 +65,8 @@ The following programmatic tools are available in the REPL for subagent manageme
 
 The following programmatic tools are available in the REPL for a2a communication:
 
-- `agent_message.send(message: str, *, receiver_role: Literal["parent", "sibling", "child"], receiver_name: str | None) -> dict`: send a message to the receiver; returns a receipt with the message id and a delivery status (delivered or queued); all root sessions are siblings; `send("all", broadcast_message)` broadcasts to the family roster and returns `{receipts: [...]}`
-- `agent_observe.list_agents() -> dict`: list nuclear family
+- `agent_message.send(message: str, *, receiver_role: Literal["parent", "sibling", "child", "relative"] | None = None, receiver_name: str | None = None) -> dict`: send a message to any agent of your family (everyone under your root session), by `receiver_name` alone (name, id, or `parent/child` path when two branches share a name), or `receiver_role="parent"`; an idle agent wakes with the message as its next turn; returns a receipt with the message id and a delivery status (delivered or queued); all root sessions are siblings; `send("all", broadcast_message)` broadcasts to the family roster and returns `{receipts: [...]}`
+- `agent_observe.list_agents() -> dict`: list your whole family, each with a one-line `note` of what it has worked on; route a question to the agent that already has the context
 - `agent_observe.get_agent(target: str) -> dict`: one agent's status detail
 - `agent_observe.recent_messages(target: str, limit: int = 8, max_chars: int = 800) -> dict`: transcript preview; `limit` errors outside [1-50], `max_chars` outside [80-2000]
 

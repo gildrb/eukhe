@@ -285,6 +285,68 @@ fn at_prefix_lists_nested_fuzzy_matches() {
     assert_eq!(result.cursor_col, 31);
 }
 
+/// `@` at prompt start lists the family's agents ahead of the file
+/// matches; later in the prompt (or quoted) it stays a file mention.
+/// Applying an agent leaves the space before the message.
+#[test]
+fn at_prompt_start_offers_agents_ahead_of_files() {
+    let outer = tempfile::TempDir::new().expect("temp dir");
+    let base = outer.path().join("base");
+    std::fs::create_dir_all(&base).expect("mkdir");
+    std::fs::write(base.join("worklog.md"), "x").expect("write");
+    let mut provider = provider(base.to_str().unwrap());
+    let agent = |name: &str, status: &str| CompletionItem {
+        value: format!("@{name}"),
+        label: name.to_string(),
+        description: Some(format!("agent, {status}")),
+        argument_hint: None,
+        source_tag: None,
+    };
+    provider.set_agent_mentions(vec![agent("worker-1", "running"), agent("scout", "idle")]);
+    let values = |text: &str| -> Vec<String> {
+        match provider.get_suggestions(&[text.to_string()], 0, text.chars().count(), false) {
+            Some(SuggestionLookup::Searching(search)) => search
+                .results
+                .recv()
+                .expect("the search finishes")
+                .map(|suggestions| {
+                    suggestions
+                        .items
+                        .into_iter()
+                        .map(|item| item.value)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            other => panic!("expected a searching lookup, got {other:?}"),
+        }
+    };
+    assert_eq!(
+        [
+            values("@"),
+            values("@wor"),
+            values("@sc"),
+            values("see @wor"),
+        ],
+        [
+            vec!["@worker-1", "@scout", "@worklog.md"],
+            vec!["@worker-1", "@worklog.md"],
+            vec!["@scout"],
+            vec!["@worklog.md"],
+        ]
+    );
+    let result = provider.apply_completion(
+        &["@wor".to_string()],
+        0,
+        4,
+        &agent("worker-1", "running"),
+        "@wor",
+    );
+    assert_eq!(
+        (result.lines, result.cursor_col),
+        (vec!["@worker-1 ".to_string()], 10)
+    );
+}
+
 #[test]
 fn should_trigger_file_completion_skips_slash_names() {
     let provider = provider("/tmp");

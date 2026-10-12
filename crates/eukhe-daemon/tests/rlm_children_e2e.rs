@@ -399,7 +399,6 @@ async fn rlm_children_spawn_prompt_settle_delete_end_to_end() {
         settled,
         RlmChildRunState::Settled {
             answer_preview: Some("child answer".to_string()),
-            replied_since_task: false,
         }
     );
     // The settled run completes the child's display entry.

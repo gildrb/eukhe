@@ -148,6 +148,11 @@ pub type SummaryDeltaSink = Arc<dyn Fn(&str) + Send + Sync>;
 pub type LateAgentMessageSink =
     Arc<dyn Fn(&str, crate::kernel::shared::KernelSentAgentMessage) + Send + Sync>;
 
+/// Receives every accepted `rlm.progress.note` of this session (the note
+/// text, its acceptance time in ms). The daemon worker keeps the latest
+/// one for its roster `note`.
+pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
+
 /// An MCP login surface: the UI the OAuth flow drives and its HTTP client
 /// (see [`crate::mcp::wire_begin_login`]).
 #[derive(Clone)]
@@ -211,6 +216,9 @@ pub struct SessionConfig {
     /// Late kernel agent messages (the daemon's session event); `None`
     /// drops them.
     pub late_agent_message: Option<LateAgentMessageSink>,
+    /// Accepted progress notes (the daemon's roster note); `None` drops
+    /// them.
+    pub progress_note: Option<ProgressNoteSink>,
     /// Boot the main conversation's Python kernel in the background at open
     /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`, the
     /// daemon's sessions): honored for top-level sessions only (the TS
@@ -250,6 +258,7 @@ impl SessionConfig {
             cron: None,
             extra_host_handlers: None,
             late_agent_message: None,
+            progress_note: None,
             prewarm_kernel: false,
         }
     }
@@ -397,6 +406,7 @@ pub struct HostDeps {
     pub cron: Option<KernelCronWiring>,
     pub extra_host_handlers: Option<HostRequestHandlers>,
     pub late_agent_message: Option<LateAgentMessageSink>,
+    pub progress_note: Option<ProgressNoteSink>,
     /// [`SessionConfig::prewarm_kernel`].
     pub prewarm_kernel: bool,
     pub harness: HarnessCell,
@@ -457,6 +467,7 @@ impl HostDeps {
             cron: config.cron.clone(),
             extra_host_handlers: config.extra_host_handlers.clone(),
             late_agent_message: config.late_agent_message.clone(),
+            progress_note: config.progress_note.clone(),
             prewarm_kernel: config.prewarm_kernel,
             harness: HarnessCell::default(),
             host_requests: HostRequestRegistry::default(),

@@ -19,12 +19,26 @@ use anyhow::{anyhow, Context, Result};
 use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle, PromptInput};
 use serde_json::{json, Value};
 
-use crate::rlm_child_model::{assert_thinking_supported, compact_rlm_text, resolve_child_model};
+use crate::rlm_child_model::{
+    assert_thinking_supported, compact_rlm_text, resolve_child_model_from_settings,
+    UnpinnedChildModel,
+};
 use crate::supervisor_link::SupervisorLink;
 use crate::util::now_ms;
 
 /// Depth bound without an explicit override (TS `resolveRlmMaxDepth` default).
 pub const DEFAULT_RLM_MAX_DEPTH: u32 = 2;
+
+/// The depth bound a new session starts from: the global `rlmMaxDepth`
+/// setting (`/rlm-max-depth N --global`), else [`DEFAULT_RLM_MAX_DEPTH`].
+#[must_use]
+pub fn configured_rlm_max_depth(settings: &eukhe_core::settings::SettingsManager) -> u32 {
+    settings
+        .get_rlm_max_depth()
+        .map_or(DEFAULT_RLM_MAX_DEPTH, |depth| {
+            u32::try_from(depth).unwrap_or(u32::MAX)
+        })
+}
 
 /// The close reason a parent hands its resident children (TS
 /// `closeSessionOnce`'s reason arms, cascaded through
@@ -179,6 +193,9 @@ struct SupervisorChildSessionsInner {
     /// The parent's durable children reader (the durable worker's main
     /// conversation); `None` leaves the family view empty.
     durable_children: std::sync::Mutex<Option<DurableChildrenSource>>,
+    /// The worker's supervisor token (the family roster read behind the
+    /// spawn cap authenticates with it); `None` until the worker wires it.
+    worker_token: std::sync::Mutex<Option<String>>,
 }
 
 impl Clone for SupervisorChildSessions {
@@ -208,6 +225,7 @@ impl SupervisorChildSessions {
                 parent_name: std::sync::Mutex::new(None),
                 delete_notifier: std::sync::Mutex::new(None),
                 durable_children: std::sync::Mutex::new(None),
+                worker_token: std::sync::Mutex::new(None),
             }),
         }
     }
@@ -268,6 +286,16 @@ impl SupervisorChildSessions {
             .durable_children
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
+    }
+
+    /// Wire the worker's supervisor token: the spawn cap reads the family
+    /// roster (`list_agent_peers`) with it.
+    pub fn set_worker_token(&self, token: String) {
+        *self
+            .inner
+            .worker_token
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(token);
     }
 
     /// The inherited RLM depth bound (TS `getRlmMaxDepthStatus().maxDepth`
@@ -370,3 +398,24 @@ impl SupervisorChildSessionsInner {
 
 mod durable_host;
 mod lifecycle;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: the global `rlmMaxDepth` was saved but never applied;
+    /// a new session now starts from it.
+    #[test]
+    fn new_sessions_start_from_the_global_rlm_max_depth() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let read = || {
+            configured_rlm_max_depth(&eukhe_core::settings::SettingsManager::create(
+                dir.path(),
+                dir.path(),
+            ))
+        };
+        let unset = read();
+        std::fs::write(dir.path().join("settings.json"), r#"{"rlmMaxDepth": 5}"#).unwrap();
+        assert_eq!([unset, read()], [DEFAULT_RLM_MAX_DEPTH, 5]);
+    }
+}

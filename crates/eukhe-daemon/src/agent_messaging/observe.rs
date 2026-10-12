@@ -1,19 +1,20 @@
 //! The `agent_observe.*` controller (moved with its concern): message
 //! previews and full session summaries from the supervisor, the
-//! nuclear-family roster derivation, and the preview text helpers.
+//! family-mesh roster derivation, and the preview text helpers.
+use super::family::{family_of, row_active_id};
 use super::{
-    json, row_is_child, row_is_parent, row_is_sibling, AgentFamilyRelationship, AgentFamilyStatus,
-    AgentObserveActivity, AgentObserveController, AgentObserveMessagePreview, AgentObserveSummary,
-    Arc, FamilyIdentity, SupervisorLink, Value,
+    json, row_str, AgentFamilyRelationship, AgentFamilyStatus, AgentObserveActivity,
+    AgentObserveController, AgentObserveMessagePreview, AgentObserveSummary, Arc, FamilyIdentity,
+    SupervisorLink, Value,
 };
 
 /// `agent_observe.*` controller for daemon workers: message previews and
 /// full session summaries from the supervisor. The roster this controller
-/// reports is the caller's NUCLEAR FAMILY (its parent, siblings, and
-/// direct children — plus the caller's own row), derived from the same
-/// durable parent edges `agent_message.send` resolves through; a
-/// `list_agents()` never spans the whole daemon, and a relationship label
-/// never claims a family edge the recorded topology does not have.
+/// reports is the caller's FAMILY MESH (every agent under its root —
+/// parent, siblings, children, relatives — plus the caller's own row),
+/// derived from the same durable parent edges `agent_message.send`
+/// resolves through; a `list_agents()` never spans another family, and a
+/// relationship label never claims an edge the recorded topology lacks.
 pub(crate) struct LinkAgentObserveController {
     link: Arc<SupervisorLink>,
     /// This worker's live active session id (the family-scope anchor).
@@ -89,13 +90,13 @@ impl AgentObserveController for LinkAgentObserveController {
     async fn list_agents(&self) -> anyhow::Result<Vec<AgentObserveSummary>> {
         let (sessions, identity) = self.roster_and_identity().await?;
         let child_ids = self.registry_child_active_ids().await?;
-        Ok(summaries_from_roster(sessions, &identity, &child_ids))
+        Ok(summaries_from_roster(&sessions, &identity, &child_ids))
     }
 
     async fn get_agent(&self, target: &str) -> anyhow::Result<Option<AgentObserveSummary>> {
         let (sessions, identity) = self.roster_and_identity().await?;
         let child_ids = self.registry_child_active_ids().await?;
-        Ok(summaries_from_roster(sessions, &identity, &child_ids)
+        Ok(summaries_from_roster(&sessions, &identity, &child_ids)
             .into_iter()
             .find(|summary| {
                 summary.active_session_id.as_deref() == Some(target)
@@ -152,42 +153,40 @@ impl AgentObserveController for LinkAgentObserveController {
 }
 
 /// Flatten the supervisor's roster rows into observation summaries of the
-/// caller's NUCLEAR FAMILY: the caller's own row (`isCurrent`), its
-/// parent, its siblings, and its direct children — and nothing else. The
-/// relationship of each row derives from the recorded durable edges (the
-/// same classification `agent_message.send` resolves through), never from
-/// the row's runtime kind alone: a subagent spawned by a different parent
-/// is not a child here.
+/// caller's FAMILY MESH: the caller's own row (`isCurrent`) and every
+/// agent under the caller's root (parent, siblings, children, and
+/// relatives), plus the other root sessions when the caller is a root —
+/// and nothing else. The relationship of each row derives from the
+/// recorded durable edges ([`family_of`], the same classification
+/// `agent_message.send` resolves through), never from the row's runtime
+/// kind alone. Rows keep the roster order.
 pub(super) fn summaries_from_roster(
-    sessions: Vec<Value>,
+    sessions: &[Value],
     identity: &FamilyIdentity,
     registry_child_active_ids: &[String],
 ) -> Vec<AgentObserveSummary> {
-    sessions
+    let family = family_of(sessions, identity, |row| {
+        row_active_id(row)
+            .or_else(|| row_str(row, "id"))
+            .is_some_and(|id| registry_child_active_ids.iter().any(|child| child == id))
+    });
+    let mut selected: Vec<(usize, Option<AgentFamilyRelationship>)> = family
+        .members
+        .iter()
+        .map(|member| (member.index, Some(member.relationship)))
+        .chain(family.own_index.map(|index| (index, None)))
+        .collect();
+    selected.sort_by_key(|(index, _)| *index);
+    selected
         .into_iter()
-        .filter_map(|session| {
+        .filter_map(|(index, relationship)| {
+            let session = &sessions[index];
             let active_session_id = session
                 .get("activeSessionId")
                 .or_else(|| session.get("id"))
                 .and_then(Value::as_str)
                 .map(str::to_string)?;
-            let is_current = active_session_id == identity.active_session_id;
-            let relationship = if is_current {
-                None
-            } else if registry_child_active_ids
-                .iter()
-                .any(|child| child == &active_session_id)
-                || row_is_child(&session, identity)
-            {
-                Some(AgentFamilyRelationship::Child)
-            } else if row_is_parent(&session, identity) {
-                Some(AgentFamilyRelationship::Parent)
-            } else if row_is_sibling(&session, identity) {
-                Some(AgentFamilyRelationship::Sibling)
-            } else {
-                // Outside the nuclear family: not a family row at all.
-                return None;
-            };
+            let is_current = relationship.is_none();
             let runtime_kind = session
                 .get("runtimeKind")
                 .and_then(Value::as_str)
@@ -282,6 +281,7 @@ pub(super) fn summaries_from_roster(
                 attached_clients,
                 queued_count: queued,
                 is_session_active,
+                note: row_str(session, "note").map(str::to_string),
             })
         })
         .collect()

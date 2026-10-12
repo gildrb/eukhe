@@ -21,10 +21,12 @@ fn observe_rows_carry_the_typed_status_and_activity() {
         attached_clients: 1,
         queued_count: 0,
         is_session_active: true,
+        note: Some("reading the parser".to_string()),
     };
     let value = row.to_value();
     assert_eq!(value["status"], "running");
     assert_eq!(value["activity"], "tool");
+    assert_eq!(value["note"], "reading the parser");
 
     row.status = AgentFamilyStatus::Idle;
     row.activity = Some(AgentObserveActivity::User);
@@ -202,8 +204,9 @@ fn observe_previews_truncate() {
     assert_eq!(clipped.text.chars().count(), 10);
 }
 
-/// A family of one parent, two siblings (one named "scout"), and two
-/// children both named "dual".
+/// A family of one parent, two siblings (one named "scout"), two children
+/// both named "dual", and two relatives under "scout" (a cousin that
+/// shares the "dual" name, and "helper").
 fn family() -> Vec<AgentFamilyMember> {
     vec![
         AgentFamilyMember {
@@ -211,32 +214,104 @@ fn family() -> Vec<AgentFamilyMember> {
             id: "parent-1".to_string(),
             name: None,
             aliases: Vec::new(),
+            path: None,
         },
         AgentFamilyMember {
             relationship: AgentFamilyRelationship::Sibling,
             id: "sib-1".to_string(),
             name: Some("scout".to_string()),
             aliases: Vec::new(),
+            path: None,
         },
         AgentFamilyMember {
             relationship: AgentFamilyRelationship::Sibling,
             id: "sib-2".to_string(),
             name: None,
             aliases: Vec::new(),
+            path: None,
         },
         AgentFamilyMember {
             relationship: AgentFamilyRelationship::Child,
             id: "kid-1".to_string(),
             name: Some("dual".to_string()),
             aliases: vec!["sub-kid1".to_string(), "sess-kid1".to_string()],
+            path: Some("lead/dual".to_string()),
         },
         AgentFamilyMember {
             relationship: AgentFamilyRelationship::Child,
             id: "kid-2".to_string(),
             name: Some("dual".to_string()),
             aliases: Vec::new(),
+            path: None,
         },
+        cousin("cousin-1", "dual"),
+        cousin("cousin-2", "helper"),
     ]
+}
+
+/// A relative under the sibling "scout".
+fn cousin(id: &str, name: &str) -> AgentFamilyMember {
+    AgentFamilyMember {
+        relationship: AgentFamilyRelationship::Relative,
+        id: id.to_string(),
+        name: Some(name.to_string()),
+        aliases: vec![format!("sess-{id}")],
+        path: Some(format!("scout/{name}")),
+    }
+}
+
+/// Mesh reach: a name alone resolves across the whole family, a shared
+/// name needs the id or the `parent/child` path, and a name outside the
+/// family resolves nothing.
+#[test]
+fn mesh_receivers_resolve_family_wide() {
+    let anyone = |selector: &str| AgentMessageReceiver::Anyone {
+        selector: selector.to_string(),
+    };
+    let resolved = ["helper", "scout/dual", "sess-cousin-1", "lead/dual"]
+        .map(|selector| resolve_receiver(family(), &anyone(selector)).unwrap());
+    assert_eq!(
+        resolved,
+        [
+            cousin("cousin-2", "helper"),
+            cousin("cousin-1", "dual"),
+            cousin("cousin-1", "dual"),
+            family()[3].clone(),
+        ]
+    );
+    let ambiguous = resolve_receiver(family(), &anyone("dual")).unwrap_err();
+    assert_eq!(
+        ambiguous.to_string(),
+        "Agent selector \"dual\" is ambiguous in this family; address one by id or parent/child path: kid-1 (lead/dual), kid-2, cousin-1 (scout/dual)"
+    );
+    let outside = resolve_receiver(family(), &anyone("other-family-agent")).unwrap_err();
+    assert_eq!(
+        outside.to_string(),
+        "No agent in this family matches \"other-family-agent\""
+    );
+}
+
+#[test]
+fn receivers_parse_every_addressed_form() {
+    let parsed = [
+        json!({ "receiver_role": "parent" }),
+        json!({ "receiver_role": "relative", "receiver_name": " helper " }),
+        json!({ "receiver_name": "scout/dual", "receiver_role": null }),
+    ]
+    .map(|data| parse_receiver(&data).unwrap());
+    assert_eq!(
+        parsed,
+        [
+            AgentMessageReceiver::Parent,
+            AgentMessageReceiver::Role {
+                role: AgentFamilyRelationship::Relative,
+                selector: "helper".to_string(),
+            },
+            AgentMessageReceiver::Anyone {
+                selector: "scout/dual".to_string(),
+            },
+        ]
+    );
 }
 
 struct RecordingMessageController;
@@ -334,17 +409,32 @@ async fn message_host_handler_round_trip() {
         positional.to_string(),
         "positional agent_message.send targets are not supported; use receiver_role and receiver_name"
     );
-    let no_role = send_request(&send, json!({ "message": "hi" })).unwrap_err();
+    let no_receiver = send_request(&send, json!({ "message": "hi" })).unwrap_err();
     assert_eq!(
-        no_role.to_string(),
-        "agent_message.send receiver_role must be \"parent\", \"sibling\", or \"child\""
+        no_receiver.to_string(),
+        "agent_message.send needs receiver_name (an agent name, id, or parent/child path) or receiver_role=\"parent\""
+    );
+    let bad_role = send_request(
+        &send,
+        json!({ "message": "hi", "receiver_role": "uncle", "receiver_name": "x" }),
+    )
+    .unwrap_err();
+    assert_eq!(
+        bad_role.to_string(),
+        "agent_message.send receiver_role must be \"parent\", \"sibling\", \"child\", or \"relative\""
     );
     let missing_name =
         send_request(&send, json!({ "message": "hi", "receiver_role": "child" })).unwrap_err();
     assert_eq!(
         missing_name.to_string(),
-        "agent_message.send receiver_name is required for sibling and child messages"
+        "agent_message.send receiver_name is required for sibling, child, and relative messages"
     );
+
+    // A name alone reaches any family member (mesh reach); the receipt
+    // carries the member's relationship.
+    let mesh = send_request(&send, json!({ "message": "hi", "receiver_name": "helper" })).unwrap();
+    assert_eq!(mesh["target"]["activeSessionId"], "cousin-2");
+    assert_eq!(mesh["receiverRole"], "relative");
 
     // Resolution failures keep the TS wording.
     let no_match = send_request(
@@ -382,7 +472,7 @@ async fn message_host_handler_round_trip() {
     let broadcast =
         send_request(&send, json!({ "target": "all", "message": "  everyone  " })).unwrap();
     let receipts = broadcast["receipts"].as_array().expect("receipts");
-    assert_eq!(receipts.len(), 5, "{broadcast:?}");
+    assert_eq!(receipts.len(), 7, "{broadcast:?}");
     assert!(receipts
         .iter()
         .all(|receipt| receipt["message"] == "everyone"));
@@ -421,6 +511,7 @@ async fn broadcast_without_family_is_empty_and_failures_settle() {
                 id: "sib-1".to_string(),
                 name: None,
                 aliases: Vec::new(),
+                path: None,
             }]))
         }
         fn send_agent_message(

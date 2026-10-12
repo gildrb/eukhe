@@ -114,6 +114,7 @@ impl Worker {
                 self.config.agent_dir.clone(),
                 self.config.active_session_id.clone(),
             ));
+            host.set_worker_token(self.config.token.clone());
             let session = self.session.clone();
             host.set_parent_model_source(Arc::new(move || {
                 let hosted = session.get();

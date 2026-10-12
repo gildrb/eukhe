@@ -93,6 +93,9 @@ pub trait AutocompleteProvider: Send {
     /// command's argument position. A default no-op for providers without
     /// argument completions.
     fn set_argument_completions(&mut self, _command: &'static str, _items: Vec<CompletionItem>) {}
+    /// Replace the agent-family `@name` completions offered at prompt
+    /// start. A default no-op for providers without agent mentions.
+    fn set_agent_mentions(&mut self, _items: Vec<CompletionItem>) {}
 }
 
 /// Slash-command context (port of slash-command-context.ts): which part of
@@ -781,6 +784,11 @@ pub struct CombinedAutocompleteProvider {
     /// `command.getArgumentCompletions`): the items offered at the
     /// command's argument position (e.g. the `/tier` tier choices).
     arguments: std::collections::HashMap<&'static str, Vec<CompletionItem>>,
+    /// The agent family's `@name` completions (one per agent, value
+    /// `@<name>`): offered ahead of the file matches when the `@` token is
+    /// the prompt's first word -- the position an `@name message` routes
+    /// from.
+    agent_mentions: Vec<CompletionItem>,
     paths: PathCompletionProvider,
 }
 
@@ -819,6 +827,7 @@ impl CombinedAutocompleteProvider {
             skill_commands: Vec::new(),
             hidden: HashSet::default(),
             arguments: HashMap::default(),
+            agent_mentions: Vec::new(),
             paths: PathCompletionProvider { base },
         }
     }
@@ -841,6 +850,23 @@ impl CombinedAutocompleteProvider {
     /// `command.getArgumentCompletions`, e.g. the `/tier` tier choices).
     pub fn set_argument_completions(&mut self, command: &'static str, items: Vec<CompletionItem>) {
         self.arguments.insert(command, items);
+    }
+
+    /// The agent mentions matching an `@` token at prompt start (fuzzy
+    /// over the names; every agent for a bare `@`). Quoted tokens and
+    /// tokens past the first word are file mentions only.
+    fn agent_mention_suggestions(
+        &self,
+        cursor_line: usize,
+        before: &[char],
+        at_prefix: &str,
+    ) -> Vec<CompletionItem> {
+        let at_start = cursor_line == 0 && before.len() == at_prefix.chars().count();
+        if !at_start || at_prefix.starts_with("@\"") {
+            return Vec::new();
+        }
+        let query = at_prefix.strip_prefix('@').unwrap_or(at_prefix);
+        fuzzy_filter(&self.agent_mentions, query, |item| item.label.clone())
     }
 
     /// The slash-name suggestions for a typed prefix (fuzzy filter over
@@ -935,6 +961,10 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         CombinedAutocompleteProvider::set_argument_completions(self, command, items);
     }
 
+    fn set_agent_mentions(&mut self, items: Vec<CompletionItem>) {
+        self.agent_mentions = items;
+    }
+
     fn get_suggestions(
         &self,
         lines: &[String],
@@ -945,9 +975,11 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         let line: Vec<char> = lines.get(cursor_line)?.chars().collect();
         let before: Vec<char> = line[..cursor_col.min(line.len())].to_vec();
         if let Some(at_prefix) = extract_at_prefix(&before) {
+            let agents = self.agent_mention_suggestions(cursor_line, &before, &at_prefix);
             return Some(SuggestionLookup::Searching(fuzzy_file_search::spawn(
                 &self.paths.base,
                 at_prefix,
+                agents,
             )));
         }
         if !force {

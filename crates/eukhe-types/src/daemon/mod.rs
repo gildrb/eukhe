@@ -107,6 +107,7 @@ pub struct DaemonEventMeta {
     pub replayed: Option<bool>,
 }
 
+mod agent_relay;
 pub mod agent_roster;
 mod chat_turn_wait;
 mod chat_view;
@@ -118,10 +119,11 @@ mod outbound;
 mod plane;
 mod worker;
 
+pub use agent_relay::AgentRelayEvent;
 pub use chat_turn_wait::{ChatTurnWaitEvent, CHAT_TURN_WAIT_NOTICE};
 pub use chat_view::{ChatViewReply, ChatViewSnapshot, CHAT_VIEW_CAPABILITY};
 pub use command::{
-    CycleDirection, DaemonCommand, DaemonCommandEnvelope, DaemonCommandFrameType,
+    AgentPeerScope, CycleDirection, DaemonCommand, DaemonCommandEnvelope, DaemonCommandFrameType,
     DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput, StreamingBehavior,
 };
 pub use memory::{

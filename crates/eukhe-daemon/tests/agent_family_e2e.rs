@@ -724,12 +724,13 @@ fn cell_turn(code: &str) -> Value {
 /// kernels): the family roster derives from durable parent edges, never
 /// from names or runtime kinds. A second root's child is NOT addressable
 /// from the first family by role or name (the sibling send for its name
-/// fails closed), a broadcast reaches only the nuclear family, the
-/// child's parent-reply targets its true parent with the `child:` label,
-/// another family's subagent never renders as a child of the recipient,
-/// and the observe roster labels only true edges: kid-a's own spawned
-/// grandchild nests under kid-a (never top-level in the root's roster),
-/// and the other family's rows never enter either roster.
+/// fails closed), a broadcast reaches only the caller's family (every
+/// agent under its root), the child's parent-reply targets its true
+/// parent with the `child:` label, another family's subagent never
+/// renders as a child of the recipient, and the observe roster labels
+/// only true edges: kid-a's own spawned grandchild nests under kid-a
+/// (a relative in the root's view, never its child), and the other
+/// family's rows never enter either roster.
 #[tokio::test]
 async fn family_edges_never_cross_families_end_to_end() {
     let Some(kernel_python) = kernel_python() else {
@@ -774,8 +775,8 @@ async fn family_edges_never_cross_families_end_to_end() {
     );
     // Kid-a's kernel turns: the cross-family sibling probe (must fail),
     // the parent reply (must reach the true parent), its own broadcast
-    // (must reach only its parent), and its own observe roster (the
-    // grandchild nests under it, never under the root).
+    // (must stay inside its family under parent-a), and its own observe
+    // roster (the grandchild nests under it, never under the root).
     let kid_cells = [
         record_cell(
             r#""agent_message.send", {"message": "hello sibling", "receiver_role": "sibling", "receiver_name": "kid-b"}"#,
@@ -1047,10 +1048,10 @@ async fn family_edges_never_cross_families_end_to_end() {
     if let Ok(error) = std::fs::read_to_string(receipts_dir.join("kid-broadcast.error")) {
         panic!("kid kernel cell failed: {error}");
     }
-    // The TS broadcast ("all") reaches the family roster, which for a
-    // subagent includes its own children; the grandkid's presence
-    // depends on the broadcast-versus-spawn interleaving, so pin the
-    // isolation, not the exact set.
+    // The broadcast ("all") reaches the whole family under parent-a: the
+    // parent and, once spawned, kid-a's own child; the grandkid's
+    // presence depends on the broadcast-versus-spawn interleaving, so pin
+    // the isolation, not the exact set.
     let kid_broadcast = read_recorded(&receipts_dir, "kid-broadcast.json");
     let kid_targets: Vec<&str> = kid_broadcast["receipts"]
         .as_array()
@@ -1081,8 +1082,8 @@ async fn family_edges_never_cross_families_end_to_end() {
         panic!("kid kernel cell failed: {error}");
     }
     // The grandchild nests under its TRUE parent: kid-a's observe roster
-    // is its nuclear family — itself, its parent, its own child — and
-    // the other family never appears.
+    // is its family under parent-a — itself, its parent, its own child —
+    // and the other family never appears.
     let kid_roster = read_recorded(&receipts_dir, "kid-observe.json");
     let kid_roster = kid_roster
         .get("agents")
@@ -1091,7 +1092,7 @@ async fn family_edges_never_cross_families_end_to_end() {
     assert_eq!(
         kid_roster.len(),
         3,
-        "kid-a's observe roster is its nuclear family: {kid_roster:?}"
+        "kid-a's observe roster is its family: {kid_roster:?}"
     );
     let kid_self = kid_roster
         .iter()
@@ -1139,7 +1140,7 @@ async fn family_edges_never_cross_families_end_to_end() {
     assert_eq!(
         roster.len(),
         3,
-        "the observe roster is the nuclear family: {roster:?}"
+        "the observe roster is the family (recorded before the grandkid spawned): {roster:?}"
     );
     let by_id = |id: &str| {
         roster
@@ -1164,14 +1165,15 @@ async fn family_edges_never_cross_families_end_to_end() {
         }),
         "another family's subagent is never in the observe roster: {roster:?}"
     );
-    // The grandchild never renders top-level in the root's view: it is
-    // outside parent-a's nuclear family, nested under kid-a in kid-a's
-    // own roster (the mislabeled-grandchild regression).
+    // The grandchild never renders as the root's child: in the root's
+    // view it is a relative nested under kid-a (the mislabeled-grandchild
+    // regression); this roster predates its spawn.
     assert!(
-        !roster
+        roster
             .iter()
-            .any(|summary| summary["activeSessionId"] == grandkid_active.as_str()),
-        "a grandchild never renders top-level in the root's roster: {roster:?}"
+            .filter(|summary| summary["activeSessionId"] == grandkid_active.as_str())
+            .all(|summary| summary["relationship"] == "relative"),
+        "a grandchild is never the root's child: {roster:?}"
     );
     if let Ok(error) = std::fs::read_to_string(receipts_dir.join("parent-broadcast.error")) {
         panic!("parent kernel cell failed: {error}");
@@ -1195,7 +1197,7 @@ async fn family_edges_never_cross_families_end_to_end() {
     expected.sort_unstable();
     assert_eq!(
         parent_targets, expected,
-        "the parent's broadcast stays inside its nuclear family: {parent_broadcast}"
+        "the parent's broadcast stays inside its family: {parent_broadcast}"
     );
 
     // The rendered transcript labels: the child's reply rendered with the

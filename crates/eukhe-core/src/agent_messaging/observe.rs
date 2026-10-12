@@ -71,6 +71,9 @@ pub struct AgentObserveSummary {
     pub attached_clients: usize,
     pub queued_count: usize,
     pub is_session_active: bool,
+    /// The agent's one-line roster note (its latest report or progress
+    /// note, else its task); emitted as `note` when present.
+    pub note: Option<String>,
 }
 
 impl AgentObserveSummary {
@@ -89,6 +92,9 @@ impl AgentObserveSummary {
             "queuedCount": self.queued_count,
             "isSessionActive": self.is_session_active,
         });
+        if let Some(note) = &self.note {
+            row["note"] = json!(note);
+        }
         if let Some(activity) = self.activity {
             row["activity"] = json!(activity.as_str());
         }

@@ -13,7 +13,7 @@ use crate::agents_view_forest::RowKind;
 use crate::editor::{Editor, EditorEvent};
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
-use eukhe_types::daemon::{DaemonCommand, PromptInput, StreamingBehavior};
+use eukhe_types::daemon::{DaemonCommand, StreamingBehavior};
 use eukhe_types::slash_commands::{
     is_session_slash_command_name, parse_slash_command, SlashCommandRegistry,
     SESSION_SLASH_COMMAND_NAMES,
@@ -533,11 +533,7 @@ impl AgentsViewMode {
         reply.editor.set_text("");
         let key = reply.target.key.clone();
         let current = self.current_reply_summary(&reply.target);
-        let behavior = follow_up.or_else(|| {
-            (current.get("activeSessionId").is_some()
-                && current.get("isStreaming").and_then(Value::as_bool) == Some(true))
-            .then_some(StreamingBehavior::Steer)
-        });
+        let behavior = follow_up.or_else(|| crate::agent_delivery::steer_when_streaming(&current));
         let (resume_config, cwd_notice) = self.resume_config(&current);
         if current.get("activeSessionId").is_none() {
             self.set_status("Resuming session...");
@@ -600,33 +596,15 @@ impl AgentsViewMode {
         });
     }
 
-    /// TS `createAgentsViewResumeConfig` + `resolveAgentsViewOpenCwd`
-    /// (:225-236 + :493-504): the view's create config with the saved
-    /// session's cwd removed -- or overridden with the view's cwd (and
-    /// its notice) when the saved directory no longer exists.
+    /// TS `createAgentsViewResumeConfig` + `resolveAgentsViewOpenCwd`:
+    /// the view's create config resolved against the saved session's cwd
+    /// (see [`crate::agent_delivery::resume_config_for`]).
     fn resume_config(&self, summary: &Value) -> (Value, Option<String>) {
-        let mut config = self.options.create_config.clone();
-        let saved_cwd = summary
-            .get("cwd")
-            .and_then(Value::as_str)
-            .filter(|cwd| !cwd.is_empty());
-        let exists = saved_cwd.is_some_and(|cwd| std::path::Path::new(cwd).exists());
-        let fallback = self.options.cwd.to_string_lossy().to_string();
-        let notice = if saved_cwd.is_none_or(|_| exists) {
-            None
-        } else {
-            Some(format!(
-                "Original directory is missing ({}); opened in {fallback} instead.",
-                saved_cwd.unwrap_or_default()
-            ))
-        };
-        let override_cwd = notice.is_some().then_some(fallback);
-        if let Some(override_cwd) = override_cwd {
-            config["cwd"] = serde_json::json!(override_cwd);
-        } else if let Some(object) = config.as_object_mut() {
-            object.remove("cwd");
-        }
-        (config, notice)
+        crate::agent_delivery::resume_config_for(
+            &self.options.create_config,
+            &self.options.cwd,
+            summary,
+        )
     }
 
     /// One landed headline (TS `toggleReplyTarget`'s fetch arms): the
@@ -884,104 +862,27 @@ async fn send_reply(
     ui_tx: &mpsc::UnboundedSender<UiInput>,
     request: ReplyRequest,
 ) -> Result<ReplySent, String> {
-    let mut sent = ReplySent {
-        resumed: None,
-        cwd_notice: None,
-    };
-    let mut active_session_id = request
-        .summary
-        .get("activeSessionId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .map(str::to_string);
-    if active_session_id.is_none() {
-        // TS `resumeSavedAgentsViewSession`: the create carries the
-        // view's resume config and the saved file; the fresh summary is
-        // the authoritative target for the prompt.
-        let Some(session_path) = request
-            .summary
-            .get("sessionFile")
-            .and_then(Value::as_str)
-            .filter(|path| !path.is_empty())
-            .map(str::to_string)
-        else {
-            return Err("Cannot resume a session without a saved session file".to_string());
-        };
-        // The resumed session runs in THIS pane: the create carries the
-        // client's Herdr pane identity like every create (a client
-        // outside a Herdr pane sends nothing -- the wire keeps its shape).
-        let client_env = {
-            let env =
-                eukhe_types::daemon::herdr_env::collect_client_env(|key| std::env::var(key).ok());
-            (!env.is_empty()).then_some(env)
-        };
-        let created = client
-            .request(DaemonCommand::Create {
-                id: None,
-                session_path: Some(session_path),
-                continue_recent: None,
-                no_session: None,
-                name: None,
-                config: Some(request.resume_config.clone()),
-                runtime_metadata: None,
-                lifecycle: None,
-                env: client_env,
-                launch_env: None,
-                rest: serde_json::Map::default(),
-            })
-            .await;
-        let summary = match created {
-            Ok(response) if response.success => response.data.unwrap_or(Value::Null),
-            Ok(response) => {
-                return Err(response
-                    .error
-                    .unwrap_or_else(|| "the command failed".into()))
-            }
-            Err(error) => return Err(format!("{error:#}")),
-        };
-        let Some(active) = summary
-            .get("activeSessionId")
-            .and_then(Value::as_str)
-            .filter(|id| !id.is_empty())
-            .map(str::to_string)
-        else {
-            return Err("Daemon returned a session without an active session id".to_string());
-        };
-        sent.cwd_notice = request.cwd_notice.clone();
-        sent.resumed = Some(summary);
-        active_session_id = Some(active);
-    }
-    // TS's mid-send status (after the resume, before the prompt).
-    let _ = ui_tx.send(UiInput::ReplyProgress("Sending reply...".to_string()));
-    let prompt = client
-        .request(DaemonCommand::Prompt {
-            id: None,
-            active_session_id: active_session_id.unwrap_or_default(),
-            message: request.text,
-            input: PromptInput {
-                content: None,
-                images: None,
-                streaming_behavior: request.behavior,
-                queue_if_busy: None,
-                expand_prompt_templates: None,
-                source: None,
-                agent_message_id: None,
-                custom_message: None,
-                queue_key: None,
-                prefix_messages: None,
-                admission_id: None,
-                rlm_notice_nonce: None,
-            },
-            rest: serde_json::Map::default(),
-        })
-        .await;
-    match prompt {
-        Ok(response) if response.success => Ok(sent),
-        Ok(response) => Err(response
-            .error
-            .unwrap_or_else(|| "the command failed".into())),
-        Err(error) => Err(format!("{error:#}")),
-    }
+    let resumed = crate::agent_delivery::deliver_agent_message(
+        &client,
+        crate::agent_delivery::AgentDelivery {
+            summary: request.summary,
+            text: request.text,
+            behavior: request.behavior,
+            resume_config: request.resume_config,
+            // The agents view talks to the agent directly: no session
+            // waits on its answer.
+            reply_to: None,
+        },
+        // TS's mid-send status (after the resume, before the prompt).
+        || {
+            let _ = ui_tx.send(UiInput::ReplyProgress("Sending reply...".to_string()));
+        },
+    )
+    .await?;
+    Ok(ReplySent {
+        cwd_notice: resumed.as_ref().and(request.cwd_notice),
+        resumed,
+    })
 }
 
 /// One `/kill` dispatch (TS `runAgentsViewCommand`'s kill arm): an

@@ -101,6 +101,42 @@ class RlmSubagentRegistryTest(unittest.TestCase):
                 asyncio.run(rlm_module.rlm.spawn("check the API"))
         host_request.assert_not_awaited()
 
+    def test_spawn_batch_sends_one_request_for_every_task(self) -> None:
+        host_request = AsyncMock(
+            return_value={
+                "handles": [
+                    {"rlm_child_id": "sub-1", "name": "reader", "session_dir": "/tmp/p/sub-1", "model": "m/a"},
+                    {"rlm_child_id": "sub-2", "name": "writer", "session_dir": "/tmp/p/sub-2", "model": "m/b"},
+                ]
+            }
+        )
+        with patch.object(rlm_module, "host_request", host_request):
+            handles = asyncio.run(
+                rlm_module.rlm.spawn_batch(
+                    [
+                        {"prompt": "read the spec", "name": "reader"},
+                        {"prompt": "write the patch", "name": "writer", "model": "m/b", "thinking": None},
+                    ]
+                )
+            )
+        host_request.assert_awaited_once_with(
+            "rlm.run_batch",
+            {
+                "tasks": [
+                    {"prompt": "read the spec", "kwargs": {"name": "reader"}},
+                    {"prompt": "write the patch", "kwargs": {"name": "writer", "model": "m/b"}},
+                ]
+            },
+        )
+        self.assertEqual([(handle.rlm_child_id, handle.name) for handle in handles], [("sub-1", "reader"), ("sub-2", "writer")])
+
+    def test_spawn_batch_rejects_unknown_keys_before_any_request(self) -> None:
+        host_request = AsyncMock()
+        with patch.object(rlm_module, "host_request", host_request):
+            with self.assertRaisesRegex(TypeError, "unsupported task keys: cwd"):
+                asyncio.run(rlm_module.rlm.spawn_batch([{"prompt": "x", "name": "a", "cwd": "/"}]))
+        host_request.assert_not_awaited()
+
     def test_rejects_calling_rlm_directly_with_spawn_guidance(self) -> None:
         for target in (rlm_module.rlm, rlm_module):
             with self.assertRaisesRegex(TypeError, r"not callable; spawn a child with: handle = await rlm\.spawn\("):

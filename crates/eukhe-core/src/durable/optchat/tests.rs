@@ -876,3 +876,72 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
         ]
     );
 }
+
+/// An agent's answer to the user's `@name` message is logged once as the
+/// `work` line `[name] answer`; the answering agent's owed-reply
+/// bookkeeping row is never logged.
+#[test]
+fn agent_replies_are_logged_as_work_and_owed_rows_are_not() {
+    use eukhe_durable::types::{EntryId, EntryRecord};
+    let custom = |draft: eukhe_durable::types::EntryDraft| EntryRecord {
+        model: draft.model,
+        data: draft.data,
+        edits: None,
+        kind: draft.kind,
+        id: EntryId::from_number(1),
+        conversation_id: ROOT_CONVERSATION_ID,
+        head: None,
+        by_task_id: None,
+    };
+    let reply = crate::durable::custom_entry_draft(
+        crate::agent_messaging::AGENT_REPLY_CUSTOM_TYPE,
+        UserContent::Text(crate::agent_messaging::create_agent_reply_prompt(
+            "alpha",
+            "I reported 42.",
+        )),
+        true,
+        None,
+        1,
+    )
+    .unwrap();
+    let owed = crate::durable::custom_entry_draft(
+        crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE,
+        UserContent::Text(String::new()),
+        false,
+        Some(serde_json::json!({ "id": "r1", "replyTo": "root" })),
+        1,
+    )
+    .unwrap();
+    assert_eq!(
+        [
+            super::lines::entry_lines(&custom(reply)),
+            super::lines::entry_lines(&custom(owed)),
+        ],
+        [
+            vec![(Kind::Work, "[alpha] I reported 42.".to_string())],
+            vec![]
+        ]
+    );
+}
+
+/// A user's text longer than [`CAP`] is logged as several messages in a
+/// row, never cut (§1).
+#[test]
+fn long_user_texts_are_logged_as_several_messages() {
+    use eukhe_durable::types::{EntryId, EntryRecord};
+    let text = format!("{}{}", "a".repeat(CAP), "b".repeat(7));
+    let entry = EntryRecord {
+        model: Some(vec![user(&text, 1)]),
+        data: None,
+        edits: None,
+        kind: "pi.user".to_string(),
+        id: EntryId::from_number(1),
+        conversation_id: ROOT_CONVERSATION_ID,
+        head: None,
+        by_task_id: None,
+    };
+    assert_eq!(
+        super::lines::entry_lines(&entry),
+        vec![(Kind::User, "a".repeat(CAP)), (Kind::User, "b".repeat(7)),]
+    );
+}

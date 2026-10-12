@@ -293,6 +293,7 @@ fn empty_prompt_input() -> eukhe_types::daemon::PromptInput {
         prefix_messages: None,
         admission_id: None,
         rlm_notice_nonce: None,
+        reply_to: None,
     }
 }
 

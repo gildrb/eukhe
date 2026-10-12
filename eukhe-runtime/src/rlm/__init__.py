@@ -202,6 +202,38 @@ async def spawn(
     return _spawn_handle_from_payload(payload)
 
 
+async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
+    """Spawn several recursive Eukhe children together, all or none.
+
+    Each task is a dict ``{"prompt": str, "name": str, "model"?: str,
+    "thinking"?: str}`` with the same rules as :func:`spawn`. The batch admits
+    atomically: when it would exceed the family's running-subagent cap
+    (``subagentMaxConcurrency``) nothing is spawned and the call fails with
+    ``subagent concurrency limit N is already full``.
+    """
+    if not isinstance(tasks, list) or not tasks:
+        raise TypeError("tasks must be a non-empty list of dicts")
+    entries: list[dict[str, Any]] = []
+    for task in tasks:
+        if not isinstance(task, dict):
+            raise TypeError(f"each task must be a dict, got {type(task).__name__}")
+        unknown = sorted(set(task) - {"prompt", "name", "model", "thinking"})
+        if unknown:
+            raise TypeError(f"unsupported task keys: {', '.join(unknown)}")
+        prompt = task.get("prompt")
+        if not isinstance(prompt, str):
+            raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
+        if "name" not in task:
+            raise TypeError("each task needs a name")
+        kwargs = {key: task[key] for key in ("name", "model", "thinking") if task.get(key) is not None}
+        entries.append({"prompt": prompt, "kwargs": kwargs})
+    payload = await host_request("rlm.run_batch", {"tasks": entries})
+    handles = payload.get("handles")
+    if not isinstance(handles, list):
+        raise RuntimeError("rlm.run_batch returned no handles")
+    return [_spawn_handle_from_payload(handle) for handle in handles]
+
+
 def _model_from_payload(payload: Any) -> RLMModel:
     if not isinstance(payload, dict):
         raise RuntimeError("rlm.find_models returned an invalid model entry")
@@ -645,6 +677,9 @@ class _RLMNamespace:
     ) -> RLMSpawnHandle:
         return await spawn(prompt, name=name, model=model, thinking=thinking)
 
+    async def spawn_batch(self, tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
+        return await spawn_batch(tasks)
+
     async def create_session(
         self,
         prompt: str,
@@ -730,6 +765,7 @@ __all__ = [
     "rename",
     "rlm",
     "spawn",
+    "spawn_batch",
 ]
 
 # Lazily re-export the MCP base class. Kept lazy so `import rlm` never requires

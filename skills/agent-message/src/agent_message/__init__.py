@@ -1,6 +1,6 @@
 """Eukhe session-to-session messaging skill.
 
-All routing and sender identity live in the TypeScript daemon. These functions
+All routing and sender identity live in the Eukhe daemon. These functions
 only call the host bridge exposed inside the Eukhe kernel.
 """
 
@@ -10,7 +10,8 @@ from typing import Any, Literal
 
 from rlm import host_request
 
-ReceiverRole = Literal["parent", "sibling", "child"]
+ReceiverRole = Literal["parent", "sibling", "child", "relative"]
+_ROLES = ("parent", "sibling", "child", "relative")
 _MESSAGE_DISPLAY_MIME = "application/vnd.eukhe.agent-message+json"
 
 
@@ -21,8 +22,13 @@ async def send(
     receiver_role: ReceiverRole | str | None = None,
     receiver_name: str | None = None,
 ) -> dict[str, Any]:
-    """Send one direct role-addressed message or broadcast to ``"all"``."""
-    roles = ("parent", "sibling", "child")
+    """Send one message to any agent of the family, or broadcast to ``"all"``.
+
+    ``receiver_name`` alone addresses any agent under the same root session by
+    name, id, or ``parent/child`` path (needed when two branches share a name).
+    ``receiver_role`` narrows the match to one relationship; ``"parent"`` takes
+    no name.
+    """
     if broadcast_message is not None:
         if message != "all":
             raise TypeError(
@@ -36,20 +42,23 @@ async def send(
             "message": broadcast_message,
         }
     else:
-        if receiver_role not in roles:
-            raise ValueError('receiver_role must be "parent", "sibling", or "child"')
+        if receiver_role is not None and receiver_role not in _ROLES:
+            raise ValueError('receiver_role must be "parent", "sibling", "child", or "relative"')
         if not isinstance(message, str):
             raise TypeError(f"message must be str, got {type(message).__name__}")
         if receiver_role == "parent":
             if receiver_name is not None:
                 raise ValueError("receiver_name must be omitted for parent messages")
         elif not isinstance(receiver_name, str) or not receiver_name.strip():
-            raise ValueError("receiver_name is required for sibling and child messages")
-        payload = {
-            "message": message,
-            "receiver_role": receiver_role,
-            "receiver_name": receiver_name,
-        }
+            raise ValueError(
+                "receiver_name is required: an agent name, id, or parent/child path "
+                '(only receiver_role="parent" needs no name)'
+            )
+        payload = {"message": message}
+        if receiver_role is not None:
+            payload["receiver_role"] = receiver_role
+        if receiver_name is not None:
+            payload["receiver_name"] = receiver_name
     receipt = await host_request("agent_message.send", payload)
     receipts = receipt.get("receipts") if isinstance(receipt, dict) else None
     if isinstance(receipts, list):
@@ -57,11 +66,11 @@ async def send(
             if isinstance(item, dict) and "deliveryStatus" in item:
                 _emit_sent_message(item)
     else:
-        _emit_sent_message(receipt, receiver_role)
+        _emit_sent_message(receipt)
     return receipt
 
 
-def _emit_sent_message(receipt: dict[str, Any], receiver_role: str | None = None) -> None:
+def _emit_sent_message(receipt: dict[str, Any]) -> None:
     try:
         from rlm import emit
 
@@ -70,12 +79,9 @@ def _emit_sent_message(receipt: dict[str, Any], receiver_role: str | None = None
             if receipt.get("deliveryStatus") == "queued"
             else "Agent message sent"
         )
-        display_receipt = dict(receipt)
-        if receiver_role in ("parent", "sibling", "child"):
-            display_receipt["receiverRole"] = receiver_role
         emit(
             {
-                _MESSAGE_DISPLAY_MIME: display_receipt,
+                _MESSAGE_DISPLAY_MIME: dict(receipt),
                 "text/plain": label,
             }
         )

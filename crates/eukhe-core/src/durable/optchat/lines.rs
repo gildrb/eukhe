@@ -216,7 +216,8 @@ fn classify_custom(custom_type: &str) -> CustomRow {
         | "model_prompt_error"
         | "session_slash_command"
         | "session_slash_command_result"
-        | "anthropic_subscription_warning_shown" => CustomRow::State,
+        | "anthropic_subscription_warning_shown"
+        | crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE => CustomRow::State,
         _ => CustomRow::Report,
     }
 }
@@ -261,6 +262,9 @@ fn normalized_report(custom_type: &str, text: &str) -> Option<String> {
     match custom_type {
         "agent_message" => header
             .strip_prefix("agent-message from ")
+            .map(|sender| line(sender, "")),
+        crate::agent_messaging::AGENT_REPLY_CUSTOM_TYPE => header
+            .strip_prefix("agent-reply from ")
             .map(|sender| line(sender, "")),
         "rlm_child_terminal_notice" => header
             .strip_prefix("child-exited: ")

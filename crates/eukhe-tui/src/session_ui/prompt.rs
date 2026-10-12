@@ -473,6 +473,15 @@ impl SessionUi {
             self.start_side_question(text, view).await?;
             return Ok(());
         }
+        // `@name message` talks to an agent of this session's family
+        // instead of the main model (an `@path` file mention falls
+        // through; see `agents.rs` for the rule).
+        if text.starts_with('@')
+            && self.route_agent_mention(text, behavior, view)
+                == super::agents::MentionRoute::Handled
+        {
+            return Ok(());
+        }
         if text.starts_with('/') {
             return self.handle_slash(text, behavior, view).await;
         }
@@ -839,6 +848,7 @@ impl SessionUi {
                     prefix_messages: None,
                     admission_id: None,
                     rlm_notice_nonce: None,
+                    reply_to: None,
                 },
                 rest: Map::default(),
             };

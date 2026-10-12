@@ -47,6 +47,9 @@ use serde_json::Value;
 /// Custom types with a dedicated component (TS constants; eukhe-core owns the
 /// engine-side vocabulary, the render dispatch owns these).
 pub const AGENT_MESSAGE_CUSTOM_TYPE: &str = "agent_message";
+/// An agent's answer to the user's `@name` message (wire twin of
+/// `eukhe_core::agent_messaging::AGENT_REPLY_CUSTOM_TYPE`).
+pub const AGENT_REPLY_CUSTOM_TYPE: &str = "agent_reply";
 pub const HEARTBEAT_PROMPT_CUSTOM_TYPE: &str = "heartbeat_prompt";
 pub const GOAL_CONTEXT_CUSTOM_TYPE: &str = "goal_context";
 pub const IPYTHON_STATE_RESTORED_CUSTOM_TYPE: &str = "ipython_state_restored";
@@ -227,6 +230,21 @@ pub fn custom_message_entries(message: &Value) -> Vec<ChatEntry> {
             || vec![generic_panel_entry(custom_type, message)],
             |entry| vec![entry],
         ),
+        // An agent's answer to the user's `@name` message: the
+        // `name -> you` family row (first line; full text at Detail::All).
+        AGENT_REPLY_CUSTOM_TYPE => {
+            let field = |key: &str| details.get(key).and_then(Value::as_str);
+            match (field("from"), field("message")) {
+                (Some(from), Some(text)) => vec![ChatEntry::Swarm(Box::new(
+                    crate::swarm_block::SwarmRow::Relay(eukhe_types::daemon::AgentRelayEvent {
+                        from: from.to_string(),
+                        to: "you".to_string(),
+                        text: text.to_string(),
+                    }),
+                ))],
+                _ => vec![generic_panel_entry(custom_type, message)],
+            }
+        }
         ASYNC_BASH_COMPLETION_CUSTOM_TYPE => vec![ChatEntry::ShellCompletion(Box::new(
             shell_completion_row(message, details),
         ))],
@@ -478,6 +496,27 @@ mod tests {
 
     fn decoded(message: &serde_json::Value) -> Vec<ChatEntry> {
         custom_message_entries(message)
+    }
+
+    /// An agent's answer to the user's `@name` message decodes to the
+    /// `name -> you` family row.
+    #[test]
+    fn an_agent_reply_decodes_to_the_family_row() {
+        let message = json!({
+            "role": "custom", "customType": AGENT_REPLY_CUSTOM_TYPE, "display": true,
+            "content": "[agent-reply from alpha]\n\nI reported 42.",
+            "details": { "id": "r1", "from": "alpha", "message": "I reported 42." },
+        });
+        assert_eq!(
+            decoded(&message),
+            vec![ChatEntry::Swarm(Box::new(
+                crate::swarm_block::SwarmRow::Relay(eukhe_types::daemon::AgentRelayEvent {
+                    from: "alpha".to_string(),
+                    to: "you".to_string(),
+                    text: "I reported 42.".to_string(),
+                })
+            ))]
+        );
     }
 
     #[test]

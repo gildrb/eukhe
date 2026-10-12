@@ -227,6 +227,7 @@ impl SupervisorChildSessionsInner {
                 prefix_messages: None,
                 admission_id: None,
                 rlm_notice_nonce: None,
+                reply_to: None,
             },
             rest: Map::default(),
         };

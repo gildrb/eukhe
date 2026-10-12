@@ -119,6 +119,7 @@ impl SessionUi {
             skill_commands_cache: Vec::new(),
             chat_view_updates: activity_updates.chat_view,
             chat_view_epoch: 0,
+            agent_message_notes: activity_updates.agent_messages,
             memory_view_bytes: None,
             bash_activities: serde_json::json!({"activities": []}),
             bash_list_epoch: 0,

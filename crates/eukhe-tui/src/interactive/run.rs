@@ -162,6 +162,10 @@ async fn run_interactive_surface(
     // loop folds the view into the transcript as its startup block.
     let (chat_view_tx, mut chat_view_rx) =
         mpsc::unbounded_channel::<crate::session_ui::ChatViewUpdate>();
+    // A backgrounded `@name message` delivery reports here; the loop
+    // folds a failure into an error row (the draft returns).
+    let (agent_messages_tx, mut agent_messages_rx) =
+        mpsc::unbounded_channel::<crate::session_ui::AgentMessageOutcome>();
     // The double-Ctrl+C force-quit guard: the terminal reader observes the
     // pair even while this loop is wedged in a daemon request, and a plain
     // std-thread watchdog enforces the exit deadline without the runtime.
@@ -277,6 +281,7 @@ async fn run_interactive_surface(
         let factory_tx = factory_tx.clone();
         let commands_tx = commands_tx.clone();
         let chat_view_tx = chat_view_tx.clone();
+        let agent_messages_tx = agent_messages_tx.clone();
         tokio::spawn(async move {
             let session = SessionUi::open(
                 client,
@@ -293,6 +298,7 @@ async fn run_interactive_surface(
                     factory: factory_tx,
                     commands: commands_tx,
                     chat_view: chat_view_tx,
+                    agent_messages: agent_messages_tx,
                 },
             )
             .await?;
@@ -1443,6 +1449,11 @@ async fn run_interactive_surface(
             maybe_chat_view = chat_view_rx.recv() => {
                 if let Some(update) = maybe_chat_view {
                     session.apply_chat_view(update, &mut view);
+                }
+            }
+            maybe_agent_message = agent_messages_rx.recv() => {
+                if let Some(outcome) = maybe_agent_message {
+                    session.apply_agent_message_outcome(outcome, &mut view);
                 }
             }
             Some(placement) = git_rx.recv() => {

@@ -148,6 +148,8 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "mark_anthropic_warning_shown",
     "get_chat_view",
     "get_memory",
+    "agent_relay",
+    "agent_reply",
 ];
 
 /// Parsed client command envelope.
@@ -883,6 +885,12 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::MarkAnthropicWarningShown {
             active_session_id, ..
         }
+        | DaemonCommand::AgentRelay {
+            active_session_id, ..
+        }
+        | DaemonCommand::AgentReply {
+            active_session_id, ..
+        }
         | DaemonCommand::RetryWorker {
             active_session_id, ..
         }
@@ -1054,6 +1062,8 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetToolDefinition { .. } => "get_tool_definition",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
         DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",
+        DaemonCommand::AgentRelay { .. } => "agent_relay",
+        DaemonCommand::AgentReply { .. } => "agent_reply",
         DaemonCommand::AckResult { .. } => "ack_result",
         DaemonCommand::RetryWorker { .. } => "retry_worker",
         DaemonCommand::Restart { .. } => "restart",

@@ -320,6 +320,18 @@ impl Worker {
             when_busy,
             request_id: admission_id.clone(),
         };
+        // A user's `@name` message from another session owes that session
+        // the run's final answer: the bookkeeping row commits before the
+        // input it stands beside.
+        if let Some(reply_to) = payload
+            .get("replyTo")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
+            if let Err(error) = self.write_owed_reply(&hosted, reply_to).await {
+                return response_failure(None, command, &format!("{error:#}"), None);
+            }
+        }
         // A live input-pause lease holds the admission (TS
         // `_sessionInputAdmissionPauses`): the input parks durable-held
         // until the release delivers it; a waiting prompt answers the
@@ -550,6 +562,30 @@ impl Worker {
             DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
         ) {
             return response_failure(None, COMMAND, &error.to_string(), None);
+        }
+        // A child's message to this parent is its reply: its settle owes no
+        // no-reply notice (and so no extra parent turn restating it). The
+        // mark commits on the child's durable row before the receipt
+        // answers, so the child's own settle can never overtake it.
+        if from_relationship == Some(AgentFamilyRelationship::Child) {
+            let sender_ids = ["activeSessionId", "sessionId"]
+                .iter()
+                .filter_map(|key| sender.get(*key).and_then(Value::as_str))
+                .map(str::to_string)
+                .collect();
+            let marked = async {
+                let main = hosted.main()?;
+                eukhe_core::durable::children::mark_child_replied(
+                    hosted.harness(),
+                    main.id(),
+                    sender_ids,
+                )
+                .await
+            }
+            .await;
+            if let Err(error) = marked {
+                eprintln!("eukhe-daemon worker: recording the child's reply failed: {error:#}");
+            }
         }
         let prompt = eukhe_core::agent_messaging::create_agent_session_message_prompt(
             &AgentMessagePromptPayload {

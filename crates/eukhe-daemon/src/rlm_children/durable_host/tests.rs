@@ -241,7 +241,6 @@ async fn keyed_calls_run_once_and_a_settled_child_reports() {
     assert_eq!(prompts[0]["activeSessionId"], "child-live");
     assert_eq!(prompts[0]["admissionId"], "rlm:7:prompt");
 
-    sessions.mark_durable_child_replied("child-live");
     let observed = sessions
         .wait_settled(RlmChildWaitRequest {
             session_id: CHILD_SESSION.to_owned(),
@@ -254,7 +253,6 @@ async fn keyed_calls_run_once_and_a_settled_child_reports() {
         observed.state,
         RlmChildRunState::Settled {
             answer_preview: Some("the child final answer".to_owned()),
-            replied_since_task: true,
         }
     );
     let usage = observed.usage.unwrap();
@@ -375,7 +373,6 @@ async fn a_resumed_watch_settles_a_completed_child() {
         observed.state,
         RlmChildRunState::Settled {
             answer_preview: Some("the child final answer".to_owned()),
-            replied_since_task: false,
         }
     );
 }

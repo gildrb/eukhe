@@ -48,6 +48,17 @@ pub enum StreamingBehavior {
     FollowUp,
 }
 
+/// The rows a `list_agent_peers` answers with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentPeerScope {
+    /// Every other live connected worker's root row (the TS peer roster).
+    Live,
+    /// Every supervisor roster row — live, seeded passivated children,
+    /// and the requester's own row — the source of the family mesh.
+    Roster,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DaemonSessionLifecycle {
@@ -90,6 +101,12 @@ pub struct PromptInput {
     /// reserved-kind intake rejects it all the same.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rlm_notice_nonce: Option<String>,
+    /// The live session whose user sent this prompt as an `@name` message
+    /// (Rust-native): the run's final answer returns there as a durable
+    /// `agent_reply` row (shown to the user, logged to chat memory, never
+    /// a turn of its own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
 }
 
 /// Client commands, tagged by `type`. Every variant also carries `id` (when
@@ -140,6 +157,9 @@ pub enum DaemonCommand {
         /// failure, not a parse one).
         #[serde(default)]
         worker_token: String,
+        /// Which rows answer; absent is [`AgentPeerScope::Live`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<AgentPeerScope>,
         #[serde(flatten)]
         rest: JsonMap,
     },
@@ -1210,6 +1230,38 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native worker command: a subagent that messaged another
+    /// non-root agent of its family asks the family root's worker to show
+    /// the exchange (the root emits the display-only `agent_relay` session
+    /// event; never model input, never chat memory).
+    AgentRelay {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// The family root's live session.
+        active_session_id: String,
+        from: String,
+        to: String,
+        text: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native worker command: an agent's final answer to a user's
+    /// `@name` message, delivered to the session the user sent it from.
+    /// The session commits it as an `agent_reply` row once per `reply_id`
+    /// (a redelivery is a no-op); it never starts a turn.
+    AgentReply {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// The session the user's message came from.
+        active_session_id: String,
+        /// The answering agent's display name.
+        from: String,
+        text: String,
+        /// The owed reply's durable id (the row's dedupe key).
+        reply_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     AckResult {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -1296,6 +1348,24 @@ mod tests {
     #[test]
     fn mark_anthropic_warning_shown_roundtrip() {
         rt::<DaemonCommand>(r#"{"type":"mark_anthropic_warning_shown","activeSessionId":"s1"}"#);
+    }
+
+    #[test]
+    fn agent_relay_and_roster_scope_roundtrip() {
+        rt::<DaemonCommand>(
+            r#"{"type":"agent_relay","activeSessionId":"root","from":"scout","to":"builder","text":"hi"}"#,
+        );
+        rt::<DaemonCommand>(r#"{"type":"list_agent_peers","workerToken":"t","scope":"roster"}"#);
+    }
+
+    #[test]
+    fn agent_reply_and_prompt_reply_to_roundtrip() {
+        rt::<DaemonCommand>(
+            r#"{"type":"agent_reply","activeSessionId":"root","from":"alpha","text":"42","replyId":"r1"}"#,
+        );
+        rt::<DaemonCommand>(
+            r#"{"type":"prompt","activeSessionId":"alpha","message":"what number?","replyTo":"root"}"#,
+        );
     }
 
     #[test]

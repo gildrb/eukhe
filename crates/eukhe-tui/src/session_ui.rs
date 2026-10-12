@@ -3,6 +3,7 @@
 //! event application, and session switching. Rendering itself lives in the
 //! view crate modules; this module only decides what the view shows.
 
+mod agents;
 mod apply;
 mod auth;
 mod bash;
@@ -23,6 +24,7 @@ mod sessions_fork;
 mod settings;
 mod stream;
 
+pub(crate) use agents::AgentMessageOutcome;
 pub(crate) use apply::CompactionAbortNote;
 use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome};
 pub(crate) use bash::BashActivityUpdate;
@@ -366,6 +368,9 @@ pub(crate) struct SessionUi {
     /// Monotonic epoch of the newest chat-view fetch; an older response
     /// (a rebind raced the fetch) never lands in the new transcript.
     chat_view_epoch: u64,
+    /// Where a backgrounded `@name message` delivery reports its outcome
+    /// (the run loop folds a failure into an error row).
+    agent_message_notes: mpsc::UnboundedSender<AgentMessageOutcome>,
     /// The chat memory's view size, once a `get_memory` reply or a
     /// `memory_update` reported it for this session (the status line's
     /// `mem` gauge); `None` until then.

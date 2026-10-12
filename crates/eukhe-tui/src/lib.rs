@@ -28,6 +28,7 @@
 //   removals would ripple through the callers without changing behavior.
 #![allow(clippy::unnecessary_wraps)]
 
+mod agent_delivery;
 pub mod agents_view;
 pub mod agents_view_forest;
 pub mod agents_view_search;
@@ -112,6 +113,7 @@ pub mod status_line;
 pub mod style;
 pub mod subagents;
 mod suspend;
+pub mod swarm_block;
 mod terminal_image;
 pub mod theme;
 pub mod theme_catalog;

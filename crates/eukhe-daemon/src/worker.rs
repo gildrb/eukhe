@@ -16,6 +16,7 @@ mod session_core;
 
 pub(crate) use config::WorkerConfig;
 use env::KillCloseReason;
+mod agent_reply;
 mod input;
 pub(crate) use input::{injection_kind, parse_prompt_images, submit_input, InputRequest};
 mod lifecycle;
@@ -181,6 +182,8 @@ pub struct Worker {
     /// read it (the sender identity block and the family edges),
     /// published at every create and rename.
     pub(crate) own_summary: Arc<Mutex<Option<Value>>>,
+    /// The user's `@name` replies this session owes (see `agent_reply`).
+    agent_replies: Arc<agent_reply::AgentReplies>,
 }
 
 /// Whether a delivery's sender is one of THIS session's children, by the
@@ -336,6 +339,11 @@ impl Worker {
             scripted_models: std::sync::OnceLock::new(),
             rlm_children: std::sync::OnceLock::new(),
             own_summary: Arc::new(Mutex::new(None)),
+            agent_replies: Arc::new(agent_reply::AgentReplies::new(
+                std::env::var_os(WORKER_SUPERVISOR_SOCKET_ENV)
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_default(),
+            )),
         }
     }
 
@@ -359,6 +367,7 @@ impl Worker {
         let roster_pushes = self.roster_pushes.clone();
         let herdr = std::sync::Arc::clone(&self.herdr);
         let park_notify = std::sync::Arc::clone(&self.park_notify);
+        let agent_replies = Arc::clone(&self.agent_replies);
         durable_host::bridge::BridgeSink {
             core: Arc::clone(&self.core),
             events: Arc::clone(&self.events),
@@ -407,6 +416,10 @@ impl Worker {
                 // settled-child kernel release) re-arms from here.
                 if !busy {
                     park_notify.notify_one();
+                    // A run that answered a user's `@name` message owes
+                    // that session the answer.
+                    let (replies, core) = (Arc::clone(&agent_replies), Arc::clone(&core));
+                    tokio::spawn(async move { replies.deliver_latest(&core).await });
                 }
                 roster_pushes.push();
             }),

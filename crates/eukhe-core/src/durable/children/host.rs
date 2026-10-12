@@ -106,13 +106,11 @@ pub enum RlmChildRunState {
     /// The child (or one of its descendants) still has work in flight.
     Running,
     /// The child's run settled and stayed idle across the host's stability
-    /// re-check.
+    /// re-check. Whether the child replied to this parent meanwhile is the
+    /// child row's own durable mark ([`super::mark_child_replied`]).
     Settled {
         /// The child's final assistant text, compacted for the roster.
         answer_preview: Option<String>,
-        /// The child sent an agent message to this parent since its task
-        /// was admitted (TS `_parentReplyCount`): no no-reply notice is owed.
-        replied_since_task: bool,
     },
     /// The child's run failed.
     Failed { error: String },
@@ -211,6 +209,18 @@ pub struct RlmRenameRequest {
     pub target: RlmRenameTarget,
 }
 
+/// The family-wide inputs of the spawn cap (omp2 `sv_task_max_concurrency`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RlmSpawnCapacity {
+    /// `subagentMaxConcurrency`: running or starting subagents the family
+    /// may hold at once; `0` is unlimited.
+    pub max_concurrency: u32,
+    /// Durable session ids of the family's subagents that are running or
+    /// starting right now, as the host sees them (the caller unions its
+    /// own not-yet-visible children in).
+    pub active_session_ids: Vec<String>,
+}
+
 /// The supervisor child-session machinery the daemon supplies to a parent
 /// session.
 ///
@@ -249,6 +259,9 @@ pub trait RlmSubagentHost: Send + Sync {
     /// reservation across the agent family; a parent-directed rename marks
     /// the child's transcript notice with the parent.
     fn rename(&self, request: RlmRenameRequest) -> RlmHostFuture<'_, ()>;
+    /// The spawn cap's bound and the family's active subagents, read
+    /// before a spawn admits.
+    fn spawn_capacity(&self) -> RlmHostFuture<'_, RlmSpawnCapacity>;
 }
 
 /// Host behavior for sessions with no child runtime: spawns and creates fail
@@ -305,5 +318,9 @@ impl RlmSubagentHost for NoRlmChildren {
                 "rlm.rename requires a daemon-backed session: this session has no RLM child runtime"
             )
         })
+    }
+
+    fn spawn_capacity(&self) -> RlmHostFuture<'_, RlmSpawnCapacity> {
+        Box::pin(async { anyhow::bail!("{NO_CHILD_RUNTIME}") })
     }
 }
