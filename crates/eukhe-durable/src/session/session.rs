@@ -140,7 +140,6 @@ pub struct Unsubscribe {
 
 impl Unsubscribe {
     /// A handle whose call runs `remove`.
-    #[allow(dead_code, reason = "used by the harness registry, ported separately")]
     pub(crate) fn new(remove: impl Fn() -> bool + Send + Sync + 'static) -> Self {
         Self {
             remove: Box::new(remove),
