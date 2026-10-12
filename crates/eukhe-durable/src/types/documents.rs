@@ -293,17 +293,6 @@ impl DocumentRecord {
             retired_at: None,
         }
     }
-
-    /// The create value of this record, without lifetime fields.
-    #[must_use]
-    pub fn to_create(&self) -> DocumentCreate {
-        DocumentCreate {
-            id: self.id,
-            kind: self.kind.clone(),
-            key: self.key.clone(),
-            scope: self.scope,
-        }
-    }
 }
 
 /// Identity and scope shared by [`DocumentCreate`] and [`DocumentRecord`]
