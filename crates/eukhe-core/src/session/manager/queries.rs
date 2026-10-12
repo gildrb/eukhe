@@ -2,7 +2,7 @@
 //! accessor arm - the active context and history snapshot, the branch
 //! scans, the window-backed reads, and the getters.
 
-use super::{FileEntry, Path, SessionHeader, SessionManager, SessionTree};
+use super::{FileEntry, Path, SessionHeader, SessionManager};
 
 impl SessionManager {
     /// The active compacted context without hydrating old message bodies.
@@ -127,27 +127,6 @@ impl SessionManager {
         branch
     }
 
-    #[must_use]
-    pub fn active_goal_state(&self) -> Option<crate::goals::GoalState> {
-        if let Some(window) = &self.window {
-            return window.goal_state().cloned();
-        }
-        self.active_branch_entries().iter().rev().find_map(|entry| {
-            let FileEntry::Custom { payload, .. } = entry else {
-                return None;
-            };
-            let data = payload.data.as_ref()?;
-            if payload.custom_type != crate::goals::GOAL_STATE_CUSTOM_TYPE
-                || !crate::goals::is_persisted_goal_state(data)
-            {
-                return None;
-            }
-            serde_json::from_value(data.clone())
-                .ok()
-                .map(crate::goals::normalize_goal_state)
-        })
-    }
-
     /// Newest `git_state` reachable without hydration: the loaded active
     /// branch first, then the window's pre-boundary metadata (newest first).
     pub(crate) fn latest_git_context(&self) -> Option<eukhe_types::session::GitContext> {
@@ -238,10 +217,6 @@ impl SessionManager {
         self.window = None;
         Ok(())
     }
-    #[must_use]
-    pub fn get_cwd(&self) -> &Path {
-        &self.cwd
-    }
 
     #[must_use]
     pub fn get_session_dir(&self) -> &Path {
@@ -305,52 +280,6 @@ impl SessionManager {
         })
     }
 
-    #[must_use]
-    pub fn get_session_name(&self) -> Option<String> {
-        if let Some(window) = &self.window {
-            return self
-                .file_entries
-                .iter()
-                .rev()
-                .find_map(|entry| match entry {
-                    FileEntry::SessionInfo { payload, .. } => Some(payload.name.clone()),
-                    _ => None,
-                })
-                .unwrap_or_else(|| {
-                    window
-                        .metadata_entries()
-                        .iter()
-                        .rev()
-                        .find_map(|raw| match serde_json::from_str::<FileEntry>(raw).ok()? {
-                            FileEntry::SessionInfo { payload, .. } => Some(payload.name),
-                            _ => None,
-                        })
-                        .flatten()
-                });
-        }
-        self.file_entries
-            .iter()
-            .rev()
-            .find_map(|entry| match entry {
-                FileEntry::SessionInfo { payload, .. } => Some(payload.name.clone()),
-                _ => None,
-            })
-            .flatten()
-    }
-    /// The session tree (branch children + label state) over current entries.
-    ///
-    /// # Panics
-    ///
-    /// Asserts that the manager holds no windowed store: hydrate the full
-    /// session history first.
-    #[must_use]
-    pub fn get_tree(&self) -> SessionTree {
-        assert!(
-            self.window.is_none(),
-            "hydrate full session history before this operation"
-        );
-        SessionTree::build(&self.file_entries)
-    }
     /// Look up an entry by id (file position index).
     ///
     /// # Panics
@@ -379,20 +308,5 @@ impl SessionManager {
             "hydrate full session history before this operation"
         );
         self.labels_by_id.get(target_id).cloned()
-    }
-
-    /// The timestamp of the label entry that set the target's active label.
-    ///
-    /// # Panics
-    ///
-    /// Asserts that the manager holds no windowed store: hydrate the full
-    /// session history first.
-    #[must_use]
-    pub fn get_label_timestamp(&self, target_id: &str) -> Option<String> {
-        assert!(
-            self.window.is_none(),
-            "hydrate full session history before this operation"
-        );
-        self.label_timestamps_by_id.get(target_id).cloned()
     }
 }

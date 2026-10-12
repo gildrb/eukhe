@@ -431,30 +431,6 @@ impl AgentCronJobStore {
         Ok(recovered)
     }
 
-    /// # Errors
-    ///
-    /// Returns an error when the state lock or write fails.
-    pub fn recover_interrupted_dispatches_by_id(
-        &self,
-        dispatch_ids: &[String],
-        now: u64,
-    ) -> anyhow::Result<Vec<AgentCronJob>> {
-        let mut recovered = Vec::new();
-        let dispatch_ids: std::collections::HashSet<String> =
-            dispatch_ids.iter().cloned().collect();
-        self.mutate_states(|state| {
-            recover_interrupted_in_state(state, now, &mut recovered, Some(&dispatch_ids));
-            Vec::new()
-        })?;
-        Ok(recovered)
-    }
-
-    pub fn get_due_job(&self, id: &str, now: u64) -> Option<AgentCronJob> {
-        self.read_jobs()
-            .into_iter()
-            .find(|job| job.id == id && is_due_job(job, now))
-    }
-
     pub fn next_active_run_at(&self) -> Option<u64> {
         self.read_jobs()
             .iter()

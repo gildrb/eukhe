@@ -196,12 +196,6 @@ impl SettingsManager {
         Ok(())
     }
 
-    /// Runtime overrides layered on top (CLI flags); not persisted.
-    pub fn apply_overrides(&mut self, overrides: &Settings) {
-        self.merged = deep_merge(&self.merged, overrides);
-        self.runtime_overrides = deep_merge(&self.runtime_overrides, overrides);
-    }
-
     /// Mutable global settings for the setters in sibling modules (the
     /// TS setters mutate `globalSettings` then save).
     pub(crate) fn global_mut(&mut self) -> &mut Settings {
@@ -218,26 +212,6 @@ impl SettingsManager {
     }
 
     // -- persisted setters --------------------------------------------------
-
-    /// `defaultProvider` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_default_provider(&mut self, provider: String) -> Result<()> {
-        self.global.default_provider = Some(provider);
-        self.save_global()
-    }
-
-    /// `defaultModel` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_default_model(&mut self, model: String) -> Result<()> {
-        self.global.default_model = Some(model);
-        self.save_global()
-    }
 
     /// `defaultModel` + `defaultProvider` setter (the model switch's
     /// combined write).
@@ -449,16 +423,6 @@ impl SettingsManager {
     /// Returns an error when the global settings file cannot be written.
     pub fn set_onboarding_shown(&mut self, shown: bool) -> Result<()> {
         self.global.onboarding_shown = Some(shown);
-        self.save_global()
-    }
-
-    /// `onboardingCompleted` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_onboarding_completed(&mut self, completed: bool) -> Result<()> {
-        self.global.onboarding_completed = Some(completed);
         self.save_global()
     }
 
@@ -843,13 +807,6 @@ impl SettingsManager {
     #[must_use]
     pub fn get_transport(&self) -> TransportSetting {
         self.merged.transport.unwrap_or(TransportSetting::Auto)
-    }
-
-    /// `requestTiming`: unset means OFF — the per-request timing timeline
-    /// is opt-in, exactly the TS default (`getRequestTiming`).
-    #[must_use]
-    pub fn get_request_timing(&self) -> bool {
-        self.merged.request_timing.unwrap_or(false)
     }
 
     #[must_use]

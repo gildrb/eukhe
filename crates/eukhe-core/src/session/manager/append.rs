@@ -52,18 +52,6 @@ impl SessionManager {
         })
     }
 
-    /// Append a service-tier change; returns the new entry id.
-    pub fn append_service_tier_change(
-        &mut self,
-        service_tier: Option<eukhe_types::ai::ServiceTier>,
-    ) -> String {
-        let base = self.next_base();
-        self.append_entry(FileEntry::ServiceTierChange {
-            payload: eukhe_types::session::ServiceTierChangeEntry { service_tier },
-            base,
-        })
-    }
-
     /// Append a model change; returns the new entry id.
     pub fn append_model_change(&mut self, provider: &str, model_id: &str) -> String {
         let base = self.next_base();

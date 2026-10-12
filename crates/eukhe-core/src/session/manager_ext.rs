@@ -1,26 +1,12 @@
 //! `SessionManager` part 2: queries, branches, labels, status entries.
 //! Port of the tail of core/session-manager.ts (getBranch/getTree/branch*).
 
-use eukhe_types::session::{
-    AgentMessage, CustomMessageEntry, FileEntry, GitContext, GitStateEntry, LabelEntry,
-    SessionStateStatus,
-};
+use eukhe_types::session::{AgentMessage, FileEntry, GitContext, GitStateEntry, LabelEntry};
 
 use super::manager::SessionManager;
 use super::CONTENT_ENTRY_TYPES;
 
 impl SessionManager {
-    /// The active session state (latest normalized `session_state` entry).
-    #[must_use]
-    pub fn get_session_state(&self) -> Option<SessionStateStatus> {
-        for entry in self.get_entries().iter().rev() {
-            if let FileEntry::SessionState { payload, .. } = entry {
-                return Some(normalize_state(payload.state.status));
-            }
-        }
-        None
-    }
-
     /// True when the session holds user-meaningful content beyond the default
     /// creation prefix (`model_change`, `thinking_level_change`, `service_tier_change`).
     #[must_use]
@@ -80,27 +66,6 @@ impl SessionManager {
         }
     }
 
-    /// Append a custom message entry; returns the new entry id.
-    pub fn append_custom_message_entry(
-        &mut self,
-        custom_type: &str,
-        content: eukhe_types::ai::UserContent,
-        display: bool,
-        details: Option<serde_json::Value>,
-    ) -> String {
-        let base = self.next_base();
-        self.append_entry(FileEntry::CustomMessage {
-            payload: CustomMessageEntry {
-                custom_type: custom_type.to_string(),
-                content,
-                display,
-                details,
-                rest: serde_json::Map::default(),
-            },
-            base,
-        })
-    }
-
     /// Append a label change for a target entry.
     ///
     /// # Panics
@@ -122,21 +87,6 @@ impl SessionManager {
         });
         self.apply_label_entry(target_id, label, &timestamp);
         id
-    }
-
-    /// `getFlatTree`: every entry in file order with its active label and
-    /// label timestamp (the `get_session_tree` wire shape's source).
-    #[must_use]
-    pub fn get_flat_tree(&self) -> Vec<(FileEntry, Option<String>, Option<String>)> {
-        self.get_entries()
-            .into_iter()
-            .map(|entry| {
-                let id = entry.id().map(str::to_string);
-                let label = id.as_deref().and_then(|id| self.get_label(id));
-                let timestamp = id.as_deref().and_then(|id| self.get_label_timestamp(id));
-                (entry, label, timestamp)
-            })
-            .collect()
     }
 
     /// `getUserMessagesForForking`: user messages with their text, in file
@@ -190,11 +140,6 @@ impl SessionManager {
         self.set_leaf_id(Some(branch_from_id));
     }
 
-    /// Reset the leaf to the root (next append starts a new root branch).
-    pub fn reset_leaf(&mut self) {
-        self.set_leaf_id(None);
-    }
-
     /// Branch with a summary message describing what the abandoned branch held.
     ///
     /// # Panics
@@ -226,14 +171,6 @@ impl SessionManager {
             },
             base,
         })
-    }
-}
-
-fn normalize_state(status: SessionStateStatus) -> SessionStateStatus {
-    match status {
-        SessionStateStatus::Active | SessionStateStatus::Archived | SessionStateStatus::Crash => {
-            status
-        }
     }
 }
 

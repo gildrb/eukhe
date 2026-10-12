@@ -392,14 +392,4 @@ impl SettingsManager {
     pub fn get_enabled_models(&self) -> Option<Vec<String>> {
         self.settings().enabled_models.clone()
     }
-
-    /// `enabledModels` setter (`None` is no filter).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings scope cannot be saved.
-    pub fn set_enabled_models(&mut self, models: Option<Vec<String>>) -> Result<()> {
-        self.global_mut().enabled_models = models;
-        self.save_global_scope()
-    }
 }

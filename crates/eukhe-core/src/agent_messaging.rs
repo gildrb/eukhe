@@ -25,9 +25,6 @@ pub const DEFAULT_AGENT_MESSAGE_RATE_LIMIT_CAPACITY: usize = 3;
 /// One rate-limit token per sender per this window (TS
 /// `DEFAULT_AGENT_MESSAGE_RATE_LIMIT_REFILL_MS`).
 pub const DEFAULT_AGENT_MESSAGE_RATE_LIMIT_REFILL_MS: u64 = 1_000;
-
-pub const AGENT_OBSERVE_PREVIEW_MAX_CHARS: usize = 240;
-pub const AGENT_OBSERVE_IMPORT_NAME: &str = "agent_observe";
 /// The row an agent's final answer to a user's `@name` message leaves in
 /// the session the user sent it from: shown to the user, logged to chat
 /// memory as `[name] answer`, model context for the next turn, never a

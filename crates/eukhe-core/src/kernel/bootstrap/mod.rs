@@ -62,14 +62,6 @@ pub const DEFAULT_RLM_EXTRA_PACKAGES: [(&str, &str, &str); 12] = [
 ];
 
 #[must_use]
-pub fn default_rlm_extra_import_names() -> Vec<&'static str> {
-    DEFAULT_RLM_EXTRA_PACKAGES
-        .iter()
-        .map(|(_, import, _)| *import)
-        .collect()
-}
-
-#[must_use]
 pub fn default_rlm_extra_import_labels() -> Vec<&'static str> {
     DEFAULT_RLM_EXTRA_PACKAGES
         .iter()

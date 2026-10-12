@@ -8,8 +8,8 @@ use super::planner::{
     REFINEMENT_MAX_OUTPUT_TOKENS, REFINEMENT_SYSTEM_PROMPT,
 };
 use super::{
-    infer_refinement_result_scope, merge_refinement_history, HarnessMemory, HarnessScope,
-    HarnessState, RefinementKind, RefinementResult, REFINEMENT_KINDS,
+    infer_refinement_result_scope, HarnessMemory, HarnessScope, HarnessState, RefinementKind,
+    RefinementResult, REFINEMENT_KINDS,
 };
 use eukhe_types::ai::AssistantMessage;
 use eukhe_types::session::AgentMessage;
@@ -147,15 +147,6 @@ pub type RefinerFn = Box<
             Box<dyn std::future::Future<Output = anyhow::Result<AssistantMessage>> + Send>,
         > + Send,
 >;
-
-/// Merge global and session histories into one prompt context.
-#[must_use]
-pub fn merge_refinement_result_history(
-    global: &[RefinementResult],
-    session: &[RefinementResult],
-) -> Vec<RefinementResult> {
-    merge_refinement_history(global, session)
-}
 
 fn action_name(action: super::RefinementAction) -> &'static str {
     match action {

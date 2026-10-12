@@ -46,15 +46,6 @@ impl SessionManager {
         manager
     }
 
-    /// Whether the manager carries a session directory of its own: a
-    /// fresh in-memory manager holds only the cwd fallback, while the
-    /// daemon's mirrored engine session does. Session-owned artifacts (the
-    /// local harness state) need it.
-    #[must_use]
-    pub fn has_session_dir(&self) -> bool {
-        self.session_dir_backed
-    }
-
     /// Open only the compacted active window off the async executor. Use
     /// `active_context` until `ensure_full_history` completes before accessing
     /// historical entries, navigation, or exporting.
@@ -175,29 +166,5 @@ impl SessionManager {
         self.labels_by_id.clear();
         self.label_timestamps_by_id.clear();
         self.leaf_id = None;
-    }
-
-    /// Adopt a durable branch as this session's entries (TS
-    /// `createBranchedSession`'s in-memory case, and the engine's
-    /// post-navigation context rebuild): keeps the header, replaces every
-    /// entry with the given chain, and re-indexes so the leaf is the last
-    /// adopted entry.
-    pub fn adopt_entries(&mut self, entries: Vec<FileEntry>) {
-        // The caller supplies the complete selected branch after explicit navigation.
-        self.window = None;
-        let header = self
-            .file_entries
-            .iter()
-            .position(|entry| matches!(entry, FileEntry::Header { .. }));
-        match header {
-            Some(index) => {
-                self.file_entries.truncate(index + 1);
-                self.file_entries.extend(entries);
-            }
-            None => {
-                self.file_entries = entries;
-            }
-        }
-        self.build_index();
     }
 }

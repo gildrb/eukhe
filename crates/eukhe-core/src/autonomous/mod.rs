@@ -352,14 +352,6 @@ pub fn autonomous_token_delta(usage: Option<&eukhe_types::ai::Usage>) -> u64 {
     }
 }
 
-/// The disabled status snapshot (TS `emptyAutonomousStatus`): what
-/// `wait_for_headless_completion` answers when no run is (or was) enabled.
-#[must_use]
-pub fn disabled_autonomous_status() -> AgentAutonomousStatus {
-    let state = create_autonomous_runtime_state(None, None);
-    autonomous_status(&state)
-}
-
 /// Limit check against a completed run's status snapshot (TS
 /// `autonomousLimitReason(status)` in acp-stop-reason.ts: the same counter
 /// fields the runtime state carries, evaluated on the wire shape so headless

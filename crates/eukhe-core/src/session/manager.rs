@@ -10,7 +10,6 @@ use eukhe_types::session::{
     SessionStateStatus,
 };
 
-use super::tree::SessionTree;
 use super::{migrate_to_current_version, parse_session_entries, CURRENT_SESSION_VERSION};
 
 // The inline unit battery moved to the child module at the same tree

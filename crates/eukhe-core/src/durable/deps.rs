@@ -343,14 +343,6 @@ impl HostRequestRegistry {
         self.lock().get(request_type).cloned()
     }
 
-    /// Registered request types, sorted.
-    #[must_use]
-    pub fn request_types(&self) -> Vec<String> {
-        let mut types: Vec<String> = self.lock().keys().cloned().collect();
-        types.sort();
-        types
-    }
-
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, HostCallHandler>> {
         self.handlers.lock().unwrap_or_else(PoisonError::into_inner)
     }

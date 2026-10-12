@@ -277,11 +277,6 @@ impl SemanticEdgeRecorder {
         state.parked_retry = parked;
     }
 
-    /// Drop the parked retry (TS `clearTurnRetry`).
-    pub fn clear_turn_retry(&self) {
-        self.state().parked_retry = None;
-    }
-
     /// Commit one request (TS `finishRequest`).
     pub(crate) fn finish_request(&self, request_id: &str) {
         let mut state = self.state();

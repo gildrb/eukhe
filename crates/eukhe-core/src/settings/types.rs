@@ -27,22 +27,6 @@ pub enum ThinkingLevelSetting {
 }
 
 impl ThinkingLevelSetting {
-    /// The reverse of [`ThinkingLevelSetting::model_level`]: a live switch
-    /// (daemon `set_thinking_level`) persists a model-vocabulary level as
-    /// the settings default without re-matching this enum at the call site.
-    #[must_use]
-    pub fn from_model_level(level: eukhe_types::ai::ModelThinkingLevel) -> ThinkingLevelSetting {
-        match level {
-            eukhe_types::ai::ModelThinkingLevel::Off => ThinkingLevelSetting::Off,
-            eukhe_types::ai::ModelThinkingLevel::Minimal => ThinkingLevelSetting::Minimal,
-            eukhe_types::ai::ModelThinkingLevel::Low => ThinkingLevelSetting::Low,
-            eukhe_types::ai::ModelThinkingLevel::Medium => ThinkingLevelSetting::Medium,
-            eukhe_types::ai::ModelThinkingLevel::High => ThinkingLevelSetting::High,
-            eukhe_types::ai::ModelThinkingLevel::Xhigh => ThinkingLevelSetting::Xhigh,
-            eukhe_types::ai::ModelThinkingLevel::Max => ThinkingLevelSetting::Max,
-        }
-    }
-
     /// The same level in the shared model vocabulary: the settings default
     /// feeds session thinking-level resolution, so callers need the
     /// eukhe-types value without re-matching this enum.

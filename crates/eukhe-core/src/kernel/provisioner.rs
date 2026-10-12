@@ -13,7 +13,7 @@
 //! `core/kernel/boot-gate.ts`.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
@@ -1246,15 +1246,6 @@ async fn start_kernel(
         }
     }
     Ok(manager)
-}
-
-/// Same as [`IpythonKernelProvisioner::new`] for a `Path`-shaped cwd.
-#[must_use]
-pub fn provisioner_for_path(
-    cwd: &Path,
-    options: IpythonKernelProvisionerOptions,
-) -> IpythonKernelProvisioner {
-    IpythonKernelProvisioner::new(cwd.to_path_buf(), options)
 }
 
 #[cfg(test)]

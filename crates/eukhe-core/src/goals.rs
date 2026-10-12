@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 pub const GOAL_STATE_CUSTOM_TYPE: &str = "thread_goal_state";
 /// Custom message type for goal continuation prompts.
 pub const GOAL_CONTEXT_CUSTOM_TYPE: &str = "goal_context";
-pub const GOAL_CONTEXT_PREVIEW_LABEL: &str = "Goal context";
-pub const GOAL_SKILL_NAME: &str = "goal";
 pub const MAX_THREAD_GOAL_OBJECTIVE_CHARS: usize = 4000;
 
 // The wire/persisted `GoalState` and `GoalStatus` vocabulary lives in

@@ -1066,12 +1066,4 @@ impl ReplKernelManager {
         live_kernels::remove_inner(&self.inner);
         self.inner.cleanup_resources(Signal::Kill);
     }
-
-    /// Synchronous best-effort cleanup. Safe to call from drop paths.
-    pub fn dispose_sync(&self) {
-        self.supersede_protocol_repair();
-        lock(&self.inner.guarded).state = KernelState::Shutdown;
-        live_kernels::remove_inner(&self.inner);
-        self.inner.cleanup_resources(Signal::Term);
-    }
 }

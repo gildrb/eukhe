@@ -7,10 +7,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::state::{
-    merge_fresh_jobs, read_jobs_state, recover_interrupted_in_state, with_state_locks,
-    write_jobs_state,
-};
+use super::state::{merge_fresh_jobs, read_jobs_state, with_state_locks, write_jobs_state};
 use super::{
     AgentCronDispatchRecord, AgentCronJobStore, CronJobsState, SESSION_SCHEDULED_JOBS_FILENAME,
 };
@@ -44,36 +41,6 @@ impl AgentCronJobStore {
         files.clone().into_iter().collect()
     }
 
-    /// # Errors
-    ///
-    /// Returns an error when the state lock or write fails.
-    pub fn recover_session_artifact(
-        &self,
-        session_id: &str,
-        now: u64,
-    ) -> anyhow::Result<Vec<AgentCronJob>> {
-        let Some(path) = self
-            .session_artifacts()
-            .into_iter()
-            .find(|(id, _)| id == session_id)
-            .map(|(_, path)| path)
-        else {
-            return Ok(Vec::new());
-        };
-        with_state_locks(
-            std::slice::from_ref(&path),
-            || -> anyhow::Result<Vec<AgentCronJob>> {
-                let mut state = read_jobs_state(&path);
-                let mut recovered = Vec::new();
-                if !state.dispatches.is_empty() {
-                    recover_interrupted_in_state(&mut state, now, &mut recovered, None);
-                    write_jobs_state(&path, &state)?;
-                }
-                Ok(recovered)
-            },
-        )
-        .ok_or_else(|| anyhow::anyhow!("cron jobs state lock not acquired; skipped"))?
-    }
     pub(crate) fn write_jobs_session_artifacts(&self, jobs: &[AgentCronJob]) -> anyhow::Result<()> {
         let artifact_files = self
             .session_artifact_files

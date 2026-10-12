@@ -48,9 +48,6 @@ pub(crate) struct CronJobsState {
     pub(crate) dispatches: Vec<AgentCronDispatchRecord>,
 }
 
-/// `/heartbeat`-visible result states.
-pub type CronJobRunResult = &'static str; // "ran" | "skipped"
-
 /// The file-backed job store.
 pub struct AgentCronJobStore {
     file_path: Option<PathBuf>,

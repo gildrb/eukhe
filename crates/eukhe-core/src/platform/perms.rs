@@ -62,29 +62,6 @@ pub fn is_readable_writable(path: &Path) -> bool {
     .is_ok()
 }
 
-/// True when the current user may read the file, mirroring Node
-/// `fs.access(path, R_OK)` error-code semantics used by the edit preview.
-///
-/// # Errors
-///
-/// Returns the metadata I/O error, or an EACCES error when the permission
-/// bits deny a read for the effective user.
-pub fn is_readable(path: &Path) -> Result<(), std::io::Error> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let metadata = std::fs::metadata(path)?;
-    // Root on Linux can read files regardless of permission bits; mirror
-    // access(2)'s effective-uid check via the permission bits plus euid.
-    let mode = metadata.permissions().mode();
-    let readable = (mode & 0o004) != 0
-        || ((mode & 0o040) != 0 && metadata.uid() == nix::unistd::Uid::effective().as_raw())
-        || ((mode & 0o400) != 0 && metadata.uid() == nix::unistd::Uid::effective().as_raw());
-    if readable {
-        Ok(())
-    } else {
-        Err(std::io::Error::from_raw_os_error(13))
-    }
-}
-
 /// Set the private mode on an already-open file (`fchmod`): exact bits despite
 /// the umask, and tightens a pre-existing loose file. Callers decide whether a
 /// failure is fatal.

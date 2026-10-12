@@ -26,16 +26,6 @@ impl AgentCronJobStore {
             .max_by_key(|job| parse_iso_millis(&job.updated_at).unwrap_or(0))
     }
 
-    pub fn get_latest_heartbeat(&self, active_session_id: &str) -> Option<AgentCronJob> {
-        self.read_jobs()
-            .into_iter()
-            .filter(|job| {
-                job.active_session_id == active_session_id
-                    && job.source.as_deref() == Some("heartbeat")
-            })
-            .max_by_key(|job| parse_iso_millis(&job.updated_at).unwrap_or(0))
-    }
-
     /// Create the heartbeat job for a session, cancelling its existing
     /// active/paused heartbeat first.
     ///

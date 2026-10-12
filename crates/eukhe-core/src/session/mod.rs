@@ -10,8 +10,7 @@ use std::collections::HashMap;
 
 use eukhe_types::session::EntryBase;
 use eukhe_types::session::{
-    AgentMessage, CompactionEntry, CompactionSummaryMessage, CustomMessage, CustomMessageEntry,
-    FileEntry,
+    AgentMessage, CompactionSummaryMessage, CustomMessage, CustomMessageEntry, FileEntry,
 };
 use eukhe_types::JsonMap;
 
@@ -272,19 +271,6 @@ pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> bool {
         migrate_v2_to_v3(entries);
     }
     true
-}
-
-pub fn migrate_session_entries(entries: &mut [FileEntry]) {
-    migrate_to_current_version(entries);
-}
-
-/// The latest compaction on a leaf's ancestor path, or the last one anywhere.
-#[must_use]
-pub fn get_latest_compaction_entry(entries: &[FileEntry]) -> Option<&CompactionEntry> {
-    entries.iter().rev().find_map(|entry| match entry {
-        FileEntry::Compaction { payload, .. } => Some(payload),
-        _ => None,
-    })
 }
 
 /// Reconstructed conversation state at a leaf.
