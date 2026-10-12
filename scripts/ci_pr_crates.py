@@ -48,14 +48,15 @@ WORKSPACE_DEPS = {
     "eukhe-ai": {"eukhe-types", "eukhe-chord"},
     "eukhe-durable": {"eukhe-types", "eukhe-chord", "eukhe-ai"},
     "eukhe-models": {"eukhe-types", "eukhe-ai"},
+    "eukhe-docs": set(),
     "eukhe-core": {"eukhe-types", "eukhe-chord", "eukhe-ai", "eukhe-durable",
-                   "eukhe-models"},
+                   "eukhe-models", "eukhe-docs"},
     "eukhe-daemon": {"eukhe-build-info", "eukhe-core", "eukhe-durable", "eukhe-ai",
                      "eukhe-chord"},
     "eukhe-tui": {"eukhe-types", "eukhe-build-info", "eukhe-core"},
     "eukhe-gateway": {"eukhe-types", "eukhe-tui"},
     "eukhe-cli": {"eukhe-types", "eukhe-build-info", "eukhe-chord", "eukhe-ai",
-                  "eukhe-durable", "eukhe-models", "eukhe-core", "eukhe-daemon",
+                  "eukhe-durable", "eukhe-models", "eukhe-docs", "eukhe-core", "eukhe-daemon",
                   "eukhe-tui", "eukhe-gateway"},
 }
 

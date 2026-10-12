@@ -101,7 +101,8 @@ background bookkeeping.
 |`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-chord`|
 |`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`|
 |`eukhe-models`|Bundled model catalog and transport pinning|`eukhe-types`, `eukhe-ai`|
-|`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`|
+|`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|none|
+|`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`|
 |`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`|
 |`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-build-info`|
 |`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-tui`|

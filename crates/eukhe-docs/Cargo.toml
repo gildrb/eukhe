@@ -1,0 +1,24 @@
+[package]
+name = "eukhe-docs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Documents: file tags, edit store, read projection, locked writes, hashline edits, grep, glob."
+
+[dependencies]
+thiserror.workspace = true
+# The edit store is shared by the wire `edit` tool and the kernel requests
+# of one session.
+parking_lot = "0.12"
+# The hashline grammar and teaching repairs are omp's regexes.
+regex = "1"
+# The file tag is omp's xxh32 (seed 0) of the normalized text; MIT, unlike
+# xxhash-rust (BSL-1.0).
+twox-hash = { version = "2", default-features = false, features = ["std", "xxhash32"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

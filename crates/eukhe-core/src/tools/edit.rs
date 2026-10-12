@@ -5,9 +5,10 @@
 
 use std::sync::Arc;
 
+use eukhe_docs::text::{detect_line_ending, normalize_to_lf, restore_line_endings, strip_bom};
+
 use crate::tools::edit_diff::{
-    apply_edits_to_normalized_content, detect_line_ending, generate_diff_string_default,
-    normalize_to_lf, restore_line_endings, strip_bom, Edit,
+    apply_edits_to_normalized_content, generate_diff_string_default, Edit,
 };
 use crate::tools::file_mutation_queue::with_file_mutation_queue;
 use crate::tools::path_utils::resolve_to_cwd;

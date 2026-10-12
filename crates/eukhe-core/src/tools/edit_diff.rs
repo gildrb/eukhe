@@ -8,60 +8,14 @@ use std::path::Path;
 
 use unicode_normalization::UnicodeNormalization;
 
+use eukhe_docs::text::{normalize_to_lf, strip_bom};
+
 use crate::tools::jsdiff::diff_lines;
 use crate::tools::path_utils::resolve_to_cwd;
 
 // ---------------------------------------------------------------------------
-// Line endings / normalization
+// Normalization
 // ---------------------------------------------------------------------------
-
-/// Detect whether the content uses CRLF or LF line endings.
-pub fn detect_line_ending(content: &str) -> LineEnding {
-    let crlf_idx = content.find("\r\n");
-    let lf_idx = content.find('\n');
-    match (crlf_idx, lf_idx) {
-        (_, None) | (None, _) => LineEnding::Lf,
-        (Some(c), Some(l)) => {
-            if c < l {
-                LineEnding::CrLf
-            } else {
-                LineEnding::Lf
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LineEnding {
-    CrLf,
-    Lf,
-}
-
-/// Convert CRLF and lone CR line endings to LF.
-pub fn normalize_to_lf(text: &str) -> String {
-    // Replace \r\n first, then remaining \r (matches the TS chain).
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\r' {
-            if chars.peek() == Some(&'\n') {
-                chars.next();
-            }
-            out.push('\n');
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-/// Convert LF endings back to the original file's ending.
-pub fn restore_line_endings(text: &str, ending: LineEnding) -> String {
-    match ending {
-        LineEnding::Lf => text.to_string(),
-        LineEnding::CrLf => text.replace('\n', "\r\n"),
-    }
-}
 
 /// JS `String.prototype.trimEnd` whitespace set (differs from Rust's).
 fn is_js_whitespace(ch: char) -> bool {
@@ -112,15 +66,6 @@ pub fn normalize_for_fuzzy_match(text: &str) -> String {
         out.push(mapped);
     }
     out
-}
-
-/// Strip UTF-8 BOM if present, returning both the BOM and the text without it.
-pub fn strip_bom(content: &str) -> (&str, &str) {
-    if let Some(rest) = content.strip_prefix('\u{FEFF}') {
-        ("\u{FEFF}", rest)
-    } else {
-        ("", content)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -260,8 +205,8 @@ pub fn apply_edits_to_normalized_content(
     let normalized_edits: Vec<Edit> = edits
         .iter()
         .map(|edit| Edit {
-            old_text: normalize_to_lf(&edit.old_text),
-            new_text: normalize_to_lf(&edit.new_text),
+            old_text: normalize_to_lf(&edit.old_text).into_owned(),
+            new_text: normalize_to_lf(&edit.new_text).into_owned(),
         })
         .collect();
 
