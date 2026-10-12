@@ -216,6 +216,34 @@ async fn acquire_offline_lease(
     .await?
 }
 
+/// Whether `path` names a saved session the catalog may rename or delete:
+/// once canonicalized (a missing path through its canonical parent), it
+/// lies strictly inside the canonical sessions dir or the RLM children's
+/// `session-artifacts` tree. The command's `sessionPath` comes off the
+/// socket; nothing outside those roots is ever a saved session.
+fn is_saved_session_path(path: &Path, agent_dir: &Path) -> bool {
+    let Some(name) = path.file_name() else {
+        return false;
+    };
+    let resolved = match std::fs::canonicalize(path) {
+        Ok(resolved) => resolved,
+        Err(_) => match path.parent().map(std::fs::canonicalize) {
+            Some(Ok(parent)) => parent.join(name),
+            Some(Err(_)) | None => return false,
+        },
+    };
+    [
+        crate::paths::sessions_dir(agent_dir).ok(),
+        Some(crate::context_tree_children::session_artifacts_dir(
+            agent_dir,
+        )),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(|root| std::fs::canonicalize(root).ok())
+    .any(|root| resolved != root && resolved.starts_with(&root))
+}
+
 /// Record `name` as the saved session's name (TS catalog `rename`), under
 /// the session lease: a legacy file not imported yet is imported first,
 /// then the `eukhe.daemon.session` document takes the name in one commit.
@@ -230,6 +258,12 @@ pub(crate) async fn rename_saved_session_storage(
     agent_dir: &Path,
     cx: &Context,
 ) -> anyhow::Result<()> {
+    if !is_saved_session_path(path, agent_dir) {
+        anyhow::bail!(
+            "Session path is outside the sessions directory: {}",
+            path.display()
+        );
+    }
     let location = SessionLocation::from_path(path.to_path_buf());
     let storage_dir = location.storage_dir();
     let _lease = acquire_offline_lease(&storage_dir, agent_dir).await?;
@@ -295,6 +329,15 @@ pub(crate) async fn delete_saved_session_storage(
     agent_dir: &Path,
     after_removed: &(dyn Fn(&Path) + Sync),
 ) -> Value {
+    if !is_saved_session_path(path, agent_dir) {
+        return json!({
+            "ok": false,
+            "error": format!(
+                "Session path is outside the sessions directory: {}",
+                path.display()
+            ),
+        });
+    }
     let location = SessionLocation::from_path(path.to_path_buf());
     let storage_dir = location.storage_dir();
     let lease = match acquire_offline_lease(&storage_dir, agent_dir).await {
@@ -1344,6 +1387,30 @@ mod durable_saved_session_tests {
         let deleted = delete_saved_session_storage(&dir, &fixture.agent_dir, &|_| {}).await;
         assert_eq!(deleted["ok"], true, "{deleted}");
         assert!(!dir.exists());
+    }
+
+    /// The socket's `sessionPath` must name a saved session: a storage
+    /// outside the sessions dir (directly or through `..`) is neither
+    /// renamed nor deleted.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn refuses_paths_outside_the_sessions_dir() {
+        let fixture = Fixture::new();
+        let outside = fixture.agent_dir.join("outside");
+        std::fs::create_dir_all(&outside).expect("outside dir");
+        std::fs::write(outside.join(MAIN_FILE), "{}\n").expect("commit log");
+        for path in [outside.clone(), fixture.sessions.join("..").join("outside")] {
+            let renamed = rename_saved_session_storage(&path, "x", &fixture.agent_dir, cx())
+                .await
+                .expect_err("refused");
+            let error = format!(
+                "Session path is outside the sessions directory: {}",
+                path.display()
+            );
+            assert_eq!(renamed.to_string(), error);
+            let deleted = delete_saved_session_storage(&path, &fixture.agent_dir, &|_| {}).await;
+            assert_eq!(deleted, json!({ "ok": false, "error": error }));
+            assert!(outside.join(MAIN_FILE).is_file(), "{}", path.display());
+        }
     }
 
     /// A legacy file is imported by its rename (the name has no legacy

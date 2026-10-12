@@ -65,11 +65,19 @@ pub struct SessionHeader {
     pub rest: JsonMap,
 }
 
+/// Whether `id` can name a session on disk: a single file name (the
+/// sessions, archive, and `session-artifacts/` dirs join it directly), so
+/// not empty, `.` or `..`, and free of `/`, `\`, `:` and NUL.
+#[must_use]
+pub fn is_valid_session_id(id: &str) -> bool {
+    !matches!(id, "" | "." | "..") && !id.contains(['/', '\\', ':', '\0'])
+}
+
 fn deserialize_session_id<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<String, D::Error> {
     let id = String::deserialize(deserializer)?;
-    if matches!(id.as_str(), "" | "." | "..") || id.contains(['/', '\\', ':']) {
+    if !is_valid_session_id(&id) {
         return Err(serde::de::Error::invalid_value(
             serde::de::Unexpected::Str(&id),
             &"a session id that is a single file name",
@@ -751,6 +759,7 @@ mod tests {
             "..",
             ".",
             "",
+            "a\0b",
         ];
         let parsed: Vec<bool> = ids
             .iter()
@@ -765,7 +774,7 @@ mod tests {
             .collect();
         assert_eq!(
             parsed,
-            [true, false, false, false, false, false, false, false]
+            [true, false, false, false, false, false, false, false, false]
         );
     }
 }

@@ -9,7 +9,7 @@
 //! embedded into an exported HTML file.
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{Map, Value};
@@ -157,13 +157,20 @@ fn css_color(color: ResolvedColor, light: bool) -> String {
 }
 
 /// The theme file for `name`: a built-in (bundled data) or a custom theme
-/// file under `<agent-dir>/themes/<name>.json` (TS `loadThemeJson`).
+/// file under `<agent-dir>/themes/<name>.json` (TS `loadThemeJson`). A
+/// custom name must be one normal path component (the project-scope
+/// `theme` setting is not trust-gated): anything else is not found.
 fn load_theme_json(name: &str, agent_dir: &Path) -> Result<ExportThemeJson> {
     let raw = if let Some(builtin) = eukhe_types::themes::builtin_theme_json(name) {
         builtin.to_string()
     } else {
+        let mut components = Path::new(name).components();
+        let single_component = matches!(
+            (components.next(), components.next()),
+            (Some(Component::Normal(_)), None)
+        ) && !name.contains(['/', '\\']);
         let path = custom_theme_path(agent_dir, name);
-        if !path.exists() {
+        if !single_component || !path.exists() {
             return Err(anyhow!("Theme not found: {name}"));
         }
         std::fs::read_to_string(&path).with_context(|| format!("read theme {name}"))?
@@ -423,6 +430,15 @@ mod tests {
 
         let error = resolve_export_theme(Some("missing"), dir.path()).expect_err("unknown theme");
         assert_eq!(error.to_string(), "Theme not found: missing");
+
+        // A name that is not one normal path component never leaves the
+        // themes dir, even when the file it would reach is a valid theme.
+        std::fs::copy(themes.join("custom.json"), dir.path().join("escaped.json"))
+            .expect("copy theme");
+        for name in ["../escaped", "sub/custom", "sub\\custom", "..", "."] {
+            let error = resolve_export_theme(Some(name), dir.path()).expect_err(name);
+            assert_eq!(error.to_string(), format!("Theme not found: {name}"));
+        }
     }
 
     /// Without an explicit theme the default is the COLORFGBG-detected one

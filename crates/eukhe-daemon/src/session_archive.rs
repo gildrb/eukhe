@@ -34,6 +34,7 @@ use eukhe_core::settings::SessionArchivePolicy;
 
 use crate::lease::canonical_session_path;
 use crate::session_store::{is_durable_storage, session_file_name, storage_modified};
+use eukhe_types::session::is_valid_session_id;
 
 /// Archive directory name under the agent dir.
 pub const ARCHIVE_DIR_NAME: &str = "sessions-archive";
@@ -185,6 +186,9 @@ pub fn restore_session(
     sessions_dir: &Path,
     session_id: &str,
 ) -> Result<PathBuf> {
+    if !is_valid_session_id(session_id) {
+        return Err(anyhow!("invalid session id {session_id:?}"));
+    }
     let storage = archive_dir.join(session_id);
     let legacy = archive_dir.join(session_file_name(session_id));
     let source = if is_durable_storage(&storage) {
@@ -586,6 +590,55 @@ mod tests {
         assert_eq!(restored, storage);
         assert!(storage.join("main.jsonl").is_file() && legacy.is_file());
         assert!(!archive.join(id).exists(), "left the archive");
+    }
+
+    #[test]
+    fn a_header_id_that_is_not_one_path_component_never_drives_a_move() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let sessions = dir.path().join("sessions");
+        // The archive sits one level deeper than the sessions dir, so an
+        // id climbing out of one lands somewhere else than the other.
+        let agent = dir.path().join("agent");
+        let archive = agent.join("archive");
+        fs::create_dir_all(&sessions).expect("sessions dir");
+        fs::create_dir_all(&archive).expect("archive dir");
+        // Imported legacy files whose header ids are not one file name
+        // (one climbs out of the archive dir, one carries a NUL): the
+        // sweep takes neither as a candidate, so neither moves.
+        let mut crafted = Vec::new();
+        for (file, id) in [("climb.jsonl", "../escaped"), ("nul.jsonl", "a\0b")] {
+            let path = sessions.join(file);
+            let header = serde_json::json!({
+                "type": "session",
+                "id": id,
+                "cwd": "/work",
+                "timestamp": "2026-01-01T00:00:00.000Z",
+            });
+            fs::write(&path, format!("{header}\n")).expect("crafted session");
+            set_mtime_days_ago(&path, 40);
+            crafted.push(path);
+        }
+        let doomed = sweep_sessions(
+            &sessions,
+            &archive,
+            &HashSet::new(),
+            &policy(Some(30), None),
+            SystemTime::now(),
+        )
+        .expect("sweep");
+        assert_eq!(doomed, Vec::<String>::new());
+        assert!(crafted.iter().all(|path| path.is_file()), "nothing moved");
+        assert!(!agent.join("escaped.jsonl").exists());
+
+        // Restore refuses the same kind of id instead of reaching outside
+        // the archive dir (`archive/../outside.jsonl` would move to
+        // `sessions/../outside.jsonl`).
+        let outside = agent.join("outside.jsonl");
+        fs::copy(&crafted[0], &outside).expect("outside file");
+        let error = restore_session(&archive, &sessions, "../outside").expect_err("refused");
+        assert_eq!(error.to_string(), r#"invalid session id "../outside""#);
+        assert!(outside.is_file(), "the outside file stays put");
+        assert!(!dir.path().join("outside.jsonl").exists());
     }
 
     /// A minimal valid session file: the `session` header line carries the
