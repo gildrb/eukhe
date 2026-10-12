@@ -12,7 +12,8 @@
 # a pinned version checked against committed sha256; the bundled catalog
 # is the commit pinned in scripts/release/catalog-pin.json, hash-checked;
 # builds set SOURCE_DATE_EPOCH and remap the workspace and cargo home
-# paths; publish attests build provenance for every release asset.
+# paths; crates are fetched first and the build itself runs offline
+# (--frozen); publish attests build provenance for every release asset.
 name: eukhe-release
 
 on:
@@ -139,12 +140,16 @@ jobs:
       - name: Stamp the rolling version (main)
         if: github.ref_type == 'branch'
         run: python3 scripts/release/stamp_version.py "${VERSION}"
-      - name: Build (release, locked)
+      # Network stops here: every crate is fetched and checked against the
+      # Cargo.lock checksums, then the build runs offline (--frozen).
+      - name: Fetch dependencies (locked, checksummed)
+        run: cargo fetch --locked --target "${TARGET}"
+      - name: Build (release, frozen, offline)
         # The build identity names the tagged commit: the version stamp
         # above leaves the tree modified, which git would report as dirty.
         env:
           EUKHE_BUILD_COMMIT: ${{ github.sha }}
-        run: cargo build --release --locked --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
+        run: cargo build --release --frozen --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: Split the shipped binary and its debug decoder
         run: |
           set -euo pipefail
@@ -231,11 +236,13 @@ jobs:
       - name: Stamp the rolling version (main)
         if: github.ref_type == 'branch'
         run: python3 scripts/release/stamp_version.py "${VERSION}"
-      - name: Build (release, locked)
+      - name: Fetch dependencies (locked, checksummed)
+        run: cargo fetch --locked --target "${TARGET}"
+      - name: Build (release, frozen, offline)
         # The build identity names the tagged commit (see the Linux job).
         env:
           EUKHE_BUILD_COMMIT: ${{ github.sha }}
-        run: cargo build --release --locked --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
+        run: cargo build --release --frozen --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: "Livecheck: --version prints the tag version"
         run: |
           set -euo pipefail

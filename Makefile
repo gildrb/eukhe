@@ -1,9 +1,9 @@
 # Merge gate (AGENTS.md): fmt + clippy + test + release build must pass before every merge.
 check:
 	cargo fmt --all --check
-	cargo clippy --workspace --all-targets -- -D warnings
-	cargo test --workspace
-	cargo build --release --workspace
+	cargo clippy --workspace --all-targets --locked -- -D warnings
+	cargo test --workspace --locked
+	cargo build --release --workspace --locked
 
 
 # Supply-chain gates — local mirrors of the

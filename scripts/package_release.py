@@ -341,8 +341,8 @@ def main(argv=None):
         if not binary.is_file():
             raise SystemExit(f"error: no prebuilt binary at {binary}; drop --skip-build")
     else:
-        print("building the release binary (cargo build --release -p eukhe-cli)…")
-        subprocess.run(["cargo", "build", "--release", "-p", "eukhe-cli"], cwd=ROOT, check=True)
+        print("building the release binary (cargo build --release --locked -p eukhe-cli)…")
+        subprocess.run(["cargo", "build", "--release", "--locked", "-p", "eukhe-cli"], cwd=ROOT, check=True)
         binary = root / "target" / "release" / binary_name
 
     if tag.startswith("linux-"):

@@ -106,11 +106,12 @@ jobs:
         id: select
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "${{ github.event_name }} wave: the full selection"
+          if [ "${EVENT_NAME}" != "pull_request" ]; then
+            echo "${EVENT_NAME} wave: the full selection"
             echo "crates=" >> "${GITHUB_OUTPUT}"
             echo "scope=all" >> "${GITHUB_OUTPUT}"
             exit 0
@@ -128,11 +129,14 @@ jobs:
             > "${RUNNER_TEMP}/pr-files.tsv"
           python3 scripts/ci_pr_crates.py "${RUNNER_TEMP}/pr-files.tsv"
       - name: Report the selection
+        env:
+          SCOPE: ${{ steps.select.outputs.scope }}
+          CRATES: ${{ steps.select.outputs.crates }}
         run: |
           set -euo pipefail
-          echo "wave selection: ${{ steps.select.outputs.scope }}"
-          if [ -n "${{ steps.select.outputs.crates }}" ]; then
-            echo "crates under test: ${{ steps.select.outputs.crates }}"
+          echo "wave selection: ${SCOPE}"
+          if [ -n "${CRATES}" ]; then
+            echo "crates under test: ${CRATES}"
           fi
 
   fmt:
@@ -242,9 +246,12 @@ jobs:
       # no sibling binaries).
       - name: Resolve this shard's selection
         id: selection
+        env:
+          SHARD: ${{ matrix.shard }}
+          CRATES: ${{ needs.changes.outputs.crates }}
         run: |
           set -euo pipefail
-          python3 scripts/ci_test_shard.py --shard ${{ matrix.shard }} --total ${{ env.SHARD_COUNT }}             --crates "${{ needs.changes.outputs.crates }}" --print-selection
+          python3 scripts/ci_test_shard.py --shard "${SHARD}" --total "${SHARD_COUNT}" --crates "${CRATES}" --print-selection
       # Sibling-binary parity: the serial `cargo test --workspace` built every
       # workspace bin into the shared profile dir as a side effect, and the
       # e2e suites look each other's binaries up there (eukhe-cli's
@@ -265,8 +272,11 @@ jobs:
         if: steps.selection.outputs.units != '0'
         run: ./target/debug/eukhe --eukhe-bootstrap
       - name: Run this shard's test subset
+        env:
+          SHARD: ${{ matrix.shard }}
+          CRATES: ${{ needs.changes.outputs.crates }}
         run: |
-          python3 scripts/ci_test_shard.py --shard ${{ matrix.shard }} --total ${{ env.SHARD_COUNT }}             --crates "${{ needs.changes.outputs.crates }}"             --manifest "$RUNNER_TEMP/shard-manifest-${{ matrix.shard }}.json"
+          python3 scripts/ci_test_shard.py --shard "${SHARD}" --total "${SHARD_COUNT}" --crates "${CRATES}" --manifest "${RUNNER_TEMP}/shard-manifest-${SHARD}.json"
       - name: Upload the shard manifest (always — the summary audits it)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -294,7 +304,7 @@ jobs:
           merge-multiple: true
           path: manifests
       - name: Audit the shards and merge their failure reports
-        run: python3 scripts/ci_test_shard_summary.py --total ${{ env.SHARD_COUNT }} --dir manifests
+        run: python3 scripts/ci_test_shard_summary.py --total "${SHARD_COUNT}" --dir manifests
 
   # The supply-chain deny gate:
   #

@@ -522,23 +522,14 @@ class NetworkMode(unittest.TestCase):
                 (out / "mcp-services.bundled.json").read_text(),
                 bundle_catalog.fixture_catalog_bodies()["mcp-services.bundled.json"])
 
-    def test_network_sends_bearer_only_when_configured(self):
+    def test_network_never_sends_the_token_to_a_non_github_url(self):
         with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "assets"
-            # Without a token: no Authorization header.
             self.server.seen_headers.clear()
-            result = self._generate(out)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(self.server.seen_headers)
-            self.assertTrue(all(
-                "Authorization" not in headers for headers in self.server.seen_headers))
-            # With GITHUB_TOKEN: Bearer rides both fetches.
-            self.server.seen_headers.clear()
-            result = self._generate(Path(tmp) / "assets2",
+            result = self._generate(Path(tmp) / "assets",
                                     env_extra={"GITHUB_TOKEN": "sekrit"})
             self.assertEqual(result.returncode, 0, result.stderr)
             auth_headers = [h.get("Authorization") for h in self.server.seen_headers]
-            self.assertEqual(auth_headers, ["Bearer sekrit", "Bearer sekrit"])
+            self.assertEqual(auth_headers, [None, None])
 
     def test_network_failures_are_hard_failures(self):
         with tempfile.TemporaryDirectory() as tmp:

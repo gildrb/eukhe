@@ -33,8 +33,8 @@ for the pinned commit and fails unless each body matches the pinned sha256
 (also for --models-url / --mcp-services-url overrides). `pin` resolves REF
 (default main) to a commit, fetches and validates both files at that commit,
 and rewrites the pin file. Fetches read GITHUB_TOKEN / PRIME_CATALOG_REPO_TOKEN
-(optional Bearer; the catalog repo is public), abort after 5 s, refuse
-redirects, and cap responses at MAX_REMOTE_CATALOG_BYTES.
+(optional Bearer, sent to GitHub URLs only; the catalog repo is public), abort
+after 5 s, refuse redirects, and cap responses at MAX_REMOTE_CATALOG_BYTES.
 """
 
 from __future__ import annotations
@@ -731,11 +731,13 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def fetch_bytes(url: str, label: str) -> bytes:
+    # The token only goes to GitHub: an override URL never receives it.
+    github = url.startswith((f"{RAW_BASE_URL}/", f"{GITHUB_API_URL}/"))
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("PRIME_CATALOG_REPO_TOKEN")
     request = urllib.request.Request(url, headers={
         "accept": "application/json",
         "cache-control": "no-cache",
-        **({"authorization": f"Bearer {token}"} if token else {}),
+        **({"authorization": f"Bearer {token}"} if token and github else {}),
     })
     opener = urllib.request.build_opener(_NoRedirect)
     try:
