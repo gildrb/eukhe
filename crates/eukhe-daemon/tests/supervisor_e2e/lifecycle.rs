@@ -67,6 +67,7 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
             "agent_roster",
             "direct_peer_transport",
             "chat_view",
+            "memory",
         ])
     );
 

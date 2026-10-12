@@ -308,6 +308,18 @@ impl AgentView {
             ChatEntry::ChatView(view) => {
                 crate::chat_view_block::render_chat_view(view, detail, &self.theme, width, !first)
             }
+            // Consecutive live memory rows stay flush: a burst of updates
+            // reads as one block.
+            ChatEntry::MemoryUpdate(update) => crate::memory_block::render_memory_update(
+                update,
+                detail,
+                &self.theme,
+                width,
+                !first && !matches!(self.chat[index - 1], ChatEntry::MemoryUpdate(_)),
+            ),
+            ChatEntry::MemoryView(row) => {
+                crate::memory_block::render_memory_view(row, &self.theme, width, !first)
+            }
         }
     }
 }

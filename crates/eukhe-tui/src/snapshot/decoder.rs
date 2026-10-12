@@ -109,6 +109,10 @@ pub enum TurnUpdate {
     /// turn on the shared chat (`waiting`), or that wait ended. The loader
     /// note shows the wait; nothing lands in the transcript.
     ChatTurnWait { waiting: bool },
+    /// `memory_update`: the chat memory's compactor summarized lines or
+    /// merged the view. A live transcript row (display only) and the
+    /// status gauge's view size.
+    MemoryUpdate(eukhe_types::daemon::MemoryUpdate),
     /// `goal_update`: the session goal state changed (raw wire `goal`
     /// payload; the session view owns announcement and tray rendering).
     GoalUpdate(Value),
@@ -190,6 +194,11 @@ pub fn event_to_update(event: &Value) -> Option<TurnUpdate> {
             )
             .is_ok_and(|wait| wait.waiting),
         }),
+        "memory_update" => {
+            <eukhe_types::daemon::MemoryUpdateEvent as serde::Deserialize>::deserialize(event)
+                .ok()
+                .map(|event| TurnUpdate::MemoryUpdate(event.update))
+        }
         "compaction_end" => Some(TurnUpdate::CompactionEnd {
             reason: event
                 .get("reason")

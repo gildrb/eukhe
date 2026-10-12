@@ -15,6 +15,7 @@ use eukhe_core::models::ModelRegistry;
 use eukhe_durable::harness::types::PromptInput;
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::types::EntryRecord;
+use eukhe_types::daemon::{MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryZoom};
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::usage::{calculate_context_tokens, estimate_tokens, valid_assistant_usage};
 use serde_json::{json, Value};
@@ -271,6 +272,40 @@ impl Worker {
         }
     }
 
+    /// `get_memory { zoom? }` (Rust-native, advertised by the `memory`
+    /// capability): the chat memory's status with its view (one `id+n|text`
+    /// line per node, without the `<chat>` frame) or, with a zoom, the zoom
+    /// tool's answer, for `/memory` and the status gauge; `{ "memory": null }`
+    /// when the session keeps no chat memory (a subagent, or a scripted
+    /// session).
+    pub(crate) async fn handle_get_memory(&self, payload: &Value) -> DaemonResponse {
+        const COMMAND: &str = "get_memory";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        let zoom = match payload.get("zoom") {
+            None | Some(Value::Null) => None,
+            Some(zoom) => match serde_json::from_value::<MemoryZoom>(zoom.clone()) {
+                Ok(zoom) => Some(zoom),
+                Err(error) => {
+                    return response_failure(None, COMMAND, &format!("invalid zoom: {error}"), None)
+                }
+            },
+        };
+        let memory = match hosted.deps().memory.as_ref() {
+            Some(memory) => match memory_snapshot(memory, zoom, &self.config.agent_dir).await {
+                Ok(snapshot) => Some(snapshot),
+                Err(error) => return response_failure(None, COMMAND, &format!("{error:#}"), None),
+            },
+            None => None,
+        };
+        match serde_json::to_value(MemoryReply { memory }) {
+            Ok(data) => response_success(None, COMMAND, Some(data)),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
+        }
+    }
+
     /// `get_tool_definition { name }` (TS
     /// `createAgentConnectionToolDefinition`): the definition of one tool
     /// the main conversation's next request offers; an unknown name
@@ -407,6 +442,41 @@ fn context_usage(messages: &[Value], context_window: u64) -> Value {
     )]
     let percent = tokens as f64 / context_window as f64 * 100.0;
     json!({ "tokens": tokens, "contextWindow": context_window, "percent": percent })
+}
+
+/// The chat memory as `get_memory` answers it: its status (the compactor
+/// model as the agent dir's settings configure it) with the zoom tool's
+/// answer when `zoom` asks one, else the view without its frame.
+async fn memory_snapshot(
+    memory: &eukhe_core::memory::Memory,
+    zoom: Option<MemoryZoom>,
+    agent_dir: &std::path::Path,
+) -> anyhow::Result<MemorySnapshot> {
+    let status = memory.status().await?;
+    let text = match zoom {
+        Some(MemoryZoom { id, count }) => memory.zoom(id, count).await?,
+        None => unframed_view(&memory.render().await?.text).to_string(),
+    };
+    Ok(MemorySnapshot {
+        status: MemoryStatusSnapshot {
+            messages: status.messages,
+            lines: status.view_lines,
+            view_bytes: status.view_bytes,
+            unsummarized: status.unsummarized,
+            running: status.running,
+            model: eukhe_core::memory::configured_memory_model(agent_dir),
+            last_error: status.last_error,
+        },
+        text,
+    })
+}
+
+/// The rendered view's `id+n|text` lines without the `<chat>` and `</chat>`
+/// frame lines (empty for an empty view).
+fn unframed_view(text: &str) -> &str {
+    let body = text.strip_prefix("<chat>\n").unwrap_or(text);
+    let body = body.strip_suffix("</chat>").unwrap_or(body);
+    body.strip_suffix('\n').unwrap_or(body)
 }
 
 /// Render the main conversation's system prompt the way its next request

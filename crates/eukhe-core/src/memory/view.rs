@@ -1,12 +1,12 @@
 //! The view: tree nodes ("parts") tiling the whole chat `[0, T)`, oldest
-//! first, kept under [`VIEW`] bytes of line text. It only ever appends at
-//! its end and coarsens by merging the most due adjacent pair; a merged part
-//! is never split again, so consecutive views share their start and the
-//! request prefix stays cacheable.
+//! first. It only ever appends at its end, and coarsens by merging the most
+//! due adjacent pairs in batches (§3.2); a merged part is never split again,
+//! so consecutive views share their start and the request prefix stays
+//! cacheable.
 
 use std::fmt::Write as _;
 
-use super::{MARKS, PLACEHOLDER};
+use super::{BLOCK, PLACEHOLDER};
 
 /// One tree node as a view part: `(l, i)` covers `[i·2^l, (i+1)·2^l)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -46,6 +46,12 @@ pub(crate) struct View {
 }
 
 impl View {
+    /// A view of `parts` (a saved view), its size counted from `tree`.
+    pub(crate) fn from_parts(parts: Vec<Part>, tree: &impl NodeTexts) -> View {
+        let size = parts.iter().map(|part| line_text(*part, tree).len()).sum();
+        View { parts, size }
+    }
+
     pub(crate) fn parts(&self) -> &[Part] {
         &self.parts
     }
@@ -80,14 +86,15 @@ impl View {
 
     /// Merge the most due built pair until the view fits `budget` bytes or
     /// no pair has a built parent. `total` is the number of messages.
-    /// Returns whether the view changed.
+    /// Returns how many pairs merged.
     ///
     /// A pair is due by how long ago it ended in its own line size,
     /// `(T - last) / 2^l`, written as `(T + 1)/2^l - i` (same order, shifted
-    /// by 2). This picks the merges of Taelin's rollback `push`. Measuring
-    /// from the pair's first message rewrites old lines near ties.
-    pub(crate) fn fit(&mut self, total: u64, budget: usize, tree: &impl NodeTexts) -> bool {
-        let mut changed = false;
+    /// by 2); of equal pairs the oldest merges first. This picks the merges
+    /// of Taelin's rollback `push`. Measuring from the pair's first message
+    /// rewrites old lines near ties.
+    pub(crate) fn fit(&mut self, total: u64, budget: usize, tree: &impl NodeTexts) -> u64 {
+        let mut merged = 0;
         while self.size > budget {
             let mut best: Option<(usize, u64, u32)> = None;
             for (at, pair) in self.parts.windows(2).enumerate() {
@@ -124,9 +131,9 @@ impl View {
             self.parts[at] = parent;
             self.parts.remove(at + 1);
             self.size = self.size - removed + line_text(parent, tree).len();
-            changed = true;
+            merged += 1;
         }
-        changed
+        merged
     }
 
     /// The first message whose view line is not built; `total` when every
@@ -163,17 +170,36 @@ impl View {
         out
     }
 
-    /// The compactor's context: the bare lines (no ids, no markers) of the
-    /// parts that start before `end`, wrapped in `<chat>`.
-    pub(crate) fn render_context(&self, end: u64, tree: &impl NodeTexts) -> String {
+    /// A compaction's view (§4): `<chat>`, one `id+n|text` line per part
+    /// that starts before `end`, `</chat>`; it stops at the first unbuilt
+    /// line, so no call sees a placeholder or half a message.
+    pub(crate) fn render_built_until(&self, end: u64, tree: &impl NodeTexts) -> String {
         let mut out = String::from("<chat>\n");
         for part in self.parts.iter().take_while(|part| part.start() < end) {
-            out.push_str(&flatten(line_text(*part, tree)));
-            out.push('\n');
+            let Some(text) = tree.node_text(*part) else {
+                break;
+            };
+            let _ = writeln!(out, "{}+{}|{}", part.start(), part.count(), flatten(text));
         }
         out.push_str("</chat>");
         out
     }
+}
+
+/// Whether `parts` tile `[0, end)` for some `end <= total`, oldest first,
+/// each a real tree node (`start` a multiple of its count). Returns that
+/// `end`, or `None` when they do not.
+pub(crate) fn tiled_end(parts: &[Part], total: u64) -> Option<u64> {
+    let mut end = 0u64;
+    for part in parts {
+        let count = 1u64.checked_shl(part.l).filter(|_| part.l < 63)?;
+        let start = part.i.checked_mul(count)?;
+        if start != end {
+            return None;
+        }
+        end = start.checked_add(count).filter(|end| *end <= total)?;
+    }
+    Some(end)
 }
 
 /// `age_a / 2^l_a > age_b / 2^l_b`, exactly: both sides scale by the
@@ -194,37 +220,24 @@ pub(crate) fn flatten(text: &str) -> String {
     text.replace("\r\n", " ").replace(['\n', '\r'], " ")
 }
 
-/// Cut a rendered view into pieces at the last line end before each of
-/// [`MARKS`] characters; a mark past the end, or one that would repeat the
-/// previous cut, is skipped. The pieces concatenate back to `text`.
+/// Cut a rendered view (`<chat>`, its lines, `</chat>`) after its last
+/// whole block of [`BLOCK`] lines (§3.3): the first piece carries the cache
+/// mark, the second holds the lines after it and the frame's end. A view
+/// shorter than one block is one piece. The pieces concatenate back to
+/// `text`.
 pub(crate) fn pieces(text: &str) -> Vec<String> {
-    let mut cuts = Vec::new();
-    let mut marks = MARKS.iter().copied().peekable();
-    let mut last_line_end: Option<usize> = None;
-    for (chars, (at, character)) in text.char_indices().enumerate() {
-        while marks.peek().is_some_and(|mark| chars >= *mark) {
-            marks.next();
-            if let Some(cut) = last_line_end {
-                if cuts.last() != Some(&cut) {
-                    cuts.push(cut);
-                }
-            }
-        }
-        if marks.peek().is_none() {
-            break;
-        }
-        if character == '\n' {
-            last_line_end = Some(at + 1);
-        }
+    let lines = text.matches('\n').count();
+    // `<chat>\n` and the view lines end in a newline; `</chat>` does not.
+    let blocks = lines.saturating_sub(1) / BLOCK;
+    if blocks == 0 {
+        return vec![text.to_string()];
     }
-    let mut out = Vec::with_capacity(cuts.len() + 1);
-    let mut from = 0;
-    for cut in cuts {
-        out.push(text[from..cut].to_string());
-        from = cut;
-    }
-    out.push(text[from..].to_string());
-    out
+    let keep = 1 + blocks * BLOCK;
+    let cut = text
+        .match_indices('\n')
+        .nth(keep - 1)
+        .map_or(text.len(), |(at, _)| at + 1);
+    vec![text[..cut].to_string(), text[cut..].to_string()]
 }
 
 #[cfg(test)]
@@ -232,7 +245,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::memory::VIEW;
+    use crate::memory::VIEW_CEILING as VIEW;
 
     #[derive(Default)]
     struct Tree(HashMap<Part, String>);
@@ -261,18 +274,18 @@ mod tests {
         for i in 0..4 {
             tree.build(0, i, format!("user: m{i}"));
             view.append(i, &tree);
-            assert!(!view.fit(i + 1, VIEW, &tree));
+            assert_eq!(view.fit(i + 1, VIEW, &tree), 0);
         }
         tree.build(1, 0, "merged".to_string());
-        assert!(!view.fit(4, VIEW, &tree));
+        assert_eq!(view.fit(4, VIEW, &tree), 0);
         assert_eq!(
             view.render(&tree),
             "<chat>\n0+1|user: m0\n1+1|user: m1\n2+1|user: m2\n3+1|user: m3\n</chat>"
         );
-        // The compactor's context: bare lines, no ids.
+        // A compaction's view ends at its node.
         assert_eq!(
-            view.render_context(2, &tree),
-            "<chat>\nuser: m0\nuser: m1\n</chat>"
+            view.render_built_until(2, &tree),
+            "<chat>\n0+1|user: m0\n1+1|user: m1\n</chat>"
         );
     }
 
@@ -286,10 +299,10 @@ mod tests {
         }
         view.append(2, &tree);
         assert_eq!(
-            (view.render(&tree), view.render_context(2, &tree)),
+            (view.render(&tree), view.render_built_until(3, &tree)),
             (
                 format!("<chat>\n0+1|talk: a b0\n1+1|talk: a b1\n2+1|{PLACEHOLDER}\n</chat>"),
-                "<chat>\ntalk: a b0\ntalk: a b1\n</chat>".to_string()
+                "<chat>\n0+1|talk: a b0\n1+1|talk: a b1\n</chat>".to_string()
             )
         );
     }
@@ -307,7 +320,7 @@ mod tests {
         for i in 0..total / 2 {
             tree.build(1, i, "y".repeat(500));
         }
-        assert!(view.fit(total, VIEW, &tree));
+        assert_eq!(view.fit(total, VIEW, &tree), 2);
         // 258 lines of 500 bytes need two merges; at equal levels the
         // oldest pair is the most due.
         assert_eq!(view.size(), VIEW);
@@ -328,7 +341,7 @@ mod tests {
         }
         tree.build(1, 0, line());
         tree.build(1, 1, line());
-        assert!(view.fit(first, VIEW, &tree));
+        assert_eq!(view.fit(first, VIEW, &tree), 2);
         assert_eq!(coordinates(&view)[..3], [(1, 0), (1, 1), (0, 4)]);
         // One more message: one merge fits the view again. With T = 259,
         // the level-1 pair 0..4 is due (260 - 0)/2 = 130 and the level-0
@@ -337,7 +350,7 @@ mod tests {
         view.append(first, &tree);
         tree.build(2, 0, line());
         tree.build(1, 2, line());
-        assert!(view.fit(first + 1, VIEW, &tree));
+        assert_eq!(view.fit(first + 1, VIEW, &tree), 1);
         assert_eq!(
             (view.size(), coordinates(&view)[..4].to_vec()),
             (VIEW, vec![(1, 0), (1, 1), (1, 2), (0, 6)])
@@ -395,7 +408,7 @@ mod tests {
             tree.build(0, i, "x".repeat(500));
             view.append(i, &tree);
         }
-        assert!(!view.fit(total, VIEW, &tree));
+        assert_eq!(view.fit(total, VIEW, &tree), 0);
         assert!(view.size() > VIEW);
     }
 
@@ -491,16 +504,47 @@ mod tests {
     }
 
     #[test]
-    fn pieces_cut_at_line_ends_before_each_mark() {
-        let line = format!("{}\n", "a".repeat(999));
-        let text = line.repeat(120);
-        let pieces = pieces(&text);
-        assert_eq!(pieces.concat(), text);
+    fn pieces_end_the_marked_piece_at_the_last_whole_block() {
+        let view = |lines: usize| {
+            let mut text = String::from("<chat>\n");
+            for at in 0..lines {
+                let _ = writeln!(text, "{at}+1|l{at}");
+            }
+            text.push_str("</chat>");
+            text
+        };
         assert_eq!(
-            pieces.iter().map(String::len).collect::<Vec<_>>(),
-            vec![50_000, 30_000, 20_000, 20_000]
+            (pieces(&view(3)), pieces(&view(9)), pieces(&view(8))),
+            (
+                vec![view(3)],
+                vec![
+                    "<chat>\n0+1|l0\n1+1|l1\n2+1|l2\n3+1|l3\n4+1|l4\n5+1|l5\n6+1|l6\n7+1|l7\n"
+                        .to_string(),
+                    "8+1|l8\n</chat>".to_string()
+                ],
+                vec![
+                    "<chat>\n0+1|l0\n1+1|l1\n2+1|l2\n3+1|l3\n4+1|l4\n5+1|l5\n6+1|l6\n7+1|l7\n"
+                        .to_string(),
+                    "</chat>".to_string()
+                ]
+            )
         );
-        assert_eq!(super::pieces("short\n"), vec!["short\n".to_string()]);
+    }
+
+    /// A saved view must tile the log from message 0 with real tree nodes;
+    /// it may stop short of `T` (messages logged after its last save).
+    #[test]
+    fn tiled_end_accepts_only_contiguous_tree_nodes() {
+        let part = |l, i| Part { l, i };
+        assert_eq!(
+            [
+                tiled_end(&[part(2, 0), part(1, 2), part(0, 6)], 9),
+                tiled_end(&[], 3),
+                tiled_end(&[part(1, 0), part(0, 3)], 9),
+                tiled_end(&[part(1, 0), part(1, 1)], 3),
+            ],
+            [Some(7), Some(0), None, None]
+        );
     }
 
     #[test]

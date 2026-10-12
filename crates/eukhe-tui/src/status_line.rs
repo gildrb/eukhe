@@ -55,6 +55,11 @@ pub fn render_status_line(
     if let Some(depth) = state.tray_depth.filter(|depth| *depth > 0) {
         segments.push(vec![theme.fg(ThemeColor::Dim, format!("depth {depth}"))]);
     }
+    if let Some(bytes) = state.memory_view_bytes {
+        segments.push(vec![
+            theme.fg(ThemeColor::Dim, crate::memory_block::memory_gauge(bytes))
+        ]);
+    }
     match detail {
         Detail::Overview => {}
         Detail::Details => segments.push(vec![theme.fg(ThemeColor::Dim, "details")]),

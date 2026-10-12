@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::{SimpleStreamOptions, StreamOptions};
-use eukhe_types::ai::{AssistantMessage, Context, Model, ModelThinkingLevel};
-use eukhe_types::pi_ai;
+use eukhe_types::ai::{Model, ModelThinkingLevel};
+use eukhe_types::pi_ai::{self, Context};
 
 use super::compactor::{Summarizer, SummarizerFuture};
 
@@ -46,8 +46,6 @@ impl Summarizer for SettingsSummarizer {
             let target = tokio::task::spawn_blocking(move || resolve(&agent_dir))
                 .await
                 .map_err(|error| anyhow::anyhow!("compactor model resolution failed: {error}"))??;
-            let context: pi_ai::Context = convert(&context)
-                .map_err(|error| anyhow::anyhow!("compactor context conversion failed: {error}"))?;
             let mut options: ModelsSimpleStreamOptions = SimpleStreamOptions {
                 stream: StreamOptions {
                     session_id: Some(COMPACTOR_SESSION.to_string()),
@@ -64,22 +62,31 @@ impl Summarizer for SettingsSummarizer {
                     .map(|(name, value)| (name, Some(value)))
                     .collect()
             });
-            let reply = target
+            Ok(target
                 .models
                 .complete_simple(&target.model, context, options)
-                .await;
-            convert::<_, AssistantMessage>(&reply)
-                .map_err(|error| anyhow::anyhow!("compactor reply conversion failed: {error}"))
+                .await)
         })
     }
 }
 
-/// One wire shape into the other (the old-ai and pi-ai message types
-/// share the TS JSON form).
-fn convert<From: serde::Serialize, Into: serde::de::DeserializeOwned>(
-    value: &From,
-) -> serde_json::Result<Into> {
-    serde_json::from_value(serde_json::to_value(value)?)
+/// The compactor model as configured: `memory.model`, else
+/// `auxiliaryModel` (`provider/model-id`); `None` when it follows the
+/// default model. Reads the global settings of `agent_dir`.
+#[must_use]
+pub fn configured_memory_model(agent_dir: &Path) -> Option<String> {
+    let settings = crate::settings::SettingsManager::create(agent_dir, agent_dir);
+    explicit_model(&settings)
+}
+
+fn explicit_model(settings: &crate::settings::SettingsManager) -> Option<String> {
+    settings.get_memory_model().or_else(|| {
+        settings
+            .get_auxiliary_model()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(str::to_string)
+    })
 }
 
 /// The pi-ai reasoning option of a thinking level (`off` sends none).
@@ -107,13 +114,7 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
     // The agent dir doubles as the cwd: the compactor serves every
     // project, so no project's settings may steer it.
     let settings = crate::settings::SettingsManager::create(agent_dir, agent_dir);
-    let explicit = settings.get_memory_model().or_else(|| {
-        settings
-            .get_auxiliary_model()
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-            .map(str::to_string)
-    });
+    let explicit = explicit_model(&settings);
     let auth = crate::auth::AuthStorage::create(agent_dir);
     let mut registry = crate::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
     let (selector, model) = if let Some(selector) = explicit {

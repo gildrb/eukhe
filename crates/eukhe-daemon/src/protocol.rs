@@ -146,6 +146,7 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "remove_mcp_connection",
     "mark_anthropic_warning_shown",
     "get_chat_view",
+    "get_memory",
 ];
 
 /// Parsed client command envelope.
@@ -332,6 +333,7 @@ pub fn default_server_capabilities() -> Vec<DaemonServerCapability> {
                 "agent_roster",
                 "direct_peer_transport",
                 eukhe_types::daemon::CHAT_VIEW_CAPABILITY,
+                eukhe_types::daemon::MEMORY_CAPABILITY,
             ]
             .iter()
             .map(std::string::ToString::to_string),
@@ -868,6 +870,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::GetChatView {
             active_session_id, ..
         }
+        | DaemonCommand::GetMemory {
+            active_session_id, ..
+        }
         | DaemonCommand::GetToolDefinition {
             active_session_id, ..
         }
@@ -1042,6 +1047,7 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetLastAssistantText { .. } => "get_last_assistant_text",
         DaemonCommand::GetSystemPrompt { .. } => "get_system_prompt",
         DaemonCommand::GetChatView { .. } => "get_chat_view",
+        DaemonCommand::GetMemory { .. } => "get_memory",
         DaemonCommand::GetToolDefinition { .. } => "get_tool_definition",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
         DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",

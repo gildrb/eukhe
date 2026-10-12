@@ -298,16 +298,15 @@ entry with its range, time span, and size. The default output is browse.html in 
     .options(&["--out <path>  Destination HTML path"]),
     CommandSpec::new(
         &["chat", "import"],
-        "chat import optmem [<memory-dir>] | chat import sessions <path>...",
-        "Import older memories or sessions as chat messages",
+        "chat import sessions <path>...",
+        "Import older sessions as chat messages",
     )
     .description(
-        "optmem imports an OptMem memory (default ~/.optmem/memory) as note messages that keep \
-their ids, into an empty chat. sessions imports the user's messages and the final replies of \
-saved root sessions (session .jsonl files or directories), oldest first, without tool noise or \
-repeated pastes. The compactor then summarizes them like any other messages.",
+        "sessions imports the user's messages and the final replies of saved root sessions \
+(session .jsonl files or directories), oldest first, without tool noise or repeated pastes. \
+The compactor then summarizes them like any other messages.",
     )
-    .examples(&["chat import optmem", "chat import sessions ~/.eukhe/sessions"]),
+    .examples(&["chat import sessions ~/.eukhe/sessions"]),
     CommandSpec::new(
         &["prompt"],
         "prompt [--model <selector>] [--cwd <dir>] [--json]",

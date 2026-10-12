@@ -2,7 +2,7 @@
 //! file. It shows the current view, ROOT (every message), and each level of
 //! the tree, every entry with its range, time span and size. It reads the
 //! files without taking ownership; the view is the live owner's when one
-//! answers, else the fold a new owner would compute.
+//! answers, else the saved one.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -10,6 +10,7 @@ use std::path::Path;
 
 use super::chat::Chat;
 use super::labeled;
+use super::saved::load_view;
 use super::store::{LoadMode, Store};
 use super::view::{line_text, NodeTexts, Part};
 
@@ -31,9 +32,7 @@ pub struct BrowseSummary {
 /// be written.
 pub async fn write_browse_page(dir: &Path, out: &Path) -> anyhow::Result<BrowseSummary> {
     let live = super::service::live_parts(dir).await;
-    let (store, loaded) = Store::open(dir, LoadMode::ReadOnly)?;
-    let mut problems = loaded.problems.clone();
-    let chat = Chat::from_loaded(loaded, &mut problems);
+    let (store, chat, problems) = load(dir)?;
     let parts: Vec<Part> = match &live {
         Some(parts) => parts.iter().map(|(l, i)| Part { l: *l, i: *i }).collect(),
         None => chat.view().parts().to_vec(),
@@ -68,11 +67,7 @@ pub async fn write_browse_page(dir: &Path, out: &Path) -> anyhow::Result<BrowseS
         chat.total(),
         chat.nodes().len(),
         parts.len(),
-        if live.is_some() {
-            "live"
-        } else {
-            "folded from disk"
-        },
+        if live.is_some() { "live" } else { "saved" },
         escape(&dir.display().to_string())
     );
     if !problems.is_empty() {
@@ -172,22 +167,20 @@ pub struct ReadView {
     pub view_bytes: u64,
     /// Messages whose view line is not summarized yet.
     pub unsummarized: u64,
-    /// Whether a live owner answered (its view), or the view is the fold a
-    /// new owner would compute from the files.
+    /// Whether a live owner answered (its view), or the view is the saved
+    /// one.
     pub live: bool,
 }
 
 /// Read the chat in `dir`: the live owner's view when one answers, else
-/// the fold of the files. Never claims ownership.
+/// the saved one. Never claims ownership.
 ///
 /// # Errors
 ///
 /// Returns an error when the chat files cannot be read.
 pub async fn read_view(dir: &Path) -> anyhow::Result<ReadView> {
     let live = super::service::live_parts(dir).await;
-    let (_store, loaded) = Store::open(dir, LoadMode::ReadOnly)?;
-    let mut problems = loaded.problems.clone();
-    let chat = Chat::from_loaded(loaded, &mut problems);
+    let (_store, chat, _problems) = load(dir)?;
     let parts: Vec<Part> = match &live {
         Some(parts) => parts.iter().map(|(l, i)| Part { l: *l, i: *i }).collect(),
         None => chat.view().parts().to_vec(),
@@ -221,6 +214,22 @@ pub async fn read_view(dir: &Path) -> anyhow::Result<ReadView> {
     })
 }
 
+/// The chat files and the saved view, read without taking ownership (a
+/// view saved before the last messages gets them appended in memory).
+fn load(dir: &Path) -> anyhow::Result<(Store, Chat, Vec<String>)> {
+    let (store, loaded) = Store::open(dir, LoadMode::ReadOnly)?;
+    let mut problems = loaded.problems.clone();
+    let saved = match load_view(dir) {
+        Ok(saved) => saved,
+        Err(error) => {
+            problems.push(format!("ignored a damaged saved view: {error}"));
+            None
+        }
+    };
+    let (chat, _source) = Chat::from_loaded(loaded, saved, &mut problems);
+    Ok((store, chat, problems))
+}
+
 /// HTML text escaping.
 fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -243,10 +252,10 @@ mod tests {
     use crate::memory::compactor::tests::Scripted;
     use crate::memory::{Kind, Memory};
 
-    /// A reader gets the live owner's view when one answers, else the fold
-    /// of the files; the page holds the view, ROOT and each tree level.
+    /// A reader gets the live owner's view when one answers, else the saved
+    /// one; the page holds the view, ROOT and each tree level.
     #[tokio::test]
-    async fn readers_see_the_live_view_or_the_fold() {
+    async fn readers_see_the_live_view_or_the_saved_one() {
         let dir = tempfile::tempdir().unwrap();
         let pages = tempfile::tempdir().unwrap();
         let memory = Memory::open(dir.path(), Scripted::with(Vec::new()))
@@ -269,9 +278,9 @@ mod tests {
             }
         );
         drop(memory);
-        let folded = read_view(dir.path()).await.unwrap();
+        let saved = read_view(dir.path()).await.unwrap();
         assert_eq!(
-            folded,
+            saved,
             ReadView {
                 live: false,
                 ..live

@@ -622,6 +622,12 @@ impl SessionUi {
                     }
                 }
             }
+            // `/memory [zoom <id> <n>]`: the chat memory's status and the
+            // view the agent sees (or one zoom), printed as inline
+            // transcript rows.
+            "memory" => {
+                self.handle_memory_command(&resolved.args, text, view).await;
+            }
             // `/logs` (TS `handleLogsCommand`): a client-side read of the
             // logs directory (the daemon writes it, this client lists
             // it), rendered in the read-only info panel (the operator's

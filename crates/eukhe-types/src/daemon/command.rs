@@ -1151,6 +1151,18 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native extension, advertised by the `memory` capability: the
+    /// chat memory's status and view, or one zoom into it, for `/memory`
+    /// and the status gauge (reply: [`super::MemoryReply`]).
+    GetMemory {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        zoom: Option<super::MemoryZoom>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetToolDefinition {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -1275,5 +1287,13 @@ mod tests {
     #[test]
     fn get_chat_view_roundtrip() {
         rt::<DaemonCommand>(r#"{"type":"get_chat_view","activeSessionId":"s1"}"#);
+    }
+
+    #[test]
+    fn get_memory_roundtrip() {
+        rt::<DaemonCommand>(r#"{"type":"get_memory","activeSessionId":"s1"}"#);
+        rt::<DaemonCommand>(
+            r#"{"type":"get_memory","activeSessionId":"s1","zoom":{"id":40,"count":8}}"#,
+        );
     }
 }

@@ -1,8 +1,7 @@
-//! Importing history (`OptChat` spec §10): `OptMem` notes as kind `note`,
-//! keeping their ids, and older agent sessions as plain text (the user's
-//! messages and the agent's final replies, without repeated pastes and
-//! tool noise). The compactor then builds the tree over them like any other
-//! messages.
+//! Importing history (`OptChat` spec §10): older agent sessions as plain
+//! text (the user's messages and the agent's final replies, without
+//! repeated pastes and tool noise). The compactor then builds the tree over
+//! them like any other messages.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -28,55 +27,6 @@ pub struct ImportReport {
     pub sessions: u64,
     /// Subagent sessions and repeated pastes left out.
     pub skipped: u64,
-}
-
-/// Import the `OptMem` memory in `memory_dir` (its `LOG.txt`) as `note`
-/// messages with their own ids: the chat must still be empty.
-///
-/// # Errors
-///
-/// Returns an error when `LOG.txt` cannot be read, its records are not
-/// `#0, #1, ...` in order, or the chat is not empty.
-pub async fn import_optmem(memory: &Memory, memory_dir: &Path) -> anyhow::Result<ImportReport> {
-    let log = memory_dir.join("LOG.txt");
-    let text = std::fs::read_to_string(&log)
-        .map_err(|error| anyhow::anyhow!("cannot read {}: {error}", log.display()))?;
-    let mut items = Vec::new();
-    for (expected, line) in text.lines().enumerate() {
-        let line = line.trim_end();
-        let (head, rest) = line
-            .split_once(' ')
-            .ok_or_else(|| anyhow::anyhow!("{}: record {expected} is malformed", log.display()))?;
-        let id: usize = head
-            .strip_prefix('#')
-            .and_then(|digits| digits.parse().ok())
-            .ok_or_else(|| anyhow::anyhow!("{}: record {expected} has no #id", log.display()))?;
-        if id != expected {
-            anyhow::bail!(
-                "{}: expected record #{expected}, found #{id}",
-                log.display()
-            );
-        }
-        let (date, note) = rest.split_once(' ').unwrap_or((rest, ""));
-        items.push(ImportItem {
-            kind: Kind::Note,
-            text: note.to_string(),
-            date: date.to_string(),
-        });
-    }
-    let count = items.len() as u64;
-    if count == 0 {
-        return Ok(ImportReport::default());
-    }
-    // One request keeps the ids: the owner writes all or nothing, and only
-    // into an empty chat.
-    let (first, written) = memory.import(Some(0), items).await?;
-    Ok(ImportReport {
-        first: Some(first),
-        count: written,
-        sessions: 0,
-        skipped: 0,
-    })
 }
 
 /// Import the root sessions found in `paths` (session `.jsonl` files or
@@ -142,7 +92,7 @@ async fn write_batch(
     batch: Vec<ImportItem>,
     report: &mut ImportReport,
 ) -> anyhow::Result<()> {
-    let (first, count) = memory.import(None, batch).await?;
+    let (first, count) = memory.import(batch).await?;
     report.first.get_or_insert(first);
     report.count += count;
     Ok(())
@@ -415,46 +365,5 @@ mod tests {
                 ]
             )
         );
-    }
-
-    /// `OptMem` notes keep their ids, as kind `note`, with their own dates;
-    /// only an empty chat takes them.
-    #[tokio::test]
-    async fn optmem_notes_keep_their_ids() {
-        let dir = tempfile::tempdir().unwrap();
-        let optmem = tempfile::tempdir().unwrap();
-        std::fs::write(
-            optmem.path().join("LOG.txt"),
-            "#0 2026-08-03 first note      \n#1 2026-08-04 second note\n",
-        )
-        .unwrap();
-        let memory = Memory::open(dir.path().join("chat"), Scripted::with(Vec::new()))
-            .await
-            .unwrap();
-        let report = import_optmem(&memory, optmem.path()).await.unwrap();
-        assert_eq!(
-            (
-                report,
-                log(&memory).await,
-                memory.date(0).await.unwrap(),
-                memory.date(1).await.unwrap()
-            ),
-            (
-                ImportReport {
-                    first: Some(0),
-                    count: 2,
-                    sessions: 0,
-                    skipped: 0,
-                },
-                vec![
-                    "0+0|note: first note".to_string(),
-                    "1+0|note: second note".to_string()
-                ],
-                "2026-08-03".to_string(),
-                "2026-08-04".to_string()
-            )
-        );
-        // A second import would shift the ids: refused.
-        assert!(import_optmem(&memory, optmem.path()).await.is_err());
     }
 }

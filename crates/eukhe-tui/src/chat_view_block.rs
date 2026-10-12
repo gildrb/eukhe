@@ -14,17 +14,15 @@ use crate::width::truncate_line;
 use crate::{Line, Span};
 
 /// The collapsed row's text: `Chat view: N lines, M messages, X KB`, the
-/// size in KiB to one decimal (rounded).
+/// size in decimal kilobytes to one decimal (the memory rows' convention).
 #[must_use]
 pub(crate) fn chat_view_summary(view: &ChatViewSnapshot) -> String {
     let count = |n: u64, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
-    let tenths = view.bytes.saturating_mul(10).saturating_add(512) / 1024;
     format!(
-        "Chat view: {}, {}, {}.{} KB",
+        "Chat view: {}, {}, {}",
         count(view.lines, "line", "lines"),
         count(view.messages, "message", "messages"),
-        tenths / 10,
-        tenths % 10,
+        crate::memory_block::format_kb(view.bytes),
     )
 }
 
@@ -102,7 +100,7 @@ mod tests {
         };
         assert_eq!(
             chat_view_summary(&big),
-            "Chat view: 2 lines, 3 messages, 3.1 KB"
+            "Chat view: 2 lines, 3 messages, 3.2 KB"
         );
     }
 

@@ -8,6 +8,10 @@
 //!
 //! - `main/YYYY-MM-DD.jsonl`: one message per line, `{i, kind, text, size, date}`.
 //! - `tree/YYYY-MM-DD.jsonl`: one node per line, `{l, i, text, size}`.
+//! - `view.json`: the live view as `[l, i]` pairs, saved on every change
+//!   and loaded at start, never rebuilt from the log (§3.2).
+//! - `prompt.json`: the turns' system prompt and tools, which compactions
+//!   reuse so they read the turns' cache entry (§4).
 //! - `lock`: the owner's Unix socket. One process owns the chat for its whole
 //!   life and is the only writer; every other process is its client.
 //! - `turn`: locked by the process whose root turn holds the chat's
@@ -15,14 +19,15 @@
 //!
 //! Node `(l, i)` covers messages `[i·2^l, (i+1)·2^l)` and is named `id+n`
 //! with `id = i·2^l` and `n = 2^l`. Level 0 summarizes one message; level
-//! `l > 0` merges its two children. Nothing in these files is ever edited
-//! or deleted.
+//! `l > 0` merges its two children. Nothing in the logs is ever edited or
+//! deleted.
 
 mod browse;
 mod chat;
 mod compactor;
 mod import;
 mod prompts;
+mod saved;
 mod service;
 mod store;
 mod summarizer;
@@ -32,28 +37,41 @@ use std::time::Duration;
 
 pub use browse::{read_view, write_browse_page, BrowseSummary, ReadView};
 pub use compactor::{Summarizer, SummarizerFuture};
-pub use import::{import_optmem, import_sessions, ImportReport};
+pub use import::{import_sessions, ImportReport};
 pub use prompts::{
     memory_system_layer, subagent_system_layer, AGENT_NAME, DATE_TOOL_DESCRIPTION,
     ZOOM_TOOL_DESCRIPTION,
 };
-pub use service::{KeyedAppend, Memory, MemoryStatus, RenderedView, TurnLease};
-pub use summarizer::SettingsSummarizer;
+pub use saved::CompactionPrompt;
+pub use service::{KeyedAppend, Memory, MemoryStatus, MemoryUpdates, RenderedView, TurnLease};
+pub use summarizer::{configured_memory_model, SettingsSummarizer};
 
 /// Target size of one summary line, in UTF-8 bytes.
 pub const NODE: usize = 512;
-/// Budget of the view, in UTF-8 bytes of line text.
-pub const VIEW: usize = 128_000;
-/// Compactor calls running at once.
+/// The view's ceiling, in UTF-8 bytes of line text: once the view passes
+/// it, one batch merges it down to [`VIEW_FLOOR`] (§3.2).
+pub const VIEW_CEILING: usize = 128_000;
+/// The size a batch merges the view down to.
+pub const VIEW_FLOOR: usize = 64_000;
+/// The compaction view's ceiling: past it, it merges down to
+/// [`COMPACTION_FLOOR`] (§4).
+pub const COMPACTION_CEILING: usize = 32_000;
+/// The size the compaction view merges down to.
+pub const COMPACTION_FLOOR: usize = 16_000;
+/// View lines per cache block: one cache mark sits on the last whole block
+/// (§3.3).
+pub const BLOCK: usize = 4;
+/// Compactor calls running at once; also how many unbuilt lines may sit
+/// before a message whose node starts.
 pub const JOBS: usize = 8;
 /// Attempts per node to get a line under [`NODE`].
 pub const TRIES: usize = 5;
-/// Wait before a failed node is tried again.
+/// Wait before a failed node is tried again when no new message comes
+/// first (a new message retries every failed node at once).
 pub const RETRY: Duration = Duration::from_secs(10);
-/// Largest logged tool result, in characters; head and tail are kept.
+/// Largest logged tool result, in characters; head and tail are kept. Any
+/// other text longer than this is logged as several messages in a row.
 pub const CAP: usize = 30_000;
-/// Cache breakpoints inside the view, in characters.
-pub const MARKS: [usize; 3] = [50_000, 80_000, 100_000];
 /// The text of a view line whose message is not summarized yet.
 pub const PLACEHOLDER: &str = "(not summarized yet: zoom it)";
 
@@ -87,17 +105,17 @@ pub struct AppendKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
-    /// The user's words; also reports of subagents and background work,
-    /// which start with `[id] `.
+    /// The user's words.
     User,
-    /// The agent's replies.
+    /// The agent's replies (the spec's `unii`; eukhe's logs have always
+    /// named them `talk`).
     Talk,
     /// The agent's tool calls, as text: name and JSON input.
     Tool,
     /// Tool results.
     Echo,
-    /// Memories imported from an older system.
-    Note,
+    /// A subagent's or background task's report, starting `[Name]`.
+    Work,
 }
 
 impl Kind {
@@ -109,7 +127,7 @@ impl Kind {
             Kind::Talk => "talk",
             Kind::Tool => "tool",
             Kind::Echo => "echo",
-            Kind::Note => "note",
+            Kind::Work => "work",
         }
     }
 }
@@ -126,46 +144,88 @@ pub fn labeled(kind: Kind, text: &str) -> String {
     format!("{kind}: {text}")
 }
 
-/// Cap a text at [`CAP`] characters, keeping its head and tail and naming
-/// what was cut. Texts within the cap pass through unchanged.
+/// Cap a text at [`CAP`] characters in all (§1), keeping its head and tail
+/// and naming what was cut; the marker counts against the cap. Texts
+/// within the cap pass through unchanged.
 #[must_use]
 pub fn cap_text(text: &str) -> String {
     let total = text.chars().count();
     if total <= CAP {
         return text.to_string();
     }
-    let keep = CAP / 2;
-    let cut = total - 2 * keep;
+    let marker = |cut: usize| format!("\n[... {cut} characters cut ...]\n");
+    // The marker's length depends on the count it names: settle both.
+    let mut cut = total - CAP;
+    let keep = loop {
+        let keep = CAP - marker(cut).chars().count();
+        if total - keep == cut {
+            break keep;
+        }
+        cut = total - keep;
+    };
+    let head = keep / 2;
     let head_end = text
         .char_indices()
-        .nth(keep)
+        .nth(head)
         .map_or(text.len(), |(at, _)| at);
     let tail_start = text
         .char_indices()
-        .nth(total - keep)
+        .nth(head + cut)
         .map_or(text.len(), |(at, _)| at);
     format!(
-        "{}\n[... {cut} characters cut ...]\n{}",
+        "{}{}{}",
         &text[..head_end],
+        marker(cut),
         &text[tail_start..]
     )
+}
+
+/// Split a text longer than [`CAP`] characters into pieces of at most
+/// [`CAP`] characters, each ending at its last line break when one falls in
+/// its second half; the pieces concatenate back to `text` (§1: a long text
+/// is never cut, it is logged as several messages in a row). A text within
+/// the cap is one piece.
+#[must_use]
+pub fn split_text(text: &str) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut rest = text;
+    loop {
+        let Some((limit, _)) = rest.char_indices().nth(CAP) else {
+            pieces.push(rest.to_string());
+            return pieces;
+        };
+        let window = &rest[..limit];
+        let half = window
+            .char_indices()
+            .nth(CAP / 2)
+            .map_or(limit, |(at, _)| at);
+        let end = window
+            .rfind('\n')
+            .filter(|at| *at >= half)
+            .map_or(limit, |at| at + 1);
+        pieces.push(rest[..end].to_string());
+        rest = &rest[end..];
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The clipped text is [`CAP`] characters in all, marker included: so
+    /// a clipped tool result is never split again.
     #[test]
-    fn cap_keeps_head_and_tail() {
+    fn cap_keeps_head_and_tail_within_the_cap() {
         let text = format!("{}{}{}", "a".repeat(CAP), "b".repeat(10), "c".repeat(CAP));
-        let cut = CAP + 10;
+        let capped = cap_text(&text);
         assert_eq!(
-            (cap_text(&text), cap_text("short")),
+            (capped.chars().count(), capped, cap_text("short")),
             (
+                CAP,
                 format!(
-                    "{}\n[... {cut} characters cut ...]\n{}",
-                    "a".repeat(CAP / 2),
-                    "c".repeat(CAP / 2)
+                    "{}\n[... 30042 characters cut ...]\n{}",
+                    "a".repeat(14_984),
+                    "c".repeat(14_984)
                 ),
                 "short".to_string()
             )
@@ -181,10 +241,26 @@ mod tests {
             (
                 within,
                 format!(
-                    "{}\n[... 2 characters cut ...]\n{}",
-                    "é".repeat(CAP / 2),
-                    "é".repeat(CAP / 2)
+                    "{}\n[... 31 characters cut ...]\n{}",
+                    "é".repeat(14_985),
+                    "é".repeat(14_986)
                 )
+            )
+        );
+    }
+
+    /// A long text is split, never cut: at a line break in a piece's second
+    /// half, else at the cap; the pieces join back to the text.
+    #[test]
+    fn long_texts_split_into_messages_without_losing_anything() {
+        let first = format!("{}\n", "a".repeat(CAP - 10));
+        let second = "é".repeat(CAP + 5);
+        let text = format!("{first}{second}");
+        assert_eq!(
+            (split_text(&text), split_text("short")),
+            (
+                vec![first, "é".repeat(CAP), "é".repeat(5)],
+                vec!["short".to_string()]
             )
         );
     }

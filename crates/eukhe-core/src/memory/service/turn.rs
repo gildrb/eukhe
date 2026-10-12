@@ -22,9 +22,7 @@ use std::sync::atomic::Ordering;
 use anyhow::Context as _;
 use tokio::sync::oneshot;
 
-use super::{
-    unexpected, ClientFrame, Command, Disconnected, Link, Memory, Outcome, Reply, Request,
-};
+use super::{unexpected, Disconnected, Link, Memory, Outcome, Reply, Request};
 
 /// The file a lease holder keeps locked for its whole turn.
 pub(super) const TURN_FILE: &str = "turn";
@@ -237,23 +235,11 @@ impl Drop for LeaseRelease {
         };
         let request = Request::Release { lease: self.lease };
         match link {
-            Link::Owner(owner) => {
-                let (reply, _) = oneshot::channel();
-                // A stopped actor holds no leases.
-                let _ = owner.commands.send(Command::Request {
-                    origin: Origin::Local,
-                    request,
-                    reply,
-                });
-            }
-            Link::Client(client) => {
-                // The reply has no waiter, so the reader drops it. A closed
-                // connection ended its leases at the owner already.
-                let _ = client.send(&ClientFrame::Request {
-                    id: client.next_id.fetch_add(1, Ordering::SeqCst),
-                    request,
-                });
-            }
+            // A stopped actor holds no leases.
+            Link::Owner(owner) => owner.post(request),
+            // The reply has no waiter, so the reader drops it. A closed
+            // connection ended its leases at the owner already.
+            Link::Client(client) => client.post(request),
         }
     }
 }

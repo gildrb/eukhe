@@ -63,6 +63,10 @@ pub struct ChromeState {
     /// subagent session shows a `depth N` segment; a root session (depth
     /// 0 or unknown) none.
     pub tray_depth: Option<u32>,
+    /// The chat memory's view size in bytes, once known for the session:
+    /// the status line's `mem` gauge against the view's ceiling. `None`
+    /// (unknown, or a session without chat memory) renders no gauge.
+    pub memory_view_bytes: Option<u64>,
     /// The model's thinking level (wire name), shown after the model (TS
     /// `getModelContextLabel`); `None` for a model without reasoning.
     pub thinking_suffix: Option<String>,

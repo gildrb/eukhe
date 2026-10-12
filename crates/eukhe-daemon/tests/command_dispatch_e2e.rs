@@ -343,6 +343,7 @@ const MATRIX: &[(&str, &str)] = &[
     ("get_session_context", "wire: get_session_context"),
     ("get_system_prompt", "/system-prompt"),
     ("get_chat_view", "the startup chat view block"),
+    ("get_memory", "/memory and the status gauge"),
     ("get_tool_definition", "wire: get_tool_definition"),
     ("get_resource_snapshot", "wire: get_resource_snapshot"),
 ];
@@ -482,6 +483,38 @@ fn get_chat_view_answers_the_root_sessions_view() {
                 messages: 0,
                 lines: 0,
                 bytes: 14,
+            }),
+        }
+    );
+}
+
+/// `get_memory` answers the root session's chat memory — the `/memory`
+/// header and view, without the `<chat>` frame — without waiting on any
+/// turn. A fresh agent dir's chat is empty and its compactor follows the
+/// default model.
+#[test]
+fn get_memory_answers_the_root_sessions_memory() {
+    let mut session = open_session();
+    let (response, _) = session
+        .client
+        .timed_request("m1", &info_command("get_memory", &session.session_id));
+    assert_eq!(response["success"], true, "get_memory failed: {response}");
+    let reply: eukhe_types::daemon::MemoryReply =
+        serde_json::from_value(response["data"].clone()).expect("the reply decodes");
+    assert_eq!(
+        reply,
+        eukhe_types::daemon::MemoryReply {
+            memory: Some(eukhe_types::daemon::MemorySnapshot {
+                status: eukhe_types::daemon::MemoryStatusSnapshot {
+                    messages: 0,
+                    lines: 0,
+                    view_bytes: 0,
+                    unsummarized: 0,
+                    running: 0,
+                    model: None,
+                    last_error: None,
+                },
+                text: String::new(),
             }),
         }
     );

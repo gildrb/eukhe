@@ -67,6 +67,7 @@ impl Worker {
             "get_session_context" => self.handle_get_session_context().await,
             "get_system_prompt" => self.handle_get_system_prompt().await,
             "get_chat_view" => self.handle_get_chat_view().await,
+            "get_memory" => self.handle_get_memory(payload).await,
             "get_tool_definition" => self.handle_get_tool_definition(payload).await,
             "get_rlm_max_depth_status" => self.handle_get_rlm_max_depth_status().await,
             "get_available_models" => self.handle_get_available_models().await,
@@ -625,6 +626,7 @@ impl Worker {
         let Some(hosted) = self.session.take() else {
             return;
         };
+        self.stop_memory_updates();
         if let Ok(main) = hosted.main() {
             if let Err(error) = main
                 .abort(ConversationAbortOptions::default(), &BACKGROUND_CONTEXT)

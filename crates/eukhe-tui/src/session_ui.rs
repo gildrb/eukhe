@@ -13,6 +13,7 @@ mod factory;
 mod heartbeats;
 mod keys;
 mod lifecycle;
+mod memory;
 mod model_picker;
 mod notes;
 mod panels;
@@ -365,6 +366,10 @@ pub(crate) struct SessionUi {
     /// Monotonic epoch of the newest chat-view fetch; an older response
     /// (a rebind raced the fetch) never lands in the new transcript.
     chat_view_epoch: u64,
+    /// The chat memory's view size, once a `get_memory` reply or a
+    /// `memory_update` reported it for this session (the status line's
+    /// `mem` gauge); `None` until then.
+    memory_view_bytes: Option<u64>,
     /// The current Python `bash()` registry snapshot from the owning kernel.
     bash_activities: Value,
     /// Monotonic id of the latest issued kernel-bash list request; a late

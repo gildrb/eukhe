@@ -13,7 +13,6 @@ enum ChatCommand {
     View,
     Status { json: bool },
     Browse { out: Option<String> },
-    ImportOptmem { dir: Option<String> },
     ImportSessions { paths: Vec<String> },
 }
 
@@ -60,20 +59,12 @@ fn parse_chat_command(args: &[String]) -> Result<ChatCommand, String> {
         "browse" if operands.is_empty() && !json => Ok(ChatCommand::Browse { out }),
         "browse" => Err(format!("Usage: {app} chat browse [--out <path>]")),
         "import" => {
-            let usage =
-                format!("Usage: {app} chat import optmem [<memory-dir>] | {app} chat import sessions <path>...");
+            let usage = format!("Usage: {app} chat import sessions <path>...");
             if json || out.is_some() {
                 return Err(usage);
             }
             let mut operands = operands.into_iter();
             match operands.next().as_deref() {
-                Some("optmem") => {
-                    let dir = operands.next();
-                    if operands.next().is_some() {
-                        return Err(usage);
-                    }
-                    Ok(ChatCommand::ImportOptmem { dir })
-                }
                 Some("sessions") => {
                     let paths: Vec<String> = operands.collect();
                     if paths.is_empty() {
@@ -175,33 +166,6 @@ async fn run(command: ChatCommand) -> anyhow::Result<()> {
                 summary.nodes,
                 summary.view_lines,
                 if summary.live_view { ", live" } else { "" }
-            );
-            Ok(())
-        }
-        ChatCommand::ImportOptmem { dir: memory_dir } => {
-            let memory_dir = memory_dir.map_or_else(
-                || {
-                    std::env::var_os("MEMORY_DIR").map_or_else(
-                        || {
-                            eukhe_types::platform::home_dir()
-                                .unwrap_or_default()
-                                .join(".optmem")
-                                .join("memory")
-                        },
-                        PathBuf::from,
-                    )
-                },
-                |dir| crate::config::expand_tilde_path(&dir),
-            );
-            let memory = open_through_daemon(&agent_dir).await?;
-            let report = eukhe_core::memory::import_optmem(&memory, &memory_dir).await?;
-            println!(
-                "Imported {} OptMem notes as messages {}",
-                report.count,
-                report.first.map_or_else(String::new, |first| format!(
-                    "{first}..{}",
-                    first + report.count.saturating_sub(1)
-                ))
             );
             Ok(())
         }

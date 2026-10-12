@@ -185,13 +185,14 @@ fn optional_segments_show_only_while_they_carry_something() {
         session_name: Some("refactor".to_string()),
         cost_usd: Some(0.126),
         tray_depth: Some(1),
+        memory_view_bytes: Some(87_200),
         context: None,
         ..base()
     };
     let line = render_status_line(&state, Detail::All, &theme(), 120);
     assert_eq!(
         text(&line),
-        " Press Ctrl+C again to exit - [M] mock - [D] eukhe - @ main - refactor - $0.13 - depth 1 - expanded"
+        " Press Ctrl+C again to exit - [M] mock - [D] eukhe - @ main - refactor - $0.13 - depth 1 - mem 87/128K - expanded"
     );
     let quiet = ChromeState {
         session_name: Some(String::new()),

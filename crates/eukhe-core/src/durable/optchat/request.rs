@@ -1,14 +1,18 @@
-//! The request of a call (§6-§8). A root conversation's call is its run:
-//! on the run's first request the call takes the chat's root-turn lease,
-//! waits until everything before the run is in the chat log, renders the
-//! settled view, and pins it in `eukhe.optchat.call`; every request of the
-//! run then sends the pinned view, so the prompt-cache prefix holds across
-//! tool rounds and across a crash. A subagent pins one view for its whole
-//! conversation and logs nothing.
+//! The request of a call (§3.3, §6). A root conversation's call is its
+//! run: on the run's first request the call takes the chat's root-turn
+//! lease, waits until everything before the run is in the chat log,
+//! renders the settled view, and pins it in `eukhe.optchat.call`; every
+//! request of the run then sends the pinned view, so the prompt-cache
+//! prefix holds across tool rounds and across a crash. The view's cache
+//! mark sits on its last whole block of lines, and one more on the end of
+//! the call's first message. A newly pinned root call also hands its
+//! system prompt and tools to the compactor, which reuses them (§4). A
+//! subagent pins one view for its whole conversation and logs nothing.
 
 use std::sync::Arc;
 
-use eukhe_ai::utils::transcript::get_current_system_message;
+use eukhe_ai::utils::text::get_system_message_text;
+use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::{HookApi, HookResult, RequestMessages};
 use eukhe_durable::harness::{Harness, LiveRun, LiveState, LIVE_DOC};
@@ -22,7 +26,7 @@ use super::docs::{decode, write, CallState, CALL_DOC};
 use super::lines::{lead_of, Lead};
 use super::tools::memory_error;
 use super::OptChat;
-use crate::memory::MemoryRole;
+use crate::memory::{CompactionPrompt, MemoryRole};
 
 /// The `before_request` transform of one request.
 pub(super) async fn transform(
@@ -33,7 +37,7 @@ pub(super) async fn transform(
 ) -> HookResult<RequestMessages> {
     let harness = chat.harness.require()?;
     let conversation = api.conversation_id();
-    let (call, start) = match chat.role {
+    let (call, start, pinned_root) = match chat.role {
         MemoryRole::Root => {
             if !is_root_conversation(&harness, conversation, &cx).await? {
                 return Ok(None);
@@ -46,25 +50,25 @@ pub(super) async fn transform(
                 .claim(&chat.memory, chat.turn_wait.as_ref())
                 .await
                 .map_err(|error| memory_error(&error))?;
-            let call = match call_state(&harness, conversation, &cx).await? {
-                Some(call) if call.run_key.as_deref() == Some(key.as_str()) => call,
+            let (call, pinned) = match call_state(&harness, conversation, &cx).await? {
+                Some(call) if call.run_key.as_deref() == Some(key.as_str()) => (call, false),
                 Some(_) | None => {
                     // Everything before the run is in the log before the
                     // view renders: the view covers it, the request drops it.
                     chat.flush().await?;
                     let call = pin(&chat, &harness, conversation, Some(key), &cx).await?;
                     chat.wake();
-                    call
+                    (call, true)
                 }
             };
-            (call, run_start(&harness, &run, &cx).await?)
+            (call, run_start(&harness, &run, &cx).await?, pinned)
         }
         MemoryRole::Subagent => {
             let call = match call_state(&harness, conversation, &cx).await? {
                 Some(call) => call,
                 None => pin(&chat, &harness, conversation, None, &cx).await?,
             };
-            (call, None)
+            (call, None, false)
         }
     };
     let Some(handle) = harness.conversation(conversation, &cx).await? else {
@@ -90,11 +94,26 @@ pub(super) async fn transform(
     let start_at = start_message
         .and_then(|first| messages.iter().rposition(|message| *message == first))
         .unwrap_or(0);
-    Ok(Some(RequestMessages {
-        messages: request_messages(&call, messages, start_at, |message| {
-            state_rows.contains(message)
-        }),
-    }))
+    let messages = request_messages(&call, messages, start_at, |message| {
+        state_rows.contains(message)
+    });
+    if pinned_root {
+        chat.memory
+            .set_compaction_prompt(compaction_prompt(&messages))
+            .await
+            .map_err(|error| memory_error(&error))?;
+    }
+    Ok(Some(RequestMessages { messages }))
+}
+
+/// The system prompt and tools a request sends, as compactions reuse them.
+fn compaction_prompt(messages: &[Message]) -> CompactionPrompt {
+    CompactionPrompt {
+        system: get_current_system_message(messages)
+            .map(|system| get_system_message_text(&system))
+            .unwrap_or_default(),
+        tools: get_current_tools(messages),
+    }
 }
 
 /// Whether `conversation` is a root conversation of the session (no task
@@ -194,13 +213,15 @@ async fn pin(
     Ok(call)
 }
 
-/// The request of a call (§7, §8): the system messages before the call's
-/// leading user rows replayed into ONE system message; then ONE user
-/// message holding the view pieces and ONE text block with the call's
-/// leading user texts (the user's words, reports, nudges) joined by a
-/// blank line, their images after it; then any harness state among those
-/// leading rows; then the rest of the call. Messages before `start` (the
-/// call's first message) are in the chat log and dropped.
+/// The request of a call (§3.3, §6): the system messages before the
+/// call's leading user rows replayed into ONE system message; then ONE user
+/// message holding the view pieces (the first marked at the view's last
+/// whole block) and ONE text block with the call's leading user texts (the
+/// user's words, reports, nudges) joined by a blank line, their images
+/// after it, its last text block marked as the request's end; then any
+/// harness state among those leading rows; then the rest of the call.
+/// Messages before `start` (the call's first message) are in the chat log
+/// and dropped.
 pub(crate) fn request_messages(
     call: &CallState,
     mut messages: Vec<Message>,
@@ -269,6 +290,13 @@ pub(crate) fn request_messages(
         parts.push(UserContentBlock::Text(TextContent::new(texts.join("\n\n"))));
     }
     parts.extend(images);
+    if let Some(UserContentBlock::Text(end)) = parts
+        .iter_mut()
+        .rev()
+        .find(|part| matches!(part, UserContentBlock::Text(_)))
+    {
+        end.cache_breakpoint = Some(CacheBreakpoint::Ephemeral);
+    }
     let system = get_current_system_message(&systems);
     let mut out = Vec::with_capacity(2 + state_rows.len() + rest.len());
     out.extend(system.map(Message::System));

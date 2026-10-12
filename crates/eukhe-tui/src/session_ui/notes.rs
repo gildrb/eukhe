@@ -64,6 +64,7 @@ impl SessionUi {
     /// Re-apply the refreshed context usage to the chrome state.
     pub(crate) fn rebuild_tray(&mut self, view: &mut AgentView) {
         view.chrome.context = self.context;
+        view.chrome.memory_view_bytes = self.memory_view_bytes;
         view.chrome.session_name.clone_from(&self.session_name);
         self.dirty = true;
     }

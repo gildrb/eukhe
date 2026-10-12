@@ -517,6 +517,10 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         "get_chat_view",
         r#"{"type": "get_chat_view", "activeSessionId": "sess"}"#,
     ),
+    (
+        "get_memory",
+        r#"{"type": "get_memory", "activeSessionId": "sess", "zoom": {"id": 40, "count": 8}}"#,
+    ),
 ];
 
 /// The accept list is the TS list, in TS order, followed by the Rust-native
@@ -545,6 +549,7 @@ fn known_command_types_match_the_ts_list() {
                     | "kill_kernel_bash"
                     | "mark_anthropic_warning_shown"
                     | "get_chat_view"
+                    | "get_memory"
             ),
             "unexpected non-TS command type: {extra}"
         );

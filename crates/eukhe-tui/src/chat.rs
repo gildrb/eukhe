@@ -143,6 +143,13 @@ pub enum ChatEntry {
     /// print; rendered by the `chat_view_block` module): one collapsed
     /// summary row, the full `<chat>` text when expanded.
     ChatView(Box<eukhe_types::daemon::ChatViewSnapshot>),
+    /// One live `memory_update` (rendered by the `memory_block` module):
+    /// the compactor summarized lines or merged the view. Display only:
+    /// never part of the session's replayed transcript.
+    MemoryUpdate(Box<eukhe_types::daemon::MemoryUpdate>),
+    /// One `/memory` answer (rendered by the `memory_block` module): the
+    /// status header and the view's lines, or one zoom.
+    MemoryView(Box<crate::memory_block::MemoryViewRow>),
 }
 
 // The card types live in `tool_card`; re-exported here because the

@@ -17,7 +17,9 @@ impl AgentView {
     pub(super) fn entry_settled(&self, index: usize) -> bool {
         let last = index + 1 == self.chat.len();
         match &self.chat[index] {
-            ChatEntry::Status { .. } => !last,
+            // The live memory row grows in place while it is the last
+            // entry (`push_memory_update` folds the next update into it).
+            ChatEntry::Status { .. } | ChatEntry::MemoryUpdate(_) => !last,
             ChatEntry::User { .. }
             | ChatEntry::SlashCommand { .. }
             | ChatEntry::CompactionSummary { .. }
@@ -27,7 +29,8 @@ impl AgentView {
             | ChatEntry::InjectedPrompt(_)
             | ChatEntry::RefinementOutcome(_)
             | ChatEntry::CustomPanel(_)
-            | ChatEntry::ChatView(_) => true,
+            | ChatEntry::ChatView(_)
+            | ChatEntry::MemoryView(_) => true,
             ChatEntry::Assistant(message) => {
                 !message.streaming
                     && (!last || !crate::snapshot::is_superseded_attempt_row(&self.chat[index]))

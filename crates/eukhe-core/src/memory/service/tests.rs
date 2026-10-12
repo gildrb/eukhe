@@ -9,20 +9,18 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use eukhe_types::ai::{
-    AssistantContentBlock, AssistantMessage, Context, Message, StopReason, TextContent, Usage,
-    UserContent, UserContentBlock,
-};
+use eukhe_types::daemon::{MemoryLine, MemoryUpdate};
+use eukhe_types::pi_ai::{Context, Message, UserContent, UserContentBlock};
 use eukhe_types::platform::transport::connect_transport;
 use tokio::sync::{mpsc, oneshot};
 
+use super::actor::commit;
+use super::client::Client;
 use super::turn::TURN_FILE;
-use super::{
-    commit, Client, ImportItem, KeyedAppend, Memory, MemoryStatus, Outcome, RenderedView, Reply,
-    Request,
-};
+use super::{ImportItem, KeyedAppend, Memory, MemoryStatus, Outcome, RenderedView, Reply, Request};
 use crate::memory::compactor::tests::{reply, Scripted};
-use crate::memory::prompts::{compress_step, merge_step, COMPACT};
+use crate::memory::prompts::{compress_task, merge_task};
+use crate::memory::saved::{CompactionPrompt, VIEW_FILE};
 use crate::memory::{AppendKey, Kind, Summarizer, SummarizerFuture, NODE, PLACEHOLDER, RETRY};
 
 /// A compactor call the test answers with the line.
@@ -40,26 +38,7 @@ impl Summarizer for Gated {
         Box::pin(async move {
             asked.map_err(|_| anyhow::anyhow!("the test stopped answering"))?;
             let text = line.await?;
-            Ok(AssistantMessage {
-                content: vec![AssistantContentBlock::Text(TextContent {
-                    text,
-                    text_signature: None,
-                    rest: serde_json::Map::default(),
-                    cache_breakpoint: None,
-                })],
-                api: "anthropic-messages".to_string(),
-                provider: "test".to_string(),
-                model: "compactor".to_string(),
-                response_model: None,
-                response_id: None,
-                diagnostics: None,
-                usage: Usage::default(),
-                stop_reason: StopReason::Stop,
-                stop_reason_raw: None,
-                error_message: None,
-                timestamp: 0,
-                rest: serde_json::Map::default(),
-            })
+            Ok(reply(&text))
         })
     }
 }
@@ -283,8 +262,10 @@ async fn a_new_owner_never_starts_a_turn_over_a_surviving_one() {
     within(next).await.unwrap().release().await.unwrap();
 }
 
+/// Runtime files stay out of the chat's history (an ignore file from
+/// before one existed gets its line); the saved view goes in.
 #[test]
-fn a_commit_keeps_the_turn_file_out_of_a_chat_committed_before_it() {
+fn a_commit_keeps_runtime_files_out_and_the_saved_view_in() {
     let dir = tempfile::tempdir().unwrap();
     let git = |args: &[&str]| {
         let output = std::process::Command::new("git")
@@ -304,6 +285,9 @@ fn a_commit_keeps_the_turn_file_out_of_a_chat_committed_before_it() {
     std::fs::create_dir(dir.path().join("main")).unwrap();
     std::fs::write(dir.path().join("main/2026-10-05.jsonl"), "{}\n").unwrap();
     std::fs::write(dir.path().join(TURN_FILE), "").unwrap();
+    std::fs::write(dir.path().join(VIEW_FILE), "[[0,0]]").unwrap();
+    std::fs::write(dir.path().join(".view.json.tmp"), "[").unwrap();
+    std::fs::write(dir.path().join("prompt.json"), "{}").unwrap();
     commit(dir.path(), &dir.path().join(".git")).unwrap();
     assert_eq!(
         (
@@ -311,8 +295,8 @@ fn a_commit_keeps_the_turn_file_out_of_a_chat_committed_before_it() {
             git(&["ls-files"]),
         ),
         (
-            "lock\nlock.lock/\nturn\n".to_string(),
-            ".gitignore\nmain/2026-10-05.jsonl\n".to_string(),
+            "lock\nlock.lock/\nturn\n.*.tmp\nprompt.json\n".to_string(),
+            ".gitignore\nmain/2026-10-05.jsonl\nview.json\n".to_string(),
         )
     );
 }
@@ -321,30 +305,41 @@ fn no_model() -> Arc<Scripted> {
     Scripted::with(Vec::new())
 }
 
-/// A compactor request as its system prompt and its text blocks.
-fn request_texts(context: &Context) -> (Option<String>, Vec<String>) {
+/// A compactor request: its system prompt, its tools' names, and its text
+/// blocks with whether each carries a cache mark.
+type RequestShape = (Option<String>, Vec<String>, Vec<(String, bool)>);
+
+fn request_shape(context: &Context) -> RequestShape {
     let texts = context
         .messages
         .iter()
         .flat_map(|message| match message {
             Message::User(user) => match &user.content {
-                UserContent::Text(text) => vec![text.clone()],
+                UserContent::Text(text) => vec![(text.clone(), false)],
                 UserContent::Blocks(blocks) => blocks
                     .iter()
                     .map(|block| match block {
-                        UserContentBlock::Text(text) => text.text.clone(),
-                        UserContentBlock::Image(_) | UserContentBlock::Raw(_) => {
+                        UserContentBlock::Text(text) => {
+                            (text.text.clone(), text.cache_breakpoint.is_some())
+                        }
+                        UserContentBlock::Image(_) => {
                             panic!("a compactor request holds text only")
                         }
                     })
                     .collect(),
             },
-            Message::Assistant(_) | Message::ToolResult(_) => {
+            Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => {
                 panic!("a first compactor request is one user message")
             }
         })
         .collect();
-    (context.system_prompt.clone(), texts)
+    let tools = context
+        .tools
+        .iter()
+        .flatten()
+        .map(|tool| tool.name.clone())
+        .collect();
+    (context.system_prompt.clone(), tools, texts)
 }
 
 /// Short messages are their own lines (no model call), and so is the
@@ -391,12 +386,12 @@ async fn short_messages_are_their_own_lines() {
     assert_eq!(summarizer.requests(), Vec::new());
 }
 
-/// Every compactor call sees the bare view lines up to its node, never an
-/// id: a message goes whole under the step, a merge writes both lines out
-/// again; the view then shows the model's lines, the message stays one zoom
-/// away.
+/// Every compactor call sends the turns' system prompt and tools, then
+/// its own view up to its node (only built lines, `id+n|text`), then the
+/// task, marked as the request's end; messages compress in parallel. The
+/// view then shows the model's lines, the message stays one zoom away.
 #[tokio::test]
-async fn the_compactor_sees_bare_lines_and_whole_inputs() {
+async fn compactions_reuse_the_turns_prompt_and_see_built_lines_only() {
     let dir = tempfile::tempdir().unwrap();
     let first = format!("echo: first, {}", "a".repeat(287));
     let second = format!("echo: second, {}", "b".repeat(286));
@@ -406,51 +401,73 @@ async fn the_compactor_sees_bare_lines_and_whole_inputs() {
         Ok(reply("echo: both listings")),
     ]);
     let memory = Memory::open(dir.path(), summarizer.clone()).await.unwrap();
+    let prompt = CompactionPrompt {
+        system: "You are Eukhe. The user's instructions follow.".to_string(),
+        tools: vec![serde_json::from_value(serde_json::json!({
+            "name": "zoom",
+            "description": "Open a line.",
+            "parameters": {"type": "object", "properties": {}}
+        }))
+        .unwrap()],
+    };
+    memory.set_compaction_prompt(prompt.clone()).await.unwrap();
     let long = |c: &str| c.repeat(NODE);
-    memory.append(Kind::Echo, &long("x")).await.unwrap();
-    memory.append(Kind::Echo, &long("y\n")).await.unwrap();
-    let requests: Vec<_> = summarizer
+    let item = |text: String| ImportItem {
+        kind: Kind::Echo,
+        text,
+        date: "2026-10-12".to_string(),
+    };
+    // One step logs both, so neither node waits for the other.
+    memory
+        .import(vec![item(long("x")), item(long("y\n"))])
+        .await
+        .unwrap();
+    let mut requests: Vec<RequestShape> = summarizer
         .requested(3)
         .await
         .iter()
-        .map(request_texts)
+        .map(request_shape)
         .collect();
-    let compact = Some(COMPACT.to_string());
+    requests[..2].sort();
+    let shape =
+        |texts: Vec<(String, bool)>| (Some(prompt.system.clone()), vec!["zoom".to_string()], texts);
+    let rendered = memory.settled_render().await.unwrap().text;
+    // Both messages compressed at once: the second did not wait for the
+    // first, and saw no line of it.
+    let (line_0, line_1) = (
+        memory.zoom(0, 2).await.unwrap(),
+        rendered.lines().nth(2).unwrap().to_string(),
+    );
+    let built: Vec<&str> = line_0
+        .lines()
+        .map(|line| line.split_once('|').unwrap().1)
+        .collect();
     assert_eq!(
-        requests,
-        [
-            (
-                compact.clone(),
-                vec![
-                    "<chat>\n</chat>".to_string(),
-                    compress_step(&format!("echo: {}", long("x"))),
-                ]
-            ),
-            (
-                compact.clone(),
-                vec![
-                    format!("<chat>\n{first}\n</chat>"),
-                    compress_step(&format!("echo: {}", long("y\n"))),
-                ]
-            ),
-            (
-                compact,
-                vec![
-                    format!("<chat>\n{first}\n{second}\n</chat>"),
-                    merge_step(&first, &second),
-                ]
-            ),
-        ]
+        (requests, line_1),
+        (
+            vec![
+                shape(vec![
+                    ("<chat>\n</chat>".to_string(), false),
+                    (compress_task(0, &format!("echo: {}", long("x"))), true),
+                ]),
+                shape(vec![
+                    ("<chat>\n</chat>".to_string(), false),
+                    (compress_task(1, &format!("echo: {}", long("y\n"))), true),
+                ]),
+                shape(vec![
+                    (
+                        format!("<chat>\n0+1|{}\n1+1|{}\n</chat>", built[0], built[1]),
+                        false
+                    ),
+                    (merge_task("0+1", "1+1", (0, 1), (built[0], built[1])), true),
+                ]),
+            ],
+            format!("1+1|{}", built[1])
+        )
     );
     assert_eq!(
-        (
-            memory.settled_render().await.unwrap().text,
-            memory.zoom(1, 1).await.unwrap()
-        ),
-        (
-            format!("<chat>\n0+1|{first}\n1+1|{second}\n</chat>"),
-            format!("1+0|echo: {}", long("y\n"))
-        )
+        memory.zoom(1, 1).await.unwrap(),
+        format!("1+0|echo: {}", long("y\n"))
     );
 }
 
@@ -465,14 +482,11 @@ async fn dates_read_as_local_date_and_time() {
         date: date.to_string(),
     };
     memory
-        .import(
-            None,
-            vec![
-                item("2026-10-05T09:32:11.123+02:00"),
-                item("2026-10-05T07:32:11Z"),
-                item("2026-08-03"),
-            ],
-        )
+        .import(vec![
+            item("2026-10-05T09:32:11.123+02:00"),
+            item("2026-10-05T07:32:11Z"),
+            item("2026-08-03"),
+        ])
         .await
         .unwrap();
     let mut dates = Vec::new();
@@ -490,9 +504,11 @@ async fn dates_read_as_local_date_and_time() {
     );
 }
 
-/// The view is not saved: a reopened chat folds the same view again.
+/// The view is saved on every change and loaded at start, never rebuilt
+/// from the log: a reopened chat shows the saved view even where a fold
+/// of the log would differ.
 #[tokio::test]
-async fn a_reopened_chat_folds_the_same_view() {
+async fn a_reopened_chat_loads_its_saved_view() {
     let dir = tempfile::tempdir().unwrap();
     let before = {
         let memory = Memory::open(dir.path(), no_model()).await.unwrap();
@@ -501,10 +517,65 @@ async fn a_reopened_chat_folds_the_same_view() {
         }
         memory.settled_render().await.unwrap()
     };
+    let saved = std::fs::read_to_string(dir.path().join(VIEW_FILE)).unwrap();
+    // A view no fold of five short messages makes (it merges nothing
+    // under the ceiling), with every node built (short lines are free).
+    std::fs::write(dir.path().join(VIEW_FILE), "[[2,0],[0,4]]").unwrap();
     let memory = Memory::open(dir.path(), no_model()).await.unwrap();
     assert!(memory.owns().await);
-    assert_eq!(memory.render().await.unwrap(), before);
+    let reopened = memory.render().await.unwrap();
     assert_eq!(memory.append(Kind::User, "m5").await.unwrap(), 5);
+    assert_eq!(
+        (
+            before.text,
+            saved,
+            reopened.text,
+            std::fs::read_to_string(dir.path().join(VIEW_FILE)).unwrap()
+        ),
+        (
+            "<chat>\n0+1|user: m0\n1+1|user: m1\n2+1|user: m2\n3+1|user: m3\n4+1|user: m4\n</chat>"
+                .to_string(),
+            "[[0,0],[0,1],[0,2],[0,3],[0,4]]".to_string(),
+            "<chat>\n0+4|user: m0 user: m1 user: m2 user: m3\n4+1|user: m4\n</chat>".to_string(),
+            "[[2,0],[0,4],[0,5]]".to_string()
+        )
+    );
+}
+
+/// A subscriber sees each step's built nodes, from the owner and across
+/// the socket alike.
+#[tokio::test]
+async fn subscribers_see_the_lines_each_step_builds() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = Memory::open(dir.path(), no_model()).await.unwrap();
+    let client = Memory::open(dir.path(), no_model()).await.unwrap();
+    let mut local = owner.subscribe().await.unwrap();
+    let mut remote = client.subscribe().await.unwrap();
+    owner.append(Kind::User, "hello").await.unwrap();
+    client.append(Kind::Talk, "hi").await.unwrap();
+    let line = |id, count, text: &str| MemoryLine {
+        id,
+        count,
+        text: text.to_string(),
+    };
+    let expected = vec![
+        MemoryUpdate::Summarized {
+            lines: vec![line(0, 1, "user: hello")],
+            view_bytes: 11,
+        },
+        MemoryUpdate::Summarized {
+            lines: vec![line(1, 1, "talk: hi"), line(0, 2, "user: hello\ntalk: hi")],
+            view_bytes: 19,
+        },
+    ];
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        seen.push(within(local.next()).await.unwrap());
+    }
+    for _ in 0..2 {
+        seen.push(within(remote.next()).await.unwrap());
+    }
+    assert_eq!(seen, [expected.clone(), expected].concat());
 }
 
 /// A second handle is the owner's client; when the owner goes, it takes

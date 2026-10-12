@@ -1,18 +1,20 @@
-//! What one committed entry adds to the chat log (`OptChat` §9), and what
-//! each entry is to a call's request (§7). The user's words, the agent's
+//! What one committed entry adds to the chat log (spec §1, §6), and what
+//! each entry is to a call's request. The user's words, the agent's
 //! replies and tool calls, and tool results are logged; reports and
-//! background events that reach the model are logged as `user` messages
+//! background events that reach the model are logged as `work` messages
 //! starting with one `[id] `; harness nudges (autonomous and goal
 //! continuations: not the user's words) and harness state the next turn
 //! re-derives (kernel notices, bookkeeping rows, summaries) are not.
-//! Thinking is never logged (§2).
+//! Thinking is never logged. A tool result is clipped to its head and
+//! tail; any other text longer than [`crate::memory::CAP`] characters is
+//! logged as several messages in a row, never cut.
 
 use eukhe_durable::entries::{ASSISTANT_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use eukhe_durable::types::EntryRecord;
 use eukhe_types::pi_ai::{AssistantContentBlock, Message, UserContent, UserContentBlock};
 
 use crate::durable::entries::{BASH_ENTRY, CUSTOM_ENTRY};
-use crate::memory::{cap_text, Kind};
+use crate::memory::{cap_text, split_text, Kind};
 
 /// What an entry's model messages are to the first message of a call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,8 +41,21 @@ pub(crate) fn lead_of(entry: &EntryRecord) -> Lead {
     Lead::State
 }
 
-/// The chat log lines of one committed entry, in order.
+/// The chat log lines of one committed entry, in order: a long text is
+/// split over several lines of the same kind.
 pub(crate) fn entry_lines(entry: &EntryRecord) -> Vec<(Kind, String)> {
+    whole_lines(entry)
+        .into_iter()
+        .flat_map(|(kind, text)| {
+            split_text(&text)
+                .into_iter()
+                .map(move |piece| (kind, piece))
+        })
+        .collect()
+}
+
+/// The lines of one entry before long texts are split.
+fn whole_lines(entry: &EntryRecord) -> Vec<(Kind, String)> {
     let messages = entry.model.as_deref().unwrap_or_default();
     if entry.kind == USER_ENTRY.kind() {
         return messages.iter().filter_map(user_input_line).collect();
@@ -65,7 +80,7 @@ pub(crate) fn entry_lines(entry: &EntryRecord) -> Vec<(Kind, String)> {
         }
         let custom_type = custom_type(entry);
         return match classify_custom(&custom_type) {
-            CustomRow::Report => vec![(Kind::User, report_line(&custom_type, &text))],
+            CustomRow::Report => vec![(Kind::Work, report_line(&custom_type, &text))],
             CustomRow::Nudge | CustomRow::State => Vec::new(),
         };
     }
@@ -96,7 +111,10 @@ fn user_input_line(message: &Message) -> Option<(Kind, String)> {
         .iter()
         .find(|(header, _)| text.starts_with(header))
         .and_then(|(_, custom_type)| normalized_report(custom_type, &text));
-    Some((Kind::User, report.unwrap_or(text)))
+    Some(match report {
+        Some(report) => (Kind::Work, report),
+        None => (Kind::User, text),
+    })
 }
 
 fn assistant_lines(message: &Message) -> Vec<(Kind, String)> {

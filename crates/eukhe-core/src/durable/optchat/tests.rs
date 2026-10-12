@@ -33,8 +33,8 @@ use super::request::request_messages;
 use super::OptChat;
 use crate::durable::{HarnessCell, TurnWait, TurnWaitSink};
 use crate::memory::{
-    AppendKey, Kind, Memory, MemoryRole, Summarizer, SummarizerFuture, CAP, DATE_TOOL_DESCRIPTION,
-    ZOOM_TOOL_DESCRIPTION,
+    AppendKey, CompactionPrompt, Kind, Memory, MemoryRole, Summarizer, SummarizerFuture, CAP,
+    DATE_TOOL_DESCRIPTION, ZOOM_TOOL_DESCRIPTION,
 };
 
 fn cx() -> &'static Context {
@@ -50,7 +50,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 struct NoModel;
 
 impl Summarizer for NoModel {
-    fn complete(&self, _context: eukhe_types::ai::Context) -> SummarizerFuture {
+    fn complete(&self, _context: eukhe_types::pi_ai::Context) -> SummarizerFuture {
         Box::pin(async { Err(anyhow::anyhow!("no model in this test")) })
     }
 }
@@ -376,12 +376,23 @@ fn wait_tool(started: Arc<Notify>) -> Arc<ToolRegistration> {
     ))
 }
 
-/// The view as the call's first message shows it: one text piece here.
+/// The view as the call's first message describes it: its pieces, the
+/// first marked at the view's last whole block of lines.
 async fn view_text(memory: &Memory) -> String {
-    let rendered = memory.render().await.unwrap();
-    let pieces = rendered.pieces();
-    assert_eq!(pieces.len(), 1, "a short view is one piece");
-    pieces[0].clone()
+    let pieces = memory.render().await.unwrap().pieces();
+    let marked = pieces.len() - 1;
+    pieces
+        .iter()
+        .enumerate()
+        .map(|(at, piece)| {
+            if at < marked {
+                format!("{piece}[cache]")
+            } else {
+                piece.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 #[tokio::test]
@@ -403,7 +414,8 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
     let after_first = chat_lines(&setup.chat_dir());
     let second_view = view_text(&setup.memory).await;
     session.run(&setup.chat, "again").await;
-    let first_user = format!("user:{first_view}|hello");
+    // The end of the call's first message carries the request's end mark.
+    let first_user = format!("user:{first_view}|hello[cache]");
     assert_eq!(
         (
             requests.described(),
@@ -419,7 +431,10 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
                     "assistant:call zoom".to_string(),
                     format!("toolResult:{zoomed}"),
                 ],
-                vec!["system".to_string(), format!("user:{second_view}|again")],
+                vec![
+                    "system".to_string(),
+                    format!("user:{second_view}|again[cache]"),
+                ],
             ],
             vec![
                 (Kind::User, "earlier".to_string()),
@@ -434,6 +449,22 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
     // The first message of a run is byte-identical across its requests.
     let all = requests.all();
     assert_eq!(all[0][1], all[1][1]);
+    // The run handed its system prompt and tools to the compactor, saved
+    // for a restarted owner too: compactions reuse the turns' prefix.
+    let Message::System(system) = &all[0][0] else {
+        panic!("a system message leads the request");
+    };
+    let saved: CompactionPrompt = serde_json::from_str(
+        &std::fs::read_to_string(setup.chat_dir().join("prompt.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        saved,
+        CompactionPrompt {
+            system: eukhe_ai::utils::text::get_system_message_text(system),
+            tools: eukhe_ai::utils::transcript::get_current_tools(&all[0]),
+        }
+    );
     session.close(&setup).await;
 }
 
@@ -625,10 +656,10 @@ async fn a_subagent_pins_one_view_for_its_conversation_and_logs_nothing() {
         (requests.described(), chat_lines(&setup.chat_dir())),
         (
             vec![
-                vec!["system".to_string(), format!("user:{view}|task")],
+                vec!["system".to_string(), format!("user:{view}|task[cache]")],
                 vec![
                     "system".to_string(),
-                    format!("user:{view}|task"),
+                    format!("user:{view}|task[cache]"),
                     "assistant:a1".to_string(),
                     "user:next".to_string(),
                 ],
@@ -748,7 +779,7 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
         (
             SystemContent::Text("base\n\npatch".to_string()),
             vec![
-                "user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|first\n\nsecond|[image image/png]"
+                "user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|first\n\nsecond[cache]|[image image/png]"
                     .to_string(),
                 "user:[state] kernel restored".to_string(),
                 "assistant:reply".to_string(),
@@ -761,7 +792,11 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
                         cache_breakpoint: Some(CacheBreakpoint::Ephemeral),
                     }),
                     UserContentBlock::Text(TextContent::new("1+1|b\n</chat>")),
-                    UserContentBlock::Text(TextContent::new("first\n\nsecond")),
+                    UserContentBlock::Text(TextContent {
+                        text: "first\n\nsecond".to_string(),
+                        text_signature: None,
+                        cache_breakpoint: Some(CacheBreakpoint::Ephemeral),
+                    }),
                     image,
                 ]),
                 timestamp: 7,
@@ -832,11 +867,11 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
         lines,
         vec![
             (
-                Kind::User,
+                Kind::Work,
                 "[child:scout] exited (no-reply)\nLast assistant text: hi".to_string()
             ),
-            (Kind::User, "[child:scout] failed\nboom".to_string()),
-            (Kind::User, "[child:x] body".to_string()),
+            (Kind::Work, "[child:scout] failed\nboom".to_string()),
+            (Kind::Work, "[child:x] body".to_string()),
             (Kind::User, "plain words".to_string()),
         ]
     );

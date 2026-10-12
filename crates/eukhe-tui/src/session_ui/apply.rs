@@ -625,6 +625,9 @@ impl SessionUi {
                     }
                 }
             }
+            TurnUpdate::MemoryUpdate(update) => {
+                self.apply_memory_update(update, view);
+            }
             TurnUpdate::BashStart {
                 command,
                 exclude_from_context,

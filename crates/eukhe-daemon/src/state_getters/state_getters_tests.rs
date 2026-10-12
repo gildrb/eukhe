@@ -296,6 +296,33 @@ async fn chat_view_is_null_without_chat_memory() {
     assert_eq!(data, json!({ "view": null }));
 }
 
+/// `get_memory`: a scripted session keeps no chat memory, with or without
+/// a zoom.
+#[tokio::test]
+async fn memory_is_null_without_chat_memory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created_worker(dir.path(), ack_script()).await;
+    let data = get(&worker, "get_memory", &json!({})).await;
+    assert_eq!(data, json!({ "memory": null }));
+    let zoomed = get(
+        &worker,
+        "get_memory",
+        &json!({ "zoom": { "id": 0, "count": 1 } }),
+    )
+    .await;
+    assert_eq!(zoomed, json!({ "memory": null }));
+}
+
+/// The view `get_memory` answers drops exactly the `<chat>` frame lines.
+#[test]
+fn unframed_view_drops_the_chat_frame() {
+    assert_eq!(super::unframed_view("<chat>\n</chat>"), "");
+    assert_eq!(
+        super::unframed_view("<chat>\n0+2|user: hi\n2+1|plan\n</chat>"),
+        "0+2|user: hi\n2+1|plan"
+    );
+}
+
 /// `get_available_models`: the session's models with credentials (the
 /// scripted provider's model).
 #[tokio::test]

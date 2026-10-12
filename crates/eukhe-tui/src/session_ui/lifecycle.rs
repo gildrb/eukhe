@@ -119,6 +119,7 @@ impl SessionUi {
             skill_commands_cache: Vec::new(),
             chat_view_updates: activity_updates.chat_view,
             chat_view_epoch: 0,
+            memory_view_bytes: None,
             bash_activities: serde_json::json!({"activities": []}),
             bash_list_epoch: 0,
             bash_updates: activity_updates.bash,
@@ -461,9 +462,12 @@ impl SessionUi {
         // request safe -- the in-flight slot frees on its own cycle).
         self.spawn_factory_refresh();
         // The chat memory's view (`OptChat` spec section 10's startup print) lands as a
-        // transcript block after the rebuild that follows this attach;
-        // the fetch runs in the background, after the first-frame fetches
-        // above, so neither the attach nor the first paint waits on it.
+        // transcript block after the rebuild that follows this attach,
+        // and its status seeds the `mem` gauge (the previous session's
+        // reading drops here); the fetch runs in the background, after
+        // the first-frame fetches above, so neither the attach nor the
+        // first paint waits on it.
+        self.memory_view_bytes = None;
         self.spawn_chat_view_fetch();
         self.pending_model = reconstructed.model_id;
         self.pending_model_provider = reconstructed.model_provider;
@@ -665,6 +669,7 @@ impl SessionUi {
         view.queue_selected = None;
         view.chrome.session_name.clone_from(&self.session_name);
         view.chrome.context = self.context;
+        view.chrome.memory_view_bytes = self.memory_view_bytes;
         self.update_subagent_summary(view);
         // The rebuilt transcript invalidates the announcement row tracking;
         // the goal state itself carries over (seeded at attach).
