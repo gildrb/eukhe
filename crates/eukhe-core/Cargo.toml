@@ -21,6 +21,7 @@ eukhe-models = { path = "../eukhe-models" }
 eukhe-durable.workspace = true
 eukhe-ai.workspace = true
 eukhe-chord.workspace = true
+eukhe-docs = { path = "../eukhe-docs" }
 base64 = "0.22"
 fancy-regex = "0.14"
 # The traces browser login's auth challenge (RSA-2048 keypair, OAEP-SHA256
