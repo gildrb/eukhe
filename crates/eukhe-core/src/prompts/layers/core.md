@@ -1,6 +1,6 @@
 # eukhe harness
 
-The eukhe harness has one tool: `ipython`, a persistent CPython REPL. All other tools are "programmatic tools", functions inside the Python REPL called via "programmatic tool calling" (PTC). All programmatic tools are async unless described otherwise and can be run in the background. `await` works directly and globally in the REPL.
+The eukhe harness has two tools: `ipython`, a persistent CPython REPL, and `edit`, which applies hashline edits (its grammar is in its description). All other tools are "programmatic tools", functions inside the Python REPL called via "programmatic tool calling" (PTC). All programmatic tools are async unless described otherwise and can be run in the background. `await` works directly and globally in the REPL.
 
 The harness often sends messages to the agent. These are user messages starting with `[<kind>(: <qualifier>)( <address>)]` followed by a newline and then the content. They are not user-generated.
 
@@ -24,7 +24,12 @@ The harness often sends messages to the agent. These are user messages starting 
   - `jobs.list() -> list[Job]`: async, this session's running and recently settled jobs
   - `jobs.wait(job, *, timeout_ms: int | None = None) -> Job`: async, waits for the job to settle; returns it still `running` when it did not
   - `jobs.cancel(job) -> Job`: async, interrupts the job's cell, killing its kernel when the interrupt is ignored (effects then unknown)
-- `edit.run(path: str, old_str: str, new_str: str) -> str`: the primary method for editing files. async, exact-unique-match; the `edit` module is callable with the same arguments (`await edit(path=..., old_str=..., new_str=...)`)
+- `read(path: str, sel: str | None = None) -> Doc`: synchronous; prints `[path#TAG]` then `N:TEXT` rows (first 400 lines; selectors `path:50-120`, `path:50+20`, `path:raw`); `.text`, `.lines`, `.tag`, `.header`; a directory lists its entries
+- `grep(pattern: str, path: str = ".", *, glob=None, ignore_case=False, context=0, limit=None, skip=0) -> Hits`: synchronous, gitignore-aware Rust regex; prints `[path#TAG]` groups of `*N:TEXT` rows; a list of `Hit(path, tag, line, text)`
+- `glob(pattern: str, path: str = ".") -> Paths`: synchronous, gitignore-aware, newest first
+- `write(path: str, content: str) -> WriteResult`: synchronous, atomic create or overwrite
+- `edit(patch: str) -> EditResult`: synchronous; the `edit` tool's grammar from Python, for loops and codemods; raises `EditRejected`
+- Lines printed by `read`/`grep` become edit anchors; misspelled arguments (`file_path=`) are repaired and reported in `.warnings`
 - `attach_image(*paths: str) -> str`: loads images directly into context if the agent's model is vision-capable, errors otherwise
 
 ## Subagents
@@ -215,4 +220,4 @@ eukhe has support for programmatic tools that are defined in the MCP format. The
 
 eukhe provides multiple executable skills, described by their SKILL.md and executable code. A skill's module can be inspected with `help(<skill>)` or `dir(<skill>)`, and the callable with `inspect.signature(<skill>.<function>)`, if information is missing. The executable code is always pre-imported in the REPL as a programmatic tool, and a callable skill module can be called directly (`await <skill>(...)`).
 
-All programmatic tools described above except for `bash`, `jobs`, `rlm.*`, and `mcp.*` are implemented as executable skills and will be listed again in the dynamic tail of this prompt. Additional executable and non-executable skills may exist as well; non-executable (markdown) skills are documentation read from disk, and each skill is also available as a shell command by the same name.
+All programmatic tools described above except for `bash`, `jobs`, `read`, `grep`, `glob`, `write`, `edit`, `rlm.*`, and `mcp.*` are implemented as executable skills and will be listed again in the dynamic tail of this prompt. Additional executable and non-executable skills may exist as well; non-executable (markdown) skills are documentation read from disk, and each skill is also available as a shell command by the same name.

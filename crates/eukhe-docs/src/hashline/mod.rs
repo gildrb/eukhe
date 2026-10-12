@@ -184,6 +184,18 @@ pub struct HashlineOutcome {
     pub files: Vec<FileOutcome>,
 }
 
+/// The file paths a payload's sections name, as authored, in payload order.
+///
+/// # Errors
+///
+/// The payload's section headers do not parse.
+pub fn section_paths(input: &str) -> Result<Vec<String>, EditError> {
+    Ok(split_sections(input, Path::new(""))?
+        .into_iter()
+        .map(|section| section.path)
+        .collect())
+}
+
 /// Apply a hashline payload.
 ///
 /// Every section is parsed, resolved, and applied in memory first; any

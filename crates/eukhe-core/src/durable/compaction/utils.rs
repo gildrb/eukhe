@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 
 use eukhe_types::session::AgentMessage;
 
+use crate::durable::documents::EDIT_TOOL_NAME;
+
 /// File operations extracted from tool calls and results.
 #[derive(Debug, Default, Clone)]
 pub struct FileOperations {
@@ -35,42 +37,25 @@ const TOOL_RESULT_MAX_CHARS: usize = 2_000;
 /// Characters kept from the end of a truncated tool result.
 const TOOL_RESULT_TAIL_CHARS: usize = 500;
 
-/// Extract file ops from an assistant tool call (edit paths) or a tool
-/// result (kernel edit-skill diffs in `details`).
+/// Extract file ops from an assistant `edit` tool call (its section paths).
 pub fn extract_file_ops_from_message(message: &AgentMessage, file_ops: &mut FileOperations) {
-    match message {
-        AgentMessage::ToolResult(result) => {
-            if result.tool_name != "ipython" {
-                return;
-            }
-            let Some(details) = result.details.as_ref().and_then(|d| d.as_object()) else {
-                return;
-            };
-            let Some(diffs) = details.get("diffs").and_then(|d| d.as_array()) else {
-                return;
-            };
-            for diff in diffs {
-                if let Some(path) = diff.get("path").and_then(|p| p.as_str()) {
-                    if !path.is_empty() {
-                        file_ops.edited.insert(path.to_string());
-                    }
-                }
-            }
+    let AgentMessage::Assistant(assistant) = message else {
+        return;
+    };
+    for block in &assistant.content {
+        let eukhe_types::ai::AssistantContentBlock::ToolCall(call) = block else {
+            continue;
+        };
+        if call.name != EDIT_TOOL_NAME {
+            continue;
         }
-        AgentMessage::Assistant(assistant) => {
-            for block in &assistant.content {
-                let eukhe_types::ai::AssistantContentBlock::ToolCall(call) = block else {
-                    continue;
-                };
-                let Some(path) = call.arguments.get("path").and_then(|p| p.as_str()) else {
-                    continue;
-                };
-                if call.name == "edit" {
-                    file_ops.edited.insert(path.to_string());
-                }
-            }
+        let Some(input) = call.arguments.get("input").and_then(|p| p.as_str()) else {
+            continue;
+        };
+        // A payload whose headers do not parse edited nothing.
+        if let Ok(paths) = eukhe_docs::section_paths(input) {
+            file_ops.edited.extend(paths);
         }
-        _ => {}
     }
 }
 
@@ -347,7 +332,10 @@ mod tests {
 
     fn assistant_with_tool_call() -> AgentMessage {
         let mut arguments = serde_json::Map::new();
-        arguments.insert("path".to_string(), serde_json::json!("/src/main.rs"));
+        arguments.insert(
+            "input".to_string(),
+            serde_json::json!("[/src/main.rs#1A2B]\nPUT 1.=1:\n+fn main() {}"),
+        );
         AgentMessage::Assistant(eukhe_types::ai::AssistantMessage {
             content: vec![
                 eukhe_types::ai::AssistantContentBlock::Text(eukhe_types::ai::TextContent {
@@ -392,34 +380,12 @@ mod tests {
     }
 
     #[test]
-    fn file_ops_from_kernel_diffs() {
-        let mut ops = FileOperations::default();
-        ops.read.insert("/tmp/other.rs".to_string());
-        let result = AgentMessage::ToolResult(eukhe_types::ai::ToolResultMessage {
-            tool_call_id: "c".to_string(),
-            tool_name: "ipython".to_string(),
-            content: vec![],
-            details: Some(serde_json::json!({
-                "diffs": [{ "path": "/pkg/lib.rs", "oldStr": "a", "newStr": "b" }]
-            })),
-            is_error: false,
-            timestamp: 0,
-            rest: serde_json::Map::default(),
-        });
-        extract_file_ops_from_message(&result, &mut ops);
-        assert!(ops.edited.contains("/pkg/lib.rs"));
-        let (read, modified) = compute_file_lists(&ops);
-        // Read-only list excludes modified files.
-        assert!(read.iter().all(|path| !modified.contains(path)));
-    }
-
-    #[test]
     fn serialization_format() {
         let messages = vec![user("do the thing"), assistant_with_tool_call()];
         let text = serialize_conversation(&messages);
         assert!(text.starts_with("[User]: do the thing"));
         assert!(text.contains("[Assistant]: doing it"));
-        assert!(text.contains("[Assistant tool calls]: #1 edit(path=\"/src/main.rs\")"));
+        assert!(text.contains("[Assistant tool calls]: #1 edit(input="));
     }
 
     fn tool_result(
