@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import lsp
 from .bash import BashHandle, BashResult, bash
 from .factory import (
     FACTORY_HELP,
@@ -781,6 +782,7 @@ __all__ = [
     "jobs",
     "host_request_sync",
     "list_subagents",
+    "lsp",
     "progress_note",
     "rename",
     "rlm",

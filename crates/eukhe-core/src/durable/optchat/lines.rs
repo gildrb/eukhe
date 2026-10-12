@@ -267,6 +267,7 @@ fn report_line(report: &Report, body: &str) -> String {
             format!("job:{job}"),
             format!("settled ({})", status.label()),
         ),
+        Report::LateDiagnostics => ("lsp".to_owned(), "late diagnostics".to_owned()),
     };
     let mut line = format!("[{id}] {headline}");
     if !body.is_empty() {

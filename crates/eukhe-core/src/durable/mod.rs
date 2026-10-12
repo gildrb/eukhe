@@ -20,6 +20,7 @@ mod export;
 mod fork;
 pub mod goals;
 mod import;
+pub mod lsp;
 mod main_conversation;
 pub mod messages;
 mod models;

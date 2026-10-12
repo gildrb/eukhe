@@ -46,6 +46,7 @@ try:
     bash = _eukhe_rlm_module.bash
     jobs = _eukhe_rlm_module.jobs
     from rlm.fs import edit, glob, grep, read, write
+    lsp = _eukhe_rlm_module.lsp
     import rlm.mcp as mcp
 except Exception as _eukhe_rlm_error:
     _EUKHE_RLM_IMPORT_ERROR = str(_eukhe_rlm_error)

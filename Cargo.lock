@@ -499,6 +499,7 @@ dependencies = [
  "eukhe-chord",
  "eukhe-docs",
  "eukhe-durable",
+ "eukhe-lsp",
  "eukhe-models",
  "eukhe-types",
  "fancy-regex",

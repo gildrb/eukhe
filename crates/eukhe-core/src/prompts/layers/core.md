@@ -30,6 +30,17 @@ The harness often sends messages to the agent. These are user messages starting 
 - `glob(path=".", *, hidden=True, gitignore=True, limit=None) -> Paths`
 - `edit(input) -> EditResult`: for loops and codemods; raises `EditRejected`
 - `write(path, content) -> WriteResult`: atomic create or overwrite
+- `lsp`: the project's language servers (local binaries, started on first use); async; `line` is 1-based and `symbol` names a symbol on that line (`name#N` for its Nth match)
+  - `lsp.definition(path, line, symbol) -> list[Location]`
+  - `lsp.type_definition(path, line, symbol) -> list[Location]`
+  - `lsp.implementation(path, line, symbol) -> list[Location]`
+  - `lsp.references(path, line, symbol) -> list[Location]`
+  - `lsp.hover(path, line, symbol) -> str | None`
+  - `lsp.diagnostics(path="*") -> Diagnostics`: one file, synchronized from disk first, or with `"*"` every file the running servers know
+  - `lsp.symbols(path="*", query=None) -> list[Symbol]`: one file's symbols, or workspace symbols matching `query`
+  - `lsp.status() -> list[Server]`: the servers whose root markers match the project, with their state
+  - `lsp.rename(path, line, symbol, new_name, apply=True) -> RenameResult`: writes the edits by default; use it instead of text edits for cross-file renames
+  - `lsp.code_actions(path, line, symbol, apply=None) -> CodeActions`: lists actions; `apply=<index or title substring>` applies one
 - `attach_image(*paths: str) -> str`: loads images directly into context if the agent's model is vision-capable, errors otherwise
 
 ## Subagents

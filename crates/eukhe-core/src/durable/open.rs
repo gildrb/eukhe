@@ -221,6 +221,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             semantic_edges: Arc::clone(&semantic_edges),
         },
     ));
+    super::lsp::install(&deps);
     // Provider admission rides INNERMOST, under the provider runtime: a
     // failover re-dispatch takes a slot of the provider it goes to, and no
     // slot is held while a wrapper waits between attempts.

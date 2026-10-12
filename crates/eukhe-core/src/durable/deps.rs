@@ -210,6 +210,10 @@ pub struct SessionConfig {
     /// (the daemon worker's supervisor link); `None` uses this process's
     /// shared in-process authority ([`crate::admission::local_admission`]).
     pub admission: Option<crate::admission::AdmissionHandle>,
+    /// The LSP authority (the daemon worker's supervisor link, whose
+    /// supervisor hosts the servers every session shares); `None` runs a
+    /// private in-process service.
+    pub lsp: Option<eukhe_lsp::LspHandle>,
     /// The session's admission state (the daemon's roster `admission`);
     /// `None` drops it.
     pub admission_state: Option<super::admission_gate::AdmissionStateSink>,
@@ -270,6 +274,7 @@ impl SessionConfig {
             now: None,
             turn_wait: None,
             admission: None,
+            lsp: None,
             admission_state: None,
             cron: None,
             extra_host_handlers: None,
@@ -427,6 +432,9 @@ pub struct HostDeps {
     pub kernel_python: Option<PathBuf>,
     pub harness: HarnessCell,
     pub host_requests: HostRequestRegistry,
+    /// The session's language servers; file writers report committed writes
+    /// here ([`super::lsp::SessionLsp::committed_write`]).
+    pub lsp: Arc<super::lsp::SessionLsp>,
     services: Mutex<Vec<ServiceStart>>,
     /// The provider runtime (failover, quota park, image routing, request
     /// timing), set when the session's own model collection is wrapped at
@@ -463,6 +471,7 @@ pub(crate) struct ResolvedServices {
 
 impl HostDeps {
     pub(crate) fn new(config: &SessionConfig, services: ResolvedServices) -> Self {
+        let harness = HarnessCell::default();
         Self {
             agent_dir: config.agent_dir.clone(),
             cwd: config.cwd.clone(),
@@ -487,7 +496,12 @@ impl HostDeps {
             job_settled: config.job_settled.clone(),
             prewarm_kernel: config.prewarm_kernel,
             kernel_python: config.kernel_python.clone(),
-            harness: HarnessCell::default(),
+            lsp: Arc::new(super::lsp::SessionLsp::new(
+                config.lsp.clone(),
+                config.cwd.clone(),
+                harness.clone(),
+            )),
+            harness,
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),
             provider_runtime: std::sync::OnceLock::new(),

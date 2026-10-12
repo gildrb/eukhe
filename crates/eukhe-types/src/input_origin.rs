@@ -116,6 +116,9 @@ pub enum Report {
     BashDone { pid: u32, exit_code: i64 },
     /// A detached `ipython` cell settled.
     JobSettled { job: JobId, status: CellStatus },
+    /// Language-server diagnostics of a write arrived after the write
+    /// returned.
+    LateDiagnostics,
 }
 
 impl Report {
@@ -140,6 +143,7 @@ impl Report {
             Self::JobSettled { job, status } => {
                 format!("[job-settled job:{job} status:{}]", status.label())
             }
+            Self::LateDiagnostics => "[late-diagnostics]".to_owned(),
         }
     }
 
