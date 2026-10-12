@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/eukhe-build-info",
     "crates/eukhe-types",
     "crates/eukhe-chord",
     "crates/eukhe-ai",

@@ -53,7 +53,7 @@ enum DaemonProbe {
     /// A supervisor of this build answered.
     Current,
     /// A supervisor whose protocol/schema matches this build but that runs
-    /// another eukhe version.
+    /// another eukhe version, or another build of this version.
     Outdated {
         client: Box<eukhe_tui::daemon_client::DaemonClient>,
         version: String,
@@ -109,8 +109,8 @@ pub async fn ensure_daemon_running(socket_path: &Path, spawn_cwd: &Path) -> Resu
 
 /// [`ensure_daemon_running`] with an explicit supervisor executable (the
 /// product path uses this process's own binary, TS parity). A daemon of
-/// another eukhe version is replaced when idle and kept (reported as
-/// [`DaemonReady::Outdated`]) when busy; an idle daemon with another
+/// another eukhe version or build is replaced when idle and kept (reported
+/// as [`DaemonReady::Outdated`]) when busy; an idle daemon with another
 /// protocol/schema is replaced, a busy one refuses; a foreign holder of the
 /// socket (another protocol name) is stopped when it is this user's
 /// eukhe-family supervisor on this socket.

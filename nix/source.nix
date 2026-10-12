@@ -10,11 +10,15 @@
   uv,
   git,
   src,
+  # The source revision (flake `self.rev`/`self.dirtyRev`), compiled into the
+  # build identity: the flake source carries no .git for the build to ask.
+  commit ? null,
 }:
 rustPlatform.buildRustPackage {
   pname = "eukhe";
   version = (lib.importTOML (src + "/Cargo.toml")).workspace.package.version;
   inherit src;
+  env = lib.optionalAttrs (commit != null) { EUKHE_BUILD_COMMIT = commit; };
 
   # No git dependencies; vendor/crossterm is a path patch inside the source.
   cargoLock.lockFile = src + "/Cargo.lock";

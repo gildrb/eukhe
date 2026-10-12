@@ -426,12 +426,20 @@ const HELLO_TIMEOUT_MS: u64 = 1_500;
 const LIST_TIMEOUT_MS: u64 = 30_000;
 
 /// Reachable daemons are `current` only when the protocol, schema, and app
-/// version all match this build (TS `classifyReachable`).
+/// version all match this build (TS `classifyReachable`), and so does the
+/// build identity: a supervisor of another build of the same version (an
+/// older commit, or a pre-identity build whose `runtime.buildId` is the
+/// bare version) is stale. A hello without `runtime.buildId` has nothing
+/// to compare and is judged by the version alone.
 fn classify_reachable(probe: &ProbeResult) -> DaemonStatus {
     if probe.protocol_name.as_deref() == Some(eukhe_types::daemon::DAEMON_PROTOCOL_NAME)
         && probe.protocol_version == Some(eukhe_types::daemon::DAEMON_PROTOCOL_VERSION)
         && probe.schema_id.as_deref() == Some(eukhe_types::daemon::DAEMON_SCHEMA_ID)
         && probe.version.as_deref() == Some(config::version())
+        && probe
+            .build_id
+            .as_deref()
+            .is_none_or(|build_id| build_id == eukhe_build_info::DAEMON_BUILD_ID)
     {
         DaemonStatus::Current
     } else {
@@ -742,6 +750,42 @@ mod tests {
             .collect();
         assert_eq!(found, vec![(env_socket, true, DaemonStatus::Stale)]);
     }
+
+    /// The regression: a daemon left running by an older build of the same
+    /// version (its `runtime.buildId` the bare version, or another commit)
+    /// read as current, so the client kept using the old engine. Only this
+    /// build's identity, or a hello without one, is current.
+    #[test]
+    fn a_same_version_daemon_of_another_build_is_stale() {
+        let probe = |build_id: Option<String>| ProbeResult {
+            version: Some(config::version().to_string()),
+            protocol_version: Some(eukhe_types::daemon::DAEMON_PROTOCOL_VERSION),
+            protocol_name: Some(eukhe_types::daemon::DAEMON_PROTOCOL_NAME.to_string()),
+            schema_id: Some(eukhe_types::daemon::DAEMON_SCHEMA_ID.to_string()),
+            build_id,
+            reachable: true,
+            ..ProbeResult::default()
+        };
+        let statuses: Vec<DaemonStatus> = [
+            Some(eukhe_build_info::DAEMON_BUILD_ID.to_string()),
+            Some(format!("eukhe-daemon-rs-{}+d1ca7bf22000", config::VERSION)),
+            Some(format!("{}.dirty", eukhe_build_info::DAEMON_BUILD_ID)),
+            None,
+        ]
+        .into_iter()
+        .map(|build_id| classify_reachable(&probe(build_id)))
+        .collect();
+        assert_eq!(
+            statuses,
+            vec![
+                DaemonStatus::Current,
+                DaemonStatus::Stale,
+                DaemonStatus::Stale,
+                DaemonStatus::Current,
+            ]
+        );
+    }
+
     #[test]
     fn quiet_period_completes_after_the_threshold() {
         assert!(evaluate_shutdown_quiet_period(1_500, Some(500)));

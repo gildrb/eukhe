@@ -43,16 +43,19 @@ FILES_API_CEILING = 3000
 # The changes job must select without installing Rust or running Cargo.
 WORKSPACE_DEPS = {
     "eukhe-types": set(),
+    "eukhe-build-info": set(),
     "eukhe-chord": set(),
     "eukhe-ai": {"eukhe-types", "eukhe-chord"},
     "eukhe-durable": {"eukhe-types", "eukhe-chord", "eukhe-ai"},
     "eukhe-models": {"eukhe-types", "eukhe-ai"},
     "eukhe-core": {"eukhe-types", "eukhe-chord", "eukhe-ai", "eukhe-durable",
                    "eukhe-models"},
-    "eukhe-daemon": {"eukhe-core", "eukhe-durable", "eukhe-ai", "eukhe-chord"},
-    "eukhe-tui": {"eukhe-types", "eukhe-core"},
-    "eukhe-cli": {"eukhe-types", "eukhe-chord", "eukhe-ai", "eukhe-durable",
-                  "eukhe-models", "eukhe-core", "eukhe-daemon", "eukhe-tui"},
+    "eukhe-daemon": {"eukhe-build-info", "eukhe-core", "eukhe-durable", "eukhe-ai",
+                     "eukhe-chord"},
+    "eukhe-tui": {"eukhe-types", "eukhe-build-info", "eukhe-core"},
+    "eukhe-cli": {"eukhe-types", "eukhe-build-info", "eukhe-chord", "eukhe-ai",
+                  "eukhe-durable", "eukhe-models", "eukhe-core", "eukhe-daemon",
+                  "eukhe-tui"},
 }
 
 

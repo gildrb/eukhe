@@ -802,12 +802,19 @@ async fn without_capability_upgrade_is_a_no_op() {
 }
 
 /// The launcher's view of a greeting: another eukhe version is outdated
-/// (from `appVersion`, else `runtime.buildId`), a hello without either is
-/// not, and another protocol name or a non-JSON first line is a typed
-/// foreign holder — never a plain connect failure the launcher would read
-/// as "nothing listening".
+/// (from `appVersion`, else `runtime.buildId`), and so is another build of
+/// this version (the regression: a daemon of an older commit, or a
+/// pre-identity build reporting the bare version, read as current); a hello
+/// without either is not, and another protocol name or a non-JSON first
+/// line is a typed foreign holder — never a plain connect failure the
+/// launcher would read as "nothing listening".
 #[tokio::test]
 async fn greetings_classify_outdated_and_foreign_daemons() {
+    let pre_identity_build_id = format!("eukhe-daemon-rs-{CLIENT_APP_VERSION}");
+    // A build compiled without a known commit reports the bare version
+    // itself: then the pre-identity daemon is indistinguishable from it.
+    let pre_identity_outcome = (pre_identity_build_id != eukhe_build_info::DAEMON_BUILD_ID)
+        .then(|| format!("{CLIENT_APP_VERSION} (another build)"));
     let hello = |extra: Value| {
         let mut hello = json!({
             "type": "daemon_hello",
@@ -822,6 +829,18 @@ async fn greetings_classify_outdated_and_foreign_daemons() {
         hello(json!({ "appVersion": CLIENT_APP_VERSION })),
         hello(json!({ "appVersion": "0.0.1-old" })),
         hello(json!({ "runtime": { "buildId": "eukhe-daemon-rs-0.0.1-old" } })),
+        hello(json!({
+            "appVersion": CLIENT_APP_VERSION,
+            "runtime": { "buildId": eukhe_build_info::DAEMON_BUILD_ID },
+        })),
+        hello(json!({
+            "appVersion": CLIENT_APP_VERSION,
+            "runtime": { "buildId": format!("eukhe-daemon-rs-{CLIENT_APP_VERSION}+d1ca7bf22000") },
+        })),
+        hello(json!({
+            "appVersion": CLIENT_APP_VERSION,
+            "runtime": { "buildId": pre_identity_build_id },
+        })),
         hello(json!({})),
         json!({
             "type": "daemon_hello",
@@ -869,6 +888,9 @@ async fn greetings_classify_outdated_and_foreign_daemons() {
             Ok(None),
             Ok(Some("0.0.1-old".to_string())),
             Ok(Some("0.0.1-old".to_string())),
+            Ok(None),
+            Ok(Some(format!("{CLIENT_APP_VERSION}+d1ca7bf22000"))),
+            Ok(pre_identity_outcome),
             Ok(None),
             Err((
                 true,

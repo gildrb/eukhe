@@ -409,6 +409,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "eukhe-build-info"
+version = "0.9.9-eukhe.1"
+
+[[package]]
 name = "eukhe-chord"
 version = "0.9.9-eukhe.1"
 dependencies = [
@@ -431,6 +435,7 @@ dependencies = [
  "base64",
  "crossterm",
  "eukhe-ai",
+ "eukhe-build-info",
  "eukhe-chord",
  "eukhe-core",
  "eukhe-daemon",
@@ -494,6 +499,7 @@ version = "0.9.9-eukhe.1"
 dependencies = [
  "anyhow",
  "eukhe-ai",
+ "eukhe-build-info",
  "eukhe-chord",
  "eukhe-core",
  "eukhe-durable",
@@ -557,6 +563,7 @@ dependencies = [
  "base64",
  "clap",
  "crossterm",
+ "eukhe-build-info",
  "eukhe-types",
  "fancy-regex",
  "ignore",

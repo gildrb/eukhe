@@ -24,7 +24,10 @@
         pkgs:
         let
           system = pkgs.stdenv.hostPlatform.system;
-          eukhe-from-source = pkgs.callPackage ./nix/source.nix { src = self; };
+          eukhe-from-source = pkgs.callPackage ./nix/source.nix {
+            src = self;
+            commit = self.rev or self.dirtyRev or null;
+          };
           eukhe-prebuilt = pkgs.callPackage ./nix/package.nix { inherit release; };
         in
         {

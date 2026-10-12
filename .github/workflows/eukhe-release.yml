@@ -140,6 +140,10 @@ jobs:
         if: github.ref_type == 'branch'
         run: python3 scripts/release/stamp_version.py "${VERSION}"
       - name: Build (release, locked)
+        # The build identity names the tagged commit: the version stamp
+        # above leaves the tree modified, which git would report as dirty.
+        env:
+          EUKHE_BUILD_COMMIT: ${{ github.sha }}
         run: cargo build --release --locked --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: Split the shipped binary and its debug decoder
         run: |
@@ -228,6 +232,9 @@ jobs:
         if: github.ref_type == 'branch'
         run: python3 scripts/release/stamp_version.py "${VERSION}"
       - name: Build (release, locked)
+        # The build identity names the tagged commit (see the Linux job).
+        env:
+          EUKHE_BUILD_COMMIT: ${{ github.sha }}
         run: cargo build --release --locked --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: "Livecheck: --version prints the tag version"
         run: |

@@ -1,0 +1,10 @@
+[package]
+name = "eukhe-build-info"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "This build's identity: the product version and the source commit it was compiled from."
+
+[lints]
+workspace = true

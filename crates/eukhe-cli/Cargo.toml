@@ -8,6 +8,7 @@ description = "The eukhe binary."
 
 [dependencies]
 eukhe-types = { path = "../eukhe-types" }
+eukhe-build-info = { path = "../eukhe-build-info" }
 eukhe-core = { path = "../eukhe-core" }
 eukhe-models = { path = "../eukhe-models" }
 eukhe-daemon = { path = "../eukhe-daemon" }

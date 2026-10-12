@@ -59,12 +59,10 @@ const CONNECT_RETRY_BACKOFF_MS: u64 = 1_000;
 /// The product version this client build expects its daemon to run: the
 /// workspace version the supervisor reports as its hello `appVersion`.
 const CLIENT_APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-/// The supervisor's `runtime.buildId` prefix; the product version follows.
-const DAEMON_BUILD_ID_PREFIX: &str = "eukhe-daemon-rs-";
 
 /// The one-line notice a client shows when it keeps using a daemon that
-/// runs another eukhe version (the daemon had active work, so the launcher
-/// did not replace it).
+/// runs another eukhe version or build (the daemon had active work, so the
+/// launcher did not replace it).
 #[must_use]
 pub fn outdated_daemon_notice(daemon_version: &str) -> String {
     format!(
@@ -556,26 +554,35 @@ impl DaemonClient {
         &self.hello
     }
 
-    /// The product version the daemon runs when it is not this client's
-    /// build: the hello `appVersion`, else the version inside
-    /// `runtime.buildId`. `None` when it matches, or when the daemon reports
-    /// neither (nothing to compare).
+    /// The daemon's build when it is not this client's, as the outdated
+    /// notice names it: the hello `appVersion` when it differs from this
+    /// client's version, else the build inside `runtime.buildId` when that
+    /// is not this build's identity (a same-version daemon of an older
+    /// build; the bare version marks a pre-identity build). `None` when the
+    /// build matches, or when the daemon reports no `runtime.buildId` and
+    /// no other `appVersion` (nothing to compare).
     #[must_use]
     pub fn outdated_daemon_version(&self) -> Option<String> {
         let app_version = self.hello.get("appVersion").and_then(Value::as_str);
+        if let Some(version) = app_version.filter(|version| *version != CLIENT_APP_VERSION) {
+            return Some(version.to_string());
+        }
         let build_id = self
             .hello
             .get("runtime")
             .and_then(|runtime| runtime.get("buildId"))
-            .and_then(Value::as_str);
-        let version = match (app_version, build_id) {
-            (Some(version), _) => version,
-            (None, Some(build_id)) => build_id
-                .strip_prefix(DAEMON_BUILD_ID_PREFIX)
-                .unwrap_or(build_id),
-            (None, None) => return None,
-        };
-        (version != CLIENT_APP_VERSION).then(|| version.to_string())
+            .and_then(Value::as_str)?;
+        if build_id == eukhe_build_info::DAEMON_BUILD_ID {
+            return None;
+        }
+        let build = build_id
+            .strip_prefix(eukhe_build_info::DAEMON_BUILD_ID_PREFIX)
+            .unwrap_or(build_id);
+        Some(if build == CLIENT_APP_VERSION {
+            format!("{build} (another build)")
+        } else {
+            build.to_string()
+        })
     }
 
     /// Send one command envelope and wait for the matching response, using
