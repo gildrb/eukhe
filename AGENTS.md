@@ -74,8 +74,9 @@ background bookkeeping.
 
 - eukhe is fully local. The only outbound traffic is the model request to the
   provider the user configured and that provider's own auth (explicit login,
-  cloud credential metadata), plus MCP servers the user configured. No
-  telemetry, no catalog fetches, no uploads.
+  cloud credential metadata), plus MCP servers the user configured, plus the
+  Signal service, only while the user runs `eukhe gateway` (through the
+  signal-cli the user installed). No telemetry, no catalog fetches, no uploads.
 - Startup work never delays the first paint; slow bookkeeping runs on a
   background worker. Changes to the launch path keep the first frame unblocked.
 
@@ -103,7 +104,8 @@ background bookkeeping.
 |`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`|
 |`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`|
 |`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-build-info`|
-|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`|
+|`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-tui`|
+|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`, `eukhe-gateway`|
 
 - Dependencies point from higher crates to lower crates only. No cycles.
 - `eukhe-tui` renders from wire types and events; it does not link the session engine.

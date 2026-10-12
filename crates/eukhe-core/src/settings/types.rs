@@ -233,6 +233,30 @@ pub struct FactorySettings {
     pub enabled: Option<bool>,
 }
 
+/// `gateway`: the chat gateways `eukhe gateway` runs. Global-only: a
+/// gateway routes a remote party into code execution on this machine, so
+/// no project scope may set it (see `settings::trust`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewaySettings {
+    pub signal: Option<SignalGatewaySettings>,
+}
+
+/// `gateway.signal`: the Signal gateway (a `signal-cli` child).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignalGatewaySettings {
+    /// The `signal-cli` account (`+<country><number>`). Required.
+    pub account: Option<String>,
+    /// Senders (numbers or ACIs) besides Note to Self that may drive the
+    /// session. Absent means none.
+    pub allow: Option<Vec<String>>,
+    /// The `signal-cli` executable. Absent means `signal-cli` on `PATH`.
+    pub cli_path: Option<String>,
+    /// The working directory of new sessions. Absent means `$HOME`.
+    pub cwd: Option<String>,
+}
+
 /// User-declared MCP server (settings `mcpServers` entry).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -374,6 +398,9 @@ pub struct Settings {
     /// load project Python skills. A project-scope value is never read
     /// (see `settings::trust`).
     pub trusted_projects: Option<Vec<String>>,
+    /// Global-only: the chat gateways (`eukhe gateway`). A project-scope
+    /// value is never read (see `settings::trust`).
+    pub gateway: Option<GatewaySettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

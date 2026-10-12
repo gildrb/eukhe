@@ -308,6 +308,17 @@ The compactor then summarizes them like any other messages.",
     )
     .examples(&["chat import sessions ~/.eukhe/sessions"]),
     CommandSpec::new(
+        &["gateway"],
+        "gateway [--daemon-socket <path>]",
+        "Chat with the current session from Signal",
+    )
+    .description(
+        "Runs signal-cli and relays Signal messages into the newest session (the one the CLI \
+uses), then sends the replies back. Set gateway.signal.account in the global settings first. \
+Runs until Ctrl+C. See docs/gateway.md.",
+    )
+    .options(&["--daemon-socket <path>  Use a specific daemon socket"]),
+    CommandSpec::new(
         &["prompt"],
         "prompt [--model <selector>] [--cwd <dir>] [--json]",
         "Print the assembled system prompt with its layer breakdown",

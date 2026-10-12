@@ -37,6 +37,7 @@ pub(crate) mod daemon_mode;
 pub(crate) mod daemon_session_list;
 pub(crate) mod factory_command;
 pub(crate) mod file_processor;
+pub(crate) mod gateway_command;
 pub(crate) mod global_flags;
 pub(crate) mod headless_autonomous;
 pub(crate) mod headless_session;

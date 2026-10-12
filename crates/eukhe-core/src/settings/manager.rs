@@ -759,6 +759,17 @@ impl SettingsManager {
         self.global.rlm_max_depth
     }
 
+    /// `gateway.signal`: the Signal gateway settings. Global settings
+    /// only: a gateway routes a remote party into code execution on this
+    /// machine, so no project may set it.
+    #[must_use]
+    pub fn get_signal_gateway(&self) -> Option<&crate::settings::types::SignalGatewaySettings> {
+        self.global
+            .gateway
+            .as_ref()
+            .and_then(|gateway| gateway.signal.as_ref())
+    }
+
     /// `subagentMaxConcurrency`: how many subagents may run at once
     /// (default 32; `0` is unlimited).
     #[must_use]

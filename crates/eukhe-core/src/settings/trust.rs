@@ -2,8 +2,8 @@
 //! whatever repository the user opened, so the keys that can run code,
 //! redirect credentials or data, or move where code and kernel state load
 //! from apply only when the global `trustedProjects` list covers the
-//! project directory. `trustedProjects` itself is read from the global
-//! scope only.
+//! project directory. `trustedProjects` and `gateway` are read from the
+//! global scope only.
 
 use std::path::{Path, PathBuf};
 
@@ -49,7 +49,8 @@ impl ProjectTrust {
         );
         match self.level {
             TrustLevel::Trusted => Some(format!(
-                "Project settings key trustedProjects is ignored: only {global} can trust projects."
+                "Project settings {} ignored: only {global} can set them.",
+                self.ignored_keys.join(", ")
             )),
             TrustLevel::Untrusted => {
                 let mut withheld = Vec::new();
@@ -145,16 +146,19 @@ pub(super) fn apply_project_trust(
 
 /// The project scope that applies at a trust level, plus the present keys
 /// it did not apply. A trusted project keeps everything except the
-/// global-only `trustedProjects`.
+/// global-only `trustedProjects` and `gateway`.
 pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Settings, Vec<String>) {
     match level {
         TrustLevel::Trusted => {
             let mut project = document.clone();
-            let ignored = project
-                .trusted_projects
-                .take()
-                .map(|_| vec!["trustedProjects".to_string()])
-                .unwrap_or_default();
+            let ignored = [
+                ("trustedProjects", project.trusted_projects.take().is_some()),
+                ("gateway", project.gateway.take().is_some()),
+            ]
+            .into_iter()
+            .filter(|(_, present)| *present)
+            .map(|(key, _)| key.to_string())
+            .collect();
             (project, ignored)
         }
         TrustLevel::Untrusted => untrusted_project_scope(document.clone()),
@@ -168,9 +172,8 @@ pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Sett
 /// or spawns code (packages, MCP servers and catalogs, skill paths);
 /// moves where sessions and kernel snapshots live; toggles execution
 /// gates (factory, the model allowlist); hides startup output (and so
-/// this warning); the
-/// global-only `trustedProjects`; and unknown keys. Everything else is a
-/// UI, model, or limit preference.
+/// this warning); the global-only `trustedProjects` and `gateway`; and
+/// unknown keys. Everything else is a UI, model, or limit preference.
 fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
     let Settings {
         onboarding_shown,
@@ -229,6 +232,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         session_dir,
         request_timing,
         trusted_projects,
+        gateway,
         extra,
     } = document;
     let withheld = [
@@ -244,6 +248,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         ("allowedModels", allowed_models.is_some()),
         ("sessionDir", session_dir.is_some()),
         ("trustedProjects", trusted_projects.is_some()),
+        ("gateway", gateway.is_some()),
     ];
     let ignored_keys = withheld
         .into_iter()
@@ -308,6 +313,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         session_dir: None,
         request_timing,
         trusted_projects: None,
+        gateway: None,
         extra: serde_json::Map::new(),
     };
     (kept, ignored_keys)

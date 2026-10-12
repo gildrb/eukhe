@@ -1,0 +1,67 @@
+//! Signal gateway: one `signal-cli` child carries chat messages between a
+//! phone and the eukhe daemon. The phone shares the CLI's session.
+
+mod gateway;
+mod link;
+mod sessions;
+mod setup;
+mod signal;
+mod style;
+
+use std::future::Future;
+use std::path::PathBuf;
+
+pub use setup::{link_device, linked_accounts, restart_service, service_installed};
+
+/// Gateway configuration, built by the composition root (`eukhe gateway`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GatewayConfig {
+    /// The daemon supervisor socket.
+    pub socket_path: PathBuf,
+    /// The sessions directory the CLI uses: the gateway lists and opens
+    /// sessions there.
+    pub session_dir: PathBuf,
+    /// The working directory of sessions that `/new` creates (and of the
+    /// first session when none exists).
+    pub new_session_cwd: PathBuf,
+    pub signal: SignalConfig,
+}
+
+/// The `signal-cli` account the gateway runs as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignalConfig {
+    /// The `signal-cli` executable.
+    pub cli_path: PathBuf,
+    /// The account (`+<country><number>`, or the ACI of a numberless account).
+    pub account: String,
+    /// Senders (numbers or ACIs) that may drive the session. "Note to Self"
+    /// messages of `account` are always accepted.
+    pub allow: Vec<String>,
+}
+
+/// Starts the eukhe daemon on the gateway's socket when no daemon of this
+/// build listens there. The composition root implements it with the CLI's
+/// launcher (this crate does not link the CLI). `ensure` returns once a
+/// daemon accepts connections on the socket and fails when none can start.
+/// The gateway calls it at startup and before every reconnect, so it must
+/// return quickly when a daemon already runs.
+pub trait DaemonLauncher: Send + Sync {
+    fn ensure(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
+}
+
+/// Run the gateway until SIGINT or SIGTERM: relay the allowed Signal
+/// senders' messages into the daemon session the CLI uses, and the agent's
+/// replies back. On a signal it stops the typing indicator and detaches.
+///
+/// # Errors
+///
+/// Returns `Err` when `signal-cli` cannot start, when the first daemon
+/// connection fails, or when the signal handlers cannot install. Later
+/// daemon failures reconnect with backoff instead.
+#[tracing::instrument(skip_all, fields(account = %config.signal.account))]
+pub async fn run(config: GatewayConfig, launcher: impl DaemonLauncher) -> anyhow::Result<()> {
+    gateway::Gateway::start(config, launcher)
+        .await?
+        .serve()
+        .await
+}

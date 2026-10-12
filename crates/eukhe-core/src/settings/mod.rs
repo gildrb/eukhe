@@ -19,6 +19,7 @@ pub use storage::{
 };
 pub use trust::{ProjectTrust, TrustLevel};
 pub use types::{
-    AutoRefineSettings, AutonomousSettings, CompactionSettings, McpServerConfig, MemorySettings,
-    QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting,
+    AutoRefineSettings, AutonomousSettings, CompactionSettings, GatewaySettings, McpServerConfig,
+    MemorySettings, QueueModeSetting, Settings, SignalGatewaySettings, ThinkingLevelSetting,
+    TransportSetting,
 };

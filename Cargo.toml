@@ -10,6 +10,7 @@ members = [
     "crates/eukhe-core",
     "crates/eukhe-daemon",
     "crates/eukhe-tui",
+    "crates/eukhe-gateway",
     "crates/eukhe-cli",
 ]
 
