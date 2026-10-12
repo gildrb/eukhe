@@ -88,17 +88,14 @@ fn detail_cycle_visits_all_three_levels() {
     let mut detail = Detail::Overview;
     assert!(!detail.show_thinking());
     assert!(!detail.tool_output_expanded());
-    assert!(!detail.edit_diffs_expanded());
     detail = detail.next();
     assert_eq!(detail, Detail::Details);
     assert!(detail.show_thinking());
     assert!(!detail.tool_output_expanded());
-    assert!(detail.edit_diffs_expanded());
     detail = detail.next();
     assert_eq!(detail, Detail::All);
     assert!(detail.show_thinking());
     assert!(detail.tool_output_expanded());
-    assert!(detail.edit_diffs_expanded());
     detail = detail.next();
     assert_eq!(detail, Detail::Overview);
 }

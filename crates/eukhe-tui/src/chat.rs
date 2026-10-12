@@ -48,12 +48,6 @@ impl Detail {
         matches!(self, Detail::All)
     }
 
-    /// Edit diffs expand (TS `editDiffsExpanded = detail !== "overview"`).
-    #[must_use]
-    pub fn edit_diffs_expanded(self) -> bool {
-        !matches!(self, Detail::Overview)
-    }
-
     /// The stored wire name (TS `ChatDetail`): "overview" | "details" |
     /// "all".
     #[must_use]
