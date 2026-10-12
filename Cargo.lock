@@ -538,6 +538,7 @@ dependencies = [
  "eukhe-chord",
  "eukhe-core",
  "eukhe-durable",
+ "eukhe-lsp",
  "eukhe-types",
  "filetime",
  "futures",

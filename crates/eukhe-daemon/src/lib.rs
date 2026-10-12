@@ -53,6 +53,7 @@ pub mod input_pause_lease;
 pub(crate) mod job_notices;
 pub mod journal;
 pub mod lease;
+pub(crate) mod lsp;
 pub mod mcp_connections;
 pub mod mcp_login;
 pub(crate) mod messaging;

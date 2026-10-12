@@ -812,6 +812,16 @@ impl Supervisor {
                     .await;
                 (vec![response_line(&response)], false)
             }
+            DaemonCommand::Lsp {
+                worker_token,
+                request,
+                ..
+            } => {
+                let response = self
+                    .handle_lsp(&command_id, &type_name, worker_token, request)
+                    .await;
+                (vec![response_line(&response)], false)
+            }
             DaemonCommand::Create { .. } => {
                 let client_id = effective_client_id.lock().unwrap().clone();
                 match self.handle_create(command, client_id).await {

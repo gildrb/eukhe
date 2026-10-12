@@ -53,7 +53,7 @@ WORKSPACE_DEPS = {
     "eukhe-core": {"eukhe-types", "eukhe-chord", "eukhe-ai", "eukhe-durable",
                    "eukhe-models", "eukhe-docs", "eukhe-lsp"},
     "eukhe-daemon": {"eukhe-build-info", "eukhe-core", "eukhe-durable", "eukhe-ai",
-                     "eukhe-chord"},
+                     "eukhe-chord", "eukhe-lsp"},
     "eukhe-tui": {"eukhe-types", "eukhe-build-info", "eukhe-core"},
     "eukhe-gateway": {"eukhe-types", "eukhe-tui"},
     "eukhe-cli": {"eukhe-types", "eukhe-build-info", "eukhe-chord", "eukhe-ai",

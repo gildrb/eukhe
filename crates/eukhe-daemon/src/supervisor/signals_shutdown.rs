@@ -49,6 +49,7 @@ impl Supervisor {
         });
         futures::future::join_all(stops).await;
         self.registry.clear().await;
+        self.lsp.shutdown().await;
         // The workers are all stopped now, so the accept loop may exit;
         // setting the gate alone is not enough — an inbound connection
         // could otherwise fall the loop out mid-stop.

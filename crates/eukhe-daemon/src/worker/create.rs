@@ -482,6 +482,14 @@ impl Worker {
                     self.config.token.clone(),
                 ),
             )));
+            // The supervisor hosts the language servers every session of
+            // the daemon shares.
+            config.lsp = Some(eukhe_lsp::LspHandle::new(Arc::new(
+                crate::lsp::LinkLsp::new(
+                    self.config.supervisor_socket_path.clone(),
+                    self.config.token.clone(),
+                ),
+            )));
         }
         let admission_core = Arc::clone(&self.core);
         let admission_pushes = self.roster_pushes.clone();

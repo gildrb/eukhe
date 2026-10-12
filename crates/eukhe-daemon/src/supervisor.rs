@@ -243,6 +243,9 @@ pub struct Supervisor {
     /// Provider admission for every worker's model requests
     /// (`providerMaxInFlight`; see `provider_admission.rs`).
     pub(crate) provider_admission: crate::provider_admission::SupervisorAdmission,
+    /// The language servers every worker's sessions share (see `lsp/`); no
+    /// server starts until a worker asks.
+    pub(crate) lsp: eukhe_lsp::LspService,
 }
 
 impl Supervisor {
@@ -312,6 +315,7 @@ impl Supervisor {
             compaction_journal: std::sync::Mutex::new(compaction_journal),
             chat_memory: std::sync::Mutex::new(None),
             provider_admission,
+            lsp: eukhe_lsp::LspService::new(eukhe_lsp::ServerTable::builtin()),
         })
     }
 

@@ -263,6 +263,19 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Worker -> supervisor LSP request (Rust-native): the supervisor hosts
+    /// the language servers every session of a project shares and answers
+    /// with the typed [`crate::lsp::LspResponse`] as `data`, or fails with
+    /// the typed [`crate::lsp::LspError`] as `data`. Authenticated by the
+    /// worker token.
+    Lsp {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        worker_token: String,
+        request: crate::lsp::LspRequest,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     RosterUnsubscribe {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
