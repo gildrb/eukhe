@@ -2,13 +2,12 @@
 //! and background output buffers.
 
 use super::{
-    append_truncated, lock, parse_attachment_display, parse_diff_display, parse_sent_agent_message,
-    Arc, Event, ExecBuffers, ExecuteStatus, Guarded, Inner, KernelBashCommands, KernelError,
-    StreamName, Value, AGENT_MESSAGE_DISPLAY_MIME, ATTACHMENT_DISPLAY_MIME,
-    BASH_ACTIVITY_DISPLAY_MIME, BASH_COMMAND_DISPLAY_MIME, DIFF_DISPLAY_MIME,
-    MAX_ATTACHMENT_DATA_CHARS, MAX_BACKGROUND_OUTPUT_CHARS,
+    append_capped, lock, parse_attachment_display, parse_diff_display, parse_sent_agent_message,
+    ActiveExecution, Arc, Event, ExecBuffers, ExecuteStatus, Guarded, Inner, KernelBashCommands,
+    KernelError, OutputSink, StreamName, Value, AGENT_MESSAGE_DISPLAY_MIME,
+    ATTACHMENT_DISPLAY_MIME, BASH_ACTIVITY_DISPLAY_MIME, BASH_COMMAND_DISPLAY_MIME,
+    DIFF_DISPLAY_MIME, MAX_ATTACHMENT_DATA_CHARS, MAX_BACKGROUND_OUTPUT_CHARS,
 };
-use std::fmt::Write as _;
 
 // ---------------------------------------------------------------------------
 // Event dispatch
@@ -163,36 +162,7 @@ impl Inner {
             self.append_background_output(text);
             return;
         };
-        let mut buffers = lock(&execution.buffers);
-        let ExecBuffers {
-            stdout,
-            stdout_chars,
-            stdout_truncated,
-            stderr,
-            stderr_chars,
-            stderr_truncated,
-            ..
-        } = &mut *buffers;
-        match stream {
-            StreamName::Stdout => append_truncated(
-                stdout,
-                stdout_truncated,
-                stdout_chars,
-                text,
-                execution.max_chars,
-            ),
-            StreamName::Stderr => append_truncated(
-                stderr,
-                stderr_truncated,
-                stderr_chars,
-                text,
-                execution.max_chars,
-            ),
-        }
-        drop(buffers);
-        if let Some(on_stream) = &execution.opts.on_stream {
-            on_stream(text, stream);
-        }
+        execution.emit(stream, text);
     }
 
     /// display events: diffs, attachments, sent agent messages, late or live.
@@ -225,15 +195,15 @@ impl Inner {
         {
             Some(Err(_)) => {
                 buffers.attachment_oversized = true;
-                if !buffers.stderr.is_empty() {
-                    buffers.stderr.push('\n');
-                }
-                let _ = write!(
-                    buffers.stderr,
-                    "attachment dropped: exceeds {MAX_ATTACHMENT_DATA_CHARS} base64 chars"
-                );
-                buffers.stderr_chars = buffers.stderr.chars().count();
                 buffers.status = ExecuteStatus::Error;
+                drop(buffers);
+                execution.emit(
+                    StreamName::Stderr,
+                    &format!(
+                        "attachment dropped: exceeds {MAX_ATTACHMENT_DATA_CHARS} base64 chars\n"
+                    ),
+                );
+                buffers = lock(&execution.buffers);
             }
             Some(Ok(attachment)) => buffers.attachments.push(attachment),
             None => {}
@@ -274,19 +244,15 @@ impl Inner {
         let execution = lock(&self.guarded).active_execution.clone();
         if let Some(execution) = execution {
             let mut buffers = lock(&execution.buffers);
-            if buffers.background_output_chars >= MAX_BACKGROUND_OUTPUT_CHARS {
-                buffers.background_output_truncated = true;
-                return;
-            }
             let ExecBuffers {
                 background_output,
-                background_output_truncated,
+                background_output_dropped,
                 background_output_chars,
                 ..
             } = &mut *buffers;
-            append_truncated(
+            append_capped(
                 background_output,
-                background_output_truncated,
+                background_output_dropped,
                 background_output_chars,
                 text,
                 MAX_BACKGROUND_OUTPUT_CHARS,
@@ -294,23 +260,35 @@ impl Inner {
             return;
         }
         let mut g = lock(&self.guarded);
-        if g.pending_background_output_chars >= MAX_BACKGROUND_OUTPUT_CHARS {
-            g.pending_background_output_truncated = true;
-            return;
-        }
         let Guarded {
             pending_background_output,
-            pending_background_output_truncated,
+            pending_background_output_dropped,
             pending_background_output_chars,
             ..
         } = &mut *g;
-        append_truncated(
+        append_capped(
             pending_background_output,
-            pending_background_output_truncated,
+            pending_background_output_dropped,
             pending_background_output_chars,
             text,
             MAX_BACKGROUND_OUTPUT_CHARS,
         );
+    }
+}
+
+impl ActiveExecution {
+    /// One stdout/stderr chunk of this request, into its sink.
+    fn emit(&self, stream: StreamName, text: &str) {
+        match &self.opts.output {
+            OutputSink::Retain => {
+                let mut buffers = lock(&self.buffers);
+                match stream {
+                    StreamName::Stdout => buffers.stdout.push_str(text),
+                    StreamName::Stderr => buffers.stderr.push_str(text),
+                }
+            }
+            OutputSink::Forward(on_stream) => on_stream(text, stream),
+        }
     }
 }
 
@@ -336,7 +314,7 @@ mod tests {
         let pending = lock(&manager.inner.guarded);
         assert_eq!(pending.pending_background_output, "new🍁");
         assert_eq!(pending.pending_background_output_chars, 4);
-        assert!(!pending.pending_background_output_truncated);
+        assert_eq!(pending.pending_background_output_dropped, 0);
     }
 
     /// Deliver one bash-activity display event into the manager (the

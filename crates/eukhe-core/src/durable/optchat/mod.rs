@@ -8,7 +8,6 @@
 //!   view (`eukhe.optchat.call`) with the call's leading user texts as ONE
 //!   user message, then the rest of the call; what came before the call is
 //!   in the chat log and dropped ([`request`]).
-//! - `pi.tool` `after_tool`: tool results capped at [`crate::memory::CAP`].
 //! - The post-commit logger (root sessions): appends finished entries to
 //!   the chat log with idempotent keys and a durable cursor
 //!   (`eukhe.optchat.logged`), and gives the root-turn lease back when the
@@ -28,7 +27,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_durable::harness::define::{define_extension, hook};
 use eukhe_durable::harness::types::{Extension, GenerationHooks};
-use eukhe_durable::harness::{GENERATION_TASK, TOOL_TASK};
+use eukhe_durable::harness::GENERATION_TASK;
 use eukhe_durable::session::{SessionError, SessionResult};
 use futures::FutureExt;
 
@@ -112,10 +111,7 @@ impl OptChat {
         };
         define_extension(Extension {
             tools: tools::memory_tools(&self.memory),
-            hooks: vec![
-                hook(&*GENERATION_TASK, generation),
-                hook(&*TOOL_TASK, tools::cap_hooks()),
-            ],
+            hooks: vec![hook(&*GENERATION_TASK, generation)],
             ..Extension::named(EXTENSION_NAME)
         })
     }

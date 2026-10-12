@@ -531,11 +531,15 @@ async fn diffs_details_leaf_by_leaf_and_appends_diagnostics() {
         [json(r#"["d",["tools",0,"details","log"]]"#)]
     );
     let first = ToolDiagnostic {
+        omitted: None,
+        artifact: None,
         severity: ToolDiagnosticSeverity::Info,
         code: None,
         message: "first".to_owned(),
     };
     let next = ToolDiagnostic {
+        omitted: None,
+        artifact: None,
         severity: ToolDiagnosticSeverity::Warn,
         code: None,
         message: "second".to_owned(),

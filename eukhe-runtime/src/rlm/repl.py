@@ -44,11 +44,11 @@ DEFAULT_SNAPSHOT_MAX_VARIABLE_BYTES = 16 * 1024 * 1024
 _SNAPSHOT_MAGIC = b"EUKHE-KERNEL-SNAPSHOT-V2\n"
 
 # Stream writes must fit one protocol frame: the host buffers whole lines
-# before its per-execution truncation, and raw fd writes already arrive as
-# 64 KiB pump chunks.
+# before it reads them, and raw fd writes already arrive as 64 KiB pump
+# chunks.
 _STREAM_FRAME_TEXT_CAP = 64 * 1024
-# The host truncates results at a smaller per-execution maxChars, so this only
-# bounds a pathological repr or exception text in transit.
+# The host bounds the model's view of a cell once; this only keeps a
+# pathological repr or exception text within one protocol frame in transit.
 _RESULT_TEXT_CAP = 1_048_576
 _RESULT_TRUNCATION_MARKER = f"\n[... result truncated at {_RESULT_TEXT_CAP} characters ...]"
 # Oversized display and host_request payloads fail the cell instead of wedging host memory.

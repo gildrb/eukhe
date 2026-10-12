@@ -249,9 +249,8 @@ async fn background_thread_output_is_separated_from_cell_output() {
     assert!(
         second
             .background_output
-            .as_deref()
-            .unwrap_or_default()
-            .contains("late from thread"),
+            .as_ref()
+            .is_some_and(|background| background.text.contains("late from thread")),
         "late thread output surfaces as background output, got {:?}",
         second.background_output
     );
@@ -605,4 +604,102 @@ async fn graceful_shutdown_flushes_the_final_snapshot() {
         .shutdown(KernelShutdownOptions::default())
         .await
         .expect("shutdown");
+}
+
+/// Run `code` and abort it once it has started (its first stdout chunk),
+/// returning the settled result, its forwarded stdout, and how long the
+/// abort took to settle it.
+async fn execute_then_abort(
+    manager: &ReplKernelManager,
+    code: &str,
+) -> (eukhe_core::kernel::shared::ExecuteResult, String, Duration) {
+    let signal = eukhe_core::kernel::cancellation::AbortSignal::new();
+    let started = std::sync::Arc::new(tokio::sync::Notify::new());
+    let stdout = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let on_stream: eukhe_core::kernel::shared::StreamCallback = {
+        let started = std::sync::Arc::clone(&started);
+        let stdout = std::sync::Arc::clone(&stdout);
+        std::sync::Arc::new(move |chunk: &str, _stream| {
+            stdout.lock().expect("stdout lock").push_str(chunk);
+            started.notify_one();
+        })
+    };
+    let run = manager.execute(
+        code,
+        ExecuteOptions {
+            signal: Some(signal.clone()),
+            output: eukhe_core::kernel::shared::OutputSink::Forward(on_stream),
+            ..ExecuteOptions::default()
+        },
+    );
+    tokio::pin!(run);
+    let aborted_at = tokio::select! {
+        result = &mut run => panic!("the cell settled before its abort: {:?}", result.map(|r| r.status)),
+        () = started.notified() => {
+            signal.abort();
+            std::time::Instant::now()
+        }
+    };
+    let result = tokio::time::timeout(Duration::from_secs(10), run)
+        .await
+        .expect("an aborted cell settles within the grace")
+        .expect("an aborted cell settles with a result");
+    let stdout = stdout.lock().expect("stdout lock").clone();
+    (result, stdout, aborted_at.elapsed())
+}
+
+/// An abort stops a running cell whatever it does, and the next cell runs at
+/// once: a cell that honors the interrupt settles aborted on a live kernel; a
+/// cell that ignores it past the grace settles killed with the output so
+/// far, the kernel's process group dies, and a fresh manager revives the
+/// last snapshot. No wait for a busy kernel remains.
+#[tokio::test]
+async fn abort_stops_any_cell_and_the_next_cell_runs_at_once() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let Some(options) = test_options(Some(dir.path())) else {
+        return;
+    };
+    let manager = started_manager(options.clone()).await;
+    for code in [
+        "print('spin', flush=True)\nwhile True:\n    pass",
+        "import time\nprint('sleep', flush=True)\ntime.sleep(60)",
+    ] {
+        let (result, _, _) = execute_then_abort(&manager, code).await;
+        assert_eq!(result.status, ExecuteStatus::Aborted, "{code}");
+        let next = execute(&manager, "print('next')").await;
+        assert_eq!(next.stdout, "next\n");
+    }
+
+    let ok = execute(&manager, "kept = 41").await;
+    assert_eq!(ok.status, ExecuteStatus::Ok);
+    assert!(
+        manager.snapshot_state().await.is_some(),
+        "the snapshot the next kernel revives"
+    );
+    // Ignores the interrupt and starts a subprocess in the kernel's group.
+    // It prints only inside the `try`, so the abort cannot land before it.
+    let stubborn = "import subprocess, time\nchild = subprocess.Popen(['sleep', '60'])\nwhile True:\n    try:\n        print(child.pid, flush=True)\n        time.sleep(60)\n    except BaseException:\n        pass";
+    let (killed, stdout, took) = execute_then_abort(&manager, stubborn).await;
+    assert_eq!(killed.status, ExecuteStatus::Killed);
+    assert!(took < Duration::from_secs(5), "settled after {took:?}");
+    assert!(manager.is_defunct(), "the kernel was killed");
+    let child: u32 = stdout
+        .lines()
+        .next()
+        .and_then(|line| line.parse().ok())
+        .expect("child pid printed");
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        eukhe_core::platform::process::wait_for_exit(child),
+    )
+    .await
+    .expect("the cell's subprocess dies with the group")
+    .expect("exit watch");
+
+    let revived = started_manager(options).await;
+    let restore = revived.restore_state().await.expect("snapshot restore");
+    assert!(restore.restored.contains(&"kept".to_string()));
+    let next = execute(&revived, "print(kept + 1)").await;
+    assert_eq!(next.stdout, "42\n");
+    revived.kill();
 }

@@ -250,6 +250,8 @@ async fn run_command(
     };
     if let Some(spill_path) = &spill_path {
         api.diagnostic(ToolDiagnostic {
+            omitted: None,
+            artifact: None,
             severity: ToolDiagnosticSeverity::Info,
             code: Some("full_output".to_owned()),
             message: format!("Full output: {spill_path}"),
@@ -290,6 +292,8 @@ async fn run_command(
         structured_output: Some(structured_output),
         is_error: Some(true),
         diagnostics: Some(vec![ToolDiagnostic {
+            omitted: None,
+            artifact: None,
             severity: ToolDiagnosticSeverity::Error,
             code: Some("exit_code".to_owned()),
             message: format!("Command exited with code {exit_code}"),

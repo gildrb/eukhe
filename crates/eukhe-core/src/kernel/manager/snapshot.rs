@@ -121,7 +121,10 @@ impl Inner {
             Ok(r) => {
                 self.append_diagnostic(&format!(
                     "state snapshot {}: {}",
-                    if r.result.status == ExecuteStatus::Aborted {
+                    if matches!(
+                        r.result.status,
+                        ExecuteStatus::Aborted | ExecuteStatus::Killed
+                    ) {
                         "timed out"
                     } else {
                         "failed"
@@ -337,7 +340,10 @@ impl Inner {
             Ok(r) => {
                 self.append_diagnostic(&format!(
                     "state restore {}: {}",
-                    if r.result.status == ExecuteStatus::Aborted {
+                    if matches!(
+                        r.result.status,
+                        ExecuteStatus::Aborted | ExecuteStatus::Killed
+                    ) {
                         "timed out"
                     } else {
                         "failed"

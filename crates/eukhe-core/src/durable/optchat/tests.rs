@@ -808,41 +808,6 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
     );
 }
 
-#[test]
-fn tool_results_over_the_cap_keep_head_and_tail_and_images() {
-    let image = UserContentBlock::Image(ImageContent {
-        data: "AA==".to_string(),
-        mime_type: "image/png".to_string(),
-    });
-    let long = "x".repeat(CAP + 10);
-    let result = ToolExecutionResult {
-        output: Some(vec![
-            UserContentBlock::Text(TextContent::new(long.as_str())),
-            image.clone(),
-        ]),
-        is_error: Some(true),
-        ..ToolExecutionResult::default()
-    };
-    let short = ToolExecutionResult {
-        output: Some(vec![UserContentBlock::Text(TextContent::new("short"))]),
-        ..ToolExecutionResult::default()
-    };
-    assert_eq!(
-        (super::tools::capped(&result), super::tools::capped(&short)),
-        (
-            Some(ToolExecutionResult {
-                output: Some(vec![
-                    UserContentBlock::Text(TextContent::new(crate::memory::cap_text(&long))),
-                    image,
-                ]),
-                is_error: Some(true),
-                ..ToolExecutionResult::default()
-            }),
-            None
-        )
-    );
-}
-
 /// A `pi.user` entry of `text` placed by an input of `origin`, as the
 /// boundary commits it.
 fn user_entry(text: &str, origin: InputOrigin) -> eukhe_durable::types::EntryRecord {

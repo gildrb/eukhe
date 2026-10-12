@@ -21,3 +21,6 @@ pub mod tools;
 )]
 mod truncate;
 pub mod types;
+
+/// The default bound of a tool result: its line and byte limits.
+pub use truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};

@@ -45,15 +45,6 @@ impl ReplKernelManager {
         self.inner.perform_restore(protocol_repair).await
     }
 
-    pub(crate) async fn wait_for_active_execution_to_clear_for_reuse(
-        &self,
-        signal: Option<&AbortSignal>,
-    ) -> anyhow::Result<()> {
-        self.inner
-            .wait_for_active_execution_to_clear_for_reuse(signal)
-            .await
-    }
-
     pub(crate) async fn ensure_kernel_rebootstrapped(
         &self,
         signal: Option<&AbortSignal>,

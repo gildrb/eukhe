@@ -10,6 +10,7 @@
 
 mod activity;
 mod boundary;
+mod cell_output;
 pub mod factory;
 mod host;
 mod kernels;

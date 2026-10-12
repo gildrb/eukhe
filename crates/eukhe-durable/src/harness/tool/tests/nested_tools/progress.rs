@@ -337,6 +337,8 @@ fn quiet(
 
 fn note() -> ToolDiagnostic {
     ToolDiagnostic {
+        omitted: None,
+        artifact: None,
         severity: ToolDiagnosticSeverity::Info,
         code: None,
         message: "note".to_owned(),
@@ -686,6 +688,8 @@ async fn shows_a_finished_nested_call_as_a_done_slot_with_its_summary_until_its_
                 output: Some(vec![text_item("ignored")]),
                 is_error: Some(true),
                 diagnostics: Some(vec![ToolDiagnostic {
+                    omitted: None,
+                    artifact: None,
                     severity: ToolDiagnosticSeverity::Error,
                     code: None,
                     message: "e".repeat(600),

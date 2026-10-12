@@ -1,6 +1,8 @@
 //! Result building of the tool task: Harness error results, truncation
 //! diagnostics, bounded content, and the `pi.tool-result` entry.
 
+use std::fmt::Write as _;
+
 use eukhe_chord::json::from_json;
 use eukhe_types::pi_ai::{
     JsonValue as PiJsonValue, Message, TextContent, ToolCall, ToolResultMessage, UserContentBlock,
@@ -29,6 +31,8 @@ pub(super) enum ToolEnding {
 /// An error diagnostic with `code`.
 pub(super) fn tool_diagnostic(code: &str, message: &str) -> ToolDiagnostic {
     ToolDiagnostic {
+        omitted: None,
+        artifact: None,
         severity: ToolDiagnosticSeverity::Error,
         code: Some(code.to_owned()),
         message: message.to_owned(),
@@ -60,6 +64,8 @@ pub(super) fn truncated(
         Some(OutputRetain::Tail) => " to its end",
     };
     ToolDiagnostic {
+        omitted: None,
+        artifact: None,
         severity: ToolDiagnosticSeverity::Warn,
         code: Some("truncated".to_owned()),
         message: format!(
@@ -109,11 +115,22 @@ fn render_diagnostics(diagnostics: &[ToolDiagnostic]) -> String {
     let lines: Vec<String> = diagnostics
         .iter()
         .map(|diagnostic| {
-            format!(
+            let mut line = format!(
                 "[{}] {}",
                 severity_text(diagnostic.severity),
                 diagnostic.message
-            )
+            );
+            if let Some(omitted) = &diagnostic.omitted {
+                let _infallible = write!(
+                    line,
+                    " {} bytes ({} lines) omitted after line {}.",
+                    omitted.bytes, omitted.lines, omitted.after_line
+                );
+            }
+            if let Some(artifact) = &diagnostic.artifact {
+                let _infallible = write!(line, " Full output: {artifact}");
+            }
+            line
         })
         .collect();
     format!("<harness>\n{}\n</harness>", lines.join("\n"))

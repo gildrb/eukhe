@@ -27,12 +27,13 @@ use tokio::sync::Mutex;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::{emit_worker_event_with, HostedSession, Worker};
 
-/// Streaming window: chunks are retained (spilled to disk beyond this).
-const DEFAULT_MAX_BYTES: usize = 50 * 1024;
+/// Streaming window: chunks are retained (spilled to disk beyond this); the
+/// default tool-result byte bound.
+const DEFAULT_MAX_BYTES: usize = eukhe_durable::DEFAULT_MAX_BYTES as usize;
 /// Streaming retention cap: the in-memory tail (TS `maxOutputBytes`).
 const STREAM_MAX_BYTES: usize = DEFAULT_MAX_BYTES * 2;
-/// Tail truncation line budget (TS `DEFAULT_MAX_LINES`).
-const DEFAULT_MAX_LINES: usize = 2000;
+/// Tail truncation line budget: the default tool-result line bound.
+const DEFAULT_MAX_LINES: usize = eukhe_durable::DEFAULT_MAX_LINES as usize;
 /// The TS spill prefix (temp file names in `$TMPDIR`).
 const SPILL_PREFIX: &str = "pa-bash";
 

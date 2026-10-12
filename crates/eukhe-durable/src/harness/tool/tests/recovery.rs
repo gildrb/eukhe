@@ -745,6 +745,8 @@ async fn answers_a_real_bash_command_interrupted_by_close_and_reopen_then_finish
 
 fn info(message: &str) -> ToolDiagnostic {
     ToolDiagnostic {
+        omitted: None,
+        artifact: None,
         severity: ToolDiagnosticSeverity::Info,
         code: None,
         message: message.to_owned(),

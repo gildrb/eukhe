@@ -203,8 +203,9 @@ impl Inner {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
-        // The kernel stays in this process's group - its lifecycle is
-        // supervised directly.
+        // Its own process group: an abort the cell ignores past the grace
+        // kills the group, so subprocesses the cell started die with it.
+        command.process_group(0);
         if let Some(cwd) = &cwd {
             command.current_dir(cwd);
         }

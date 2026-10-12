@@ -79,16 +79,11 @@ pub(super) fn render_output(
         .filter(|block| block.get("type").and_then(Value::as_str) == Some("image"))
         .count();
     let is_error = card.result.as_ref().is_some_and(|r| r.is_error);
-    let has_structured_output = details.stdout.is_some()
-        || details.stderr.is_some()
-        || details.result.is_some()
-        || details.error.is_some();
-    let traceback =
-        if !has_structured_output && (is_error || details.status.as_deref() == Some("error")) {
-            split_traceback(&text, details.error_ename.as_deref())
-        } else {
-            None
-        };
+    let traceback = if is_error || details.status.as_deref() == Some("error") {
+        split_traceback(&text, details.error_ename.as_deref())
+    } else {
+        None
+    };
 
     let mut output_started = false;
     let mut output_marker_pending = true;
@@ -114,61 +109,7 @@ pub(super) fn render_output(
         }
     };
 
-    if has_structured_output {
-        if details
-            .stdout
-            .as_deref()
-            .is_some_and(|s| !s.trim().is_empty())
-            && !is_edit_confirmation(details.stdout.as_deref(), &details.diffs)
-        {
-            start_output(&mut output_started, lines);
-            rendered_text_output = true;
-            render_output_text(
-                lines,
-                &normalize_error_details(details.stdout.as_deref().unwrap_or_default()),
-                &OutputLabel::Out,
-                &mut output_marker_pending,
-                theme,
-                width,
-            );
-        }
-        if details
-            .stderr
-            .as_deref()
-            .is_some_and(|s| !s.trim().is_empty())
-        {
-            start_output(&mut output_started, lines);
-            rendered_text_output = true;
-            render_output_text(
-                lines,
-                &normalize_error_details(details.stderr.as_deref().unwrap_or_default()),
-                &OutputLabel::Err,
-                &mut output_marker_pending,
-                theme,
-                width,
-            );
-        }
-        let result_text = details.result.as_deref().filter(|s| !s.trim().is_empty());
-        if let Some(result) = result_text {
-            if !is_edit_confirmation(details.result.as_deref(), &details.diffs)
-                && !is_agent_message_receipt(
-                    details.result.as_deref(),
-                    &details.sent_agent_messages,
-                )
-            {
-                start_output(&mut output_started, lines);
-                rendered_text_output = true;
-                render_output_text(
-                    lines,
-                    &normalize_error_details(result),
-                    &OutputLabel::Out,
-                    &mut output_marker_pending,
-                    theme,
-                    width,
-                );
-            }
-        }
-    } else if let Some((output, _)) = &traceback {
+    if let Some((output, _)) = &traceback {
         if !output.is_empty() {
             start_output(&mut output_started, lines);
             rendered_text_output = true;
@@ -183,6 +124,7 @@ pub(super) fn render_output(
         }
     } else if !text.trim().is_empty()
         && !is_agent_message_receipt(Some(text.as_str()), &details.sent_agent_messages)
+        && !is_edit_confirmation(Some(text.as_str()), &details.diffs)
     {
         start_output(&mut output_started, lines);
         rendered_text_output = true;
@@ -199,20 +141,6 @@ pub(super) fn render_output(
             theme,
             width,
         );
-    }
-
-    // Background output rides the structured fields only (the fallback
-    // text above already carries it otherwise).
-    let background_output = if has_structured_output {
-        details
-            .background_output
-            .as_deref()
-            .filter(|text| !text.trim().is_empty())
-    } else {
-        None
-    };
-    if background_output.is_some() {
-        rendered_text_output = true;
     }
 
     if !rendered_text_output && card.result_partial {
@@ -248,22 +176,7 @@ pub(super) fn render_output(
         );
     }
 
-    if let Some(error) = &details.error {
-        start_output(&mut output_started, lines);
-        let traceback_text = if error.traceback.is_empty() {
-            format_ipython_error_summary(error)
-        } else {
-            error.traceback.join("\n")
-        };
-        render_output_text(
-            lines,
-            &traceback_text,
-            &OutputLabel::Err,
-            &mut output_marker_pending,
-            theme,
-            width,
-        );
-    } else if let Some((_, traceback)) = &traceback {
+    if let Some((_, traceback)) = &traceback {
         start_output(&mut output_started, lines);
         render_output_text(
             lines,
@@ -273,23 +186,11 @@ pub(super) fn render_output(
             theme,
             width,
         );
-    }
-
-    if let Some(background) = background_output {
+    } else if let Some(error) = &details.error {
         start_output(&mut output_started, lines);
-        let prefix = output_prefix(&mut output_marker_pending);
-        add_wrapped(
-            lines,
-            &prefix,
-            &vec![Span::styled(
-                "background output (unattributed)".to_string(),
-                theme.fg_style(ThemeColor::Muted),
-            )],
-            width,
-        );
         render_output_text(
             lines,
-            &normalize_error_details(background),
+            &format_ipython_error_summary(error),
             &OutputLabel::Err,
             &mut output_marker_pending,
             theme,

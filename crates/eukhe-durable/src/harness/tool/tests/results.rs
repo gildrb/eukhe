@@ -75,6 +75,8 @@ async fn uses_retained_output_and_the_last_details_when_the_result_omits_them_wi
                 api.output(ToolOutputChunk::Text("line 1\n"), None)?;
                 api.output(ToolOutputChunk::Bytes(b"line 2\nline 3\n"), None)?;
                 api.diagnostic(ToolDiagnostic {
+                    omitted: None,
+                    artifact: None,
                     severity: ToolDiagnosticSeverity::Info,
                     code: None,
                     message: "from api".to_owned(),
@@ -83,6 +85,8 @@ async fn uses_retained_output_and_the_last_details_when_the_result_omits_them_wi
                 api.details(json(r#"{"step":2}"#), &cx).await?;
                 Ok(ToolExecutionResult {
                     diagnostics: Some(vec![ToolDiagnostic {
+                        omitted: None,
+                        artifact: None,
                         severity: ToolDiagnosticSeverity::Warn,
                         code: None,
                         message: "from result".to_owned(),

@@ -2208,7 +2208,7 @@ fn image_heavy_tool_result(payload: &str) -> serde_json::Value {
             { "type": "text", "text": "Loaded 1 image(s) into context: /tmp/shot.png" },
             { "type": "image", "data": payload, "mimeType": "image/png" }
         ],
-        "details": { "status": "ok", "stdout": "Loaded 1 image(s) into context: /tmp/shot.png" },
+        "details": { "status": "ok" },
         "isError": false,
         "timestamp": 10u64
     })
@@ -2230,7 +2230,7 @@ fn elided_image_tool_result(elided_bytes: u64, width: u64, height: u64) -> serde
                 "heightPx": height
             }
         ],
-        "details": { "status": "ok", "stdout": "Loaded 1 image(s) into context: /tmp/shot.png" },
+        "details": { "status": "ok" },
         "isError": false,
         "timestamp": 10u64
     })

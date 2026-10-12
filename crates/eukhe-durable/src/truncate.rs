@@ -5,9 +5,9 @@
 //! Never returns partial lines. Tool output streams are bounded by the
 //! harness output buffer instead.
 
-pub(crate) const DEFAULT_MAX_LINES: u64 = 2000;
+pub const DEFAULT_MAX_LINES: u64 = 2000;
 /// 50KB.
-pub(crate) const DEFAULT_MAX_BYTES: u64 = 50 * 1024;
+pub const DEFAULT_MAX_BYTES: u64 = 50 * 1024;
 
 /// Which limit truncated the content: the TS `"lines" | "bytes"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

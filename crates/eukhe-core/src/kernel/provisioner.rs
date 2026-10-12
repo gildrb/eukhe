@@ -1194,8 +1194,10 @@ async fn start_kernel(
             // An aborted bootstrap with a live dispose signal is the bound
             // firing on a kernel that stopped answering: name the lost
             // bootstrap instead of a bare runtime failure.
-            let error = if bootstrap.status == ExecuteStatus::Aborted
-                && !dispose_signal.is_aborted()
+            let error = if matches!(
+                bootstrap.status,
+                ExecuteStatus::Aborted | ExecuteStatus::Killed
+            ) && !dispose_signal.is_aborted()
             {
                 anyhow!(
                     "Failed to initialize rlm runtime in the Python kernel: \

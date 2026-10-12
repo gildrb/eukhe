@@ -461,6 +461,8 @@ fn diagnostic(
     message: String,
 ) -> ToolDiagnostic {
     ToolDiagnostic {
+        omitted: None,
+        artifact: None,
         severity,
         code: code.map(str::to_owned),
         message,

@@ -1,7 +1,7 @@
 //! Parsing of ipython execution `details` for the cell card, a port of the
 //! data-reading half of TS `ipython-cell.ts`: the details record
-//! (structured stdout/stderr/result/error fields), the background-shell
-//! handle repr, literal shell launches, and the edit-confirmation and
+//! (status, timing, error name, diffs, sent messages, bash summary), the
+//! background-shell handle repr, literal shell launches, and the edit-confirmation and
 //! agent-message-receipt suppressions that keep already-summarized output
 //! off the cell rows.
 
@@ -12,10 +12,6 @@ pub(crate) struct IpythonDetails {
     pub(crate) duration_ms: Option<f64>,
     pub(crate) status: Option<String>,
     pub(crate) error_ename: Option<String>,
-    pub(crate) stdout: Option<String>,
-    pub(crate) stderr: Option<String>,
-    pub(crate) result: Option<String>,
-    pub(crate) background_output: Option<String>,
     pub(crate) error: Option<IpythonError>,
     pub(crate) diffs: Vec<Value>,
     pub(crate) sent_agent_messages: Vec<Value>,
@@ -25,7 +21,6 @@ pub(crate) struct IpythonDetails {
 pub(crate) struct IpythonError {
     pub(crate) ename: String,
     pub(crate) evalue: String,
-    pub(crate) traceback: Vec<String>,
 }
 
 /// The `bashCommands` details field: the first executed `bash()` command,
@@ -61,16 +56,6 @@ pub(crate) fn read_error_details(value: &Value) -> Option<IpythonError> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        traceback: record
-            .get("traceback")
-            .and_then(Value::as_array)
-            .map(|rows| {
-                rows.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default(),
     })
 }
 
@@ -80,10 +65,6 @@ impl IpythonDetails {
             duration_ms: None,
             status: None,
             error_ename: None,
-            stdout: None,
-            stderr: None,
-            result: None,
-            background_output: None,
             error: None,
             diffs: Vec::new(),
             sent_agent_messages: Vec::new(),
@@ -105,22 +86,6 @@ impl IpythonDetails {
                     .and_then(Value::as_str)
                     .map(str::to_string)
             }),
-            stdout: record
-                .get("stdout")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            stderr: record
-                .get("stderr")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            result: record
-                .get("result")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            background_output: record
-                .get("backgroundOutput")
-                .and_then(Value::as_str)
-                .map(str::to_string),
             error,
             diffs: record
                 .get("diffs")

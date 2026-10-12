@@ -61,10 +61,7 @@ impl CardStatus {
             return CardStatus::Aborted;
         }
         let has_result = result.is_some_and(|r| {
-            details.stdout.is_some()
-                || details.stderr.is_some()
-                || details.result.is_some()
-                || details.error.is_some()
+            details.error.is_some()
                 || !details.diffs.is_empty()
                 || !details.sent_agent_messages.is_empty()
                 || !r.content.is_empty()
@@ -265,41 +262,19 @@ fn dominant_bash<'a>(details: &'a IpythonDetails, code: &str) -> Option<&'a Bash
 }
 
 /// `^in vout lines` (TS `lineCounts`): non-empty input
-/// lines, output lines from the structured fields (edits show the diff, so
-/// their output counts zero).
+/// lines, output lines of the result text (edits show the diff, so their
+/// output counts zero).
 fn line_counts(card: &ToolCallCard, details: &IpythonDetails, code: &str) -> Option<String> {
     let input = input_line_count(code);
     let has_diffs = !details.diffs.is_empty();
 
-    let result =
-        if is_agent_message_receipt(details.result.as_deref(), &details.sent_agent_messages) {
-            None
-        } else {
-            details.result.as_deref()
-        };
-    let structured = [
-        details.stdout.as_deref(),
-        details.stderr.as_deref(),
-        result,
-        details.background_output.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .filter(|text| !text.trim().is_empty())
-    .collect::<Vec<_>>()
-    .join("\n");
     let blocks_text = text_from_blocks(card);
-    let fallback =
+    let output_text =
         if is_agent_message_receipt(Some(blocks_text.as_str()), &details.sent_agent_messages) {
             String::new()
         } else {
             blocks_text
         };
-    let output_text = if structured.trim().is_empty() {
-        fallback
-    } else {
-        structured
-    };
     let output = if has_diffs || output_text.trim().is_empty() {
         0
     } else {

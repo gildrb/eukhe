@@ -1,6 +1,7 @@
 //! The resumed-session kernel-state notice (`ipython_state_restored`).
 //!
-//! A resumed session spawns a fresh Python kernel: without a snapshot, the
+//! A resumed session, or a kernel killed to stop a cell, spawns a fresh
+//! Python kernel: without a snapshot, the
 //! model would believe it still has access to variables, imports, and
 //! helpers it defined in the earlier run. The kernel's namespace snapshot
 //! (the dill payload in the session's artifact dir) revives them, and the
@@ -49,7 +50,7 @@ pub fn notice_content(result: &RestoreResult) -> String {
         );
     } else {
         lines.push(format!(
-            "Your Python kernel state was revived from your previous session. These names are available again: {}.",
+            "Your Python kernel state was revived from its last snapshot. These names are available again: {}.",
             result.restored.join(", ")
         ));
     }
@@ -118,7 +119,7 @@ mod tests {
         };
         assert_eq!(
             content,
-            "[python-state-restored]\n\nYour Python kernel state was revived from your previous session. These names are available again: data, helper."
+            "[python-state-restored]\n\nYour Python kernel state was revived from its last snapshot. These names are available again: data, helper."
         );
     }
 

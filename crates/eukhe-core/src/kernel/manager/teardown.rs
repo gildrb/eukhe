@@ -177,7 +177,7 @@ impl Inner {
             // Stale pre-teardown background output must not surface after a restart.
             g.pending_background_output.clear();
             g.pending_background_output_chars = 0;
-            g.pending_background_output_truncated = false;
+            g.pending_background_output_dropped = 0;
             had_background_work
         };
         // Teardown kills the handles with the kernel, so owed continuations
@@ -196,7 +196,8 @@ impl Inner {
                 *stdin = None;
             }
             let pid = child.pid;
-            kill_process(pid, kill_signal);
+            // The kernel leads its own process group (see `do_start`).
+            let _delivered = crate::platform::process::signal_process_group(pid, kill_signal);
             // A killed/crashed kernel cannot run its own shutdown hook, so the
             // host reaps the bash() process groups it journaled under this pid.
             if pid > 0 {
@@ -212,8 +213,4 @@ impl Inner {
         }
         *lock(&self.start_memo) = None;
     }
-}
-
-fn kill_process(pid: i32, signal: Signal) -> bool {
-    crate::platform::process::kill_pid(pid, signal)
 }

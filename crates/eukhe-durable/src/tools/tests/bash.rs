@@ -161,6 +161,8 @@ fn shell_output(result: &ToolExecutionResult) -> ShellStructuredOutput {
 
 fn exit_code_diagnostic(code: i32) -> ToolDiagnostic {
     ToolDiagnostic {
+        omitted: None,
+        artifact: None,
         severity: ToolDiagnosticSeverity::Error,
         code: Some("exit_code".to_owned()),
         message: format!("Command exited with code {code}"),

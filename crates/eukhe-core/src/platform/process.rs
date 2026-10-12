@@ -111,6 +111,20 @@ pub fn kill_pid(pid: i32, signal: Signal) -> bool {
     unsafe { libc::kill(pid, sig) == 0 }
 }
 
+/// Signal the process group `pgid` (a group leader's pid). Returns true
+/// only when the signal was delivered to at least one member.
+#[must_use]
+pub fn signal_process_group(pgid: i32, signal: Signal) -> bool {
+    if pgid <= 0 {
+        return false;
+    }
+    let sig = match signal {
+        Signal::Term => libc::SIGTERM,
+        Signal::Kill => libc::SIGKILL,
+    };
+    unsafe { libc::kill(-pgid, sig) == 0 }
+}
+
 /// Kill a process and all its children: the process group first (`bash()`
 /// children run detached in a new group), then the bare pid as fallback.
 /// Returns true when either signal was delivered (TS `killProcessTree`).

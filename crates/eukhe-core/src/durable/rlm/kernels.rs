@@ -67,7 +67,7 @@ pub(crate) struct ConversationKernel {
     /// Where the provisioner writes its namespace snapshot: the directory
     /// of the conversation that created it (a kernel moved to another
     /// conversation keeps writing there until it is disposed).
-    snapshot_dir: Option<PathBuf>,
+    pub(crate) snapshot_dir: Option<PathBuf>,
 }
 
 impl ConversationKernel {

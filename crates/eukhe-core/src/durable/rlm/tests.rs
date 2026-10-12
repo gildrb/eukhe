@@ -293,13 +293,54 @@ async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_ipytho
     let result = &results[0];
     assert_eq!(result.tool_call_id, "c1");
     assert!(!result.is_error);
-    assert_eq!(result_text(result), "streamed\n\n42");
+    assert_eq!(result_text(result), "streamed\n42");
     let details = result.details.clone().expect("details");
     assert_eq!(details["status"], "ok");
     assert_eq!(details["kernelRestarted"], false);
-    assert_eq!(details["stdout"], "streamed\n");
-    assert_eq!(details["result"], "42");
     assert!(details["durationMs"].is_number());
+    session.close(cx()).await.expect("close");
+}
+
+/// The end of a long cell output reaches the model (G2): the result keeps
+/// the head and the tail within the default bound, one `output_bounded`
+/// diagnostic names the omitted middle, and the artifact holds everything.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn long_cell_output_keeps_its_end_and_spills_the_whole_to_an_artifact() {
+    if kernel_python().is_none() {
+        return;
+    }
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    fixture.faux.set_responses(vec![
+        ipython(
+            "c1",
+            "for i in range(5000):\n    print(i)\nraise ValueError('the end')",
+        ),
+        text("done"),
+    ]);
+    let session = fixture.open().await;
+    let id = submit(&session, "go").await;
+    assert_eq!(settle(&session, id).await, SubmissionStatus::Done);
+    let all = entries(&session).await;
+    let results = results(&all);
+    let text = result_text(&results[0]);
+    let lines: Vec<String> = (0..5000).map(|i| i.to_string()).collect();
+    let all_lines = lines.join("\n") + "\n";
+    let head = lines[..1000].join("\n") + "\n";
+    assert!(text.starts_with(&head), "{text}");
+    assert!(text.contains("4999\nTraceback"), "{text}");
+    assert!(text.contains("ValueError: the end"), "{text}");
+    let artifact = text
+        .split("Full output: ")
+        .nth(1)
+        .and_then(|rest| rest.lines().next())
+        .expect("the diagnostic names the artifact");
+    let saved = std::fs::read_to_string(artifact).expect("the artifact");
+    assert!(
+        saved.starts_with(&all_lines),
+        "the artifact keeps every line"
+    );
+    assert!(saved.contains("ValueError: the end"));
     session.close(cx()).await.expect("close");
 }
 

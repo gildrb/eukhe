@@ -11,7 +11,6 @@ use serde_json::Value;
 
 use crate::kernel::bootstrap::KernelPythonSkill;
 
-pub const DEFAULT_MAX_OUTPUT_CHARS: usize = 65_536;
 pub const HOST_REQUEST_SHUTDOWN_TIMEOUT_MS: u64 = 5_000;
 pub const KERNEL_SHUTDOWN_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_SNAPSHOT_DEBOUNCE_MS: u64 = 1_500;
@@ -26,13 +25,14 @@ pub const RESTORE_EXECUTION_TIMEOUT_MS: u64 = 30_000;
 pub const BOOTSTRAP_EXECUTION_TIMEOUT_MS: u64 = 30_000;
 #[cfg(test)]
 pub const BOOTSTRAP_EXECUTION_TIMEOUT_MS: u64 = 500;
+/// How long an aborted request may take to honor the interrupt before the
+/// kernel's process group is killed.
 pub const KERNEL_ABORT_GRACE_MS: u64 = 1_000;
-pub const KERNEL_BUSY_REUSE_WAIT_MS: u64 = 5_000;
-pub const KERNEL_BUSY_INTERRUPT_INTERVAL_MS: u64 = 500;
 pub const MAX_LATE_SENT_AGENT_MESSAGE_HANDLERS: usize = 256;
-pub const KERNEL_BUSY_AFTER_INTERRUPT_MESSAGE: &str = "The Python kernel is still running the previously interrupted cell. Wait and try again, or kill the kernel to start fresh.";
 
-/// Cap for unattributed background output buffered between and during cells.
+/// Host memory ceiling for unattributed background output buffered between
+/// and during cells: nobody consumes it while it waits, so the rest is
+/// dropped and counted ([`BackgroundOutput::dropped_chars`]).
 pub const MAX_BACKGROUND_OUTPUT_CHARS: usize = 64 * 1024;
 
 pub const MAX_KERNEL_STDERR_CHARS: usize = 8 * 1024;
@@ -73,6 +73,7 @@ pub const BASH_COMMAND_DISPLAY_MIME: &str = "application/vnd.eukhe.bash-command+
 pub const EXECUTE_STATUS_OK: &str = "ok";
 pub const EXECUTE_STATUS_ERROR: &str = "error";
 pub const EXECUTE_STATUS_ABORTED: &str = "aborted";
+pub const EXECUTE_STATUS_KILLED: &str = "killed";
 
 /// Execution status of one cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -80,7 +81,12 @@ pub enum ExecuteStatus {
     #[default]
     Ok,
     Error,
+    /// The request honored the abort's interrupt.
     Aborted,
+    /// The request ignored the abort's interrupt past
+    /// [`KERNEL_ABORT_GRACE_MS`]: the kernel's process group was killed, so
+    /// the request's effects are unknown and the namespace is gone.
+    Killed,
 }
 
 impl ExecuteStatus {
@@ -90,6 +96,7 @@ impl ExecuteStatus {
             ExecuteStatus::Ok => EXECUTE_STATUS_OK,
             ExecuteStatus::Error => EXECUTE_STATUS_ERROR,
             ExecuteStatus::Aborted => EXECUTE_STATUS_ABORTED,
+            ExecuteStatus::Killed => EXECUTE_STATUS_KILLED,
         }
     }
 }
@@ -103,6 +110,26 @@ pub enum StreamName {
 
 /// Callback receiving streamed output chunks as they arrive.
 pub type StreamCallback = Arc<dyn Fn(&str, StreamName) + Send + Sync>;
+
+/// Where a request's stdout and stderr go.
+#[derive(Clone, Default)]
+pub enum OutputSink {
+    /// Kept in full on the result's `stdout` and `stderr`.
+    #[default]
+    Retain,
+    /// Handed to the callback chunk by chunk, in arrival order. The
+    /// consumer owns them: the result's `stdout` and `stderr` stay empty.
+    Forward(StreamCallback),
+}
+
+/// Output that arrived without the cell's id (user threads, other cells'
+/// leftovers, raw fd writes), up to [`MAX_BACKGROUND_OUTPUT_CHARS`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackgroundOutput {
+    pub text: String,
+    /// Characters past the ceiling, dropped.
+    pub dropped_chars: usize,
+}
 
 /// Fires when the kernel's last live background `bash()` handle settles
 /// (its activity track empties or the kernel tears down), so owed
@@ -245,8 +272,7 @@ pub struct ExecuteResult {
     pub sent_agent_messages: Option<Vec<KernelSentAgentMessage>>,
     /// The `bash()` commands this cell started, summarized for display.
     pub bash_commands: Option<KernelBashCommands>,
-    /// Output that arrived without this cell's id (user threads, other cells' leftovers, raw fd writes).
-    pub background_output: Option<String>,
+    pub background_output: Option<BackgroundOutput>,
     pub status: ExecuteStatus,
     pub error: Option<KernelError>,
     pub duration_ms: u64,
@@ -257,12 +283,9 @@ pub struct ExecuteResult {
 pub struct ExecuteOptions {
     /// Aborting interrupts the kernel out-of-band.
     pub signal: Option<crate::kernel::cancellation::AbortSignal>,
-    /// Streaming callback for stdout/stderr chunks.
-    pub on_stream: Option<StreamCallback>,
+    pub output: OutputSink,
     /// Receives agent messages the kernel reports after the cell settled.
     pub on_late_sent_agent_message: Option<LateSentAgentMessageCallback>,
-    /// Cap stdout / stderr / result at this many characters. Default 65536.
-    pub max_output_chars: Option<usize>,
     /// Synthetic host cell (snapshot/restore/list); excluded from lastCellCode attribution.
     pub internal: bool,
     /// The protocol repair's own request; exempt from waiting on the repair it belongs to.
@@ -274,12 +297,6 @@ pub struct ExecuteOptions {
 
 /// The durable tool call (`ipython` invocation) that runs a kernel cell.
 pub type KernelCallContext = Arc<dyn eukhe_durable::harness::types::ToolExecutionApi>;
-
-/// The error raised when a new cell cannot start because the previously
-/// interrupted cell is still running.
-#[derive(Debug, thiserror::Error)]
-#[error("{KERNEL_BUSY_AFTER_INTERRUPT_MESSAGE}")]
-pub struct KernelBusyAfterInterruptError;
 
 /// A typed request from Python code running in the kernel to the host.
 #[derive(Debug, Clone)]

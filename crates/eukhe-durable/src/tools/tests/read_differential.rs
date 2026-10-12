@@ -85,6 +85,8 @@ fn reference_read(
                 mime_type: mime_type.to_owned(),
             })]),
             diagnostics: Some(vec![ToolDiagnostic {
+                omitted: None,
+                artifact: None,
                 severity: ToolDiagnosticSeverity::Info,
                 code: Some("image".to_owned()),
                 message: format!("Read image file [{mime_type}]."),
@@ -142,6 +144,8 @@ fn reference_read(
         output_text = shown.strip_prefix('\u{FEFF}').unwrap_or(shown).to_owned();
         let display = js(start_line_display);
         diagnostics.push(ToolDiagnostic {
+            omitted: None,
+            artifact: None,
             severity: ToolDiagnosticSeverity::Warn,
             code: Some("truncated".to_owned()),
             message: format!(
@@ -165,6 +169,8 @@ fn reference_read(
             format!(" ({} limit)", format_size(DEFAULT_MAX_BYTES))
         };
         diagnostics.push(ToolDiagnostic {
+            omitted: None,
+            artifact: None,
             severity: ToolDiagnosticSeverity::Info,
             code: Some("truncated".to_owned()),
             message: format!(
@@ -181,6 +187,8 @@ fn reference_read(
             let remaining = total_file_lines - (start_line + user_limited_lines);
             let next_offset = start_line + user_limited_lines + 1.0;
             diagnostics.push(ToolDiagnostic {
+                omitted: None,
+                artifact: None,
                 severity: ToolDiagnosticSeverity::Info,
                 code: None,
                 message: format!(

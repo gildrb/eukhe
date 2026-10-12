@@ -433,7 +433,7 @@ fn ipython_card_done_line() {
         started: true,
         result: Some(ToolResultView {
             content: vec![serde_json::json!({ "type": "text", "text": "visual parity ok" })],
-            details: serde_json::json!({ "status": "ok", "durationMs": 2, "stdout": "visual parity ok\n" }),
+            details: serde_json::json!({ "status": "ok", "durationMs": 2 }),
             is_error: false,
         }),
         result_partial: false,

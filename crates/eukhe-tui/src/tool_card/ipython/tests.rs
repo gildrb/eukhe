@@ -22,21 +22,31 @@ fn cell_card(code: &str, details: Value, is_error: bool, partial: bool) -> ToolC
     }
 }
 
+/// `card` with `text` as its result content.
+fn with_text(mut card: ToolCallCard, text: &str) -> ToolCallCard {
+    if let Some(result) = card.result.as_mut() {
+        result.content = vec![json!({ "type": "text", "text": text })];
+    }
+    card
+}
+
 fn text_of(line: &Line) -> String {
     line.iter().map(|s| s.content.as_str()).collect()
 }
 
 #[test]
 fn done_cell_summary_line() {
-    let card = cell_card(
-        "print('visual parity ok')",
-        json!({
-            "status": "ok",
-            "durationMs": 2,
-            "stdout": "visual parity ok\n",
-        }),
-        false,
-        false,
+    let card = with_text(
+        cell_card(
+            "print('visual parity ok')",
+            json!({
+                "status": "ok",
+                "durationMs": 2,
+            }),
+            false,
+            false,
+        ),
+        "visual parity ok\n",
     );
     let lines = render(&card, 0, Detail::Overview, &theme(), 100, true);
     assert_eq!(lines.len(), 1);
@@ -53,7 +63,7 @@ fn error_cell_summary_line() {
         "raise ValueError('boom')",
         json!({
             "status": "error",
-            "error": { "ename": "ValueError", "evalue": "boom", "traceback": [] },
+            "error": { "ename": "ValueError", "evalue": "boom" },
         }),
         true,
         false,
@@ -66,15 +76,17 @@ fn error_cell_summary_line() {
 
 #[test]
 fn expanded_renders_code_and_output() {
-    let card = cell_card(
-        "for i in range(3):\n    print(f'line {i}')",
-        json!({
-            "status": "ok",
-            "durationMs": 3,
-            "stdout": "line 0\nline 1\nline 2\n",
-        }),
-        false,
-        false,
+    let card = with_text(
+        cell_card(
+            "for i in range(3):\n    print(f'line {i}')",
+            json!({
+                "status": "ok",
+                "durationMs": 3,
+            }),
+            false,
+            false,
+        ),
+        "line 0\nline 1\nline 2\n",
     );
     let lines = render(&card, 0, Detail::All, &theme(), 100, true);
     let flat: Vec<String> = lines.iter().map(text_of).collect();
@@ -93,18 +105,17 @@ fn expanded_renders_code_and_output() {
 
 #[test]
 fn expanded_error_cell_shows_traceback() {
-    let card = cell_card(
-        "raise ValueError('boom')",
-        json!({
-            "status": "error",
-            "error": {
-                "ename": "ValueError",
-                "evalue": "boom",
-                "traceback": ["Traceback (most recent call last):", "ValueError: boom"],
-            },
-        }),
-        true,
-        false,
+    let card = with_text(
+        cell_card(
+            "raise ValueError('boom')",
+            json!({
+                "status": "error",
+                "error": { "ename": "ValueError", "evalue": "boom" },
+            }),
+            true,
+            false,
+        ),
+        "Traceback (most recent call last):\nValueError: boom",
     );
     let lines = render(&card, 0, Detail::All, &theme(), 100, true);
     let flat: Vec<String> = lines.iter().map(text_of).collect();
@@ -219,11 +230,9 @@ fn sent_agent_message_receipts_share_the_viewer_relative_arrow() {
 
 #[test]
 fn collapsed_stays_single_line() {
-    let card = cell_card(
-        "print(1)",
-        json!({ "status": "ok", "stdout": "1\n" }),
-        false,
-        false,
+    let card = with_text(
+        cell_card("print(1)", json!({ "status": "ok", }), false, false),
+        "1\n",
     );
     let lines = render(&card, 0, Detail::All, &theme(), 100, true);
     assert!(lines.len() > 1, "all mode expands rows");
@@ -235,11 +244,14 @@ fn collapsed_stays_single_line() {
 
 #[test]
 fn bash_cell_renders_bash_mode_line() {
-    let card = cell_card(
-        "%%bash\necho hi",
-        json!({ "status": "ok", "durationMs": 8, "stdout": "hi\n" }),
-        false,
-        false,
+    let card = with_text(
+        cell_card(
+            "%%bash\necho hi",
+            json!({ "status": "ok", "durationMs": 8, }),
+            false,
+            false,
+        ),
+        "hi\n",
     );
     let lines = render(&card, 0, Detail::All, &theme(), 100, true);
     let flat: Vec<String> = lines.iter().map(text_of).collect();
@@ -356,20 +368,22 @@ fn no_output_placeholder() {
 fn bash_dominated_cell_renders_as_bash() {
     let code =
         "r = await sh(\"\"\"\ncd crates/eukhe-tui\ncargo test -p eukhe-tui\n\"\"\")\nprint(r.output)";
-    let card = cell_card(
-        code,
-        json!({
-            "status": "ok",
-            "durationMs": 2,
-            "stdout": "ok\n",
-            "bashCommands": {
-                "first": "\ncd crates/eukhe-tui\ncargo test -p eukhe-tui\n",
-                "count": 3,
-                "lines": 4,
-            },
-        }),
-        false,
-        false,
+    let card = with_text(
+        cell_card(
+            code,
+            json!({
+                "status": "ok",
+                "durationMs": 2,
+                "bashCommands": {
+                    "first": "\ncd crates/eukhe-tui\ncargo test -p eukhe-tui\n",
+                    "count": 3,
+                    "lines": 4,
+                },
+            }),
+            false,
+            false,
+        ),
+        "ok\n",
     );
     let lines = render(&card, 0, Detail::Overview, &theme(), 100, true);
     assert_eq!(lines.len(), 1);
@@ -382,16 +396,18 @@ fn bash_dominated_cell_renders_as_bash() {
 #[test]
 fn bash_minority_cell_stays_python() {
     let code = "async def sh(cmd):\n    return await bash(cmd)\nr = await sh(\"ls\")\nprint(r.pid)";
-    let card = cell_card(
-        code,
-        json!({
-            "status": "ok",
-            "durationMs": 5,
-            "stdout": "0\n",
-            "bashCommands": { "first": "ls", "count": 1, "lines": 1 },
-        }),
-        false,
-        false,
+    let card = with_text(
+        cell_card(
+            code,
+            json!({
+                "status": "ok",
+                "durationMs": 5,
+                "bashCommands": { "first": "ls", "count": 1, "lines": 1 },
+            }),
+            false,
+            false,
+        ),
+        "0\n",
     );
     let lines = render(&card, 0, Detail::Overview, &theme(), 100, true);
     assert_eq!(lines.len(), 1);

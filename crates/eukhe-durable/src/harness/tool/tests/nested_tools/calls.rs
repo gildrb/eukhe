@@ -224,6 +224,8 @@ async fn runs_the_tool_hooks_on_nested_calls_which_see_their_parent() {
     assert_eq!(
         nested[0].diagnostics,
         [ToolDiagnostic {
+            omitted: None,
+            artifact: None,
             severity: ToolDiagnosticSeverity::Error,
             code: Some("blocked".to_owned()),
             message: "Tool call blocked: no secrets".to_owned(),

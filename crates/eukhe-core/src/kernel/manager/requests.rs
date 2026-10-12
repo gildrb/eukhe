@@ -5,7 +5,7 @@ use super::{
     anyhow, json, lock, merge_signals, oneshot, AbortSignal, ActiveExecution, Arc, AsyncWriteExt,
     Duration, ExecBuffers, ExecuteOptions, ExecuteResult, ExecuteStatus, Instant,
     InternalExecuteResult, KernelStartOptions, KernelState, Mutex, ReplKernelManager, Request,
-    DEFAULT_MAX_OUTPUT_CHARS, KERNEL_ABORT_GRACE_MS,
+    KERNEL_ABORT_GRACE_MS,
 };
 
 // ---------------------------------------------------------------------------
@@ -14,35 +14,27 @@ use super::{
 
 pub(crate) use crate::platform::process::Signal;
 
-/// Append stream text up to `max_chars` Unicode scalars, keeping the buffered count in sync.
-pub(crate) fn append_truncated(
+/// Append `text` up to `max_chars` Unicode scalars in all, keeping the
+/// buffered count in sync and adding the characters past the cap to
+/// `dropped`.
+pub(crate) fn append_capped(
     buffer: &mut String,
-    truncated: &mut bool,
+    dropped: &mut usize,
     chars: &mut usize,
     text: &str,
     max_chars: usize,
 ) {
-    if *chars >= max_chars {
-        if !text.is_empty() {
-            // The buffer filled exactly on an earlier frame; the dropped
-            // remainder still counts as truncation.
-            *truncated = true;
+    let remaining = max_chars.saturating_sub(*chars);
+    match text.char_indices().nth(remaining) {
+        None => {
+            buffer.push_str(text);
+            *chars += text.chars().count();
         }
-        return;
-    }
-    let remaining = max_chars - *chars;
-    let text_chars = text.chars().count();
-    if text_chars <= remaining {
-        buffer.push_str(text);
-        *chars += text_chars;
-    } else {
-        let end = text
-            .char_indices()
-            .nth(remaining)
-            .map_or(text.len(), |(i, _)| i);
-        buffer.push_str(&text[..end]);
-        *chars = max_chars;
-        *truncated = true;
+        Some((end, _)) => {
+            buffer.push_str(&text[..end]);
+            *chars = max_chars;
+            *dropped += text[end..].chars().count();
+        }
     }
 }
 
@@ -103,7 +95,7 @@ impl ReplKernelManager {
 
         let queue_guard = self.inner.execution_queue.lock().await;
 
-        // A repair started while this request was queued or busy-waiting:
+        // A repair started while this request was queued:
         // release the slot so the repair\'s own restore can run, then requeue
         // behind it.
         if lock(&self.inner.guarded).protocol_repair.is_some() && !opts.protocol_repair {
@@ -112,13 +104,6 @@ impl ReplKernelManager {
             return Box::pin(self.enqueue_request(request, code, opts, execution_timeout_ms)).await;
         }
 
-        self.wait_for_active_execution_to_clear_for_reuse(opts.signal.as_ref())
-            .await?;
-        if let Some(signal) = &opts.signal {
-            if signal.is_aborted() {
-                return Ok(InternalExecuteResult::aborted(started));
-            }
-        }
         if self.state() == KernelState::Shutdown {
             return Err(anyhow!("Kernel has been shut down"));
         }
@@ -155,7 +140,6 @@ impl ReplKernelManager {
         opts: ExecuteOptions,
         started: Instant,
     ) -> anyhow::Result<InternalExecuteResult> {
-        let max_chars = opts.max_output_chars.unwrap_or(DEFAULT_MAX_OUTPUT_CHARS);
         let request_id = uuid::Uuid::new_v4().to_string();
 
         if let Some(signal) = &opts.signal {
@@ -178,8 +162,8 @@ impl ReplKernelManager {
             buffers.background_output = std::mem::take(&mut g.pending_background_output);
             buffers.background_output_chars =
                 std::mem::take(&mut g.pending_background_output_chars);
-            buffers.background_output_truncated =
-                std::mem::replace(&mut g.pending_background_output_truncated, false);
+            buffers.background_output_dropped =
+                std::mem::take(&mut g.pending_background_output_dropped);
             g.active_execution = None; // reset below with the execution in hand
         }
         let (namespace_code, restores_namespace) = match &request {
@@ -191,7 +175,6 @@ impl ReplKernelManager {
             request_id: request_id.clone(),
             code: code.to_string(),
             started,
-            max_chars,
             namespace_code,
             restores_namespace,
             buffers: Mutex::new(buffers),
@@ -203,7 +186,7 @@ impl ReplKernelManager {
             g.active_execution = Some(execution.clone());
         }
 
-        // Abort watcher: interrupts the kernel out-of-band, then force-aborts
+        // Abort watcher: interrupts the kernel out-of-band, then kills it
         // after the grace window if the runtime did not settle the cell.
         if let Some(signal) = execution.opts.signal.clone() {
             // Weak on both sides: a never-fired signal leaves this watcher
@@ -220,7 +203,7 @@ impl ReplKernelManager {
                     return;
                 };
                 // A blocked request write holds the stdin mutex. Do not let an
-                // interrupt queued behind it postpone the force-abort forever.
+                // interrupt queued behind it postpone the kill forever.
                 // Dropping the interrupt at this deadline cannot tear its
                 // frame: the ~60-byte frame is one write on a non-blocking
                 // pipe, all-or-nothing below PIPE_BUF.
@@ -231,10 +214,7 @@ impl ReplKernelManager {
                     () = tokio::time::sleep_until(deadline) => {}
                 }
                 tokio::time::sleep_until(deadline).await;
-                // The execution stays active until its done event arrives;
-                // clearing it early would let a new cell race the interrupted
-                // one (see busy-after-interrupt).
-                inner.force_abort(&execution);
+                inner.kill_after_abort_grace(&execution);
             });
         }
 
@@ -245,7 +225,7 @@ impl ReplKernelManager {
         let mut frame = request.to_json();
         frame["id"] = json!(request_id);
 
-        let (mut send_task, stdin_retire) = {
+        let mut send_task = {
             let writer = lock(&self.inner.child).as_ref().map(|c| c.stdin.clone());
             let Some(stdin) = writer else {
                 {
@@ -256,11 +236,7 @@ impl ReplKernelManager {
             };
             let mut line = frame.to_string();
             line.push('\n');
-            // The retire handle below must name this exact kernel's stream;
-            // re-deriving it from `child` later could reach a restarted
-            // kernel's stdin.
-            let stdin_retire = stdin.clone();
-            let send_task = tokio::spawn(async move {
+            tokio::spawn(async move {
                 let mut guard = stdin.lock().await;
                 let Some(stdin) = guard.as_mut() else {
                     return Err(anyhow!("Kernel stdin is not connected"));
@@ -268,8 +244,7 @@ impl ReplKernelManager {
                 stdin.write_all(line.as_bytes()).await?;
                 stdin.flush().await?;
                 Ok(())
-            });
-            (send_task, stdin_retire)
+            })
         };
 
         let mut settled_result: Option<anyhow::Result<InternalExecuteResult>> = None;
@@ -278,28 +253,19 @@ impl ReplKernelManager {
             tokio::select! {
                 r = send_promise => r.unwrap_or_else(|e| Err(anyhow!("{e}"))),
                 settled = &mut result_rx => {
-                    // The cell settled before the write completed (fast runtime).
-                    // Only an aborted status may skip waiting for the write; a
-                    // failed write on a successful cell must surface.
+                    // The cell settled before the write completed (fast runtime,
+                    // or a kill). Only a killed request may skip waiting for the
+                    // write; a failed write on a live cell must surface.
                     let settled: anyhow::Result<InternalExecuteResult> = match settled {
                         Ok(result) => result,
                         Err(_) => Err(anyhow!("Kernel has been shut down")),
                     };
-                    let early_settle = matches!(&settled, Ok(result) if result.result.status == ExecuteStatus::Aborted);
+                    // The killed kernel never reads the rest of the request.
+                    let early_settle = matches!(&settled, Ok(result) if result.result.status == ExecuteStatus::Killed);
                     if early_settle {
                         // A blocked request writer would otherwise retain stdin's
-                        // mutex after the caller returned, wedging shutdown too.
+                        // mutex after the caller returned.
                         send_task.abort();
-                        // A cancelled write leaves the request unsent or
-                        // torn: the runtime never sees it, its execution never
-                        // settles, and every later request fails as busy.
-                        // Retire stdin so the kernel is replaced.
-                        if matches!(send_task.await, Err(e) if e.is_cancelled()) {
-                            // Detached: a queued stdin writer must not park this request.
-                            tokio::spawn(async move {
-                                *stdin_retire.lock().await = None;
-                            });
-                        }
                         settled_result = Some(settled);
                     } else {
                         // Surfacing a failed write outranks the settled cell.
@@ -338,7 +304,7 @@ impl ReplKernelManager {
 
 #[cfg(test)]
 mod tests {
-    use super::append_truncated;
+    use super::append_capped;
 
     #[cfg(unix)]
     #[tokio::test]
@@ -374,146 +340,33 @@ mod tests {
         let result = result
             .expect("timeout must settle even when the interrupt cannot write")
             .expect("bounded execute returns a result");
-        assert_eq!(result.status, ExecuteStatus::Aborted);
-        let stdin = manager
-            .inner
-            .child
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .expect("child exists")
-            .stdin
-            .clone();
-        assert!(
-            stdin.try_lock().is_ok(),
-            "the aborted request must release the stdin writer lock"
-        );
-        manager.kill();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn cancelled_request_write_retires_the_kernel() {
-        use super::*;
-        use std::os::unix::fs::PermissionsExt;
-
-        // Protocol v3: ready, then idles without reading stdin until the
-        // sibling "go" file appears, then answers execute frames, ignores
-        // glued garbage (a torn prefix makes any next line invalid), and
-        // never answers interrupts (that would settle the aborted execution).
-        const TORN_FRAME_RUNTIME: &str = r#"#!/usr/bin/env python3
-import json
-import os
-import sys
-import time
-
-print(json.dumps({"event": "ready", "protocol": 3, "python": "3.13.0"}), flush=True)
-go = os.path.join(os.path.dirname(os.path.abspath(__file__)), "go")
-while not os.path.exists(go):
-    time.sleep(0.01)
-for line in sys.stdin:
-    try:
-        req = json.loads(line)
-    except Exception:
-        continue
-    if req.get("type") == "execute":
-        print(json.dumps({"event": "done", "id": req.get("id"), "status": "ok"}), flush=True)
-"#;
-
-        let dir = tempfile::TempDir::new().expect("temp dir");
-        let python = dir.path().join("torn-frame-kernel");
-        std::fs::write(&python, TORN_FRAME_RUNTIME).expect("write fake kernel");
-        std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755))
-            .expect("chmod fake kernel");
-        let manager = ReplKernelManager::new(crate::kernel::shared::KernelManagerOptions {
-            python: Some(python),
-            ..Default::default()
-        });
-        manager
-            .start(KernelStartOptions::default())
-            .await
-            .expect("ready handshake");
-        // Larger than the stdin pipe, so the 100ms bound force-aborts while
-        // the request write is still mid-flight and tears the frame.
-        let code = "x".repeat(1024 * 1024);
-        let first = tokio::time::timeout(
-            Duration::from_secs(4),
-            manager.execute_bounded(&code, ExecuteOptions::default(), Some(100)),
-        )
-        .await
-        .expect("the bounded execute must settle")
-        .expect("bounded execute returns a result");
-        assert_eq!(first.status, ExecuteStatus::Aborted);
-        // Let the fake kernel read: EOF (retired stream) exits it, while
-        // glued garbage keeps the unfixed kernel Running. The request below
-        // observes the outcome: shutdown error or busy after the 5s window.
-        std::fs::write(dir.path().join("go"), b"").expect("write go file");
-        // Only the wait matters here; is_defunct() below discriminates.
-        let _ = tokio::time::timeout(
-            Duration::from_secs(10),
-            manager.execute_bounded("1+1", ExecuteOptions::default(), None),
-        )
-        .await
-        .expect("the next request must settle");
+        assert_eq!(result.status, ExecuteStatus::Killed);
         assert!(
             manager.is_defunct(),
-            "a cancelled request write must retire the kernel"
+            "the unanswered abort kills the kernel"
         );
         manager.kill();
     }
 
     #[test]
-    fn capped_stream_matches_original_unicode_and_frame_semantics() {
+    fn capped_append_keeps_whole_characters_and_counts_the_dropped_rest() {
         let frames = ["", "a", "é", "🍁", "xy", "é🍁abc", "", "tail"];
+        let all: String = frames.concat();
         for cap in [0, 1, 2, 3, 4, 7, 65_536] {
-            let mut actual = String::new();
-            let mut count = 0;
-            let mut truncated = false;
-            let mut expected = String::new();
-            let mut expected_truncated = false;
+            let mut actual = (String::new(), 0, 0);
             for text in frames {
-                append_truncated(&mut actual, &mut truncated, &mut count, text, cap);
-                if expected.chars().count() < cap {
-                    expected.push_str(text);
-                    if expected.chars().count() > cap {
-                        expected = expected.chars().take(cap).collect();
-                        expected_truncated = true;
-                    }
-                } else if !text.is_empty() {
-                    // The buffer filled exactly on an earlier frame; the dropped
-                    // remainder still counts as truncation (TS #2423).
-                    expected_truncated = true;
-                }
-                assert_eq!(
-                    (actual.as_str(), truncated, count),
-                    (
-                        expected.as_str(),
-                        expected_truncated,
-                        expected.chars().count()
-                    )
-                );
+                append_capped(&mut actual.0, &mut actual.1, &mut actual.2, text, cap);
             }
+            let kept: String = all.chars().take(cap).collect();
+            let total = all.chars().count();
+            assert_eq!(
+                actual,
+                (
+                    kept.clone(),
+                    total - kept.chars().count(),
+                    kept.chars().count()
+                )
+            );
         }
-    }
-
-    #[test]
-    fn exact_fill_remainder_counts_as_truncation() {
-        // The buffer filled exactly on an earlier frame; a later non-empty
-        // frame is dropped but still marks the stream truncated (TS #2423:
-        // without this, exactly-filled streams reported no truncation).
-        let mut buffer = String::from("abcd");
-        let mut truncated = false;
-        let mut count = 4;
-        append_truncated(&mut buffer, &mut truncated, &mut count, "ef", 4);
-        assert!(truncated);
-        assert_eq!(buffer, "abcd");
-        assert_eq!(count, 4);
-
-        // Empty frames never flip the flag.
-        let mut empty = String::new();
-        let mut never = false;
-        let mut zero = 0;
-        append_truncated(&mut empty, &mut never, &mut zero, "", 4);
-        assert!(!never);
     }
 }
