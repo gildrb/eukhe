@@ -20,6 +20,7 @@ pub mod goal;
 pub mod incident;
 pub mod input_origin;
 pub mod job;
+pub mod lsp;
 pub mod memory_release;
 pub mod output;
 pub mod pi_ai;

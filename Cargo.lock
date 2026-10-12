@@ -610,6 +610,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eukhe-lsp"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "eukhe-types",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "eukhe-models"
 version = "0.9.9-eukhe.1"
 dependencies = [
@@ -2560,6 +2575,7 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+ "serde_derive",
 ]
 
 [[package]]
