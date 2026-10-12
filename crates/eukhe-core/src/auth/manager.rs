@@ -439,10 +439,10 @@ impl AuthStorage {
             AuthCredential::ApiKey { key, .. } => {
                 if key.starts_with('!') {
                     let resolved = resolve_config_value_uncached(key)?;
-                    Some(format!("api_key:command:{key} {resolved}"))
+                    Some(format!("api_key:command:{key}\0{resolved}"))
                 } else {
                     Some(format!(
-                        "api_key:{key} {}",
+                        "api_key:{key}\0{}",
                         resolve_config_value(key).unwrap_or_default()
                     ))
                 }
@@ -458,7 +458,7 @@ impl AuthStorage {
                     .api_key_for("", credential)
                     .unwrap_or_else(|| access.clone());
                 Some(format!(
-                    "oauth:{api_key} {} {expires}",
+                    "oauth:{api_key}\0{}\0{expires}",
                     refresh.clone().unwrap_or_default()
                 ))
             }
@@ -513,7 +513,7 @@ impl AuthStorage {
                 identity_fingerprint: fingerprint(AuthSource::Runtime, "identity:runtime-override"),
                 value_fingerprint: Some(fingerprint(
                     AuthSource::Runtime,
-                    &format!("value:runtime-override {key}"),
+                    &format!("value:runtime-override\0{key}"),
                 )),
                 resolve_value_fingerprint: None,
             },
@@ -527,7 +527,7 @@ impl AuthStorage {
         // credential fields, never object identity, so the key
         // changes exactly when the hashed material does).
         let key = format!(
-            "identity:auth.json {}",
+            "identity:auth.json\0{}",
             value_material
                 .as_deref()
                 .unwrap_or(Self::auth_source_lazy_value_key()),
@@ -540,7 +540,7 @@ impl AuthStorage {
                     label: None,
                     identity_fingerprint: fingerprint(AuthSource::Stored, "identity:auth.json"),
                     value_fingerprint: value_material.map(|material| {
-                        fingerprint(AuthSource::Stored, &format!("value:auth.json {material}"))
+                        fingerprint(AuthSource::Stored, &format!("value:auth.json\0{material}"))
                     }),
                     resolve_value_fingerprint: None,
                 }
@@ -561,7 +561,7 @@ impl AuthStorage {
         // Env values are deliberately re-read on every call (TS
         // #2479); the memo only skips re-fingerprinting unchanged
         // material.
-        let key = format!("{identity_material} {api_key}");
+        let key = format!("{identity_material}\0{api_key}");
         Some(
             self.reuse_auth_source_candidate(AuthSource::Environment, provider, key, || {
                 AuthSourceCandidate {
@@ -574,7 +574,7 @@ impl AuthStorage {
                     ),
                     value_fingerprint: Some(fingerprint(
                         AuthSource::Environment,
-                        &format!("value:{identity_material} {api_key}"),
+                        &format!("value:{identity_material}\0{api_key}"),
                     )),
                     resolve_value_fingerprint: None,
                 }
@@ -599,7 +599,7 @@ impl AuthStorage {
                 ),
                 value_fingerprint: Some(fingerprint(
                     AuthSource::Fallback,
-                    &format!("value:{provider} {api_key}"),
+                    &format!("value:{provider}\0{api_key}"),
                 )),
                 resolve_value_fingerprint: None,
             },

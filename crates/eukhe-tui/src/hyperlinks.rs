@@ -294,9 +294,9 @@ mod tests {
         // ride the terminal stream as a second escape (an OSC 52 clipboard
         // write), so those paths percent-encode C0 and DEL first - the
         // same bytes URL parsing encodes on every parseable target.
-        assert_eq!(resolve_link_href("#a]52;cb"), "#a%1B]52;c%07b");
-        assert_eq!(resolve_link_href("not a url]8;;x"), "not a url%1B]8;;x");
-        assert_eq!(resolve_link_href("#s"), "#s%7F");
+        assert_eq!(resolve_link_href("#a\x1b]52;c\x07b"), "#a%1B]52;c%07b");
+        assert_eq!(resolve_link_href("not a url\x1b]8;;x"), "not a url%1B]8;;x");
+        assert_eq!(resolve_link_href("#s\x7f"), "#s%7F");
         // Printable fragments stay untouched, byte-identical to TS.
         assert_eq!(resolve_link_href("#section"), "#section");
     }
