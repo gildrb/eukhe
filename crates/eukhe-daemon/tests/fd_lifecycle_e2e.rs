@@ -36,6 +36,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+#[path = "support/daemon.rs"]
+// A shell launcher execs the daemon here: only `daemon_env` is used.
+#[allow(dead_code)]
+mod daemon;
+use daemon::daemon_env;
+
 /// Sample the open-fd set of a process: count plus one readlink target per
 /// fd. Returns an empty snapshot for a dead pid.
 fn fd_snapshot(pid: u32) -> Vec<String> {
@@ -93,7 +99,7 @@ impl Drop for Daemon {
 // immediately afterwards, reaping it.
 #[allow(clippy::zombie_processes)]
 fn spawn_daemon(mut launcher: Command, socket: &Path, agent_dir: &Path) -> Daemon {
-    let child = launcher
+    let child = daemon_env(&mut launcher)
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)

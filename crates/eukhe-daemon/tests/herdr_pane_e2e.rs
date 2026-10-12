@@ -29,15 +29,15 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -54,22 +54,15 @@ impl Drop for Daemon {
 /// daemon (and every worker it spawns) "boots" in pane `w0:boot` — the
 /// boot-context bug class setup. The session's own pane identity must
 /// come from the create payload, never from here.
-fn spawn_supervisor(
-    socket: &Path,
-    agent_dir: &Path,
-    kernel_python: &Path,
-    herdr_socket: &Path,
-) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
+fn spawn_supervisor(socket: &Path, agent_dir: &Path, herdr_socket: &Path) -> Daemon {
     let log_file = std::fs::File::create(socket.with_extension("daemon.log")).expect("log file");
     let log_err = log_file.try_clone().expect("clone log file");
-    let child = Command::new(binary)
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
-        .env("EUKHE_KERNEL_PYTHON", kernel_python)
         .env("EUKHE_CODING_AGENT_DIR", agent_dir)
         .env_remove("PRIME_API_KEY")
         // THE HOSTILE BOOT CONTEXT: a Herdr pane identity in the daemon's
@@ -243,7 +236,6 @@ fn pane_env(herdr_socket: &Path, pane_id: &str) -> Value {
 /// settle, and the release as the kill's last write, with silence after.
 #[test]
 fn the_session_reports_its_payload_pane_across_the_lifecycle() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let herdr_socket = dir.path().join("herdr.sock");
@@ -253,7 +245,7 @@ fn the_session_reports_its_payload_pane_across_the_lifecycle() {
     let responses = json!([{ "text": "turn done" }, { "text": "turn done" }]);
     let script = write_faux_script(dir.path(), &responses);
     let requests = fake_herdr(&herdr_socket);
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, &herdr_socket);
+    let _daemon = spawn_supervisor(&socket, &agent_dir, &herdr_socket);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -372,7 +364,6 @@ fn the_session_reports_its_payload_pane_across_the_lifecycle() {
 /// (adopt-if-absent), reports for, and releases at its stop.
 #[test]
 fn an_envless_session_stays_silent_until_its_attach_adopts_the_pane() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let herdr_socket = dir.path().join("herdr.sock");
@@ -382,7 +373,7 @@ fn an_envless_session_stays_silent_until_its_attach_adopts_the_pane() {
     let responses = json!([{ "text": "turn done" }, { "text": "turn done" }]);
     let script = write_faux_script(dir.path(), &responses);
     let requests = fake_herdr(&herdr_socket);
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python, &herdr_socket);
+    let _daemon = spawn_supervisor(&socket, &agent_dir, &herdr_socket);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");

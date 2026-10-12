@@ -14,6 +14,12 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "support/daemon.rs"]
+// The supervisor runs a private copy of the binary here: only `daemon_env` is used.
+#[allow(dead_code)]
+mod daemon;
+use daemon::daemon_env;
+
 struct Supervisor {
     child: Child,
 }
@@ -28,7 +34,8 @@ impl Drop for Supervisor {
 #[allow(clippy::zombie_processes)]
 fn spawn_supervisor(binary: &Path, socket: &Path, agent_dir: &Path) -> Supervisor {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = Command::new(binary)
+    let mut command = Command::new(binary);
+    let child = daemon_env(&mut command)
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)

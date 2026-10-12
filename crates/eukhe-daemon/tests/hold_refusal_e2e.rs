@@ -32,10 +32,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -54,7 +58,7 @@ impl Drop for Daemon {
 // immediately afterwards, reaping it.
 #[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"));
+    let mut command = daemon_command();
     command
         .arg("supervisor")
         .arg("--socket")

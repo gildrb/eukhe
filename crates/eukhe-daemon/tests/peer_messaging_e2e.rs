@@ -23,14 +23,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -45,15 +45,13 @@ impl Drop for Daemon {
     }
 }
 
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let child = Command::new(binary)
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
-        .env("EUKHE_KERNEL_PYTHON", kernel_python)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         // A supervisor killed at teardown must not leak its session workers
@@ -305,7 +303,6 @@ fn alpha_responses(receipts_dir: &Path) -> Value {
 }
 
 fn setup_messaging() -> Messaging {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -323,7 +320,7 @@ fn setup_messaging() -> Messaging {
     );
 
     let receipts = receipts_dir;
-    let daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, _hello) = Client::connect(&socket);
     let alpha = create_session(
@@ -562,8 +559,7 @@ fn supervisor_death_mid_conversation_still_delivers_after_re_registration() {
     let _ = messaging.daemon.child.wait();
 
     // Restart the supervisor on the same socket and agent dir.
-    let kernel_python = kernel_python();
-    let daemon = spawn_supervisor(&messaging.socket, &agent_dir, &kernel_python);
+    let daemon = spawn_supervisor(&messaging.socket, &agent_dir);
     messaging.daemon = daemon;
     wait_socket_ready(&messaging.socket);
     let (mut client, _hello2) = Client::connect(&messaging.socket);

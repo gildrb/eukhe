@@ -42,7 +42,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -61,9 +61,9 @@ use eukhe_daemon::rlm_children::{
 use eukhe_daemon::supervisor_link::SupervisorLink;
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -106,17 +106,15 @@ fn parent_worker_token(agent_dir: &Path, active_session_id: &str) -> String {
     panic!("parent worker descriptor not found");
 }
 
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     let log_file = std::fs::File::create(socket.with_extension("daemon.log")).expect("log file");
     let log_err = log_file.try_clone().expect("clone log file");
-    let child = Command::new(binary)
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
-        .env("EUKHE_KERNEL_PYTHON", kernel_python)
         .stdout(Stdio::null())
         .stderr(Stdio::from(log_err))
         // A supervisor killed at teardown must not leak its session workers
@@ -432,7 +430,6 @@ async fn send_agent_message(
 /// worker, and the child's own parent-directed reply delivers back.
 #[tokio::test]
 async fn parent_child_agent_message_round_trip_end_to_end() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -456,7 +453,7 @@ async fn parent_child_agent_message_round_trip_end_to_end() {
     let child_script = write_faux_script(dir.path(), "child", &child_responses(&receipts_dir));
 
     // The supervisor passes the kernel python to the workers it launches.
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -709,7 +706,6 @@ fn cell_turn(code: &str) -> Value {
 /// family's rows never enter either roster.
 #[tokio::test]
 async fn family_edges_never_cross_families_end_to_end() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -789,7 +785,7 @@ async fn family_edges_never_cross_families_end_to_end() {
     }
     let kid_script = write_faux_script(dir.path(), "kid", &json!(kid_responses));
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -1222,7 +1218,6 @@ async fn family_edges_never_cross_families_end_to_end() {
 /// name.
 #[tokio::test]
 async fn parent_renames_a_child_end_to_end() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -1237,7 +1232,7 @@ async fn parent_renames_a_child_end_to_end() {
     );
     let child_script = write_faux_script(dir.path(), "child", &json!([{ "text": "kid spawned" }]));
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");

@@ -41,6 +41,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
+
 struct Daemon {
     child: Child,
 }
@@ -53,8 +57,7 @@ impl Drop for Daemon {
 }
 
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let child = Command::new(binary)
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)

@@ -39,14 +39,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -61,15 +61,13 @@ impl Drop for Daemon {
     }
 }
 
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let child = Command::new(binary)
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
-        .env("EUKHE_KERNEL_PYTHON", kernel_python)
         // Hermetic agent dir: the ambient environment exports a real
         // agent dir; point every fallback at the test sandbox instead.
         .env("EUKHE_CODING_AGENT_DIR", agent_dir)
@@ -316,7 +314,7 @@ struct HeldChildLane {
     child_id: String,
 }
 
-fn spawn_held_child_lane(kernel_python: &Path) -> HeldChildLane {
+fn spawn_held_child_lane() -> HeldChildLane {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -328,7 +326,7 @@ fn spawn_held_child_lane(kernel_python: &Path) -> HeldChildLane {
 
     let child_script = write_child_script(dir.path());
     let parent_script = write_parent_script(dir.path(), &spawn_cell(&spawn_receipt, &spawn_error));
-    let daemon = spawn_supervisor(&socket, &agent_dir, kernel_python);
+    let daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -371,8 +369,7 @@ fn spawn_held_child_lane(kernel_python: &Path) -> HeldChildLane {
 /// with the child still running.
 #[test]
 fn headless_completion_waits_for_rlm_quiescence() {
-    let kernel_python = kernel_python();
-    let mut lane = spawn_held_child_lane(&kernel_python);
+    let mut lane = spawn_held_child_lane();
 
     // The barrier request on the idle parent: the child's 5s hold is
     // unsettled descendant work, so the answer must hold past it.
@@ -413,8 +410,7 @@ fn headless_completion_waits_for_rlm_quiescence() {
 /// running subagents is not idle until its whole subtree settled.
 #[test]
 fn wait_for_idle_waits_for_rlm_quiescence() {
-    let kernel_python = kernel_python();
-    let mut lane = spawn_held_child_lane(&kernel_python);
+    let mut lane = spawn_held_child_lane();
     lane.client.send_command(
         "w1",
         &json!({
@@ -446,8 +442,7 @@ fn wait_for_idle_waits_for_rlm_quiescence() {
 /// inside the settle window.
 #[test]
 fn headless_completion_holds_through_the_settle_window() {
-    let kernel_python = kernel_python();
-    let mut lane = spawn_held_child_lane(&kernel_python);
+    let mut lane = spawn_held_child_lane();
 
     // The roster's terminal status is the settle window's start: the
     // roster says `done` here while the child's run has not settled yet.

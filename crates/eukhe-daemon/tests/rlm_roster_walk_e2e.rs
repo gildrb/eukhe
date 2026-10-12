@@ -30,10 +30,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 /// How long `list --all` over 1,000 ledger children may take: the TS daemon
 /// answers the same shape in 0.78s; the bound stays generous for CI noise.
@@ -54,8 +58,7 @@ impl Drop for Daemon {
 
 #[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let child = Command::new(binary)
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)

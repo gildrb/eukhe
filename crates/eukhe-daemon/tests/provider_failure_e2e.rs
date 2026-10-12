@@ -33,11 +33,15 @@ use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 // The durable session storage reader the CLI e2e suites share.
 #[path = "../../eukhe-cli/tests/support/durable_store.rs"]
@@ -236,7 +240,7 @@ fn write_answer(stream: &mut TcpStream, content: &str) -> std::io::Result<()> {
 #[allow(clippy::zombie_processes)]
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Supervisor {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)

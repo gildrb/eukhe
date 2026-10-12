@@ -52,12 +52,16 @@ use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 /// One fattening assistant reply (the seeded session bulk).
 const FATTENING_TURNS: usize = 3;
@@ -468,7 +472,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, trace_path: &Path) -> Super
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     let stderr_path = daemon_stderr_path(trace_path);
     let stderr_file = std::fs::File::create(&stderr_path).expect("daemon stderr file");
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)

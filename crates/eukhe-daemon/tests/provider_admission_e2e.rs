@@ -16,7 +16,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -26,6 +26,10 @@ use eukhe_core::durable::children::{
 use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
 use eukhe_daemon::supervisor_link::SupervisorLink;
 use serde_json::{json, Value};
+
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 /// The limited provider's id.
 const PROVIDER: &str = "prime-inference";
@@ -213,7 +217,7 @@ fn write_answer(stream: &mut TcpStream, content: &str) -> std::io::Result<()> {
 // see through the returned owner.
 #[allow(clippy::zombie_processes)]
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Supervisor {
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)

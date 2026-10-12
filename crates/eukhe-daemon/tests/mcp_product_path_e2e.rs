@@ -37,14 +37,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+use daemon::daemon_command;
 
 struct Daemon {
     child: Child,
@@ -60,15 +60,13 @@ impl Drop for Daemon {
 }
 
 #[allow(clippy::zombie_processes)]
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon {
-    let binary = env!("CARGO_BIN_EXE_eukhe-daemon");
-    let child = Command::new(binary)
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
+    let child = daemon_command()
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
         .arg("--agent-dir")
         .arg(agent_dir)
-        .env("EUKHE_KERNEL_PYTHON", kernel_python)
         // Hermetic agent dir: the ambient environment exports this var
         // globally; point it at the test agent dir so every fallback that
         // reads it (supervisor, worker, kernel) resolves inside the test
@@ -229,7 +227,6 @@ fn tool_result_texts(session_messages: &[Value]) -> Vec<String> {
 /// request -> kernel MCP client spawn -> `tools/list` -> `tools/call`.
 #[test]
 fn settings_declared_stdio_server_round_trips_through_the_kernel_mcp_client() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let sessions_dir = agent_dir.join("sessions");
@@ -283,7 +280,7 @@ fn settings_declared_stdio_server_round_trips_through_the_kernel_mcp_client() {
     .expect("write faux script");
 
     let socket = dir.path().join("mcp.sock");
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -373,7 +370,6 @@ fn settings_declared_stdio_server_round_trips_through_the_kernel_mcp_client() {
 /// real login needs a live HTTPS provider, so this e2e pins the wiring).
 #[test]
 fn begin_login_host_request_is_live_in_the_worker() {
-    let kernel_python = kernel_python();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let sessions_dir = agent_dir.join("sessions");
@@ -425,7 +421,7 @@ fn begin_login_host_request_is_live_in_the_worker() {
     .expect("write faux script");
 
     let socket = dir.path().join("mcp.sock");
-    let _daemon = spawn_supervisor(&socket, &agent_dir, &kernel_python);
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
