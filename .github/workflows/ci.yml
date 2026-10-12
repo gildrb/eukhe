@@ -1,6 +1,6 @@
 # CI gates for eukhe: `make check` (fmt --all --check, clippy --workspace
 # --all-targets -- -D warnings, cargo test --workspace) on the pinned
-# toolchain (1.98.1), plus the cargo-deny gate.
+# toolchain (1.98.1), the eukhe-runtime Python suite, plus the cargo-deny gate.
 #
 #   push to main — the full gate set on the tip.
 #
@@ -306,6 +306,26 @@ jobs:
   #   deny — cargo-deny advisories + bans + licenses + sources, the CI
   #   mirror of `make deny`. The advisory DB drifts daily, so a drifted
   #   advisory can gate PRs — that is the accepted trade.
+  # The eukhe-runtime Python suite (`make runtime-test`) on the uv-locked
+  # kernel env.
+  runtime-test:
+    name: runtime tests (eukhe-runtime)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      # The same pinned, checksummed uv release as the test shards.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.23"
+          checksum: 9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6
+          enable-cache: false
+      - name: Run the eukhe-runtime suite
+        run: make runtime-test
+
   deny:
     name: deny (cargo-deny advisories + bans + licenses + sources)
     if: (github.event_name == 'push' || !github.event.pull_request.draft)
