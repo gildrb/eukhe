@@ -17,6 +17,7 @@ use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
 
+use super::admission_gate::{wrap_models_with_admission, AdmissionGate};
 use super::deps::{
     HostDeps, OpenedSession, ResolvedServices, ServiceStop, SessionConfig, SessionStorage,
 };
@@ -29,6 +30,7 @@ use super::observe;
 use super::observe::semantic_edges::{wrap_stream_fn, wrap_stream_simple_fn, SemanticEdgeRecorder};
 use super::registry::create_eukhe_registry;
 use super::settings::EukheSettings;
+use crate::admission::local_admission;
 use crate::kernel::python_skills::kernel_python_skills;
 use crate::resources::{load_resources, LoadedResources, ResourceLoaderOptions};
 use crate::settings::SettingsManager;
@@ -219,6 +221,21 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             semantic_edges: Arc::clone(&semantic_edges),
         },
     ));
+    // Provider admission rides INNERMOST, under the provider runtime: a
+    // failover re-dispatch takes a slot of the provider it goes to, and no
+    // slot is held while a wrapper waits between attempts.
+    let admission = config.admission.clone().unwrap_or_else(|| {
+        let settings = Arc::clone(&settings);
+        local_admission(move || settings.manager().get_admission_limits())
+    });
+    wrap_models_with_admission(
+        &models,
+        &AdmissionGate::new(
+            admission,
+            Arc::clone(&settings),
+            config.admission_state.clone(),
+        ),
+    );
     // The session's own model collection gets the eukhe provider behaviors
     // (failover, quota park, image routing, request timing); a
     // caller-supplied collection (the faux scripts) serves its rows as-is.

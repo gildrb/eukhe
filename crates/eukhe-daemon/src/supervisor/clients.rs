@@ -97,7 +97,7 @@ pub(crate) fn client_command_payload(
 impl Supervisor {
     /// Register the connection, serve it, then deregister and arm the
     /// owner-disconnect cleanup (TS socket `cleanup`) on every exit path.
-    pub(super) async fn handle_client(
+    pub(crate) async fn handle_client(
         self: Arc<Self>,
         stream: Box<dyn TransportStream>,
     ) -> Result<()> {
@@ -118,6 +118,10 @@ impl Supervisor {
             .lock()
             .unwrap()
             .remove(&connection_id);
+        // After the connection left the live set: the admission slots it
+        // held free, and its waits end (a closed worker connection — a
+        // finished request or a dead worker — gives its slots back).
+        self.provider_admission.close_connection(&connection_id);
         let owner = effective_client_id.lock().unwrap().clone();
         self.schedule_owned_worker_cleanup_for_client(&owner).await;
         served
@@ -785,6 +789,25 @@ impl Supervisor {
                             sequence: *sequence,
                             worker_instance_id: worker_instance_id.clone(),
                         },
+                    )
+                    .await;
+                (vec![response_line(&response)], false)
+            }
+            DaemonCommand::ProviderAdmissionAcquire {
+                worker_token,
+                provider_id,
+                ..
+            } => {
+                let response = self
+                    .handle_provider_admission_acquire(
+                        crate::provider_admission::AcquireCommand {
+                            command_id: &command_id,
+                            type_name: &type_name,
+                            worker_token,
+                            provider_id,
+                            connection_id,
+                        },
+                        stream,
                     )
                     .await;
                 (vec![response_line(&response)], false)

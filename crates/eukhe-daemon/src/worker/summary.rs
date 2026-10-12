@@ -459,6 +459,7 @@ pub(crate) fn session_summary(
         is_bash_running: Some(bash_running),
         is_running_tools: streaming && running_tools,
         has_running_subagents: false,
+        admission: core.model_admission,
         attached_clients: u32::try_from(core.attached_client_ids.len()).unwrap_or(u32::MAX),
         message_count: messages,
         session_actions: session_snapshot(core),

@@ -396,19 +396,33 @@ async fn subscribe_after_spawn_then_shutdown_seeds_the_passive_child() {
         .expect("prompt child");
     let child_agent_id = format!("{parent_file}#{CHILD_ID}");
 
-    // Both rows settle as residents in the supervisor roster.
+    // Both rows settle as residents in the supervisor roster, the child's
+    // scripted turns finished: the subscribe snapshot below must hold the
+    // child's final durable summary, or the passivated row (which keeps
+    // the newest one) could race a turn that was still answering when the
+    // snapshot was taken.
     let deadline = Instant::now() + Duration::from_secs(15);
+    let mut last_child = Value::Null;
     let child_active_id = loop {
-        assert!(Instant::now() < deadline, "list never showed the child");
+        assert!(
+            Instant::now() < deadline,
+            "list never showed the settled child: {last_child}"
+        );
         let list = client.send_command("l2", &json!({ "type": "list" }));
-        if let Some(active_id) = list["data"]["sessions"].as_array().and_then(|sessions| {
+        if let Some(child) = list["data"]["sessions"].as_array().and_then(|sessions| {
             sessions
                 .iter()
                 .find(|summary| summary["rlmChildId"] == CHILD_ID)
-                .and_then(|summary| summary["activeSessionId"].as_str())
-                .map(str::to_string)
+                .cloned()
         }) {
-            break active_id;
+            last_child = child;
+        }
+        // Two turns, the spawn's prompt and the follow-up prompt, each a
+        // user message and its answer.
+        if last_child["isStreaming"] == false && last_child["messageCount"] == 4 {
+            if let Some(active_id) = last_child["activeSessionId"].as_str() {
+                break active_id.to_string();
+            }
         }
         std::thread::sleep(Duration::from_millis(50));
     };

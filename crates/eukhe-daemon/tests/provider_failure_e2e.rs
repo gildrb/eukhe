@@ -565,17 +565,13 @@ fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
         .expect("error message")
         .contains("mock provider overloaded"));
     assert_eq!(starts[1]["attempt"], 2);
-    // Each retry start's delay sits around its ladder step (50ms then
-    // 100ms: [40, 70] and [80, 140]). pi-durable schedules the step exactly
-    // (no jitter); the band stays as headroom.
-    let jitter_band = |base: u64| (base * 4 / 5, base * 7 / 5);
+    // Each retry start's delay is a full-jitter draw under its ladder step
+    // (50ms then 100ms: [0, 50] and [0, 100]); no Retry-After here. The
+    // upper band keeps rounding headroom.
     for (start, base) in starts.iter().zip([50u64, 100u64]) {
         let delay = start["delayMs"].as_u64().expect("delayMs");
-        let (low, high) = jitter_band(base);
-        assert!(
-            (low..=high).contains(&delay),
-            "jittered delay {delay} outside [{low}, {high}]"
-        );
+        let high = base * 7 / 5;
+        assert!(delay <= high, "jittered delay {delay} above {high}");
     }
 
     // The loop closes with the final failure surfaced.
@@ -668,10 +664,11 @@ fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
 /// failures still persist and stream (full transcript fidelity; the TUI
 /// collapses the rows).
 ///
-/// pi-durable decides the waits: its generation retry schedules the
-/// policy's exponential ladder (`baseDelayMs * 2^(attempt-1)`, no jitter)
-/// and does not read `Retry-After`, so a server-requested wait is not
-/// honored.
+/// pi-durable decides the waits: its generation retry draws a full-jitter
+/// wait under the policy's exponential step (`baseDelayMs * 2^(attempt-1)`)
+/// and never retries before the server's `Retry-After` (capped at
+/// `retry.provider.maxRetryDelayMs`), so both waits here are the
+/// requested second.
 #[test]
 fn storm_429_caps_requests_and_leaves_one_outcome_row() {
     let (_dir, mock, _supervisor, mut client, session_id) = setup_with_rejection(
@@ -719,7 +716,7 @@ fn storm_429_caps_requests_and_leaves_one_outcome_row() {
         .iter()
         .filter(|event| event.get("type").and_then(Value::as_str) == Some("auto_retry_start"))
         .collect();
-    for (start, base) in starts.iter().zip([50u64, 100]) {
+    for start in &starts {
         assert!(
             start["errorMessage"]
                 .as_str()
@@ -727,13 +724,12 @@ fn storm_429_caps_requests_and_leaves_one_outcome_row() {
                 .contains("Too many concurrent requests"),
             "the 429 text: {start}"
         );
-        // The policy ladder (50 ms, then 100 ms; see the doc above), with
-        // rounding headroom.
+        // The server's one-second Retry-After outranks the 50/100 ms
+        // ladder draws (see the doc above), with rounding headroom.
         let delay = start["delayMs"].as_u64().expect("delayMs");
-        let (low, high) = (base * 4 / 5, base * 7 / 5);
         assert!(
-            (low..=high).contains(&delay),
-            "ladder delay {delay} outside [{low}, {high}]"
+            (800..=1_400).contains(&delay),
+            "Retry-After delay {delay} outside [800, 1400]"
         );
     }
     let end = client

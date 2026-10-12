@@ -217,6 +217,20 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Worker -> supervisor provider admission (Rust-native): one model
+    /// request of the worker's session asks for a slot of `provider_id`
+    /// (`providerMaxInFlight`). The supervisor answers once the slot is
+    /// taken (a `provider_admission_queued` frame first when it has to
+    /// wait) or the queue is full, and holds the slot until this
+    /// connection closes. Authenticated by the worker token.
+    ProviderAdmissionAcquire {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        worker_token: String,
+        provider_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     RosterUnsubscribe {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

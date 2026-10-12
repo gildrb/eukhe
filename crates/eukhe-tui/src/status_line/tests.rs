@@ -218,6 +218,7 @@ fn activity_segments_show_live_counts_only_until_focused() {
     let live = ActivityDock {
         subagents_running_direct: 1,
         subagents_running_nested: 1,
+        subagents_queued: 1,
         heartbeats: 3,
         heartbeats_paused: 1,
         bash_running: 1,
@@ -228,7 +229,7 @@ fn activity_segments_show_live_counts_only_until_focused() {
     assert_eq!(
         texts(&live),
         [
-            "2 subagents",
+            "2 subagents - 1 queued",
             "3 heartbeats - 1 paused",
             "1 shell",
             "Pursuing goal (0s)"

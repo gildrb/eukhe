@@ -285,10 +285,20 @@ fn activity_segments(dock: &ActivityDock, theme: &Theme) -> Vec<Line> {
     let mut segments = Vec::new();
     for group in dock.groups() {
         let (live, spans) = match group {
-            ActivityGroup::Subagents => (
-                running > 0,
-                vec![theme.fg(color(running), plural(running, "subagent", "subagents"))],
-            ),
+            ActivityGroup::Subagents => {
+                let mut spans =
+                    vec![theme.fg(color(running), plural(running, "subagent", "subagents"))];
+                // Running agents waiting for their provider's admission
+                // slot (`providerMaxInFlight`).
+                if dock.subagents_queued > 0 {
+                    spans.push(theme.fg(ThemeColor::Dim, crate::glyphs::SEP));
+                    spans.push(theme.fg(
+                        ThemeColor::Warning,
+                        format!("{} queued", dock.subagents_queued),
+                    ));
+                }
+                (running > 0, spans)
+            }
             ActivityGroup::Heartbeats => {
                 let mut spans = vec![theme.fg(
                     color(dock.heartbeats),

@@ -33,6 +33,9 @@ static NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN: LazyLock<Regex> = LazyLock::n
         "billing",
         // Sign in with ChatGPT: the subscription's shared usage limit (resets after hours).
         "subscription_sharing_usage_limit_exceeded",
+        // eukhe's own provider admission (`providerMaxQueued`): a full wait
+        // queue fails fast; a retry would only lengthen it.
+        "provider admission queue is full",
     ])
 });
 
@@ -155,6 +158,34 @@ pub fn retry_delay_ms(policy: RetryDelay, attempt: u32) -> f64 {
             .max_agent_delay_ms
             .unwrap_or(DEFAULT_MAX_AGENT_RETRY_DELAY_MS),
     )
+}
+
+/// The server-requested wait recorded on a failed message (the
+/// `retryAfterMs` of its newest `provider_stream_failure` diagnostic: a
+/// `Retry-After` header or a reset time), in milliseconds.
+#[must_use]
+pub fn server_retry_after_ms(message: &AssistantMessage) -> Option<f64> {
+    message
+        .diagnostics
+        .iter()
+        .flatten()
+        .rev()
+        .filter(|diagnostic| diagnostic.kind == "provider_stream_failure")
+        .find_map(|diagnostic| diagnostic.details.as_ref()?.get("retryAfterMs")?.as_f64())
+}
+
+/// The wait before retry `attempt` (1-indexed) of the failed `message`
+/// (omp2 `TransportRetryLayer`): a full-jitter draw in
+/// `[0, retry_delay_ms(policy, attempt)]`, so agents that hit the same
+/// limit together do not retry together, but never shorter than the
+/// server's requested wait (itself capped at `max_agent_delay_ms`).
+#[must_use]
+pub fn retry_wait_ms(policy: RetryDelay, attempt: u32, message: &AssistantMessage) -> f64 {
+    let jittered = (rand::random::<f64>() * retry_delay_ms(policy, attempt)).floor();
+    let cap = policy
+        .max_agent_delay_ms
+        .unwrap_or(DEFAULT_MAX_AGENT_RETRY_DELAY_MS);
+    server_retry_after_ms(message).map_or(jittered, |server| jittered.max(server.min(cap)))
 }
 
 /// A retry callback's completion (callbacks may fail like a TS throw).

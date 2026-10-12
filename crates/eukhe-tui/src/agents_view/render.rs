@@ -497,11 +497,19 @@ impl AgentsViewMode {
             let line = pad_line(line, width);
             return finish_session_row(theme, line, selected, width);
         }
+        // A running agent whose model request waits for its provider's
+        // admission slot (`providerMaxInFlight`) shows the half dot in the
+        // warning color instead of the working pulse.
+        let queued = row.section == Section::Running
+            && eukhe_types::daemon::agent_roster::summary_admission(&row.summary)
+                == Some(eukhe_types::daemon::agent_roster::ModelAdmission::Queued);
         let icon = match row.section {
+            Section::Running if queued => glyphs::DOT_HALF,
             Section::Running => glyphs::WORKING[self.pulse % glyphs::WORKING.len()],
             Section::Idle | Section::Inactive => glyphs::BULLET,
         };
         let icon_color = match row.section {
+            Section::Running if queued => ThemeColor::Warning,
             Section::Running => ThemeColor::Text,
             Section::Idle => ThemeColor::Warning,
             Section::Inactive => ThemeColor::Dim,

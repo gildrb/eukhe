@@ -238,6 +238,9 @@ pub struct Supervisor {
     /// before boot, or when another live process owned the chat first
     /// (then this supervisor is a client that takes over when it exits).
     chat_memory: std::sync::Mutex<Option<eukhe_core::memory::Memory>>,
+    /// Provider admission for every worker's model requests
+    /// (`providerMaxInFlight`; see `provider_admission.rs`).
+    pub(crate) provider_admission: crate::provider_admission::SupervisorAdmission,
 }
 
 impl Supervisor {
@@ -275,6 +278,8 @@ impl Supervisor {
         let compaction_journal = crate::compaction_supervision::TerminalCompactionJournal::open(
             &descriptor_dir.join("compaction-supervision.jsonl"),
         )?;
+        let provider_admission =
+            crate::provider_admission::SupervisorAdmission::new(options.agent_dir.clone());
         Ok(Supervisor {
             options,
             descriptor_dir,
@@ -304,6 +309,7 @@ impl Supervisor {
             passive_catalog_epoch: std::sync::atomic::AtomicU64::new(0),
             compaction_journal: std::sync::Mutex::new(compaction_journal),
             chat_memory: std::sync::Mutex::new(None),
+            provider_admission,
         })
     }
 

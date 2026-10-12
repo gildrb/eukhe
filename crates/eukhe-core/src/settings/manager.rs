@@ -20,6 +20,8 @@ pub const DEFAULT_IDLE_EVICTION_MINUTES: u64 = 90;
 /// (`number | "off" | "none"`, malformed falls back to the default).
 pub const DEFAULT_SESSION_ARCHIVE_MAX_AGE_DAYS: u64 = 30;
 pub const DEFAULT_SESSION_ARCHIVE_MAX_SESSIONS: usize = 200;
+/// `subagentMaxConcurrency` default (omp2 `task.maxConcurrency`).
+pub const DEFAULT_SUBAGENT_MAX_CONCURRENCY: u32 = 32;
 
 #[derive(Debug, Clone)]
 pub struct SettingsError {
@@ -755,6 +757,26 @@ impl SettingsManager {
     #[must_use]
     pub fn get_rlm_max_depth(&self) -> Option<u64> {
         self.global.rlm_max_depth
+    }
+
+    /// `subagentMaxConcurrency`: how many subagents may run at once
+    /// (default 32; `0` is unlimited).
+    #[must_use]
+    pub fn get_subagent_max_concurrency(&self) -> u32 {
+        self.merged
+            .subagent_max_concurrency
+            .unwrap_or(DEFAULT_SUBAGENT_MAX_CONCURRENCY)
+    }
+
+    /// The provider admission limits (`providerMaxInFlight`,
+    /// `providerMaxQueued`). Global settings only: the limits are shared by
+    /// every session of the agent dir, so no project may move them.
+    #[must_use]
+    pub fn get_admission_limits(&self) -> crate::admission::AdmissionLimits {
+        crate::admission::AdmissionLimits::new(
+            self.global.provider_max_in_flight.as_ref(),
+            self.global.provider_max_queued,
+        )
     }
 
     /// `number | "off" | "none"` -> finite minutes or Off; malformed falls

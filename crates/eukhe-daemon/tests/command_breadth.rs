@@ -502,6 +502,10 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "worker_roster_delta", "workerToken": "token", "summary": { }}"#,
     ),
     (
+        "provider_admission_acquire",
+        r#"{"type": "provider_admission_acquire", "workerToken": "token", "providerId": "elpis-fast"}"#,
+    ),
+    (
         "get_worker_peer_transport",
         r#"{"type": "get_worker_peer_transport", "workerToken": "token", "targetActiveSessionId": "target"}"#,
     ),
@@ -540,6 +544,7 @@ fn known_command_types_match_the_ts_list() {
                 *extra,
                 "worker_register"
                     | "worker_roster_delta"
+                    | "provider_admission_acquire"
                     | "get_worker_peer_transport"
                     | "get_mcp_connections"
                     | "set_mcp_static_token"

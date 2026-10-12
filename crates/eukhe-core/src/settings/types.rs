@@ -291,6 +291,16 @@ pub struct Settings {
     pub default_thinking_level: Option<ThinkingLevelSetting>,
     pub default_service_tier: Option<String>,
     pub rlm_max_depth: Option<u64>,
+    /// Per-provider cap on concurrent model requests across every eukhe
+    /// process of this agent dir (`{providerId: n}`); an absent provider
+    /// (or `0`) is unlimited. Read from the global settings only.
+    pub provider_max_in_flight: Option<std::collections::BTreeMap<String, u32>>,
+    /// How many requests may wait for a limited provider before the next
+    /// one fails at once (default 64). Read from the global settings only.
+    pub provider_max_queued: Option<u32>,
+    /// How many subagents may run at once in one daemon (default 32, `0`
+    /// unlimited); a spawn batch that would exceed it fails whole.
+    pub subagent_max_concurrency: Option<u32>,
     /// `number | "off" | "none"`; raw JSON because the TS getter validates at
     /// access time.
     pub idle_eviction_minutes: Option<serde_json::Value>,

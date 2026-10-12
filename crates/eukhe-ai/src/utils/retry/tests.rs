@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use eukhe_chord::context::AbortController;
 use eukhe_types::pi_ai::{AssistantContentBlock, TextContent};
@@ -61,6 +62,69 @@ fn matches_http2_pending_stream_cancellation() {
     ] {
         assert!(retryable(error_message), "{error_message}");
     }
+}
+
+#[test]
+fn a_full_admission_queue_is_never_retried() {
+    // The queue limit in the text must not read as a 5xx status.
+    assert!(!retryable(
+        "provider admission queue is full for p: 500 requests already wait (providerMaxQueued)"
+    ));
+}
+
+/// A failed message whose provider-failure diagnostic carries the
+/// server's requested wait.
+fn failure_with_retry_after(retry_after_ms: u64) -> AssistantMessage {
+    let mut message = faux_stop_message(StopReason::Error, Some("429 Too Many Requests"));
+    let details = serde_json::json!({ "kind": "rate_limit", "retryAfterMs": retry_after_ms });
+    message.diagnostics = Some(vec![eukhe_types::pi_ai::AssistantMessageDiagnostic {
+        kind: "provider_stream_failure".to_owned(),
+        timestamp: 0,
+        error: None,
+        details: details.as_object().cloned(),
+    }]);
+    message
+}
+
+/// [`retry_wait_ms`] as a [`Duration`], so the assertions compare exact
+/// time values instead of raw floats.
+fn retry_wait(policy: RetryDelay, attempt: u32, message: &AssistantMessage) -> Duration {
+    Duration::from_secs_f64(retry_wait_ms(policy, attempt, message) / 1_000.0)
+}
+
+#[test]
+fn the_retry_wait_honors_the_servers_retry_after_up_to_the_cap() {
+    let policy = RetryDelay {
+        base_delay_ms: 100.0,
+        max_agent_delay_ms: Some(4_000.0),
+    };
+    let waits = [
+        retry_wait(policy, 1, &failure_with_retry_after(1_500)),
+        retry_wait(policy, 1, &failure_with_retry_after(60_000)),
+    ];
+    assert_eq!(
+        waits,
+        [Duration::from_millis(1_500), Duration::from_millis(4_000)]
+    );
+}
+
+#[test]
+fn the_retry_wait_is_a_full_jitter_draw_under_the_step() {
+    let policy = RetryDelay {
+        base_delay_ms: 1_000.0,
+        max_agent_delay_ms: None,
+    };
+    let message = faux_stop_message(StopReason::Error, Some("503 Service Unavailable"));
+    let waits: Vec<Duration> = (0..200).map(|_| retry_wait(policy, 3, &message)).collect();
+    // Attempt 3's step is 4 s: every draw lands in [0, 4 s], and the
+    // draws spread (a fixed ladder would repeat one value).
+    assert!(
+        waits
+            .iter()
+            .all(|wait| (Duration::ZERO..=Duration::from_millis(4_000)).contains(wait)),
+        "{waits:?}"
+    );
+    assert!(waits.iter().any(|wait| *wait != waits[0]), "{waits:?}");
 }
 
 #[test]

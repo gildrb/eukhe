@@ -492,18 +492,26 @@ async fn resumes_a_retry_backoff_after_reopen() {
     opened.harness.close(context()).await.unwrap();
 
     opened = open(&path, &setup).await;
+    let checkpoint = checkpoint(&opened.harness, task_id)
+        .await
+        .expect("the retry checkpoint");
+    // The wait is a full-jitter draw under the 60 s step, committed with
+    // the checkpoint: the reopened run resumes at the same instant.
+    let until = checkpoint["until"].clone();
+    let at = until.as_f64().expect("the retry instant");
+    assert!((1_000.0..=61_000.0).contains(&at), "retry at {at}");
     assert_eq!(
-        checkpoint(&opened.harness, task_id).await,
-        Some(json(r#"{"phase":"retry","attempt":1,"until":61000}"#))
+        checkpoint,
+        serde_json::json!({ "phase": "retry", "attempt": 1, "until": until })
     );
     assert_eq!(
         live(&opened.harness, &opened).await,
         serde_json::json!({
             "run": { "taskId": task_id.get(), "inputs": [id.get()] },
-            "generation": { "attempt": 1, "retry": { "at": 61_000, "error": "503 Service Unavailable" } },
+            "generation": { "attempt": 1, "retry": { "at": until, "error": "503 Service Unavailable" } },
         })
     );
-    now.store(61_000.0_f64.to_bits(), Ordering::SeqCst);
+    now.store(at.to_bits(), Ordering::SeqCst);
     opened.harness.resume().unwrap();
     let handle = opened
         .harness

@@ -262,6 +262,28 @@ pub fn slim_roster_summary(summary: Value) -> Value {
     summary
 }
 
+/// Where an agent's model request stands against its provider's
+/// admission limit (`providerMaxInFlight`): the summary's `admission`
+/// field, absent while the agent has no request waiting or in flight on
+/// a limited provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelAdmission {
+    /// Waiting for a free slot of the provider.
+    Queued,
+    /// Holding a slot: the request is out.
+    Generating,
+}
+
+/// The `admission` field of a summary in its wire (JSON) form; `None` when
+/// absent or unrecognized.
+#[must_use]
+pub fn summary_admission(summary: &Value) -> Option<ModelAdmission> {
+    summary
+        .get("admission")
+        .and_then(|admission| ModelAdmission::deserialize(admission).ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -138,6 +138,9 @@ pub struct ActivityDock {
     /// subagents): the total's other addend. Idle and dead registry
     /// rows never count -- they render in the scoped agents view.
     pub subagents_running_nested: usize,
+    /// How many of the running descendants wait for their provider's
+    /// admission slot (`providerMaxInFlight`).
+    pub subagents_queued: usize,
     /// The CURRENT session's heartbeats (nested sessions' jobs do not
     /// surface here, operator scoping).
     pub heartbeats: usize,

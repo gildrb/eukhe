@@ -192,6 +192,13 @@ pub struct SessionConfig {
     pub now: Option<Clock>,
     /// Turn-wait notifications (`OptChat` root-turn lease).
     pub turn_wait: Option<TurnWaitSink>,
+    /// The provider admission authority the session's model requests ask
+    /// (the daemon worker's supervisor link); `None` uses this process's
+    /// shared in-process authority ([`crate::admission::local_admission`]).
+    pub admission: Option<crate::admission::AdmissionHandle>,
+    /// The session's admission state (the daemon's roster `admission`);
+    /// `None` drops it.
+    pub admission_state: Option<super::admission_gate::AdmissionStateSink>,
     /// Live compaction-summary deltas (the daemon's TUI block); `None`
     /// keeps the one-shot completion.
     pub summary_delta: Option<SummaryDeltaSink>,
@@ -238,6 +245,8 @@ impl SessionConfig {
             mcp_login: None,
             now: None,
             turn_wait: None,
+            admission: None,
+            admission_state: None,
             cron: None,
             extra_host_handlers: None,
             late_agent_message: None,

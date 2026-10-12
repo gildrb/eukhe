@@ -14,7 +14,7 @@ mod tests;
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms, RetryDelay};
+use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_wait_ms, RetryDelay};
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::Draft;
 use eukhe_chord::json::to_json;
@@ -354,13 +354,16 @@ async fn classify(
         && request.attempt <= u64::from(policy.max_retries);
     let until = if retry {
         let attempt = u32::try_from(request.attempt).unwrap_or(u32::MAX);
+        // Full jitter under the policy's step, never before the server's
+        // Retry-After (committed with the checkpoint, like generation).
         runtime.now()?
-            + retry_delay_ms(
+            + retry_wait_ms(
                 RetryDelay {
                     base_delay_ms: policy.base_delay_ms,
                     max_agent_delay_ms: policy.max_agent_delay_ms,
                 },
                 attempt,
+                &message,
             )
     } else {
         0.0

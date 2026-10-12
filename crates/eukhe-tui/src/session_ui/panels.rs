@@ -150,6 +150,7 @@ impl SessionUi {
         crate::chrome::ActivityDock {
             subagents_running_direct: self.subagent_counts.running_direct,
             subagents_running_nested: self.subagent_counts.running_nested,
+            subagents_queued: self.subagent_counts.queued,
             heartbeats: self.heartbeat_catalog.len(),
             heartbeats_paused: paused_heartbeat_count(&self.heartbeat_catalog),
             bash_running,

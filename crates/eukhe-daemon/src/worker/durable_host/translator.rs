@@ -18,7 +18,6 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use eukhe_ai::utils::retry::RetryDelay;
 use eukhe_chord::json::JsonValue;
 use eukhe_core::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use eukhe_core::durable::{
@@ -227,7 +226,7 @@ pub struct EventTranslator {
     held_ends: Vec<CompactionReason>,
     /// The open retry episode (TS `auto_retry_start` ... `auto_retry_end`).
     retry_episode: Option<RetryEpisode>,
-    /// The session's retry policy: the wire's `maxAttempts` and `delayMs`.
+    /// The session's retry policy: the wire's `maxAttempts`.
     retry_policy: Option<RetryPolicySource>,
 }
 
@@ -350,8 +349,7 @@ impl EventTranslator {
         }
     }
 
-    /// Report every retry start's `maxAttempts` and scheduled `delayMs`
-    /// from `policy`.
+    /// Report every retry start's `maxAttempts` from `policy`.
     #[must_use]
     pub fn with_retry_policy(mut self, policy: RetryPolicySource) -> Self {
         self.retry_policy = Some(policy);
@@ -640,29 +638,18 @@ impl EventTranslator {
         let episode = self.retry_episode.get_or_insert_with(RetryEpisode::default);
         episode.retries += 1;
         episode.final_error = Some(error_message.to_owned());
-        // The scheduled wait (TS `delayMs`): pi-durable schedules the
-        // policy's ladder step for this attempt (`at` = commit time + that
-        // step), the same `retry_delay_ms` computed here; without a policy,
-        // the wait left from now.
+        // The wait (TS `delayMs`): pi-durable draws it once per retry (full
+        // jitter under the policy's ladder step, never shorter than the
+        // server's Retry-After) and commits its end as `at`, so the wire
+        // carries what is left of it from now.
         let mut frame = json!({
             "type": "auto_retry_start",
             "attempt": attempt,
+            "delayMs": retry_delay_ms(at, now_ms()),
             "errorMessage": error_message,
         });
-        match &self.retry_policy {
-            Some(source) => {
-                let policy = (source.0)();
-                let step = eukhe_ai::utils::retry::retry_delay_ms(
-                    RetryDelay {
-                        base_delay_ms: policy.base_delay_ms,
-                        max_agent_delay_ms: policy.max_agent_delay_ms,
-                    },
-                    u32::try_from(attempt).unwrap_or(u32::MAX),
-                );
-                frame["delayMs"] = Value::from(retry_delay_ms(step, 0.0));
-                frame["maxAttempts"] = Value::from(policy.max_retries);
-            }
-            None => frame["delayMs"] = Value::from(retry_delay_ms(at, now_ms())),
+        if let Some(source) = &self.retry_policy {
+            frame["maxAttempts"] = Value::from((source.0)().max_retries);
         }
         out.push(frame);
     }

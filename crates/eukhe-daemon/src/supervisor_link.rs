@@ -40,6 +40,19 @@ impl LinkClient {
     /// tagged [`LinkWriteFailed`] (the command was not sent); everything
     /// after the write is uncertain and surfaces as a plain error.
     async fn request(&mut self, command: Value, timeout: Duration) -> Result<DaemonResponse> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        self.exchange(command, Some(deadline), &mut |_| {}).await
+    }
+
+    /// [`Self::request`] with an optional deadline, handing every other
+    /// line the socket carries before the response to `on_frame` (a held
+    /// request's progress frames).
+    async fn exchange(
+        &mut self,
+        command: Value,
+        deadline: Option<tokio::time::Instant>,
+        on_frame: &mut (dyn FnMut(&Value) + Send),
+    ) -> Result<DaemonResponse> {
         let id = format!("link-{}", self.next_id);
         self.next_id += 1;
         let envelope = json!({
@@ -58,13 +71,17 @@ impl LinkClient {
             .flush()
             .await
             .map_err(|error| anyhow::Error::new(LinkWriteFailed).context(error))?;
-        let deadline = tokio::time::Instant::now() + timeout;
         loop {
             let mut line = String::new();
-            let read = tokio::time::timeout_at(deadline, self.reader.read_line(&mut line))
-                .await
-                .map_err(|_| LinkTimeout)?
-                .context("supervisor link closed")?;
+            let read = match deadline {
+                Some(deadline) => {
+                    tokio::time::timeout_at(deadline, self.reader.read_line(&mut line))
+                        .await
+                        .map_err(|_| LinkTimeout)?
+                }
+                None => self.reader.read_line(&mut line).await,
+            }
+            .context("supervisor link closed")?;
             if read == 0 {
                 return Err(anyhow!("supervisor link closed"));
             }
@@ -77,8 +94,17 @@ impl LinkClient {
                 return serde_json::from_value(value)
                     .map_err(|error| anyhow!("invalid link response: {error}"));
             }
+            on_frame(&value);
         }
     }
+}
+
+/// A supervisor connection kept open after its response: the supervisor
+/// holds what the request acquired (a provider admission slot) until the
+/// connection closes, so dropping this — or the worker process dying —
+/// releases it.
+pub(crate) struct HeldLink {
+    _client: LinkClient,
 }
 
 /// Supervisor connection endpoint for a daemon worker. Each request uses its
@@ -124,6 +150,40 @@ impl SupervisorLink {
         })
         .await
         .map_err(|_| LinkTimeout)?
+    }
+
+    /// Send one request whose effect lasts as long as its connection (a
+    /// provider admission slot): no deadline after the connect (the answer
+    /// may wait for a free slot), every non-response line before the
+    /// answer goes to `on_frame`, and the connection comes back with the
+    /// response so the caller decides when it closes. A failed write
+    /// reconnects once, like [`Self::request`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the connect or the hello does not finish
+    /// within `connect_timeout`, or the command write or the response
+    /// read fails.
+    pub(crate) async fn hold(
+        &self,
+        command: Value,
+        connect_timeout: Duration,
+        mut on_frame: impl FnMut(&Value) + Send,
+    ) -> Result<(DaemonResponse, HeldLink)> {
+        let connect = || async {
+            tokio::time::timeout(connect_timeout, self.connect())
+                .await
+                .map_err(|_| LinkTimeout)?
+        };
+        let mut client = connect().await?;
+        let response = match client.exchange(command.clone(), None, &mut on_frame).await {
+            Err(error) if error.downcast_ref::<LinkWriteFailed>().is_some() => {
+                client = connect().await?;
+                client.exchange(command, None, &mut on_frame).await?
+            }
+            outcome => outcome?,
+        };
+        Ok((response, HeldLink { _client: client }))
     }
 
     /// Consume the supervisor hello and hand back a live client.

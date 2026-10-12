@@ -515,13 +515,10 @@ fn every_provider_failing_surfaces_the_final_error() {
     );
     assert_eq!(starts[1]["attempt"], 1);
     assert_eq!(starts[1]["maxAttempts"], 1);
-    // pi-durable schedules the policy's ladder step exactly (50 ms, no
-    // jitter); the band leaves rounding headroom.
+    // pi-durable draws the wait with full jitter under the policy's ladder
+    // step (50 ms: [0, 50]); the upper band leaves rounding headroom.
     let delay = starts[1]["delayMs"].as_u64().expect("delayMs");
-    assert!(
-        (40..=70).contains(&delay),
-        "quick retry delay {delay} outside [40, 70]"
-    );
+    assert!(delay <= 70, "quick retry delay {delay} above 70");
     assert_eq!(
         starts[2]["reason"], "backup",
         "the retried request switches too"

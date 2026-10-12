@@ -457,6 +457,26 @@ impl Worker {
                 }),
             );
         }));
+        // Provider admission: the supervisor owns the daemon-wide slots
+        // (a worker without one keeps the in-process authority), and the
+        // session's admission state rides its roster summary.
+        if !self.config.supervisor_socket_path.as_os_str().is_empty() {
+            config.admission = Some(eukhe_core::admission::AdmissionHandle::new(Arc::new(
+                crate::provider_admission::LinkAdmission::new(
+                    self.config.supervisor_socket_path.clone(),
+                    self.config.token.clone(),
+                ),
+            )));
+        }
+        let admission_core = Arc::clone(&self.core);
+        let admission_pushes = self.roster_pushes.clone();
+        config.admission_state = Some(Arc::new(move |admission| {
+            admission_core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .model_admission = admission;
+            admission_pushes.push();
+        }));
         // The live compaction summary block: every summarizer text delta,
         // then the file-operations flush, straight onto the wire between
         // the run's `compaction_start` and `compaction_end`.

@@ -16,7 +16,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use eukhe_ai::types::{DeferredCancelOptions, DeferredFetchOptions, ProviderRequestOptions};
 use eukhe_ai::utils::overflow::is_context_overflow;
-use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms, RetryDelay};
+use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_wait_ms, RetryDelay};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::to_json;
 use eukhe_types::pi_ai::{
@@ -858,12 +858,15 @@ async fn classify(
         && is_retryable_assistant_error(&message)
         && policy.enabled
         && attempt <= u64::from(policy.max_retries);
+    // The wait is drawn once and committed with the retry checkpoint, so a
+    // replay resumes at the same instant: full jitter under the policy's
+    // step, never before the server's Retry-After.
     let until = if retry {
         let delay = RetryDelay {
             base_delay_ms: policy.base_delay_ms,
             max_agent_delay_ms: policy.max_agent_delay_ms,
         };
-        runtime.now()? + retry_delay_ms(delay, u32::try_from(attempt).unwrap_or(u32::MAX))
+        runtime.now()? + retry_wait_ms(delay, u32::try_from(attempt).unwrap_or(u32::MAX), &message)
     } else {
         0.0
     };

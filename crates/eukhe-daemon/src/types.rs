@@ -90,6 +90,11 @@ pub struct SessionSummary {
     /// ended.
     #[serde(default)]
     pub has_running_subagents: bool,
+    /// `queued` while a model request waits for its provider's admission
+    /// slot (`providerMaxInFlight`), `generating` while one holds a slot;
+    /// absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admission: Option<eukhe_types::daemon::agent_roster::ModelAdmission>,
     pub attached_clients: u32,
     pub message_count: u32,
     pub session_actions: SessionActionSnapshot,

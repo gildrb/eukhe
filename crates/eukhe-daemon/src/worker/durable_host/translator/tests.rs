@@ -791,7 +791,7 @@ fn run_end_clears_the_live_state() {
 }
 
 /// The retry episode on the wire: every start carries the policy budget and
-/// the scheduled wait (the policy's ladder step pi-durable scheduled);
+/// what is left of the wait pi-durable scheduled (its committed `at`);
 /// pi-durable's per-wait end stays silent, and the episode closes once —
 /// recovered on the next settled answer, failed at the turn's end with the
 /// final error.
@@ -811,16 +811,20 @@ fn auto_retry_frames() {
             json!({ "type": "message_end", "entry": entry(id, "pi.assistant", Some(message), None) }),
         )
     };
-    // The second attempt's retry waits the ladder's second step (100 ms).
+    // The second attempt's retry ends a minute from now: the frame carries
+    // what is left of that wait.
+    let at = now_ms() + 60_000.0;
     let frames = translator.translate_batch(&[
         failed(4, "overloaded"),
         event(json!({
-            "type": "auto_retry_start", "attempt": 2, "at": 0.0, "errorMessage": "overloaded",
+            "type": "auto_retry_start", "attempt": 2, "at": at, "errorMessage": "overloaded",
         })),
     ]);
+    let delay = frames[2]["delayMs"].as_u64().expect("delayMs");
+    assert!((59_000..=60_000).contains(&delay), "{delay}");
     assert_eq!(
         frames[2],
-        json!({ "type": "auto_retry_start", "attempt": 2, "delayMs": 100,
+        json!({ "type": "auto_retry_start", "attempt": 2, "delayMs": delay,
                 "errorMessage": "overloaded", "maxAttempts": 2 })
     );
     let frames = translator.translate(&event(json!({ "type": "auto_retry_end", "attempt": 2 })));

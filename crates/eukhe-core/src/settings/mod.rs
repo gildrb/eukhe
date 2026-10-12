@@ -12,7 +12,7 @@ pub(crate) mod types;
 pub use manager::{
     IdleEviction, SessionArchivePolicy, SettingsError, SettingsManager,
     DEFAULT_IDLE_EVICTION_MINUTES, DEFAULT_SESSION_ARCHIVE_MAX_AGE_DAYS,
-    DEFAULT_SESSION_ARCHIVE_MAX_SESSIONS,
+    DEFAULT_SESSION_ARCHIVE_MAX_SESSIONS, DEFAULT_SUBAGENT_MAX_CONCURRENCY,
 };
 pub use storage::{
     FileSettingsStorage, InMemorySettingsStorage, SettingsScope, SettingsStorage, CONFIG_DIR_NAME,

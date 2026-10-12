@@ -5,6 +5,7 @@
 //! `extension(deps: &Arc<HostDeps>) -> Arc<Extension>`; `registry` installs
 //! them in order.
 
+mod admission_gate;
 pub mod branch_summary;
 pub mod children;
 pub mod compaction;
@@ -31,6 +32,7 @@ pub(crate) mod session_commands;
 mod settings;
 mod staging;
 
+pub use admission_gate::AdmissionStateSink;
 pub use deps::{
     HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry, LateAgentMessageSink,
     McpLogin, ModelRequest, OpenedSession, ParentLink, PromptConfig, ServiceStart, ServiceStop,

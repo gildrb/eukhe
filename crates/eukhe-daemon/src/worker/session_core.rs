@@ -98,6 +98,10 @@ pub(crate) struct SessionCore {
     /// `appendSystemPrompt`, `skills`, `promptTemplates`); a replacement
     /// session keeps them, like the TS runtime config.
     pub(crate) prompt: eukhe_core::durable::PromptConfig,
+    /// Where the session's model requests stand against their provider's
+    /// admission limit (summary `admission`); set by the session's
+    /// admission sink.
+    pub(crate) model_admission: Option<eukhe_types::daemon::agent_roster::ModelAdmission>,
 }
 
 impl SessionCore {
@@ -135,6 +139,7 @@ impl SessionCore {
             active_service_tier: None,
             scoped_models: Vec::new(),
             prompt: eukhe_core::durable::PromptConfig::default(),
+            model_admission: None,
         }
     }
 

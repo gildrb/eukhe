@@ -6,7 +6,9 @@
 
 use serde_json::Value;
 
-use eukhe_types::daemon::agent_roster::{classify_summary_value, AgentRosterStatus};
+use eukhe_types::daemon::agent_roster::{
+    classify_summary_value, summary_admission, AgentRosterStatus, ModelAdmission,
+};
 
 /// One session's family-addressing identity (TS `AgentsViewScopeKey` plus
 /// the file key): the keys its child rows reference it by.
@@ -61,6 +63,9 @@ pub struct SubagentCounts {
     pub running: usize,
     pub running_direct: usize,
     pub running_nested: usize,
+    /// Running descendants whose model request waits for its provider's
+    /// admission slot (summary `admission: queued`).
+    pub queued: usize,
     pub idle: usize,
     pub inactive: usize,
 }
@@ -324,6 +329,10 @@ pub fn count_descendants(roster: &[Value], parent: &SessionIdentity) -> Subagent
                 } else {
                     counts.running_nested += 1;
                 }
+                if entry.get("summary").and_then(summary_admission) == Some(ModelAdmission::Queued)
+                {
+                    counts.queued += 1;
+                }
             }
             AgentRosterStatus::Idle => counts.idle += 1,
             AgentRosterStatus::Inactive => counts.inactive += 1,
@@ -440,6 +449,43 @@ mod tests {
         assert_eq!(
             counts.running,
             counts.running_direct + counts.running_nested
+        );
+    }
+
+    /// A running child whose model request waits for its provider's slot
+    /// counts queued; a generating or idle one does not.
+    #[test]
+    fn running_children_waiting_for_admission_count_queued() {
+        let mut queued = child_summary("c1", "p1", "subagent");
+        queued["admission"] = json!("queued");
+        let mut generating = child_summary("c2", "p1", "subagent");
+        generating["admission"] = json!("generating");
+        let mut idle_queued = child_summary("c3", "p1", "subagent");
+        idle_queued["admission"] = json!("queued");
+        let roster = vec![
+            entry("parent", &parent_summary("p1"), "idle"),
+            entry("c1", &queued, "running"),
+            entry("c2", &generating, "running"),
+            entry("c3", &idle_queued, "idle"),
+        ];
+        assert_eq!(
+            count_descendants(
+                &roster,
+                &SessionIdentity::new(
+                    Some("p1-live".to_string()),
+                    Some("p1".to_string()),
+                    Some("/sessions/p1.jsonl".to_string()),
+                ),
+            ),
+            SubagentCounts {
+                total: 3,
+                running: 2,
+                running_direct: 2,
+                running_nested: 0,
+                queued: 1,
+                idle: 1,
+                inactive: 0,
+            }
         );
     }
 
@@ -575,6 +621,7 @@ mod tests {
                 running: 2,
                 running_direct: 1,
                 running_nested: 1,
+                queued: 0,
                 idle: 1,
                 inactive: 0,
             }
