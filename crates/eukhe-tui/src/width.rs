@@ -426,18 +426,6 @@ pub fn normalize_terminal_output(s: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(out)
 }
 
-/// Strip a leading run of zero-width/format chars (approximation of the TS
-/// leading-non-printing trim).
-fn base_char_width(c: char) -> usize {
-    match c {
-        '\u{200b}'..='\u{200f}'
-        | '\u{feff}'
-        | '\u{2060}'..='\u{2064}'
-        | '\u{0300}'..='\u{036f}' => 0,
-        _ => char_width(c),
-    }
-}
-
 /// Pad a line with plain spaces to exactly `width` visible columns.
 #[must_use]
 pub fn pad_line(mut line: Line, width: usize) -> Line {
@@ -584,22 +572,6 @@ pub fn slice_line_by_column_strict(line: &Line, start: usize, length: usize, str
         }
     }
     out
-}
-
-/// Drop trailing blank lines from a rendered block (e.g. trailing Spacer output).
-pub fn trim_trailing_empty(lines: &mut Vec<Line>) {
-    while lines
-        .last()
-        .is_some_and(|l| l.is_empty() || l.iter().all(|s| s.content.trim().is_empty()))
-    {
-        lines.pop();
-    }
-}
-
-/// First char width of `s` for overflow checks.
-#[must_use]
-pub fn base_char_w(c: char) -> usize {
-    base_char_width(c)
 }
 
 #[cfg(test)]

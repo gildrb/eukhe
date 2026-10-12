@@ -2,7 +2,7 @@
 //! general-purpose ANSI stripper (TS `stripAnsi` in utils.ts).
 
 use crate::style::{Color, Modifier};
-use crate::{Line, Span};
+use crate::Span;
 use std::fmt::Write;
 
 /// Remove all escape sequences (CSI, OSC, DCS, APC/PM/SOS, and ordinary
@@ -150,24 +150,6 @@ fn sgr_codes(span: &Span) -> Option<String> {
     } else {
         Some(parts.join(";"))
     }
-}
-
-/// Plain-text version of a line.
-#[must_use]
-pub fn line_to_plain(line: &Line) -> String {
-    line.iter().map(|s| s.content.as_str()).collect()
-}
-
-/// Render lines to an ANSI text block (with newlines). Pads to `width`.
-#[must_use]
-pub fn lines_to_ansi_block(lines: &[Line], width: usize) -> String {
-    let mut out = String::new();
-    for line in lines {
-        let padded = crate::width::pad_line(line.clone(), width);
-        out.push_str(&line_to_ansi(&padded));
-        out.push('\n');
-    }
-    out
 }
 
 #[must_use]

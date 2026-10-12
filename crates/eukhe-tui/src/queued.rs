@@ -523,11 +523,6 @@ impl QueueSelection {
         self.has_stashed_draft
     }
 
-    pub fn replace_draft(&mut self, draft: String) {
-        self.draft = draft;
-        self.has_stashed_draft = true;
-    }
-
     /// Move the cursor. Returns the text to show, or `None` for a boundary
     /// noop; reaching the draft end the browse (the stashed draft returns).
     pub fn browse(

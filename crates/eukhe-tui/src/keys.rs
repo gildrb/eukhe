@@ -310,22 +310,6 @@ fn modified_name(name: &str, ctrl: bool, alt: bool, shift: bool, super_key: bool
     s
 }
 
-/// Repeated escape presses arrive as separate events; TS splits combined data.
-/// Kept for API parity with CustomEditor.splitRepeatedKeybinding.
-#[must_use]
-pub fn split_repeated(data: &[KeyId], keybinding_id: &str) -> Option<Vec<KeyId>> {
-    let hits: Vec<KeyId> = data
-        .iter()
-        .filter(|k| k.as_str() == keybinding_id)
-        .cloned()
-        .collect();
-    if hits.len() > 1 {
-        Some(hits)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

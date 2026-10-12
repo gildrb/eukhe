@@ -82,13 +82,6 @@ pub struct EditorPasteSnapshot {
     pub paste_counter: usize,
 }
 
-/// Outcome of a submit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubmitOutcome {
-    /// Expanded + trimmed text, as delivered to `on_submit`.
-    pub text: String,
-}
-
 /// Events produced by the editor for the host app.
 #[derive(Debug, Clone)]
 pub enum EditorEvent {

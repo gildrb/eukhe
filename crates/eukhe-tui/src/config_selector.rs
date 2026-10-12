@@ -152,24 +152,6 @@ impl ConfigSelector {
         })
     }
 
-    /// Apply a new checked state to one item row (after the settings write
-    /// settled).
-    pub fn set_checked(&mut self, key: &str, checked: bool) {
-        for row in &mut self.rows {
-            if let SelectorRow::Item {
-                key: row_key,
-                checked: row_checked,
-                ..
-            } = row
-            {
-                if row_key == key {
-                    *row_checked = checked;
-                    return;
-                }
-            }
-        }
-    }
-
     /// Move the selection to one filtered position when it holds an item
     /// row (the arrow keys' exact movement, no toggle): group and
     /// subgroup rows keep the selection where it was.

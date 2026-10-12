@@ -114,12 +114,4 @@ impl Editor {
         let below = layout_lines.len().saturating_sub(end);
         (visible, self.scroll_offset, self.scroll_offset, below)
     }
-
-    #[must_use]
-    pub fn cursor_visual(&self, visible: &[LayoutLine]) -> Option<(usize, usize)> {
-        visible
-            .iter()
-            .position(|l| l.has_cursor)
-            .map(|row| (row, visible[row].cursor_pos))
-    }
 }

@@ -562,17 +562,6 @@ impl KeybindingsManager {
     pub fn get_effective_config(&self) -> BTreeMap<String, Vec<String>> {
         self.resolved.clone()
     }
-
-    pub fn set_user_bindings(&mut self, user_bindings: KeybindingsConfig) {
-        self.user_bindings = user_bindings;
-        self.rebuild();
-    }
-
-    /// Load user bindings from a keybindings.json file (missing file = defaults).
-    #[must_use]
-    pub fn load_from_file(path: &Path) -> Self {
-        Self::with_user_bindings(load_config(path))
-    }
 }
 
 impl Default for KeybindingsManager {

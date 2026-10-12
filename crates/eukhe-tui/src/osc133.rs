@@ -15,10 +15,8 @@ use crate::Line;
 
 /// Zone start (prompt start): first row of a marked message.
 pub const ZONE_START: &str = "\x1b]133;A\x07";
-/// Zone end (command start) + zone final (output start): last row of a
-/// marked message, in that order.
+/// Zone end (command start): last row of a marked message.
 pub const ZONE_END: &str = "\x1b]133;B\x07";
-pub const ZONE_FINAL: &str = "\x1b]133;C\x07";
 
 /// The exact end-of-message prefix TS writes (`B` immediately followed by
 /// `C`, prepended to the last row).
