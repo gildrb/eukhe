@@ -59,6 +59,13 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "support/eukhe.rs"]
+// The binaries arrive as paths (the sibling daemon, a TS pair): only
+// `eukhe_env` is used.
+#[allow(dead_code)]
+mod eukhe;
+use eukhe::eukhe_env;
+
 /// Environment keys this box's own eukhe worker sets; they must not leak
 /// into spawned daemons or their session workers. `EUKHE_PACKAGE_DIR` is
 /// scrubbed too: it overrides both binaries' package-manifest resolution,
@@ -118,7 +125,7 @@ impl Drop for Daemon {
 #[allow(clippy::zombie_processes)]
 fn spawn_daemon(binary: &Path, socket: &Path, agent_dir: &Path) -> Daemon {
     let mut command = Command::new(binary);
-    command
+    eukhe_env(&mut command)
         .arg("supervisor")
         .arg("--socket")
         .arg(socket)
@@ -255,7 +262,7 @@ fn create_session(
 /// the temp dir so the default socket path resolves inside it too).
 fn run_cli(binary: &Path, dir: &Path, agent_dir: &Path, args: &[&str]) -> Output {
     let mut command = Command::new(binary);
-    command
+    eukhe_env(&mut command)
         .args(args)
         .current_dir(dir)
         .env("EUKHE_CODING_AGENT_DIR", agent_dir)

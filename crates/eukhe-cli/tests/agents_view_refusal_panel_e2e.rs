@@ -25,11 +25,15 @@
 //! visible and wrapped, never the one-line status truncation.
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, AgentsViewUiMode};
 use eukhe_tui::interactive::{SessionSelection, UiMode};
+
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 struct Daemon {
     child: Child,
@@ -46,7 +50,7 @@ impl Drop for Daemon {
 
 #[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe"));
+    let mut command = eukhe_command();
     command
         .args(["--mode", "daemon", "--daemon-socket"])
         .arg(socket)

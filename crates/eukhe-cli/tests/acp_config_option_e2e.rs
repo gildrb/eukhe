@@ -32,11 +32,15 @@
 //! agent dir for discovery.
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::mpsc::{channel, Receiver};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 const TIMEOUT: Duration = Duration::from_mins(1);
 
@@ -213,8 +217,7 @@ fn acp_daemon_attached_config_option_pickers() {
         .to_string(),
     )
     .unwrap();
-    let bin = env!("CARGO_BIN_EXE_eukhe");
-    let mut child = Command::new(bin)
+    let mut child = eukhe_command()
         .args([
             "--mode",
             "acp",

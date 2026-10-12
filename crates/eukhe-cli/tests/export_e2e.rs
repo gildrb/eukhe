@@ -22,10 +22,14 @@
 //! reports the TS success row.
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use eukhe_types::daemon::DaemonCommand;
+
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 struct Supervisor {
     child: Child,
@@ -131,7 +135,7 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     let socket = dir.join("daemon.sock");
     let agent_dir = dir.join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_eukhe"));
+    let mut command = eukhe_command();
     command
         .args(["--mode", "daemon", "--daemon-socket"])
         .arg(&socket)

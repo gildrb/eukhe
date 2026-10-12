@@ -25,7 +25,10 @@
 //! -> provider request -> event emission.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+#[path = "support/eukhe.rs"]
+mod eukhe;
+use eukhe::eukhe_command;
 
 struct Sandbox {
     home: tempfile::TempDir,
@@ -67,7 +70,7 @@ fn sandbox(settings: &serde_json::Value) -> Sandbox {
 }
 
 fn run(sandbox: &Sandbox, script: &serde_json::Value) -> (String, String, i32) {
-    let output = Command::new(env!("CARGO_BIN_EXE_eukhe"))
+    let output = eukhe_command()
         .args(["--mode", "json", "-p", "hi"])
         .env("HOME", sandbox.home.path())
         .env("EUKHE_CODING_AGENT_DIR", &sandbox.agent_dir)
