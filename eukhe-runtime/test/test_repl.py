@@ -3075,8 +3075,12 @@ class OwnerWatchdogTest(unittest.TestCase):
             while event.get("event") != "stdout":
                 event = repl.read_event()
             child = int(event["text"].strip())
+            sys.path.insert(0, SRC)
+            self.addCleanup(sys.path.remove, SRC)
+            import rlm.repl as repl_module
+
             child_exit = select.poll()
-            child_exit.register(os.pidfd_open(child), select.POLLIN)
+            child_exit.register(repl_module._pidfd_open(child), select.POLLIN)
             owner.kill()
             owner.wait(timeout=10)
             self.assertEqual(repl.proc.wait(timeout=15), -signal.SIGKILL)
@@ -3135,7 +3139,7 @@ class OwnerExitWaitTest(unittest.TestCase):
     def test_owner_wait_polls_when_exit_registration_fails(self):
         with (
             mock.patch.object(self.repl_module.select, "kqueue", create=True, side_effect=OSError("unavailable")),
-            mock.patch.object(self.repl_module.os, "pidfd_open", create=True, side_effect=OSError("unavailable")),
+            mock.patch.object(self.repl_module, "_pidfd_open", side_effect=OSError("unavailable")),
             mock.patch.object(
                 self.repl_module.time, "sleep", side_effect=lambda _: (self.owner.kill(), self.owner.wait())
             ) as sleep,
