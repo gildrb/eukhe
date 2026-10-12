@@ -218,9 +218,72 @@ pub(crate) fn walk_path_tree(tree: &PathTree) -> PathTreeIter<'_> {
     }
 }
 
+/// Renders paths as a prefix-folded listing: directory headers carry one `#`
+/// per depth and a trailing slash, file leaves are bare, and no blank lines
+/// separate groups.
+pub(crate) fn format_grouped_paths(paths: &[&str]) -> String {
+    let tree = build_path_tree(paths.iter().map(|path| (*path, path.ends_with('/'))));
+    let mut output = String::new();
+    for event in walk_path_tree(&tree) {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        match event.kind {
+            GroupedTreeEventKind::Directory => {
+                output.push_str(&"#".repeat(event.heading_level()));
+                output.push(' ');
+                output.push_str(event.name);
+                output.push('/');
+            }
+            GroupedTreeEventKind::File => output.push_str(event.name),
+        }
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folds_absolute_prefixes_and_preserves_first_seen_order() {
+        let paths = [
+            "/Users/me/proj/shared/wasm/llvm.hpp",
+            "/Users/me/proj/shared/wasm/vm.hpp",
+            "/Users/me/proj/shared/xstd.hpp",
+            "/Users/me/proj/shared/apollo/details/hash.hpp",
+            "/Users/me/proj/flash/main.cpp",
+        ];
+        assert_eq!(
+            format_grouped_paths(&paths),
+            [
+                "# /Users/me/proj/",
+                "## shared/",
+                "xstd.hpp",
+                "### wasm/",
+                "llvm.hpp",
+                "vm.hpp",
+                "### apollo/details/",
+                "hash.hpp",
+                "## flash/",
+                "main.cpp",
+            ]
+            .join("\n")
+        );
+    }
+
+    #[test]
+    fn emits_direct_files_before_subdirectories_and_keeps_directory_leaves() {
+        assert_eq!(
+            format_grouped_paths(&["pkg/sub/deep.txt", "pkg/top.txt"]),
+            ["# pkg/", "top.txt", "## sub/", "deep.txt"].join("\n")
+        );
+        assert_eq!(
+            format_grouped_paths(&["alpha/tests/", "beta/tests/"]),
+            ["# alpha/tests/", "# beta/tests/"].join("\n")
+        );
+        assert_eq!(format_grouped_paths(&["single.txt"]), "single.txt");
+    }
 
     #[test]
     fn traversal_marks_group_boundaries_for_grouped_file_projection() {
@@ -255,6 +318,14 @@ mod tests {
                     false
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn normalizes_backslashes() {
+        assert_eq!(
+            format_grouped_paths(&[r"src\nested\file.rs"]),
+            "# src/nested/\nfile.rs"
         );
     }
 }

@@ -19,6 +19,33 @@ pub(crate) fn normalize_path_input(input: &str) -> &str {
     }
 }
 
+/// Splits `input` on top-level `;`, leaving `;` inside `{...}` and after `\`
+/// in place.
+pub(crate) fn split_top_level_semicolons(input: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut brace_depth = 0_u32;
+    let mut start = 0;
+    let mut escaped = false;
+    for (index, character) in input.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match character {
+            '\\' => escaped = true,
+            '{' => brace_depth = brace_depth.saturating_add(1),
+            '}' => brace_depth = brace_depth.saturating_sub(1),
+            ';' if brace_depth == 0 => {
+                parts.push(&input[start..index]);
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(&input[start..]);
+    parts
+}
+
 /// Whether a path segment holds glob syntax.
 pub(crate) fn has_glob_chars(segment: &str) -> bool {
     segment
@@ -74,6 +101,15 @@ pub(crate) fn workspace_relative(root: &Path, path: &Path) -> io::Result<String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn top_level_semicolons_split_outside_braces_and_escapes() {
+        assert_eq!(
+            split_top_level_semicolons("src/{one;two}.rs; tests/**/*.rs"),
+            ["src/{one;two}.rs", " tests/**/*.rs"]
+        );
+        assert_eq!(split_top_level_semicolons(r"src/a\;b.rs"), [r"src/a\;b.rs"]);
+    }
 
     #[test]
     fn quoted_inputs_lose_one_quote_pair() {

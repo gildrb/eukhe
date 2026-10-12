@@ -7,6 +7,7 @@
 //!   write.
 //! - [`grep`]: regex search rendered as `[path#TAG]` / `N:TEXT` rows that
 //!   become edit anchors.
+//! - [`glob`]: matching paths, newest first, as a folded listing.
 //! - [`rebase_content`]: byte-level three-way rebase of a stale edit onto the
 //!   current file.
 //!
@@ -14,6 +15,7 @@
 //! (`can1357/oh-my-pi`, MIT; see `THIRD-PARTY-NOTICES`).
 
 mod error;
+mod glob;
 mod grep;
 mod notice;
 mod path;
@@ -24,6 +26,7 @@ mod store;
 pub mod text;
 
 pub use error::{EditError, EditResult};
+pub use glob::{glob, GlobError, GlobMatch, GlobOutput, GlobRequest, MAX_GLOB_LIMIT};
 pub use grep::{
     grep, ContextLine, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest, DEFAULT_FILE_LIMIT,
 };
