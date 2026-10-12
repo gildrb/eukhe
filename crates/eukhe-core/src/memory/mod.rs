@@ -7,9 +7,11 @@
 //! Layout under `<agent-dir>/chat/`:
 //!
 //! - `main/YYYY-MM-DD.jsonl`: one message per line, `{i, kind, text, size, date}`.
-//! - `tree/YYYY-MM-DD.jsonl`: one node per line, `{l, i, text, size}`.
-//! - `view.json`: the live view as `[l, i]` pairs, saved on every change
-//!   and loaded at start, never rebuilt from the log (§3.2).
+//! - `tree/YYYY-MM-DD.jsonl`: one node per line, `{l, i, text, size}`, and
+//!   one line per merge batch of the view, `{merge: [[l, i], ...]}`.
+//! - `view.json`: the live view as `[l, i]` pairs, a cache: the view is the
+//!   fold of the messages and the merge batches (§3.2), checked against it
+//!   at load.
 //! - `prompt.json`: the turns' system prompt and tools, which compactions
 //!   reuse so they read the turns' cache entry (§4).
 //! - `lock`: the owner's Unix socket. One process owns the chat for its whole

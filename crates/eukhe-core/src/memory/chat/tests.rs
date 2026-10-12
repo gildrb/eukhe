@@ -1,4 +1,5 @@
 use super::*;
+use crate::memory::store::MergeRecord;
 use crate::memory::PLACEHOLDER;
 
 fn meta(kind: Kind) -> MessageMeta {
@@ -174,6 +175,11 @@ fn the_compactor_sees_the_view_up_to_the_node() {
     );
 }
 
+/// A batch as (merged pairs, bytes before, bytes after).
+fn batch_shape(batch: Option<Batch>) -> Option<(usize, usize, usize)> {
+    batch.map(|batch| (batch.merged.len(), batch.before, batch.after))
+}
+
 /// §3.2's sawtooth: each message only appends its line until the view
 /// passes 128,000 bytes; then ONE batch merges the most due built pairs,
 /// oldest first among equals, down to at most 64,000 bytes.
@@ -190,16 +196,16 @@ fn the_view_grows_to_the_ceiling_then_one_batch_merges_it_to_the_floor() {
             appended.push(part(0, id));
             expected = reference_batch(&chat, appended, crossing, VIEW_FLOOR);
         }
-        batches.push(batch);
+        batches.push(batch_shape(batch));
         build_up(&mut chat, part(0, id));
     }
     // The crossing message's line is still a placeholder when it lands.
     let mut want = vec![None; crossing as usize - 1];
-    want.push(Some(Batch {
-        pairs: 129,
-        before: 128_000 + PLACEHOLDER.len(),
-        after: 63_500 + PLACEHOLDER.len(),
-    }));
+    want.push(Some((
+        129,
+        128_000 + PLACEHOLDER.len(),
+        63_500 + PLACEHOLDER.len(),
+    )));
     assert_eq!(
         (batches, chat.view.parts().to_vec(), chat.shrinking),
         (want, expected, false)
@@ -207,7 +213,7 @@ fn the_view_grows_to_the_ceiling_then_one_batch_merges_it_to_the_floor() {
     // The next message only appends again.
     let (_, batch) = chat.push_message(meta(Kind::User));
     assert_eq!(
-        (batch, chat.view.size()),
+        (batch_shape(batch), chat.view.size()),
         (None, 64_000 + PLACEHOLDER.len())
     );
 }
@@ -228,34 +234,26 @@ fn a_batch_merges_only_built_parents_and_resumes_at_each_message() {
         }
         let (_, batch) = chat.push_message(meta(Kind::User));
         chat.insert_node(part(0, id), &line());
-        last = batch;
+        last = batch_shape(batch);
     }
     let first_batch = (last, chat.shrinking);
-    let stalled = chat.push_message(meta(Kind::User)).1;
+    let stalled = batch_shape(chat.push_message(meta(Kind::User)).1);
     chat.insert_node(part(0, crossing), &line());
     for i in 40..60 {
         chat.insert_node(part(1, i), &line());
     }
-    let resumed = chat.push_message(meta(Kind::User)).1;
+    let resumed = batch_shape(chat.push_message(meta(Kind::User)).1);
     let mut parts: Vec<Part> = (0..60).map(|i| part(1, i)).collect();
     parts.extend((120..=crossing + 1).map(|i| part(0, i)));
     assert_eq!(
         (first_batch, stalled, resumed, chat.view.parts().to_vec()),
         (
             (
-                Some(Batch {
-                    pairs: 40,
-                    before: 128_000 + PLACEHOLDER.len(),
-                    after: 108_000 + PLACEHOLDER.len(),
-                }),
+                Some((40, 128_000 + PLACEHOLDER.len(), 108_000 + PLACEHOLDER.len())),
                 true
             ),
             None,
-            Some(Batch {
-                pairs: 20,
-                before: 109_000 + PLACEHOLDER.len(),
-                after: 99_000 + PLACEHOLDER.len(),
-            }),
+            Some((20, 109_000 + PLACEHOLDER.len(), 99_000 + PLACEHOLDER.len())),
             parts
         )
     );
@@ -374,10 +372,11 @@ fn free_nodes_need_no_model() {
     );
 }
 
-fn loaded(total: u64, nodes: Vec<NodeRecord>) -> Loaded {
+fn loaded(total: u64, nodes: Vec<NodeRecord>, merges: &[&[Part]]) -> Loaded {
     Loaded {
         messages: (0..total).map(|_| meta(Kind::User)).collect(),
         nodes,
+        merges: merges.iter().map(|batch| MergeRecord::of(batch)).collect(),
         scopes: std::collections::HashMap::new(),
         problems: Vec::new(),
     }
@@ -392,61 +391,58 @@ fn node(l: u32, i: u64, text: &str) -> NodeRecord {
     }
 }
 
-/// The saved view is loaded as saved, never folded again: here it holds
-/// a merge no fold of so small a chat would make.
+/// A chat from before the merge batches were logged imports its saved
+/// view once: the view is the saved one, and the merges that build it are
+/// handed to the owner to log.
 #[test]
-fn a_saved_view_loads_as_saved() {
+fn an_old_chat_imports_its_saved_view_as_merges() {
     let mut problems = Vec::new();
-    let (chat, source) = Chat::from_loaded(
+    let (chat, unlogged) = Chat::from_loaded(
         loaded(
-            3,
+            5,
             vec![
                 node(0, 0, "a"),
                 node(0, 1, "b"),
                 node(1, 0, "ab"),
                 node(3, 0, "foreign"),
             ],
+            &[],
         ),
-        Some(vec![part(1, 0), part(0, 2)]),
+        Some(vec![part(2, 0), part(0, 4)]),
         &mut problems,
     );
     assert_eq!(
-        (source, chat.render(), chat.first(), problems.len()),
+        (chat.view().parts().to_vec(), unlogged, problems.len()),
         (
-            ViewSource::Saved,
-            format!("<chat>\n0+2|ab\n2+1|{PLACEHOLDER}\n</chat>"),
-            2,
+            vec![part(2, 0), part(0, 4)],
+            vec![part(1, 0), part(1, 1), part(2, 0)],
             1
         )
     );
 }
 
-/// Messages logged after the view's last save are appended to it; a
-/// chat without a saved view (or with a broken one) folds one, once.
+/// The view is the fold of the messages and the logged merge batches:
+/// the saved view (stale, missing, or broken) is only a cache, and a
+/// merge whose halves are not in the view is skipped.
 #[test]
-fn a_short_saved_view_is_extended_and_a_missing_one_folded() {
+fn the_view_folds_from_the_logged_merges() {
     let nodes = || vec![node(0, 0, "a"), node(0, 1, "b"), node(1, 0, "ab")];
+    let merges: &[&[Part]] = &[&[part(1, 0)], &[part(2, 1)]];
     let mut problems = Vec::new();
-    let (extended, extended_source) =
-        Chat::from_loaded(loaded(3, nodes()), Some(vec![part(1, 0)]), &mut problems);
-    let (folded, folded_source) = Chat::from_loaded(loaded(3, nodes()), None, &mut problems);
-    let (broken, broken_source) = Chat::from_loaded(
-        loaded(3, nodes()),
+    let views: Vec<(Vec<Part>, Vec<Part>)> = [
+        None,
+        Some(vec![part(0, 0), part(0, 1), part(0, 2)]),
         Some(vec![part(0, 0), part(0, 2)]),
-        &mut problems,
-    );
+    ]
+    .into_iter()
+    .map(|saved| {
+        let (chat, unlogged) = Chat::from_loaded(loaded(3, nodes(), merges), saved, &mut problems);
+        (chat.view().parts().to_vec(), unlogged)
+    })
+    .collect();
+    let folded = (vec![part(1, 0), part(0, 2)], Vec::new());
     assert_eq!(
-        (
-            (extended_source, extended.view().parts().to_vec()),
-            (folded_source, folded.view().parts().to_vec()),
-            (broken_source, broken.view().parts().to_vec()),
-            problems.len(),
-        ),
-        (
-            (ViewSource::Extended, vec![part(1, 0), part(0, 2)]),
-            (ViewSource::Folded, vec![part(0, 0), part(0, 1), part(0, 2)]),
-            (ViewSource::Folded, vec![part(0, 0), part(0, 1), part(0, 2)]),
-            1,
-        )
+        (views, problems.len()),
+        (vec![folded.clone(), folded.clone(), folded], 3)
     );
 }

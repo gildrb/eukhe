@@ -13,11 +13,13 @@ use super::owner::Command;
 use super::prefix_gate::{prefix_key, PrefixGate};
 use super::turn::{Origin, Turns, TURN_FILE};
 use super::{ImportItem, MemoryStatus, Outcome, RenderedView, Reply, Request, Summarizer};
-use crate::memory::chat::{free_text, Batch, Chat, Step, ViewSource, Zoom};
+use crate::memory::chat::{free_text, Batch, Chat, Step, Zoom};
 use crate::memory::compactor::{build_line, NodeRequest};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved::{self, CompactionPrompt};
-use crate::memory::store::{note_scope, LoadMode, MessageRecord, NodeRecord, ScopeMark, Store};
+use crate::memory::store::{
+    note_scope, LoadMode, MergeRecord, MessageRecord, NodeRecord, ScopeMark, Store,
+};
 use crate::memory::view::Part;
 use crate::memory::{labeled, AppendKey, Kind, RETRY};
 
@@ -82,18 +84,20 @@ impl Actor {
         runtime: tokio::runtime::Handle,
         commands: mpsc::Sender<Command>,
     ) -> anyhow::Result<Actor> {
-        let (store, mut loaded) = Store::open(dir, LoadMode::Repair)?;
+        let (mut store, mut loaded) = Store::open(dir, LoadMode::Repair)?;
         let mut problems = loaded.problems.clone();
         let scopes = std::mem::take(&mut loaded.scopes);
         let saved_view = readable(saved::load_view(dir), saved::VIEW_FILE, &mut problems)?;
         let prompt = readable(saved::load_prompt(dir), saved::PROMPT_FILE, &mut problems)?
             .unwrap_or_else(CompactionPrompt::memory_layer);
-        let (chat, source) = Chat::from_loaded(loaded, saved_view, &mut problems);
-        match source {
-            ViewSource::Saved => {}
-            ViewSource::Extended | ViewSource::Folded => {
-                saved::save_view(dir, chat.view().parts())?;
-            }
+        let (chat, unlogged) = Chat::from_loaded(loaded, saved_view.clone(), &mut problems);
+        if !unlogged.is_empty() {
+            let day = crate::platform::local_time(SystemTime::now())?.date();
+            store.append_merge(&MergeRecord::of(&unlogged), &day)?;
+        }
+        // `view.json` is a cache of the fold.
+        if saved_view.as_deref() != Some(chat.view().parts()) {
+            saved::save_view(dir, chat.view().parts())?;
         }
         for problem in problems {
             tracing::warn!(target: "chat_memory", "{problem}");
@@ -291,7 +295,9 @@ impl Actor {
         }
         let (id, batch) = self.chat.push_message(meta);
         if let Some(batch) = batch {
-            self.publish_batch(batch);
+            self.store
+                .append_merge(&MergeRecord::of(&batch.merged), &day)?;
+            self.publish_batch(&batch);
         }
         Ok(id)
     }
@@ -386,11 +392,11 @@ impl Actor {
         self.publish(&update);
     }
 
-    fn publish_batch(&mut self, batch: Batch) {
+    fn publish_batch(&mut self, batch: &Batch) {
         // Lines built before the batch come first.
         self.publish_built();
         self.publish(&MemoryUpdate::Merged {
-            pairs: batch.pairs,
+            pairs: batch.merged.len() as u64,
             before_bytes: batch.before as u64,
             after_bytes: batch.after as u64,
         });
@@ -668,13 +674,15 @@ fn readable<T>(
 
 /// The chat directory's runtime files, never committed: the lock socket,
 /// the takeover lock, the turn file, the temporary files of atomic saves,
-/// and the compaction prompt (derived from the turns, rewritten often).
-const IGNORED: [&str; 5] = [
+/// the compaction prompt (derived from the turns, rewritten often), and
+/// the view cache (a fold of the logs).
+const IGNORED: [&str; 6] = [
     "lock",
     "lock.lock/",
     TURN_FILE,
     ".*.tmp",
     saved::PROMPT_FILE,
+    saved::VIEW_FILE,
 ];
 
 /// `git add` + `git commit` of the chat directory, initializing the repo on
@@ -732,6 +740,18 @@ pub(super) fn commit(dir: &Path, git_dir: &Path) -> Result<(), String> {
         std::fs::write(&ignore, ignored)
             .map_err(|error| format!("cannot write .gitignore: {error}"))?;
     }
+    // A chat committed before the view was a cache tracks it: untrack it.
+    check(
+        git(&[
+            "rm",
+            "-q",
+            "--cached",
+            "--ignore-unmatch",
+            "--",
+            saved::VIEW_FILE,
+        ])?,
+        "rm",
+    )?;
     check(git(&["add", "-A"])?, "add")?;
     let status = check(git(&["status", "--porcelain"])?, "status")?;
     if status.stdout.is_empty() {

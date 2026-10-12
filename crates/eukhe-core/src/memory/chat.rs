@@ -55,26 +55,13 @@ pub(crate) enum Zoom {
     NoLine,
 }
 
-/// One batch of the view's sawtooth (§3.2): `pairs` merges took the view
-/// from `before` to `after` bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// One batch of the view's sawtooth (§3.2): merging `merged` (in order)
+/// took the view from `before` to `after` bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Batch {
-    pub pairs: u64,
+    pub merged: Vec<Part>,
     pub before: usize,
     pub after: usize,
-}
-
-/// Where the loaded view came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ViewSource {
-    /// `view.json`, as saved.
-    Saved,
-    /// `view.json`, then the messages logged after its last save appended
-    /// (the owner died between a message and the view's save).
-    Extended,
-    /// No usable `view.json` (a chat from before the file existed, or a
-    /// damaged one): folded once from the log, message by message.
-    Folded,
 }
 
 /// The chat state.
@@ -96,14 +83,19 @@ pub(crate) struct Chat {
 }
 
 impl Chat {
-    /// Build the state from a load: index the nodes, then take the saved
-    /// view. A view saved before the last messages gets them appended; a
-    /// chat without a usable saved view folds one from the log, once.
+    /// Build the state from a load: index the nodes, then fold the view
+    /// from the log's merge batches. Returns the merges the log does not
+    /// hold yet, which the owner appends:
+    ///
+    /// - a chat from before the merge batches were logged imports its
+    ///   saved view once, as the merges that build it;
+    /// - a view over its ceiling (the owner died between a message and its
+    ///   batch) merges its batch now.
     pub(crate) fn from_loaded(
         loaded: Loaded,
         saved: Option<Vec<Part>>,
         problems: &mut Vec<String>,
-    ) -> (Chat, ViewSource) {
+    ) -> (Chat, Vec<Part>) {
         let total = loaded.messages.len() as u64;
         let mut chat = Chat {
             messages: loaded.messages,
@@ -133,33 +125,43 @@ impl Chat {
         for part in built {
             chat.note_ready_parent(part);
         }
-        let usable = saved.and_then(|parts| {
-            let tiled = tiled_end(&parts, total).map(|end| (parts, end));
-            if tiled.is_none() {
-                problems.push(format!(
-                    "the saved view does not tile the {total} messages: folded it again from the log"
-                ));
-            }
-            tiled
-        });
-        let (from, source) = match usable {
-            Some((parts, end)) => {
-                chat.view = View::from_parts(parts, &chat.nodes);
-                let source = if end == total {
-                    ViewSource::Saved
+        let logged: Vec<Part> = loaded
+            .merges
+            .iter()
+            .flat_map(|record| record.merge.iter().map(|&(l, i)| Part { l, i }))
+            .collect();
+        let mut unlogged = Vec::new();
+        if logged.is_empty() {
+            if let Some(parts) = saved {
+                if tiled_end(&parts, total).is_some() {
+                    unlogged = merges_building(&parts);
                 } else {
-                    ViewSource::Extended
-                };
-                (end, source)
+                    problems.push(format!(
+                        "the saved view does not tile the {total} messages: ignored it"
+                    ));
+                }
             }
-            None => (0, ViewSource::Folded),
-        };
-        chat.compaction = chat.view.clone();
-        chat.compaction.fit(from, COMPACTION_FLOOR, &chat.nodes);
-        for id in from..total {
-            chat.grow(id);
         }
-        (chat, source)
+        let (view, skipped) = View::fold(
+            total,
+            logged.into_iter().chain(unlogged.clone()),
+            &chat.nodes,
+        );
+        for part in skipped {
+            problems.push(format!(
+                "skipped the merge into {}+{}: its halves are not in the view",
+                part.start(),
+                part.count()
+            ));
+        }
+        chat.view = view;
+        if chat.view.size() > VIEW_CEILING {
+            unlogged.extend(chat.view.fit(total, VIEW_FLOOR, &chat.nodes));
+            chat.shrinking = chat.view.size() > VIEW_FLOOR;
+        }
+        chat.compaction = chat.view.clone();
+        chat.compaction.fit(total, COMPACTION_FLOOR, &chat.nodes);
+        (chat, unlogged)
     }
 
     pub(crate) fn total(&self) -> u64 {
@@ -218,11 +220,11 @@ impl Chat {
             return None;
         }
         let before = self.view.size();
-        let pairs = self.view.fit(total, VIEW_FLOOR, &self.nodes);
+        let merged = self.view.fit(total, VIEW_FLOOR, &self.nodes);
         if self.view.size() <= VIEW_FLOOR {
             self.shrinking = false;
         }
-        if pairs == 0 {
+        if merged.is_empty() {
             self.fit_compaction(total);
             return None;
         }
@@ -230,7 +232,7 @@ impl Chat {
         self.compaction = self.view.clone();
         self.compaction.fit(total, COMPACTION_FLOOR, &self.nodes);
         Some(Batch {
-            pairs,
+            merged,
             before,
             after: self.view.size(),
         })
@@ -384,6 +386,19 @@ impl Chat {
             .join("\n");
         Zoom::Lines(lines)
     }
+}
+
+/// The merges that build `parts` from single messages: each part's inner
+/// nodes, level by level.
+fn merges_building(parts: &[Part]) -> Vec<Part> {
+    let mut merges = Vec::new();
+    for part in parts {
+        for l in 1..=part.l {
+            let first = part.start() >> l;
+            merges.extend((first..first + (1 << (part.l - l))).map(|i| Part { l, i }));
+        }
+    }
+    merges
 }
 
 /// The node text of a free node: a short message is its own line, and two

@@ -262,10 +262,11 @@ async fn a_new_owner_never_starts_a_turn_over_a_surviving_one() {
     within(next).await.unwrap().release().await.unwrap();
 }
 
-/// Runtime files stay out of the chat's history (an ignore file from
-/// before one existed gets its line); the saved view goes in.
+/// Runtime files and the view cache stay out of the chat's history (an
+/// ignore file from before one existed gets its line, and a view a chat
+/// committed before is untracked).
 #[test]
-fn a_commit_keeps_runtime_files_out_and_the_saved_view_in() {
+fn a_commit_keeps_runtime_files_and_the_view_cache_out() {
     let dir = tempfile::tempdir().unwrap();
     let git = |args: &[&str]| {
         let output = std::process::Command::new("git")
@@ -286,6 +287,8 @@ fn a_commit_keeps_runtime_files_out_and_the_saved_view_in() {
     std::fs::write(dir.path().join("main/2026-10-05.jsonl"), "{}\n").unwrap();
     std::fs::write(dir.path().join(TURN_FILE), "").unwrap();
     std::fs::write(dir.path().join(VIEW_FILE), "[[0,0]]").unwrap();
+    git(&["add", VIEW_FILE]);
+    git(&["commit", "-q", "-m", "an old chat"]);
     std::fs::write(dir.path().join(".view.json.tmp"), "[").unwrap();
     std::fs::write(dir.path().join("prompt.json"), "{}").unwrap();
     commit(dir.path(), &dir.path().join(".git")).unwrap();
@@ -295,8 +298,8 @@ fn a_commit_keeps_runtime_files_out_and_the_saved_view_in() {
             git(&["ls-files"]),
         ),
         (
-            "lock\nlock.lock/\nturn\n.*.tmp\nprompt.json\n".to_string(),
-            ".gitignore\nmain/2026-10-05.jsonl\nview.json\n".to_string(),
+            "lock\nlock.lock/\nturn\n.*.tmp\nprompt.json\nview.json\n".to_string(),
+            ".gitignore\nmain/2026-10-05.jsonl\n".to_string(),
         )
     );
 }
@@ -504,40 +507,41 @@ async fn dates_read_as_local_date_and_time() {
     );
 }
 
-/// The view is saved on every change and loaded at start, never rebuilt
-/// from the log: a reopened chat shows the saved view even where a fold
-/// of the log would differ.
+/// The view is the fold of the logs and `view.json` only its cache: an
+/// old chat's saved view is imported once as logged merges, and deleting
+/// `view.json` afterwards reproduces the identical view.
 #[tokio::test]
-async fn a_reopened_chat_loads_its_saved_view() {
+async fn deleting_the_saved_view_reproduces_the_identical_view() {
     let dir = tempfile::tempdir().unwrap();
-    let before = {
+    {
         let memory = Memory::open(dir.path(), no_model()).await.unwrap();
         for i in 0..5 {
             memory.append(Kind::User, &format!("m{i}")).await.unwrap();
         }
-        memory.settled_render().await.unwrap()
-    };
-    let saved = std::fs::read_to_string(dir.path().join(VIEW_FILE)).unwrap();
-    // A view no fold of five short messages makes (it merges nothing
-    // under the ceiling), with every node built (short lines are free).
+        memory.settled_render().await.unwrap();
+    }
+    // A chat from before the merges were logged: its view merged the
+    // first four messages (every node is built: short lines are free).
     std::fs::write(dir.path().join(VIEW_FILE), "[[2,0],[0,4]]").unwrap();
+    let imported = {
+        let memory = Memory::open(dir.path(), no_model()).await.unwrap();
+        assert_eq!(memory.append(Kind::User, "m5").await.unwrap(), 5);
+        memory.render().await.unwrap().text
+    };
+    let cached = std::fs::read_to_string(dir.path().join(VIEW_FILE)).unwrap();
+    std::fs::remove_file(dir.path().join(VIEW_FILE)).unwrap();
     let memory = Memory::open(dir.path(), no_model()).await.unwrap();
-    assert!(memory.owns().await);
-    let reopened = memory.render().await.unwrap();
-    assert_eq!(memory.append(Kind::User, "m5").await.unwrap(), 5);
     assert_eq!(
         (
-            before.text,
-            saved,
-            reopened.text,
-            std::fs::read_to_string(dir.path().join(VIEW_FILE)).unwrap()
+            imported.clone(),
+            memory.render().await.unwrap().text,
+            std::fs::read_to_string(dir.path().join(VIEW_FILE)).unwrap(),
         ),
         (
-            "<chat>\n0+1|user: m0\n1+1|user: m1\n2+1|user: m2\n3+1|user: m3\n4+1|user: m4\n</chat>"
+            "<chat>\n0+4|user: m0 user: m1 user: m2 user: m3\n4+1|user: m4\n5+1|user: m5\n</chat>"
                 .to_string(),
-            "[[0,0],[0,1],[0,2],[0,3],[0,4]]".to_string(),
-            "<chat>\n0+4|user: m0 user: m1 user: m2 user: m3\n4+1|user: m4\n</chat>".to_string(),
-            "[[2,0],[0,4],[0,5]]".to_string()
+            imported,
+            cached,
         )
     );
 }

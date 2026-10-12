@@ -214,8 +214,9 @@ pub async fn read_view(dir: &Path) -> anyhow::Result<ReadView> {
     })
 }
 
-/// The chat files and the saved view, read without taking ownership (a
-/// view saved before the last messages gets them appended in memory).
+/// The chat files and the saved view, read without taking ownership: the
+/// view folds from the log (a chat from before the merge batches were
+/// logged imports its saved view in memory; the owner logs it).
 fn load(dir: &Path) -> anyhow::Result<(Store, Chat, Vec<String>)> {
     let (store, loaded) = Store::open(dir, LoadMode::ReadOnly)?;
     let mut problems = loaded.problems.clone();
@@ -226,7 +227,7 @@ fn load(dir: &Path) -> anyhow::Result<(Store, Chat, Vec<String>)> {
             None
         }
     };
-    let (chat, _source) = Chat::from_loaded(loaded, saved, &mut problems);
+    let (chat, _unlogged) = Chat::from_loaded(loaded, saved, &mut problems);
     Ok((store, chat, problems))
 }
 

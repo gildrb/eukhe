@@ -1,13 +1,15 @@
 //! The two append-only streams on disk: `main/` holds the messages and
-//! `tree/` the summary nodes, one JSONL file per local day. Every line is
-//! written with one `write` and an `fsync` before the append returns; a
-//! torn last line (a crash mid-write) is reported and skipped at load.
+//! `tree/` the summary nodes and the view's merge batches, one JSONL file
+//! per local day. Every line is written with one `write` and an `fsync`
+//! before the append returns; a torn last line (a crash mid-write) is
+//! reported and skipped at load.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use super::view::Part;
 use super::{AppendKey, Kind};
 
 /// One message line of `main/`.
@@ -43,6 +45,30 @@ pub(crate) struct NodeRecord {
     pub size: usize,
 }
 
+/// One merge-batch line of `tree/`: the parts one batch of the view's
+/// sawtooth merged, as `[l, i]` pairs in merge order (§3.2).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct MergeRecord {
+    pub merge: Vec<(u32, u64)>,
+}
+
+impl MergeRecord {
+    /// The record of the merged `parts`, in order.
+    pub(crate) fn of(parts: &[Part]) -> MergeRecord {
+        MergeRecord {
+            merge: parts.iter().map(|part| (part.l, part.i)).collect(),
+        }
+    }
+}
+
+/// A line of `tree/`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+enum TreeLine {
+    Node(NodeRecord),
+    Merge(MergeRecord),
+}
+
 /// Where one message lives on disk: its text is read back on demand, so
 /// the process never holds the whole log in memory.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +97,8 @@ pub(crate) enum LoadMode {
 pub(crate) struct Loaded {
     pub messages: Vec<MessageMeta>,
     pub nodes: Vec<NodeRecord>,
+    /// The view's merge batches, in log order.
+    pub merges: Vec<MergeRecord>,
     /// The newest keyed message of each append scope.
     pub scopes: HashMap<String, ScopeMark>,
     /// Problems found and skipped (torn lines, foreign nodes).
@@ -161,10 +189,11 @@ impl Store {
         loaded.messages = messages.into_iter().map(|(_, meta)| meta).collect();
         for path in day_files(&tree_dir)? {
             for (offset, line) in read_lines(&path, mode, &mut loaded.problems)? {
-                match serde_json::from_slice::<NodeRecord>(&line) {
-                    Ok(record) => loaded.nodes.push(record),
+                match serde_json::from_slice::<TreeLine>(&line) {
+                    Ok(TreeLine::Node(record)) => loaded.nodes.push(record),
+                    Ok(TreeLine::Merge(record)) => loaded.merges.push(record),
                     Err(error) => loaded.problems.push(format!(
-                        "{}: skipped a torn node line at byte {offset}: {error}",
+                        "{}: skipped a torn tree line at byte {offset}: {error}",
                         path.display()
                     )),
                 }
@@ -233,6 +262,16 @@ impl Store {
     ///
     /// Returns an error when the record cannot be written and synced.
     pub(crate) fn append_node(&mut self, record: &NodeRecord, day: &str) -> io::Result<()> {
+        let line = json_line(record)?;
+        self.tree.append(&line, day).map(|_| ())
+    }
+
+    /// Append one merge batch (write + fsync) to the tree file of `day`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the record cannot be written and synced.
+    pub(crate) fn append_merge(&mut self, record: &MergeRecord, day: &str) -> io::Result<()> {
         let line = json_line(record)?;
         self.tree.append(&line, day).map(|_| ())
     }

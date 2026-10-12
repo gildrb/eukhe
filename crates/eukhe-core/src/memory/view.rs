@@ -4,6 +4,7 @@
 //! so consecutive views share their start and the request prefix stays
 //! cacheable.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use super::{BLOCK, PLACEHOLDER};
@@ -46,10 +47,42 @@ pub(crate) struct View {
 }
 
 impl View {
-    /// A view of `parts` (a saved view), its size counted from `tree`.
-    pub(crate) fn from_parts(parts: Vec<Part>, tree: &impl NodeTexts) -> View {
+    /// The view of `total` messages after `merges`, in log order: every
+    /// message enters as its own part, and each merge replaces its two
+    /// children with their parent (§3.2). Messages only ever append at the
+    /// end, so a merge's children are in the view whatever came after
+    /// them. A merge whose children are not both in the view is skipped
+    /// and returned.
+    pub(crate) fn fold(
+        total: u64,
+        merges: impl IntoIterator<Item = Part>,
+        tree: &impl NodeTexts,
+    ) -> (View, Vec<Part>) {
+        let mut by_start: BTreeMap<u64, Part> = (0..total).map(|i| (i, Part { l: 0, i })).collect();
+        let mut skipped = Vec::new();
+        for parent in merges {
+            let children = parent.l.checked_sub(1).map(|l| {
+                (
+                    Part { l, i: parent.i * 2 },
+                    Part {
+                        l,
+                        i: parent.i * 2 + 1,
+                    },
+                )
+            });
+            let Some((left, right)) = children.filter(|(left, right)| {
+                by_start.get(&left.start()) == Some(left)
+                    && by_start.get(&right.start()) == Some(right)
+            }) else {
+                skipped.push(parent);
+                continue;
+            };
+            by_start.remove(&right.start());
+            by_start.insert(left.start(), parent);
+        }
+        let parts: Vec<Part> = by_start.into_values().collect();
         let size = parts.iter().map(|part| line_text(*part, tree).len()).sum();
-        View { parts, size }
+        (View { parts, size }, skipped)
     }
 
     pub(crate) fn parts(&self) -> &[Part] {
@@ -86,15 +119,15 @@ impl View {
 
     /// Merge the most due built pair until the view fits `budget` bytes or
     /// no pair has a built parent. `total` is the number of messages.
-    /// Returns how many pairs merged.
+    /// Returns the merged parents, in merge order.
     ///
     /// A pair is due by how long ago it ended in its own line size,
     /// `(T - last) / 2^l`, written as `(T + 1)/2^l - i` (same order, shifted
     /// by 2); of equal pairs the oldest merges first. This picks the merges
     /// of Taelin's rollback `push`. Measuring from the pair's first message
     /// rewrites old lines near ties.
-    pub(crate) fn fit(&mut self, total: u64, budget: usize, tree: &impl NodeTexts) -> u64 {
-        let mut merged = 0;
+    pub(crate) fn fit(&mut self, total: u64, budget: usize, tree: &impl NodeTexts) -> Vec<Part> {
+        let mut merged = Vec::new();
         while self.size > budget {
             let mut best: Option<(usize, u64, u32)> = None;
             for (at, pair) in self.parts.windows(2).enumerate() {
@@ -131,7 +164,7 @@ impl View {
             self.parts[at] = parent;
             self.parts.remove(at + 1);
             self.size = self.size - removed + line_text(parent, tree).len();
-            merged += 1;
+            merged.push(parent);
         }
         merged
     }
@@ -274,10 +307,10 @@ mod tests {
         for i in 0..4 {
             tree.build(0, i, format!("user: m{i}"));
             view.append(i, &tree);
-            assert_eq!(view.fit(i + 1, VIEW, &tree), 0);
+            assert_eq!(view.fit(i + 1, VIEW, &tree).len(), 0);
         }
         tree.build(1, 0, "merged".to_string());
-        assert_eq!(view.fit(4, VIEW, &tree), 0);
+        assert_eq!(view.fit(4, VIEW, &tree).len(), 0);
         assert_eq!(
             view.render(&tree),
             "<chat>\n0+1|user: m0\n1+1|user: m1\n2+1|user: m2\n3+1|user: m3\n</chat>"
@@ -320,7 +353,7 @@ mod tests {
         for i in 0..total / 2 {
             tree.build(1, i, "y".repeat(500));
         }
-        assert_eq!(view.fit(total, VIEW, &tree), 2);
+        assert_eq!(view.fit(total, VIEW, &tree).len(), 2);
         // 258 lines of 500 bytes need two merges; at equal levels the
         // oldest pair is the most due.
         assert_eq!(view.size(), VIEW);
@@ -341,7 +374,7 @@ mod tests {
         }
         tree.build(1, 0, line());
         tree.build(1, 1, line());
-        assert_eq!(view.fit(first, VIEW, &tree), 2);
+        assert_eq!(view.fit(first, VIEW, &tree).len(), 2);
         assert_eq!(coordinates(&view)[..3], [(1, 0), (1, 1), (0, 4)]);
         // One more message: one merge fits the view again. With T = 259,
         // the level-1 pair 0..4 is due (260 - 0)/2 = 130 and the level-0
@@ -350,7 +383,7 @@ mod tests {
         view.append(first, &tree);
         tree.build(2, 0, line());
         tree.build(1, 2, line());
-        assert_eq!(view.fit(first + 1, VIEW, &tree), 1);
+        assert_eq!(view.fit(first + 1, VIEW, &tree).len(), 1);
         assert_eq!(
             (view.size(), coordinates(&view)[..4].to_vec()),
             (VIEW, vec![(1, 0), (1, 1), (1, 2), (0, 6)])
@@ -408,7 +441,7 @@ mod tests {
             tree.build(0, i, "x".repeat(500));
             view.append(i, &tree);
         }
-        assert_eq!(view.fit(total, VIEW, &tree), 0);
+        assert_eq!(view.fit(total, VIEW, &tree).len(), 0);
         assert!(view.size() > VIEW);
     }
 

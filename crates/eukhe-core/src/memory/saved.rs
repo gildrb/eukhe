@@ -1,6 +1,6 @@
 //! The chat's saved state beside its logs: `view.json`, the live view as
-//! `[l, i]` pairs (§1, §3.2: saved on every change, loaded at start, never
-//! rebuilt from the log, or every cache entry dies), and `prompt.json`, the
+//! `[l, i]` pairs (§1, §3.2: a cache of the fold of the logs, saved on
+//! every change), and `prompt.json`, the
 //! turns' system prompt and tools that compactions reuse (§4). Each file is
 //! replaced atomically: written to a temporary file, fsynced, renamed over
 //! the old one, and the directory fsynced.
