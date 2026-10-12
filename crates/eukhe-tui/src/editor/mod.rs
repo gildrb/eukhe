@@ -319,11 +319,6 @@ impl Editor {
 
     // ---- state helpers -------------------------------------------------
 
-    #[allow(dead_code)]
-    fn valid_paste_id(&self, id: usize) -> bool {
-        self.pastes.contains_key(&id)
-    }
-
     fn segment(&self, text: &str) -> Vec<Segment> {
         let pastes = self.pastes.clone();
         segment_with_markers(text, &move |id| pastes.contains_key(&id))

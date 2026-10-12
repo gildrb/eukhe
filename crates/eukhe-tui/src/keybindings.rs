@@ -14,23 +14,19 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeybindingDefinition {
     pub default_keys: &'static [&'static str],
-    #[allow(dead_code)]
-    pub description: &'static str,
     pub default_key_scope: Option<&'static str>,
 }
 
 macro_rules! def {
-    ($keys:expr, $desc:expr) => {
+    ($keys:expr) => {
         KeybindingDefinition {
             default_keys: $keys,
-            description: $desc,
             default_key_scope: None,
         }
     };
-    ($keys:expr, $desc:expr, scope $scope:expr) => {
+    ($keys:expr, scope $scope:expr) => {
         KeybindingDefinition {
             default_keys: $keys,
-            description: $desc,
             default_key_scope: Some($scope),
         }
     };
@@ -544,11 +540,6 @@ impl KeybindingsManager {
     #[must_use]
     pub fn key_text(&self, keybinding: &str) -> String {
         format_key_text(&self.get_keys(keybinding).join("/"))
-    }
-
-    #[must_use]
-    pub fn get_definition(&self, keybinding: &str) -> Option<&KeybindingDefinition> {
-        self.definitions.get(keybinding)
     }
 
     /// The raw user bindings (TS `getUserBindings`): migrated ids with the
