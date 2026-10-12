@@ -7,6 +7,7 @@ members = [
     "crates/eukhe-ai",
     "crates/eukhe-durable",
     "crates/eukhe-models",
+    "crates/eukhe-docs",
     "crates/eukhe-core",
     "crates/eukhe-daemon",
     "crates/eukhe-tui",
