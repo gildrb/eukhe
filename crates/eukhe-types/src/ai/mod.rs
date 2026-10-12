@@ -6,9 +6,8 @@
 pub mod thinking_levels;
 
 pub use thinking_levels::{
-    clamp_thinking_level, get_supported_thinking_levels, models_are_equal, supports_thinking,
-    thinking_level_from_str, thinking_level_index, thinking_level_map, EXTENDED_THINKING_LEVELS,
-    SUPPORTED_THINKING_LEVELS,
+    clamp_thinking_level, get_supported_thinking_levels, supports_thinking,
+    thinking_level_from_str, EXTENDED_THINKING_LEVELS,
 };
 
 use serde::{Deserialize, Serialize};
@@ -20,102 +19,21 @@ use crate::{JsNumber, JsonMap};
 // APIs and providers
 // ---------------------------------------------------------------------------
 
-/// APIs with first-class support in the TS provider registry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum KnownApi {
-    OpenaiCompletions,
-    MistralConversations,
-    OpenaiResponses,
-    AzureOpenaiResponses,
-    OpenaiCodexResponses,
-    AnthropicMessages,
-    BedrockConverseStream,
-    GoogleGenerativeAi,
-    GoogleVertex,
-}
-
-/// TS `Api = KnownApi | (string & {})`. The wire value is an arbitrary string.
+/// TS `Api`: the wire value is an arbitrary string.
 pub type Api = String;
 
 /// The Prime Inference provider id (the bundled/live catalog's provider
 /// key; a wire identifier shared by every crate that names it).
 pub const PRIME_INFERENCE_PROVIDER_ID: &str = "prime-inference";
 
-/// Providers with well-known identifiers in the TS model registry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum KnownProvider {
-    #[serde(rename = "amazon-bedrock")]
-    AmazonBedrock,
-    Anthropic,
-    Google,
-    #[serde(rename = "google-vertex")]
-    GoogleVertex,
-    Openai,
-    #[serde(rename = "azure-openai-responses")]
-    AzureOpenaiResponses,
-    #[serde(rename = "openai-codex")]
-    OpenaiCodex,
-    #[serde(rename = "prime-inference")]
-    PrimeInference,
-    Deepseek,
-    #[serde(rename = "github-copilot")]
-    GithubCopilot,
-    Xai,
-    Groq,
-    Cerebras,
-    Openrouter,
-    #[serde(rename = "vercel-ai-gateway")]
-    VercelAiGateway,
-    Zai,
-    Mistral,
-    Minimax,
-    #[serde(rename = "minimax-cn")]
-    MinimaxCn,
-    Moonshotai,
-    #[serde(rename = "moonshotai-cn")]
-    MoonshotaiCn,
-    Huggingface,
-    Fireworks,
-    Opencode,
-    #[serde(rename = "opencode-go")]
-    OpencodeGo,
-    #[serde(rename = "kimi-coding")]
-    KimiCoding,
-    #[serde(rename = "cloudflare-workers-ai")]
-    CloudflareWorkersAi,
-    #[serde(rename = "cloudflare-ai-gateway")]
-    CloudflareAiGateway,
-    Xiaomi,
-    #[serde(rename = "xiaomi-token-plan-cn")]
-    XiaomiTokenPlanCn,
-    #[serde(rename = "xiaomi-token-plan-ams")]
-    XiaomiTokenPlanAms,
-    #[serde(rename = "xiaomi-token-plan-sgp")]
-    XiaomiTokenPlanSgp,
-}
-
-/// TS `Provider = KnownProvider | string`.
+/// TS `Provider`: the wire value is an arbitrary string.
 pub type Provider = String;
 
 // ---------------------------------------------------------------------------
 // Thinking levels
 // ---------------------------------------------------------------------------
 
-/// Reasoning effort levels accepted by the model-facing surface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ThinkingLevel {
-    Minimal,
-    Low,
-    Medium,
-    High,
-    Xhigh,
-    Max,
-}
-
-/// `ThinkingLevel` plus the explicit `off` value used by agent state.
+/// Reasoning effort levels plus the explicit `off` value used by agent state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelThinkingLevel {
@@ -154,34 +72,9 @@ impl ModelThinkingLevel {
 /// bytes.
 pub type ThinkingLevelMap = std::collections::BTreeMap<ModelThinkingLevel, Option<String>>;
 
-/// Token budgets for each thinking level (token-based providers only).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ThinkingBudgets {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minimal: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub low: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub medium: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub high: Option<u64>,
-}
-
 // ---------------------------------------------------------------------------
 // Provider options
 // ---------------------------------------------------------------------------
-
-/// Prompt-cache retention: the provider's default short entries (5 min on
-/// Anthropic and Bedrock, in-memory on `OpenAI`), or none. There is no long
-/// (1 h / 24 h) option: a 1 h write costs 2× input against 1.25×, and every
-/// step of a turn renews the short entry it reads (`OptChat` spec §8, §11.10).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CacheRetention {
-    None,
-    Short,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -203,16 +96,6 @@ pub enum ServiceTier {
     Flex,
     Scale,
     Priority,
-}
-
-/// HTTP response metadata handed to the `onResponse` hook.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProviderResponse {
-    pub status: u16,
-    /// Ordered (`BTreeMap`): response metadata can serialize into failure
-    /// diagnostics on the wire; unordered iteration would leak random key
-    /// order into the bytes.
-    pub headers: std::collections::BTreeMap<String, String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +121,7 @@ pub enum CacheBreakpoint {
 pub struct TextContent {
     pub text: String,
     /// `OpenAI` Responses message metadata: a legacy id string or a
-    /// [`TextSignatureV1`] JSON payload (TS wire key `textSignature`; the
+    /// `TextSignatureV1` JSON payload (TS wire key `textSignature`; the
     /// camelCase rename keeps the provider signature attached to the block
     /// across wire-shape round trips and matches the TS session files and
     /// event frames).
@@ -250,23 +133,6 @@ pub struct TextContent {
     pub cache_breakpoint: Option<CacheBreakpoint>,
     #[serde(flatten)]
     pub rest: JsonMap,
-}
-
-/// `OpenAI` Responses text signature payload (`textSignature` holds its JSON).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TextSignatureV1 {
-    pub v: u32,
-    pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub phase: Option<TextSignaturePhase>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TextSignaturePhase {
-    Commentary,
-    FinalAnswer,
 }
 
 /// Thinking content block (`type: "thinking"`).
@@ -547,34 +413,9 @@ pub enum StopReason {
     Aborted,
 }
 
-/// Terminal reason of a successful stream (`done` events).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum DoneStopReason {
-    Stop,
-    Length,
-    ToolUse,
-}
-
-/// Terminal reason of a failed stream (`error` events).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ErrorStopReason {
-    Aborted,
-    Error,
-}
-
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "role", rename_all = "camelCase")]
-pub enum Message {
-    User(UserMessage),
-    Assistant(AssistantMessage),
-    ToolResult(ToolResultMessage),
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -672,100 +513,6 @@ pub struct ToolResultMessage {
     pub timestamp: u64,
     #[serde(flatten)]
     pub rest: JsonMap,
-}
-
-// ---------------------------------------------------------------------------
-// Tools and context
-// ---------------------------------------------------------------------------
-
-/// Tool definition sent to providers. `parameters` is a TypeBox/JSON schema.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Tool {
-    pub name: String,
-    pub description: String,
-    pub parameters: Value,
-}
-
-/// Conversation context handed to a provider stream call.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Context {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
-    pub messages: Vec<Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<Tool>>,
-}
-
-// ---------------------------------------------------------------------------
-// Stream events
-// ---------------------------------------------------------------------------
-
-/// Event protocol for assistant message streams.
-///
-/// Streams emit `start` before partial updates, then terminate with either
-/// `done` (success) or `error` (`stopReason` `"error"`/`"aborted"`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(
-    tag = "type",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-pub enum AssistantMessageEvent {
-    Start {
-        partial: AssistantMessage,
-    },
-    TextStart {
-        content_index: u64,
-        partial: AssistantMessage,
-    },
-    TextDelta {
-        content_index: u64,
-        delta: String,
-        partial: AssistantMessage,
-    },
-    TextEnd {
-        content_index: u64,
-        content: String,
-        partial: AssistantMessage,
-    },
-    ThinkingStart {
-        content_index: u64,
-        partial: AssistantMessage,
-    },
-    ThinkingDelta {
-        content_index: u64,
-        delta: String,
-        partial: AssistantMessage,
-    },
-    ThinkingEnd {
-        content_index: u64,
-        content: String,
-        partial: AssistantMessage,
-    },
-    ToolcallStart {
-        content_index: u64,
-        partial: AssistantMessage,
-    },
-    ToolcallDelta {
-        content_index: u64,
-        delta: String,
-        partial: AssistantMessage,
-    },
-    ToolcallEnd {
-        content_index: u64,
-        tool_call: ToolCall,
-        partial: AssistantMessage,
-    },
-    Done {
-        reason: DoneStopReason,
-        message: AssistantMessage,
-    },
-    Error {
-        reason: ErrorStopReason,
-        error: AssistantMessage,
-    },
 }
 
 // ---------------------------------------------------------------------------
@@ -911,21 +658,6 @@ pub fn supports_service_tier(model: &Model, tier: ServiceTier) -> bool {
     supports_service_tier_fields(&model.provider, &model.api, &model.id, tier)
 }
 
-/// TS `clampServiceTier`: clamp a requested tier to `default` when the
-/// model does not support it. An absent model (a session with no resolved
-/// model) clamps every non-default tier, exactly like the TS
-/// `model == null` arm; an unset (`null`) preference passes through.
-#[must_use]
-pub fn clamp_service_tier(model: Option<&Model>, tier: Option<ServiceTier>) -> Option<ServiceTier> {
-    match tier {
-        None | Some(ServiceTier::Default) => tier,
-        Some(tier) => model
-            .is_some_and(|model| supports_service_tier(model, tier))
-            .then_some(tier)
-            .or(Some(ServiceTier::Default)),
-    }
-}
-
 /// TS `supportsFastMode` (now `supportsServiceTier(model, "priority")`):
 /// the fast-mode (priority) tier exists on the eligible ids served over
 /// the `OpenAI` Responses APIs. Shared by the surfaces that gate the
@@ -933,28 +665,6 @@ pub fn clamp_service_tier(model: Option<&Model>, tier: Option<ServiceTier>) -> O
 #[must_use]
 pub fn supports_fast_mode(model: &Model) -> bool {
     supports_service_tier(model, ServiceTier::Priority)
-}
-
-/// Whether an `OpenAI` Responses model id has the explicit prompt-cache
-/// controls: GPT-5.6 and every later GPT-5 minor version (`gpt-5.6`,
-/// `gpt-5.6-sol`, ...) and every GPT-6 model (`gpt-6-astra`, `gpt-6.1-sol`,
-/// ...). These models accept `prompt_cache_breakpoint: {"mode": "explicit"}`
-/// on `input_text` items and `reasoning.context: "all_turns"`; the requests
-/// of every other model carry neither field.
-#[must_use]
-pub fn supports_explicit_cache_breakpoints(model_id: &str) -> bool {
-    if let Some(rest) = model_id.strip_prefix("gpt-6") {
-        return rest.is_empty() || rest.starts_with(['-', '.']);
-    }
-    let Some(rest) = model_id.strip_prefix("gpt-5.") else {
-        return false;
-    };
-    let minor_end = rest
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(rest.len());
-    let (minor, suffix) = rest.split_at(minor_end);
-    (suffix.is_empty() || suffix.starts_with('-'))
-        && minor.parse::<u32>().is_ok_and(|minor| minor >= 6)
 }
 
 // The unit battery lives in the child module (ai::tests); its use-super

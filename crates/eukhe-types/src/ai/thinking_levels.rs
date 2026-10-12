@@ -19,22 +19,6 @@ pub const EXTENDED_THINKING_LEVELS: [ModelThinkingLevel; 7] = [
     ModelThinkingLevel::Max,
 ];
 
-pub const SUPPORTED_THINKING_LEVELS: [ModelThinkingLevel; 7] = EXTENDED_THINKING_LEVELS;
-
-/// Ordinal position of a level within [`EXTENDED_THINKING_LEVELS`].
-///
-/// # Panics
-///
-/// Panics if `level` is not one of the variants listed in
-/// [`EXTENDED_THINKING_LEVELS`].
-#[must_use]
-pub fn thinking_level_index(level: ModelThinkingLevel) -> usize {
-    EXTENDED_THINKING_LEVELS
-        .iter()
-        .position(|candidate| *candidate == level)
-        .expect("thinking level is always in EXTENDED_THINKING_LEVELS")
-}
-
 /// Whether the model has a thinking surface at all (the TS session's
 /// `supportsThinking`): the coarse `reasoning` flag, or a thinking-level
 /// map that maps at least one level to a wire value. A route that
@@ -79,13 +63,21 @@ pub fn get_supported_thinking_levels(model: &Model) -> Vec<ModelThinkingLevel> {
 
 /// Clamp a requested thinking level to what the model supports, preferring the
 /// nearest higher level then the nearest lower one.
+///
+/// # Panics
+///
+/// Panics if `level` is not one of the variants listed in
+/// [`EXTENDED_THINKING_LEVELS`].
 #[must_use]
 pub fn clamp_thinking_level(model: &Model, level: ModelThinkingLevel) -> ModelThinkingLevel {
     let available = get_supported_thinking_levels(model);
     if available.contains(&level) {
         return level;
     }
-    let requested_index = thinking_level_index(level);
+    let requested_index = EXTENDED_THINKING_LEVELS
+        .iter()
+        .position(|candidate| *candidate == level)
+        .expect("thinking level is always in EXTENDED_THINKING_LEVELS");
     for candidate in EXTENDED_THINKING_LEVELS.iter().skip(requested_index) {
         if available.contains(candidate) {
             return *candidate;
@@ -102,15 +94,6 @@ pub fn clamp_thinking_level(model: &Model, level: ModelThinkingLevel) -> ModelTh
         .unwrap_or(ModelThinkingLevel::Off)
 }
 
-/// Identity compare (`modelsAreEqual`): provider plus id.
-#[must_use]
-pub fn models_are_equal(a: Option<&Model>, b: Option<&Model>) -> bool {
-    match (a, b) {
-        (Some(a), Some(b)) => a.id == b.id && a.provider == b.provider,
-        _ => false,
-    }
-}
-
 /// Parse a thinking level from its wire name ("off", "minimal", ...).
 #[must_use]
 pub fn thinking_level_from_str(name: &str) -> Option<ModelThinkingLevel> {
@@ -120,22 +103,18 @@ pub fn thinking_level_from_str(name: &str) -> Option<ModelThinkingLevel> {
         .copied()
 }
 
-/// Build a thinking level map from pairs (helper for tests and catalogs).
-#[must_use]
-pub fn thinking_level_map(
-    pairs: &[(ModelThinkingLevel, Option<&str>)],
-) -> std::collections::BTreeMap<ModelThinkingLevel, Option<String>> {
-    pairs
-        .iter()
-        .map(|(key, value)| (*key, value.map(ToString::to_string)))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ai::{ModelCost, ModelInput, ThinkingLevelMap};
     use crate::JsNumber;
+
+    fn thinking_level_map(pairs: &[(ModelThinkingLevel, Option<&str>)]) -> ThinkingLevelMap {
+        pairs
+            .iter()
+            .map(|(key, value)| (*key, value.map(ToString::to_string)))
+            .collect()
+    }
 
     fn model(reasoning: bool, map: Option<ThinkingLevelMap>) -> Model {
         Model {
@@ -305,16 +284,5 @@ mod tests {
         for level in EXTENDED_THINKING_LEVELS {
             assert_eq!(thinking_level_from_str(level.wire_name()), Some(level));
         }
-    }
-
-    #[test]
-    fn equality_is_provider_and_id() {
-        let a = model(false, None);
-        let mut b = a.clone();
-        assert!(models_are_equal(Some(&a), Some(&b)));
-        b.provider = "other".into();
-        assert!(!models_are_equal(Some(&a), Some(&b)));
-        assert!(!models_are_equal(Some(&a), None));
-        assert!(!models_are_equal(None, None));
     }
 }

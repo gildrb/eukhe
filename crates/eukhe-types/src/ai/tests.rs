@@ -74,24 +74,6 @@ fn service_tier_eligibility_matches_ts() {
     assert!(!supports_fast_mode(&codex_ineligible));
 }
 
-#[test]
-fn clamp_service_tier_degrades_unsupported_requests() {
-    use ServiceTier::*;
-    let openai = tier_model("openai", "openai-responses", "gpt-5.5");
-    let other = tier_model("anthropic", "anthropic-messages", "claude-fable-5");
-    assert_eq!(clamp_service_tier(Some(&openai), Some(Flex)), Some(Flex));
-    assert_eq!(clamp_service_tier(Some(&other), Some(Flex)), Some(Default));
-    assert_eq!(
-        clamp_service_tier(Some(&other), Some(Priority)),
-        Some(Default)
-    );
-    // An absent model clamps every non-default tier (TS `model == null`).
-    assert_eq!(clamp_service_tier(None, Some(Priority)), Some(Default));
-    // Default and an unset preference pass through untouched.
-    assert_eq!(clamp_service_tier(None, Some(Default)), Some(Default));
-    assert_eq!(clamp_service_tier(None, None), None);
-}
-
 fn rt<T: serde::Serialize + for<'de> Deserialize<'de>>(json: &str) -> String {
     let parsed: T = serde_json::from_str(json).expect("deserialize");
     serde_json::to_string(&parsed).expect("serialize")
@@ -106,37 +88,23 @@ fn assert_roundtrip<T: serde::Serialize + for<'de> Deserialize<'de>>(json: &str)
 
 #[test]
 fn user_message_content_string_or_blocks() {
-    assert_roundtrip::<Message>(r#"{"role":"user","content":"hello","timestamp":1}"#);
-    assert_roundtrip::<Message>(
-        r#"{"role":"user","content":[{"type":"text","text":"a"},{"type":"image","data":"QQ==","mimeType":"image/png"}],"timestamp":2}"#,
+    assert_roundtrip::<UserMessage>(r#"{"content":"hello","timestamp":1}"#);
+    assert_roundtrip::<UserMessage>(
+        r#"{"content":[{"type":"text","text":"a"},{"type":"image","data":"QQ==","mimeType":"image/png"}],"timestamp":2}"#,
     );
 }
 
 #[test]
 fn assistant_message_roundtrip_and_unknown_fields() {
-    assert_roundtrip::<Message>(
-        r#"{"role":"assistant","content":[{"type":"thinking","thinking":"t","thinkingSignature":"r","redacted":false},{"type":"toolCall","id":"1","name":"bash","arguments":{"code":"ls"},"thoughtSignature":"g"},{"type":"text","text":"done","textSignature":"{\"v\":1,\"id\":\"x\"}"}],"api":"openai-completions","provider":"p","model":"m","responseModel":"m2","responseId":"rid","usage":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4,"totalTokens":10,"cost":{"input":0.5,"output":0.25,"cacheRead":0,"cacheWrite":0,"total":0.75}},"stopReason":"toolUse","stopReasonRaw":"stop_sequence","timestamp":9,"future":"kept"}"#,
+    assert_roundtrip::<AssistantMessage>(
+        r#"{"content":[{"type":"thinking","thinking":"t","thinkingSignature":"r","redacted":false},{"type":"toolCall","id":"1","name":"bash","arguments":{"code":"ls"},"thoughtSignature":"g"},{"type":"text","text":"done","textSignature":"{\"v\":1,\"id\":\"x\"}"}],"api":"openai-completions","provider":"p","model":"m","responseModel":"m2","responseId":"rid","usage":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4,"totalTokens":10,"cost":{"input":0.5,"output":0.25,"cacheRead":0,"cacheWrite":0,"total":0.75}},"stopReason":"toolUse","stopReasonRaw":"stop_sequence","timestamp":9,"future":"kept"}"#,
     );
 }
 
 #[test]
-fn stream_event_roundtrip() {
-    let msg = r#"{"role":"assistant","content":[],"api":"a","provider":"p","model":"m","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1}"#;
-    assert_roundtrip::<AssistantMessageEvent>(&format!(
-        r#"{{"type":"text_delta","contentIndex":3,"delta":"abc","partial":{msg}}}"#
-    ));
-    assert_roundtrip::<AssistantMessageEvent>(&format!(
-        r#"{{"type":"done","reason":"toolUse","message":{msg}}}"#
-    ));
-    assert_roundtrip::<AssistantMessageEvent>(&format!(
-        r#"{{"type":"error","reason":"aborted","error":{msg}}}"#
-    ));
-}
-
-#[test]
 fn tool_result_message_roundtrip() {
-    assert_roundtrip::<Message>(
-        r#"{"role":"toolResult","toolCallId":"c1","toolName":"ipython","content":[{"type":"text","text":"out"}],"details":{"durationMs":3},"isError":false,"timestamp":4}"#,
+    assert_roundtrip::<ToolResultMessage>(
+        r#"{"toolCallId":"c1","toolName":"ipython","content":[{"type":"text","text":"out"}],"details":{"durationMs":3},"isError":false,"timestamp":4}"#,
     );
 }
 
@@ -158,15 +126,15 @@ fn user_content_untagged_text_block_roundtrips_losslessly() {
     // (persisted by earlier daemon builds, e.g. session
     // 01a0abe1-ab24-73c0-b363-0cc4e4d6cc5f.jsonl line 4). The block must
     // deserialize and re-serialize verbatim, without injecting a tag.
-    assert_roundtrip::<Message>(r#"{"role":"user","content":[{"text":"hi"}],"timestamp":3}"#);
+    assert_roundtrip::<UserMessage>(r#"{"content":[{"text":"hi"}],"timestamp":3}"#);
 }
 
 #[test]
 fn user_content_unknown_block_kind_is_preserved() {
     // A block kind this version does not model (written by a newer
     // build) must never fail the load; it round-trips verbatim.
-    assert_roundtrip::<Message>(
-        r#"{"role":"user","content":[{"type":"video","url":"x","meta":{"a":1}}],"timestamp":4}"#,
+    assert_roundtrip::<UserMessage>(
+        r#"{"content":[{"type":"video","url":"x","meta":{"a":1}}],"timestamp":4}"#,
     );
 }
 
