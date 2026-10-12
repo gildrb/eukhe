@@ -9,7 +9,7 @@ pub(crate) mod selector;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::diag::{Diag, DiagKind};
+use crate::notice::{Notice, NoticeKind, Omitted, Unit};
 use crate::store::{EditStore, MAX_SNAPSHOT_FILE_BYTES};
 use crate::text::{normalize_to_lf, strip_bom};
 
@@ -63,7 +63,7 @@ pub struct ReadView {
     pub content: ReadContent,
     /// The model-facing text: the projection, then one line per notice.
     pub rendered: String,
-    pub diags: Vec<Diag>,
+    pub diags: Vec<Notice>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -217,7 +217,7 @@ fn format_bytes(bytes: u64) -> String {
 
 struct Projection {
     text: String,
-    diags: Vec<Diag>,
+    diags: Vec<Notice>,
     total_lines: usize,
     shown: Vec<LineSpan>,
 }
@@ -282,14 +282,16 @@ fn project_window(lines: &[&str], range: Option<LineRange>, raw: bool, label: &s
     let total = lines.len();
     let requested_start = range.map_or(1, |range| to_usize(range.start_line)) - 1;
     if requested_start >= total {
-        let diag = Diag::warn(
-            DiagKind::RangeOutOfBounds,
-            format!(
-                "Line {} is beyond end of {label} ({total} lines total).",
-                requested_start.saturating_add(1)
-            ),
-        )
-        .continuation(":1".to_owned());
+        let diag = Notice {
+            continuation: Some(":1".to_owned()),
+            ..Notice::warn(
+                NoticeKind::RangeOutOfBounds,
+                format!(
+                    "Line {} is beyond end of {label} ({total} lines total).",
+                    requested_start.saturating_add(1)
+                ),
+            )
+        };
         return Projection {
             text: String::new(),
             diags: vec![diag],
@@ -333,14 +335,17 @@ fn project_window(lines: &[&str], range: Option<LineRange>, raw: bool, label: &s
     let mut diags = Vec::new();
     if !raw && limit.is_some() && end < total {
         let remaining = total - end;
-        diags.push(
-            Diag::info(
-                DiagKind::Pagination,
+        diags.push(Notice {
+            continuation: Some(format!(":{}", end + 1)),
+            omitted: Some(Omitted {
+                count: remaining as u64,
+                unit: Unit::Lines,
+            }),
+            ..Notice::info(
+                NoticeKind::Pagination,
                 format!("{remaining} lines remain in {label}."),
             )
-            .continuation(format!(":{}", end + 1))
-            .omitted_lines(remaining),
-        );
+        });
     }
     Projection {
         text,
@@ -361,8 +366,8 @@ fn project_ranges(lines: &[&str], ranges: &[LineRange], raw: bool, label: &str) 
                 || range.start_line.to_string(),
                 |end| format!("{}-{end}", range.start_line),
             );
-            diags.push(Diag::warn(
-                DiagKind::RangeOutOfBounds,
+            diags.push(Notice::warn(
+                NoticeKind::RangeOutOfBounds,
                 format!("Requested range {bound} is beyond end of {label} ({total} lines total)."),
             ));
             continue;

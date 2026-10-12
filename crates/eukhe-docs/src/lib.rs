@@ -8,25 +8,45 @@
 //!   replace files atomically.
 //! - [`text`]: line endings and the BOM, stripped for editing and restored on
 //!   write.
+//! - [`grep`]: regex search rendered as `[path#TAG]` / `N:TEXT` rows that
+//!   become edit anchors.
+//! - [`glob`]: matching paths, newest first, as a folded listing.
 //! - [`rebase_content`]: byte-level three-way rebase of a stale edit onto the
 //!   current file.
+//! - [`apply_hashline`]: the hashline `edit` engine; writes go through the
+//!   host's [`EditWriter`].
 //!
 //! The hashline edit grammar, store, and messages are ported from omp
 //! (`can1357/oh-my-pi`, MIT; see `THIRD-PARTY-NOTICES`).
 
-mod diag;
+mod diff;
+mod diff_string;
 mod documents;
 mod error;
+mod glob;
+mod grep;
+mod hashline;
+mod notice;
 mod path;
+mod path_tree;
 mod read;
 mod rebase;
+mod scope;
 mod store;
 pub mod text;
 mod write;
 
-pub use diag::{Diag, DiagKind, Severity};
 pub use documents::Documents;
 pub use error::{EditError, EditResult};
+pub use glob::{glob, GlobError, GlobMatch, GlobOutput, GlobRequest, MAX_GLOB_LIMIT};
+pub use grep::{
+    grep, ContextLine, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest, DEFAULT_FILE_LIMIT,
+};
+pub use hashline::{
+    apply_hashline, EditWriter, FileChange, FileOutcome, HashlineOptions, HashlineOutcome, WriteOp,
+    WriteRequest, WriteResponse, HASHLINE_DESCRIPTION,
+};
+pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};
 pub use path::{canonical_key, resolve};
 pub use read::{
     display_path, DirEntry, FileView, LineSpan, ReadContent, ReadError, ReadView, SelectorError,
