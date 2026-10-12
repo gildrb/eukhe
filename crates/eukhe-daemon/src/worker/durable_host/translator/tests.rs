@@ -927,7 +927,7 @@ fn bookkeeping_events_update_only_the_mirror() {
         3,
         "eukhe.bash",
         Some(json!({ "role": "user", "content": "Ran `ls`", "timestamp": 1 })),
-        Some(json!({ "command": "ls", "output": "", "cancelled": false, "truncated": false })),
+        Some(json!({ "command": "ls", "output": "", "cancelled": false })),
     );
     assert!(translator
         .translate(&event(json!({ "type": "message_end", "entry": bash })))

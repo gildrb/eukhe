@@ -6,12 +6,12 @@
 //!
 //! The execution port follows the TS stack: the local bash operations
 //! (shell config, cwd guard, merged stdout+stderr streaming, kill on
-//! abort), the executor (ANSI/binary sanitization, the 50KB streaming
-//! window with the tail kept, the 2000-line/50KB tail truncation, the
-//! spill file), and the user-bash wrapper (the already-running guard, the
+//! abort), the executor (ANSI/binary sanitization, then the one bound with
+//! its artifact, `eukhe_core::durable::bounded_output`), and the user-bash
+//! wrapper (the already-running guard, the
 //! identity echoed on start/end, transient rows staying unrecorded).
 
-use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -24,18 +24,11 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Mutex;
 
+use eukhe_core::durable::bounded_output::BoundedOutput;
+use eukhe_types::output::OmittedOutput;
+
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::{emit_worker_event_with, HostedSession, Worker};
-
-/// Streaming window: chunks are retained (spilled to disk beyond this); the
-/// default tool-result byte bound.
-const DEFAULT_MAX_BYTES: usize = eukhe_durable::DEFAULT_MAX_BYTES as usize;
-/// Streaming retention cap: the in-memory tail (TS `maxOutputBytes`).
-const STREAM_MAX_BYTES: usize = DEFAULT_MAX_BYTES * 2;
-/// Tail truncation line budget: the default tool-result line bound.
-const DEFAULT_MAX_LINES: usize = eukhe_durable::DEFAULT_MAX_LINES as usize;
-/// The TS spill prefix (temp file names in `$TMPDIR`).
-const SPILL_PREFIX: &str = "pa-bash";
 
 /// The user-bash slot: one command runs at a time (TS `_userBashRunning`
 /// plus the per-invocation abort controllers), with a kill switch the
@@ -245,6 +238,9 @@ impl Worker {
                 prefix: prefix.as_deref(),
                 shell_path: shell_path.as_deref(),
                 user_bash: &user_bash,
+                storage_dir: session
+                    .get()
+                    .and_then(|hosted| hosted.storage_dir().map(Path::to_path_buf)),
                 on_chunk: Some((Arc::clone(&core), Arc::clone(&events))),
             })
             .await;
@@ -255,8 +251,8 @@ impl Worker {
                     output: end.output.clone(),
                     exit_code: end.exit_code,
                     cancelled: end.cancelled,
-                    truncated: end.truncated,
-                    full_output_path: end.full_output_path.clone(),
+                    omitted: end.omitted,
+                    artifact: end.artifact.clone(),
                 };
                 if let Some(hosted) = session.get() {
                     let row = BashRow {
@@ -275,10 +271,13 @@ impl Worker {
                 "type": "bash_end",
                 "exitCode": end.exit_code,
                 "cancelled": end.cancelled,
-                "truncated": end.truncated,
+                "output": end.output,
             });
-            if let Some(path) = &end.full_output_path {
-                event["fullOutputPath"] = json!(path);
+            if let Some(omitted) = &end.omitted {
+                event["omitted"] = json!(omitted);
+            }
+            if let Some(path) = &end.artifact {
+                event["artifact"] = json!(path);
             }
             if let Some(error) = &end.error_message {
                 event["errorMessage"] = json!(error);
@@ -336,6 +335,10 @@ impl Worker {
             prefix: prefix.as_deref(),
             shell_path: shell_path.as_deref(),
             user_bash: &user_bash,
+            storage_dir: self
+                .session
+                .get()
+                .and_then(|hosted| hosted.storage_dir().map(Path::to_path_buf)),
             // The awaited path emits nothing (TS passes no `onChunk`).
             on_chunk: None,
         })
@@ -354,8 +357,8 @@ impl Worker {
             output: end.output,
             exit_code: end.exit_code,
             cancelled: end.cancelled,
-            truncated: end.truncated,
-            full_output_path: end.full_output_path,
+            omitted: end.omitted,
+            artifact: end.artifact,
         };
         let row = BashRow {
             command: &command,
@@ -434,7 +437,7 @@ impl Drop for AwaitedRun<'_> {
     }
 }
 
-/// The TS `BashResult` wire shape.
+/// The `BashResult` wire shape.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BashResult {
@@ -442,9 +445,10 @@ struct BashResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     exit_code: Option<i64>,
     cancelled: bool,
-    truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    full_output_path: Option<String>,
+    omitted: Option<OmittedOutput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    artifact: Option<String>,
 }
 
 /// The settled user-bash run (TS `UserBashEndDetails` plus the output it
@@ -453,19 +457,22 @@ struct BashEnd {
     output: String,
     exit_code: Option<i64>,
     cancelled: bool,
-    truncated: bool,
-    full_output_path: Option<String>,
+    omitted: Option<OmittedOutput>,
+    artifact: Option<String>,
     error_message: Option<String>,
 }
 
 /// One process run (TS `executeBashWithOperations` over the local bash
-/// operations): the streaming window, the spill, and the tail truncation.
+/// operations), its output bounded once.
 struct RunBash<'a> {
     command: &'a str,
     cwd: &'a str,
     prefix: Option<&'a str>,
     shell_path: Option<&'a str>,
     user_bash: &'a UserBash,
+    /// The session's storage directory, where an output past the bound
+    /// keeps its artifact.
+    storage_dir: Option<PathBuf>,
     /// The streaming emit target for each sanitized chunk (the
     /// executor's `onChunk`; `None` on the awaited path, which emits
     /// nothing).
@@ -475,55 +482,23 @@ struct RunBash<'a> {
     )>,
 }
 
-/// The streaming accumulator (TS `onData`): the sanitizing decode, the
-/// spill, the in-memory tail window, and the chunk callback.
+/// The streaming accumulator (TS `onData`): the sanitizing decode, the one
+/// bound with its artifact, and the chunk callback.
 struct OutputStream {
-    chunks: Vec<String>,
-    retained_bytes: usize,
-    total_bytes: usize,
-    spill: OutputSpill,
+    output: BoundedOutput,
     on_chunk: Option<(
         Arc<std::sync::Mutex<crate::worker::SessionCore>>,
         Arc<crate::worker::EventPump>,
     )>,
 }
 
-impl Clone for OutputStream {
-    fn clone(&self) -> Self {
-        Self {
-            chunks: self.chunks.clone(),
-            retained_bytes: self.retained_bytes,
-            total_bytes: self.total_bytes,
-            spill: OutputSpill::new(),
-            on_chunk: self.on_chunk.clone(),
-        }
-    }
-}
-
 impl OutputStream {
-    /// The collected view (the shared clone path): this port never clones
-    /// mid-run, but the fallback keeps the collected chunks.
-    fn clone_stream(&self) -> Self {
-        self.clone()
-    }
-
     fn push(&mut self, data: &[u8]) {
         let text = sanitize_output(&String::from_utf8_lossy(data));
         if text.is_empty() {
             return;
         }
-        self.total_bytes += text.len();
-        if self.total_bytes > DEFAULT_MAX_BYTES {
-            self.spill.open(&self.chunks);
-        }
-        self.spill.write(&text);
-        self.chunks.push(text.clone());
-        self.retained_bytes += self.chunks.last().map(String::len).unwrap_or_default();
-        // The in-memory window keeps the tail (TS `maxOutputBytes`).
-        while self.retained_bytes > STREAM_MAX_BYTES && self.chunks.len() > 1 {
-            let removed = self.chunks.remove(0);
-            self.retained_bytes -= removed.len();
-        }
+        self.output.push(&text);
         if let Some((core, events)) = &self.on_chunk {
             emit_worker_event_with(
                 core,
@@ -543,8 +518,8 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
         output: String::new(),
         exit_code: None,
         cancelled: false,
-        truncated: false,
-        full_output_path: None,
+        omitted: None,
+        artifact: None,
         error_message: Some(message),
     };
     if !std::path::Path::new(run.cwd).exists() {
@@ -583,10 +558,10 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
         *slot = Some(child);
     }
     let stream = std::sync::Arc::new(std::sync::Mutex::new(OutputStream {
-        chunks: Vec::new(),
-        retained_bytes: 0,
-        total_bytes: 0,
-        spill: OutputSpill::new(),
+        output: BoundedOutput::in_session(
+            run.storage_dir.as_deref(),
+            &format!("bash-{}", uuid::Uuid::new_v4().simple()),
+        ),
         on_chunk: run.on_chunk,
     }));
     // stdout and stderr merge into one stream (TS wires both pipes to the
@@ -631,31 +606,28 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
     let cancelled = run.user_bash.abort_requested.load(Ordering::SeqCst);
     // The reader tasks joined, so this is the last reference; a poisoned
     // lock (a reader panicked) keeps whatever it collected.
-    let mut stream = match Arc::try_unwrap(stream) {
-        Ok(mutex) => mutex
-            .into_inner()
-            .unwrap_or_else(std::sync::PoisonError::into_inner),
-        Err(stream) => stream
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone_stream(),
+    let Some(stream) = Arc::into_inner(stream) else {
+        return spawn_failure("the output stream is still shared after the run".to_owned());
     };
-    let full_output = stream.chunks.join("");
-    let (output, truncated) = truncate_tail(&full_output);
-    // A line-truncated run spills at settle even under the byte budget
-    // (TS bash-executor: `if (truncationResult.truncated)
-    // spill.open(outputChunks)`), so the truncation notice can always
-    // name a full-output file.
-    if truncated {
-        stream.spill.open(&stream.chunks);
-    }
-    let full_output_path = stream.spill.finalize();
+    let stream = stream
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (output, bounded) = stream.output.finish();
+    let (omitted, artifact) = match bounded {
+        Some(diagnostic) => {
+            if diagnostic.artifact.is_none() {
+                eprintln!("eukhe-daemon: user bash: {}", diagnostic.message);
+            }
+            (diagnostic.omitted, diagnostic.artifact)
+        }
+        None => (None, None),
+    };
     BashEnd {
         output,
         exit_code: if cancelled { None } else { exit_code },
         cancelled,
-        truncated,
-        full_output_path,
+        omitted,
+        artifact,
         error_message: None,
     }
 }
@@ -679,8 +651,8 @@ async fn record_bash_result(hosted: &HostedSession, row: BashRow<'_>) -> anyhow:
         output: row.result.output.clone(),
         exit_code: row.result.exit_code,
         cancelled: row.result.cancelled,
-        truncated: row.result.truncated,
-        full_output_path: row.result.full_output_path.clone(),
+        omitted: row.result.omitted,
+        artifact: row.result.artifact.clone(),
         exclude_from_context: row.exclude_from_context.then_some(true),
     };
     let entry = bash_entry_draft(data, crate::util::now_ms())?;
@@ -749,123 +721,6 @@ fn strip_ansi(text: &str) -> String {
     out
 }
 
-/// The output spill (TS `OutputSpill`): opened once when the output
-/// outgrows the streaming window, written progressively, finalized to the
-/// complete file's path. A degraded spill never advertises a path.
-struct OutputSpill {
-    file: Option<std::fs::File>,
-    path: Option<String>,
-    failed: bool,
-}
-
-impl OutputSpill {
-    fn new() -> Self {
-        Self {
-            file: None,
-            path: None,
-            failed: false,
-        }
-    }
-
-    fn open(&mut self, replay: &[String]) {
-        if self.file.is_some() || self.failed {
-            return;
-        }
-        let path = std::env::temp_dir().join(format!(
-            "{SPILL_PREFIX}-{}.log",
-            uuid::Uuid::new_v4().simple()
-        ));
-        let Ok(mut file) = std::fs::File::create(&path) else {
-            self.failed = true;
-            return;
-        };
-        for chunk in replay {
-            if file.write_all(chunk.as_bytes()).is_err() {
-                self.failed = true;
-                return;
-            }
-        }
-        self.path = Some(path.to_string_lossy().to_string());
-        self.file = Some(file);
-    }
-
-    fn write(&mut self, text: &str) {
-        let Some(file) = self.file.as_mut() else {
-            return;
-        };
-        if file.write_all(text.as_bytes()).is_err() {
-            self.failed = true;
-            self.file = None;
-            self.path = None;
-        }
-    }
-
-    fn finalize(mut self) -> Option<String> {
-        if let Some(file) = self.file.as_mut() {
-            if file.flush().is_err() {
-                self.failed = true;
-            }
-        }
-        self.file = None;
-        if self.failed {
-            None
-        } else {
-            self.path
-        }
-    }
-}
-
-/// Tail truncation (TS `truncateTail`): the last 2000 lines within 50KB
-/// win; an oversized last line keeps its tail, blank trailing lines
-/// permitting.
-fn truncate_tail(content: &str) -> (String, bool) {
-    let total_bytes = content.len();
-    let lines: Vec<&str> = content.split('\n').collect();
-    let total_lines = lines.len();
-    if total_lines <= DEFAULT_MAX_LINES && total_bytes <= DEFAULT_MAX_BYTES {
-        return (content.to_string(), false);
-    }
-    let mut collected: Vec<&str> = Vec::new();
-    let mut output_bytes = 0usize;
-    for line in lines.iter().rev() {
-        if collected.len() >= DEFAULT_MAX_LINES {
-            break;
-        }
-        let line_bytes = line.len() + usize::from(!collected.is_empty());
-        if output_bytes + line_bytes > DEFAULT_MAX_BYTES {
-            // The oversized-line rescue: trailing blanks must not defeat
-            // the rescue, so keep as many as the budget allows and unshift
-            // the line's own tail (TS keeps the last `maxBytes` bytes).
-            if collected.iter().all(|collected| collected.is_empty()) {
-                let kept_blanks = collected.len().min(DEFAULT_MAX_BYTES.saturating_sub(1));
-                let budget = DEFAULT_MAX_BYTES.saturating_sub(kept_blanks);
-                let truncated_line = truncate_string_to_bytes_from_end(line, budget);
-                let mut out = String::with_capacity(DEFAULT_MAX_BYTES);
-                out.push_str(&truncated_line);
-                for _ in 0..kept_blanks {
-                    out.push('\n');
-                }
-                return (out, true);
-            }
-            break;
-        }
-        collected.push(line);
-        output_bytes += line_bytes;
-    }
-    collected.reverse();
-    (collected.join("\n"), true)
-}
-
-/// The tail `maxBytes` of one string, on char boundaries (TS
-/// `truncateStringToBytesFromEnd`).
-fn truncate_string_to_bytes_from_end(text: &str, max_bytes: usize) -> String {
-    let mut end = text.len().min(max_bytes);
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[text.len() - end..].to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -916,7 +771,7 @@ mod tests {
         let data = response.data.expect("data");
         assert_eq!(
             data,
-            json!({ "output": "hello\n", "exitCode": 0, "cancelled": false, "truncated": false })
+            json!({ "output": "hello\n", "exitCode": 0, "cancelled": false })
         );
 
         let rows = bash_rows(&worker).await;
@@ -950,6 +805,43 @@ mod tests {
             response.error.as_deref(),
             Some("execute_bash_and_wait requires a command")
         );
+    }
+
+    /// A long run is bounded once, by the shared owner: the end of the
+    /// output survives, the typed `omitted` names the middle, and the
+    /// artifact holds every line.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_long_run_keeps_its_end_and_names_the_artifact() {
+        let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
+        let response = worker
+            .dispatch(
+                "execute_bash_and_wait",
+                &json!({ "activeSessionId": SESSION, "command": "seq 1 5000" }),
+            )
+            .await;
+        assert!(response.success, "failed: {response:?}");
+        let data = response.data.expect("data");
+        let lines = |range: std::ops::RangeInclusive<u32>| {
+            range.map(|n| n.to_string() + "\n").collect::<String>()
+        };
+        let (all, head, tail) = (lines(1..=5000), lines(1..=1000), lines(4001..=5000));
+        assert_eq!(data["output"], json!(format!("{head}{tail}")));
+        assert_eq!(
+            data["omitted"],
+            json!({
+                "bytes": all.len() - head.len() - tail.len(),
+                "lines": 3000,
+                "at": { "afterLine": 1000 },
+            })
+        );
+        let artifact = Path::new(data["artifact"].as_str().expect("artifact path"));
+        let hosted = worker.session.get().expect("hosted session");
+        let storage_dir = hosted.storage_dir().expect("storage dir");
+        assert!(
+            artifact.starts_with(storage_dir.join("tool-output")),
+            "{artifact:?} is in the session"
+        );
+        assert_eq!(std::fs::read_to_string(artifact).expect("artifact"), all);
     }
 
     /// A run's row is a write submission keyed by its `runId`: a retried
@@ -1148,21 +1040,5 @@ mod tests {
             "keep\ttab\nanddrop"
         );
         assert_eq!(sanitize_output("format\u{fff9}gone"), "formatgone");
-    }
-
-    /// Tail truncation keeps the last lines within the byte budget, and
-    /// the oversized-line rescue keeps the line's own tail.
-    #[test]
-    fn truncate_tail_keeps_the_tail_budget() {
-        let (content, truncated) = truncate_tail("one\ntwo\nthree\n");
-        assert!(!truncated);
-        assert_eq!(content, "one\ntwo\nthree\n");
-
-        // A long output keeps only its tail (the TS window).
-        let big = "x".repeat(DEFAULT_MAX_BYTES + 10_000);
-        let (kept, truncated) = truncate_tail(&big);
-        assert!(truncated);
-        assert!(kept.len() <= DEFAULT_MAX_BYTES);
-        assert!(big.ends_with(&kept), "the tail wins");
     }
 }

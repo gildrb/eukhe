@@ -626,10 +626,7 @@ async fn imports_custom_rows_bash_runs_and_branch_summaries() {
     );
     assert_eq!(
         data[5],
-        Some(
-            json!({"command": "ls", "output": "a\nb", "exitCode": 0, "cancelled": false,
-            "truncated": false})
-        )
+        Some(json!({"command": "ls", "output": "a\nb", "exitCode": 0, "cancelled": false}))
     );
     assert_eq!(
         data[8],

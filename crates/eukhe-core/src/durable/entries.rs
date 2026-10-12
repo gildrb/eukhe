@@ -85,9 +85,12 @@ pub struct BashEntryData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i64>,
     pub cancelled: bool,
-    pub truncated: bool,
+    /// What the output's one bound left out of `output`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub full_output_path: Option<String>,
+    pub omitted: Option<eukhe_types::output::OmittedOutput>,
+    /// Where the complete output is stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<String>,
     /// True keeps the run out of model context (`!!` prefix).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude_from_context: Option<bool>,
@@ -221,8 +224,8 @@ pub fn bash_entry_text(data: &BashEntryData) -> String {
         output: data.output.clone(),
         exit_code: data.exit_code,
         cancelled: data.cancelled,
-        truncated: data.truncated,
-        full_output_path: data.full_output_path.clone(),
+        omitted: data.omitted,
+        artifact: data.artifact.clone(),
         timestamp: 0,
         exclude_from_context: data.exclude_from_context,
     })
@@ -314,8 +317,8 @@ mod tests {
             output: "ok".to_owned(),
             exit_code: Some(1),
             cancelled: false,
-            truncated: false,
-            full_output_path: None,
+            omitted: None,
+            artifact: None,
             exclude_from_context: None,
         };
         let draft = bash_entry_draft(data.clone(), 3).expect("draft");
@@ -326,7 +329,7 @@ mod tests {
         );
         assert_eq!(
             serde_json::to_value(draft.data.expect("data")).expect("json"),
-            json!({"command": "cargo test", "output": "ok", "exitCode": 1, "cancelled": false, "truncated": false})
+            json!({"command": "cargo test", "output": "ok", "exitCode": 1, "cancelled": false})
         );
         let excluded = bash_entry_draft(
             BashEntryData {

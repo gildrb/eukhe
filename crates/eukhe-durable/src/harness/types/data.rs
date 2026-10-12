@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub use eukhe_types::output::{OmittedAt, OmittedOutput};
+
 /// Severity of a [`ToolDiagnostic`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,27 +45,6 @@ pub struct ToolDiagnostic {
 pub struct LineSpan {
     pub first: u64,
     pub last: u64,
-}
-
-/// Output a bound left out of a result.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OmittedOutput {
-    pub bytes: u64,
-    pub lines: u64,
-    pub at: OmittedAt,
-}
-
-/// Where the omitted output was.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum OmittedAt {
-    /// Before the kept output (the end was kept).
-    Start,
-    /// After the kept output (the beginning was kept).
-    End,
-    /// After this kept line (1-based); the rest of the kept output follows.
-    AfterLine(u64),
 }
 
 /// Why a compaction runs: `compact()`, a threshold in generation preparation,

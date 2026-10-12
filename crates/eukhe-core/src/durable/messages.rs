@@ -5,6 +5,7 @@ use crate::agent_messaging::sanitize_message_header_value;
 use crate::cron::AgentCronJob;
 use eukhe_types::ai::{TextContent, UserContent, UserContentBlock, UserMessage};
 use eukhe_types::input_origin::Report;
+use eukhe_types::output::{bound_notice, OmittedOutput};
 use eukhe_types::session::AgentMessage;
 use std::fmt::Write as _;
 
@@ -277,8 +278,8 @@ fn bash_output_to_text(
     output: &str,
     exit_code: Option<i64>,
     cancelled: bool,
-    truncated: bool,
-    full_output_path: Option<&str>,
+    omitted: Option<&OmittedOutput>,
+    artifact: Option<&str>,
 ) -> String {
     let mut text = String::new();
     if output.is_empty() {
@@ -308,13 +309,9 @@ fn bash_output_to_text(
             let _ = write!(text, "\n\nCommand exited with code {code}");
         }
     }
-    if truncated {
-        match full_output_path {
-            Some(path) => {
-                let _ = write!(text, "\n\n[Output truncated. Full output: {path}]");
-            }
-            None => text.push_str("\n\n[Output truncated.]"),
-        }
+    if omitted.is_some() || artifact.is_some() {
+        text.push_str("\n\n");
+        text.push_str(&bound_notice(omitted, artifact));
     }
     text
 }
@@ -329,8 +326,8 @@ pub fn bash_execution_to_text(message: &eukhe_types::session::BashExecutionMessa
             &message.output,
             message.exit_code,
             message.cancelled,
-            message.truncated,
-            message.full_output_path.as_deref(),
+            message.omitted.as_ref(),
+            message.artifact.as_deref(),
         )
     )
 }
@@ -470,21 +467,26 @@ mod tests {
 
     #[test]
     fn bash_output_fences_and_status() {
+        let omitted = OmittedOutput {
+            bytes: 9,
+            lines: 2,
+            at: eukhe_types::output::OmittedAt::AfterLine(1),
+        };
         let rendered = bash_output_to_text(
             "has `ticks` inside",
             Some(1),
             false,
-            true,
+            Some(&omitted),
             Some("/tmp/full.txt"),
         );
         assert!(rendered.contains("```\nhas `ticks` inside\n```")); // default fence
         assert!(rendered.contains("Command exited with code 1"));
-        assert!(rendered.contains("[Output truncated. Full output: /tmp/full.txt]"));
-        assert!(bash_output_to_text("", None, false, false, None).contains("(no output)"));
-        let cancelled = bash_output_to_text("x", None, true, false, None);
+        assert!(rendered.ends_with("<harness>\n[info] Output bounded. 9 bytes (2 lines) omitted after line 1. Full output: /tmp/full.txt\n</harness>"));
+        assert!(bash_output_to_text("", None, false, None, None).contains("(no output)"));
+        let cancelled = bash_output_to_text("x", None, true, None, None);
         assert!(cancelled.contains("(command cancelled)"));
         // A 3-backtick run in the output forces a 4-backtick fence.
-        let fenced = bash_output_to_text("a ``` b", None, false, false, None);
+        let fenced = bash_output_to_text("a ``` b", None, false, None, None);
         assert!(fenced.contains("````\na ``` b\n````"));
     }
 
@@ -661,8 +663,8 @@ mod tests {
             output: "ok".to_string(),
             exit_code: Some(0),
             cancelled: false,
-            truncated: false,
-            full_output_path: None,
+            omitted: None,
+            artifact: None,
             timestamp: 0,
             exclude_from_context: None,
         });
@@ -681,8 +683,8 @@ mod tests {
             output: String::new(),
             exit_code: None,
             cancelled: false,
-            truncated: false,
-            full_output_path: None,
+            omitted: None,
+            artifact: None,
             timestamp: 0,
         });
         assert!(convert_to_llm(std::slice::from_ref(&excluded)).is_empty());

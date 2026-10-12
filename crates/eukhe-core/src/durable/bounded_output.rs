@@ -1,7 +1,8 @@
-//! The model projection of one `ipython` cell's output, bounded once.
+//! The model projection of one run's output, bounded once: an `ipython`
+//! cell (its streamed chunks, then its result value, traceback, and
+//! background output) or a user `!bash` command.
 //!
-//! Every chunk the cell streams, then its result value, traceback, and
-//! background output, pass through one [`CellOutput`]. While the output fits
+//! Every chunk passes through one [`BoundedOutput`]. While the output fits
 //! the default tool-result bound ([`DEFAULT_MAX_BYTES`],
 //! [`DEFAULT_MAX_LINES`]) it is kept whole. Past the bound it is spilled to an
 //! artifact file in the session directory, and memory keeps only the head
@@ -10,13 +11,16 @@
 //! artifact, so the result stays within the Harness's own bound.
 
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use eukhe_durable::harness::types::{
     LineSpan, OmittedAt, OmittedOutput, OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity,
 };
 use eukhe_durable::harness::{bound_output, OutputLimits};
 use eukhe_durable::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
+
+/// The artifacts' directory in the session's storage directory.
+const ARTIFACT_DIR: &str = "tool-output";
 
 #[expect(
     clippy::cast_possible_truncation,
@@ -33,9 +37,9 @@ struct Spilled {
     artifact: Result<(PathBuf, std::io::BufWriter<std::fs::File>), String>,
 }
 
-/// One cell's output: whole while within the bound, then head, tail window,
+/// One run's output: whole while within the bound, then head, tail window,
 /// and artifact.
-pub(crate) struct CellOutput {
+pub struct BoundedOutput {
     /// Where the full output goes once it passes the bound; `Err`: why it
     /// cannot be kept.
     artifact_path: Result<PathBuf, String>,
@@ -59,10 +63,16 @@ fn limits(retain: OutputRetain) -> OutputLimits {
     }
 }
 
-impl CellOutput {
-    pub(crate) fn new(artifact_path: Result<PathBuf, String>) -> Self {
+impl BoundedOutput {
+    /// An output whose artifact, once it passes the bound, is
+    /// `<storage_dir>/tool-output/<name>.txt`; a session without a storage
+    /// directory keeps no artifact.
+    #[must_use]
+    pub fn in_session(storage_dir: Option<&Path>, name: &str) -> Self {
         Self {
-            artifact_path,
+            artifact_path: storage_dir
+                .map(|dir| dir.join(ARTIFACT_DIR).join(format!("{name}.txt")))
+                .ok_or_else(|| "the session has no storage directory".to_owned()),
             window: String::new(),
             spilled: None,
             bytes: 0,
@@ -70,8 +80,8 @@ impl CellOutput {
         }
     }
 
-    /// Append one chunk of the cell's stdout or stderr.
-    pub(crate) fn push(&mut self, text: &str) {
+    /// Append one chunk of the run's stdout or stderr.
+    pub fn push(&mut self, text: &str) {
         self.bytes += text.len() as u64;
         self.newlines += newlines(text);
         self.window.push_str(text);
@@ -103,7 +113,7 @@ impl CellOutput {
 
     /// Append a part that starts on its own line (the result value, a
     /// traceback, background output); returns the lines it fills.
-    pub(crate) fn push_part(&mut self, text: &str) -> LineSpan {
+    pub fn push_part(&mut self, text: &str) -> LineSpan {
         if self.bytes > 0 && !self.window.ends_with('\n') {
             self.push("\n");
         }
@@ -133,7 +143,8 @@ impl CellOutput {
 
     /// The projection and its `output_bounded` diagnostic, when the output
     /// passed the bound.
-    pub(crate) fn finish(self) -> (String, Option<ToolDiagnostic>) {
+    #[must_use]
+    pub fn finish(self) -> (String, Option<ToolDiagnostic>) {
         let Some(Spilled { head, artifact }) = self.spilled else {
             return (self.window, None);
         };
@@ -177,8 +188,8 @@ impl CellOutput {
 mod tests {
     use super::*;
 
-    fn bounded(path: Result<PathBuf, String>, chunks: &[&str]) -> (String, Option<ToolDiagnostic>) {
-        let mut output = CellOutput::new(path);
+    fn bounded(storage_dir: Option<&Path>, chunks: &[&str]) -> (String, Option<ToolDiagnostic>) {
+        let mut output = BoundedOutput::in_session(storage_dir, "7");
         for chunk in chunks {
             output.push(chunk);
         }
@@ -188,10 +199,9 @@ mod tests {
     #[test]
     fn output_within_the_bound_is_kept_whole_without_an_artifact() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        let path = dir.path().join("out.txt");
         let text = "line\n".repeat(DEFAULT_MAX_LINES as usize);
-        assert_eq!(bounded(Ok(path.clone()), &[&text]), (text, None));
-        assert!(!path.exists());
+        assert_eq!(bounded(Some(dir.path()), &[&text]), (text, None));
+        assert!(!dir.path().join(ARTIFACT_DIR).exists());
     }
 
     /// The end of a long output, where errors are, reaches the model; the
@@ -202,7 +212,7 @@ mod tests {
         let path = dir.path().join("tool-output").join("7.txt");
         let lines: Vec<String> = (1..=5000).map(|n| format!("{n}\n")).collect();
         let chunks: Vec<&str> = lines.iter().map(String::as_str).collect();
-        let (text, diagnostic) = bounded(Ok(path.clone()), &chunks);
+        let (text, diagnostic) = bounded(Some(dir.path()), &chunks);
         let all = lines.concat();
         let head = lines[..1000].concat();
         let tail = lines[4000..].concat();
@@ -230,8 +240,7 @@ mod tests {
     #[test]
     fn a_session_without_storage_still_bounds_and_says_why_nothing_was_kept() {
         let big = "x".repeat(DEFAULT_MAX_BYTES as usize * 2);
-        let (text, diagnostic) =
-            bounded(Err("the session has no storage directory".into()), &[&big]);
+        let (text, diagnostic) = bounded(None, &[&big]);
         assert_eq!(text.len(), DEFAULT_MAX_BYTES as usize);
         let diagnostic = diagnostic.expect("bounded");
         assert_eq!(
@@ -245,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_part_starts_on_its_own_line_and_reports_its_lines() {
-        let mut output = CellOutput::new(Err("no storage".into()));
+        let mut output = BoundedOutput::in_session(None, "7");
         output.push("cell");
         let span = output.push_part("late\nfrom a thread\n");
         assert_eq!(

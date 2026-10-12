@@ -32,7 +32,7 @@
 {"type": "branch_summary","id": "c2","parentId": "p1","timestamp": "2026-01-01T00:00:00.000Z","fromId": "f1","summary": "S"}
 {"type": "label","id": "c3","parentId": "p1","timestamp": "2026-01-01T00:00:00.000Z","targetId": "t1","label": "L"}
 {"type": "session_info","id": "c4","parentId": "p1","timestamp": "2026-01-01T00:00:00.000Z","name": "N"}
-{"type": "message","id": "c5","parentId": "p1","timestamp": "2026-01-01T00:00:00.000Z","message": {"role": "bashExecution","command": "ls","output": "a\nb","exitCode": 0,"cancelled": false,"truncated": false,"fullOutputPath": "/tmp/o","timestamp": 1,"excludeFromContext": true}}
+{"type": "message","id": "c5","parentId": "p1","timestamp": "2026-01-01T00:00:00.000Z","message": {"role": "bashExecution","command": "ls","output": "a\nb","exitCode": 0,"cancelled": false,"omitted": {"bytes": 4,"lines": 1,"at": {"afterLine": 2}},"artifact": "/tmp/o","timestamp": 1,"excludeFromContext": true}}
 {"type": "message","id": "c6","parentId": "p1","timestamp": "2026-01-01T00:00:00.000Z","message": {"role": "custom","customType": "agent_message","content": "hello","display": true,"details": {"a": 1},"timestamp": 1}}
 {"type": "message","id": "c7","parentId": "p1","timestamp": "2026-01-01T00:00:00.000Z","message": {"role": "branchSummary","summary": "S","fromId": "f","timestamp": 1}}
 {"type": "message","id": "c8","parentId": "p1","timestamp": "2026-01-01T00:00:00.000Z","message": {"role": "compactionSummary","summary": "S","tokensBefore": 10,"retainedMessageCount": 2,"customInstructions": "ci","harnessDigest": "d","timestamp": 1}}

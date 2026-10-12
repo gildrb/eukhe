@@ -27,9 +27,9 @@ use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, Us
 use futures::FutureExt;
 use serde_json::json;
 
-use super::cell_output::CellOutput;
 use super::kernels::ConversationKernel;
 use super::RlmRuntime;
+use crate::durable::bounded_output::BoundedOutput;
 use crate::kernel::cancellation::AbortSignal as KernelAbortSignal;
 use crate::kernel::shared::{
     ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment, KernelSentAgentMessage,
@@ -47,10 +47,6 @@ const IPYTHON_TOOL_DESCRIPTION: &str = "Execute Python code in a persistent Pyth
 
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-
-/// The directory under the session storage holding the full output of each
-/// bounded call, one `<task id>.txt` file per call.
-const TOOL_OUTPUT_DIR: &str = "tool-output";
 
 /// The `code` parameter description.
 const CODE_DESCRIPTION: &str = "Python code to execute in the persistent Python REPL. Use the target project's own environment for project imports, tests, scripts, CLIs, and dependency checks instead of direct kernel imports.";
@@ -79,7 +75,7 @@ pub(crate) fn ipython_tool(runtime: &Arc<RlmRuntime>) -> Arc<ToolRegistration> {
         },
     );
     registration.execution_mode = Some(ToolExecutionMode::Sequential);
-    // The settled text is bounded once, here (`cell_output`). The running
+    // The settled text is bounded once, here (`bounded_output`). The running
     // output's live copy keeps its end, so the live view and a
     // crash-interrupted call's partial result show where errors are.
     registration.output_limits = Some(ToolOutputLimits {
@@ -147,13 +143,10 @@ async fn execute(
     };
     deliver_boot_notices(&kernel, &api, cx).await?;
 
-    let artifact_path = match &runtime.deps.storage_dir {
-        Some(dir) => Ok(dir
-            .join(TOOL_OUTPUT_DIR)
-            .join(format!("{}.txt", api.task_id()))),
-        None => Err("the session has no storage directory".to_owned()),
-    };
-    let cell_output = Arc::new(Mutex::new(CellOutput::new(artifact_path)));
+    let cell_output = Arc::new(Mutex::new(BoundedOutput::in_session(
+        runtime.deps.storage_dir.as_deref(),
+        &api.task_id().to_string(),
+    )));
     let output_failure: Arc<Mutex<Option<SessionError>>> = Arc::default();
     let on_stream: StreamCallback = {
         let api = Arc::clone(&api);

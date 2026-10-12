@@ -701,7 +701,7 @@ impl SessionUi {
                                 if let Some(ChatEntry::BashExecution(card)) =
                                     view.chat.get_mut(index)
                                 {
-                                    card.set_complete(None, false, false, None);
+                                    card.set_complete(None, false, None, None);
                                 }
                                 view.mark_entry_stale(index);
                             } else if let Some(card) = view
@@ -709,7 +709,7 @@ impl SessionUi {
                                 .iter_mut()
                                 .find(|card| card.id == card_id)
                             {
-                                card.set_complete(None, false, false, None);
+                                card.set_complete(None, false, None, None);
                             }
                             // TS flushes inside the active-component branch:
                             // a side run (no mounted card) never flushes.

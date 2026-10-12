@@ -43,8 +43,8 @@ pub struct PaneBash {
     pub running: bool,
     pub exit_code: Option<i64>,
     pub cancelled: bool,
-    pub truncated: bool,
-    pub full_output_path: Option<String>,
+    pub omitted: Option<eukhe_types::output::OmittedOutput>,
+    pub artifact: Option<String>,
     pub error_message: Option<String>,
     /// The `!!` variant (TS `excludeFromContext` picks the card's color
     /// key, so the pane card's border renders dim).
@@ -62,8 +62,8 @@ impl PaneBash {
             running: true,
             exit_code: None,
             cancelled: false,
-            truncated: false,
-            full_output_path: None,
+            omitted: None,
+            artifact: None,
             error_message: None,
             excluded,
         }
@@ -83,8 +83,8 @@ impl PaneBash {
             card.set_complete(
                 self.exit_code,
                 self.cancelled,
-                self.truncated,
-                self.full_output_path.clone(),
+                self.omitted,
+                self.artifact.clone(),
             );
         }
         card

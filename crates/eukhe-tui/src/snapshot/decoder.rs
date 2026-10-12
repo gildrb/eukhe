@@ -151,8 +151,10 @@ pub enum TurnUpdate {
     BashEnd {
         exit_code: Option<i64>,
         cancelled: bool,
-        truncated: bool,
-        full_output_path: Option<String>,
+        /// The run's output, bounded once by the daemon.
+        output: String,
+        omitted: Option<eukhe_types::output::OmittedOutput>,
+        artifact: Option<String>,
         error_message: Option<String>,
         transient: bool,
         run_id: Option<String>,
@@ -423,12 +425,16 @@ pub fn event_to_update(event: &Value) -> Option<TurnUpdate> {
                 .get("cancelled")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
-            truncated: event
-                .get("truncated")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            full_output_path: event
-                .get("fullOutputPath")
+            output: event
+                .get("output")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            omitted: event
+                .get("omitted")
+                .and_then(|omitted| serde_json::from_value(omitted.clone()).ok()),
+            artifact: event
+                .get("artifact")
                 .and_then(Value::as_str)
                 .map(str::to_string),
             error_message: event

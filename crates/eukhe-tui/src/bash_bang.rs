@@ -6,9 +6,12 @@
 //! nothing to run and is never sent as a prompt.
 
 use std::fmt::Write;
-/// The tail-truncation budget shared with the bash tool (TS
-/// `truncateTail` defaults): the last 2000 lines within 50KB win, so a
-/// pane-mounted run cannot seed a follow-up with unbounded output.
+
+use eukhe_types::output::{bound_notice, OmittedOutput};
+
+/// The bash card's display window: the last 2000 lines within 50KB of
+/// the streamed output (a view limit; the model sees the daemon's one
+/// bound).
 const TAIL_MAX_LINES: usize = 2000;
 pub(crate) const TAIL_MAX_BYTES: usize = 50 * 1024;
 
@@ -73,13 +76,13 @@ pub fn parse_bash_bang(text: &str) -> Option<BashBang> {
 /// Format bash output for the follow-up seed text (TS `bashOutputToText`):
 /// the fenced output (the fence outgrows any backtick run in it so
 /// command output cannot terminate it early), then the cancellation or
-/// exit-code suffix and the truncation notice.
+/// exit-code suffix and the daemon's bound notice.
 #[must_use]
 pub fn bash_output_to_text(
     output: &str,
     exit_code: Option<i64>,
-    truncated: bool,
-    full_output_path: Option<&str>,
+    omitted: Option<&OmittedOutput>,
+    artifact: Option<&str>,
 ) -> String {
     let mut text = if output.is_empty() {
         "(no output)".to_string()
@@ -103,20 +106,16 @@ pub fn bash_output_to_text(
         }
         _ => {}
     }
-    if truncated {
-        match full_output_path {
-            Some(path) => {
-                let _ = write!(text, "\n\n[Output truncated. Full output: {path}]");
-            }
-            None => text.push_str("\n\n[Output truncated.]"),
-        }
+    if omitted.is_some() || artifact.is_some() {
+        text.push_str("\n\n");
+        text.push_str(&bound_notice(omitted, artifact));
     }
     text
 }
 
-/// The tail truncation the side pane applies to a run's raw output before
-/// seeding a follow-up (TS `truncateTail`): the last `TAIL_MAX_LINES`
-/// lines within `TAIL_MAX_BYTES` win. The result (window and truncation
+/// The bash card's display window over the streamed output (TS
+/// `truncateTail`): the last `TAIL_MAX_LINES` lines within
+/// `TAIL_MAX_BYTES` win. The result (window and truncation
 /// flag) depends only on the input's last `TAIL_MAX_BYTES + 1` bytes, and
 /// the bash card trims its stream to that.
 #[must_use]
@@ -193,18 +192,23 @@ mod tests {
     #[test]
     fn seed_text_matches_the_ts_shape() {
         assert_eq!(
-            bash_output_to_text("hi", Some(0), false, None),
+            bash_output_to_text("hi", Some(0), None, None),
             "```\nhi\n```"
         );
+        let omitted = OmittedOutput {
+            bytes: 7,
+            lines: 1,
+            at: eukhe_types::output::OmittedAt::AfterLine(2),
+        };
         assert_eq!(
-            bash_output_to_text("``x", Some(2), true, Some("/tmp/spill.log")),
-            "```\n``x\n```\n\nCommand exited with code 2\n\n[Output truncated. Full output: /tmp/spill.log]"
+            bash_output_to_text("``x", Some(2), Some(&omitted), Some("/tmp/spill.log")),
+            "```\n``x\n```\n\nCommand exited with code 2\n\n<harness>\n[info] Output bounded. 7 bytes (1 lines) omitted after line 2. Full output: /tmp/spill.log\n</harness>"
         );
         assert_eq!(
-            bash_output_to_text("```x", Some(0), false, None),
+            bash_output_to_text("```x", Some(0), None, None),
             "````\n```x\n````"
         );
-        assert_eq!(bash_output_to_text("", None, false, None), "(no output)");
+        assert_eq!(bash_output_to_text("", None, None, None), "(no output)");
     }
 
     /// `bash_prompt_info` (TS `getBashPromptInfo`): `!!` outranks `!`,

@@ -564,8 +564,8 @@ fn item_to_entry(item: TranscriptItem) -> ChatEntry {
             output,
             exit_code,
             cancelled,
-            truncated,
-            full_output_path,
+            omitted,
+            artifact,
             excluded,
         } => {
             // TS `addMessageToChat`'s `bashExecution` case: the same
@@ -573,7 +573,7 @@ fn item_to_entry(item: TranscriptItem) -> ChatEntry {
             // recorded output.
             let mut card = crate::bash_card::BashExecutionCard::settled(&command, excluded);
             card.append_output(&output);
-            card.set_complete(exit_code, cancelled, truncated, full_output_path);
+            card.set_complete(exit_code, cancelled, omitted, artifact);
             ChatEntry::BashExecution(Box::new(card))
         }
         TranscriptItem::ModelChange { model_id, .. } => ChatEntry::Status {

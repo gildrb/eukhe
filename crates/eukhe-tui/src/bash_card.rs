@@ -34,10 +34,10 @@ pub struct BashExecutionCard {
     pub exit_code: Option<i64>,
     pub cancelled: bool,
     pub error_message: Option<String>,
-    /// The run's output was context-truncated (the notice names the spill
-    /// file when the daemon reported one).
-    pub truncated: bool,
-    pub full_output_path: Option<String>,
+    /// What the daemon's one bound left out of the run's output.
+    pub omitted: Option<eukhe_types::output::OmittedOutput>,
+    /// Where the daemon stored the complete output.
+    pub artifact: Option<String>,
     /// The mounted row skips its leading spacer against an agent-message
     /// row (TS `suppressLeadingSpace`).
     pub suppress_leading_space: bool,
@@ -57,8 +57,8 @@ impl BashExecutionCard {
             exit_code: None,
             cancelled: false,
             error_message: None,
-            truncated: false,
-            full_output_path: None,
+            omitted: None,
+            artifact: None,
             suppress_leading_space: false,
         }
     }
@@ -94,14 +94,14 @@ impl BashExecutionCard {
         &mut self,
         exit_code: Option<i64>,
         cancelled: bool,
-        truncated: bool,
-        full_output_path: Option<String>,
+        omitted: Option<eukhe_types::output::OmittedOutput>,
+        artifact: Option<String>,
     ) {
         self.running = false;
         self.exit_code = exit_code;
         self.cancelled = cancelled;
-        self.truncated = truncated;
-        self.full_output_path = full_output_path;
+        self.omitted = omitted;
+        self.artifact = artifact;
     }
 
     /// The run failed before producing a result (TS `setFailed`, e.g. a
@@ -173,7 +173,7 @@ pub fn render_bash_execution(
     // or the preview -- the LAST twenty logical lines, wrapped, then cut
     // to twenty VISUAL lines keeping the tail (TS `truncateToVisualLines`
     // over the 20-logical-line slice).
-    let (context, context_truncated) = crate::bash_bang::truncate_tail(&card.output);
+    let (context, _view_cut) = crate::bash_bang::truncate_tail(&card.output);
     // TS renders no output block while the accumulated content is empty
     // (`availableLines = content ? content.split("\n") : []`), so a run
     // with no output yet shows only the command row and the loader.
@@ -247,11 +247,14 @@ pub fn render_bash_execution(
             };
             parts.push((text, theme.fg_style(ThemeColor::Error)));
         }
-        if (card.truncated || context_truncated) && card.full_output_path.is_some() {
+        if card.omitted.is_some() || card.artifact.is_some() {
             parts.push((
                 format!(
-                    "Output truncated. Full output: {}",
-                    card.full_output_path.as_deref().unwrap_or_default()
+                    "Output bounded. {}",
+                    eukhe_types::output::describe_bound(
+                        card.omitted.as_ref(),
+                        card.artifact.as_deref()
+                    )
                 ),
                 theme.fg_style(ThemeColor::Warning),
             ));
@@ -301,7 +304,7 @@ mod tests {
         for line in 1..=40 {
             card.append_output(&format!("line-{line}\n"));
         }
-        card.set_complete(Some(0), false, false, None);
+        card.set_complete(Some(0), false, None, None);
         let rows = render_bash_execution(&card, 0, false, "esc", &theme(), 80);
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert_eq!(
@@ -330,17 +333,17 @@ mod tests {
     #[test]
     fn settled_status_markers_match_the_ts_shape() {
         let mut card = BashExecutionCard::new_running("u-1", "false", false);
-        card.set_complete(Some(1), false, false, None);
+        card.set_complete(Some(1), false, None, None);
         let rows = render_bash_execution(&card, 0, false, "esc", &theme(), 80);
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert!(flat.contains(&" (exit 1)".to_string()), "{flat:?}");
         assert!(
-            !flat.iter().any(|row| row.contains("Output truncated")),
+            !flat.iter().any(|row| row.contains("Output bounded")),
             "no path, no notice: {flat:?}"
         );
 
         let mut card = BashExecutionCard::new_running("u-1", "sleep", false);
-        card.set_complete(None, true, false, None);
+        card.set_complete(None, true, None, None);
         let rows = render_bash_execution(&card, 0, false, "esc", &theme(), 80);
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert!(flat.contains(&" (cancelled)".to_string()), "{flat:?}");
@@ -381,7 +384,7 @@ mod tests {
         for line in 1..=30 {
             card.append_output(&format!("line-{line}\n"));
         }
-        card.set_complete(Some(0), false, false, None);
+        card.set_complete(Some(0), false, None, None);
         let rows = render_bash_execution(&card, 0, true, "esc", &theme(), 80);
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert!(flat.contains(&" line-1".to_string()), "{flat:?}");
@@ -399,7 +402,7 @@ mod tests {
     #[test]
     fn long_streams_retain_a_budget_suffix_and_render_unchanged() {
         let mut card = BashExecutionCard::settled("big", false);
-        card.set_complete(Some(0), false, false, Some("/tmp/spill.txt".to_string()));
+        card.set_complete(Some(0), false, None, Some("/tmp/spill.txt".to_string()));
         let mut full = String::new();
         // Three shapes: budget-overflowing short lines with multibyte
         // heads, one oversize open line with no newline, then the newline

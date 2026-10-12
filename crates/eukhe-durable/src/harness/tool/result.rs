@@ -4,6 +4,7 @@
 use std::fmt::Write as _;
 
 use eukhe_chord::json::from_json;
+use eukhe_types::output::describe_bound;
 use eukhe_types::pi_ai::{
     JsonValue as PiJsonValue, Message, TextContent, ToolCall, ToolResultMessage, UserContentBlock,
 };
@@ -125,23 +126,12 @@ fn render_diagnostics(diagnostics: &[ToolDiagnostic]) -> String {
                 severity_text(diagnostic.severity),
                 diagnostic.message
             );
-            if let Some(omitted) = &diagnostic.omitted {
-                let _infallible = write!(
-                    line,
-                    " {} bytes ({} lines) omitted",
-                    omitted.bytes, omitted.lines
-                );
-                let _infallible = match omitted.at {
-                    OmittedAt::Start => write!(line, " at the start."),
-                    OmittedAt::End => write!(line, " at the end."),
-                    OmittedAt::AfterLine(kept) => write!(line, " after line {kept}."),
-                };
+            let bound = describe_bound(diagnostic.omitted.as_ref(), diagnostic.artifact.as_deref());
+            if !bound.is_empty() {
+                let _infallible = write!(line, " {bound}");
             }
             if let Some(lines) = &diagnostic.lines {
                 let _infallible = write!(line, " Lines {}-{}.", lines.first, lines.last);
-            }
-            if let Some(artifact) = &diagnostic.artifact {
-                let _infallible = write!(line, " Full output: {artifact}");
             }
             line
         })

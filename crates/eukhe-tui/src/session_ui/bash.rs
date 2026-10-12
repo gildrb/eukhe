@@ -73,6 +73,14 @@ pub(super) struct SideBashRun {
     seed_transcript: bool,
 }
 
+/// What a settled user-bash run reports: its output, bounded once by the
+/// daemon, and the bound's typed facts.
+pub(super) struct BashSettled {
+    pub(super) output: String,
+    pub(super) omitted: Option<eukhe_types::output::OmittedOutput>,
+    pub(super) artifact: Option<String>,
+}
+
 impl SessionUi {
     /// TS `!command` / `!!command` (interactive-mode `onSubmit`): run the
     /// command through the daemon's user-bash slot -- no model turn. `!`
@@ -600,14 +608,18 @@ impl SessionUi {
         &mut self,
         exit_code: Option<i64>,
         cancelled: bool,
-        truncated: bool,
-        full_output_path: Option<String>,
+        settled: BashSettled,
         error_message: Option<String>,
         transient: bool,
         run_id: Option<&str>,
         view: &mut AgentView,
     ) {
         self.user_bash_running = false;
+        let BashSettled {
+            output,
+            omitted,
+            artifact,
+        } = settled;
         if let Some(discarded) = self.side_bash_discarded.clone() {
             if run_id == Some(discarded.as_str()) {
                 // Only the discarded run's own end consumes the marker
@@ -632,23 +644,16 @@ impl SessionUi {
                     bash.running = false;
                     bash.exit_code = exit_code;
                     bash.cancelled = cancelled;
-                    bash.truncated = truncated;
-                    bash.full_output_path.clone_from(&full_output_path);
+                    bash.omitted = omitted;
+                    bash.artifact.clone_from(&artifact);
                     bash.error_message.clone_from(&error_message);
                 }
                 if run.seed_transcript && !cancelled && error_message.is_none() {
-                    let raw = pane
-                        .bash
-                        .as_ref()
-                        .map(|bash| bash.output.clone())
-                        .unwrap_or_default();
-                    let (tail, tail_truncated) = crate::bash_bang::truncate_tail(&raw);
-                    let output = tail.trim_end_matches('\n').to_string();
                     let answer = crate::bash_bang::bash_output_to_text(
-                        &output,
+                        output.trim_end_matches('\n'),
                         exit_code,
-                        truncated || tail_truncated,
-                        full_output_path.as_deref(),
+                        omitted.as_ref(),
+                        artifact.as_deref(),
                     );
                     pane.extra_seeds.push((run.input, answer));
                 }
@@ -666,12 +671,7 @@ impl SessionUi {
                 if let Some(ChatEntry::BashExecution(card)) = view.chat.get_mut(index) {
                     match &error_message {
                         Some(message) => card.set_failed(message),
-                        None => card.set_complete(
-                            exit_code,
-                            cancelled,
-                            truncated,
-                            full_output_path.clone(),
-                        ),
+                        None => card.set_complete(exit_code, cancelled, omitted, artifact.clone()),
                     }
                 }
                 view.mark_entry_stale(index);
@@ -682,7 +682,7 @@ impl SessionUi {
                     match &error_message {
                         Some(message) => card.set_failed(message),
                         None => {
-                            card.set_complete(exit_code, cancelled, truncated, full_output_path);
+                            card.set_complete(exit_code, cancelled, omitted, artifact);
                         }
                     }
                 }

@@ -46,8 +46,8 @@ pub enum TranscriptItem {
         output: String,
         exit_code: Option<i64>,
         cancelled: bool,
-        truncated: bool,
-        full_output_path: Option<String>,
+        omitted: Option<eukhe_types::output::OmittedOutput>,
+        artifact: Option<String>,
         excluded: bool,
     },
     ModelChange {
@@ -264,8 +264,8 @@ fn message_to_items(message: &AgentMessage) -> Vec<TranscriptItem> {
             output: b.output.clone(),
             exit_code: b.exit_code,
             cancelled: b.cancelled,
-            truncated: b.truncated,
-            full_output_path: b.full_output_path.clone(),
+            omitted: b.omitted,
+            artifact: b.artifact.clone(),
             excluded: b.exclude_from_context.unwrap_or(false),
         }],
         // Custom/branch/compaction messages carry UI-specific payloads; the

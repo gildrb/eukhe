@@ -82,31 +82,28 @@ fn eukhe_rows_rebuild_their_roles() {
     let bash = record(
         "eukhe.bash",
         Some(json!({ "role": "user", "content": "Ran `ls`", "timestamp": 6 })),
-        Some(
-            json!({ "command": "ls", "output": "a", "exitCode": 0, "cancelled": false,
-                     "truncated": false }),
-        ),
+        Some(json!({ "command": "ls", "output": "a", "exitCode": 0, "cancelled": false })),
     );
     assert_eq!(
         entry_wire_message(&bash),
         Some(json!({
             "role": "bashExecution", "command": "ls", "output": "a", "exitCode": 0,
-            "cancelled": false, "truncated": false, "timestamp": 6,
+            "cancelled": false, "timestamp": 6,
         }))
     );
     let excluded = record(
         "eukhe.bash",
         None,
-        Some(
-            json!({ "command": "ls", "output": "", "cancelled": true, "truncated": true,
-                     "fullOutputPath": "/tmp/o", "excludeFromContext": true }),
-        ),
+        Some(json!({ "command": "ls", "output": "", "cancelled": true,
+                     "omitted": { "bytes": 4, "lines": 1, "at": "start" },
+                     "artifact": "/tmp/o", "excludeFromContext": true })),
     );
     assert_eq!(
         entry_wire_message(&excluded),
         Some(json!({
             "role": "bashExecution", "command": "ls", "output": "", "cancelled": true,
-            "truncated": true, "fullOutputPath": "/tmp/o", "excludeFromContext": true,
+            "omitted": { "bytes": 4, "lines": 1, "at": "start" },
+            "artifact": "/tmp/o", "excludeFromContext": true,
             "timestamp": 0,
         }))
     );

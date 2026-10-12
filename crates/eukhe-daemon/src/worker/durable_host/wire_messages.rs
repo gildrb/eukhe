@@ -184,9 +184,11 @@ fn bash_message(entry: &EntryRecord) -> Option<Value> {
         message.insert("exitCode".to_owned(), Value::from(exit_code));
     }
     message.insert("cancelled".to_owned(), Value::from(data.cancelled));
-    message.insert("truncated".to_owned(), Value::from(data.truncated));
-    if let Some(path) = data.full_output_path {
-        message.insert("fullOutputPath".to_owned(), Value::from(path));
+    if let Some(omitted) = data.omitted {
+        message.insert("omitted".to_owned(), serde_json::json!(omitted));
+    }
+    if let Some(path) = data.artifact {
+        message.insert("artifact".to_owned(), Value::from(path));
     }
     if let Some(exclude) = data.exclude_from_context {
         message.insert("excludeFromContext".to_owned(), Value::from(exclude));

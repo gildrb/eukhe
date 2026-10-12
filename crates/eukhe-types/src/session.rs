@@ -100,9 +100,12 @@ pub struct BashExecutionMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i64>,
     pub cancelled: bool,
-    pub truncated: bool,
+    /// What the output's one bound left out of `output`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub full_output_path: Option<String>,
+    pub omitted: Option<crate::output::OmittedOutput>,
+    /// Where the complete output is stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<String>,
     /// Unix timestamp in milliseconds.
     pub timestamp: u64,
     /// True excludes this message from LLM context (`!!` prefix).

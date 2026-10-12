@@ -1,5 +1,6 @@
 //! The apply concern: the streamed-event pump -- client events, turn
 //! updates, assistant/tool rows, and compaction aborts.
+use super::bash::BashSettled;
 use super::{
     assistant_message_parts, event_to_update, pop_superseded_attempt_row, AgentView, ChatEntry,
     CompactionReason, CompactionState, DaemonClientEvent, DaemonCommand, Duration, Map,
@@ -651,8 +652,9 @@ impl SessionUi {
             TurnUpdate::BashEnd {
                 exit_code,
                 cancelled,
-                truncated,
-                full_output_path,
+                output,
+                omitted,
+                artifact,
                 error_message,
                 transient,
                 run_id,
@@ -660,8 +662,11 @@ impl SessionUi {
                 self.apply_bash_end(
                     exit_code,
                     cancelled,
-                    truncated,
-                    full_output_path,
+                    BashSettled {
+                        output,
+                        omitted,
+                        artifact,
+                    },
                     error_message,
                     transient,
                     run_id.as_deref(),

@@ -376,12 +376,14 @@ impl MockSupervisor {
                                 &json!({ "type": "bash_output", "chunk": chunk }),
                             );
                         }
-                        let end = self.bash_end.clone().unwrap_or(json!({
+                        let mut end = self.bash_end.clone().unwrap_or(json!({
                             "type": "bash_end",
                             "exitCode": 0,
                             "cancelled": false,
-                            "truncated": false,
                         }));
+                        // The daemon reports the run's output, bounded once;
+                        // these mock runs stay within the bound.
+                        end["output"] = json!(self.bash_chunks.concat());
                         let end = match &run_id {
                             Some(run_id) => {
                                 let mut end = end;
@@ -416,7 +418,7 @@ impl MockSupervisor {
                                         "type": "bash_end",
                                         "exitCode": 0,
                                         "cancelled": false,
-                                        "truncated": false,
+                                        "output": "main-out\n",
                                     }),
                                 );
                             });
@@ -931,10 +933,10 @@ fn a_bang_during_a_streaming_turn_holds_then_flushes() {
 }
 
 /// A long run renders the 20-line tail preview (TS
-/// `truncateToVisualLines` + the hidden logical count) and the truncation
-/// notice names the spill file.
+/// `truncateToVisualLines` + the hidden logical count) and the bound
+/// notice names the omitted lines and the artifact.
 #[test]
-fn a_long_truncated_run_previews_the_tail_and_names_the_spill_file() {
+fn a_long_bounded_run_previews_the_tail_and_names_the_artifact() {
     let steps = vec![
         HeadlessStep::Submit("!seq 40".to_string()),
         HeadlessStep::WaitMs(500),
@@ -945,8 +947,8 @@ fn a_long_truncated_run_previews_the_tail_and_names_the_spill_file() {
             "type": "bash_end",
             "exitCode": 0,
             "cancelled": false,
-            "truncated": true,
-            "fullOutputPath": "/tmp/bang-spill.log",
+            "omitted": { "bytes": 70, "lines": 10, "at": { "afterLine": 10 } },
+            "artifact": "/tmp/bang-spill.log",
         }));
     });
     // The settled frame (the last one that shows the run) carries the
@@ -970,8 +972,10 @@ fn a_long_truncated_run_previews_the_tail_and_names_the_spill_file() {
         "the hidden logical count names the cut (the trailing newline is\n its own line, TS parity):\n{settled}"
     );
     assert!(
-        settled.contains("Output truncated. Full output: /tmp/bang-spill.log"),
-        "the truncation notice names the spill file:\n{settled}"
+        settled.contains(
+            "Output bounded. 70 bytes (10 lines) omitted after line 10. Full output: /tmp/bang-spill.log"
+        ),
+        "the bound notice names the omitted lines and the artifact:\n{settled}"
     );
 }
 
@@ -987,7 +991,6 @@ fn a_cancelled_run_marks_the_card_cancelled() {
         supervisor.bash_end = Some(json!({
             "type": "bash_end",
             "cancelled": true,
-            "truncated": false,
         }));
     });
     let all = run.frames.join("\n");
