@@ -54,7 +54,24 @@ impl AuthStorage {
     }
 
     /// TS `setPrimeInferenceApiKey`: store the key and its team selection.
+    ///
+    /// The key arrives from outside (the browser login's challenge result or
+    /// a paste), so it is stored only as a literal token: an empty key, a
+    /// leading `!` (the `resolve_config_value` shell-command form, reserved
+    /// for values the user writes into auth.json by hand), or whitespace and
+    /// control characters are refused with an error and nothing is written.
     pub fn set_prime_inference_api_key(&mut self, api_key: &str, team: PrimeTeamAssignment) {
+        if api_key.is_empty()
+            || api_key.starts_with('!')
+            || api_key
+                .chars()
+                .any(|ch| ch.is_whitespace() || ch.is_control())
+        {
+            self.errors.push(
+                "Refusing to store the Prime API key: it must be a non-empty token without a leading '!', whitespace, or control characters".to_string(),
+            );
+            return;
+        }
         let api_key = api_key.to_string();
         let applied = self.update_prime_inference_credential(|existing| {
             let prime_team = match team {

@@ -177,28 +177,29 @@ fn unique_suffix() -> String {
 /// macOS (the TS native clipboard module's role): a
 /// JavaScript-for-Automation script reads the pasteboard's PNG data and
 /// writes it to a temp file, which we read back and remove. PNG is the
-/// screenshot format; non-PNG pasteboard image flavors are not read.
+/// screenshot format; non-PNG pasteboard image flavors are not read. The
+/// temp path rides the script's argv (`run(argv)`), never its source: a
+/// `$TMPDIR` with a quote cannot break out of a JS string literal.
 async fn read_via_osascript() -> Option<ClipboardImage> {
+    const SCRIPT: &str = r"ObjC.import('Cocoa');
+function run(argv) {
+    const pb = $.NSPasteboard.generalPasteboard;
+    const types = pb.types.allObjects;
+    if (!types.containsObject($.NSPasteboardTypePNG)) {
+        return 'empty';
+    }
+    const data = pb.dataForType($.NSPasteboardTypePNG);
+    const text = $.NSString.alloc.initWithDataEncoding(data, $.NSISOLatin1StringEncoding);
+    text.writeToFileAtomicallyEncodingError(argv[0], false, $.NSISOLatin1StringEncoding, null);
+    return 'ok';
+}";
     let temp_dir = std::env::temp_dir();
     std::fs::create_dir_all(&temp_dir).ok()?;
     let temp_path = temp_dir.join(format!("eukhe-clip-{}.png", unique_suffix()));
-    let path_str = temp_path.to_str()?.to_string();
-    let script = format!(
-        r"ObjC.import('Cocoa');
-const pb = $.NSPasteboard.generalPasteboard;
-const types = pb.types.allObjects;
-if (!types.containsObject($.NSPasteboardTypePNG)) {{
-    'empty'
-}} else {{
-    const data = pb.dataForType($.NSPasteboardTypePNG);
-    const text = $.NSString.alloc.initWithDataEncoding(data, $.NSISOLatin1StringEncoding);
-    text.writeToFileAtomicallyEncodingError('{path_str}', false, $.NSISOLatin1StringEncoding, null);
-    'ok'
-}}"
-    );
+    let path_str = temp_path.to_str()?;
     let output = run_command(
         "osascript",
-        &["-l", "JavaScript", "-e", &script],
+        &["-l", "JavaScript", "-e", SCRIPT, path_str],
         DEFAULT_READ_TIMEOUT,
     )
     .await?;

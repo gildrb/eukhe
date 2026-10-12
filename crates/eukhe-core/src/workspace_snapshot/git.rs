@@ -119,7 +119,10 @@ pub(super) fn git_command(args: &[&str], cwd: &Path) -> tokio::process::Command 
         "GIT_NAMESPACE",
     ];
     let mut command = tokio::process::Command::new("git");
-    command.args(args).current_dir(cwd);
+    command
+        .args(crate::platform::process::GIT_UNTRUSTED_REPO_ARGS)
+        .args(args)
+        .current_dir(cwd);
     for variable in GIT_SELECTION_VARS {
         command.env_remove(variable);
     }

@@ -22,6 +22,7 @@ pub fn capture_git_context(cwd: &Path) -> Option<GitContext> {
     // Spawn every probe before waiting on any.
     let children = probes.map(|args| {
         std::process::Command::new("git")
+            .args(crate::platform::process::GIT_UNTRUSTED_REPO_ARGS)
             .arg("--no-optional-locks")
             .args(args)
             .current_dir(cwd)

@@ -367,6 +367,34 @@ fn prime_inference_key_writes_follow_the_ts_assignment_rules() {
 }
 
 #[test]
+fn prime_inference_key_writes_refuse_command_and_malformed_keys() {
+    // A key from the login flow is a literal token: a `!command` value (or
+    // an empty / whitespace / control-character one) is refused before
+    // the write, so `resolve_config_value` never runs it as a shell command.
+    for rejected in ["!touch /tmp/pwned", "", "sk 1", "sk-1\n", "sk-\u{1b}1"] {
+        let mut auth = storage_with(&serde_json::json!({
+            "prime-inference": {"type": "api_key", "key": "sk-kept"}
+        }));
+        auth.set_prime_inference_api_key(rejected, PrimeTeamAssignment::PersonalAccount);
+        assert_eq!(
+            auth.drain_errors(),
+            vec![
+                "Refusing to store the Prime API key: it must be a non-empty token without a leading '!', whitespace, or control characters".to_string()
+            ],
+            "{rejected:?}"
+        );
+        assert_eq!(
+            auth.get_all().credential(PRIME_INFERENCE_PROVIDER_ID),
+            Some(AuthCredential::ApiKey {
+                key: "sk-kept".to_string(),
+                prime_team: None,
+            }),
+            "{rejected:?}"
+        );
+    }
+}
+
+#[test]
 fn prime_inference_team_selection_rebinds_only_the_stored_key() {
     let mut auth = storage_with(&serde_json::json!({}));
     // Without a stored credential the selection is a no-op.
