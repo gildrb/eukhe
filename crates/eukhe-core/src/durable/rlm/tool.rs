@@ -1,7 +1,6 @@
 //! The `ipython` tool on the durable Harness: the conversation's kernel runs
 //! the cell, its output streams into the call's durable output, and the
-//! result content/details are the `ipython` tool result
-//! (`crate::tools::ipython::execute_ipython`).
+//! result content/details are the `ipython` tool result.
 //!
 //! The call is not replay-safe: a cell interrupted by a crash is answered
 //! by the Harness with an `interrupted` result carrying the output
@@ -29,15 +28,20 @@ use super::kernels::ConversationKernel;
 use super::RlmRuntime;
 use crate::kernel::cancellation::AbortSignal as KernelAbortSignal;
 use crate::kernel::shared::{
-    ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment, LateSentAgentMessageCallback,
-    StreamCallback, StreamName,
+    ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment, KernelSentAgentMessage,
+    LateSentAgentMessageCallback, StreamCallback, StreamName,
 };
 use crate::kernel::KernelBootstrapProgressHandler;
 use crate::kernel::ReplKernelManager;
-use crate::tools::ipython::{ipython_tool_description, sent_agent_message_json, IMAGE_MIME_TYPES};
 
 /// The tool name.
 pub const IPYTHON_TOOL_NAME: &str = "ipython";
+
+/// The tool description.
+const IPYTHON_TOOL_DESCRIPTION: &str = "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, imports, and loaded data persist across calls, and are revived on a best-effort basis when a session is resumed (objects that cannot be serialized are dropped and reported). Run shell commands with `bash('cmd')` / `await bash('cmd')`. Project imports, tests, scripts, CLIs, and dependency checks should run through the target project's own environment.";
+
+/// Mime types the model context accepts as images.
+const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 /// The `code` parameter description.
 const CODE_DESCRIPTION: &str = "Python code to execute in the persistent Python REPL. Use the target project's own environment for project imports, tests, scripts, CLIs, and dependency checks instead of direct kernel imports.";
@@ -58,7 +62,7 @@ pub(crate) fn ipython_tool(runtime: &Arc<RlmRuntime>) -> Arc<ToolRegistration> {
     let runtime = Arc::clone(runtime);
     let mut registration = ToolRegistration::new(
         IPYTHON_TOOL_NAME,
-        ipython_tool_description(),
+        IPYTHON_TOOL_DESCRIPTION,
         ipython_parameters(),
         move |args: PiJsonValue, api: Arc<dyn ToolExecutionApi>, cx: Context| {
             let runtime = Arc::clone(&runtime);
@@ -338,8 +342,10 @@ pub(crate) fn tool_result(result: &ExecuteResult) -> ToolExecutionResult {
         .as_ref()
         .filter(|sent| !sent.is_empty())
     {
-        details["sentAgentMessages"] =
-            json!(sent.iter().map(sent_agent_message_json).collect::<Vec<_>>());
+        details["sentAgentMessages"] = json!(sent
+            .iter()
+            .map(KernelSentAgentMessage::to_json)
+            .collect::<Vec<_>>());
     }
     ToolExecutionResult {
         output: Some(content),

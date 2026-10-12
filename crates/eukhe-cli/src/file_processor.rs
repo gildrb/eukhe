@@ -47,7 +47,7 @@ pub fn process_file_arguments(
 ) -> Result<ProcessedFiles, FileProcessingError> {
     let mut processed = ProcessedFiles::default();
     for file_arg in file_args {
-        let resolved = eukhe_core::resolve_read_path(file_arg, &cwd.to_string_lossy());
+        let resolved = eukhe_core::read_path::resolve_read_path(file_arg, &cwd.to_string_lossy());
         let absolute_path = PathBuf::from(&resolved);
         let metadata = std::fs::metadata(&absolute_path).map_err(|_| FileProcessingError {
             message: format!("Error: File not found: {resolved}"),

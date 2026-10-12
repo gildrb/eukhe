@@ -1,4 +1,5 @@
-//! Path expansion and resolution helpers.
+//! `@file` path resolution: cwd-relative resolve with `~` expansion and the
+//! macOS filename variants.
 //!
 //! Port of `packages/coding-agent/src/core/tools/path-utils.ts` (POSIX behavior).
 
@@ -63,7 +64,7 @@ fn normalize_at_prefix(file_path: &str) -> &str {
 }
 
 /// Expand a leading `~` to the user's home directory (TS `expandPath`).
-pub fn expand_path(file_path: &str) -> String {
+fn expand_path(file_path: &str) -> String {
     let home = eukhe_types::platform::home_dir().map(|home| home.to_string_lossy().into_owned());
     expand_path_platform(file_path, home.as_deref())
 }
@@ -106,7 +107,7 @@ fn posix_join(a: &str, b: &str) -> String {
 
 /// Node `path.posix.resolve(base, path)`: right-to-left resolution with
 /// lexical normalization of `.` and `..` segments.
-pub fn node_path_resolve(base: &str, path: &str) -> String {
+fn node_path_resolve(base: &str, path: &str) -> String {
     let mut absolute: Option<Vec<String>> = None;
 
     for part in [base, path] {
@@ -143,7 +144,7 @@ pub fn node_path_resolve(base: &str, path: &str) -> String {
 }
 
 /// Resolve a path relative to the given cwd. Handles ~ expansion and absolute paths.
-pub fn resolve_to_cwd(file_path: &str, cwd: &str) -> String {
+fn resolve_to_cwd(file_path: &str, cwd: &str) -> String {
     let expanded = expand_path(file_path);
     if expanded.starts_with('/') {
         return expanded;

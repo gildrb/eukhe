@@ -101,10 +101,10 @@ pub(crate) fn elide_snapshot_image_payloads(messages: &mut [Value]) {
             ) {
                 (true, Some(data), Some(mime)) if !data.is_empty() => (
                     data.len(),
-                    eukhe_core::get_image_dimensions_prefix(
+                    eukhe_core::image_dimensions::get_image_dimensions_prefix(
                         data,
                         mime,
-                        eukhe_core::IMAGE_DIMENSIONS_PREFIX_BYTES,
+                        eukhe_core::image_dimensions::IMAGE_DIMENSIONS_PREFIX_BYTES,
                     ),
                 ),
                 _ => continue,

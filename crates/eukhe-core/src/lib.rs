@@ -22,49 +22,7 @@
 
 //! Session engine: tools, skills, prompts, compaction, refinement, kernel/RLM
 //! manager, subagents, session manager, settings.
-//!
-//! Public API (crate facade): the tool-definition contract for the
-//! model-facing surface. All subsystem internals are `pub(crate)`.
-//! This lane ports the tools subsystem; its only public
-//! surface is what other layers legitimately consume: the tool definitions
-//! (name, schema, executor) and the pluggable operation seams.
 
-pub(crate) mod tools;
-
-// Tool-definition contract.
-pub use tools::tool_definition::{
-    AbortSignal, ExecuteFn, ExecuteFuture, ExecutionMode, OnUpdate, PrepareArgumentsFn,
-    ToolContentBlock, ToolDefinition, ToolExecutionResult, ToolUpdate, WrappedTool,
-};
-
-// Path-resolution helper the CLI's `@file` expansion shares with the
-// tools (cwd-relative resolve with the macOS filename variants).
-pub use tools::path_utils::resolve_read_path;
-
-// Result-rendering helpers: the image metadata pair (the bounded-prefix
-// dimension read) the daemon's snapshot elision consumes alongside the
-// tool renderers. The narrow re-export keeps the rest of the module's
-// surface crate-private.
-pub use tools::render_utils::{get_image_dimensions_prefix, IMAGE_DIMENSIONS_PREFIX_BYTES};
-
-// bash tool: definition + local/remote execution seam.
-pub use tools::bash::{
-    create_bash_tool_definition, create_bash_tool_definition_with_options, BashOperations,
-    BashSpawnContext, BashSpawnHook, BashToolOptions, LocalBashOperations,
-};
-
-// edit tool: definition + filesystem operations seam.
-pub use tools::edit::{
-    create_edit_tool_definition, prepare_edit_arguments, EditOperations, LocalEditOperations,
-};
-
-// ipython tool: definition + kernel lifecycle seam (RLM bootstrap included).
-pub use tools::ipython::{
-    create_ipython_tool_definition, sent_agent_message_json, ExecuteResult, ExecuteStatus,
-    IpythonKernelProvisioner, IpythonToolOptions, IpythonToolUi, KernelAttachment,
-    KernelBusyAfterInterruptError, KernelErrorInfo, KernelExecError, KernelExecutor,
-};
-pub use tools::rlm_bootstrap::{build_rlm_bootstrap_code, PythonSkillRuntimeInfo};
 pub mod admission;
 pub mod agent_messaging;
 // RLM kernel subsystem: persistent IPython kernel lifecycle.
@@ -75,6 +33,7 @@ pub mod cron;
 pub mod durable;
 pub mod export_html;
 pub mod goals;
+pub mod image_dimensions;
 pub mod kernel;
 pub mod mcp;
 pub mod memory;
@@ -82,6 +41,7 @@ pub mod models;
 pub mod packages;
 pub mod platform;
 pub mod prompts;
+pub mod read_path;
 pub mod refinement;
 pub mod resources;
 pub mod session;

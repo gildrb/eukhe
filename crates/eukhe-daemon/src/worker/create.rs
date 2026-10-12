@@ -506,7 +506,7 @@ impl Worker {
                 json!({
                     "type": "ipython_sent_agent_message",
                     "toolCallId": tool_call_id,
-                    "message": eukhe_core::sent_agent_message_json(&message),
+                    "message": message.to_json(),
                 }),
             );
         }));
