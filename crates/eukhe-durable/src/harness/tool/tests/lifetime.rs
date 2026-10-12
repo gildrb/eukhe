@@ -89,7 +89,7 @@ async fn applies_the_default_output_limits() {
     let text = result_text(&results(&ran.entries)[0]);
     assert!(text.starts_with("1\n2\n"), "{text}");
     assert!(
-        text.ends_with("\n2000\n|<harness>\n[warn] Output truncated to its beginning: 500 lines, 2500 bytes dropped\n</harness>"),
+        text.ends_with("\n2000\n|<harness>\n[warn] Output truncated. 2500 bytes (500 lines) omitted at the end.\n</harness>"),
         "{text}"
     );
     ran.harness.close(context()).await.unwrap();

@@ -25,7 +25,9 @@ pub use conversation::{
     SubmissionDraft, TaskBlockedReason, TaskInspection, TaskInspectionState, UserInput, WhenBusy,
     WriteSubmissionDraft,
 };
-pub use data::{CompactionReason, OmittedOutput, ToolDiagnostic, ToolDiagnosticSeverity};
+pub use data::{
+    CompactionReason, OmittedAt, OmittedOutput, ToolDiagnostic, ToolDiagnosticSeverity,
+};
 pub use extension::{
     Extension, HookHandlers, HookRegistration, PromptInput, PromptSection, SectionRender,
     SectionWrapper, ToolWrapper, Wrap,

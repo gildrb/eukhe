@@ -12,7 +12,8 @@ use crate::entries::{ToolResultData, TOOL_RESULT_ENTRY};
 use crate::harness::live::SlotProgress;
 use crate::harness::output::{bound_output, OutputLimits};
 use crate::harness::types::{
-    OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionResult,
+    OmittedAt, OmittedOutput, OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity,
+    ToolExecutionResult,
 };
 use crate::harness::usage::{record_usage, UsageBucket};
 use crate::session::{SessionResult, Tx};
@@ -51,33 +52,35 @@ pub fn harness_error(code: &str, message: &str) -> ToolExecutionResult {
     }
 }
 
-/// The Harness's truncation diagnostic; `retain` is unknown when rebuilt from
-/// a slot after recovery.
+/// The Harness's truncation diagnostic: what `retain` dropped from the
+/// output.
 pub(super) fn truncated(
     dropped_lines: u64,
     dropped_bytes: u64,
-    retain: Option<OutputRetain>,
+    retain: OutputRetain,
 ) -> ToolDiagnostic {
-    let kept = match retain {
-        None => "",
-        Some(OutputRetain::Head) => " to its beginning",
-        Some(OutputRetain::Tail) => " to its end",
+    let at = match retain {
+        OutputRetain::Head => OmittedAt::End,
+        OutputRetain::Tail => OmittedAt::Start,
     };
     ToolDiagnostic {
-        omitted: None,
-        artifact: None,
         severity: ToolDiagnosticSeverity::Warn,
         code: Some("truncated".to_owned()),
-        message: format!(
-            "Output truncated{kept}: {dropped_lines} lines, {dropped_bytes} bytes dropped"
-        ),
+        message: "Output truncated.".to_owned(),
+        omitted: Some(OmittedOutput {
+            bytes: dropped_bytes,
+            lines: dropped_lines,
+            at,
+        }),
+        artifact: None,
     }
 }
 
 /// An error result from the slot's durable partial output, details, and
-/// diagnostics.
+/// diagnostics; `retain` is the tool's retention, which kept that output.
 pub(super) fn from_slot(
     slot: Option<&SlotProgress>,
+    retain: OutputRetain,
     code: &str,
     message: &str,
 ) -> ToolExecutionResult {
@@ -87,7 +90,7 @@ pub(super) fn from_slot(
     let dropped_bytes = slot.and_then(|slot| slot.dropped_bytes).unwrap_or(0);
     if dropped_bytes > 0 {
         let dropped_lines = slot.and_then(|slot| slot.dropped_lines).unwrap_or(0);
-        diagnostics.push(truncated(dropped_lines, dropped_bytes, None));
+        diagnostics.push(truncated(dropped_lines, dropped_bytes, retain));
     }
     diagnostics.push(tool_diagnostic(code, message));
     let output = match slot.and_then(|slot| slot.output.as_deref()) {
@@ -123,9 +126,14 @@ fn render_diagnostics(diagnostics: &[ToolDiagnostic]) -> String {
             if let Some(omitted) = &diagnostic.omitted {
                 let _infallible = write!(
                     line,
-                    " {} bytes ({} lines) omitted after line {}.",
-                    omitted.bytes, omitted.lines, omitted.after_line
+                    " {} bytes ({} lines) omitted",
+                    omitted.bytes, omitted.lines
                 );
+                let _infallible = match omitted.at {
+                    OmittedAt::Start => write!(line, " at the start."),
+                    OmittedAt::End => write!(line, " at the end."),
+                    OmittedAt::AfterLine(kept) => write!(line, " after line {kept}."),
+                };
             }
             if let Some(artifact) = &diagnostic.artifact {
                 let _infallible = write!(line, " Full output: {artifact}");

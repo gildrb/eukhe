@@ -13,7 +13,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 
 use eukhe_durable::harness::types::{
-    OmittedOutput, OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity,
+    OmittedAt, OmittedOutput, OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity,
 };
 use eukhe_durable::harness::{bound_output, OutputLimits};
 use eukhe_durable::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
@@ -142,7 +142,7 @@ impl CellOutput {
         let omitted = OmittedOutput {
             bytes: self.bytes - (head.len() + tail.len()) as u64,
             lines: self.newlines - after_line - newlines(&tail),
-            after_line,
+            at: OmittedAt::AfterLine(after_line),
         };
         let (message, artifact) = match artifact {
             Ok(path) => (
@@ -211,7 +211,7 @@ mod tests {
                     omitted: Some(OmittedOutput {
                         bytes: (all.len() - head.len() - tail.len()) as u64,
                         lines: 3000,
-                        after_line: 1000,
+                        at: OmittedAt::AfterLine(1000),
                     }),
                     artifact: Some(path.to_string_lossy().into_owned()),
                 })

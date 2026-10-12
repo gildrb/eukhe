@@ -250,11 +250,11 @@ async fn run_command(
     };
     if let Some(spill_path) = &spill_path {
         api.diagnostic(ToolDiagnostic {
-            omitted: None,
-            artifact: None,
             severity: ToolDiagnosticSeverity::Info,
             code: Some("full_output".to_owned()),
-            message: format!("Full output: {spill_path}"),
+            message: "Output saved.".to_owned(),
+            omitted: None,
+            artifact: Some(spill_path.clone()),
         })?;
     }
     let exit_code = match result {

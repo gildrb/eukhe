@@ -373,10 +373,7 @@ async fn reports_the_spill_of_a_command_that_times_out() {
         "Command timed out after 0.05 seconds"
     );
     let reported = api.reported();
-    let full_output_path = reported[0]
-        .message
-        .strip_prefix("Full output: ")
-        .expect("spill diagnostic");
+    let full_output_path = reported[0].artifact.as_deref().expect("spill diagnostic");
     let full_output = read_file(env.as_ref(), full_output_path).await;
     assert!(full_output.contains("line-1\nline-2"));
     assert!(full_output.contains(&format!(
@@ -499,10 +496,7 @@ async fn streams_every_byte_and_spills_complete_output_beyond_the_default_limits
     });
     assert_eq!(api.text(), expected);
     let reported = api.reported();
-    let full_output_path = reported[0]
-        .message
-        .strip_prefix("Full output: ")
-        .expect("spill diagnostic");
+    let full_output_path = reported[0].artifact.as_deref().expect("spill diagnostic");
     assert_eq!(read_file(env.as_ref(), full_output_path).await, expected);
 }
 

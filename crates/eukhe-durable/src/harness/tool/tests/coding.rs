@@ -80,11 +80,11 @@ async fn answers_a_failing_command_with_its_retained_tail_and_diagnostics_in_ord
         .collect();
     assert_eq!(codes, ["full_output", "exit_code", "truncated"]);
     assert!(
-        text.contains("line-3000\n|<harness>\n[info] Full output: "),
+        text.contains("line-3000\n|<harness>\n[info] Output saved. Full output: "),
         "{text}"
     );
     assert!(
-        text.contains("\n[error] Command exited with code 7\n[warn] Output truncated to its end: 1000 lines, "),
+        text.contains("\n[error] Command exited with code 7\n[warn] Output truncated. "),
         "{text}"
     );
     harness.close(context()).await.unwrap();

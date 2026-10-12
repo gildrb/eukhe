@@ -746,7 +746,7 @@ async fn final_result(
             harness.push(truncated(
                 retained.dropped_lines as u64,
                 retained.dropped_bytes as u64,
-                Some(limits.retain),
+                limits.retain,
             ));
         }
     }
@@ -755,7 +755,7 @@ async fn final_result(
         harness.push(truncated(
             bounded.dropped_lines as u64,
             bounded.dropped_bytes as u64,
-            Some(limits.retain),
+            limits.retain,
         ));
     }
     let nested = matches!(input, ToolTaskInput::Nested { .. });

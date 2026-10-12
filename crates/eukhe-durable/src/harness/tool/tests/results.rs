@@ -111,7 +111,7 @@ async fn uses_retained_output_and_the_last_details_when_the_result_omits_them_wi
     assert_eq!(result.details, Some(serde_json::json!({ "step": 2 })));
     assert_eq!(
         result_text(&result),
-        "line 1\nline 2\n|<harness>\n[info] from api\n[warn] from result\n[warn] Output truncated to its beginning: 1 lines, 7 bytes dropped\n</harness>"
+        "line 1\nline 2\n|<harness>\n[info] from api\n[warn] from result\n[warn] Output truncated. 7 bytes (1 lines) omitted at the end.\n</harness>"
     );
     let entry = ran
         .entries
@@ -214,7 +214,7 @@ async fn offers_the_tail_window_with_the_configured_pace_not_a_head_window_and_a
         .unwrap();
     assert_eq!(
         result_text(&tailed),
-        "y\n|<harness>\n[warn] Output truncated to its end: 3 lines, 18 bytes dropped\n</harness>"
+        "y\n|<harness>\n[warn] Output truncated. 18 bytes (3 lines) omitted at the start.\n</harness>"
     );
     ran.harness.close(context()).await.unwrap();
 }
@@ -254,7 +254,7 @@ async fn bounds_explicit_text_content_and_keeps_other_content() {
     .await;
     assert_eq!(
         result_text(&results(&ran.entries)[0]),
-        "[image]|c\nd\n|<harness>\n[warn] Output truncated to its end: 2 lines, 4 bytes dropped\n</harness>"
+        "[image]|c\nd\n|<harness>\n[warn] Output truncated. 4 bytes (2 lines) omitted at the start.\n</harness>"
     );
     ran.harness.close(context()).await.unwrap();
 }
@@ -835,4 +835,46 @@ async fn applies_add_tools_and_terminates_only_when_every_result_of_the_round_as
         Some(&json(r#"["stop","grow","extra"]"#))
     );
     first.harness.close(context()).await.unwrap();
+}
+
+/// A call rebuilt from its slot after a restart names what its tool's
+/// retention dropped, typed: a tail-retaining tool lost the start.
+#[test]
+fn a_recovered_slot_reports_the_dropped_output_where_the_tool_dropped_it() {
+    let slot = crate::harness::live::SlotProgress {
+        output: Some("end\n".to_owned()),
+        dropped_bytes: Some(10),
+        dropped_lines: Some(2),
+        details: None,
+        diagnostics: None,
+    };
+    let result = super::super::result::from_slot(
+        Some(&slot),
+        OutputRetain::Tail,
+        "interrupted",
+        "Tool t was interrupted",
+    );
+    assert_eq!(
+        result.diagnostics,
+        Some(vec![
+            ToolDiagnostic {
+                severity: ToolDiagnosticSeverity::Warn,
+                code: Some("truncated".to_owned()),
+                message: "Output truncated.".to_owned(),
+                omitted: Some(crate::harness::types::OmittedOutput {
+                    bytes: 10,
+                    lines: 2,
+                    at: crate::harness::types::OmittedAt::Start,
+                }),
+                artifact: None,
+            },
+            ToolDiagnostic {
+                severity: ToolDiagnosticSeverity::Error,
+                code: Some("interrupted".to_owned()),
+                message: "Tool t was interrupted".to_owned(),
+                omitted: None,
+                artifact: None,
+            },
+        ])
+    );
 }

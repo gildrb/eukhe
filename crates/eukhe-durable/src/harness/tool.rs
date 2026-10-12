@@ -33,8 +33,8 @@ use super::live::{
     LIVE_DOC,
 };
 use super::types::{
-    ToolCallParent, ToolControl, ToolExecutionResult, ToolHookCall, ToolHooks, ToolRegistration,
-    ToolReplay,
+    OutputRetain, ToolCallParent, ToolControl, ToolExecutionResult, ToolHookCall, ToolHooks,
+    ToolRegistration, ToolReplay,
 };
 use super::usage::{record_usage, UsageBucket};
 use crate::entries::ASSISTANT_ENTRY;
@@ -263,6 +263,7 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
     let input = task.input;
     let call = read_call(&runtime, &input, &cx).await?;
     let tool = resolve_tool(&runtime, &input, &call.name, &cx).await?;
+    let retain = retain_of(tool.as_deref());
     if let Some(tool) =
         tool.filter(|tool| replay == ToolReplay::Safe && tool.replay == Some(ToolReplay::Safe))
     {
@@ -296,7 +297,7 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
         &input,
         &call,
         ending,
-        move |slot| from_slot(slot, "interrupted", &message),
+        move |slot| from_slot(slot, retain, "interrupted", &message),
         &cx,
         None,
     )
@@ -305,6 +306,8 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
 
 async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let call = read_call(&runtime, &task.input, &cx).await?;
+    let tool = resolve_tool(&runtime, &task.input, &call.name, &cx).await?;
+    let retain = retain_of(tool.as_deref());
     // Abandoned after a restart (`TaskOptions.abandon_on_restart`): say whether the call may have run.
     let (code, message) = if task.abort_reason != Some(TaskAbortReason::Restart) {
         ("aborted", format!("Tool {} was aborted", call.name))
@@ -330,11 +333,19 @@ async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()
         &task.input,
         &call,
         ToolEnding::Aborted,
-        move |slot| from_slot(slot, code, &message),
+        move |slot| from_slot(slot, retain, code, &message),
         &cx,
         None,
     )
     .await
+}
+
+/// How `tool` retains its running output; a tool no longer offered kept it
+/// the default way.
+fn retain_of(tool: Option<&ToolRegistration>) -> OutputRetain {
+    tool.and_then(|tool| tool.output_limits)
+        .and_then(|limits| limits.retain)
+        .unwrap_or(OutputRetain::Head)
 }
 
 /// The called tool: among the tools the model is offered for a model-issued

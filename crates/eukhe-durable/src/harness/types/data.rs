@@ -34,16 +34,25 @@ pub struct ToolDiagnostic {
     pub artifact: Option<String>,
 }
 
-/// The middle of a result the bound left out: the result keeps the lines up
-/// to `after_line` and the end.
+/// Output a bound left out of a result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OmittedOutput {
     pub bytes: u64,
     pub lines: u64,
-    /// The last line kept before the gap (1-based; 0: the gap starts the
-    /// output).
-    pub after_line: u64,
+    pub at: OmittedAt,
+}
+
+/// Where the omitted output was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OmittedAt {
+    /// Before the kept output (the end was kept).
+    Start,
+    /// After the kept output (the beginning was kept).
+    End,
+    /// After this kept line (1-based); the rest of the kept output follows.
+    AfterLine(u64),
 }
 
 /// Why a compaction runs: `compact()`, a threshold in generation preparation,
