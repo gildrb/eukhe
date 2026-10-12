@@ -1,7 +1,7 @@
 //! Path resolution against the caller's working directory and the
 //! snapshot key every store entry uses.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Resolve an authored path: `~` expands to `home`, relative paths join `cwd`.
 #[must_use]
@@ -29,6 +29,24 @@ pub fn canonical_key(absolute: &Path) -> PathBuf {
             std::fs::canonicalize(parent).map(|parent| parent.join(name))
         })
         .unwrap_or_else(|_| absolute.to_path_buf())
+}
+
+/// Drop `.` components and resolve `..` against the preceding component,
+/// without touching the filesystem.
+pub(crate) fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+        }
+    }
+    normalized
 }
 
 #[cfg(test)]

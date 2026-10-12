@@ -18,6 +18,8 @@ regex = "1"
 twox-hash = { version = "2", default-features = false, features = ["std", "xxhash32"] }
 
 [dev-dependencies]
+# omp's hashline parity fixtures are JSON.
+serde_json.workspace = true
 tempfile = "3"
 
 [lints]

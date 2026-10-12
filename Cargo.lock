@@ -529,6 +529,7 @@ version = "0.9.9-eukhe.1"
 dependencies = [
  "parking_lot",
  "regex",
+ "serde_json",
  "tempfile",
  "thiserror",
  "twox-hash",

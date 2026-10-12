@@ -5,16 +5,25 @@
 //!   registers, and the no-op loop guard.
 //! - [`text`]: line endings and the BOM, stripped for editing and restored on
 //!   write.
+//! - [`apply_hashline`]: the hashline `edit` engine; writes go through the
+//!   host's [`EditWriter`].
 //!
 //! The hashline edit grammar, store, and messages are ported from omp
 //! (`can1357/oh-my-pi`, MIT; see `THIRD-PARTY-NOTICES`).
 
+mod diff;
+mod diff_string;
 mod error;
+mod hashline;
 mod path;
 mod store;
 pub mod text;
 
 pub use error::{EditError, EditResult};
+pub use hashline::{
+    apply_hashline, EditWriter, FileChange, FileOutcome, HashlineOptions, HashlineOutcome, WriteOp,
+    WriteRequest, WriteResponse, HASHLINE_DESCRIPTION,
+};
 pub use path::{canonical_key, resolve};
 pub use store::{
     file_hash, payload_hash, seen_lines_from_body, Clipboard, EditStore, Snapshot,
