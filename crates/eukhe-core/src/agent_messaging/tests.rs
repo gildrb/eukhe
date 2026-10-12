@@ -48,9 +48,6 @@ fn observe_rows_carry_the_typed_status_and_activity() {
 fn message_ids_and_validation() {
     let id = create_agent_session_message_id();
     assert!(id.starts_with("agentmsg_"));
-    assert!(is_agent_session_message_id(Some(&id)));
-    assert!(!is_agent_session_message_id(Some("prompt123")));
-    assert!(!is_agent_session_message_id(None));
     assert_eq!(
         normalize_agent_session_message("  hello  ").unwrap(),
         "hello"
@@ -111,8 +108,6 @@ fn message_prompts_and_id_parsing() {
     );
     let parsed = parse_agent_session_message_prompt_id(&header).unwrap();
     assert!(parsed.starts_with("agentmsg_"));
-    assert!(is_agent_session_message_prompt(&header));
-    assert!(!is_agent_session_message_prompt("plain text"));
 }
 
 #[test]

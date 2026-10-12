@@ -60,52 +60,6 @@ pub trait ToolHtmlRenderer {
 /// A message content array guard for entries without one.
 const NO_BLOCKS: &[Value] = &[];
 
-/// Whether a rendered line is blank once SGR sequences strip away (the
-/// TS `isBlankRenderedLine`; only SGR escapes count, other control bytes
-/// are visible content).
-fn is_blank_rendered_line(line: &str) -> bool {
-    let mut plain = String::with_capacity(line.len());
-    let mut rest = line;
-    while let Some(start) = rest.find('\x1b') {
-        let after = &rest[start + 1..];
-        let is_sgr = after.starts_with('[') && {
-            let params = &after[1..];
-            match params.find(|c: char| !c.is_ascii_digit() && c != ';') {
-                Some(idx) => params.as_bytes()[idx] == b'm',
-                None => false,
-            }
-        };
-        plain.push_str(&rest[..start]);
-        if is_sgr {
-            // Consume the whole SGR sequence.
-            let params_len = after[1..]
-                .find(|c: char| !c.is_ascii_digit() && c != ';')
-                .unwrap_or(after[1..].len());
-            rest = &rest[start + 2 + params_len + 1..];
-        } else {
-            plain.push('\x1b');
-            rest = &rest[start + 1..];
-        }
-    }
-    plain.push_str(rest);
-    plain.trim().is_empty()
-}
-
-/// Trim leading/trailing blank lines from a rendered result (the TS
-/// `trimRenderedResultLines`).
-#[must_use]
-pub fn trim_rendered_result_lines(lines: &[String]) -> &[String] {
-    let mut start = 0;
-    let mut end = lines.len();
-    while start < end && is_blank_rendered_line(&lines[start]) {
-        start += 1;
-    }
-    while end > start && is_blank_rendered_line(&lines[end - 1]) {
-        end -= 1;
-    }
-    &lines[start..end]
-}
-
 /// Walk the export entries and pre-render custom-tool calls/results
 /// through `renderer`, keyed by tool-call id (the TS
 /// `preRenderCustomTools`): assistant `toolCall` blocks outside
@@ -323,21 +277,5 @@ mod tests {
         let rendered = pre_render_custom_tools(&entries, &TestRenderer).expect("renders");
         assert!(rendered["tc9"].get("callHtml").is_none());
         assert!(rendered["tc9"]["resultHtmlExpanded"].is_string());
-    }
-
-    /// Blank leading/trailing lines trim away before conversion (the TS
-    /// `trimRenderedResultLines` behavior sits with the renderer; the
-    /// helper is the shared piece).
-    #[test]
-    fn blank_lines_trim() {
-        let lines = vec![
-            "  \x1b[0m  ".to_string(),
-            "content".to_string(),
-            String::new(),
-        ];
-        assert_eq!(trim_rendered_result_lines(&lines), &["content".to_string()]);
-        // Non-SGR control bytes are visible content, not blankness.
-        let cursor = vec!["\x1b[2J".to_string()];
-        assert_eq!(trim_rendered_result_lines(&cursor), &cursor[..1]);
     }
 }

@@ -184,12 +184,6 @@ pub fn create_agent_session_message_id() -> String {
     format!("{AGENT_MESSAGE_ID_PREFIX}{}", uuid::Uuid::new_v4())
 }
 
-/// Distinguishes agent-to-agent ids from synthetic prompt ids.
-#[must_use]
-pub fn is_agent_session_message_id(id: Option<&str>) -> bool {
-    id.is_some_and(|id| id.starts_with(AGENT_MESSAGE_ID_PREFIX))
-}
-
 /// Normalize and validate an outgoing message body.
 ///
 /// # Errors
@@ -389,11 +383,6 @@ pub fn parse_agent_session_message_prompt_id(text: &str) -> Option<String> {
     let id_line = lines.get(to_line_index + 1)?;
     let id = id_line.strip_prefix("Message id: ")?;
     (!id.is_empty() && id.starts_with(AGENT_MESSAGE_ID_PREFIX)).then(|| id.to_string())
-}
-
-#[must_use]
-pub fn is_agent_session_message_prompt(text: &str) -> bool {
-    parse_agent_session_message_prompt_id(text).is_some()
 }
 
 /// The TS `AgentSessionMessageEndpoint` the receipt carries as `target`.

@@ -162,11 +162,6 @@ pub struct GitWorktreeSnapshot {
     pub untracked_hash: String,
 }
 
-#[must_use]
-pub fn is_unlimited_autonomous_limit(value: u64) -> bool {
-    value >= UNLIMITED_AUTONOMOUS_LIMIT
-}
-
 fn normalize_limit(value: Option<u64>, default: u64) -> u64 {
     value.filter(|value| *value > 0).unwrap_or(default)
 }
@@ -436,16 +431,6 @@ pub fn is_autonomous_continuation(text: &str) -> bool {
     text.starts_with("[autonomous-continuation]") || text.starts_with("[autonomous-continuation: ")
 }
 
-/// Keep-alive message delivered while subagents are still active.
-#[must_use]
-pub fn create_autonomous_subagent_keep_alive_text(state: &AutonomousRuntimeState) -> String {
-    let minutes = (state.subagent_keep_alive_ms / 60_000).max(1);
-    let plural = if minutes == 1 { "" } else { "s" };
-    format!(
-        "[autonomous-continuation: subagent-keep-alive]\n\nSubagents have been running for at least {minutes} minute{plural} without a reply or exit being delivered. Check their status (for example agent_observe, rlm.list_subagents, or process inspection) and cancel or unblock any that are hung; then continue working."
-    )
-}
-
 /// Highest recorded gate attempt (across the failure record and per-command
 /// counts): the terminal-gate headline a headless client prints.
 #[must_use]
@@ -635,19 +620,6 @@ mod tests {
         let text = build_autonomous_gate_failure_continuation(&failure, 3, 0);
         assert!(text.starts_with("[autonomous-continuation: gate-failed]\n\nAutonomous quality gate failed (attempt 2/3): `make check` exited with code 1.\n\nOutput:\nerror here\n"));
         assert!(text.contains("Continue working. Fix the failure, then produce terminal evidence."));
-        // Keep-alive text uses minute pluralization.
-        let mut short = state.clone();
-        short.subagent_keep_alive_ms = 60_000;
-        assert!(create_autonomous_subagent_keep_alive_text(&short)
-            .contains("at least 1 minute without"));
-        assert!(create_autonomous_subagent_keep_alive_text(&state)
-            .contains("at least 25 minutes without"));
-    }
-
-    #[test]
-    fn unlimited_sentinel() {
-        assert!(is_unlimited_autonomous_limit(UNLIMITED_AUTONOMOUS_LIMIT));
-        assert!(!is_unlimited_autonomous_limit(80_000));
     }
 
     #[test]

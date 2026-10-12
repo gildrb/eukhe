@@ -6,9 +6,6 @@
 
 use serde_json::{json, Value};
 
-use crate::kernel::shared::parse_sent_agent_message;
-use crate::kernel::shared::KernelSentAgentMessage;
-
 /// Protocol version the manager speaks; the runtime announces its own in the
 /// `ready` event and the handshake must match exactly.
 pub const REPL_PROTOCOL_VERSION: u64 = 3;
@@ -275,15 +272,6 @@ fn clip(line: &str) -> &str {
     }
 }
 
-/// A late agent-message display payload observed outside its owning cell.
-#[must_use]
-pub fn late_sent_agent_message(id: Option<&str>, data: &Value) -> Option<KernelSentAgentMessage> {
-    let payload = data.get(crate::kernel::shared::AGENT_MESSAGE_DISPLAY_MIME)?;
-    let message = parse_sent_agent_message(payload)?;
-    id?;
-    Some(message)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,16 +329,6 @@ mod tests {
         let v = req.to_json();
         assert_eq!(v["type"], "snapshot");
         assert_eq!(v["prune_oversized"], true);
-    }
-
-    #[test]
-    fn late_sent_agent_message_needs_id() {
-        let data = json!({ crate::kernel::shared::AGENT_MESSAGE_DISPLAY_MIME: json!({
-            "id": "m1", "message": "hi", "deliveryStatus": "delivered",
-            "target": {"activeSessionId": "a", "sessionId": "s"}
-        })});
-        assert!(late_sent_agent_message(Some("cell1"), &data).is_some());
-        assert!(late_sent_agent_message(None, &data).is_none());
     }
 
     #[test]
