@@ -348,22 +348,6 @@ impl RlmSpawnLedger {
         }))
     }
 
-    /// Tombstone every edge for one child session path (a path may hold
-    /// duplicate edges from raced or corrupt appends; a live one would
-    /// resurrect a later recreation at that path as a subagent).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the replay fails or one of the tombstone
-    /// records cannot be appended.
-    pub fn tombstone_child_path(
-        &self,
-        child: &str,
-        reason: RlmLedgerDeleteReason,
-    ) -> Result<Vec<RlmLedgerEdge>> {
-        self.tombstone_child_path_with_usage(child, reason, None)
-    }
-
     /// The saved-session delete's tombstone with the captured usage
     /// snapshot (the file dies right after this, so the snapshot must ride
     /// the tombstone: the bucket's lazy file fallback has nothing to read).

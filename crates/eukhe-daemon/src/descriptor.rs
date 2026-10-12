@@ -176,14 +176,6 @@ pub fn validate_descriptor(
     }
 }
 
-#[must_use]
-pub fn descriptor_lifecycle_str(descriptor: &WorkerDescriptor) -> String {
-    serde_json::to_value(descriptor.lifecycle)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_string))
-        .unwrap_or_else(|| "starting".to_string())
-}
-
 fn normalize_path(value: &str) -> String {
     std::path::Path::new(value)
         .to_string_lossy()
