@@ -138,7 +138,6 @@ fn build_params(
             supports_additional_tools: Some(supports_additional_tools),
             supports_tool_search: Some(supports_tool_search),
             tool_options: Some(tool_options),
-            explicit_cache_breakpoints: true,
         },
     )?;
 

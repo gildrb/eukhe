@@ -186,6 +186,10 @@ pub struct OpenAIResponsesCompat {
     /// Whether the model supports client-executed tool search for transcript-anchored additions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_tool_search: Option<bool>,
+    /// Whether marked user text carries `prompt_cache_breakpoint: {"mode": "explicit"}`
+    /// and reasoning pins `context: "all_turns"`. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_explicit_cache_breakpoints: Option<bool>,
     /// Whether the model accepts `prompt_cache_options` (`OpenAI` GPT-5.6+). Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_explicit_prompt_cache_mode: Option<bool>,

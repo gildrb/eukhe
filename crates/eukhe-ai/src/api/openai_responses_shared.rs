@@ -121,13 +121,6 @@ pub struct ConvertResponsesMessagesOptions {
     pub supports_additional_tools: Option<bool>,
     pub supports_tool_search: Option<bool>,
     pub tool_options: Option<ConvertResponsesToolsOptions>,
-    /// eukhe addition: whether marked user text blocks
-    /// ([`TextContent::cache_breakpoint`](eukhe_types::pi_ai::TextContent))
-    /// carry `prompt_cache_breakpoint: {"mode": "explicit"}` on the models
-    /// with explicit prompt-cache controls
-    /// ([`supports_explicit_cache_breakpoints`]). The API decides: not every
-    /// Responses backend is known to accept the field.
-    pub explicit_cache_breakpoints: bool,
 }
 
 /// TS `ConvertResponsesToolsOptions`.
@@ -142,36 +135,27 @@ pub struct ConvertResponsesToolsOptions {
     pub tool_search_result: Option<bool>,
 }
 
-/// eukhe addition: whether an `OpenAI` Responses model id has the explicit
-/// prompt-cache controls: GPT-5.6 and every later GPT-5 minor version
-/// (`gpt-5.6`, `gpt-5.6-sol`, ...) and every GPT-6 model (`gpt-6-astra`,
-/// `gpt-6.1-sol`, ...). These models accept `prompt_cache_breakpoint:
-/// {"mode": "explicit"}` on `input_text` items and `reasoning.context:
-/// "all_turns"`; the requests of every other model carry neither field.
-#[must_use]
-pub fn supports_explicit_cache_breakpoints(model_id: &str) -> bool {
-    if let Some(rest) = model_id.strip_prefix("gpt-6") {
-        return rest.is_empty() || rest.starts_with(['-', '.']);
-    }
-    let Some(rest) = model_id.strip_prefix("gpt-5.") else {
-        return false;
-    };
-    let minor_end = rest
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(rest.len());
-    let (minor, suffix) = rest.split_at(minor_end);
-    (suffix.is_empty() || suffix.starts_with('-'))
-        && minor.parse::<u32>().is_ok_and(|minor| minor >= 6)
+/// eukhe addition: whether the model takes the explicit prompt-cache
+/// controls: `prompt_cache_breakpoint: {"mode": "explicit"}` on `input_text`
+/// items and `reasoning.context: "all_turns"`.
+fn supports_explicit_cache_breakpoints(model: &Model) -> bool {
+    model
+        .compat
+        .as_ref()
+        .and_then(ModelCompat::as_openai_responses)
+        .and_then(|compat| compat.supports_explicit_cache_breakpoints)
+        == Some(true)
 }
 
 /// eukhe addition: pin `reasoning.context: "all_turns"` in the request's
 /// reasoning object, when it sends one, on the models with explicit
-/// prompt-cache controls: the reasoning of earlier turns stays in the
-/// prompt, so a user message sent mid-run keeps the cached prefix (with
-/// `current_turn` it drops the earlier reasoning and the cache misses).
+/// prompt-cache controls ([`supports_explicit_cache_breakpoints`]): the
+/// reasoning of earlier turns stays in the prompt, so a user message sent
+/// mid-run keeps the cached prefix (with `current_turn` it drops the earlier
+/// reasoning and the cache misses).
 /// Other models' requests stay unchanged.
 pub fn apply_reasoning_context(model: &Model, params: &mut JsonObject) {
-    if !supports_explicit_cache_breakpoints(&model.id) {
+    if !supports_explicit_cache_breakpoints(model) {
         return;
     }
     if let Some(JsonValue::Object(reasoning)) = params.get_mut("reasoning") {
@@ -332,8 +316,7 @@ pub fn convert_responses_messages(
         } else {
             "system"
         };
-    let explicit_breakpoints =
-        options.explicit_cache_breakpoints && supports_explicit_cache_breakpoints(&model.id);
+    let explicit_breakpoints = supports_explicit_cache_breakpoints(model);
     let grammar = options.grammar_tool_input_properties.as_ref();
 
     let mut msg_index: usize = 0;

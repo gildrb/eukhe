@@ -77,9 +77,6 @@ pub(crate) fn build_request_body(
             supports_additional_tools: Some(supports_additional_tools),
             supports_tool_search: Some(supports_tool_search),
             tool_options: Some(tool_options),
-            // Like the old eukhe port: the ChatGPT backend's acceptance of
-            // `prompt_cache_breakpoint` is unverified, so marks are not sent.
-            explicit_cache_breakpoints: false,
         },
     )?;
 
