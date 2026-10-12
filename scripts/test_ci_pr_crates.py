@@ -56,8 +56,8 @@ class TheMappingTestCase(unittest.TestCase):
             "crates/eukhe-tui/src/view/runs.rs",
         ])
         self.assertEqual(rc, 0, out)
-        self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-daemon,eukhe-tui")
-        self.assertIn("crates (3: eukhe-cli, eukhe-daemon, eukhe-tui)", outputs["scope"])
+        self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-daemon,eukhe-gateway,eukhe-tui")
+        self.assertIn("crates (4: eukhe-cli, eukhe-daemon, eukhe-gateway, eukhe-tui)", outputs["scope"])
 
     def test_any_non_crate_path_fails_safe_to_the_full_selection(self):
         rc, out, outputs = run_mapper([
@@ -84,17 +84,17 @@ class TheMappingTestCase(unittest.TestCase):
             "crates/eukhe-tui/src/editor/selection.rs\tcrates/eukhe-tui/src/selection.rs",
         ])
         self.assertEqual(rc, 0, out)
-        self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-tui")
+        self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-gateway,eukhe-tui")
 
     def test_pa_types_only_runs_every_crate(self):
         rc, out, outputs = run_mapper(["crates/eukhe-types/src/lib.rs"])
         self.assertEqual(rc, 0, out)
         self.assertEqual(outputs["crates"], ",".join(sorted(ci_pr_crates.WORKSPACE_DEPS)))
 
-    def test_pa_tui_only_runs_pa_cli_too(self):
+    def test_pa_tui_only_runs_pa_cli_and_gateway_too(self):
         rc, out, outputs = run_mapper(["crates/eukhe-tui/src/lib.rs"])
         self.assertEqual(rc, 0, out)
-        self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-tui")
+        self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-gateway,eukhe-tui")
 
     def test_an_unknown_crate_fails_safe(self):
         rc, out, outputs = run_mapper(["crates/eukhe-future/src/lib.rs"])
