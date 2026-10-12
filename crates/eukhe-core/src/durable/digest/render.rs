@@ -216,17 +216,3 @@ fn user_text(content: &UserContent) -> String {
 pub fn harness_digest_message_text(digest: &str) -> String {
     format!("{HARNESS_DIGEST_PREFIX}{digest}{HARNESS_DIGEST_SUFFIX}")
 }
-
-/// The raw digest carried by a framed text (a delivered digest row or the
-/// digest block that leads a compaction summary), if any.
-#[must_use]
-pub fn digest_from_frame(text: &str) -> Option<&str> {
-    let after_prefix = text.strip_prefix(HARNESS_DIGEST_PREFIX).or_else(|| {
-        text.find(HARNESS_DIGEST_PREFIX)
-            .map(|at| &text[at + HARNESS_DIGEST_PREFIX.len()..])
-    })?;
-    let end = after_prefix
-        .find(HARNESS_DIGEST_SUFFIX)
-        .map(|at| &after_prefix[..at])?;
-    Some(end.trim_end_matches('\n'))
-}

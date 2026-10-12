@@ -17,8 +17,9 @@ use std::sync::Arc;
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_chord::context::Context;
+use eukhe_durable::entries::{CompactionSummary, HarnessDigest};
 use eukhe_durable::harness::types::{
-    BeforeCompactHook, CompactionDecision, CompactionRequest, CompactionSnapshot, HookApi,
+    BeforeCompactHook, CompactionDecision, CompactionRequest, HookApi,
 };
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::{SessionError, SessionResult};
@@ -82,13 +83,16 @@ async fn decide(
     };
     // The compaction head (a previous summary) leads the summarized
     // entries; everything after it is this compaction's history.
-    let head_wrapped = request
+    let head_entry = request
         .entries
         .first()
-        .filter(|entry| entry.kind == COMPACTION_ENTRY_KIND)
-        .and_then(|entry| head::user_text(entry.model.as_deref().unwrap_or(&[])));
-    let previous = head_previous(head_wrapped);
-    let history_records: Vec<&EntryRecord> = if head_wrapped.is_some() {
+        .filter(|entry| entry.kind == COMPACTION_ENTRY_KIND);
+    let head_summary = head_entry
+        .map(head::previous_summary)
+        .transpose()?
+        .unwrap_or_default();
+    let previous = head_summary.summary;
+    let history_records: Vec<&EntryRecord> = if head_entry.is_some() {
         request.entries.iter().skip(1).collect()
     } else {
         request.entries.iter().collect()
@@ -106,11 +110,8 @@ async fn decide(
     // File operations: the previous summary's carried lists plus the
     // history's operations, merged and re-formatted (TS #2385).
     let mut file_ops = FileOperations::default();
-    if let Some(previous) = previous.as_deref() {
-        let (read, modified) = head::file_lists(previous);
-        file_ops.read.extend(read);
-        file_ops.edited.extend(modified);
-    }
+    file_ops.read.extend(head_summary.read_files);
+    file_ops.edited.extend(head_summary.modified_files);
     for message in &history {
         extract_file_ops_from_message(message, &mut file_ops);
     }
@@ -231,8 +232,6 @@ async fn decide(
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let mut body = summary_text;
-    body.push_str(&file_block);
     // The parts the live stream never carried (the file-operations block
     // never flows through the summarizer) flush through the sink so a
     // client accumulating deltas holds the committed text.
@@ -246,30 +245,19 @@ async fn decide(
     // with its state fingerprint, so a later staleness check compares
     // state instead of query-dependent renderings.
     let digest = super::digest_render_of(deps, &conversation, cx).await?;
-    let text = match &digest {
-        Some(render) => format!(
-            "{}{}",
-            head::digest_block(&render.digest),
-            head::wrapped_summary(&body)
-        ),
-        None => head::wrapped_summary(&body),
+    let summary = CompactionSummary {
+        summary: summary_text,
+        read_files,
+        modified_files,
+        digest: digest.map(|render| HarnessDigest {
+            digest: render.digest,
+            state_fingerprint: render.state_fingerprint,
+        }),
     };
-    Ok(Some(match digest {
-        Some(render) => CompactionDecision::SummaryWithData(
-            text,
-            CompactionSnapshot {
-                harness_digest: render.digest,
-                harness_state_fingerprint: render.state_fingerprint,
-            },
-        ),
-        None => CompactionDecision::Summary(text),
+    Ok(Some(CompactionDecision::Rendered {
+        text: head::rendered_summary(&summary),
+        summary,
     }))
-}
-
-/// The previous summary of a compaction head's wrapped text, when the head
-/// carries one that leaves anything to update from.
-fn head_previous(wrapped: Option<&str>) -> Option<String> {
-    wrapped.and_then(head::previous_summary)
 }
 
 /// Whether the compaction's conversation is a chat-memory root (a session

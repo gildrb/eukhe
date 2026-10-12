@@ -623,7 +623,10 @@ fn compaction_end_reports_the_placed_summary() {
         Some(
             json!({ "role": "user", "content": [{ "type": "text", "text": wrapped }], "timestamp": 8 }),
         ),
-        Some(json!({ "reason": "threshold" })),
+        Some(json!({
+            "reason": "threshold",
+            "summary": { "summary": "SUMMARY", "readFiles": [], "modifiedFiles": [] },
+        })),
     );
     summary["byTaskId"] = json!(7);
     let frames = translator.translate(&event(json!({ "type": "message_end", "entry": summary })));

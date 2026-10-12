@@ -36,8 +36,7 @@ use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, StopR
 use serde_json::{json, Map, Value};
 
 use super::wire_messages::{
-    assistant_context_tokens, assistant_wire_message, compaction_summary_text, entry_data,
-    entry_wire_message,
+    assistant_context_tokens, assistant_wire_message, entry_data, entry_wire_message,
 };
 
 /// Task kind of a generation (its failures fail the turn).
@@ -837,17 +836,23 @@ impl EventTranslator {
             self.mirror.partial = None;
         } else if kind == COMPACTION_ENTRY.kind() {
             // Reported by its `compaction_end`.
-            self.summaries.push(PlacedSummary {
-                task_id: entry.by_task_id,
-                summary: compaction_summary_text(entry),
-                tokens_before: self
-                    .mirror
-                    .entries
-                    .iter()
-                    .rev()
-                    .find_map(assistant_context_tokens)
-                    .unwrap_or(0),
-            });
+            match eukhe_core::durable::compaction::compaction_summary_text(entry) {
+                Ok(summary) => self.summaries.push(PlacedSummary {
+                    task_id: entry.by_task_id,
+                    summary,
+                    tokens_before: self
+                        .mirror
+                        .entries
+                        .iter()
+                        .rev()
+                        .find_map(assistant_context_tokens)
+                        .unwrap_or(0),
+                }),
+                Err(error) => eprintln!(
+                    "eukhe-daemon worker: compaction entry {} has malformed data: {error}",
+                    entry.id
+                ),
+            }
         } else if kind == USER_ENTRY.kind() && self.suppressed_input_row(entry) {
             // The input row entered just before its input: the row already
             // shows the user message (an injected custom turn).

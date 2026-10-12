@@ -38,7 +38,10 @@ fn compaction(summary: &str) -> EntryRecord {
         Some(
             json!({ "role": "user", "content": [{ "type": "text", "text": text }], "timestamp": 9 }),
         ),
-        Some(json!({ "reason": "manual" })),
+        Some(json!({
+            "reason": "manual",
+            "summary": { "summary": summary, "readFiles": [], "modifiedFiles": [] },
+        })),
     )
 }
 
@@ -152,7 +155,7 @@ fn hidden_kinds_map_to_nothing() {
 #[test]
 fn compaction_summaries_show_the_bare_summary() {
     let entry = compaction("SUMMARY");
-    assert_eq!(compaction_summary_text(&entry), "SUMMARY");
+    assert_eq!(compaction_summary_text(&entry).unwrap(), "SUMMARY");
     assert_eq!(
         entry_wire_message(&entry),
         Some(json!({

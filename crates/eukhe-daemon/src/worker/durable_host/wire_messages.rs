@@ -8,15 +8,14 @@
 //! `compactionSummary`. Kinds the transcript never showed (`pi.system`,
 //! `pi.reset`, custom state) map to nothing.
 
+use eukhe_core::durable::compaction::compaction_summary_text;
 use eukhe_core::durable::{
     custom_entry_content, BashEntryData, BranchSummaryData, CustomEntryData, BASH_ENTRY,
     BRANCH_SUMMARY_ENTRY, COMPACTION_SUMMARY_ENTRY, CUSTOM_ENTRY,
 };
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use eukhe_durable::types::EntryRecord;
-use eukhe_types::pi_ai::{
-    AssistantMessage, ContentBlockText, Message, UserContent, UserContentBlock,
-};
+use eukhe_types::pi_ai::{AssistantMessage, Message};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 
@@ -103,9 +102,11 @@ pub(crate) fn entry_wire_message_with(entry: &EntryRecord, tokens_before: u64) -
             .map(assistant_wire_message);
     }
     if kind == COMPACTION_ENTRY.kind() {
+        // A malformed row maps to nothing, like `entry_data`.
+        let summary = compaction_summary_text(entry).ok()?;
         return Some(json!({
             "role": "compactionSummary",
-            "summary": compaction_summary_text(entry),
+            "summary": summary,
             "tokensBefore": tokens_before,
             "timestamp": entry_timestamp(entry),
         }));
@@ -135,17 +136,6 @@ pub(crate) fn entry_wire_message_with(entry: &EntryRecord, tokens_before: u64) -
         return Some(Value::Object(object));
     }
     None
-}
-
-/// The bare summary text of a `pi.compaction` entry: its model message's
-/// text without the durable wrapper, the harness digest, and the eukhe
-/// `[compaction-summary]` wrapper.
-pub(crate) fn compaction_summary_text(entry: &EntryRecord) -> String {
-    let text = match entry.model.as_deref().and_then(<[Message]>::first) {
-        Some(Message::User(message)) => user_content_text(&message.content),
-        _ => String::new(),
-    };
-    eukhe_core::durable::compaction::summary_body(&text).to_owned()
 }
 
 /// The context size an assistant entry's answer measured (its usage total,
@@ -221,16 +211,6 @@ fn entry_timestamp(entry: &EntryRecord) -> u64 {
         .and_then(|data| data.get("timestamp"))
         .and_then(|timestamp| Value::from(timestamp).as_u64())
         .unwrap_or(0)
-}
-
-fn user_content_text(content: &UserContent) -> String {
-    match content {
-        UserContent::Text(text) => text.clone(),
-        UserContent::Blocks(blocks) => blocks
-            .iter()
-            .filter_map(UserContentBlock::text_block)
-            .collect(),
-    }
 }
 
 #[cfg(test)]

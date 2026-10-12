@@ -10,10 +10,10 @@ use anyhow::{Context as _, Result};
 use eukhe_chord::context::Context;
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use eukhe_durable::types::{EntryData, EntryRecord};
-use eukhe_types::pi_ai::{ContentBlockText, Message, UserContent};
+use eukhe_types::pi_ai::Message;
 use serde_json::{json, Map, Value};
 
-use super::compaction::summary_body;
+use super::compaction::compaction_summary_text;
 use super::discovery::{read_main_transcript, DiscoveryError, SessionLocation};
 use super::entries::{
     custom_entry_content, BashEntryData, BranchSummaryData, CustomEntryData, BASH_ENTRY,
@@ -146,25 +146,6 @@ fn iso(millis: u64) -> String {
     format_iso(millis as i64)
 }
 
-/// The bare summary text of a `pi.compaction` entry: its model message's
-/// text without the durable wrapper, the harness digest, and the eukhe
-/// `[compaction-summary]` wrapper.
-fn compaction_summary(entry: &EntryRecord) -> String {
-    let text = match entry.model.as_deref().and_then(<[Message]>::first) {
-        Some(Message::User(message)) => match &message.content {
-            UserContent::Text(text) => text.clone(),
-            UserContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(ContentBlockText::text_block)
-                .collect(),
-        },
-        Some(Message::Assistant(_) | Message::ToolResult(_) | Message::System(_)) | None => {
-            String::new()
-        }
-    };
-    summary_body(&text).to_owned()
-}
-
 /// The session-file form of one durable entry (without `id`, `parentId`,
 /// `timestamp`), or `None` for bookkeeping entries the export skips.
 fn file_entry(entry: &EntryRecord, timestamp: u64) -> Result<Option<Value>> {
@@ -183,7 +164,7 @@ fn file_entry(entry: &EntryRecord, timestamp: u64) -> Result<Option<Value>> {
     if COMPACTION_ENTRY.is(kind) {
         return Ok(Some(json!({
             "type": "compaction",
-            "summary": compaction_summary(entry),
+            "summary": compaction_summary_text(entry)?,
             "firstKeptEntryId": entry.head.map_or_else(String::new, |head| head.to_string()),
             "tokensBefore": 0,
         })));

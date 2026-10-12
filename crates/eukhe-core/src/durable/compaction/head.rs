@@ -1,116 +1,97 @@
-//! Parsing the compaction head of a durable conversation: the previous
-//! summary the update-mode summarizer merges, and the anchors and file
-//! lists it carries. The durable
-//! `pi.compaction` entry carries only the wrapped summary text, so the
-//! update-mode inputs are read back out of that text — the summary the
-//! eukhe extension writes is canonical (digest block, `[compaction-summary]`
-//! wrapper, file-list blocks), so the parse is exact.
+//! The compaction head of a durable conversation: the typed summary a
+//! `pi.compaction` entry carries, its rendering (the entry's model text),
+//! what update mode reads from it, and the inputs the summarizer gets.
 
+use eukhe_chord::json::JsonError;
+use eukhe_durable::entries::{CompactionSummary, COMPACTION_ENTRY};
+use eukhe_durable::types::EntryRecord;
 use eukhe_types::pi_ai::{AssistantContentBlock, Message};
 use eukhe_types::session::AgentMessage;
 
-use super::utils::strip_file_list_blocks;
+use super::utils::format_file_operations;
 use crate::durable::messages::{
     COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX, HARNESS_DIGEST_PREFIX,
     HARNESS_DIGEST_SUFFIX,
 };
 
-/// The wrapper the durable compaction task places around every summary
-/// (pi-durable `compaction/prompt.ts` `SUMMARY_PREFIX`/`SUMMARY_SUFFIX`).
-const DURABLE_SUMMARY_PREFIX: &str =
-    "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
-const DURABLE_SUMMARY_SUFFIX: &str = "\n</summary>";
-
-/// The summary as the user reads it: the durable wrapper, the leading
-/// harness-digest block, and the `[compaction-summary]` wrapper off; the
-/// file-list blocks stay.
+/// The summary as transcripts show it: the summarizer's text, then the
+/// file-list blocks.
 #[must_use]
-pub fn summary_body(wrapped: &str) -> &str {
-    let unwrapped = wrapped
-        .strip_prefix(DURABLE_SUMMARY_PREFIX)
-        .and_then(|text| text.strip_suffix(DURABLE_SUMMARY_SUFFIX))
-        .unwrap_or(wrapped);
-    let without_digest = strip_digest_block(unwrapped);
-    without_digest
-        .strip_prefix(COMPACTION_SUMMARY_PREFIX)
-        .and_then(|text| text.strip_suffix(COMPACTION_SUMMARY_SUFFIX))
-        .unwrap_or(without_digest)
-}
-
-/// The raw summary of a wrapped compaction-summary text: [`summary_body`]
-/// with the file-list blocks stripped (they are re-appended mechanically
-/// after the summarizer answers, the TS #2385
-/// rule; the digest is re-rendered fresh per compaction). The result is
-/// the update-mode `previousSummary`; `None` when nothing summarizable
-/// remains (a digest-only or file-lists-only head).
-#[must_use]
-pub fn previous_summary(wrapped: &str) -> Option<String> {
-    let stripped = strip_file_list_blocks(summary_body(wrapped));
-    (!stripped.is_empty()).then_some(stripped)
-}
-
-/// Remove a leading harness-digest frame (the block the eukhe summary
-/// leads with when the digest rendered); the following blank line strips
-/// with it. A digest frame later in the text is a hand-written summary and
-/// stays.
-#[must_use]
-pub fn strip_digest_block(text: &str) -> &str {
-    let Some(after_prefix) = text.strip_prefix(HARNESS_DIGEST_PREFIX) else {
-        return text;
-    };
-    let Some(end) = after_prefix.find(HARNESS_DIGEST_SUFFIX) else {
-        return text;
-    };
-    let mut rest = &after_prefix[end + HARNESS_DIGEST_SUFFIX.len()..];
-    if rest.starts_with("\n\n") {
-        rest = &rest[2..];
-    }
-    rest
-}
-
-/// The digest frame the compaction summary leads with when the digest
-/// rendered (the `HARNESS_DIGEST_PREFIX` block).
-#[must_use]
-pub fn digest_block(digest: &str) -> String {
-    format!("{HARNESS_DIGEST_PREFIX}{digest}{HARNESS_DIGEST_SUFFIX}\n\n")
-}
-
-/// The `[compaction-summary]`-wrapped presentation of a summary body (the
-/// compaction-summary user message).
-#[must_use]
-pub fn wrapped_summary(body: &str) -> String {
-    format!("{COMPACTION_SUMMARY_PREFIX}{body}{COMPACTION_SUMMARY_SUFFIX}")
-}
-
-/// The file lists a previous summary's `<read-files>`/`<modified-files>`
-/// blocks carried, one path per line, empty names dropped. The durable
-/// entry has no `details`, so the blocks in the summary text are the
-/// carrier the next compaction's merged lists continue from.
-#[must_use]
-pub fn file_lists(text: &str) -> (Vec<String>, Vec<String>) {
-    (
-        block_lines(text, "read-files"),
-        block_lines(text, "modified-files"),
+pub fn summary_body(summary: &CompactionSummary) -> String {
+    format!(
+        "{}{}",
+        summary.summary,
+        format_file_operations(&summary.read_files, &summary.modified_files)
     )
 }
 
-/// The non-empty lines of the `<name>` block, when the block is present.
-fn block_lines(text: &str, name: &str) -> Vec<String> {
-    let open = format!("<{name}>\n");
-    let close = format!("\n</{name}>");
-    let Some(start) = text.find(&open) else {
-        return Vec::new();
+/// The model text of a summary: the harness-digest block when a digest
+/// rendered, then the `[compaction-summary]`-wrapped [`summary_body`].
+#[must_use]
+pub fn rendered_summary(summary: &CompactionSummary) -> String {
+    let wrapped = format!(
+        "{COMPACTION_SUMMARY_PREFIX}{}{COMPACTION_SUMMARY_SUFFIX}",
+        summary_body(summary)
+    );
+    match &summary.digest {
+        Some(digest) => format!(
+            "{HARNESS_DIGEST_PREFIX}{}{HARNESS_DIGEST_SUFFIX}\n\n{wrapped}",
+            digest.digest
+        ),
+        None => wrapped,
+    }
+}
+
+/// The summary text of a `pi.compaction` entry as transcripts show it: the
+/// typed summary's [`summary_body`], or the model text of a summary the
+/// built-in summarizer wrote.
+///
+/// # Errors
+///
+/// The entry's data does not decode.
+pub fn compaction_summary_text(entry: &EntryRecord) -> Result<String, JsonError> {
+    let Some(compaction) = COMPACTION_ENTRY.narrow(entry.clone())? else {
+        return Ok(String::new());
     };
-    let after = &text[start + open.len()..];
-    let Some(end) = after.find(&close) else {
-        return Vec::new();
+    Ok(match &compaction.data().summary {
+        Some(summary) => summary_body(summary),
+        None => user_text(entry.model.as_deref().unwrap_or_default())
+            .unwrap_or_default()
+            .to_owned(),
+    })
+}
+
+/// What update mode continues from: the previous summary text (`None` when
+/// nothing summarizable remains) and the file lists it carried.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct PreviousSummary {
+    pub(crate) summary: Option<String>,
+    pub(crate) read_files: Vec<String>,
+    pub(crate) modified_files: Vec<String>,
+}
+
+/// The [`PreviousSummary`] of a compaction head: its typed summary, or the
+/// model text of a summary the built-in summarizer wrote (no file lists).
+///
+/// # Errors
+///
+/// The entry's data does not decode.
+pub(crate) fn previous_summary(head: &EntryRecord) -> Result<PreviousSummary, JsonError> {
+    let Some(compaction) = COMPACTION_ENTRY.narrow(head.clone())? else {
+        return Ok(PreviousSummary::default());
     };
-    after[..end]
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect()
+    Ok(match &compaction.data().summary {
+        Some(summary) => PreviousSummary {
+            summary: (!summary.summary.trim().is_empty()).then(|| summary.summary.clone()),
+            read_files: summary.read_files.clone(),
+            modified_files: summary.modified_files.clone(),
+        },
+        None => PreviousSummary {
+            summary: user_text(head.model.as_deref().unwrap_or_default()).map(str::to_owned),
+            read_files: Vec::new(),
+            modified_files: Vec::new(),
+        },
+    })
 }
 
 /// Maximum characters kept from the retained tail for the recency anchor
@@ -198,63 +179,26 @@ pub fn agent_messages(messages: &[&Message]) -> anyhow::Result<Vec<AgentMessage>
 
 #[cfg(test)]
 mod tests {
+    use eukhe_durable::entries::HarnessDigest;
+
     use super::*;
 
-    const WRAPPED: &str = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n[harness-digest]\n\nThe persistent memories produced across this session so far:\n\n<harness_state>\ndigest text\n</harness_state>\n\n[compaction-summary]\n\nThe conversation history before this point was compacted into the following summary.\nThe retained messages below are authoritative; this summary may lag behind them.\n\n<summary>\nThe story so far.\n<read-files>\n/a.rs\n/b.rs\n</read-files>\n</summary>\n</summary>";
-
     #[test]
-    fn previous_summary_strips_every_mechanical_layer() {
+    fn rendered_summary_leads_with_the_digest_and_carries_the_file_lists() {
+        let summary = CompactionSummary {
+            summary: "The story so far.".to_owned(),
+            read_files: vec!["/a.rs".to_owned()],
+            modified_files: Vec::new(),
+            digest: Some(HarnessDigest {
+                digest: "d".to_owned(),
+                state_fingerprint: "f".to_owned(),
+            }),
+        };
         assert_eq!(
-            previous_summary(WRAPPED).as_deref(),
-            Some("The story so far.")
+            rendered_summary(&summary),
+            format!(
+                "{HARNESS_DIGEST_PREFIX}d{HARNESS_DIGEST_SUFFIX}\n\n{COMPACTION_SUMMARY_PREFIX}The story so far.\n\n<read-files>\n/a.rs\n</read-files>{COMPACTION_SUMMARY_SUFFIX}"
+            )
         );
-    }
-
-    #[test]
-    fn previous_summary_is_none_for_a_digest_only_head() {
-        let digest_only = format!(
-            "{DURABLE_SUMMARY_PREFIX}{HARNESS_DIGEST_PREFIX}d{HARNESS_DIGEST_SUFFIX}\n\n{DURABLE_SUMMARY_SUFFIX}"
-        );
-        assert_eq!(previous_summary(&digest_only), None);
-    }
-
-    #[test]
-    fn a_foreign_wrapped_text_still_yields_its_body() {
-        // A summary the harness placed without the eukhe layers (the
-        // built-in pi-durable summarizer, or an imported session): the
-        // durable wrapper strips and the body passes through.
-        assert_eq!(
-            previous_summary("The conversation history before this point was compacted into the following summary:\n\n<summary>\nplain\n</summary>").as_deref(),
-            Some("plain")
-        );
-    }
-
-    #[test]
-    fn strip_digest_block_keeps_a_mid_text_frame() {
-        let text = format!("a\n\n{HARNESS_DIGEST_PREFIX}d{HARNESS_DIGEST_SUFFIX}\n\nb");
-        assert_eq!(strip_digest_block(&text), text);
-    }
-
-    #[test]
-    fn file_lists_read_both_blocks() {
-        let (read, modified) = file_lists(WRAPPED);
-        assert_eq!(read, vec!["/a.rs", "/b.rs"]);
-        assert!(modified.is_empty());
-    }
-
-    #[test]
-    fn wrapped_summary_round_trips_through_previous_summary() {
-        let body = "body text";
-        assert_eq!(
-            previous_summary(&wrapped_summary(body)).as_deref(),
-            Some(body)
-        );
-    }
-
-    #[test]
-    fn digest_block_leads_the_wrapped_body() {
-        let text = format!("{}{}", digest_block("d"), wrapped_summary("s"));
-        assert!(text.starts_with(HARNESS_DIGEST_PREFIX));
-        assert_eq!(previous_summary(&text).as_deref(), Some("s"));
     }
 }

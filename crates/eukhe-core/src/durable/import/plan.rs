@@ -9,8 +9,8 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use eukhe_durable::entries::{
-    CompactionData, ToolResultData, ASSISTANT_ENTRY, COMPACTION_ENTRY, TOOL_RESULT_ENTRY,
-    USER_ENTRY,
+    CompactionData, CompactionSummary, HarnessDigest, ToolResultData, ASSISTANT_ENTRY,
+    COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY,
 };
 use eukhe_durable::harness::types::{CompactionReason, ModelRef};
 use eukhe_durable::types::{EntryDraft, TypedEntryDraft};
@@ -23,6 +23,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use super::ImportError;
+use crate::durable::compaction::utils::strip_file_list_blocks;
 use crate::durable::entries::{
     bash_entry_draft, custom_entry_draft, BashEntryData, BranchSummaryData, CustomEntryData,
     CustomStateData, BRANCH_SUMMARY_ENTRY, COMPACTION_SUMMARY_ENTRY, CUSTOM_ENTRY,
@@ -372,8 +373,36 @@ impl<'a> Planner<'a> {
         } else {
             None
         };
-        let summary_harness_digest = harness_digest.clone();
-        let summary_harness_state_fingerprint = harness_state_fingerprint.clone();
+        // The typed summary: the legacy text without its file-list blocks,
+        // the lists from the row's details.
+        let digest = harness_digest
+            .clone()
+            .zip(harness_state_fingerprint.clone())
+            .map(|(digest, state_fingerprint)| HarnessDigest {
+                digest,
+                state_fingerprint,
+            });
+        let files = |key: &str| -> Vec<String> {
+            payload
+                .details
+                .as_ref()
+                .and_then(|details| details.get(key))
+                .and_then(serde_json::Value::as_array)
+                .map(|paths| {
+                    paths
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let typed_summary = CompactionSummary {
+            summary: strip_file_list_blocks(&payload.summary),
+            read_files: files("readFiles"),
+            modified_files: files("modifiedFiles"),
+            digest,
+        };
         let summary = AgentMessage::CompactionSummary(CompactionSummaryMessage {
             summary: payload.summary.clone(),
             tokens_before: payload.tokens_before,
@@ -392,8 +421,7 @@ impl<'a> Planner<'a> {
             llm_view(&summary, id)?,
             CompactionData {
                 reason,
-                harness_digest: summary_harness_digest,
-                harness_state_fingerprint: summary_harness_state_fingerprint,
+                summary: Some(typed_summary),
             },
         ))?;
         Ok((draft, head))

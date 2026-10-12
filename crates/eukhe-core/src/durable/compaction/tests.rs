@@ -1,7 +1,6 @@
 //! `eukhe.compaction` on a durable Harness: the eukhe summary (wrapper,
 //! update mode, live delta sink) and the manual-compaction flow. The model
-//! is the faux provider, so everything is deterministic. The head-parsing
-//! battery lives in [`super::head`].
+//! is the faux provider, so everything is deterministic.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -11,13 +10,16 @@ use eukhe_ai::providers::faux::{
     FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_durable::entries::{CompactionData, CompactionSummary, COMPACTION_ENTRY};
+use eukhe_durable::harness::types::CompactionReason;
 use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
 use eukhe_durable::harness::{ConversationEntryQuery, SubmissionHandle};
-use eukhe_durable::types::SubmissionStatus;
-use eukhe_types::pi_ai::{AssistantMessage, StopReason, UserContent};
+use eukhe_durable::types::{EntryHead, SubmissionStatus, TypedEntryDraft};
+use eukhe_types::pi_ai::{AssistantMessage, Message, StopReason, UserContent, UserMessage};
 use tempfile::TempDir;
 use tokio::sync::Notify;
 
+use super::head;
 use crate::durable::{open_session, EukheSession, SessionConfig, SessionStorage};
 
 fn cx() -> &'static eukhe_chord::context::Context {
@@ -213,10 +215,103 @@ async fn a_second_compaction_summarizes_in_update_mode_over_the_previous_summary
     session.root().compact(None, cx()).await.unwrap();
     session.root().wait_for_idle(cx()).await.unwrap();
     // The second compaction's summary landed, and it is the update of the
-    // first (the parsed previous summary drives the update prompt; the
-    // head battery in `head` covers the parse itself).
+    // first.
     let text = newest_summary_text(&session).await.expect("second summary");
     assert!(text.contains("updated summary"), "newest summary: {text}");
+    session.close(cx()).await.unwrap();
+}
+
+/// Regression: update mode continues from the head's typed summary, so the
+/// previous summary's file lists carry into the next summary and the
+/// summarizer gets the previous summary text without its rendering.
+#[tokio::test]
+async fn update_mode_carries_the_previous_typed_summary_and_its_file_lists() {
+    let fixture = Fixture::new();
+    let session = fixture.open().await;
+    fixture.turn(&session, "one", "answer one").await;
+    let previous = CompactionSummary {
+        summary: "prior work".to_owned(),
+        read_files: vec!["/a.rs".to_owned()],
+        modified_files: vec!["/b.rs".to_owned()],
+        digest: None,
+    };
+    let root = session.root().clone();
+    let answer = root
+        .entries(ConversationEntryQuery::default(), 1, None, cx())
+        .await
+        .unwrap()
+        .items[0]
+        .id;
+    let draft = COMPACTION_ENTRY
+        .draft(&TypedEntryDraft {
+            model: Some(vec![Message::User(UserMessage {
+                content: UserContent::Text(head::rendered_summary(&previous)),
+                timestamp: 1,
+            })]),
+            data: CompactionData {
+                reason: CompactionReason::Manual,
+                summary: Some(previous),
+            },
+            head: Some(EntryHead::Entry(answer)),
+            edits: None,
+        })
+        .unwrap();
+    let conversation_id = root.id();
+    root.commit(
+        move |tx| async move {
+            tx.append_entry(conversation_id, draft).await?;
+            Ok(())
+        },
+        cx(),
+    )
+    .await
+    .unwrap();
+    fixture.turn(&session, "two", "answer two").await;
+    let requests: Arc<Mutex<Vec<String>>> = Arc::default();
+    let recorded = Arc::clone(&requests);
+    fixture
+        .faux
+        .append_responses(vec![FauxResponseStep::Factory(Arc::new(
+            move |context, _, _, _| {
+                recorded
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(serde_json::to_string(context.messages()).unwrap());
+                Box::pin(async { Ok(stop_message("updated summary")) })
+            },
+        ))]);
+    root.compact(None, cx()).await.unwrap();
+    root.wait_for_idle(cx()).await.unwrap();
+
+    let request = requests
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .concat();
+    assert!(
+        request.contains("<previous-summary>\\nprior work\\n</previous-summary>"),
+        "summarizer request: {request}"
+    );
+    let newest = root
+        .entries(ConversationEntryQuery::default(), 1, None, cx())
+        .await
+        .unwrap()
+        .items
+        .remove(0);
+    let compaction = COMPACTION_ENTRY.narrow(newest).unwrap().unwrap();
+    // The digest is the session's fresh render; the rest is under test.
+    let summary = compaction.data().summary.clone().expect("a typed summary");
+    assert_eq!(
+        CompactionSummary {
+            digest: None,
+            ..summary
+        },
+        CompactionSummary {
+            summary: "updated summary".to_owned(),
+            read_files: vec!["/a.rs".to_owned()],
+            modified_files: vec!["/b.rs".to_owned()],
+            digest: None,
+        }
+    );
     session.close(cx()).await.unwrap();
 }
 

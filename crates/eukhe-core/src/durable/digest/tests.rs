@@ -11,6 +11,9 @@ use eukhe_ai::providers::faux::{
     FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_chord::json::to_json;
+use eukhe_durable::entries::{CompactionData, CompactionSummary, HarnessDigest};
+use eukhe_durable::harness::types::CompactionReason;
 use eukhe_durable::harness::types::ModelRef;
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::session::SessionResult;
@@ -19,8 +22,8 @@ use eukhe_types::pi_ai::{Message, UserContent, UserMessage};
 use tempfile::TempDir;
 
 use super::super::{HostDeps, SessionConfig, SessionStorage};
-use super::{digest_from_frame, HARNESS_DIGEST_CUSTOM_TYPE, HARNESS_DIGEST_PREFIX};
-use crate::durable::compaction::head::digest_block;
+use super::{HARNESS_DIGEST_CUSTOM_TYPE, HARNESS_DIGEST_PREFIX, HARNESS_DIGEST_SUFFIX};
+use crate::durable::compaction::head::rendered_summary;
 use crate::durable::open_session;
 use crate::durable::EukheSession;
 use crate::refinement::{
@@ -245,30 +248,33 @@ fn delivered_digest_text(rows: &[EntryRecord]) -> Option<String> {
     )
 }
 
-/// Append a compaction head marker whose context starts at `first_kept`.
-/// The entry carries the digest snapshot in its data (the harness digest
-/// frame leads `summary`; `state_fingerprint` comes from the delivered
-/// row), like the durable compaction places it.
+/// A typed compaction summary of "early work" with `digest`.
+fn early_work(digest: Option<HarnessDigest>) -> CompactionSummary {
+    CompactionSummary {
+        summary: "early work".to_owned(),
+        read_files: Vec::new(),
+        modified_files: Vec::new(),
+        digest,
+    }
+}
+
+/// Commit a `pi.compaction` head of `summary` whose kept range starts at
+/// `first_kept`.
 async fn compaction_head(
     session: &EukheSession,
     first_kept: EntryHead,
-    summary: &str,
-    state_fingerprint: Option<String>,
+    summary: &CompactionSummary,
 ) -> SessionResult<()> {
     let mut draft = EntryDraft::new("pi.compaction");
     draft.head = Some(first_kept);
     draft.model = Some(vec![Message::User(UserMessage {
-        content: UserContent::Text(summary.to_string()),
+        content: UserContent::Text(rendered_summary(summary)),
         timestamp: 1,
     })]);
-    draft.data = Some(
-        serde_json::json!({
-            "reason": "manual",
-            "harnessDigest": super::digest_from_frame(summary),
-            "harnessStateFingerprint": state_fingerprint,
-        })
-        .into(),
-    );
+    draft.data = Some(to_json(&CompactionData {
+        reason: CompactionReason::Manual,
+        summary: Some(summary.clone()),
+    })?);
     let conversation = session.root().clone();
     let conversation_id = conversation.id();
     conversation
@@ -280,6 +286,19 @@ async fn compaction_head(
             cx(),
         )
         .await
+}
+
+/// The raw digest a framed text carries (a delivered digest row in a
+/// model request), if any.
+fn digest_from_frame(text: &str) -> Option<&str> {
+    let after_prefix = text.strip_prefix(HARNESS_DIGEST_PREFIX).or_else(|| {
+        text.find(HARNESS_DIGEST_PREFIX)
+            .map(|at| &text[at + HARNESS_DIGEST_PREFIX.len()..])
+    })?;
+    let end = after_prefix
+        .find(HARNESS_DIGEST_SUFFIX)
+        .map(|at| &after_prefix[..at])?;
+    Some(end.trim_end_matches('\n'))
 }
 
 /// The state fingerprint of the newest delivered digest row.
@@ -410,14 +429,9 @@ async fn a_compaction_head_without_a_snapshot_redelivers() {
     // falls out of context.
     let all = entries(&session).await;
     let answer = all.last().expect("the answer entry");
-    compaction_head(
-        &session,
-        EntryHead::Entry(answer.id),
-        "[compaction] early work",
-        None,
-    )
-    .await
-    .expect("compaction head");
+    compaction_head(&session, EntryHead::Entry(answer.id), &early_work(None))
+        .await
+        .expect("compaction head");
     submit(&session, "continue").await;
 
     let all = entries(&session).await;
@@ -453,9 +467,12 @@ async fn a_compaction_snapshot_of_the_current_state_suppresses_redelivery() {
     // frame (TS `harnessDigest` on the summary).
     let all = entries(&session).await;
     let answer = all.last().expect("the answer entry");
-    let summary = format!("{}[compaction] early work", digest_block(&delivered_digest));
-    let fingerprint = delivered_fingerprint(&entries(&session).await);
-    compaction_head(&session, EntryHead::Entry(answer.id), &summary, fingerprint)
+    let fingerprint = delivered_fingerprint(&entries(&session).await).expect("a fingerprint");
+    let summary = early_work(Some(HarnessDigest {
+        digest: delivered_digest,
+        state_fingerprint: fingerprint,
+    }));
+    compaction_head(&session, EntryHead::Entry(answer.id), &summary)
         .await
         .expect("compaction head");
     submit(&session, "continue").await;
@@ -504,9 +521,12 @@ async fn a_stale_compaction_snapshot_yields_its_digest_block() {
     };
     let all = entries(&session).await;
     let answer = all.last().expect("the answer entry");
-    let summary = format!("{}[compaction] early work", digest_block(&delivered_digest));
-    let fingerprint = delivered_fingerprint(&entries(&session).await);
-    compaction_head(&session, EntryHead::Entry(answer.id), &summary, fingerprint)
+    let fingerprint = delivered_fingerprint(&entries(&session).await).expect("a fingerprint");
+    let summary = early_work(Some(HarnessDigest {
+        digest: delivered_digest,
+        state_fingerprint: fingerprint,
+    }));
+    compaction_head(&session, EntryHead::Entry(answer.id), &summary)
         .await
         .expect("compaction head");
 
@@ -527,7 +547,7 @@ async fn a_stale_compaction_snapshot_yields_its_digest_block() {
     assert!(
         user_texts(request)
             .iter()
-            .any(|text| text == "[compaction] early work"),
+            .any(|text| *text == rendered_summary(&early_work(None))),
         "{:?}",
         user_texts(request)
     );

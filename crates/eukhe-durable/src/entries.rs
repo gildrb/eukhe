@@ -122,17 +122,34 @@ pub struct ToolResultData {
 pub struct CompactionData {
     /// Why the compaction ran.
     pub reason: CompactionReason,
-    /// The harness digest snapshot the summary leads with, and the state
-    /// fingerprint that produced it (eukhe addition). Absent on plain
-    /// compactions.
+    /// The typed summary a `before_compact` hook answered (eukhe
+    /// addition): the entry's model text is its rendering. Absent on
+    /// summaries the built-in summarizer wrote.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness_digest: Option<String>,
-    #[serde(
-        default,
-        rename = "harnessStateFingerprint",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub harness_state_fingerprint: Option<String>,
+    pub summary: Option<CompactionSummary>,
+}
+
+/// The typed parts of a compaction summary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionSummary {
+    /// The summarizer's text.
+    pub summary: String,
+    /// Files read up to the compaction point.
+    pub read_files: Vec<String>,
+    /// Files modified up to the compaction point.
+    pub modified_files: Vec<String>,
+    /// The harness digest the summary leads with, when one rendered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<HarnessDigest>,
+}
+
+/// A harness digest and the state fingerprint that produced it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessDigest {
+    pub digest: String,
+    pub state_fingerprint: String,
 }
 
 /// Data of a [`USER_ENTRY`]: who produced the input. The user's own input

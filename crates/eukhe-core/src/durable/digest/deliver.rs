@@ -21,6 +21,7 @@
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
+use eukhe_durable::entries::{CompactionSummary, COMPACTION_ENTRY};
 use eukhe_durable::harness::define::{define_extension, hook};
 use eukhe_durable::harness::types::{
     Extension, GenerationHooks, HookApi, HookResult, RequestMessages,
@@ -34,11 +35,11 @@ use futures::FutureExt;
 use super::super::entries::{CustomEntryData, CUSTOM_ENTRY};
 use super::super::HostDeps;
 use super::render::{
-    digest_context, digest_from_frame, digest_query_terms, harness_digest_message_text,
-    recent_texts_newest_first, render_digest_with_fingerprint, HARNESS_DIGEST_CUSTOM_TYPE,
-    HARNESS_DIGEST_PREFIX, HARNESS_DIGEST_SUFFIX,
+    digest_context, digest_query_terms, harness_digest_message_text, recent_texts_newest_first,
+    render_digest_with_fingerprint, HARNESS_DIGEST_CUSTOM_TYPE,
 };
 use crate::autonomous::now_millis;
+use crate::durable::compaction::head::rendered_summary;
 
 /// The extension name.
 pub const DIGEST_EXTENSION: &str = "eukhe.digest";
@@ -223,34 +224,16 @@ fn delivered_digest(
     })
 }
 
-/// A compaction head's digest snapshot: the `harnessDigest` /
-/// `harnessStateFingerprint` fields of its data, else the digest block
-/// leading its summary message. `None` for entries that carry neither.
+/// A compaction head's digest snapshot: the digest of its typed summary.
+/// `None` for other entries, summaries without a digest, and entries whose
+/// data does not decode (a corrupt row is not a digest).
 fn snapshot_digest(entry: &EntryRecord) -> Option<LatestDigest> {
-    let data = entry.data.as_ref().map(serde_json::Value::from)?;
-    if let Some(digest) = data.get("harnessDigest").and_then(|value| value.as_str()) {
-        return Some(LatestDigest {
-            entry_id: entry.id,
-            digest: digest.to_string(),
-            state_fingerprint: data
-                .get("harnessStateFingerprint")
-                .and_then(|value| value.as_str())
-                .map(str::to_string),
-        });
-    }
-    let text = entry
-        .model
-        .as_deref()
-        .and_then(<[Message]>::first)
-        .and_then(|message| match message {
-            Message::User(user) => Some(user_text(&user.content)),
-            Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
-        })?;
-    let digest = digest_from_frame(&text)?;
+    let compaction = COMPACTION_ENTRY.narrow(entry.clone()).ok()??;
+    let digest = compaction.data().summary.as_ref()?.digest.as_ref()?;
     Some(LatestDigest {
         entry_id: entry.id,
-        digest: digest.to_string(),
-        state_fingerprint: None,
+        digest: digest.digest.clone(),
+        state_fingerprint: Some(digest.state_fingerprint.clone()),
     })
 }
 
@@ -273,45 +256,27 @@ fn supersede_edits(entries: &[EntryRecord], contributions: &[Vec<Message>]) -> V
     edits
 }
 
-/// The replace edit that strips a compaction summary's leading digest
-/// block; `None` for entries whose first model message is not a digest
-/// frame followed by more text.
+/// The replace edit that renders a compaction summary without its digest;
+/// `None` for other entries and summaries without a digest.
 fn strip_summary_digest_block(entry: &EntryRecord) -> Option<ContextEdit> {
-    if entry.kind == CUSTOM_ENTRY.kind() {
-        return None;
-    }
-    let first = entry.model.as_deref().and_then(<[Message]>::first)?;
-    let Message::User(user) = first else {
+    let compaction = COMPACTION_ENTRY.narrow(entry.clone()).ok()??;
+    let summary = compaction.data().summary.as_ref()?;
+    summary.digest.as_ref()?;
+    let Some(Message::User(user)) = entry.model.as_deref().and_then(<[Message]>::first) else {
         return None;
     };
-    let text = user_text(&user.content);
-    let digest = digest_from_frame(&text)?;
-    let frame = format!("{HARNESS_DIGEST_PREFIX}{digest}{HARNESS_DIGEST_SUFFIX}\n\n");
-    let summary = text.strip_prefix(&frame)?;
     Some(ContextEdit {
         target: entry.id,
         action: ContextEditAction::Replace {
             messages: vec![Message::User(UserMessage {
-                content: UserContent::Text(summary.to_string()),
+                content: UserContent::Text(rendered_summary(&CompactionSummary {
+                    digest: None,
+                    ..summary.clone()
+                })),
                 timestamp: user.timestamp,
             })],
         },
     })
-}
-
-/// The text of a user message: text blocks joined by newlines.
-fn user_text(content: &UserContent) -> String {
-    match content {
-        UserContent::Text(text) => text.clone(),
-        UserContent::Blocks(blocks) => blocks
-            .iter()
-            .filter_map(|block| match block {
-                eukhe_types::pi_ai::UserContentBlock::Text(text) => Some(text.text.as_str()),
-                eukhe_types::pi_ai::UserContentBlock::Image(_) => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-    }
 }
 
 /// Ride the digest message ahead of the current turn's prompt (the last

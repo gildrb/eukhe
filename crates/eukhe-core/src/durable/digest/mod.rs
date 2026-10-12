@@ -21,10 +21,9 @@ mod tests;
     reason = "consumed by durable/compaction (same wave); private module re-exports"
 )]
 pub use render::{
-    conversation_digest, digest_context, digest_from_frame, digest_query_terms,
-    harness_digest_message_text, recent_texts_newest_first, render_digest_with_fingerprint,
-    HarnessDigestContext, HarnessDigestRender, HARNESS_DIGEST_CUSTOM_TYPE, HARNESS_DIGEST_PREFIX,
-    HARNESS_DIGEST_SUFFIX,
+    conversation_digest, digest_context, digest_query_terms, harness_digest_message_text,
+    recent_texts_newest_first, render_digest_with_fingerprint, HarnessDigestContext,
+    HarnessDigestRender, HARNESS_DIGEST_CUSTOM_TYPE, HARNESS_DIGEST_PREFIX, HARNESS_DIGEST_SUFFIX,
 };
 
 pub(crate) use deliver::extension;

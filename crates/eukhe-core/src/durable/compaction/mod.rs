@@ -16,7 +16,7 @@ mod autorefine;
 pub mod auxiliary_model;
 pub(crate) mod head;
 pub mod ipython_state;
-pub use head::summary_body;
+pub use head::compaction_summary_text;
 mod observer;
 mod summary;
 pub(crate) mod summary_request;

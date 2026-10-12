@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::to_json;
-use eukhe_durable::entries::{CompactionData, COMPACTION_ENTRY, TOOL_RESULT_ENTRY};
+use eukhe_durable::entries::{
+    CompactionData, CompactionSummary, COMPACTION_ENTRY, TOOL_RESULT_ENTRY,
+};
 use eukhe_durable::harness::types::{CompactionReason, ModelRef};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness};
 use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
@@ -400,8 +402,12 @@ async fn imports_a_compaction_as_a_head_at_the_first_kept_entry() {
         *compaction.data(),
         CompactionData {
             reason: CompactionReason::Threshold,
-            harness_digest: None,
-            harness_state_fingerprint: None,
+            summary: Some(CompactionSummary {
+                summary: "the story so far".to_owned(),
+                read_files: Vec::new(),
+                modified_files: Vec::new(),
+                digest: None,
+            }),
         }
     );
     let view = root
@@ -464,8 +470,12 @@ fn compaction_head_starts_at_the_first_imported_entry_from_first_kept() {
         Some(
             to_json(&CompactionData {
                 reason: CompactionReason::Manual,
-                harness_digest: None,
-                harness_state_fingerprint: None,
+                summary: Some(CompactionSummary {
+                    summary: "s1".to_owned(),
+                    read_files: Vec::new(),
+                    modified_files: Vec::new(),
+                    digest: None,
+                }),
             })
             .unwrap()
         )
