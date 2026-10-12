@@ -132,7 +132,7 @@ jobs:
           git config --global --add safe.directory "${GITHUB_WORKSPACE}"
           {
             echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
-            echo "RUSTFLAGS=--remap-path-prefix=${GITHUB_WORKSPACE}=/eukhe --remap-path-prefix=${HOME}/.cargo=/cargo"
+            echo "RUSTFLAGS=--remap-path-prefix=${GITHUB_WORKSPACE}=/eukhe --remap-path-prefix=${HOME}/.cargo=/cargo -C link-arg=-Wl,--build-id"
           } >> "${GITHUB_ENV}"
       # Cargo.toml and Cargo.lock move together; the --locked build below
       # fails if the lockfile needs any other change.

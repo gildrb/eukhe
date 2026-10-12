@@ -71,16 +71,27 @@ RELEASE_DECODER = target/release/dist/eukhe-$(VERSION)-$(if $(filter aarch64-%,$
 RELEASE_ASSEMBLE_FLAGS = --binary $(RELEASE_BINARY) --decoder $(RELEASE_DECODER)
 RELEASE_SPLIT = python3 scripts/release/split_debug.py --binary target/release/eukhe --shipped $(RELEASE_BINARY) --out target/release/dist --version "$(VERSION)" --target "$(TARGET)"
 RELEASE_VERIFY_DECODER = python3 scripts/release/verify_decoders.py target/release/dist
-RELEASE_PACKAGE_BUILD = cargo build --release --locked --workspace
+RELEASE_PACKAGE_BUILD = $(RELEASE_CARGO_BUILD)
 RELEASE_PACKAGE_FLAGS = --binary $(RELEASE_BINARY) --decoder $(RELEASE_DECODER) --skip-build
 GLIBC_BINARY = $(RELEASE_BINARY)
+RELEASE_LINK_FLAGS = -C link-arg=-Wl,--build-id
 else
 RELEASE_ASSEMBLE_FLAGS =
 RELEASE_SPLIT = :
 RELEASE_VERIFY_DECODER = :
 RELEASE_PACKAGE_BUILD = :
 RELEASE_PACKAGE_FLAGS =
+RELEASE_LINK_FLAGS =
 endif
+
+# The release build environment of eukhe-release.yml: commit-time
+# SOURCE_DATE_EPOCH, checkout and cargo paths remapped, and on Linux an
+# explicit GNU build ID (the split and decoder gates need one; Ubuntu's
+# linker adds it by default, Nix's does not). Same commit, toolchain and
+# checkout path give the same bytes (Cargo's symbol hashes include the path).
+CARGO_HOME_DIR := $(or $(CARGO_HOME),$(HOME)/.cargo)
+RELEASE_RUSTFLAGS = --remap-path-prefix=$(CURDIR)=/eukhe --remap-path-prefix=$(CARGO_HOME_DIR)=/cargo $(RELEASE_LINK_FLAGS)
+RELEASE_CARGO_BUILD = SOURCE_DATE_EPOCH="$$(git log -1 --format=%ct)" RUSTFLAGS="$(RELEASE_RUSTFLAGS)" cargo build --release --locked --workspace
 
 # Pinned-catalog asset generation (network fetch of the catalog-pin.json
 # commit, sha256-checked; the release workflow's mode).
@@ -100,7 +111,7 @@ catalog-pin:
 	python3 scripts/release/bundle_catalog.py pin --ref $(CATALOG_REF)
 
 release-dry-run:
-	cargo build --release --locked --workspace
+	$(RELEASE_CARGO_BUILD)
 	$(RELEASE_SPLIT)
 	$(MAKE) glibc-gate
 	python3 scripts/release/bundle_catalog.py generate --$(CATALOG_ASSETS_MODE) --out $(CATALOG_ASSETS_DIR)
