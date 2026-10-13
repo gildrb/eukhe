@@ -10,52 +10,20 @@ use crate::theme::{Theme, ThemeColor};
 use crate::width::{str_width, truncate_line, wrap_text};
 use crate::{Line, Span};
 
-/// Why a compaction runs (TS `CompactionOutcomeReason` on the wire events).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompactionReason {
-    /// `/compact` (the session-command path).
-    Manual,
-    /// The model requested compaction at a turn boundary.
-    Requested,
-    /// Auto-compaction after a context overflow.
-    Overflow,
-    /// Auto-compaction at the context-usage threshold.
-    Threshold,
-}
+pub use eukhe_types::daemon::CompactionReason;
 
-impl CompactionReason {
-    /// Parse the wire `reason` field (unknown values fall back to the TS
-    /// auto-compaction label shape's common ancestor: `manual`).
-    #[must_use]
-    pub fn parse(reason: &str) -> Self {
-        match reason {
-            "requested" => CompactionReason::Requested,
-            "overflow" => CompactionReason::Overflow,
-            "threshold" => CompactionReason::Threshold,
-            _ => CompactionReason::Manual,
-        }
-    }
-
-    /// The loader label (TS `startCompactionLoader`): `focus` is the
-    /// truncated custom instructions, `cancel_hint` the resolved
-    /// `app.clear` key text.
-    #[must_use]
-    pub fn loader_label(self, focus: Option<&str>, cancel_hint: &str) -> String {
-        let focus = focus
-            .map(|focus| format!(" (focus: {focus})"))
-            .unwrap_or_default();
-        let label = match self {
-            CompactionReason::Manual => format!("Compacting context{focus}..."),
-            CompactionReason::Requested => {
-                format!("Agent requested compaction, compacting context{focus}...")
-            }
-            CompactionReason::Overflow => {
-                "Context overflow detected, Auto-compacting...".to_string()
-            }
-            CompactionReason::Threshold => "Auto-compacting...".to_string(),
-        };
-        format!("{label} ({cancel_hint} to cancel)")
-    }
+/// The loader label (TS `startCompactionLoader`): `focus` is the truncated
+/// custom instructions, `cancel_hint` the resolved `app.clear` key text.
+fn loader_label(reason: CompactionReason, focus: Option<&str>, cancel_hint: &str) -> String {
+    let focus = focus
+        .map(|focus| format!(" (focus: {focus})"))
+        .unwrap_or_default();
+    let label = match reason {
+        CompactionReason::Manual => format!("Compacting context{focus}..."),
+        CompactionReason::Overflow => "Context overflow detected, Auto-compacting...".to_string(),
+        CompactionReason::Threshold => "Auto-compacting...".to_string(),
+    };
+    format!("{label} ({cancel_hint} to cancel)")
 }
 
 /// The live compaction loader (TS `autoCompactionLoader`): owns the status
@@ -104,7 +72,7 @@ pub fn render_compaction_loader(
                 .map(|span| span.content.as_str())
                 .collect::<String>()
         });
-    let label = state.reason.loader_label(focus.as_deref(), cancel_hint);
+    let label = loader_label(state.reason, focus.as_deref(), cancel_hint);
     let mut row: Line = vec![Span::styled(
         " ".to_string(),
         crate::style::Style::default(),
@@ -384,10 +352,6 @@ mod tests {
         assert_eq!(
             loader_text(&state(CompactionReason::Manual, None), "Ctrl+C"),
             "| Compacting context... (Ctrl+C to cancel)"
-        );
-        assert_eq!(
-            loader_text(&state(CompactionReason::Requested, None), "Ctrl+C"),
-            "| Agent requested compaction, compacting context... (Ctrl+C to cancel)"
         );
         assert_eq!(
             loader_text(&state(CompactionReason::Overflow, None), "Ctrl+C"),

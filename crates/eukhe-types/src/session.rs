@@ -175,6 +175,22 @@ pub enum AgentMessage {
     CompactionSummary(CompactionSummaryMessage),
 }
 
+impl AgentMessage {
+    /// Unix timestamp in milliseconds.
+    #[must_use]
+    pub fn timestamp(&self) -> u64 {
+        match self {
+            Self::User(message) => message.timestamp,
+            Self::Assistant(message) => message.timestamp,
+            Self::ToolResult(message) => message.timestamp,
+            Self::BashExecution(message) => message.timestamp,
+            Self::Custom(message) => message.timestamp,
+            Self::BranchSummary(message) => message.timestamp,
+            Self::CompactionSummary(message) => message.timestamp,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Session entries
 // ---------------------------------------------------------------------------

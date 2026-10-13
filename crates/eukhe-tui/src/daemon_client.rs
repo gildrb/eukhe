@@ -15,8 +15,10 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use eukhe_types::daemon::{
     is_session_plane_daemon_command, DaemonCommand, DaemonCommandEnvelope, DaemonCommandFrameType,
-    DaemonProtocolInfo, DaemonResponse, DAEMON_PROTOCOL_NAME, DAEMON_PROTOCOL_VERSION,
+    DaemonProtocolInfo, DaemonResponse, SessionEvent, DAEMON_PROTOCOL_NAME,
+    DAEMON_PROTOCOL_VERSION,
 };
+use serde::Deserialize as _;
 use serde_json::{Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
@@ -70,9 +72,7 @@ pub fn outdated_daemon_notice(daemon_version: &str) -> String {
     )
 }
 
-/// A non-response frame forwarded to the UI event loop. Payloads that are
-/// owned by the session engine stay raw JSON (`Value`) so the client keeps
-/// working across schema revisions.
+/// A non-response frame forwarded to the UI event loop.
 #[derive(Debug, Clone)]
 pub enum DaemonClientEvent {
     /// `session_event`: one streamed agent/turn event for an attached
@@ -84,8 +84,14 @@ pub enum DaemonClientEvent {
     /// reports instead of the run's own stale attach sequence.
     SessionEvent {
         active_session_id: String,
-        event: Value,
+        event: Box<SessionEvent>,
         meta_sequence: u64,
+    },
+    /// A `session_event` frame whose event this build cannot decode (a
+    /// daemon of another build). The client reports it; the event is lost.
+    UndecodableSessionEvent {
+        active_session_id: String,
+        error: String,
     },
     /// `session_closed`: the attached session stopped existing.
     SessionClosed {
@@ -145,22 +151,41 @@ pub(crate) fn client_event_from_value(value: &Value) -> Option<DaemonClientEvent
         .and_then(Value::as_str)
         .unwrap_or_default();
     match frame_type {
-        "session_event" => Some(DaemonClientEvent::SessionEvent {
-            active_session_id: value
+        "session_event" => {
+            let active_session_id = value
                 .get("activeSessionId")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
-                .to_string(),
-            event: value.get("event").cloned().unwrap_or(Value::Null),
-            meta_sequence: value
-                .get("meta")
-                .and_then(|meta| {
-                    meta.get("sequence")
-                        .or_else(|| meta.get("cursor").and_then(|cursor| cursor.get("sequence")))
-                })
-                .and_then(Value::as_u64)
-                .unwrap_or_default(),
-        }),
+                .to_string();
+            let event = match value.get("event").map(SessionEvent::deserialize) {
+                Some(Ok(event)) => Box::new(event),
+                Some(Err(error)) => {
+                    return Some(DaemonClientEvent::UndecodableSessionEvent {
+                        active_session_id,
+                        error: error.to_string(),
+                    })
+                }
+                None => {
+                    return Some(DaemonClientEvent::UndecodableSessionEvent {
+                        active_session_id,
+                        error: "the frame carries no event".to_string(),
+                    })
+                }
+            };
+            Some(DaemonClientEvent::SessionEvent {
+                active_session_id,
+                event,
+                meta_sequence: value
+                    .get("meta")
+                    .and_then(|meta| {
+                        meta.get("sequence").or_else(|| {
+                            meta.get("cursor").and_then(|cursor| cursor.get("sequence"))
+                        })
+                    })
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default(),
+            })
+        }
         "session_closed" => Some(DaemonClientEvent::SessionClosed {
             active_session_id: value
                 .get("activeSessionId")

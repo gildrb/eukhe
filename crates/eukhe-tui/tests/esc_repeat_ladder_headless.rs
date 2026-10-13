@@ -198,7 +198,15 @@ impl MockSupervisor {
                                             "timestamp": "2024-01-01T00:00:01.000Z",
                                             "message": {
                                                 "role": "assistant",
-                                                "content": "second",
+                                                "content": [{ "type": "text", "text": "second" }],
+                                                "api": "scripted",
+                                                "provider": "scripted",
+                                                "model": "faux-1",
+                                                "usage": {
+                                                    "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                                                    "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+                                                },
+                                                "stopReason": "stop",
                                                 "timestamp": 1,
                                             },
                                         },

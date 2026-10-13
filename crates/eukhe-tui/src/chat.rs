@@ -552,7 +552,8 @@ pub fn render_loader(
 #[derive(Debug, Clone, PartialEq)]
 pub struct RetryState {
     pub attempt: u32,
-    pub max_attempts: u32,
+    /// Absent when the session did not report its retry policy.
+    pub max_attempts: Option<u32>,
     pub ends_at: std::time::Instant,
     /// The provider error that started this retry (TS `errorMessage`).
     pub error_message: String,
@@ -578,13 +579,17 @@ impl RetryState {
     /// time-until-next-retry countdown.)
     fn message(&self) -> String {
         match &self.reason {
-            RetryStartReason::Quick => format!(
-                "{} -- retrying ({}/{}) in {}s...",
-                self.error_message,
-                self.attempt,
-                self.max_attempts,
-                self.seconds_left()
-            ),
+            RetryStartReason::Quick => {
+                let attempts = match self.max_attempts {
+                    Some(max_attempts) => format!("{}/{max_attempts}", self.attempt),
+                    None => self.attempt.to_string(),
+                };
+                format!(
+                    "{} -- retrying ({attempts}) in {}s...",
+                    self.error_message,
+                    self.seconds_left()
+                )
+            }
             RetryStartReason::Backup { backup_model } => format!(
                 "Primary model unavailable ({}) -- retrying on backup model {backup_model}...",
                 self.error_message

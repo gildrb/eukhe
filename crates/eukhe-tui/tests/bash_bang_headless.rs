@@ -226,17 +226,14 @@ impl MockSupervisor {
                                 &mut writer,
                                 &json!({
                                     "type": "message_start",
-                                    "message": { "role": "user", "content": question },
+                                    "message": { "role": "user", "content": question, "timestamp": 1 },
                                 }),
                             );
                             write_session_event(
                                 &mut writer,
                                 &json!({
                                     "type": "message_start",
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": [{ "type": "text", "text": "" }],
-                                    },
+                                    "message": assistant_message(""),
                                     "assistantMessageEvent": { "type": "start" },
                                 }),
                             );
@@ -244,12 +241,7 @@ impl MockSupervisor {
                                 &mut writer,
                                 &json!({
                                     "type": "message_update",
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": [
-                                            { "type": "text", "text": "Let me run the long check." },
-                                        ],
-                                    },
+                                    "message": assistant_message("Let me run the long check."),
                                     "assistantMessageEvent": {
                                         "type": "text_delta",
                                         "delta": "Let me run the long check.",
@@ -284,13 +276,7 @@ impl MockSupervisor {
                                     &mut delayed,
                                     &json!({
                                         "type": "message_end",
-                                        "message": {
-                                            "role": "assistant",
-                                            "stopReason": "stop",
-                                            "content": [
-                                                { "type": "text", "text": "Let me run the long check." },
-                                            ],
-                                        },
+                                        "message": assistant_message("Let me run the long check."),
                                     }),
                                 );
                                 write_session_event(&mut delayed, &json!({ "type": "turn_end" }));
@@ -475,6 +461,23 @@ fn side_question_event(id: &str, question: &str, status: &str, answer: &str) -> 
             "answer": answer,
             "status": status,
         },
+    })
+}
+
+/// A streamed assistant message whose one text block is `text`.
+fn assistant_message(text: &str) -> Value {
+    json!({
+        "role": "assistant",
+        "content": [{ "type": "text", "text": text }],
+        "api": "scripted",
+        "provider": "scripted",
+        "model": "faux-1",
+        "usage": {
+            "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+        },
+        "stopReason": "stop",
+        "timestamp": 1,
     })
 }
 

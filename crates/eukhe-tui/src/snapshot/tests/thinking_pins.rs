@@ -13,7 +13,7 @@ use super::*;
 fn the_two_stored_row_shapes_render_their_channels_faithfully() {
     // The healthy row (trimmed): the reasoning rides a `thinking` block
     // with the reasoning_content signature.
-    let healthy_row = json!({
+    let healthy_row: eukhe_types::ai::AssistantMessage = wire(complete_message(json!({
         "role": "assistant",
         "model": "internal/glm-5.3-fast",
         "stopReason": "stop",
@@ -21,17 +21,17 @@ fn the_two_stored_row_shapes_render_their_channels_faithfully() {
             { "type": "thinking", "thinking": "The operator asks: why do we need the nightly cron again?", "thinkingSignature": "reasoning_content" },
             { "type": "text", "text": "**The nightly cron exists for three reasons.**" }
         ]
-    });
+    })));
     // The content-only row (trimmed): the reasoning prose merged into the
     // text block -- no thinking block at all.
-    let leak_row = json!({
+    let leak_row: eukhe_types::ai::AssistantMessage = wire(complete_message(json!({
         "role": "assistant",
         "model": "internal/glm-5.3-fast",
         "stopReason": "stop",
         "content": [
             { "type": "text", "text": "The domain-flip PR is green. The plan: let me execute." }
         ]
-    });
+    })));
     // The decode (the store-row classifier): the healthy row keeps both
     // blocks, the content-only row only the text.
     let (healthy_blocks, healthy_calls) = assistant_message_parts(&healthy_row);

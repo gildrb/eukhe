@@ -218,10 +218,7 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_start",
-            "message": {
-                "role": "assistant",
-                "content": [{ "type": "text", "text": "" }],
-            },
+            "message": streamed_message("", stream_start_ms),
             "assistantMessageEvent": { "type": "start" },
         })),
     );
@@ -229,10 +226,7 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_update",
-            "message": {
-                "role": "assistant",
-                "content": [{ "type": "text", "text": "thinking through it" }],
-            },
+            "message": streamed_message("thinking through it", stream_start_ms),
             "assistantMessageEvent": { "type": "text_delta", "delta": "thinking through it" },
         })),
     );
@@ -243,6 +237,9 @@ fn stream_turn(writer: &mut UnixStream) {
             "message": {
                 "role": "assistant",
                 "content": [{ "type": "text", "text": "all done" }],
+                "api": "scripted",
+                "provider": "scripted",
+                "model": "faux-1",
                 "usage": {
                     "input": 100,
                     "output": 300,
@@ -257,7 +254,27 @@ fn stream_turn(writer: &mut UnixStream) {
         })),
     );
     write_json(writer, &event(json!({ "type": "turn_end" })));
-    write_json(writer, &event(json!({ "type": "agent_end" })));
+    write_json(
+        writer,
+        &event(json!({ "type": "agent_end", "messages": [] })),
+    );
+}
+
+/// A streaming assistant message whose one text block is `text`.
+fn streamed_message(text: &str, timestamp: i64) -> Value {
+    json!({
+        "role": "assistant",
+        "content": [{ "type": "text", "text": text }],
+        "api": "scripted",
+        "provider": "scripted",
+        "model": "faux-1",
+        "usage": {
+            "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+        },
+        "stopReason": "stop",
+        "timestamp": timestamp,
+    })
 }
 
 fn options(socket: PathBuf) -> InteractiveOptions {

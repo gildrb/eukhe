@@ -45,6 +45,12 @@ pub struct ToolCallCard {
     pub aborted: bool,
 }
 
+/// The wire JSON of one content block, as the cards read it (every field,
+/// the image metadata included).
+pub(crate) fn content_block_value(block: &eukhe_types::ai::UserContentBlock) -> Value {
+    serde_json::json!(block)
+}
+
 /// One (partial or final) tool result (TS `AgentToolResult` view).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ToolResultView {
@@ -54,6 +60,16 @@ pub struct ToolResultView {
 }
 
 impl ToolResultView {
+    /// The view of one tool output.
+    #[must_use]
+    pub fn new(output: &eukhe_types::daemon::ToolOutput, is_error: bool) -> Self {
+        Self {
+            content: output.content.iter().map(content_block_value).collect(),
+            details: output.details.clone().unwrap_or(Value::Null),
+            is_error,
+        }
+    }
+
     /// The joined text of the result's text blocks, ANSI stripped, with
     /// hidden image blocks appended as `[Image: ...]` fallback text (TS
     /// `render-utils.getTextOutput` with `showImages` false: each image

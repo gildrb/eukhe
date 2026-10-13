@@ -108,8 +108,9 @@ async fn handshake_and_request_round_trip() {
         .unwrap();
     assert!(
         matches!(
-            event,
-            DaemonClientEvent::SessionEvent { ref event, .. } if event["type"] == "turn_end"
+            &event,
+            DaemonClientEvent::SessionEvent { event, .. }
+                if matches!(**event, SessionEvent::TurnEnd { .. })
         ),
         "unexpected event: {event:?}"
     );
@@ -269,7 +270,7 @@ fn session_event_parses_the_meta_sequence_for_the_handoff_tracker() {
     let with_sequence = json!({
         "type": "session_event",
         "activeSessionId": "sess-1",
-        "event": { "type": "message_end" },
+        "event": { "type": "turn_end" },
         "meta": {
             "id": "sess-1:41",
             "sequence": 41,
@@ -288,7 +289,7 @@ fn session_event_parses_the_meta_sequence_for_the_handoff_tracker() {
     let cursor_only = json!({
         "type": "session_event",
         "activeSessionId": "sess-1",
-        "event": { "type": "message_end" },
+        "event": { "type": "turn_end" },
         "meta": { "cursor": { "generation": "g-1", "sequence": 12 } }
     });
     match client_event_from_value(&cursor_only) {
@@ -300,7 +301,7 @@ fn session_event_parses_the_meta_sequence_for_the_handoff_tracker() {
     let no_meta = json!({
         "type": "session_event",
         "activeSessionId": "sess-1",
-        "event": { "type": "message_end" }
+        "event": { "type": "turn_end" }
     });
     match client_event_from_value(&no_meta) {
         Some(DaemonClientEvent::SessionEvent { meta_sequence, .. }) => {
@@ -580,8 +581,9 @@ async fn direct_upgrade_routes_attach_and_streams_events() {
         .unwrap();
     assert!(
         matches!(
-            event,
-            DaemonClientEvent::SessionEvent { ref event, .. } if event["type"] == "turn_end"
+            &event,
+            DaemonClientEvent::SessionEvent { event, .. }
+                if matches!(**event, SessionEvent::TurnEnd { .. })
         ),
         "unexpected event: {event:?}"
     );

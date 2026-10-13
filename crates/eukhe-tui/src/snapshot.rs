@@ -1,14 +1,11 @@
 //! Attach/snapshot reconstruction: wire data from the daemon (slim attach
 //! results, streamed session events) folded into UI transcript items.
-//!
-//! Daemon message payloads are raw JSON (`Value`): the session engine owns
-//! their evolution, and the TUI renders what arrives. Message decoding is
-//! therefore lenient -- it accepts plain-string content and content-block
-//! arrays, with or without explicit block `type` tags, covering the shapes
-//! the scripted harness and the real engine both emit.
 
 use crate::chat::{AssistantMessage, ChatEntry, MessageBlock, ToolCallCard, ToolResultView};
-use eukhe_types::daemon::{DaemonEventCursor, DaemonReplayInfo};
+use eukhe_types::daemon::{
+    DaemonEventCursor, DaemonReplayInfo, DaemonSessionSnapshot, SessionActionSnapshot,
+};
+use eukhe_types::session::AgentMessage;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -20,7 +17,7 @@ use std::collections::HashMap;
 pub struct AttachData {
     pub active_session_id: String,
     /// Slim attach carries summary/state/messages inside the snapshot.
-    pub snapshot: Value,
+    pub snapshot: DaemonSessionSnapshot,
     #[serde(default)]
     pub replay: Option<DaemonReplayInfo>,
     #[serde(default)]
@@ -104,7 +101,7 @@ impl Reconstructed {
     /// that matches no pending card keeps its standalone card exactly
     /// like the live `AgentView::push` path (the orphan never
     /// disappears from the rebuilt transcript).
-    pub fn push_message(&mut self, message: &Value) {
+    pub fn push_message(&mut self, message: &AgentMessage) {
         if let Some(result) = tool_result_message_view(message) {
             if let Some(view) = apply_tool_result(&mut self.chat, result) {
                 self.chat
@@ -135,32 +132,21 @@ struct ToolResultReplay {
 
 /// Decode a `role: "toolResult"` message into its replay view; `None` for
 /// any other message.
-fn tool_result_message_view(message: &Value) -> Option<ToolResultReplay> {
-    if message.get("role").and_then(Value::as_str) != Some("toolResult") {
+fn tool_result_message_view(message: &AgentMessage) -> Option<ToolResultReplay> {
+    let AgentMessage::ToolResult(result) = message else {
         return None;
-    }
+    };
     Some(ToolResultReplay {
-        tool_call_id: message
-            .get("toolCallId")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        tool_name: message
-            .get("toolName")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
+        tool_call_id: result.tool_call_id.clone(),
+        tool_name: result.tool_name.clone(),
         view: crate::chat::ToolResultView {
-            content: message
-                .get("content")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-            details: message.get("details").cloned().unwrap_or(Value::Null),
-            is_error: message
-                .get("isError")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            content: result
+                .content
+                .iter()
+                .map(crate::tool_card::content_block_value)
+                .collect(),
+            details: result.details.clone().unwrap_or(Value::Null),
+            is_error: result.is_error,
         },
     })
 }
@@ -216,36 +202,42 @@ struct OrphanResult {
 /// (`retainedMessageCount`), before anything appended after the
 /// compaction. A missing count falls back to the timestamp split (TS
 /// compatibility for pre-count summaries).
-fn order_messages_for_transcript(messages: &[Value]) -> Vec<&Value> {
-    let Some(summary_index) = messages.iter().position(|message| {
-        message.get("role").and_then(Value::as_str) == Some("compactionSummary")
-    }) else {
+fn order_messages_for_transcript(messages: &[AgentMessage]) -> Vec<&AgentMessage> {
+    let Some((summary_index, summary)) =
+        messages
+            .iter()
+            .enumerate()
+            .find_map(|(index, message)| match message {
+                AgentMessage::CompactionSummary(summary) => Some((index, summary)),
+                AgentMessage::User(_)
+                | AgentMessage::Assistant(_)
+                | AgentMessage::ToolResult(_)
+                | AgentMessage::BashExecution(_)
+                | AgentMessage::Custom(_)
+                | AgentMessage::BranchSummary(_) => None,
+            })
+    else {
         return messages.iter().collect();
     };
-    let summary = &messages[summary_index];
-    let mut rest: Vec<&Value> = messages
+    let mut rest: Vec<&AgentMessage> = messages
         .iter()
         .enumerate()
         .filter(|(index, _)| *index != summary_index)
         .map(|(_, message)| message)
         .collect();
-    let boundary = if let Some(retained) =
-        summary.get("retainedMessageCount").and_then(Value::as_u64)
-    {
-        (retained as usize).min(rest.len())
-    } else {
-        let summary_timestamp = summary.get("timestamp").and_then(Value::as_f64);
-        let retained = rest
+    let boundary = match summary.retained_message_count {
+        Some(retained) => usize::try_from(retained).unwrap_or(usize::MAX),
+        None => rest
             .iter()
-            .filter(|message| message.get("timestamp").and_then(Value::as_f64) < summary_timestamp)
-            .count();
-        retained.min(rest.len())
-    };
-    rest.insert(boundary, summary);
+            .filter(|message| message.timestamp() < summary.timestamp)
+            .count(),
+    }
+    .min(rest.len());
+    rest.insert(boundary, &messages[summary_index]);
     rest
 }
 
-pub fn transcript_to_entries(messages: &[Value]) -> Vec<ChatEntry> {
+pub fn transcript_to_entries(messages: &[AgentMessage]) -> Vec<ChatEntry> {
     let ordered = order_messages_for_transcript(messages);
     let mut chat: Vec<ChatEntry> = Vec::new();
     let mut card_index: HashMap<String, Vec<usize>> = HashMap::new();
@@ -273,9 +265,9 @@ pub fn transcript_to_entries(messages: &[Value]) -> Vec<ChatEntry> {
         // rows TS renders. The superseded rows sit at the tail (attempts
         // are appended in order), and the collapse never touches tool
         // cards (their failures ride the cards, not error-only rows).
-        if message.get("role").and_then(Value::as_str) == Some("custom")
-            && message.get("customType").and_then(Value::as_str)
-                == Some(crate::custom_message::PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE)
+        if matches!(message, AgentMessage::Custom(custom)
+            if eukhe_types::custom_type::CustomType::parse(&custom.custom_type)
+                == eukhe_types::custom_type::CustomType::ProviderRetryOutcome)
         {
             while chat.last().is_some_and(is_superseded_attempt_row) {
                 chat.pop();
@@ -351,14 +343,14 @@ fn orphan_card(result: ToolResultReplay) -> ChatEntry {
 }
 
 /// Reconstruct the view state from slim attach data.
-pub fn reconstruct(attach: &AttachData) -> Reconstructed {
+///
+/// # Errors
+///
+/// The state's `sessionActions` does not decode.
+pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Error> {
     let snapshot = &attach.snapshot;
-    let messages = snapshot
-        .get("messages")
-        .and_then(Value::as_array)
-        .map(|messages| transcript_to_entries(messages))
-        .unwrap_or_default();
-    let state = snapshot.get("state");
+    let messages = transcript_to_entries(&snapshot.messages);
+    let state = Some(&snapshot.state);
     let (model_id, model_provider) = state
         .and_then(|state| state.get("model"))
         .and_then(model_identity_value)
@@ -376,73 +368,42 @@ pub fn reconstruct(attach: &AttachData) -> Reconstructed {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let snapshot_sequence = snapshot.get("lastEventSequence").and_then(Value::as_u64);
-    let last_event_sequence = snapshot_sequence
-        .or(attach.last_event_sequence)
-        .unwrap_or_default();
+    let last_event_sequence = snapshot.last_event_sequence;
     let event_generation = attach
         .last_event_cursor
         .as_ref()
+        .or(snapshot.last_event_cursor.as_ref())
         .map(|cursor| cursor.generation.clone())
-        .or_else(|| {
-            snapshot
-                .get("lastEventCursor")
-                .and_then(|cursor| cursor.get("generation"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
         .unwrap_or_default();
-    // The cursor-presence gate (`view::handoff`): the handoff's key
-    // collapses absent cursor fields to default values, which could
-    // alias across cursor-less attaches of the same entry count -- the
-    // layout handoff refuses to key on a collapsed identity (the
-    // sequence supplied, a non-empty generation, a non-empty session).
-    let cursor_present = (snapshot_sequence.is_some() || attach.last_event_sequence.is_some())
-        && !event_generation.is_empty()
-        && !session_id.is_empty();
+    // The cursor-presence gate (`view::handoff`): the handoff refuses to
+    // key on a collapsed identity (an empty generation or session).
+    let cursor_present = !event_generation.is_empty() && !session_id.is_empty();
     let goal = state
         .and_then(|state| state.get("goal"))
         .and_then(|goal| serde_json::from_value::<eukhe_types::goal::GoalState>(goal.clone()).ok());
-    let actions = state.and_then(|state| state.get("sessionActions")).cloned();
-    let queued = crate::queued::QueuedMessages {
-        steering: actions
-            .as_ref()
-            .map(|a| queue_lane(a, "steering"))
-            .unwrap_or_default(),
-        follow_ups: actions
-            .as_ref()
-            .map(|a| queue_lane(a, "followUps"))
-            .unwrap_or_default(),
-        starting: actions.as_ref().and_then(starting_from_actions),
-        rlm_child_status: actions
-            .as_ref()
-            .map(|actions| queue_lane_indices(actions, "rlmChildStatus"))
-            .unwrap_or_default(),
-        injected_prompts: actions
-            .as_ref()
-            .map(|actions| queue_lane_indices(actions, "injectedPrompts"))
-            .unwrap_or_default(),
+    let queued = match state.and_then(|state| state.get("sessionActions")) {
+        Some(actions) => decoder::queued_messages(&SessionActionSnapshot::deserialize(actions)?),
+        None => crate::queued::QueuedMessages::default(),
     };
 
     let service_tier = state
         .and_then(|state| state.get("serviceTier"))
         .and_then(Value::as_str)
         .map(str::to_string);
-    let last_user_prompt_ms =
-        snapshot
-            .get("messages")
-            .and_then(Value::as_array)
-            .and_then(|messages| {
-                messages
-                    .iter()
-                    .rev()
-                    .find(|message| {
-                        message.get("role").and_then(Value::as_str) == Some("user")
-                            && message_timestamp_ms(message).is_some()
-                    })
-                    .and_then(message_timestamp_ms)
-            });
-    Reconstructed {
+    let last_user_prompt_ms = snapshot
+        .messages
+        .iter()
+        .rev()
+        .find_map(|message| match message {
+            AgentMessage::User(user) => Some(user.timestamp),
+            AgentMessage::Assistant(_)
+            | AgentMessage::ToolResult(_)
+            | AgentMessage::BashExecution(_)
+            | AgentMessage::Custom(_)
+            | AgentMessage::BranchSummary(_)
+            | AgentMessage::CompactionSummary(_) => None,
+        });
+    Ok(Reconstructed {
         chat: messages,
         model_id,
         model_provider,
@@ -457,87 +418,7 @@ pub fn reconstruct(attach: &AttachData) -> Reconstructed {
         queued,
         service_tier,
         last_user_prompt_ms,
-    }
-}
-
-/// One message's wall-clock timestamp (unix ms): the wire's numeric
-/// `timestamp` (u64 or f64) or an ISO-8601 string. `None` when the
-/// message carries no readable time.
-fn message_timestamp_ms(message: &Value) -> Option<u64> {
-    match message.get("timestamp") {
-        Some(Value::Number(number)) => number.as_u64().or_else(|| {
-            number
-                .as_f64()
-                .filter(|value| value.is_finite())
-                .map(|value| value.max(0.0) as u64)
-        }),
-        Some(Value::String(iso)) => {
-            let ms = crate::agents_view_state::timestamp_ms(Some(iso));
-            (ms > 0).then_some(ms as u64)
-        }
-        _ => None,
-    }
-}
-
-/// The preparing-turn label of a `sessionActions` wire value, or `None`
-/// when no picked-up prompt is preparing (TS #2063
-/// `connectionState.sessionActions.active`: the interactive strip renders
-/// the "Starting" row exactly while the active action is a turn in its
-/// `preparing` phase -- the prompt left its lane at pickup, so the strip is
-/// the only place it shows until the turn renders it).
-fn starting_from_actions(actions: &Value) -> Option<String> {
-    let active = actions.get("active")?;
-    let is_preparing_turn = active.get("kind").and_then(Value::as_str) == Some("turn")
-        && active.get("phase").and_then(Value::as_str) == Some("preparing");
-    is_preparing_turn.then(|| {
-        active
-            .get("label")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string()
     })
-}
-
-/// One typed-provenance rider of a `sessionActions` wire value (the
-/// parked lane indices it marks -- Rust-native provenance with no TS
-/// counterpart; the strip folds exactly the marked rows): `rlmChildStatus`
-/// for the parked child-status notices, `injectedPrompts` for the
-/// engine-minted continuations. A projection without parked marks omits
-/// the rider entirely.
-fn queue_lane_indices(actions: &Value, rider: &str) -> crate::queued::QueueLaneIndices {
-    let indices = |lane: &str| {
-        actions
-            .get(rider)
-            .and_then(|rider| rider.get(lane))
-            .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_u64)
-                    .map(|index| index as usize)
-                    .collect::<Vec<usize>>()
-            })
-            .unwrap_or_default()
-    };
-    crate::queued::QueueLaneIndices {
-        steering: indices("steering"),
-        follow_up: indices("followUp"),
-    }
-}
-
-/// One lane of a `sessionActions` wire value: the preview strings in order.
-fn queue_lane(actions: &Value, key: &str) -> Vec<String> {
-    actions
-        .get(key)
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 /// The model id and provider from a `state.model` wire value
@@ -573,8 +454,8 @@ pub fn attach_data_from_response(data: Value) -> anyhow::Result<AttachData> {
 }
 
 pub use decoder::{
-    custom_message_entries, event_to_update, message_text, message_value_to_entries,
-    user_display_text, working_message_from_update, RetryStartReason, TurnUpdate,
+    content_text, event_to_update, message_value_to_entries, queued_messages, user_display_text,
+    working_message_from_update, RetryStartReason, TurnUpdate,
 };
 mod decoder;
 

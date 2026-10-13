@@ -144,8 +144,7 @@ pub use session_event::{
     SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
 };
 pub use session_state::{
-    AgentConnectionState, QueueLaneIndices, SessionActionActive, SessionActionSnapshot,
-    SessionSummary,
+    AgentConnectionState, QueuedItem, SessionActionActive, SessionActionSnapshot, SessionSummary,
 };
 pub use worker::{
     DaemonPeerCommand, DaemonWorkerCommand, DaemonWorkerDescriptor, DaemonWorkerFrameHeader,

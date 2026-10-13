@@ -3,6 +3,7 @@
 //! message decode family (the ordered visible parts, the error rows, the
 //! superseded-attempt ruling) - moved with their concern.
 use super::{AssistantMessage, ChatEntry, MessageBlock, ToolCallCard, ToolResultView, Value};
+use eukhe_types::ai::{AssistantContentBlock, StopReason};
 
 /// Fold one streamed tool call into the live transcript (TS
 /// `getOrCreatePendingToolComponent` without its async deferral).
@@ -161,39 +162,34 @@ pub fn is_superseded_attempt_row(entry: &ChatEntry) -> bool {
 
 /// Decode a failed assistant message's error row (TS `createErrorComponent`
 /// inputs); `None` for settled messages.
+#[must_use]
 pub fn assistant_error_row(
-    message: &Value,
+    message: &eukhe_types::ai::AssistantMessage,
     tool_calls: &[(String, String, Value)],
 ) -> Option<AssistantErrorRow> {
-    let stop_reason = message.get("stopReason").and_then(Value::as_str);
-    match stop_reason {
-        Some("aborted") => Some(AssistantErrorRow {
-            text: message
-                .get("errorMessage")
-                .and_then(Value::as_str)
-                .filter(|text| !text.is_empty() && *text != "Request was aborted")
+    let error_message = message
+        .error_message
+        .as_deref()
+        .filter(|text| !text.is_empty());
+    match message.stop_reason {
+        StopReason::Aborted => Some(AssistantErrorRow {
+            text: error_message
+                .filter(|text| *text != "Request was aborted")
                 .unwrap_or("Operation aborted")
                 .to_string(),
             aborted: true,
         }),
-        Some("error") if tool_calls.is_empty() => Some(AssistantErrorRow {
-            text: format!(
-                "Error: {}",
-                message
-                    .get("errorMessage")
-                    .and_then(Value::as_str)
-                    .filter(|text| !text.is_empty())
-                    .unwrap_or("Unknown error")
-            ),
+        StopReason::Error if tool_calls.is_empty() => Some(AssistantErrorRow {
+            text: format!("Error: {}", error_message.unwrap_or("Unknown error")),
             aborted: false,
         }),
-        _ => None,
+        StopReason::Error | StopReason::Stop | StopReason::Length | StopReason::ToolUse => None,
     }
 }
 
 /// Decode an assistant wire message into a message component plus tool cards.
 #[must_use]
-pub fn assistant_value_to_entries(message: &Value) -> Vec<ChatEntry> {
+pub fn assistant_value_to_entries(message: &eukhe_types::ai::AssistantMessage) -> Vec<ChatEntry> {
     let (blocks, tool_calls) = assistant_message_parts(message);
     // TS `AssistantMessageComponent.rebuild`: an abort renders its error row
     // inside the message; a provider error renders only without tool calls
@@ -228,61 +224,31 @@ pub fn assistant_value_to_entries(message: &Value) -> Vec<ChatEntry> {
 }
 
 /// The ordered visible blocks (thinking, text) and tool calls of one
-/// assistant wire message.
+/// assistant message.
+#[must_use]
 pub fn assistant_message_parts(
-    message: &Value,
+    message: &eukhe_types::ai::AssistantMessage,
 ) -> (Vec<MessageBlock>, Vec<(String, String, Value)>) {
     let mut blocks = Vec::new();
     let mut tool_calls = Vec::new();
-    match message.get("content") {
-        Some(Value::String(text)) => {
-            if !text.is_empty() {
-                blocks.push(MessageBlock::Text(text.clone()));
-            }
-        }
-        Some(Value::Array(array)) => {
-            for block in array {
-                let block_type = block.get("type").and_then(Value::as_str);
-                match block_type {
-                    Some("thinking") => {
-                        let thinking = block.get("thinking").and_then(Value::as_str);
-                        if let Some(thinking) = thinking.filter(|text| !text.trim().is_empty()) {
-                            blocks.push(MessageBlock::Thinking(thinking.to_string()));
-                        }
-                    }
-                    Some("text") => {
-                        let text = block.get("text").and_then(Value::as_str);
-                        if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
-                            blocks.push(MessageBlock::Text(text.to_string()));
-                        }
-                    }
-                    Some("toolCall") => {
-                        tool_calls.push((
-                            block
-                                .get("id")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_string(),
-                            block
-                                .get("name")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_string(),
-                            block.get("arguments").cloned().unwrap_or(Value::Null),
-                        ));
-                    }
-                    None => {
-                        // Untagged text blocks (the scripted engine's form).
-                        let text = block.get("text").and_then(Value::as_str);
-                        if let Some(text) = text.filter(|text| !text.is_empty()) {
-                            blocks.push(MessageBlock::Text(text.to_string()));
-                        }
-                    }
-                    _ => {}
+    for block in &message.content {
+        match block {
+            AssistantContentBlock::Thinking(thinking) => {
+                if !thinking.thinking.trim().is_empty() {
+                    blocks.push(MessageBlock::Thinking(thinking.thinking.clone()));
                 }
             }
+            AssistantContentBlock::Text(text) => {
+                if !text.text.trim().is_empty() {
+                    blocks.push(MessageBlock::Text(text.text.clone()));
+                }
+            }
+            AssistantContentBlock::ToolCall(call) => tool_calls.push((
+                call.id.clone(),
+                call.name.clone(),
+                Value::Object(call.arguments.clone()),
+            )),
         }
-        _ => {}
     }
     (blocks, tool_calls)
 }

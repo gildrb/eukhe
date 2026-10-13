@@ -241,6 +241,23 @@ fn attach_data() -> Value {
 /// warm-up state.
 const TURN_PACE: Duration = Duration::from_millis(50);
 
+/// A streamed assistant message carrying `content`.
+fn assistant(content: &Value) -> Value {
+    json!({
+        "role": "assistant",
+        "content": content,
+        "api": "scripted",
+        "provider": "scripted",
+        "model": "faux-1",
+        "usage": {
+            "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+        },
+        "stopReason": "stop",
+        "timestamp": 1,
+    })
+}
+
 /// One scripted turn: streamed assistant text deltas, a tool call with a
 /// large result, and turn completion. Larger than typical turns on purpose:
 /// any per-frame or per-event retention becomes visible quickly.
@@ -253,7 +270,7 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_start",
-            "message": { "role": "user", "content": "keep working" },
+            "message": { "role": "user", "content": "keep working", "timestamp": 1 },
         })),
     );
     // Assistant stream: start, deltas, tool call, end.
@@ -261,10 +278,7 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_start",
-            "message": {
-                "role": "assistant",
-                "content": [{ "type": "text", "text": "" }],
-            },
+            "message": assistant(&json!([{ "type": "text", "text": "" }])),
             "assistantMessageEvent": { "type": "start" },
         })),
     );
@@ -274,13 +288,10 @@ fn stream_turn(writer: &mut UnixStream) {
             writer,
             &event(json!({
                 "type": "message_update",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        { "type": "text", "text": text.repeat(delta + 1) },
-                        { "type": "toolCall", "id": "tc-1", "name": "bash", "arguments": { "command": "ls -la" } },
-                    ],
-                },
+                "message": assistant(&json!([
+                    { "type": "text", "text": text.repeat(delta + 1) },
+                    { "type": "toolCall", "id": "tc-1", "name": "bash", "arguments": { "command": "ls -la" } },
+                ])),
                 "assistantMessageEvent": { "type": "text_delta", "delta": text },
             })),
         );
@@ -289,13 +300,10 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [
-                    { "type": "text", "text": "done with the turn" },
-                    { "type": "toolCall", "id": "tc-1", "name": "bash", "arguments": { "command": "ls -la" } },
-                ],
-            },
+            "message": assistant(&json!([
+                { "type": "text", "text": "done with the turn" },
+                { "type": "toolCall", "id": "tc-1", "name": "bash", "arguments": { "command": "ls -la" } },
+            ])),
         })),
     );
     // Tool execution with partial and final results (large outputs).
@@ -314,6 +322,8 @@ fn stream_turn(writer: &mut UnixStream) {
             &event(json!({
                 "type": "tool_execution_update",
                 "toolCallId": "tc-1",
+                "toolName": "bash",
+                "args": { "command": "ls -la" },
                 "partialResult": {
                     "content": [{ "type": "text", "text": format!("partial output {partial}: {}", "x".repeat(4096)) }]
                 },
@@ -325,6 +335,7 @@ fn stream_turn(writer: &mut UnixStream) {
         &event(json!({
             "type": "tool_execution_end",
             "toolCallId": "tc-1",
+            "toolName": "bash",
             "result": {
                 "content": [{ "type": "text", "text": format!("final output: {}", "y".repeat(16 * 1024)) }]
             },
@@ -332,7 +343,10 @@ fn stream_turn(writer: &mut UnixStream) {
         })),
     );
     write_json(writer, &event(json!({ "type": "turn_end" })));
-    write_json(writer, &event(json!({ "type": "agent_end" })));
+    write_json(
+        writer,
+        &event(json!({ "type": "agent_end", "messages": [] })),
+    );
 }
 
 /// A long scripted session must not grow the TUI's resident memory without

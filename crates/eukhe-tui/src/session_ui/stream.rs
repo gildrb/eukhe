@@ -127,12 +127,22 @@ impl SessionUi {
     /// [`Self::track_stream_tokens`]: the event's own delta is only the
     /// last of possibly many coalesced provider deltas, so the message --
     /// not the delta -- carries the token truth.
-    pub(crate) fn track_stream_activity(event: &Value, view: &mut AgentView) {
-        let (activity, download) = match event.get("type").and_then(Value::as_str) {
-            Some("thinking_start" | "thinking_delta") => ("Thinking", true),
-            Some("text_start" | "text_delta") => ("Writing", true),
-            Some("toolcall_start" | "toolcall_delta") => ("Writing code", true),
-            _ => return,
+    pub(crate) fn track_stream_activity(
+        event: &eukhe_types::daemon::StreamUpdate,
+        view: &mut AgentView,
+    ) {
+        use eukhe_types::daemon::StreamUpdate;
+        let (activity, download) = match event {
+            StreamUpdate::ThinkingStart | StreamUpdate::ThinkingDelta { .. } => ("Thinking", true),
+            StreamUpdate::TextStart | StreamUpdate::TextDelta { .. } => ("Writing", true),
+            StreamUpdate::ToolcallStart | StreamUpdate::ToolcallDelta { .. } => {
+                ("Writing code", true)
+            }
+            StreamUpdate::Start
+            | StreamUpdate::TextEnd
+            | StreamUpdate::ThinkingEnd
+            | StreamUpdate::ToolcallEnd
+            | StreamUpdate::Message => return,
         };
         if let Some(working) = &mut view.working {
             working.activity = activity;
@@ -166,29 +176,24 @@ impl SessionUi {
     /// Aborted/failed responses and samples without a finite positive
     /// span or token count are skipped: some providers only fill usage at
     /// stream end, so they never produce a bogus rate.
-    pub(crate) fn record_speed_sample(&mut self, message: &Value, view: &mut AgentView) {
+    pub(crate) fn record_speed_sample(
+        &mut self,
+        message: &eukhe_types::ai::AssistantMessage,
+        view: &mut AgentView,
+    ) {
+        use eukhe_types::ai::StopReason;
         if !self.speed_display_enabled {
             return;
         }
-        let stop_reason = message
-            .get("stopReason")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if stop_reason == "aborted" || stop_reason == "error" {
-            return;
+        match message.stop_reason {
+            StopReason::Aborted | StopReason::Error => return,
+            StopReason::Stop | StopReason::Length | StopReason::ToolUse => {}
         }
-        // TS reads `Number(message.timestamp)`: a frame without one is NaN
-        // in TS and fails its `> 0` guard, so it is skipped here too -- a
-        // zero-default would span the epoch and poison the average.
-        let Some(timestamp) = message.get("timestamp").and_then(Value::as_i64) else {
+        let Ok(timestamp) = i64::try_from(message.timestamp) else {
             return;
         };
         let duration_ms = crate::agents_view_state::now_ms() as i64 - timestamp;
-        let output_tokens = message
-            .get("usage")
-            .and_then(|usage| usage.get("output"))
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
+        let output_tokens = message.usage.output;
         if duration_ms <= 0 || output_tokens == 0 {
             return;
         }

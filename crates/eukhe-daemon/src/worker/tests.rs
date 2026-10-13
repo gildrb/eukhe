@@ -410,7 +410,17 @@ async fn suspended_inputs_survive_a_worker_restart() {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         super::session_snapshot(&core)
     };
-    assert_eq!(snapshot.follow_ups, ["later"], "the strip: {snapshot:?}");
+    let texts = |items: &[eukhe_types::daemon::QueuedItem]| {
+        items
+            .iter()
+            .map(|item| item.text.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        texts(&snapshot.follow_ups),
+        ["later"],
+        "the strip: {snapshot:?}"
+    );
     assert_eq!(snapshot.queued_count, 1);
 
     let resumed = second.dispatch("resume_queue", &json!({})).await;
@@ -456,7 +466,10 @@ async fn an_input_pause_lease_holds_admissions_until_released() {
     };
     assert_eq!(
         snapshot.follow_ups,
-        ["held"],
+        [eukhe_types::daemon::QueuedItem {
+            text: "held".to_owned(),
+            origin: eukhe_types::input_origin::InputOrigin::User,
+        }],
         "the held strip: {snapshot:?}"
     );
     assert!(

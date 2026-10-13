@@ -185,7 +185,7 @@ impl MockSupervisor {
                         &mut writer,
                         &json!({
                             "type": "message_start",
-                            "message": { "role": "user", "content": "asked" },
+                            "message": { "role": "user", "content": "asked", "timestamp": 1 },
                         }),
                     );
                     write_session_event(
@@ -194,8 +194,16 @@ impl MockSupervisor {
                             "type": "message_end",
                             "message": {
                                 "role": "assistant",
-                                "stopReason": "stop",
                                 "content": [{ "type": "text", "text": "the streamed answer" }],
+                                "api": "scripted",
+                                "provider": "scripted",
+                                "model": "faux-1",
+                                "usage": {
+                                    "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                                    "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+                                },
+                                "stopReason": "stop",
+                                "timestamp": 1,
                             },
                         }),
                     );

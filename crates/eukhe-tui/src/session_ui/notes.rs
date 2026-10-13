@@ -3,7 +3,7 @@
 //! glue, and the anthropic-subscription warning pair that rides it.
 use super::{
     format_goal_status, terminal_columns, AgentView, ChatEntry, DaemonCommand, Duration, Map,
-    SessionUi, StatusKind, Value, ANTHROPIC_SUBSCRIPTION_AUTH_WARNING, UI_REQUEST_TIMEOUT_MS,
+    SessionUi, StatusKind, ANTHROPIC_SUBSCRIPTION_AUTH_WARNING, UI_REQUEST_TIMEOUT_MS,
 };
 use crate::glyphs::WARN;
 
@@ -11,10 +11,11 @@ impl SessionUi {
     /// One `goal_update` session event (TS `handleGoalUpdate`): store the
     /// state, announce as a status row when the dedupe rules say so, and
     /// sync the tray goal label.
-    pub(super) fn apply_goal_update(&mut self, goal: Value, view: &mut AgentView) {
-        let Ok(goal) = serde_json::from_value::<eukhe_types::goal::GoalState>(goal) else {
-            return;
-        };
+    pub(super) fn apply_goal_update(
+        &mut self,
+        goal: eukhe_types::goal::GoalState,
+        view: &mut AgentView,
+    ) {
         let announce = self.goal_view.apply_update(goal.clone());
         if announce {
             self.announce_goal_status(view);

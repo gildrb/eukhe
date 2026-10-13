@@ -1,6 +1,78 @@
 use super::*;
 use crate::chat::StatusKind;
+use eukhe_types::daemon::{
+    BashRun, CompactionReason, CompactionResult, ErrorSeverity, SessionEvent,
+};
+use eukhe_types::input_origin::{ChildExit, InputOrigin, Report};
 use serde_json::json;
+
+/// Decode one wire fixture into its typed form.
+fn wire<T: serde::de::DeserializeOwned>(value: Value) -> T {
+    serde_json::from_value(value).expect("fixture decodes")
+}
+
+/// Overlay `fields` onto `base`, merging nested objects key by key.
+fn overlay(base: &mut Value, fields: Value) {
+    match (base, fields) {
+        (Value::Object(base), Value::Object(fields)) => {
+            for (key, value) in fields {
+                overlay(base.entry(key).or_insert(Value::Null), value);
+            }
+        }
+        (base, fields) => *base = fields,
+    }
+}
+
+/// A wire message fixture completed with the fields its typed form
+/// requires and the test does not care about: a zero timestamp, and an
+/// assistant message's provider metadata, usage, and `stop` reason.
+fn complete_message(message: Value) -> Value {
+    let mut completed = if message["role"] == "assistant" {
+        json!({
+            "content": [],
+            "api": "faux",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+                "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+            },
+            "stopReason": "stop",
+            "timestamp": 0,
+        })
+    } else {
+        json!({ "timestamp": 0 })
+    };
+    overlay(&mut completed, message);
+    completed
+}
+
+/// One typed transcript message from its (completed) wire fixture.
+fn msg(message: Value) -> AgentMessage {
+    wire(complete_message(message))
+}
+
+/// The typed transcript of completed wire fixtures.
+fn msgs(messages: impl IntoIterator<Item = Value>) -> Vec<AgentMessage> {
+    messages.into_iter().map(msg).collect()
+}
+
+/// One typed session event from its wire fixture; the messages it
+/// carries are completed like [`msg`]'s.
+fn event(mut event: Value) -> SessionEvent {
+    if let Some(message) = event.get_mut("message") {
+        *message = complete_message(message.take());
+    }
+    wire(event)
+}
+
+/// The display text of a user message.
+fn user_text(message: &AgentMessage) -> Option<String> {
+    let AgentMessage::User(user) = message else {
+        panic!("a user message: {message:?}");
+    };
+    user_display_text(&user.content)
+}
 
 fn test_view() -> crate::view::AgentView {
     crate::view::AgentView::new(crate::theme::Theme::builtin(
@@ -45,13 +117,13 @@ fn rendered_card_text(view: &crate::view::AgentView) -> Vec<String> {
 
 #[test]
 fn image_only_user_message_shows_the_image_placeholder() {
-    let message = json!({
+    let message = msg(json!({
         "role": "user",
         "content": [
             { "type": "image", "data": "QUJD", "mimeType": "image/png" }
         ]
-    });
-    assert_eq!(user_display_text(&message), Some("[image]".to_string()));
+    }));
+    assert_eq!(user_text(&message), Some("[image]".to_string()));
     assert_eq!(
         message_value_to_entries(&message),
         vec![ChatEntry::User {
@@ -65,10 +137,10 @@ fn a_skill_block_user_message_decodes_to_the_card() {
     // TS `addMessageToChat`'s user case: the persisted user message
     // that carried a skill invocation parses into the card + the
     // trailing argument text, never the raw block.
-    let message = json!({
+    let message = msg(json!({
         "role": "user",
         "content": "<skill name=\"lookup\" location=\"/s/SKILL.md\">\nRun one query.\n</skill>\n\nfind parity tuis"
-    });
+    }));
     let entries = message_value_to_entries(&message);
     assert!(
         matches!(
@@ -86,23 +158,20 @@ fn a_skill_block_user_message_decodes_to_the_card() {
 
 #[test]
 fn user_message_with_text_and_image_keeps_the_text() {
-    let message = json!({
+    let message = msg(json!({
         "role": "user",
         "content": [
             { "type": "text", "text": "look at this" },
             { "type": "image", "data": "QUJD", "mimeType": "image/png" }
         ]
-    });
-    assert_eq!(
-        user_display_text(&message),
-        Some("look at this".to_string())
-    );
+    }));
+    assert_eq!(user_text(&message), Some("look at this".to_string()));
 }
 
 #[test]
 fn empty_user_message_renders_no_entry() {
-    let message = json!({ "role": "user", "content": [] });
-    assert_eq!(user_display_text(&message), None);
+    let message = msg(json!({ "role": "user", "content": [] }));
+    assert_eq!(user_text(&message), None);
     assert!(message_value_to_entries(&message).is_empty());
 }
 
@@ -120,14 +189,18 @@ fn empty_user_message_renders_no_entry() {
 /// compaction.
 #[test]
 fn transcript_presents_the_summary_after_the_retained_tail() {
-    let messages = vec![
-        json!({
+    let messages = [
+        msg(json!({
             "role": "compactionSummary", "summary": "the story",
             "retainedMessageCount": 2, "tokensBefore": 12, "timestamp": 30u64
-        }),
-        json!({"role": "user", "content": "second turn", "timestamp": 20u64}),
-        json!({"role": "assistant", "content": "kept intact", "timestamp": 25u64}),
-        json!({
+        })),
+        msg(json!({"role": "user", "content": "second turn", "timestamp": 20u64})),
+        msg(json!({
+            "role": "assistant",
+            "content": [{ "type": "text", "text": "kept intact" }],
+            "timestamp": 25u64
+        })),
+        msg(json!({
             "role": "custom", "customType": "session_slash_command",
             "content": "/compact focus on the goal", "display": true, "timestamp": 40u64,
             "details": { "command": {
@@ -135,7 +208,7 @@ fn transcript_presents_the_summary_after_the_retained_tail() {
                 "args": "focus on the goal",
                 "text": "/compact focus on the goal"
             } }
-        }),
+        })),
     ];
     let entries = transcript_to_entries(&messages);
     let order: Vec<String> = entries
@@ -414,7 +487,14 @@ fn slim_attach() -> Value {
             },
             "messages": [
                 { "role": "user", "content": "hello", "timestamp": 1 },
-                { "role": "assistant", "content": "hi there", "provider": "scripted", "model": "faux-1", "usage": { "input": 120, "output": 8 }, "timestamp": 2 },
+                complete_message(json!({
+                    "role": "assistant",
+                    "content": [{ "type": "text", "text": "hi there" }],
+                    "provider": "scripted",
+                    "model": "faux-1",
+                    "usage": { "input": 120, "output": 8 },
+                    "timestamp": 2,
+                })),
             ],
             "lastEventSequence": 9,
             "lastEventCursor": { "generation": "g", "sequence": 9 },
@@ -433,18 +513,18 @@ fn an_unmatched_replay_result_keeps_its_standalone_card() {
     // keeps its orphan card exactly like the live push path - the
     // rebuilt transcript never drops the standalone result.
     let mut rebuilt = Reconstructed::default();
-    rebuilt.push_message(&json!({
+    rebuilt.push_message(&msg(json!({
         "role": "user",
         "content": "run it",
-    }));
-    rebuilt.push_message(&json!({
+    })));
+    rebuilt.push_message(&msg(json!({
         "role": "toolResult",
         "toolCallId": "orphan",
         "toolName": "bash",
         "content": [{ "type": "text", "text": "orphan output" }],
         "isError": false,
         "timestamp": 123,
-    }));
+    })));
     assert_eq!(rebuilt.chat.len(), 2, "the orphan card lands");
     match &rebuilt.chat[1] {
         ChatEntry::Tool(card) => {
@@ -466,18 +546,18 @@ fn a_bulk_replay_never_drops_an_orphan_result() {
     // the rebuilt transcript matches the live and incremental
     // paths.
     let chat = transcript_to_entries(&[
-        json!({
+        msg(json!({
             "role": "user",
             "content": "run it",
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "toolResult",
             "toolCallId": "orphan",
             "toolName": "bash",
             "content": [{ "type": "text", "text": "orphan output" }],
             "isError": false,
             "timestamp": 123,
-        }),
+        })),
     ]);
     assert_eq!(chat.len(), 2, "the orphan card lands in the bulk path");
     match &chat[1] {
@@ -497,30 +577,30 @@ fn a_bulk_replay_settles_the_last_pending_card_for_a_reused_id() {
     // invocation's pending one - and the result never becomes an
     // orphan.
     let chat = transcript_to_entries(&[
-        json!({
+        msg(json!({
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "calling twice" },
                 { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "1"} },
             ],
             "timestamp": 1,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "again" },
                 { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "2"} },
             ],
             "timestamp": 2,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
             "toolName": "ipython",
             "content": [{ "type": "text", "text": "the second run" }],
             "isError": false,
             "timestamp": 3,
-        }),
+        })),
     ]);
     let cards: Vec<&crate::chat::ToolCallCard> = chat
         .iter()
@@ -544,38 +624,38 @@ fn an_interleaved_replay_pairs_results_in_arrival_order() {
     // result settles the call it FOLLOWED (the live arrival-order
     // pairing), never the later invocation's card.
     let chat = transcript_to_entries(&[
-        json!({
+        msg(json!({
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "first" },
                 { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "1"} },
             ],
             "timestamp": 1,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
             "toolName": "ipython",
             "content": [{ "type": "text", "text": "the first run" }],
             "isError": false,
             "timestamp": 2,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "second" },
                 { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "2"} },
             ],
             "timestamp": 3,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
             "toolName": "ipython",
             "content": [{ "type": "text", "text": "the second run" }],
             "isError": false,
             "timestamp": 4,
-        }),
+        })),
     ]);
     let cards: Vec<&crate::chat::ToolCallCard> = chat
         .iter()
@@ -613,24 +693,24 @@ fn an_orphan_result_keeps_its_wire_position() {
     // own wire position in the rebuilt transcript - never at the
     // tail (condensation can never span across it).
     let chat = transcript_to_entries(&[
-        json!({
+        msg(json!({
             "role": "user",
             "content": "before",
             "timestamp": 1,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "toolResult",
             "toolCallId": "orphan",
             "toolName": "bash",
             "content": [{ "type": "text", "text": "orphan output" }],
             "isError": false,
             "timestamp": 2,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "user",
             "content": "after",
             "timestamp": 3,
-        }),
+        })),
     ]);
     assert_eq!(chat.len(), 3, "the orphan card sits between: {chat:?}");
     match &chat[1] {
@@ -647,38 +727,38 @@ fn a_leftover_settle_keeps_its_own_orphan_card() {
     // orphan card at its wire position, and the later card stays
     // pending - exactly the live push path.
     let chat = transcript_to_entries(&[
-        json!({
+        msg(json!({
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "first" },
                 { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "1"} },
             ],
             "timestamp": 1,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
             "toolName": "ipython",
             "content": [{ "type": "text", "text": "the first run" }],
             "isError": false,
             "timestamp": 2,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
             "toolName": "ipython",
             "content": [{ "type": "text", "text": "the leftover" }],
             "isError": false,
             "timestamp": 3,
-        }),
-        json!({
+        })),
+        msg(json!({
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "second" },
                 { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "2"} },
             ],
             "timestamp": 4,
-        }),
+        })),
     ]);
     let cards: Vec<&crate::chat::ToolCallCard> = chat
         .iter()
@@ -734,9 +814,8 @@ fn a_leftover_settle_keeps_its_own_orphan_card() {
 
 /// The rebuild's loader anchor (the operator's 2026-09-28 rule: the
 /// waiting/executing timer counts since the LAST HUMAN PROMPT): the
-/// reconstruct reads the NEWEST user message's wall-clock timestamp --
-/// the numeric ms wire form, the f64 form, and the ISO-8601 string
-/// form -- and skips non-user messages and unreadable times.
+/// reconstruct reads the NEWEST user message's wall-clock ms timestamp
+/// and skips non-user messages.
 #[test]
 fn reconstructs_the_last_user_prompt_timestamp() {
     // The numeric ms form (the live engine's wire shape).
@@ -749,9 +828,10 @@ fn reconstructs_the_last_user_prompt_timestamp() {
         .expect("messages array");
     assert_eq!(messages[0].get("role"), Some(&json!("user")));
     messages[0]["timestamp"] = json!(1_700_000_000_000u64);
-    let view = reconstruct(&attach_data_from_response(attach).unwrap());
+    let view = reconstruct(&attach_data_from_response(attach).unwrap()).expect("reconstructs");
     assert_eq!(view.last_user_prompt_ms, Some(1_700_000_000_000));
-    // The f64 form reads as ms too.
+    // The newest user prompt wins over an older one and over a newer
+    // non-user message.
     let mut attach = slim_attach();
     let messages = attach
         .get_mut("snapshot")
@@ -760,70 +840,25 @@ fn reconstructs_the_last_user_prompt_timestamp() {
         .expect("messages")
         .as_array_mut()
         .expect("messages array");
-    messages[0]["timestamp"] = json!(1_700_000_000_050.0f64);
-    let view = reconstruct(&attach_data_from_response(attach).unwrap());
-    assert_eq!(view.last_user_prompt_ms, Some(1_700_000_000_050));
-    // The ISO-8601 string form parses through the same reader (older
-    // wire shapes carry the entry timestamp as a string).
-    let mut attach = slim_attach();
-    let messages = attach
-        .get_mut("snapshot")
-        .expect("snapshot")
-        .get_mut("messages")
-        .expect("messages")
-        .as_array_mut()
-        .expect("messages array");
-    messages[0]["timestamp"] = json!("2026-09-28T12:00:01.000Z");
-    let view = reconstruct(&attach_data_from_response(attach).unwrap());
-    assert_eq!(view.last_user_prompt_ms, Some(1_790_596_801_000));
-    // A newer user prompt with NO readable time does not strand the
-    // anchor (Macroscope 2026-09-28): the scan takes the newest user
-    // message that HAS a readable time, so unreadable-tail prompts
-    // leave the older prompt anchoring the loader.
-    let mut attach = slim_attach();
-    let messages = attach
-        .get_mut("snapshot")
-        .expect("snapshot")
-        .get_mut("messages")
-        .expect("messages")
-        .as_array_mut()
-        .expect("messages array");
-    messages[0]["timestamp"] = json!(1_700_000_000_000u64);
     messages.push(json!({
         "role": "user",
-        "content": "newer but the time is garbage",
-        "timestamp": "not-a-time",
+        "content": "newer",
+        "timestamp": 1_700_000_000_050u64,
     }));
-    messages.push(json!({ "role": "user", "content": "newest, no time at all" }));
-    let view = reconstruct(&attach_data_from_response(attach).unwrap());
-    assert_eq!(
-        view.last_user_prompt_ms,
-        Some(1_700_000_000_000),
-        "the newest READABLE user time wins, not the newest user message"
-    );
-    // No readable user time anywhere: the anchor stays unset and the
-    // loader keeps its re-attach instant.
-    let mut attach = slim_attach();
-    let messages = attach
-        .get_mut("snapshot")
-        .expect("snapshot")
-        .get_mut("messages")
-        .expect("messages")
-        .as_array_mut()
-        .expect("messages array");
-    messages[0]
-        .as_object_mut()
-        .expect("the user message")
-        .remove("timestamp");
-    let view = reconstruct(&attach_data_from_response(attach).unwrap());
-    assert_eq!(view.last_user_prompt_ms, None);
+    messages.push(complete_message(json!({
+        "role": "assistant",
+        "content": [{ "type": "text", "text": "newest, not a prompt" }],
+        "timestamp": 1_700_000_000_090u64,
+    })));
+    let view = reconstruct(&attach_data_from_response(attach).unwrap()).expect("reconstructs");
+    assert_eq!(view.last_user_prompt_ms, Some(1_700_000_000_050));
 }
 
 #[test]
 fn reconstructs_slim_attach() {
     let data = attach_data_from_response(slim_attach()).unwrap();
     assert_eq!(data.active_session_id, "abc123def456");
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(view.chat.len(), 2);
     assert!(matches!(&view.chat[0], ChatEntry::User { text } if text == "hello"));
     assert!(matches!(&view.chat[1], ChatEntry::Assistant(m) if m.blocks
@@ -850,19 +885,20 @@ fn reconstructs_slim_attach() {
 fn a_cursorless_attach_reconstructs_as_unkeyed_for_the_layout_handoff() {
     let mut attach = slim_attach();
     // The cursor rides both the snapshot block AND the attach's top-level
-    // optional fields: a cursor-less attach omits it in BOTH places.
+    // optional fields: a cursor-less attach omits it in BOTH places (the
+    // snapshot's sequence is required, and collapses to zero).
     let snapshot = attach
         .get_mut("snapshot")
         .expect("the slim attach carries a snapshot")
         .as_object_mut()
         .expect("the snapshot is a map");
-    snapshot.remove("lastEventSequence");
+    snapshot.insert("lastEventSequence".to_string(), json!(0));
     snapshot.remove("lastEventCursor");
     let top = attach.as_object_mut().expect("the slim attach is a map");
     top.remove("lastEventSequence");
     top.remove("lastEventCursor");
     let data = attach_data_from_response(attach).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert!(!view.cursor_present, "no cursor means no handoff key");
     assert_eq!(
         view.last_event_sequence, 0,
@@ -889,21 +925,21 @@ fn reconstructs_the_model_provider_alongside_the_id() {
     attach["snapshot"]["state"]["model"] =
         json!({ "id": "z-ai/glm-5.3", "provider": "prime-inference" });
     let data = attach_data_from_response(attach).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(view.model_id.as_deref(), Some("z-ai/glm-5.3"));
     assert_eq!(view.model_provider.as_deref(), Some("prime-inference"));
 
     let mut attach = slim_attach();
     attach["snapshot"]["state"]["model"] = json!({ "id": "z-ai/glm-5.3" });
     let data = attach_data_from_response(attach).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(view.model_id.as_deref(), Some("z-ai/glm-5.3"));
     assert_eq!(view.model_provider, None, "an object without a provider");
 
     let mut attach = slim_attach();
     attach["snapshot"]["state"]["model"] = json!("z-ai/glm-5.3");
     let data = attach_data_from_response(attach).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(view.model_id.as_deref(), Some("z-ai/glm-5.3"));
     assert_eq!(view.model_provider, None, "the display-string form");
 }
@@ -916,7 +952,7 @@ fn reconstructs_the_tray_effort_suffix() {
     });
     attach["snapshot"]["state"]["thinkingLevel"] = json!("high");
     let data = attach_data_from_response(attach.clone()).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(view.model_id.as_deref(), Some("faux-1"));
     assert_eq!(
         view.thinking_suffix,
@@ -928,7 +964,7 @@ fn reconstructs_the_tray_effort_suffix() {
     });
     attach["snapshot"]["state"]["thinkingLevel"] = json!("off");
     let data = attach_data_from_response(attach).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(
         view.thinking_suffix, None,
         "a model without reasoning reconstructs the bare id's label"
@@ -940,78 +976,110 @@ fn reconstructs_the_queue_from_session_actions() {
     let mut attach = slim_attach();
     attach["snapshot"]["state"]["sessionActions"] = json!({
         "queuedCount": 2,
-        "steering": ["turn right"],
-        "followUps": ["then summarize"],
+        "steering": [{ "text": "turn right", "origin": { "kind": "user" } }],
+        "followUps": [{ "text": "then summarize", "origin": { "kind": "user" } }],
     });
     let data = attach_data_from_response(attach).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(
         view.queued,
         crate::queued::QueuedMessages {
-            steering: vec!["turn right".to_string()],
-            follow_ups: vec!["then summarize".to_string()],
+            steering: vec![queued_item("turn right", InputOrigin::User)],
+            follow_ups: vec![queued_item("then summarize", InputOrigin::User)],
             starting: None,
-            rlm_child_status: crate::queued::QueueLaneIndices::default(),
-            injected_prompts: crate::queued::QueueLaneIndices::default(),
         },
         "an attach re-syncs the queue strip from the snapshot"
     );
 }
 
-/// The typed child-status provenance rides the attach snapshot too
-/// (replay parity with the live frames): the parked notices stay
-/// folded and inspectable across a re-attach, while a notice-free
-/// projection (the TS wire shape, rider omitted) still decodes.
+/// One queued item.
+fn queued_item(text: &str, origin: InputOrigin) -> eukhe_types::daemon::QueuedItem {
+    eukhe_types::daemon::QueuedItem {
+        text: text.to_string(),
+        origin,
+    }
+}
+
+/// The typed child-status origins ride the attach snapshot too (replay
+/// parity with the live frames): the parked notices stay classified
+/// across a re-attach.
 #[test]
-fn reconstructs_the_child_status_provenance_from_session_actions() {
+fn reconstructs_the_child_status_origins_from_session_actions() {
     let mut attach = slim_attach();
     attach["snapshot"]["state"]["sessionActions"] = json!({
         "queuedCount": 3,
-        "steering": ["turn right"],
+        "steering": [{ "text": "turn right", "origin": { "kind": "user" } }],
         "followUps": [
-            "[child-exited: no-reply child:lane]\n\nLast assistant text: done",
-            "then summarize",
-            "[child-failed child:broken]\n\nboom",
+            {
+                "text": "[child-exited: no-reply child:lane]\n\nLast assistant text: done",
+                "origin": { "kind": "report", "report": { "report": "childExited", "child": "lane", "exit": "noReply" } },
+            },
+            { "text": "then summarize", "origin": { "kind": "user" } },
+            {
+                "text": "[child-failed child:broken]\n\nboom",
+                "origin": { "kind": "report", "report": { "report": "childFailed", "child": "broken" } },
+            },
         ],
-        "rlmChildStatus": { "steering": [], "followUp": [0, 2] },
     });
     let data = attach_data_from_response(attach).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
+    let origins: Vec<&InputOrigin> = view
+        .queued
+        .follow_ups
+        .iter()
+        .map(|item| &item.origin)
+        .collect();
     assert_eq!(
-        view.queued.rlm_child_status,
-        crate::queued::QueueLaneIndices {
-            steering: Vec::new(),
-            follow_up: vec![0, 2],
-        },
-        "the attach re-sync carries the typed provenance"
+        origins,
+        [
+            &InputOrigin::Report {
+                report: Report::ChildExited {
+                    child: "lane".to_string(),
+                    exit: ChildExit::NoReply,
+                },
+            },
+            &InputOrigin::User,
+            &InputOrigin::Report {
+                report: Report::ChildFailed {
+                    child: "broken".to_string(),
+                },
+            },
+        ],
+        "the attach re-sync carries the typed origins"
     );
 }
 
-/// The injected-continuation provenance rides the attach snapshot too
+/// The injected-continuation origin rides the attach snapshot too
 /// (replay parity with the live frames): a re-attach keeps the
-/// engine-minted continuations folded and inspectable read-only, while
-/// a projection without the rider (older daemons) still decodes.
+/// engine-minted continuations classified.
 #[test]
-fn reconstructs_the_injected_provenance_from_session_actions() {
+fn reconstructs_the_injected_origin_from_session_actions() {
     let mut attach = slim_attach();
     attach["snapshot"]["state"]["sessionActions"] = json!({
         "queuedCount": 2,
         "steering": [],
         "followUps": [
-            "[goal: continuation]\n\nKeep driving the goal.",
-            "then summarize",
+            {
+                "text": "[goal: continuation]\n\nKeep driving the goal.",
+                "origin": { "kind": "goal", "context": "continuation" },
+            },
+            { "text": "then summarize", "origin": { "kind": "user" } },
         ],
-        "injectedPrompts": { "steering": [], "followUp": [0] },
     });
     let data = attach_data_from_response(attach).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(
-        view.queued.injected_prompts,
-        crate::queued::QueueLaneIndices {
-            steering: Vec::new(),
-            follow_up: vec![0],
-        },
-        "the attach re-sync carries the injected provenance"
+        view.queued.follow_ups,
+        [
+            queued_item(
+                "[goal: continuation]\n\nKeep driving the goal.",
+                InputOrigin::Goal {
+                    context: eukhe_types::goal::GoalContextKind::Continuation,
+                },
+            ),
+            queued_item("then summarize", InputOrigin::User),
+        ],
+        "the attach re-sync carries the injected origin"
     );
 }
 
@@ -1032,7 +1100,7 @@ fn reconstructs_the_starting_row_from_session_actions() {
         },
     });
     let data = attach_data_from_response(attach).unwrap();
-    let view = reconstruct(&data);
+    let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(
         view.queued.starting,
         Some("queued before compaction".to_string()),
@@ -1045,53 +1113,52 @@ fn decodes_the_user_bash_event_triple() {
     // The `!command` lane (TS `runUserBash`): bash_start carries the
     // command and identity, bash_output one chunk, bash_end the
     // settled outcome -- all decoded whole-object.
-    let start = event_to_update(&json!({
+    let start = event_to_update(&event(json!({
         "type": "bash_start",
         "command": "echo hi",
         "excludeFromContext": false,
-    }))
-    .expect("a bash start");
+    })));
     assert_eq!(
         start,
         TurnUpdate::BashStart {
             command: "echo hi".to_string(),
             exclude_from_context: false,
-            transient: false,
-            run_id: None,
+            run: BashRun::default(),
         }
     );
-    let side_start = event_to_update(&json!({
+    let side_start = event_to_update(&event(json!({
         "type": "bash_start",
         "command": "echo pane",
         "excludeFromContext": true,
         "transient": true,
         "runId": "run-1",
-    }))
-    .expect("a transient bash start");
+    })));
     assert_eq!(
         side_start,
         TurnUpdate::BashStart {
             command: "echo pane".to_string(),
             exclude_from_context: true,
-            transient: true,
-            run_id: Some("run-1".to_string()),
+            run: BashRun {
+                transient: true,
+                run_id: Some("run-1".to_string()),
+            },
         }
     );
     assert_eq!(
-        event_to_update(&json!({ "type": "bash_output", "chunk": "hi\n" })),
-        Some(TurnUpdate::BashOutput {
+        event_to_update(&event(json!({ "type": "bash_output", "chunk": "hi\n" }))),
+        TurnUpdate::BashOutput {
             chunk: "hi\n".to_string()
-        })
+        }
     );
     assert_eq!(
-        event_to_update(&json!({
+        event_to_update(&event(json!({
             "type": "bash_end",
             "exitCode": 0,
             "cancelled": false,
             "output": "hi\n",
             "omitted": { "bytes": 3, "lines": 1, "at": "end" },
-        })),
-        Some(TurnUpdate::BashEnd {
+        }))),
+        TurnUpdate::BashEnd {
             exit_code: Some(0),
             cancelled: false,
             output: "hi\n".to_string(),
@@ -1102,100 +1169,99 @@ fn decodes_the_user_bash_event_triple() {
             }),
             artifact: None,
             error_message: None,
-            transient: false,
-            run_id: None,
-        })
+            run: BashRun::default(),
+        }
     );
 }
 
 #[test]
 fn decodes_session_action_update_as_the_queue_projection() {
-    let update = event_to_update(&json!({
+    let update = event_to_update(&event(json!({
         "type": "session_action_update",
         "actions": {
             "queuedCount": 1,
             "steering": [],
-            "followUps": ["queued follow-up"],
+            "followUps": [{ "text": "queued follow-up", "origin": { "kind": "user" } }],
         },
-    }))
-    .expect("a queue update");
+    })));
     assert_eq!(
         update,
-        TurnUpdate::QueueUpdated {
+        TurnUpdate::QueueUpdated(crate::queued::QueuedMessages {
             steering: vec![],
-            follow_ups: vec!["queued follow-up".to_string()],
+            follow_ups: vec![queued_item("queued follow-up", InputOrigin::User)],
             starting: None,
-            rlm_child_status: crate::queued::QueueLaneIndices::default(),
-            injected_prompts: crate::queued::QueueLaneIndices::default(),
-        }
+        })
     );
 }
 
-/// The live queue update carries the typed child-status provenance
-/// (the Rust-native rider): the parked notices fold into the strip
-/// on the live path exactly like the attach path, and a notice-free
-/// projection decodes with empty provenance.
+/// The live queue update carries the typed child-status origin: the
+/// parked notices classify on the live path exactly like the attach
+/// path.
 #[test]
-fn decodes_the_child_status_provenance_from_the_live_queue_update() {
-    let update = event_to_update(&json!({
+fn decodes_the_child_status_origin_from_the_live_queue_update() {
+    let update = event_to_update(&event(json!({
         "type": "session_action_update",
         "actions": {
             "queuedCount": 2,
-            "steering": ["[child-exited: no-reply child:lane]"],
-            "followUps": ["then summarize"],
-            "rlmChildStatus": { "steering": [0], "followUp": [] },
+            "steering": [{
+                "text": "[child-exited: no-reply child:lane]",
+                "origin": { "kind": "report", "report": { "report": "childExited", "child": "lane", "exit": "noReply" } },
+            }],
+            "followUps": [{ "text": "then summarize", "origin": { "kind": "user" } }],
         },
-    }))
-    .expect("a queue update");
+    })));
     assert_eq!(
         update,
-        TurnUpdate::QueueUpdated {
-            steering: vec!["[child-exited: no-reply child:lane]".to_string()],
-            follow_ups: vec!["then summarize".to_string()],
+        TurnUpdate::QueueUpdated(crate::queued::QueuedMessages {
+            steering: vec![queued_item(
+                "[child-exited: no-reply child:lane]",
+                InputOrigin::Report {
+                    report: Report::ChildExited {
+                        child: "lane".to_string(),
+                        exit: ChildExit::NoReply,
+                    },
+                },
+            )],
+            follow_ups: vec![queued_item("then summarize", InputOrigin::User)],
             starting: None,
-            rlm_child_status: crate::queued::QueueLaneIndices {
-                steering: vec![0],
-                follow_up: Vec::new(),
-            },
-            injected_prompts: crate::queued::QueueLaneIndices::default(),
-        }
+        })
     );
 }
 
-/// The live queue update carries the injected-continuation provenance
-/// (the second Rust-native rider): the parked continuations fold into
-/// the strip on the live path exactly like the attach path, and a
-/// projection without the rider decodes with empty provenance.
+/// The live queue update carries the injected-continuation origin: the
+/// parked continuations classify on the live path exactly like the
+/// attach path.
 #[test]
-fn decodes_the_injected_provenance_from_the_live_queue_update() {
-    let update = event_to_update(&json!({
+fn decodes_the_injected_origin_from_the_live_queue_update() {
+    let update = event_to_update(&event(json!({
         "type": "session_action_update",
         "actions": {
             "queuedCount": 2,
             "steering": [],
             "followUps": [
-                "[goal: continuation]\n\nKeep driving the goal.",
-                "then summarize",
+                {
+                    "text": "[goal: continuation]\n\nKeep driving the goal.",
+                    "origin": { "kind": "goal", "context": "continuation" },
+                },
+                { "text": "then summarize", "origin": { "kind": "user" } },
             ],
-            "injectedPrompts": { "steering": [], "followUp": [0] },
         },
-    }))
-    .expect("a queue update");
+    })));
     assert_eq!(
         update,
-        TurnUpdate::QueueUpdated {
+        TurnUpdate::QueueUpdated(crate::queued::QueuedMessages {
             steering: Vec::new(),
             follow_ups: vec![
-                "[goal: continuation]\n\nKeep driving the goal.".to_string(),
-                "then summarize".to_string(),
+                queued_item(
+                    "[goal: continuation]\n\nKeep driving the goal.",
+                    InputOrigin::Goal {
+                        context: eukhe_types::goal::GoalContextKind::Continuation,
+                    },
+                ),
+                queued_item("then summarize", InputOrigin::User),
             ],
             starting: None,
-            rlm_child_status: crate::queued::QueueLaneIndices::default(),
-            injected_prompts: crate::queued::QueueLaneIndices {
-                steering: Vec::new(),
-                follow_up: vec![0],
-            },
-        }
+        })
     );
 }
 
@@ -1219,13 +1285,11 @@ fn decodes_the_preparing_turn_label_as_the_starting_row() {
         },
     });
     assert_eq!(
-        event_to_update(&preparing),
-        Some(TurnUpdate::QueueUpdated {
+        event_to_update(&event(preparing)),
+        TurnUpdate::QueueUpdated(crate::queued::QueuedMessages {
             steering: vec![],
             follow_ups: vec![],
             starting: Some("queued before compaction".to_string()),
-            rlm_child_status: crate::queued::QueueLaneIndices::default(),
-            injected_prompts: crate::queued::QueueLaneIndices::default(),
         })
     );
     let committed = json!({
@@ -1242,14 +1306,8 @@ fn decodes_the_preparing_turn_label_as_the_starting_row() {
         },
     });
     assert_eq!(
-        event_to_update(&committed),
-        Some(TurnUpdate::QueueUpdated {
-            steering: vec![],
-            follow_ups: vec![],
-            starting: None,
-            rlm_child_status: crate::queued::QueueLaneIndices::default(),
-            injected_prompts: crate::queued::QueueLaneIndices::default(),
-        })
+        event_to_update(&event(committed)),
+        TurnUpdate::QueueUpdated(crate::queued::QueuedMessages::default())
     );
     // An active action that is not a turn never projects a starting
     // row.
@@ -1267,14 +1325,8 @@ fn decodes_the_preparing_turn_label_as_the_starting_row() {
         },
     });
     assert_eq!(
-        event_to_update(&other_kind),
-        Some(TurnUpdate::QueueUpdated {
-            steering: vec![],
-            follow_ups: vec![],
-            starting: None,
-            rlm_child_status: crate::queued::QueueLaneIndices::default(),
-            injected_prompts: crate::queued::QueueLaneIndices::default(),
-        })
+        event_to_update(&event(other_kind)),
+        TurnUpdate::QueueUpdated(crate::queued::QueuedMessages::default())
     );
 }
 
@@ -1308,7 +1360,7 @@ fn retry_outcome_row_collapses_the_superseded_attempts() {
         outcome,
         recovered,
     ];
-    let entries = transcript_to_entries(&messages);
+    let entries = transcript_to_entries(&msgs(messages));
     // Exactly: the user row, the ONE outcome line, the recovered reply.
     assert_eq!(entries.len(), 3, "entries: {entries:?}");
     assert!(matches!(
@@ -1338,7 +1390,7 @@ fn a_lone_failed_attempt_without_an_outcome_row_stays() {
         "stopReason": "error",
         "errorMessage": "401 Unauthorized",
     });
-    let entries = transcript_to_entries(&[user, failed]);
+    let entries = transcript_to_entries(&msgs([user, failed]));
     assert_eq!(entries.len(), 2, "entries: {entries:?}");
     assert!(
         entries.iter().any(is_superseded_attempt_row),
@@ -1363,7 +1415,7 @@ fn aborted_attempts_never_collapse() {
         "display": true,
         "details": { "success": false, "attempts": 1, "finalError": "Retry cancelled" },
     });
-    let entries = transcript_to_entries(&[user, aborted, outcome]);
+    let entries = transcript_to_entries(&msgs([user, aborted, outcome]));
     assert_eq!(entries.len(), 3, "the abort row stays: {entries:?}");
     assert!(
         entries
@@ -1375,25 +1427,24 @@ fn aborted_attempts_never_collapse() {
 
 #[test]
 fn decodes_auto_retry_events() {
-    let start = event_to_update(&json!({
+    let start = event_to_update(&event(json!({
         "type": "auto_retry_start",
         "attempt": 1,
         "maxAttempts": 2,
         "delayMs": 50,
         "errorMessage": "provider down",
-    }))
-    .expect("retry start maps");
+    })));
     assert_eq!(
         start,
         TurnUpdate::AutoRetryStart {
             attempt: 1,
-            max_attempts: 2,
+            max_attempts: Some(2),
             delay_ms: 50,
             error_message: "provider down".to_string(),
             reason: RetryStartReason::Quick,
         }
     );
-    let backup = event_to_update(&json!({
+    let backup = event_to_update(&event(json!({
         "type": "auto_retry_start",
         "attempt": 3,
         "maxAttempts": 5,
@@ -1401,13 +1452,12 @@ fn decodes_auto_retry_events() {
         "errorMessage": "provider down",
         "reason": "backup",
         "backupModel": "prime-inference/glm-5.3",
-    }))
-    .expect("backup switch maps");
+    })));
     assert_eq!(
         backup,
         TurnUpdate::AutoRetryStart {
             attempt: 3,
-            max_attempts: 5,
+            max_attempts: Some(5),
             delay_ms: 0,
             error_message: "provider down".to_string(),
             reason: RetryStartReason::Backup {
@@ -1415,13 +1465,12 @@ fn decodes_auto_retry_events() {
             },
         }
     );
-    let end = event_to_update(&json!({
+    let end = event_to_update(&event(json!({
         "type": "auto_retry_end",
         "success": false,
         "attempt": 2,
         "finalError": "provider down",
-    }))
-    .expect("retry end maps");
+    })));
     assert_eq!(
         end,
         TurnUpdate::AutoRetryEnd {
@@ -1431,13 +1480,12 @@ fn decodes_auto_retry_events() {
             restored_model: None,
         }
     );
-    let settled = event_to_update(&json!({
+    let settled = event_to_update(&event(json!({
         "type": "auto_retry_end",
         "success": true,
         "attempt": 2,
         "restoredModel": "prime-inference/glm-5.3",
-    }))
-    .expect("retry success maps");
+    })));
     assert_eq!(
         settled,
         TurnUpdate::AutoRetryEnd {
@@ -1461,24 +1509,24 @@ fn loader_note_comes_from_starting_partials_only() {
         "details": { "status": "starting" },
     });
     assert_eq!(
-        working_message_from_update(&booting).as_deref(),
+        working_message_from_update(&wire(booting)).as_deref(),
         Some("\u{203a} setting up python kernel (one-time, ~30s)\u{2026}")
     );
     let streamed = json!({
         "content": [{ "type": "text", "text": "visual parity ok" }],
         "details": { "status": "ok" },
     });
-    assert_eq!(working_message_from_update(&streamed), None);
+    assert_eq!(working_message_from_update(&wire(streamed)), None);
     let no_text = json!({
         "content": [],
         "details": { "status": "starting" },
     });
-    assert_eq!(working_message_from_update(&no_text), None);
+    assert_eq!(working_message_from_update(&wire(no_text)), None);
 }
 
 #[test]
 fn failed_assistant_message_end_maps_final() {
-    let update = event_to_update(&json!({
+    let update = event_to_update(&event(json!({
         "type": "message_end",
         "message": {
             "role": "assistant",
@@ -1486,14 +1534,13 @@ fn failed_assistant_message_end_maps_final() {
             "errorMessage": "Provider server error",
             "content": [],
         },
-    }))
-    .expect("failed message_end maps");
+    })));
     match update {
         TurnUpdate::AssistantMessage {
             streaming, message, ..
         } => {
             assert!(!streaming, "message_end is final");
-            assert_eq!(message["stopReason"], "error");
+            assert_eq!(message.stop_reason, eukhe_types::ai::StopReason::Error);
         }
         other => panic!("unexpected update: {other:?}"),
     }
@@ -1501,24 +1548,24 @@ fn failed_assistant_message_end_maps_final() {
 
 #[test]
 fn decodes_block_content() {
-    let items = message_value_to_entries(&json!({
+    let items = message_value_to_entries(&msg(json!({
         "role": "user",
         "content": [{ "text": "hello " }, { "text": "world" }],
-    }));
+    })));
     assert_eq!(
         items,
         vec![ChatEntry::User {
             text: "hello world".to_string()
         }]
     );
-    let items = message_value_to_entries(&json!({
+    let items = message_value_to_entries(&msg(json!({
         "role": "assistant",
         "content": [
             { "type": "thinking", "thinking": "hmm" },
             { "type": "text", "text": "working" },
             { "type": "toolCall", "id": "t1", "name": "bash", "arguments": { "command": "ls" } },
         ],
-    }));
+    })));
     assert_eq!(items.len(), 2);
     assert!(matches!(
         &items[0],
@@ -1529,33 +1576,33 @@ fn decodes_block_content() {
 
 #[test]
 fn decodes_streamed_events() {
-    let user = event_to_update(&json!({
+    let user = event_to_update(&event(json!({
         "type": "message_start",
         "message": { "role": "user", "content": "go" },
-    }))
-    .unwrap();
+    })));
     assert_eq!(user, TurnUpdate::UserMessage("go".to_string()));
-    let partial = event_to_update(&json!({
+    let partial = event_to_update(&event(json!({
         "type": "message_update",
-        "message": { "role": "assistant", "content": "work" },
-    }))
-    .unwrap();
+        "message": { "role": "assistant", "content": [{ "type": "text", "text": "work" }] },
+        "assistantMessageEvent": { "type": "text_delta", "delta": "work" },
+    })));
     assert!(matches!(
         &partial,
-        TurnUpdate::AssistantMessage { message, streaming: true, .. } if message["content"] == "work"
+        TurnUpdate::AssistantMessage { message, streaming: true, .. }
+            if assistant_text(message) == "work"
     ));
-    let final_message = event_to_update(&json!({
+    let final_message = event_to_update(&event(json!({
         "type": "message_end",
-        "message": { "role": "assistant", "content": "done" },
-    }))
-    .unwrap();
+        "message": { "role": "assistant", "content": [{ "type": "text", "text": "done" }] },
+    })));
     assert!(matches!(
         &final_message,
-        TurnUpdate::AssistantMessage { message, streaming: false, .. } if message["content"] == "done"
+        TurnUpdate::AssistantMessage { message, streaming: false, .. }
+            if assistant_text(message) == "done"
     ));
-    let ended = event_to_update(&json!({ "type": "turn_end" })).unwrap();
+    let ended = event_to_update(&event(json!({ "type": "turn_end" })));
     assert_eq!(ended, TurnUpdate::TurnEnded { error: None });
-    let failed = event_to_update(&json!({ "type": "turn_end", "error": "boom" })).unwrap();
+    let failed = event_to_update(&event(json!({ "type": "turn_end", "error": "boom" })));
     assert_eq!(
         failed,
         TurnUpdate::TurnEnded {
@@ -1563,9 +1610,21 @@ fn decodes_streamed_events() {
         }
     );
     assert_eq!(
-        event_to_update(&json!({ "type": "agent_end" })),
-        Some(TurnUpdate::Idle)
+        event_to_update(&event(json!({ "type": "agent_end", "messages": [] }))),
+        TurnUpdate::Idle
     );
+}
+
+/// The concatenated text blocks of an assistant message.
+fn assistant_text(message: &eukhe_types::ai::AssistantMessage) -> String {
+    message
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            eukhe_types::ai::AssistantContentBlock::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect()
 }
 
 #[test]
@@ -1581,17 +1640,17 @@ fn session_command_rows_decode_once() {
         },
     });
     assert_eq!(
-        event_to_update(&echo),
-        Some(TurnUpdate::CustomRow(ChatEntry::SlashCommand {
+        event_to_update(&event(echo.clone())),
+        TurnUpdate::CustomRow(ChatEntry::SlashCommand {
             text: "/goal ship it".to_string()
-        }))
+        })
     );
     // The closing frame of the pair must not duplicate the row.
     let end = json!({
         "type": "message_end",
         "message": echo["message"].clone(),
     });
-    assert_eq!(event_to_update(&end), Some(TurnUpdate::StatusUpdate));
+    assert_eq!(event_to_update(&event(end)), TurnUpdate::StatusUpdate);
 
     let result = json!({
         "type": "message_start",
@@ -1610,11 +1669,11 @@ fn session_command_rows_decode_once() {
     // block (the operator's 2026-09-25 ruling: command output is not
     // user text).
     assert_eq!(
-        event_to_update(&result),
-        Some(TurnUpdate::CustomRow(ChatEntry::Status {
+        event_to_update(&event(result)),
+        TurnUpdate::CustomRow(ChatEntry::Status {
             text: "Goal active: ship it".to_string(),
             kind: StatusKind::Info
-        }))
+        })
     );
     // A failed command's outcome row carries the error tone.
     let failed = json!({
@@ -1631,11 +1690,11 @@ fn session_command_rows_decode_once() {
         },
     });
     assert_eq!(
-        event_to_update(&failed),
-        Some(TurnUpdate::CustomRow(ChatEntry::Status {
+        event_to_update(&event(failed)),
+        TurnUpdate::CustomRow(ChatEntry::Status {
             text: "Command failed: boom".to_string(),
             kind: StatusKind::Error
-        }))
+        })
     );
 }
 
@@ -1648,7 +1707,7 @@ fn session_command_rows_respect_display_and_shape() {
         "content": "Refined continual harness state: 1 edit applied.",
         "display": false,
     });
-    assert!(custom_message_entries(&hidden).is_empty());
+    assert!(message_value_to_entries(&msg(hidden)).is_empty());
     // A displayed outcome row renders in the status-row class with
     // the severity's tone (the operator's 2026-09-25 ruling: command
     // output is system output, never user text).
@@ -1663,7 +1722,7 @@ fn session_command_rows_respect_display_and_shape() {
         },
     });
     assert_eq!(
-        custom_message_entries(&outcome),
+        message_value_to_entries(&msg(outcome)),
         vec![ChatEntry::Status {
             text: "Goal cleared.".to_string(),
             kind: StatusKind::Info,
@@ -1679,7 +1738,7 @@ fn session_command_rows_respect_display_and_shape() {
         "display": true,
     });
     assert!(matches!(
-        custom_message_entries(&other).as_slice(),
+        message_value_to_entries(&msg(other)).as_slice(),
         [ChatEntry::CustomPanel(_)]
     ));
     // A command row without command details renders the malformed
@@ -1692,7 +1751,7 @@ fn session_command_rows_respect_display_and_shape() {
         "details": {},
     });
     assert_eq!(
-        custom_message_entries(&malformed),
+        message_value_to_entries(&msg(malformed)),
         vec![ChatEntry::User {
             text: "[Malformed session command message]".to_string()
         }]
@@ -1742,7 +1801,7 @@ fn transcript_replay_completes_tool_cards() {
             "timestamp": 5,
         }),
     ];
-    let chat = transcript_to_entries(&transcript);
+    let chat = transcript_to_entries(&msgs(transcript));
     // user row, assistant text, tool card, final assistant text -
     // and the orphan result keeps its standalone card (the live
     // push path's twin; the rebuilt transcript never drops it).
@@ -1782,7 +1841,7 @@ fn transcript_replay_keeps_pending_cards_without_results() {
             "timestamp": 2,
         }),
     ];
-    let chat = transcript_to_entries(&transcript);
+    let chat = transcript_to_entries(&msgs(transcript));
     let Some(ChatEntry::Tool(card)) = chat.get(1) else {
         panic!("tool card at index 1: {chat:?}");
     };
@@ -1795,7 +1854,7 @@ fn transcript_replay_keeps_pending_cards_without_results() {
 #[test]
 fn push_message_completes_pending_tool_card() {
     let mut reconstructed = Reconstructed::default();
-    reconstructed.push_message(&json!({
+    reconstructed.push_message(&msg(json!({
         "role": "assistant",
         "content": [
             { "type": "toolCall", "id": "call-1", "name": "ipython", "arguments": {} },
@@ -1803,15 +1862,15 @@ fn push_message_completes_pending_tool_card() {
         "provider": "faux", "model": "faux-1",
         "usage": { "input": 10, "output": 2 }, "stopReason": "toolUse",
         "timestamp": 2,
-    }));
-    reconstructed.push_message(&json!({
+    })));
+    reconstructed.push_message(&msg(json!({
         "role": "toolResult",
         "toolCallId": "call-1",
         "toolName": "ipython",
         "content": [{ "type": "text", "text": "out" }],
         "isError": true,
         "timestamp": 3,
-    }));
+    })));
     assert_eq!(reconstructed.chat.len(), 1);
     let Some(ChatEntry::Tool(card)) = reconstructed.chat.first() else {
         panic!("single tool card: {:?}", reconstructed.chat);
@@ -1854,7 +1913,7 @@ fn transcript_replay_stacks_provider_failure_rows() {
         failed_attempt(5),
         failed_attempt(6),
     ];
-    let chat = transcript_to_entries(&transcript);
+    let chat = transcript_to_entries(&msgs(transcript));
     // One user + reply, one user, then one entry per failed attempt.
     assert_eq!(chat.len(), 6, "chat: {chat:?}");
     let replies: Vec<&crate::chat::AssistantMessage> = chat
@@ -1895,7 +1954,7 @@ fn transcript_replay_renders_contentless_abort() {
             "timestamp": 2,
         }),
     ];
-    let chat = transcript_to_entries(&transcript);
+    let chat = transcript_to_entries(&msgs(transcript));
     assert_eq!(chat.len(), 2, "chat: {chat:?}");
     let Some(ChatEntry::Assistant(message)) = chat.get(1) else {
         panic!("abort row: {chat:?}");
@@ -1909,93 +1968,91 @@ fn transcript_replay_renders_contentless_abort() {
 fn decodes_compaction_events() {
     // The start pair (TS `AgentSession.compact` event).
     assert_eq!(
-        event_to_update(&json!({
+        event_to_update(&event(json!({
             "type": "compaction_start",
             "reason": "manual",
             "customInstructions": "focus on the goal",
-        })),
-        Some(TurnUpdate::CompactionStart {
-            reason: "manual".to_string(),
+        }))),
+        TurnUpdate::CompactionStart {
+            reason: CompactionReason::Manual,
             custom_instructions: Some("focus on the goal".to_string()),
-        })
+        }
     );
     assert_eq!(
-        event_to_update(&json!({ "type": "compaction_start", "reason": "manual" })),
-        Some(TurnUpdate::CompactionStart {
-            reason: "manual".to_string(),
+        event_to_update(&event(
+            json!({ "type": "compaction_start", "reason": "manual" })
+        )),
+        TurnUpdate::CompactionStart {
+            reason: CompactionReason::Manual,
             custom_instructions: None,
-        })
+        }
     );
     // Success carries the client-facing result.
     assert_eq!(
-        event_to_update(&json!({
+        event_to_update(&event(json!({
             "type": "compaction_end",
             "reason": "manual",
             "result": { "summary": "s", "firstKeptEntryId": "e1", "tokensBefore": 12 },
             "aborted": false,
             "willRetry": false,
             "customInstructions": "focus",
-        })),
-        Some(TurnUpdate::CompactionEnd {
-            reason: "manual".to_string(),
-            result: Some(json!({ "summary": "s", "firstKeptEntryId": "e1", "tokensBefore": 12 })),
+        }))),
+        TurnUpdate::CompactionEnd {
+            reason: CompactionReason::Manual,
+            result: Some(CompactionResult {
+                summary: "s".to_string(),
+                first_kept_entry_id: Some("e1".to_string()),
+                tokens_before: 12,
+            }),
             custom_instructions: Some("focus".to_string()),
             aborted: false,
             error_message: None,
             error_severity: None,
-        })
+        }
     );
     // A skip carries the warning message; the result stays absent.
     assert_eq!(
-        event_to_update(&json!({
+        event_to_update(&event(json!({
             "type": "compaction_end",
             "reason": "manual",
             "aborted": false,
             "willRetry": false,
             "errorMessage": "Session is too short to compact",
             "errorSeverity": "warning",
-        })),
-        Some(TurnUpdate::CompactionEnd {
-            reason: "manual".to_string(),
+        }))),
+        TurnUpdate::CompactionEnd {
+            reason: CompactionReason::Manual,
             result: None,
             custom_instructions: None,
             aborted: false,
             error_message: Some("Session is too short to compact".to_string()),
-            error_severity: Some("warning".to_string()),
-        })
+            error_severity: Some(ErrorSeverity::Warning),
+        }
     );
     // A summary delta carries its text chunk verbatim (the live
     // streamed block's input; the settling end stays the summary's
     // only durable source).
     assert_eq!(
-        event_to_update(&json!({
+        event_to_update(&event(json!({
             "type": "compaction_summary_delta",
             "delta": "The session covered the goal.",
-        })),
-        Some(TurnUpdate::CompactionSummaryDelta {
+        }))),
+        TurnUpdate::CompactionSummaryDelta {
             delta: "The session covered the goal.".to_string(),
-        })
-    );
-    // A missing delta field decodes as an empty chunk, never a drop
-    // (the accumulation stays a pure append -- the frame is real).
-    assert_eq!(
-        event_to_update(&json!({ "type": "compaction_summary_delta" })),
-        Some(TurnUpdate::CompactionSummaryDelta {
-            delta: String::new(),
-        })
+        }
     );
 }
 
 #[test]
 fn transcript_replay_renders_the_compaction_outcome_row() {
     // A skipped auto-compaction warns (TS `CompactionOutcomeMessageComponent`).
-    let items = message_value_to_entries(&json!({
+    let items = message_value_to_entries(&msg(json!({
         "role": "custom",
         "customType": "compaction_outcome",
         "content": "Auto-compaction skipped: not enough context",
         "display": true,
         "details": { "reason": "threshold", "outcome": "skipped" },
-    }));
+    })));
     assert_eq!(
         items,
         vec![ChatEntry::Status {
@@ -2004,26 +2061,26 @@ fn transcript_replay_renders_the_compaction_outcome_row() {
         }]
     );
     // A failed overflow recovery errors.
-    let items = message_value_to_entries(&json!({
+    let items = message_value_to_entries(&msg(json!({
         "role": "custom",
         "customType": "compaction_outcome",
         "content": "Context overflow recovery failed: boom",
         "display": true,
         "details": { "reason": "overflow", "outcome": "failed" },
-    }));
+    })));
     assert!(matches!(
         &items[0],
         ChatEntry::Status { kind: StatusKind::Error, text }
             if text == "Context overflow recovery failed: boom"
     ));
     // A cancelled compaction errors too (TS: only `skipped` warns).
-    let items = message_value_to_entries(&json!({
+    let items = message_value_to_entries(&msg(json!({
         "role": "custom",
         "customType": "compaction_outcome",
         "content": "Compaction cancelled",
         "display": true,
         "details": { "reason": "threshold", "outcome": "cancelled" },
-    }));
+    })));
     assert!(matches!(
         &items[0],
         ChatEntry::Status { kind: StatusKind::Error, text }
@@ -2036,13 +2093,13 @@ fn transcript_replay_renders_the_compaction_outcome_row() {
         json!({ "reason": "threshold", "outcome": "compacted" }),
         json!({}),
     ] {
-        let items = message_value_to_entries(&json!({
+        let items = message_value_to_entries(&msg(json!({
             "role": "custom",
             "customType": "compaction_outcome",
             "content": "text",
             "display": true,
             "details": details,
-        }));
+        })));
         assert_eq!(
             items,
             vec![ChatEntry::Status {
@@ -2057,14 +2114,14 @@ fn transcript_replay_renders_the_compaction_outcome_row() {
 fn transcript_replay_renders_the_compaction_summary() {
     // The attach snapshot's `role: "compactionSummary"` message (the
     // session store's fold) renders the summary row with its fields.
-    let items = message_value_to_entries(&json!({
+    let items = message_value_to_entries(&msg(json!({
         "role": "compactionSummary",
         "summary": "the story so far",
         "tokensBefore": 1234,
         "retainedMessageCount": 2,
         "customInstructions": "tests",
         "timestamp": 1,
-    }));
+    })));
     assert_eq!(items.len(), 1);
     assert!(matches!(
         &items[0],
@@ -2079,22 +2136,22 @@ fn transcript_replay_renders_the_compaction_summary() {
 /// component's rows are empty and spacing stays `hidden`).
 #[test]
 fn transcript_replay_skips_contentless_settled_messages() {
-    let items = message_value_to_entries(&json!({
+    let items = message_value_to_entries(&msg(json!({
         "role": "assistant",
         "content": [],
         "stopReason": "stop",
-    }));
+    })));
     assert_eq!(items, Vec::new());
     // A provider error beside tool calls renders no message row either:
     // the cards carry the failure.
-    let items = message_value_to_entries(&json!({
+    let items = message_value_to_entries(&msg(json!({
         "role": "assistant",
         "content": [
             { "type": "toolCall", "id": "t1", "name": "bash", "arguments": { "command": "ls" } },
         ],
         "stopReason": "error",
         "errorMessage": "Connection error.",
-    }));
+    })));
     assert_eq!(items.len(), 1);
     assert!(matches!(&items[0], ChatEntry::Tool(card) if card.name == "bash"));
 }
@@ -2103,7 +2160,7 @@ fn transcript_replay_skips_contentless_settled_messages() {
 /// view owns announcement and tray rendering).
 #[test]
 fn goal_update_decodes_the_goal_payload() {
-    let update = event_to_update(&json!({
+    let update = event_to_update(&event(json!({
         "type": "goal_update",
         "goal": {
             "active": false,
@@ -2115,12 +2172,10 @@ fn goal_update_decodes_the_goal_payload() {
             "continuationsUsed": 2,
             "lastReason": "Goal achieved"
         }
-    }))
-    .unwrap();
+    })));
     let TurnUpdate::GoalUpdate(goal) = update else {
         panic!("expected a goal update");
     };
-    let goal: eukhe_types::goal::GoalState = serde_json::from_value(goal).unwrap();
     assert_eq!(goal.status, eukhe_types::goal::GoalStatus::Complete);
     assert_eq!(goal.objective.as_deref(), Some("ship it"));
     assert_eq!(goal.last_reason.as_deref(), Some("Goal achieved"));
@@ -2165,12 +2220,12 @@ fn attach_snapshot_carries_the_goal_state() {
             },
             "messages": [],
             "lastEventSequence": 3,
-            "lastEventCursor": { "generation": 1, "sequence": 3 }
+            "lastEventCursor": { "generation": "g-1", "sequence": 3 }
         },
         "lastEventSequence": 3
     });
     let data = attach_data_from_response(attach).unwrap();
-    let reconstructed = reconstruct(&data);
+    let reconstructed = reconstruct(&data).expect("reconstructs");
     let goal = reconstructed.goal.expect("snapshot goal");
     assert_eq!(goal.status, eukhe_types::goal::GoalStatus::Active);
     assert_eq!(goal.objective.as_deref(), Some("keep shipping"));
@@ -2185,6 +2240,7 @@ fn attach_snapshot_carries_the_tray_context_usage() {
         json!({ "tokens": 9_400, "contextWindow": 128_000, "percent": 7.34 });
     let data = attach_data_from_response(attach).unwrap();
     let usage = reconstruct(&data)
+        .expect("reconstructs")
         .context_usage
         .expect("snapshot context usage");
     assert_eq!(usage.tokens, 9_400);
@@ -2195,11 +2251,17 @@ fn attach_snapshot_carries_the_tray_context_usage() {
     attach["snapshot"]["state"]["contextUsage"] =
         json!({ "tokens": null, "contextWindow": 128_000, "percent": null });
     let data = attach_data_from_response(attach).unwrap();
-    assert_eq!(reconstruct(&data).context_usage, None);
+    assert_eq!(
+        reconstruct(&data).expect("reconstructs").context_usage,
+        None
+    );
 
     // A state without the field (a model-less session) stays `None`.
     let data = attach_data_from_response(slim_attach()).unwrap();
-    assert_eq!(reconstruct(&data).context_usage, None);
+    assert_eq!(
+        reconstruct(&data).expect("reconstructs").context_usage,
+        None
+    );
 }
 
 /// The synthetic image-heavy tool-result row: a `role: "toolResult"`
@@ -2264,7 +2326,7 @@ fn an_image_heavy_transcript_replays_and_renders_its_first_frame() {
         result["toolCallId"] = json!(format!("call-img-{index}"));
         messages.push(result);
     }
-    let entries = transcript_to_entries(&messages);
+    let entries = transcript_to_entries(&msgs(messages));
     assert_eq!(entries.len(), 32, "a user row and a card per turn");
 
     // The first-frame geometry pass over the whole transcript completes.
@@ -2288,7 +2350,7 @@ fn elided_image_tool_results_render_their_marker_metadata() {
     // `elide_snapshot_images` client: the fold keeps the card, and the
     // expanded card renders the marker's dimensions -- the same row the
     // payload's own metadata produced.
-    let entries = transcript_to_entries(&[elided_image_tool_result(500 * 1024, 64, 32)]);
+    let entries = transcript_to_entries(&msgs([elided_image_tool_result(500 * 1024, 64, 32)]));
     let card = entries
         .iter()
         .find_map(|entry| match entry {

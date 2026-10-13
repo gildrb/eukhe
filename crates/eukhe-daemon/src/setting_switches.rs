@@ -47,21 +47,10 @@ pub(crate) fn model_supports_service_tier(model: Option<&Value>, tier: ServiceTi
         .unwrap_or(tier == ServiceTier::Default)
 }
 
-/// The wire name of a service tier (the serde lowercase form).
-pub(crate) fn service_tier_wire_name(tier: ServiceTier) -> &'static str {
-    match tier {
-        ServiceTier::Auto => "auto",
-        ServiceTier::Default => "default",
-        ServiceTier::Flex => "flex",
-        ServiceTier::Scale => "scale",
-        ServiceTier::Priority => "priority",
-    }
-}
-
 /// TS `_getEffectiveServiceTier` (#2144's `clampServiceTier`): a tier the
 /// model does not support degrades to `default`. An unset (`null`)
 /// preference passes through; `None` on the wire reads as `auto` (see
-/// [`service_tier_wire_name`]).
+/// [`ServiceTier::as_str`]).
 pub(crate) fn effective_service_tier(
     tier: Option<ServiceTier>,
     model: Option<&Value>,
@@ -186,7 +175,7 @@ impl Worker {
             Some(json!({
                 "model": next_model,
                 "thinkingLevel": thinking_level.as_str(),
-                "serviceTier": service_tier_wire_name(service_tier),
+                "serviceTier": service_tier.as_str(),
                 "isScoped": is_scoped,
             })),
         )
