@@ -1,5 +1,5 @@
 use super::*;
-use crate::chat::{AssistantMessage, MessageBlock};
+use crate::chat::{Adjustments, AssistantMessage, MessageBlock};
 use crate::style::Modifier;
 use crate::theme::{ColorMode, Theme, ThemeBg, ThemeColor};
 use crate::tool_card::{ToolCallCard, ToolResultView};
@@ -419,6 +419,7 @@ fn cached_transcript_rows_match_fresh_render() {
             streaming: false,
             error: None,
             aborted: false,
+            adjustments: Adjustments::default(),
         })),
         settled_tool_card("call_1"),
     ]);
@@ -437,6 +438,7 @@ fn stale_entry_re_renders_new_content() {
         streaming: false,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     }))]);
     let before = transcript_text(&mut view, 80);
     if let Some(ChatEntry::Assistant(open)) = view.chat.get_mut(0) {
@@ -463,6 +465,7 @@ fn settled_messages_render_once_streaming_keeps_block_cache() {
             streaming: false,
             error: None,
             aborted: false,
+            adjustments: Adjustments::default(),
         }))]);
         let text = transcript_text(&mut view, 80);
         assert!(
@@ -477,6 +480,7 @@ fn settled_messages_render_once_streaming_keeps_block_cache() {
         streaming: true,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     }))]);
     let streaming_text = transcript_text(&mut view, 80);
     assert!(
@@ -534,6 +538,7 @@ fn detail_change_invalidates_cached_rows() {
         streaming: false,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     }))]);
     // The hidden-thinking scenario sits at the collapsed overview
     // level (the startup level since the 2026-09-28 directive).
@@ -615,6 +620,7 @@ fn thinking_tool_assistant() -> ChatEntry {
         streaming: false,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     }))
 }
 
@@ -674,6 +680,7 @@ fn conversation_leading_matches_ts_spacing_rules() {
             streaming: false,
             error: None,
             aborted: false,
+            adjustments: Adjustments::default(),
         }))
     };
     let tool_only_assistant = || {
@@ -683,6 +690,7 @@ fn conversation_leading_matches_ts_spacing_rules() {
             streaming: false,
             error: None,
             aborted: false,
+            adjustments: Adjustments::default(),
         }))
     };
     let user = || ChatEntry::User {
@@ -757,6 +765,7 @@ fn conversation_leading_matches_ts_spacing_rules() {
             streaming: false,
             error: None,
             aborted: false,
+            adjustments: Adjustments::default(),
         }))
     };
     let mut view = view_with(vec![user(), hidden_assistant(), agent_message_row()]);
@@ -868,6 +877,7 @@ fn a_visible_assistant_after_an_agent_message_keeps_its_spacers() {
             streaming: false,
             error: None,
             aborted: false,
+            adjustments: Adjustments::default(),
         })),
         settled_tool_card("c1"),
     ]);
@@ -911,6 +921,7 @@ fn streaming_assistant_updates_across_frames() {
         streaming: true,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     }))]);
     let frame0 = transcript_text(&mut view, 80);
     assert!(frame0.contains("so far"));
@@ -1071,6 +1082,7 @@ fn thinking_only() -> ChatEntry {
         streaming: false,
         error: None,
         aborted: false,
+        adjustments: crate::chat::Adjustments::default(),
     }))
 }
 

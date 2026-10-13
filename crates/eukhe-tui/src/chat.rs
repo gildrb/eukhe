@@ -12,6 +12,8 @@ use crate::style::{Modifier, Style};
 use crate::theme::{Theme, ThemeBg, ThemeColor};
 use crate::width::str_width;
 use crate::{Line, Span};
+use eukhe_types::pi_ai::{AdjustedField, AdjustmentChange, AdjustmentReason, RequestAdjustment};
+use serde::Deserialize;
 
 /// How much detail the conversation shows (TS `setChatDetail` levels).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,6 +175,9 @@ pub struct AssistantMessage {
     pub error: Option<String>,
     /// `stopReason: "aborted"` (drives the tool-call trailing spacer).
     pub aborted: bool,
+    /// What the harness changed in the request this message answered (the
+    /// wire `adjustments`): details-level notes under the body.
+    pub adjustments: Adjustments,
 }
 
 impl AssistantMessage {
@@ -182,11 +187,111 @@ impl AssistantMessage {
     /// applies).
     #[must_use]
     pub fn has_trailing_space(&self, detail: Detail, preceded_by_tool_activity: bool) -> bool {
-        let has_visible_content = self.blocks.iter().any(|block| match block {
-            MessageBlock::Thinking(text) => detail.show_thinking() && !text.trim().is_empty(),
-            MessageBlock::Text(text) => !text.trim().is_empty(),
-        });
+        let has_visible_content = self.shows_adjustments(detail)
+            || self.blocks.iter().any(|block| match block {
+                MessageBlock::Thinking(text) => detail.show_thinking() && !text.trim().is_empty(),
+                MessageBlock::Text(text) => !text.trim().is_empty(),
+            });
         self.has_tool_calls && (has_visible_content || self.aborted || !preceded_by_tool_activity)
+    }
+
+    /// The adjustment notes render at `detail`: they are details-level
+    /// information, hidden at `overview` like thinking.
+    #[must_use]
+    pub fn shows_adjustments(&self, detail: Detail) -> bool {
+        let level_shows = match detail {
+            Detail::Overview => false,
+            Detail::Details | Detail::All => true,
+        };
+        level_shows && !self.adjustments.is_empty()
+    }
+}
+
+/// An assistant message's request adjustments, decoded from the wire
+/// `adjustments` array. An entry that does not decode is counted, never
+/// dropped: the notes carry one line saying it could not be read.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Adjustments {
+    pub read: Vec<RequestAdjustment>,
+    /// Wire entries that did not decode as a [`RequestAdjustment`] (a
+    /// non-array `adjustments` value counts as one).
+    pub unreadable: usize,
+}
+
+impl Adjustments {
+    /// Decode a message's `adjustments` value (absent or `null` is none).
+    #[must_use]
+    pub fn from_wire(value: Option<&serde_json::Value>) -> Self {
+        let mut adjustments = Self::default();
+        match value {
+            None | Some(serde_json::Value::Null) => {}
+            Some(serde_json::Value::Array(entries)) => {
+                for entry in entries {
+                    match RequestAdjustment::deserialize(entry) {
+                        Ok(adjustment) => adjustments.read.push(adjustment),
+                        Err(_) => adjustments.unreadable += 1,
+                    }
+                }
+            }
+            Some(_) => adjustments.unreadable += 1,
+        }
+        adjustments
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.read.is_empty() && self.unreadable == 0
+    }
+
+    /// The dim note lines: one per adjustment
+    /// (`adjusted: maxTokens 64000 -> 30000 (context window)`), then one
+    /// line for the entries that could not be read.
+    #[must_use]
+    pub fn notes(&self) -> Vec<String> {
+        let mut notes: Vec<String> = self
+            .read
+            .iter()
+            .map(|adjustment| {
+                let field = match adjustment.field {
+                    AdjustedField::ServiceTier => "serviceTier",
+                    AdjustedField::MaxTokens => "maxTokens",
+                    AdjustedField::ThinkingBudget => "thinkingBudget",
+                    AdjustedField::Temperature => "temperature",
+                    AdjustedField::ReasoningEffort => "reasoningEffort",
+                    AdjustedField::StrictTool => "strictTool",
+                    AdjustedField::ThinkingDisplay => "thinkingDisplay",
+                    AdjustedField::ThinkingBlockBinding => "thinkingBlockBinding",
+                };
+                let subject = adjustment
+                    .subject
+                    .as_deref()
+                    .map(|subject| format!(" {subject}"))
+                    .unwrap_or_default();
+                let change = match adjustment.change {
+                    AdjustmentChange::Dropped => "dropped".to_string(),
+                    AdjustmentChange::Clamped { requested, sent } => {
+                        format!("{requested} {} {sent}", crate::glyphs::ARROW)
+                    }
+                };
+                let reason = match adjustment.reason {
+                    AdjustmentReason::UnsupportedByModel => "model does not support it",
+                    AdjustmentReason::ChatGptSignIn => "not accepted with ChatGPT sign-in",
+                    AdjustmentReason::GovCloudRegion => "not accepted in GovCloud regions",
+                    AdjustmentReason::ContextWindow => "context window",
+                    AdjustmentReason::MaxTokens => "output token cap",
+                    AdjustmentReason::UnsupportedSchema => "schema cannot be strict",
+                    AdjustmentReason::BelowMinimum => "below host minimum",
+                    AdjustmentReason::ThinkingEnabled => "not accepted with thinking on",
+                };
+                format!("adjusted: {field}{subject} {change} ({reason})")
+            })
+            .collect();
+        match self.unreadable {
+            0 => {}
+            1 => notes.push("adjusted: 1 adjustment could not be read".to_string()),
+            count => notes.push(format!("adjusted: {count} adjustments could not be read")),
+        }
+        notes
     }
 }
 
@@ -401,7 +506,8 @@ pub fn render_user_block(
 
 /// One assistant message (TS `AssistantMessageComponent`): a leading spacer
 /// when a visible body exists, markdown blocks separated by spacers (text in
-/// `mdBody`, thinking in `dim`), and a trailing spacer before its tool calls.
+/// `mdBody`, thinking in `dim`), the dim request-adjustment notes from
+/// `details` up, and a trailing spacer before its tool calls.
 pub fn render_assistant(
     message: &AssistantMessage,
     detail: Detail,
@@ -412,7 +518,8 @@ pub fn render_assistant(
     cache: &mut crate::markdown::MarkdownBlockCache,
 ) -> Vec<Line> {
     let visible_blocks = geometry::visible_blocks(message, detail);
-    let has_visible_content = !visible_blocks.is_empty();
+    let shows_adjustments = message.shows_adjustments(detail);
+    let has_visible_content = !visible_blocks.is_empty() || shows_adjustments;
     let mut out: Vec<Line> = Vec::new();
     if has_visible_content {
         out.push(spacer());
@@ -431,6 +538,12 @@ pub fn render_assistant(
                     out.push(spacer());
                 }
             }
+        }
+    }
+    if shows_adjustments {
+        let dim = theme.fg_style(ThemeColor::Dim);
+        for note in message.adjustments.notes() {
+            out.extend(render_text_rows(&note, dim, width));
         }
     }
     if let Some(error) = &message.error {

@@ -488,6 +488,7 @@ mod retry_collapse_tests {
             streaming: false,
             error: Some(format!("Error: {text}")),
             aborted: false,
+            adjustments: crate::chat::Adjustments::default(),
         }))
     }
 
@@ -498,6 +499,7 @@ mod retry_collapse_tests {
             streaming: false,
             error: Some("Operation aborted".to_string()),
             aborted: true,
+            adjustments: crate::chat::Adjustments::default(),
         }))
     }
 
@@ -530,6 +532,7 @@ mod retry_collapse_tests {
                 streaming: false,
                 error: Some("Error: mid-run failure".to_string()),
                 aborted: false,
+                adjustments: crate::chat::Adjustments::default(),
             },
         ))]);
         assert!(!pop_superseded_attempt_row(&mut view));

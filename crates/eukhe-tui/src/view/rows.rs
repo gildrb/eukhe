@@ -80,12 +80,13 @@ impl AgentView {
     /// TS `getSpacingContent`: an assistant message's contribution to
     /// conversation spacing at the current detail level.
     fn assistant_spacing_content(&self, message: &crate::chat::AssistantMessage) -> SpacingContent {
-        let visible_body = message.blocks.iter().any(|block| match block {
-            crate::chat::MessageBlock::Thinking(text) => {
-                self.detail.show_thinking() && !text.trim().is_empty()
-            }
-            crate::chat::MessageBlock::Text(text) => !text.trim().is_empty(),
-        });
+        let visible_body = message.shows_adjustments(self.detail)
+            || message.blocks.iter().any(|block| match block {
+                crate::chat::MessageBlock::Thinking(text) => {
+                    self.detail.show_thinking() && !text.trim().is_empty()
+                }
+                crate::chat::MessageBlock::Text(text) => !text.trim().is_empty(),
+            });
         if visible_body || message.aborted || (message.error.is_some() && !message.has_tool_calls) {
             return SpacingContent::Visible;
         }

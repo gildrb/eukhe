@@ -333,6 +333,7 @@ fn assistant_markers_skip_tool_call_messages() {
         streaming: false,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     };
     let rows = render_assistant(
         &plain,
@@ -352,6 +353,7 @@ fn assistant_markers_skip_tool_call_messages() {
         streaming: false,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     };
     let rows = render_assistant(
         &with_tools,
@@ -378,6 +380,7 @@ fn code_block_indent_rides_the_render_calls() {
         streaming: false,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     };
     let strip_markers = |row: &str| {
         row.replace(crate::osc133::ZONE_END_PREFIX, "")
@@ -458,6 +461,7 @@ fn assistant_error_row_and_spacers() {
         streaming: false,
         error: Some("Error: request failed after retries".into()),
         aborted: false,
+        adjustments: Adjustments::default(),
     };
     let rows = render_assistant(
         &message,
@@ -487,6 +491,7 @@ fn assistant_error_row_and_spacers() {
         streaming: false,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     };
     let rows = render_assistant(
         &message,
@@ -505,6 +510,7 @@ fn assistant_error_row_and_spacers() {
         streaming: false,
         error: None,
         aborted: false,
+        adjustments: Adjustments::default(),
     };
     let rows = render_assistant(
         &message,
@@ -534,6 +540,7 @@ fn login_recovery_error_renders_one_merged_inline_line() {
         streaming: false,
         error: Some("Auth failed. \n\nRun /login to update credentials.".into()),
         aborted: false,
+        adjustments: Adjustments::default(),
     };
     for detail in [Detail::Overview, Detail::Details, Detail::All] {
         let rows = render_assistant(
@@ -580,6 +587,7 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
                 .into(),
         ),
         aborted: false,
+        adjustments: Adjustments::default(),
     };
     let merged = "Authentication failed for \"prime-inference\". Credentials may have expired or network is unavailable. - Run /login to update credentials.";
     let rows = render_assistant(
@@ -651,6 +659,7 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
                 streaming: false,
                 error: Some(error.to_string()),
                 aborted: false,
+                adjustments: Adjustments::default(),
             },
             detail,
             &theme,
@@ -734,6 +743,7 @@ fn aborted_assistant_message_renders_the_red_abort_row() {
         streaming: false,
         error: Some("Operation aborted".into()),
         aborted: true,
+        adjustments: Adjustments::default(),
     };
     let rows = render_assistant(
         &message,
@@ -784,6 +794,7 @@ fn aborted_assistant_message_renders_the_red_abort_row() {
         streaming: false,
         error: Some("aborted by the user".into()),
         aborted: true,
+        adjustments: Adjustments::default(),
     };
     let rows = render_assistant(
         &message,

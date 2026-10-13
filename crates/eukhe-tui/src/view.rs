@@ -515,12 +515,14 @@ fn item_to_entry(item: TranscriptItem) -> ChatEntry {
         TranscriptItem::Assistant {
             blocks,
             has_tool_calls,
+            adjustments,
         } => ChatEntry::Assistant(Box::new(crate::chat::AssistantMessage {
             blocks,
             has_tool_calls,
             streaming: false,
             error: None,
             aborted: false,
+            adjustments,
         })),
         TranscriptItem::ToolCall {
             id,

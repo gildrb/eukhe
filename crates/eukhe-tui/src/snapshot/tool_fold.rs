@@ -5,6 +5,8 @@
 use super::{AssistantMessage, ChatEntry, MessageBlock, ToolCallCard, ToolResultView, Value};
 use eukhe_types::ai::{AssistantContentBlock, StopReason};
 
+use crate::chat::Adjustments;
+
 /// Fold one streamed tool call into the live transcript (TS
 /// `getOrCreatePendingToolComponent` without its async deferral).
 ///
@@ -197,18 +199,22 @@ pub fn assistant_value_to_entries(message: &eukhe_types::ai::AssistantMessage) -
     // assistant message (`message_start` creates one), so a content-less
     // failed provider attempt still folds into its own error row (TS
     // `buildConversationComponents` pushes the component unconditionally).
+    // A message whose request the harness adjusted keeps its component too:
+    // the adjustment notes render inside it.
     let error = assistant_error_row(message, &tool_calls);
-    if blocks.is_empty() && tool_calls.is_empty() && error.is_none() {
+    let adjustments = Adjustments::from_wire(message.rest.get("adjustments"));
+    if blocks.is_empty() && tool_calls.is_empty() && error.is_none() && adjustments.is_empty() {
         return Vec::new();
     }
     let mut entries = Vec::new();
-    if !blocks.is_empty() || error.is_some() {
+    if !blocks.is_empty() || error.is_some() || !adjustments.is_empty() {
         entries.push(ChatEntry::Assistant(Box::new(AssistantMessage {
             blocks,
             has_tool_calls: !tool_calls.is_empty(),
             streaming: false,
             error: error.as_ref().map(|row| row.text.clone()),
             aborted: error.as_ref().is_some_and(|row| row.aborted),
+            adjustments,
         })));
     }
     for (id, name, args) in tool_calls {

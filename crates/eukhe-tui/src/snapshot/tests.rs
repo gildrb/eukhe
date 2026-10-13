@@ -2383,3 +2383,6 @@ fn elided_image_tool_results_render_their_marker_metadata() {
 /// The thinking-channel render pins (the two provider envelopes' stored
 /// row shapes) live in their own child module with this file's harness.
 mod thinking_pins;
+
+/// The request-adjustment decode and render pins.
+mod adjustments;

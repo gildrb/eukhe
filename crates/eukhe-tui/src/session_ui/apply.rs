@@ -785,6 +785,7 @@ impl SessionUi {
             self.last_assistant_text = Some(text);
         }
         let has_tool_calls = !tool_calls.is_empty();
+        let adjustments = crate::chat::Adjustments::from_wire(message.rest.get("adjustments"));
         // A message_start always opens a new streaming message (the engine
         // emits one per provider call); later frames update it in place.
         if starts_message {
@@ -796,11 +797,15 @@ impl SessionUi {
                     open.blocks = blocks;
                     open.has_tool_calls = has_tool_calls;
                     open.streaming = streaming;
+                    open.adjustments = adjustments;
                 }
                 view.mark_entry_stale(index);
             }
             None => {
-                if !blocks.is_empty() {
+                // A message whose request the harness adjusted opens its
+                // component even before (or without) a body: the
+                // adjustment notes render inside it.
+                if !blocks.is_empty() || !adjustments.is_empty() {
                     view.push_entry(ChatEntry::Assistant(Box::new(
                         crate::chat::AssistantMessage {
                             blocks,
@@ -808,6 +813,7 @@ impl SessionUi {
                             streaming,
                             error: None,
                             aborted: false,
+                            adjustments,
                         },
                     )));
                     self.streaming_index = Some(view.chat.len() - 1);
@@ -912,9 +918,10 @@ impl SessionUi {
                 return;
             }
         }
-        // The message rendered no component (empty content): TS still
-        // renders the message's own error component, so the failure stacks
-        // as a separate row instead of attaching to the last assistant.
+        // The message rendered no component (empty content, no
+        // adjustments): TS still renders the message's own error component,
+        // so the failure stacks as a separate row instead of attaching to
+        // the last assistant.
         view.push_entry(ChatEntry::Assistant(Box::new(
             crate::chat::AssistantMessage {
                 blocks: Vec::new(),
@@ -922,6 +929,7 @@ impl SessionUi {
                 streaming: false,
                 error: Some(error.text),
                 aborted: error.aborted,
+                adjustments: crate::chat::Adjustments::default(),
             },
         )));
     }

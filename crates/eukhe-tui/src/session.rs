@@ -22,6 +22,9 @@ pub enum TranscriptItem {
         /// `toolUse` when the message carried tool calls (drives the
         /// trailing spacer before its tool cards).
         has_tool_calls: bool,
+        /// The message's request adjustments (the session file keeps the
+        /// pi-ai `adjustments` key in the message's flattened `rest`).
+        adjustments: crate::chat::Adjustments,
     },
     ToolCall {
         id: String,
@@ -221,6 +224,7 @@ fn message_to_items(message: &AgentMessage) -> Vec<TranscriptItem> {
                 TranscriptItem::Assistant {
                     blocks,
                     has_tool_calls,
+                    adjustments: crate::chat::Adjustments::from_wire(a.rest.get("adjustments")),
                 },
             );
             items
@@ -412,6 +416,7 @@ mod tests {
         let [TranscriptItem::Assistant {
             blocks,
             has_tool_calls,
+            adjustments,
         }, TranscriptItem::ToolCall { name, .. }] = items.as_slice()
         else {
             panic!("replay items: {items:?}");
@@ -424,7 +429,28 @@ mod tests {
             ]
         );
         assert!(has_tool_calls);
+        assert!(adjustments.is_empty());
         assert_eq!(name, "bash");
+    }
+
+    #[test]
+    fn replay_keeps_request_adjustments() {
+        // The session file's assistant message keeps pi-ai `adjustments` in
+        // its flattened `rest`; the replayed item decodes them.
+        let line = r#"{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"api":"openai-completions","provider":"prime-inference","model":"m","adjustments":[{"field":"serviceTier","change":"dropped","reason":"unsupportedByModel"}],"usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1},"id":"e1"}"#;
+        let entries = parse_jsonl(line).unwrap();
+        let items = entry_to_items(&entries[0]);
+        let [TranscriptItem::Assistant { adjustments, .. }] = items.as_slice() else {
+            panic!("replay items: {items:?}");
+        };
+        assert_eq!(
+            adjustments.read,
+            vec![eukhe_types::pi_ai::RequestAdjustment::dropped(
+                eukhe_types::pi_ai::AdjustedField::ServiceTier,
+                eukhe_types::pi_ai::AdjustmentReason::UnsupportedByModel,
+            )]
+        );
+        assert_eq!(adjustments.unreadable, 0);
     }
 
     #[test]
