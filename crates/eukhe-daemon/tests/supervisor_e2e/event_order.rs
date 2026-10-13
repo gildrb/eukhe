@@ -16,35 +16,42 @@ const SOCKET_SLACK: usize = 1 << 20;
 /// per-client writer polls its session-event arm ahead of the response
 /// arm, so the reply cannot jump the events queued ahead of it.
 ///
-/// The scripted faux provider streams one large response (a coalesced
-/// `message_update` per flush interval, each snapshot growing toward the
-/// full text), so a client that reads nothing blocks the writer mid-turn.
+/// The backlog is built by size, not by time: the prompt is longer than
+/// [`SOCKET_SLACK`] and the turn echoes it whole in the user message's
+/// `message_start`, so a client that reads nothing blocks the writer
+/// inside that frame, and every later frame of the turn starts past the
+/// slack. The script fixes those frames whatever the streaming pace (the
+/// harness may fold a fast stream's updates into its `message_end`): the
+/// user `message_end`; a tool turn whose unknown tool answers at once
+/// with an error result (the call's message pair, `tool_execution_end`,
+/// the result's message pair, `turn_end`); and the closing turn
+/// (`turn_start`, the answer's message pair, `turn_end`, `agent_end`).
+/// Those twelve exceed the asserted minimum of eight, so only a turn that
+/// builds no queue fails it.
 /// A second connection's `wait_for_idle` answer is the readiness signal.
 /// The precondition: a blocked writer can have handed the kernel only its
 /// socket buffers plus one partial line, so a pre-reply session event at
 /// a wire offset past [`SOCKET_SLACK`] was still queued in the supervisor
-/// when `wait_for_idle` answered; the test asserts a minimum count of
-/// those, so a turn too small to build a queue fails loudly.
+/// when `wait_for_idle` answered.
 #[test]
 fn slow_client_reads_turn_events_before_the_reply() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    // A 60 KB answer streamed as coalesced `message_update` snapshots, each
-    // growing toward the full text: the wire volume far exceeds any socket
-    // buffer, so the write blocks early and dozens of the turn's events
-    // start past the slack - still far under the session-event queue's
-    // 4096-frame capacity, so no frame is dropped. The turn takes ~8 s in a
-    // debug build (150 KB took ~20 s, the whole response budget, and failed
-    // under load).
+    // Unpaced, short answers: the turn costs the prompt's linear handling,
+    // a fraction of the response budget.
     let script_path = dir.path().join("script.json");
     std::fs::write(
         &script_path,
         serde_json::json!({
             "engine": "faux",
-            "tokensPerSecond": 12000,
-            "responses": [{ "text": "y".repeat(60_000) }],
+            "responses": [
+                { "content": [
+                    { "type": "toolCall", "name": "no-such-tool", "arguments": {} },
+                ] },
+                { "text": "done" },
+            ],
         })
         .to_string(),
     )
@@ -88,15 +95,15 @@ fn slow_client_reads_turn_events_before_the_reply() {
         probe_attach["success"], true,
         "probe attach failed: {probe_attach}"
     );
-    // The turn runs while this client reads nothing: the writer writes the
-    // growing snapshots until the socket buffer fills, then blocks with
-    // the turn's remaining events queued behind the blocked write.
+    // The turn runs while this client reads nothing: the writer blocks
+    // inside the prompt's echo, with the turn's remaining events queued
+    // behind the blocked write.
     slow.send_command(
         "p1",
         &serde_json::json!({
             "type": "prompt_and_wait",
             "activeSessionId": session_id,
-            "message": "give me a long answer",
+            "message": "y".repeat(SOCKET_SLACK),
         }),
     );
     let _ = probe.take_session_event(&mut probe_lines, "agent_start");
