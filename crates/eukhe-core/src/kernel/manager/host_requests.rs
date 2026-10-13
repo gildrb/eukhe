@@ -5,7 +5,7 @@ use super::{
     anyhow, json, lock, Arc, Duration, HostRequestPayload, Inner, Value,
     MAX_HANDLED_HOST_REQUEST_IDS,
 };
-use crate::kernel::shared::{host_request_unavailable, KernelHostRequest};
+use crate::kernel::shared::{host_request_unavailable, CellJob, KernelHostRequest};
 
 /// The cell source attached to a host request is capped at this many
 /// characters (TS #2475: `MAX_CELL_SOURCE_CHARS`, repl-manager.ts:81-82):
@@ -89,8 +89,9 @@ impl Inner {
         // Tag the request with the cell that triggered it. A blocking call is
         // still the in-flight execution; detached spawns fire after the
         // scheduling cell goes idle, so fall back to that last cell's source.
-        // The durable call context only rides an active execution: a settled
-        // call's API rejects every operation.
+        // The durable call context only rides an active execution whose call
+        // has not settled: a settled call's API rejects every operation, and
+        // a detached cell's call settled at the blocking budget.
         let (cell_source_code, call) = {
             let g = lock(&self.guarded);
             let active = g.active_execution.as_ref();
@@ -98,7 +99,9 @@ impl Inner {
                 active
                     .map(|e| cap_cell_source(&e.code))
                     .or_else(|| g.last_cell_code.as_deref().map(cap_cell_source)),
-                active.and_then(|e| e.opts.call.clone()),
+                active
+                    .filter(|e| !e.opts.job.as_ref().is_some_and(CellJob::is_detached))
+                    .and_then(|e| e.opts.call.clone()),
             )
         };
         let mut payload = obj.clone();

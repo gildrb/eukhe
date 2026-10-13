@@ -22,6 +22,8 @@ pub const DEFAULT_SESSION_ARCHIVE_MAX_AGE_DAYS: u64 = 30;
 pub const DEFAULT_SESSION_ARCHIVE_MAX_SESSIONS: usize = 200;
 /// `subagentMaxConcurrency` default (omp2 `task.maxConcurrency`).
 pub const DEFAULT_SUBAGENT_MAX_CONCURRENCY: u32 = 32;
+/// `toolBlockingBudgetMs` default (omp2 `DispatchPolicy::blocking_limit`).
+pub const DEFAULT_TOOL_BLOCKING_BUDGET_MS: u64 = 30_000;
 
 #[derive(Debug, Clone)]
 pub struct SettingsError {
@@ -741,6 +743,18 @@ impl SettingsManager {
         self.merged
             .subagent_max_concurrency
             .unwrap_or(DEFAULT_SUBAGENT_MAX_CONCURRENCY)
+    }
+
+    /// `toolBlockingBudgetMs`: the runtime's one blocking budget for a
+    /// tool call (default 30 s; `0` or unset takes the default).
+    #[must_use]
+    pub fn get_tool_blocking_budget(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(
+            self.merged
+                .tool_blocking_budget_ms
+                .filter(|ms| *ms > 0)
+                .unwrap_or(DEFAULT_TOOL_BLOCKING_BUDGET_MS),
+        )
     }
 
     /// The provider admission limits (`providerMaxInFlight`,

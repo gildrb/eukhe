@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::goal::GoalContextKind;
+use crate::job::{CellStatus, JobId};
 
 /// The producer of one user-role input.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +71,8 @@ pub enum Report {
     /// A detached kernel bash command finished.
     #[serde(rename_all = "camelCase")]
     BashDone { pid: u32, exit_code: i64 },
+    /// A detached `ipython` cell settled.
+    JobSettled { job: JobId, status: CellStatus },
 }
 
 impl Report {
@@ -84,6 +87,9 @@ impl Report {
             Self::ChildFailed { child } => format!("[child-failed child:{child}]"),
             Self::Heartbeat { schedule, run } => format!("[heartbeat: {schedule} run#{run}]"),
             Self::BashDone { pid, exit_code } => format!("[bash-done pid:{pid} exit:{exit_code}]"),
+            Self::JobSettled { job, status } => {
+                format!("[job-settled job:{job} status:{}]", status.label())
+            }
         }
     }
 

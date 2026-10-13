@@ -5,6 +5,7 @@ use crate::agent_messaging::sanitize_message_header_value;
 use crate::cron::AgentCronJob;
 use eukhe_types::ai::{TextContent, UserContent, UserContentBlock, UserMessage};
 use eukhe_types::input_origin::Report;
+use eukhe_types::job::JobSettled;
 use eukhe_types::output::{bound_notice, OmittedOutput};
 use eukhe_types::session::AgentMessage;
 use std::fmt::Write as _;
@@ -40,6 +41,9 @@ pub const HEARTBEAT_PROMPT_CUSTOM_TYPE: &str = "heartbeat_prompt";
 /// TS `ASYNC_BASH_COMPLETION_CUSTOM_TYPE`: the durable row a detached
 /// kernel bash completion admits as the woken turn's injected prompt.
 pub const ASYNC_BASH_COMPLETION_CUSTOM_TYPE: &str = "async_bash_completion";
+/// The durable row a settled detached `ipython` cell admits as the woken
+/// turn's injected prompt.
+pub const JOB_SETTLED_CUSTOM_TYPE: &str = "job_settled";
 /// TS `SESSION_RENAMED_CUSTOM_TYPE` (#2529): the displayed notice a
 /// rename that changed an existing name leaves in the renamed session's
 /// transcript.
@@ -238,35 +242,56 @@ pub fn create_heartbeat_prompt_message(
     }
 }
 
-/// The detached kernel bash completion notice (TS
-/// `createAsyncBashCompletionMessage`): an `async_bash_completion`
-/// custom message carrying `[bash-done pid:N exit:M]` plus the
-/// JSON-encoded command, with the completion's `{pid, command,
-/// exitCode}` in details. The daemon's `bash.completed` host handler
-/// admits the row as the woken turn's injected prompt (the turn runs on
-/// the row, so the transcript renders the bash-done component); a
-/// later kernel read that reaches the model first withdraws it through
-/// its details (`bash.consumed`).
+/// The row a settled job admits as the woken turn's injected prompt (the
+/// daemon's one job-settled wake; ADR 0010):
+/// - a background kernel `bash()` command (TS
+///   `createAsyncBashCompletionMessage`): an `async_bash_completion` row
+///   carrying `[bash-done pid:N exit:M]` plus the JSON-encoded command, with
+///   `{pid, command, exitCode}` in details; a later kernel read that
+///   reaches the model first withdraws it through its details
+///   (`bash.consumed`);
+/// - a detached `ipython` cell: a `job_settled` row carrying
+///   `[job-settled job:ID status:S]` plus the cell's bounded output, with
+///   `{job, status}` in details.
 #[must_use]
-pub fn create_async_bash_completion_message(
-    pid: u32,
-    command: &str,
-    exit_code: i64,
+pub fn create_job_settled_message(
+    settled: &JobSettled,
     timestamp: u64,
 ) -> eukhe_types::session::CustomMessage {
-    // TS `JSON.stringify(details.command)`: the quoted, escaped command.
-    let encoded_command = serde_json::to_string(command).unwrap_or_default();
-    let content =
-        Report::BashDone { pid, exit_code }.render(&format!("Command: {encoded_command}"));
+    let report = settled.report();
+    let (custom_type, content, details) = match settled {
+        JobSettled::Bash {
+            pid,
+            command,
+            exit_code,
+        } => {
+            // TS `JSON.stringify(details.command)`: the quoted, escaped command.
+            let encoded_command = serde_json::to_string(command).unwrap_or_default();
+            (
+                ASYNC_BASH_COMPLETION_CUSTOM_TYPE,
+                report.render(&format!("Command: {encoded_command}")),
+                serde_json::json!({
+                    "pid": pid,
+                    "command": command,
+                    "exitCode": exit_code,
+                }),
+            )
+        }
+        JobSettled::Cell {
+            job,
+            status,
+            output,
+        } => (
+            JOB_SETTLED_CUSTOM_TYPE,
+            report.render(output),
+            serde_json::json!({ "job": job.as_str(), "status": status.label() }),
+        ),
+    };
     eukhe_types::session::CustomMessage {
-        custom_type: ASYNC_BASH_COMPLETION_CUSTOM_TYPE.to_string(),
+        custom_type: custom_type.to_string(),
         content: UserContent::Text(content),
         display: true,
-        details: Some(serde_json::json!({
-            "pid": pid,
-            "command": command,
-            "exitCode": exit_code,
-        })),
+        details: Some(details),
         timestamp,
         rest: serde_json::Map::default(),
     }
@@ -631,8 +656,13 @@ mod tests {
         // TS `createAsyncBashCompletionMessage`: the custom type, the
         // `[bash-done pid:N exit:M]` header with the JSON-encoded
         // command, display, and the `{pid, command, exitCode}` details.
+        let bash = |pid, command: &str, exit_code| JobSettled::Bash {
+            pid,
+            command: command.to_owned(),
+            exit_code,
+        };
         let message =
-            create_async_bash_completion_message(4321, "sleep 12; echo RW_WAKE_DONE", 0, 1_000);
+            create_job_settled_message(&bash(4321, "sleep 12; echo RW_WAKE_DONE", 0), 1_000);
         assert_eq!(message.custom_type, "async_bash_completion");
         assert!(message.display);
         assert_eq!(message.timestamp, 1_000);
@@ -648,12 +678,31 @@ mod tests {
         assert_eq!(details["command"], "sleep 12; echo RW_WAKE_DONE");
         assert_eq!(details["exitCode"], 0);
         // A nonzero exit and embedded quotes round the same shape.
-        let message = create_async_bash_completion_message(11, "echo \"done\" && exit 2", 2, 2_000);
+        let message = create_job_settled_message(&bash(11, "echo \"done\" && exit 2", 2), 2_000);
         assert_eq!(message.timestamp, 2_000);
         assert!(matches!(message.content, UserContent::Text(text)
             if text.starts_with("[bash-done pid:11 exit:2]\n\nCommand: \"echo \\\"done\\\" && exit 2\"")));
         let details = message.details.unwrap();
         assert_eq!(details["exitCode"], 2);
+    }
+
+    #[test]
+    fn a_settled_cell_row_carries_its_report_and_output() {
+        let settled = JobSettled::Cell {
+            job: eukhe_types::job::JobId::new("cell-1").expect("id"),
+            status: eukhe_types::job::CellStatus::Ok,
+            output: "slept\n42".to_owned(),
+        };
+        let message = create_job_settled_message(&settled, 3_000);
+        assert_eq!(message.custom_type, JOB_SETTLED_CUSTOM_TYPE);
+        assert_eq!(
+            message.content,
+            UserContent::Text("[job-settled job:cell-1 status:ok]\n\nslept\n42".to_owned())
+        );
+        assert_eq!(
+            message.details,
+            Some(serde_json::json!({ "job": "cell-1", "status": "ok" }))
+        );
     }
 
     #[test]

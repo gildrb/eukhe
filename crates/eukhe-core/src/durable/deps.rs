@@ -153,6 +153,11 @@ pub type LateAgentMessageSink =
 /// one for its roster `note`.
 pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 
+/// Receives every job of this session that settled after its call stopped
+/// blocking the turn (a detached `ipython` cell, ADR 0010). The daemon
+/// worker admits it through its one job-settled wake; `None` drops it.
+pub type JobSettledSink = Arc<dyn Fn(eukhe_types::job::JobSettled) + Send + Sync>;
+
 /// An MCP login surface: the UI the OAuth flow drives and its HTTP client
 /// (see [`crate::mcp::wire_begin_login`]).
 #[derive(Clone)]
@@ -219,6 +224,9 @@ pub struct SessionConfig {
     /// Accepted progress notes (the daemon's roster note); `None` drops
     /// them.
     pub progress_note: Option<ProgressNoteSink>,
+    /// Settled detached jobs (the daemon's job-settled wake); `None` drops
+    /// them.
+    pub job_settled: Option<JobSettledSink>,
     /// Boot the main conversation's Python kernel in the background at open
     /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`, the
     /// daemon's sessions): honored for top-level sessions only (the TS
@@ -259,6 +267,7 @@ impl SessionConfig {
             extra_host_handlers: None,
             late_agent_message: None,
             progress_note: None,
+            job_settled: None,
             prewarm_kernel: false,
         }
     }
@@ -399,6 +408,7 @@ pub struct HostDeps {
     pub extra_host_handlers: Option<HostRequestHandlers>,
     pub late_agent_message: Option<LateAgentMessageSink>,
     pub progress_note: Option<ProgressNoteSink>,
+    pub job_settled: Option<JobSettledSink>,
     /// [`SessionConfig::prewarm_kernel`].
     pub prewarm_kernel: bool,
     pub harness: HarnessCell,
@@ -460,6 +470,7 @@ impl HostDeps {
             extra_host_handlers: config.extra_host_handlers.clone(),
             late_agent_message: config.late_agent_message.clone(),
             progress_note: config.progress_note.clone(),
+            job_settled: config.job_settled.clone(),
             prewarm_kernel: config.prewarm_kernel,
             harness: HarnessCell::default(),
             host_requests: HostRequestRegistry::default(),
@@ -478,6 +489,14 @@ impl HostDeps {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(start);
+    }
+
+    /// The runtime's one blocking budget for a tool call
+    /// (`toolBlockingBudgetMs`, read per call): past it a call settles
+    /// `detached` and its work becomes a job (ADR 0010).
+    #[must_use]
+    pub fn blocking_budget(&self) -> std::time::Duration {
+        self.settings.manager().get_tool_blocking_budget()
     }
 
     /// Wait until the session's commit observers serviced every commit

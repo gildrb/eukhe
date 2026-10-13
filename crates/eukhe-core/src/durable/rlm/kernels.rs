@@ -14,6 +14,7 @@ use eukhe_durable::types::ConversationId;
 use serde_json::{json, Value};
 
 use super::super::{HostCall, HostDeps};
+use super::jobs::CellJobs;
 use super::CustomNotice;
 use super::{skills_unavailable_notice, state_restore_notice};
 use crate::kernel::bootstrap::UnavailablePythonSkills;
@@ -52,6 +53,8 @@ pub(crate) struct ConversationKernel {
     /// of the conversation that created it (a kernel moved to another
     /// conversation keeps writing there until it is disposed).
     pub(crate) snapshot_dir: Option<PathBuf>,
+    /// The cells of this kernel whose calls detached (ADR 0010).
+    pub(crate) jobs: Arc<CellJobs>,
 }
 
 impl ConversationKernel {
@@ -113,6 +116,14 @@ impl KernelPool {
     /// or boots one).
     pub(crate) fn existing(&self, conversation_id: ConversationId) -> Option<ConversationKernel> {
         lock(&self.kernels).get(&conversation_id).cloned()
+    }
+
+    /// The job boards of every kernel of the session.
+    pub(crate) fn boards(&self) -> Vec<Arc<CellJobs>> {
+        lock(&self.kernels)
+            .values()
+            .map(|kernel| Arc::clone(&kernel.jobs))
+            .collect()
     }
 
     /// The kernel of `conversation_id`, created (not booted) on first use in
@@ -192,6 +203,7 @@ impl KernelPool {
             provisioner,
             notices,
             snapshot_dir,
+            jobs: Arc::default(),
         };
         kernels.insert(conversation_id, kernel.clone());
         Ok(kernel)

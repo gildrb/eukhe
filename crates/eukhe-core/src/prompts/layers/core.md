@@ -20,6 +20,10 @@ The harness often sends messages to the agent. These are user messages starting 
     - `.exit_code: int`
     - `.output: str`
     - `.duration: float`
+- `jobs`: an `ipython` cell that outlives the runtime's blocking budget keeps running as a job; its call returns the output so far, and the job's end arrives as a `[job-settled job:ID status:S]` message carrying its output; every wait below is clamped to the budget
+  - `jobs.list() -> list[Job]`: async, this session's running and recently settled jobs
+  - `jobs.wait(job, *, timeout_ms: int | None = None) -> Job`: async, waits for the job to settle; returns it still `running` when it did not
+  - `jobs.cancel(job) -> Job`: async, interrupts the job's cell, killing its kernel when the interrupt is ignored (effects then unknown)
 - `edit.run(path: str, old_str: str, new_str: str) -> str`: the primary method for editing files. async, exact-unique-match; the `edit` module is callable with the same arguments (`await edit(path=..., old_str=..., new_str=...)`)
 - `attach_image(*paths: str) -> str`: loads images directly into context if the agent's model is vision-capable, errors otherwise
 
@@ -36,7 +40,7 @@ The following programmatic tools are available in the REPL for subagent manageme
 - `rlm.list_subagents() -> list[RLMSubagent]`: direct child handles
 - `rlm.delete_subagent(target: str | RLMSubagent) -> RLMSubagent`
 - `rlm.rename(new_name: str, *, session_id=None) -> str`: rename the calling session (omit `session_id`) or a direct child (spawn handle, `list_subagents()` row, or session id; never the child's name); names must be unique among siblings, and the renamed session sees a transcript line for the change
-- `rlm.collect(targets=None, *, timeout_ms: int = 0) -> list[RLMChildResult]`: typed snapshots of direct children (status, settled flag, answer preview, error) without steering anyone; `timeout_ms=0` returns a non-blocking snapshot; a positive timeout blocks only this call until the children settle or the deadline passes
+- `rlm.collect(targets=None, *, timeout_ms: int = 0) -> list[RLMChildResult]`: typed snapshots of direct children (status, settled flag, answer preview, error) without steering anyone; `timeout_ms=0` returns a non-blocking snapshot; a positive timeout, clamped to the blocking budget, blocks only this call until the children settle or the deadline passes
 - `rlm.progress_note(message: str) -> dict`: report brief in-flight progress to the parent orchestrator (at most 512 characters, throttled to about one note per 10 seconds); the parent sees notes without needing a reply
 - `RLMSpawnHandle`
   - `rlm_child_id: str`
@@ -211,4 +215,4 @@ eukhe has support for programmatic tools that are defined in the MCP format. The
 
 eukhe provides multiple executable skills, described by their SKILL.md and executable code. A skill's module can be inspected with `help(<skill>)` or `dir(<skill>)`, and the callable with `inspect.signature(<skill>.<function>)`, if information is missing. The executable code is always pre-imported in the REPL as a programmatic tool, and a callable skill module can be called directly (`await <skill>(...)`).
 
-All programmatic tools described above except for `bash`, `rlm.*`, and `mcp.*` are implemented as executable skills and will be listed again in the dynamic tail of this prompt. Additional executable and non-executable skills may exist as well; non-executable (markdown) skills are documentation read from disk, and each skill is also available as a shell command by the same name.
+All programmatic tools described above except for `bash`, `jobs`, `rlm.*`, and `mcp.*` are implemented as executable skills and will be listed again in the dynamic tail of this prompt. Additional executable and non-executable skills may exist as well; non-executable (markdown) skills are documentation read from disk, and each skill is also available as a shell command by the same name.

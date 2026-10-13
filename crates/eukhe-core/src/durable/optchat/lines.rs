@@ -256,6 +256,10 @@ fn report_line(report: &Report, body: &str) -> String {
             "bash".to_owned(),
             format!("done pid:{pid} exit:{exit_code}"),
         ),
+        Report::JobSettled { job, status } => (
+            format!("job:{job}"),
+            format!("settled ({})", status.label()),
+        ),
     };
     let mut line = format!("[{id}] {headline}");
     if !body.is_empty() {

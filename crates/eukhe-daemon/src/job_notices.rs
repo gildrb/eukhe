@@ -1,52 +1,43 @@
-//! The detached kernel bash completion notice: the port of the TS
-//! async-bash-completion wake (agent-session.ts `_createKernelHostHandlers`'
-//! `bash.completed`/`bash.consumed` arms + rlm-runtime.ts's validated host
-//! handlers + messages.ts `createAsyncBashCompletionMessage`).
+//! The one job-settled wake (ADR 0010): every job a session started that
+//! settles after its call stopped blocking the turn — a background kernel
+//! `bash()` command, a detached `ipython` cell — wakes the session through
+//! [`JobNotices::deliver`].
 //!
-//! The kernel runtime (`eukhe-runtime`'s `bash.py`) starts a notice
-//! task for every background `bash()` whose creating cell ends before the
-//! command settles: when the process finishes (still detached, its result
-//! unconsumed), the kernel sends a `bash.completed` host request. The TS
-//! session answers it by injecting the `[bash-done pid:N exit:M]` custom
-//! row with `queueIfBusy` + `resumeIfIdle` — a busy session queues the
-//! notice as a steering row, an idle session wakes into a new turn that
-//! runs on the row. A later kernel read that reaches the model first
-//! sends `bash.consumed`, and the undelivered notice withdraws.
+//! Bash commands are the port of the TS async-bash-completion wake
+//! (agent-session.ts `_createKernelHostHandlers`' `bash.completed`/
+//! `bash.consumed` arms + rlm-runtime.ts's validated host handlers +
+//! messages.ts `createAsyncBashCompletionMessage`): the kernel runtime
+//! (`eukhe-runtime`'s `bash.py`) starts a notice task for every
+//! background `bash()` whose creating cell ends before the command
+//! settles, and sends a `bash.completed` host request when the process
+//! finishes still unconsumed. A later kernel read that reaches the model
+//! first sends `bash.consumed`, and the undelivered notice withdraws.
+//! Detached cells settle through the session's
+//! [`SessionConfig::job_settled`] sink.
 //!
-//! The durable mapping ([`BashNotices`]): the handlers ride the session's
-//! extra kernel host handlers (wired by [`Worker::wire_session_host`]). A
-//! completion is admitted on the main conversation like the agent-message
-//! delivery — the `async_bash_completion` row as an `eukhe.custom` write,
-//! then the `[bash-done ...]` input on the steer lane, under the request id
-//! `bash-done:<uuid>` (`:row` for the card) — so a busy session queues it
-//! for the next boundary and an idle one wakes into the turn; the Harness
-//! inbox makes the admission durable. A `bash.consumed` withdraws the
-//! front-most still-queued notice for the same pid and command.
+//! The durable mapping: a settled job is admitted on the main conversation
+//! like the agent-message delivery — its row
+//! ([`create_job_settled_message`]) as an `eukhe.custom` write, then its
+//! report input on the steer lane, under the request id
+//! `job-settled:<uuid>` (`:row` for the card) — so a busy session queues
+//! it for the next boundary and an idle one wakes into the turn; the
+//! Harness inbox makes the admission durable. A `bash.consumed` withdraws
+//! the front-most still-queued notice for the same pid and command.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::messages::create_job_settled_message;
 use eukhe_core::durable::{SessionConfig, SessionStorage};
 use eukhe_durable::harness::types::WhenBusy;
-use eukhe_types::input_origin::{InputOrigin, Report};
+use eukhe_types::input_origin::InputOrigin;
+use eukhe_types::job::JobSettled;
 use serde_json::Value;
 
 use eukhe_core::kernel::shared::{host_handler, HostRequestHandlers};
 
 use crate::agent_message_ingest::{withdraw_queued, WithdrawnLane};
 use crate::worker::{submit_input, InputRequest, SessionCore, SessionSlot, Worker};
-
-/// One detached kernel bash completion (the `bash.completed` host
-/// request): the finished command's identity and exit code. The worker
-/// queue admission turns it into the woken turn (TS
-/// `createAsyncBashCompletionHostHandler` ->
-/// `_promptInjectedMessage(..., { resumeIfIdle: true })`).
-#[derive(Debug, Clone)]
-struct BashCompletionNotice {
-    pid: u32,
-    command: String,
-    exit_code: i64,
-}
 
 /// The kernel read a finished command's result before its notice
 /// delivered (the `bash.consumed` host request): the queued notice is
@@ -57,25 +48,25 @@ struct BashConsumedNotice {
     command: String,
 }
 
-/// One admitted notice a later `bash.consumed` may still withdraw.
+/// One admitted bash notice a later `bash.consumed` may still withdraw.
 struct PendingNotice {
     request_id: String,
     pid: u32,
     command: String,
 }
 
-/// The `bash.completed`/`bash.consumed` seam of one durable session: the
-/// worker's session slot it admits into, the closed-session gate, and the
-/// notices admitted so far (process memory: the kernel that sends the
-/// withdrawals dies with the worker).
+/// The job-settled seam of one durable session: the worker's session slot
+/// it admits into, the closed-session gate, and the bash notices admitted
+/// so far (process memory: the kernel that sends the withdrawals dies with
+/// the worker).
 #[derive(Clone)]
-pub(crate) struct BashNotices {
+pub(crate) struct JobNotices {
     session: SessionSlot,
     core: Arc<Mutex<SessionCore>>,
     pending: Arc<Mutex<Vec<PendingNotice>>>,
 }
 
-impl BashNotices {
+impl JobNotices {
     pub(crate) fn new(session: SessionSlot, core: Arc<Mutex<SessionCore>>) -> Self {
         Self {
             session,
@@ -98,8 +89,8 @@ impl BashNotices {
             host_handler(move |payload| {
                 let notices = completion.clone();
                 async move {
-                    let notice = validate_completion(&payload.data)?;
-                    notices.deliver(notice).await?;
+                    let settled = validate_completion(&payload.data)?;
+                    notices.deliver(settled).await?;
                     Ok(serde_json::json!({}))
                 }
             }),
@@ -118,11 +109,11 @@ impl BashNotices {
         );
     }
 
-    /// Admit one completion notice (TS `bash.completed` ->
+    /// Admit one settled job (TS `bash.completed` ->
     /// `_promptInjectedMessage(message, { streamingBehavior: "steer",
     /// queueIfBusy: true, resumeIfIdle: true })`). A closed or closing
     /// session refuses it silently, like TS `_disposed`.
-    async fn deliver(&self, notice: BashCompletionNotice) -> anyhow::Result<()> {
+    async fn deliver(&self, settled: JobSettled) -> anyhow::Result<()> {
         {
             let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
             if !core.created || core.shutdown_requested {
@@ -132,13 +123,8 @@ impl BashNotices {
         let Some(hosted) = self.session.get() else {
             return Ok(());
         };
-        let row = eukhe_core::durable::messages::create_async_bash_completion_message(
-            notice.pid,
-            &notice.command,
-            notice.exit_code,
-            crate::util::now_ms(),
-        );
-        let request_id = format!("bash-done:{}", uuid::Uuid::new_v4());
+        let row = create_job_settled_message(&settled, crate::util::now_ms());
+        let request_id = format!("job-settled:{}", uuid::Uuid::new_v4());
         let request = InputRequest {
             text: row.content.text(),
             images: Vec::new(),
@@ -146,18 +132,19 @@ impl BashNotices {
             when_busy: WhenBusy::Steer,
             request_id: Some(request_id.clone()),
             origin: InputOrigin::Report {
-                report: Report::BashDone {
-                    pid: notice.pid,
-                    exit_code: notice.exit_code,
-                },
+                report: settled.report(),
             },
         };
         submit_input(&hosted.main()?, &request, &BACKGROUND_CONTEXT).await?;
-        self.pending().push(PendingNotice {
-            request_id,
-            pid: notice.pid,
-            command: notice.command,
-        });
+        match settled {
+            JobSettled::Bash { pid, command, .. } => self.pending().push(PendingNotice {
+                request_id,
+                pid,
+                command,
+            }),
+            // A cell's output rides its notice; no read withdraws it.
+            JobSettled::Cell { .. } => {}
+        }
         Ok(())
     }
 
@@ -198,9 +185,9 @@ impl BashNotices {
 
 impl Worker {
     /// Wire this worker's kernel host seams into a session it opens: the
-    /// scheduled-jobs cron wiring (`rlm_heartbeat.*`), the bash
-    /// completion notices (`bash.completed`/`bash.consumed`), and the
-    /// agent messaging bridges (`agent_message.*`/`agent_observe.*`),
+    /// scheduled-jobs cron wiring (`rlm_heartbeat.*`), the job-settled wake
+    /// (`bash.completed`/`bash.consumed` and the detached-cell sink), and
+    /// the agent messaging bridges (`agent_message.*`/`agent_observe.*`),
     /// merged into the config's extra host handlers.
     pub(crate) fn wire_session_host(&self, config: &mut SessionConfig) {
         let storage_dir = match &config.storage {
@@ -212,23 +199,32 @@ impl Worker {
             storage_dir.as_deref(),
             &config.cwd.to_string_lossy(),
         ));
+        let notices = JobNotices::new(self.session.clone(), Arc::clone(&self.core));
         let handlers = config
             .extra_host_handlers
             .get_or_insert_with(HostRequestHandlers::default);
-        BashNotices::new(self.session.clone(), Arc::clone(&self.core)).register(handlers);
+        notices.register(handlers);
         self.register_agent_messaging(handlers);
+        config.job_settled = Some(Arc::new(move |settled: JobSettled| {
+            let notices = notices.clone();
+            tokio::spawn(async move {
+                if let Err(error) = notices.deliver(settled).await {
+                    eprintln!("eukhe-daemon settled job not delivered: {error:#}");
+                }
+            });
+        }));
     }
 }
 
 /// TS `createAsyncBashCompletionHostHandler` validation: a positive
 /// integer pid, a non-empty string command, an integer exit code.
-fn validate_completion(data: &Value) -> anyhow::Result<BashCompletionNotice> {
+fn validate_completion(data: &Value) -> anyhow::Result<JobSettled> {
     let consumed = validate_consumed(data)?;
     let exit_code = data
         .get("exitCode")
         .and_then(Value::as_i64)
         .ok_or_else(|| anyhow::anyhow!("bash.completed exitCode must be an integer"))?;
-    Ok(BashCompletionNotice {
+    Ok(JobSettled::Bash {
         pid: consumed.pid,
         command: consumed.command,
         exit_code,
@@ -263,8 +259,8 @@ mod tests {
     const SESSION: &str = "notice-session";
     const NOTICE: &str = "[bash-done pid:4321 exit:0]\n\nCommand: \"sleep 1\"";
 
-    fn completion() -> BashCompletionNotice {
-        BashCompletionNotice {
+    fn completion() -> JobSettled {
+        JobSettled::Bash {
             pid: 4321,
             command: "sleep 1".to_owned(),
             exit_code: 0,
@@ -293,7 +289,7 @@ mod tests {
             .await;
         assert!(prompt.success, "{prompt:?}");
         wait_busy(&worker, true).await;
-        let notices = BashNotices::new(worker.session.clone(), Arc::clone(&worker.core));
+        let notices = JobNotices::new(worker.session.clone(), Arc::clone(&worker.core));
         notices.deliver(completion()).await.expect("first notice");
         notices.deliver(completion()).await.expect("second notice");
         let queued = |count: usize| {
@@ -331,7 +327,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_idle_session_wakes_on_the_notice() {
         let (_dir, worker) = created_worker(SESSION, json!(["woken"])).await;
-        let notices = BashNotices::new(worker.session.clone(), Arc::clone(&worker.core));
+        let notices = JobNotices::new(worker.session.clone(), Arc::clone(&worker.core));
         notices.deliver(completion()).await.expect("notice");
         let waited = worker
             .dispatch("wait_for_idle", &json!({ "activeSessionId": SESSION }))
