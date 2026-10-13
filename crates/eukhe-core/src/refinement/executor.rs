@@ -665,6 +665,7 @@ mod tests {
                 output: 0.0.into(),
                 cache_read: 0.0.into(),
                 cache_write: 0.0.into(),
+                service_tier_multipliers: None,
             },
             context_window: 100_000,
             max_tokens: 8_000,

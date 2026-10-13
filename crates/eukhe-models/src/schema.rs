@@ -76,6 +76,8 @@ struct CatalogCost {
     output: JsNumber,
     cache_read: JsNumber,
     cache_write: JsNumber,
+    #[serde(default)]
+    service_tier_multipliers: Option<pi_ai::ServiceTierMultipliers>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -195,6 +197,7 @@ fn parse_entry(candidate: &serde_json::Value) -> Result<Model, String> {
             output: entry.cost.output,
             cache_read: entry.cost.cache_read,
             cache_write: entry.cost.cache_write,
+            service_tier_multipliers: entry.cost.service_tier_multipliers,
         },
         context_window: entry.context_window,
         max_tokens: entry.max_tokens,
@@ -214,13 +217,22 @@ fn validate_entry(entry: &CatalogModelSchema) -> Result<(), String> {
     if entry.input.is_empty() || entry.input.len() > 2 {
         return Err("Invalid model catalog entry".into());
     }
-    for cost in [
+    let multipliers = entry
+        .cost
+        .service_tier_multipliers
+        .iter()
+        .flat_map(|offered| [offered.flex, offered.priority])
+        .flatten();
+    for value in [
         entry.cost.input,
         entry.cost.output,
         entry.cost.cache_read,
         entry.cost.cache_write,
-    ] {
-        let value = cost.as_f64();
+    ]
+    .map(JsNumber::as_f64)
+    .into_iter()
+    .chain(multipliers)
+    {
         if !value.is_finite() || !(0.0..=1_000_000.0).contains(&value) {
             return Err("Invalid model catalog entry".into());
         }

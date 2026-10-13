@@ -5,9 +5,12 @@
 //! `(provider, api, baseUrl)` tuple. Non-matching entries drop silently;
 //! request headers come from the compiled transport templates
 //! (`template?.headers ?? transport.headers`), never from catalog data;
-//! prime-inference entries are skipped (that domain ships compiled).
+//! prime-inference entries are skipped (that domain ships compiled). A
+//! catalog entry that states no service tiers takes its compiled row's.
 
 use std::collections::{BTreeMap, HashMap};
+
+use eukhe_types::pi_ai::ServiceTierMultipliers;
 
 use crate::schema::{parse_model_catalog, InvalidEntries};
 use crate::Model;
@@ -15,13 +18,20 @@ use crate::Model;
 /// A template's request headers.
 type TemplateHeaders = Option<BTreeMap<String, String>>;
 
+/// What the compiled row of one `(provider, id)` lends its catalog entry.
+#[derive(Clone, Default)]
+struct ExactTemplate {
+    headers: TemplateHeaders,
+    service_tier_multipliers: Option<ServiceTierMultipliers>,
+}
+
 /// The compiled `(provider, api, baseUrl)` template tables for pinning.
 #[derive(Clone, Default)]
 pub struct PinnedTemplates {
     /// `(provider, api, baseUrl)` -> transport template headers.
     transports: HashMap<(String, String, String), TemplateHeaders>,
-    /// `(provider, id)` -> exact model template headers.
-    exact: HashMap<(String, String), TemplateHeaders>,
+    /// `(provider, id)` -> exact model template.
+    exact: HashMap<(String, String), ExactTemplate>,
 }
 
 impl PinnedTemplates {
@@ -46,7 +56,10 @@ impl PinnedTemplates {
         for model in models {
             pinned.exact.insert(
                 (model.provider.clone(), model.id.clone()),
-                model.headers.clone(),
+                ExactTemplate {
+                    headers: model.headers.clone(),
+                    service_tier_multipliers: model.cost.service_tier_multipliers,
+                },
             );
             pinned
                 .transports
@@ -105,7 +118,13 @@ pub fn pin_catalog_models(
             .exact
             .get(&(model.provider.clone(), model.id.clone()));
         let mut pinned = model;
-        pinned.headers = exact.and_then(Clone::clone).or_else(|| transport.clone());
+        pinned.headers = exact
+            .and_then(|exact| exact.headers.clone())
+            .or_else(|| transport.clone());
+        if pinned.cost.service_tier_multipliers.is_none() {
+            pinned.cost.service_tier_multipliers =
+                exact.and_then(|exact| exact.service_tier_multipliers);
+        }
         models.push(pinned);
     }
     if models.is_empty() {
@@ -144,6 +163,7 @@ mod tests {
                     output: 0.0.into(),
                     cache_read: 0.0.into(),
                     cache_write: 0.0.into(),
+                    service_tier_multipliers: None,
                 },
                 context_window: 1,
                 max_tokens: 1,
@@ -224,6 +244,42 @@ mod tests {
                 .unwrap(),
             "special/2"
         );
+    }
+
+    #[test]
+    fn an_entry_without_service_tiers_takes_its_compiled_rows() {
+        let mut templates = compiled_fixture();
+        let compiled = ServiceTierMultipliers {
+            flex: None,
+            priority: Some(2.0),
+        };
+        templates
+            .exact
+            .get_mut(&("prov".to_string(), "exact".to_string()))
+            .expect("exact template")
+            .service_tier_multipliers = Some(compiled);
+        let silent = catalog_entry(
+            "exact",
+            "openai-completions",
+            "prov",
+            "https://prov.example",
+        );
+        let mut stated = silent.clone();
+        stated["cost"]["serviceTierMultipliers"] = json!({"priority": 3});
+        for (entry, expected) in [
+            (silent, compiled),
+            (
+                stated,
+                ServiceTierMultipliers {
+                    flex: None,
+                    priority: Some(3.0),
+                },
+            ),
+        ] {
+            let payload = json!({"schemaVersion": 1, "models": [entry]});
+            let models = parse_provider_model_catalog(&payload, &templates).expect("pinned");
+            assert_eq!(models[0].cost.service_tier_multipliers, Some(expected));
+        }
     }
 
     #[test]

@@ -131,6 +131,7 @@ mod tests {
                 output: JsNumber::from(0.0),
                 cache_read: JsNumber::from(0.0),
                 cache_write: JsNumber::from(0.0),
+                service_tier_multipliers: None,
             },
             context_window: 128_000,
             max_tokens: 8_192,

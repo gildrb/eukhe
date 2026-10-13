@@ -17,7 +17,8 @@ use eukhe_core::settings::{QueueModeSetting, SettingsManager, TransportSetting};
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_types::ai::{ServiceTier, Transport};
 use eukhe_types::daemon::SessionEvent;
-use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
+use eukhe_types::pi_ai::{Model, ModelThinkingLevel, ServiceTierMultipliers};
+use serde::Deserialize as _;
 use serde_json::{json, Value};
 
 use crate::model_switch::{apply_model, THINKING_LEVELS};
@@ -29,16 +30,20 @@ use crate::worker::{model_metadata, Worker};
 const QUEUE_MODES: &[&str] = &["all", "one-at-a-time"];
 
 /// TS `supportsServiceTier` over the shown model's wire metadata
-/// (provider, api, id) against the shared eukhe-types eligibility fields.
-/// A session without a resolved catalog model supports only the `default`
-/// tier, exactly like the TS `model == null` arm.
+/// (provider, api, and the row's `cost.serviceTierMultipliers`) against the
+/// shared eukhe-types eligibility fields. A session without a resolved
+/// catalog model supports only the `default` tier, exactly like the TS
+/// `model == null` arm.
 pub(crate) fn model_supports_service_tier(model: Option<&Value>, tier: ServiceTier) -> bool {
     model
         .and_then(|model| {
+            let offered = model
+                .pointer("/cost/serviceTierMultipliers")
+                .and_then(|value| ServiceTierMultipliers::deserialize(value).ok());
             Some(eukhe_types::ai::supports_service_tier_fields(
                 model.get("provider")?.as_str()?,
                 model.get("api")?.as_str()?,
-                model.get("id")?.as_str()?,
+                offered,
                 tier,
             ))
         })

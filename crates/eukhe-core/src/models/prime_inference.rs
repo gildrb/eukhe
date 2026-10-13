@@ -32,6 +32,7 @@ pub fn private_prime_inference_models() -> Vec<Model> {
             output: JsNumber::from(0u64),
             cache_read: JsNumber::from(0u64),
             cache_write: JsNumber::from(0u64),
+            service_tier_multipliers: None,
         },
         context_window: 400_000,
         max_tokens: 131_072,

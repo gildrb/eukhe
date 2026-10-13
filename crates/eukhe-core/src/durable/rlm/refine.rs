@@ -397,6 +397,7 @@ pub(crate) fn legacy_model(model: &eukhe_types::pi_ai::Model) -> eukhe_types::ai
         output: model.cost.output.into(),
         cache_read: model.cost.cache_read.into(),
         cache_write: model.cost.cache_write.into(),
+        service_tier_multipliers: model.cost.service_tier_multipliers,
     };
     eukhe_types::ai::Model {
         id: model.id.clone(),

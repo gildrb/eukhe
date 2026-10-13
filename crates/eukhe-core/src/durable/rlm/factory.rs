@@ -327,6 +327,7 @@ fn session_model_to_ai_model(model: &eukhe_types::pi_ai::Model) -> AiModel {
             output: model.cost.output.into(),
             cache_read: model.cost.cache_read.into(),
             cache_write: model.cost.cache_write.into(),
+            service_tier_multipliers: model.cost.service_tier_multipliers,
         },
         context_window: model.context_window,
         max_tokens: model.max_tokens,

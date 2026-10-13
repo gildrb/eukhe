@@ -136,6 +136,7 @@ mod tests {
                 output: 2.0.into(),
                 cache_read: 0.0.into(),
                 cache_write: 0.0.into(),
+                service_tier_multipliers: None,
             },
             context_window: 200_000,
             max_tokens: 8192,
@@ -246,6 +247,11 @@ mod tests {
         let mut image_model = model("gpt-5.4", true);
         image_model.provider = "openai".to_string();
         image_model.api = "openai-responses".to_string();
+        image_model.cost.service_tier_multipliers =
+            Some(eukhe_types::pi_ai::ServiceTierMultipliers {
+                flex: None,
+                priority: Some(2.0),
+            });
         let available = vec![session.clone(), image_model];
         let inputs = inputs(&session, Some("openai/gpt-5.4"), &available, false);
         let resolved = resolve_image_model_override(&inputs).unwrap().unwrap();

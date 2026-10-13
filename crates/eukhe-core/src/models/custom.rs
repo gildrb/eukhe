@@ -259,6 +259,7 @@ fn cost_from_config(config: &ModelCostConfig) -> ModelCost {
         output: JsNumber::from(config.output.unwrap_or(0.0)),
         cache_read: JsNumber::from(config.cache_read.unwrap_or(0.0)),
         cache_write: JsNumber::from(config.cache_write.unwrap_or(0.0)),
+        service_tier_multipliers: None,
     }
 }
 
@@ -352,6 +353,7 @@ pub fn apply_model_override(model: &Model, over: &ModelOverride) -> Model {
             output: JsNumber::from(cost.output.unwrap_or(base.output.0)),
             cache_read: JsNumber::from(cost.cache_read.unwrap_or(base.cache_read.0)),
             cache_write: JsNumber::from(cost.cache_write.unwrap_or(base.cache_write.0)),
+            service_tier_multipliers: base.service_tier_multipliers,
         };
     }
     if over.compat.is_some() || result.compat.is_some() {

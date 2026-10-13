@@ -543,6 +543,10 @@ pub struct ModelCost {
     pub cache_read: JsNumber,
     #[serde(rename = "cacheWrite")]
     pub cache_write: JsNumber,
+    /// The service tiers the model's row publishes a price for: the tiers
+    /// it is offered at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier_multipliers: Option<crate::pi_ai::ServiceTierMultipliers>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -620,13 +624,13 @@ pub struct Model {
 /// TS `supportsServiceTier` over the eligibility fields: whether a
 /// provider accepts (and honors) a requested service tier. The
 /// Model-typed [`supports_service_tier`] delegates here so the surfaces
-/// that only hold the connection-state model metadata (provider, api, id)
-/// share one predicate.
+/// that only hold the connection-state model metadata (provider, api, and
+/// the row's `cost.serviceTierMultipliers`) share one predicate.
 #[must_use]
 pub fn supports_service_tier_fields(
     provider: &str,
     api: &str,
-    model_id: &str,
+    offered: Option<crate::pi_ai::ServiceTierMultipliers>,
     tier: ServiceTier,
 ) -> bool {
     if tier == ServiceTier::Default {
@@ -644,23 +648,15 @@ pub fn supports_service_tier_fields(
     if !openai_responses && !codex_responses {
         return false;
     }
-    // "auto" defers the tier choice to OpenAI and is valid for every model
-    // there; "scale" is entitlement-gated, so pass it through for callers
-    // that have it.
-    if matches!(tier, ServiceTier::Auto | ServiceTier::Scale) {
-        return true;
+    match tier {
+        // "auto" defers the tier choice to OpenAI and is valid for every
+        // model there; "scale" is entitlement-gated, so pass it through for
+        // callers that have it.
+        ServiceTier::Default | ServiceTier::Auto | ServiceTier::Scale => true,
+        // Flex and priority exist where the model's catalog row prices them.
+        ServiceTier::Flex => offered.is_some_and(|offered| offered.flex.is_some()),
+        ServiceTier::Priority => offered.is_some_and(|offered| offered.priority.is_some()),
     }
-    let eligible_id = model_id == "gpt-5.4"
-        || model_id == "gpt-5.5"
-        || model_id == "gpt-5.6"
-        || model_id == "gpt-6-astra"
-        || model_id.starts_with("gpt-5.6-");
-    if tier == ServiceTier::Priority {
-        return eligible_id;
-    }
-    // Flex processing is an API-key feature; the ChatGPT (Codex OAuth)
-    // backend has no flex tier.
-    tier == ServiceTier::Flex && eligible_id && openai_responses
 }
 
 /// TS `supportsServiceTier`: whether a model's provider accepts (and
@@ -669,12 +665,17 @@ pub fn supports_service_tier_fields(
 /// (the TS product keeps the same function in the shared AI package).
 #[must_use]
 pub fn supports_service_tier(model: &Model, tier: ServiceTier) -> bool {
-    supports_service_tier_fields(&model.provider, &model.api, &model.id, tier)
+    supports_service_tier_fields(
+        &model.provider,
+        &model.api,
+        model.cost.service_tier_multipliers,
+        tier,
+    )
 }
 
 /// TS `supportsFastMode` (now `supportsServiceTier(model, "priority")`):
-/// the fast-mode (priority) tier exists on the eligible ids served over
-/// the `OpenAI` Responses APIs. Shared by the surfaces that gate the
+/// the fast-mode (priority) tier exists where the model's row prices it
+/// on the `OpenAI` Responses APIs. Shared by the surfaces that gate the
 /// `/fast` command on model eligibility.
 #[must_use]
 pub fn supports_fast_mode(model: &Model) -> bool {
