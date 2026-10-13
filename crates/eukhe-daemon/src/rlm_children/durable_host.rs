@@ -17,7 +17,7 @@ use eukhe_core::agent_messaging::{
     create_agent_session_message_row, AgentFamilyRelationship, AgentSessionMessageRowPayload,
 };
 use eukhe_core::durable::children as durable;
-use eukhe_types::daemon::{DaemonCommand, PromptInput};
+use eukhe_types::daemon::{DaemonCommand, PromptInput, WorkerLiveness};
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{Usage, UsageCost};
 
@@ -69,6 +69,10 @@ const NOT_OWN_FAMILY: &str =
 /// The settle error of a child whose run ended while its parent was down.
 const INTERRUPTED_ERROR: &str =
     "RLM child run was interrupted: the child stopped mid-run while its parent session was down";
+
+/// The settle error of a child whose worker process is gone while its
+/// probes were failing (no worker hosts it and none is coming).
+const WORKER_EXITED_ERROR: &str = "Child worker exited: no live worker process hosts the child";
 
 /// Whether `child_dir`'s display entry names `child_id` and still says
 /// `running` (no settle completed it); a missing entry reads `false`.
@@ -494,59 +498,97 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     usage: this.child_usage(&request.session_id).await,
                 }
             };
-            let unsettled_resume =
-                resumed && display_running(&child_dir, &request.rlm_child_id).await?;
-            if unsettled_resume {
-                // The non-waking probe first: the idle wait below wakes a
-                // passivated child, while a child no worker hosts stopped
-                // with its parent and stays passive (TS's in-process child
-                // died with the parent; only its roster row survives).
-                match this.child_busy(&selector).await {
-                    Ok(true) => return Ok(running().await),
-                    Ok(false) => {}
-                    Err(error) if format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
+            let observed: Result<durable::RlmChildObservation> = async {
+                let unsettled_resume =
+                    resumed && display_running(&child_dir, &request.rlm_child_id).await?;
+                if unsettled_resume {
+                    // The non-waking probe first: the idle wait below wakes
+                    // a passivated child, while a child no worker hosts
+                    // stopped with its parent and stays passive (TS's
+                    // in-process child died with the parent; only its
+                    // roster row survives).
+                    match this.child_busy(&selector).await {
+                        Ok(true) => return Ok(running().await),
+                        Ok(false) => {}
+                        Err(error) if format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
+                            return Ok(interrupted().await);
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                this.wait_for_child(&selector, Duration::from_millis(request.timeout_ms))
+                    .await;
+                if this.child_outcome(&selector).await? == durable::RlmChildRunState::Running {
+                    return Ok(running().await);
+                }
+                // Stability re-check: a prompt admitted to an idle worker
+                // can read idle once before its run starts.
+                tokio::time::sleep(Duration::from_millis(WATCH_SETTLE_GRACE_MS)).await;
+                let state = match this.child_outcome(&selector).await? {
+                    durable::RlmChildRunState::Running => return Ok(running().await),
+                    // The run ended but the child's background jobs still
+                    // run: it is alive, and their settlement wakes it.
+                    state @ durable::RlmChildRunState::Idle { .. } => {
+                        this.durable_calls()
+                            .seen_running
+                            .insert(request.session_id.clone());
+                        state
+                    }
+                    state @ durable::RlmChildRunState::Failed { .. } => state,
+                    durable::RlmChildRunState::Answered { .. } if unsettled_resume => {
                         return Ok(interrupted().await);
                     }
-                    Err(error) => return Err(error),
-                }
+                    state @ durable::RlmChildRunState::Answered { .. } => {
+                        // The answered run completes the child's display
+                        // entry, so a restarted parent relists it as
+                        // completed.
+                        super::lifecycle::complete_child_display(
+                            child_dir.clone(),
+                            request.rlm_child_id.clone(),
+                        )
+                        .await;
+                        state
+                    }
+                };
+                Ok(durable::RlmChildObservation {
+                    state,
+                    usage: this.child_usage(&request.session_id).await,
+                })
             }
-            this.wait_for_child(&selector, Duration::from_millis(request.timeout_ms))
-                .await;
-            if this.child_outcome(&selector).await? == durable::RlmChildRunState::Running {
-                return Ok(running().await);
-            }
-            // Stability re-check: a prompt admitted to an idle worker can
-            // read idle once before its run starts.
-            tokio::time::sleep(Duration::from_millis(WATCH_SETTLE_GRACE_MS)).await;
-            let state = match this.child_outcome(&selector).await? {
-                durable::RlmChildRunState::Running => return Ok(running().await),
-                // The run ended but the child's background jobs still
-                // run: it is alive, and their settlement wakes it.
-                state @ durable::RlmChildRunState::Idle { .. } => {
-                    this.durable_calls()
-                        .seen_running
-                        .insert(request.session_id.clone());
-                    state
-                }
-                state @ durable::RlmChildRunState::Failed { .. } => state,
-                durable::RlmChildRunState::Answered { .. } if unsettled_resume => {
-                    return Ok(interrupted().await);
-                }
-                state @ durable::RlmChildRunState::Answered { .. } => {
-                    // The answered run completes the child's display entry,
-                    // so a restarted parent relists it as completed.
-                    super::lifecycle::complete_child_display(
-                        child_dir,
-                        request.rlm_child_id.clone(),
-                    )
-                    .await;
-                    state
-                }
+            .await;
+            let probe_error = match observed {
+                Ok(observation) => return Ok(observation),
+                Err(error) => error,
             };
-            Ok(durable::RlmChildObservation {
-                state,
-                usage: this.child_usage(&request.session_id).await,
-            })
+            // A failed probe is not a dead child: a worker too busy to
+            // answer (overloaded, a slow route) is still running. The
+            // supervisor's process-level verdict decides (omp2
+            // processes.md: liveness comes from the process).
+            let liveness = this
+                .command(
+                    &DaemonCommand::GetWorkerLiveness {
+                        id: None,
+                        active_session_id: selector.clone(),
+                        rest: Map::default(),
+                    },
+                    STATE_TIMEOUT_MS,
+                )
+                .await
+                .and_then(|data| {
+                    serde_json::from_value::<WorkerLiveness>(data["liveness"].clone())
+                        .context("invalid worker liveness verdict")
+                })
+                .with_context(|| format!("RLM child probe failed: {probe_error:#}"))?;
+            match liveness {
+                WorkerLiveness::Live | WorkerLiveness::Recovering => Ok(running().await),
+                WorkerLiveness::Gone => Ok(durable::RlmChildObservation {
+                    state: durable::RlmChildRunState::Failed {
+                        failure: ChildFailure::WorkerExited,
+                        error: WORKER_EXITED_ERROR.to_owned(),
+                    },
+                    usage: this.child_usage(&request.session_id).await,
+                }),
+            }
         })
     }
 

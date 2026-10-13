@@ -42,10 +42,6 @@ pub(crate) const CHILD_TASK_KIND: &str = "eukhe.rlm.child";
 pub(crate) const WATCH_WAIT_SLICE_MS: u64 = 60_000;
 /// Re-poll cadence after a slice ends without a settled child.
 pub(crate) const WATCH_POLL_INTERVAL_MS: f64 = 2_000.0;
-/// Consecutive failed polls before an unreachable child settles as errored.
-pub(crate) const WATCH_MAX_UNREACHABLE_POLLS: u32 = 150;
-/// The error text of a child that stayed unreachable.
-const UNREACHABLE_ERROR: &str = "Child worker unreachable";
 /// The error text of a run the user cancelled (no notice is owed).
 const CANCELLED_BY_USER: &str = "Cancelled by user";
 /// Ordinal of the report a child task delivers (its only one).
@@ -98,7 +94,6 @@ pub(crate) enum ChildCheckpoint {
         poll: u64,
         /// Harness clock before which the next poll does not start.
         next_poll_at: f64,
-        unreachable_polls: u32,
     },
     Report {
         report: ChildReport,
@@ -139,7 +134,6 @@ pub(crate) fn child_task(services: &Arc<ChildrenServices>) -> ChildTask {
                 Some("report") => ChildCheckpoint::Watch {
                     poll: 0,
                     next_poll_at: 0.0,
-                    unreachable_polls: 0,
                 },
                 Some(_) | None => from_json(checkpoint)?,
             };
@@ -310,7 +304,6 @@ async fn prompt(
                         checkpoint: ChildCheckpoint::Watch {
                             poll: 0,
                             next_poll_at: now,
-                            unreachable_polls: 0,
                         },
                     }));
                 };
@@ -345,12 +338,7 @@ async fn watch(
     runtime: Runtime,
     cx: Context,
 ) -> SessionResult<()> {
-    let ChildCheckpoint::Watch {
-        poll,
-        next_poll_at,
-        unreachable_polls,
-    } = task.checkpoint
-    else {
+    let ChildCheckpoint::Watch { poll, next_poll_at } = task.checkpoint else {
         return Err(SessionError::error(
             "RLM child watch phase without its checkpoint",
         ));
@@ -417,20 +405,14 @@ async fn watch(
                         }
                         settle_next(&mut row, observation.state, poll, next_poll_at)
                     }
-                    Err(_) if unreachable_polls + 1 >= WATCH_MAX_UNREACHABLE_POLLS => {
-                        row.status = ChildStatus::Error;
-                        row.error = Some(UNREACHABLE_ERROR.to_owned());
-                        report_next(ChildReport::Failed {
-                            session_name: row.session_name.clone(),
-                            failure: Some(ChildFailure::Unreachable),
-                            error: UNREACHABLE_ERROR.to_owned(),
-                        })
-                    }
+                    // A failed poll never settles the child: whether it is
+                    // gone is the host's process-level verdict (a dead
+                    // worker answers `Failed`), never a count of failed
+                    // requests to a live but slow one.
                     Err(_) => NextTaskState::Running {
                         checkpoint: ChildCheckpoint::Watch {
                             poll: poll + 1,
                             next_poll_at,
-                            unreachable_polls: unreachable_polls + 1,
                         },
                     },
                 };
@@ -451,7 +433,6 @@ fn settle_next(row: &mut ChildRow, state: RlmChildRunState, poll: u64, next_poll
             checkpoint: ChildCheckpoint::Watch {
                 poll: poll + 1,
                 next_poll_at,
-                unreachable_polls: 0,
             },
         },
         RlmChildRunState::Answered { answer_preview } => {

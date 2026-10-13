@@ -69,21 +69,24 @@ pub enum ChildFailure {
     Aborted,
     /// The child stopped mid-run while its parent session was down.
     Interrupted,
-    /// The child's worker could not be reached.
-    Unreachable,
+    /// No live worker process hosts the child any more (the supervisor's
+    /// process verdict, never a count of failed requests). Whatever the
+    /// run was doing when its worker died may or may not have taken
+    /// effect (ADR 0011: effects unknown).
+    WorkerExited,
     /// The task prompt never reached the child.
     Undelivered,
 }
 
 impl std::fmt::Display for ChildFailure {
     /// The header word: `provider-<kind>`, `aborted`, `interrupted`,
-    /// `unreachable`, or `undelivered`.
+    /// `worker-exited`, or `undelivered`.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Provider { kind } => write!(formatter, "provider-{kind}"),
             Self::Aborted => formatter.write_str("aborted"),
             Self::Interrupted => formatter.write_str("interrupted"),
-            Self::Unreachable => formatter.write_str("unreachable"),
+            Self::WorkerExited => formatter.write_str("worker-exited"),
             Self::Undelivered => formatter.write_str("undelivered"),
         }
     }

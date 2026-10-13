@@ -858,6 +858,16 @@ impl Supervisor {
                     .await;
                 (vec![response_line(&response)], false)
             }
+            DaemonCommand::GetWorkerLiveness {
+                active_session_id, ..
+            } => {
+                // The process-level verdict: answered here from the
+                // worker's pid, never routed to (or queued behind) it.
+                let response = self
+                    .handle_get_worker_liveness(&command_id, &type_name, active_session_id)
+                    .await;
+                (vec![response_line(&response)], false)
+            }
             DaemonCommand::SendMessage { .. } => {
                 let client_id = effective_client_id.lock().unwrap().clone();
                 let response = self
