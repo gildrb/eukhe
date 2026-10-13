@@ -37,6 +37,10 @@ pub enum StreamFailureKind {
     /// mid-block, no stop signal, no error frame (the connection just
     /// ends). Transient by nature — the same request can be re-issued.
     StreamDrop,
+    /// The response stream went silent: no provider event within the
+    /// stream-idle deadline (a half-open connection or a hung upstream).
+    /// Transient by nature — the same request can be re-issued.
+    StreamStalled,
     Unknown,
 }
 
@@ -56,6 +60,7 @@ impl StreamFailureKind {
             Self::InvalidRequest => "invalid_request",
             Self::MalformedResponse => "malformed_response",
             Self::StreamDrop => "stream_drop",
+            Self::StreamStalled => "stream_stalled",
             Self::Unknown => "unknown",
         }
     }
@@ -554,6 +559,7 @@ const KIND_MESSAGES: &[(StreamFailureKind, &str)] = &[
         StreamFailureKind::StreamDrop,
         "Provider dropped the response stream",
     ),
+    (StreamFailureKind::StreamStalled, "Provider stream stalled"),
     (StreamFailureKind::Unknown, "Provider stream failed"),
 ];
 
@@ -730,6 +736,29 @@ pub fn stream_drop_failure(open_block: OpenStreamBlock) -> StreamFailureError {
     };
     StreamFailureError {
         message: stream_failure_message(&info, Some(detail)),
+        info,
+    }
+}
+
+/// Failure for a stream that went silent: no provider event for
+/// `idle_timeout_ms` (the stream-idle deadline of `Models`). Retryable by
+/// kind, whatever its text.
+#[must_use]
+pub fn stream_stalled_failure(idle_timeout_ms: f64) -> StreamFailureError {
+    let info = StreamFailureInfo {
+        kind: StreamFailureKind::StreamStalled,
+        provider_error_type: None,
+        status: None,
+        request_id: None,
+        retry_after_ms: None,
+        raw: None,
+    };
+    let detail = format!(
+        "no stream event for {}ms",
+        crate::utils::js::number_to_js_string(idle_timeout_ms)
+    );
+    StreamFailureError {
+        message: stream_failure_message(&info, Some(&detail)),
         info,
     }
 }

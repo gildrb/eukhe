@@ -11,6 +11,7 @@ use eukhe_types::pi_ai::{AssistantMessage, StopReason};
 
 use super::diagnostics::Thrown;
 use super::sleep::timer_duration;
+use super::stream_failure::StreamFailureKind;
 
 fn build_provider_error_pattern(patterns: &[&str]) -> Regex {
     let pattern = format!("(?i){}", patterns.join("|"));
@@ -348,12 +349,25 @@ where
 }
 
 /// Whether a failed assistant message looks like a transient provider or
-/// transport error. This is classification only: callers handle context
-/// overflow first and apply their own retry budget, backoff, and reporting.
+/// transport error. A stalled stream (the newest `provider_stream_failure`
+/// diagnostic records kind `stream_stalled`) is retryable by its type;
+/// other errors classify by their text. This is classification only:
+/// callers handle context overflow first and apply their own retry budget,
+/// backoff, and reporting.
 #[must_use]
 pub fn is_retryable_assistant_error(message: &AssistantMessage) -> bool {
     if message.stop_reason != StopReason::Error {
         return false;
+    }
+    let newest_failure_kind = message
+        .diagnostics
+        .iter()
+        .flatten()
+        .rev()
+        .find(|diagnostic| diagnostic.kind == "provider_stream_failure")
+        .and_then(|diagnostic| diagnostic.details.as_ref()?.get("kind")?.as_str());
+    if newest_failure_kind == Some(StreamFailureKind::StreamStalled.as_str()) {
+        return true;
     }
     let Some(error_message) = message
         .error_message

@@ -321,65 +321,6 @@ async fn reconnects_once_when_the_websocket_connection_limit_is_reached_before_o
     assert_eq!(fetch_calls.count(), 0);
 }
 
-#[tokio::test(start_paused = true)]
-async fn falls_back_to_sse_when_a_websocket_is_idle_before_the_first_event() {
-    let _isolation = isolate().await;
-    let (fetch, fetch_calls) = completed_sse_fetch();
-    let recorder = mock_websocket(MockWebSocketConfig {
-        open: true,
-        ready_state: true,
-        on_send: Box::new(|_, _, _| SendReply::Events(Vec::new())),
-    });
-    let mut options = ws_options(
-        Transport::Auto,
-        Some("ws-idle-before-start"),
-        fetch,
-        "acc_test",
-    );
-    options.request.timeout_ms = Some(50.0);
-
-    let result = stream(&model(), &say_hello(), provider_options(options))
-        .result()
-        .await;
-
-    assert_eq!(recorder.sent().len(), 1);
-    assert_eq!(first_text(&result).as_deref(), Some("Hello"));
-    assert_eq!(fetch_calls.count(), 1);
-    assert_stats(
-        "ws-idle-before-start",
-        &json!({ "websocketFailures": 1, "sseFallbacks": 1, "websocketFallbackActive": true }),
-    );
-}
-
-#[tokio::test(start_paused = true)]
-async fn errors_when_a_websocket_is_idle_after_the_stream_started() {
-    let _isolation = isolate().await;
-    let (fetch, fetch_calls) = unexpected_fetch();
-    mock_websocket(MockWebSocketConfig {
-        open: true,
-        ready_state: true,
-        on_send: Box::new(|_, _, _| {
-            messages(vec![json!({
-                "type": "response.output_item.added",
-                "item": { "type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": [] },
-            })])
-        }),
-    });
-    let mut options = ws_options(Transport::Auto, None, fetch, "acc_test");
-    options.request.timeout_ms = Some(50.0);
-
-    let result = stream(&model(), &say_hello(), provider_options(options))
-        .result()
-        .await;
-
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(
-        result.error_message.as_deref(),
-        Some("WebSocket idle timeout after 50ms")
-    );
-    assert_eq!(fetch_calls.count(), 0);
-}
-
 #[tokio::test]
 async fn opens_a_fresh_cached_websocket_before_the_backend_connection_age_limit() {
     let _isolation = isolate().await;

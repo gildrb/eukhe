@@ -379,7 +379,9 @@ impl SdkClient {
                     }),
             }
         };
-        // Timeout covers the fetch until headers arrive (TS `timedFetch`).
+        // Timeout covers the fetch until headers arrive (TS `timedFetch`); a
+        // silent body after them is the stream-idle deadline's
+        // (`utils::stream_idle`, applied by `Models`).
         let timeout = Duration::from_secs_f64(timeout_ms.max(0.0) / 1000.0);
         let timed = async move {
             match tokio::time::timeout(timeout, call).await {
