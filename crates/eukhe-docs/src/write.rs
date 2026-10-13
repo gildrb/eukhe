@@ -82,6 +82,8 @@ fn write_synced(
 pub enum WriteError {
     #[error("Cannot write {display}: it is a directory.")]
     IsDirectory { display: String },
+    #[error("Cannot write {display}: it changed on disk since it was read. Nothing was written; re-read it and retry.")]
+    Changed { display: String },
     #[error("Cannot write {display}: {source}")]
     Io {
         display: String,
@@ -113,7 +115,31 @@ pub struct WriteOutcome {
     pub rendered: String,
 }
 
-/// Create or overwrite `absolute` with `content` under its path lock.
+/// What a write expects to replace.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Base<'a> {
+    /// Whatever is there, or nothing.
+    Any,
+    /// Exactly these bytes; anything else (or no file) is
+    /// [`WriteError::Changed`].
+    Bytes(&'a [u8]),
+}
+
+/// The file's permissions when its current bytes are `expected`; `None`
+/// when they differ.
+fn permissions_if_unchanged(
+    canonical: &Path,
+    expected: &[u8],
+) -> std::io::Result<Option<Permissions>> {
+    let current = std::fs::read(canonical)?;
+    if current != expected {
+        return Ok(None);
+    }
+    Ok(Some(std::fs::metadata(canonical)?.permissions()))
+}
+
+/// Create or overwrite `absolute` with `content` under its path lock, when
+/// its current bytes are `base`.
 ///
 /// A replaced file keeps its BOM, line endings, and mode; a created file
 /// gets `content` as given and execute bits when it starts with `#!`. The
@@ -124,6 +150,7 @@ pub(crate) fn write_file(
     absolute: &Path,
     display: &str,
     content: &str,
+    base: Base<'_>,
 ) -> Result<WriteOutcome, WriteError> {
     let io = |source| WriteError::Io {
         display: display.to_owned(),
@@ -144,6 +171,18 @@ pub(crate) fn write_file(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(io(error)),
     };
+    let changed = || WriteError::Changed {
+        display: display.to_owned(),
+    };
+    match (base, &existing) {
+        (Base::Any, _) => {}
+        (Base::Bytes(_), None) => return Err(changed()),
+        (Base::Bytes(expected), Some((bytes, _))) => {
+            if bytes.as_slice() != expected {
+                return Err(changed());
+            }
+        }
+    }
     let (persisted, permissions, disposition, made_executable) =
         if let Some((bytes, permissions)) = existing {
             let previous = String::from_utf8_lossy(&bytes);
@@ -224,16 +263,14 @@ fn io_error(path: &Path, source: std::io::Error) -> EditError {
 
 /// Fail unless `canonical` still holds `before_raw`; return its permissions.
 fn compare(canonical: &Path, display: &str, before_raw: &str) -> Result<Permissions, EditError> {
-    let current = std::fs::read(canonical).map_err(|source| io_error(canonical, source))?;
-    if current != before_raw.as_bytes() {
-        return Err(EditError::apply(format!(
-            "Edit rejected for {display}: the file changed on disk while the edit was being \
-             applied. Nothing was written. Re-read the file and retry."
-        )));
-    }
-    Ok(std::fs::metadata(canonical)
+    permissions_if_unchanged(canonical, before_raw.as_bytes())
         .map_err(|source| io_error(canonical, source))?
-        .permissions())
+        .ok_or_else(|| {
+            EditError::apply(format!(
+                "Edit rejected for {display}: the file changed on disk while the edit was being \
+                 applied. Nothing was written. Re-read the file and retry."
+            ))
+        })
 }
 
 impl EditWriter for LockedWriter<'_> {

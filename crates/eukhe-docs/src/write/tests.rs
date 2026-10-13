@@ -18,15 +18,44 @@ impl Fixture {
     }
 
     fn write(&self, name: &str, content: &str) -> WriteOutcome {
+        self.write_over(name, content, Base::Any).unwrap()
+    }
+
+    fn write_over(
+        &self,
+        name: &str,
+        content: &str,
+        base: Base<'_>,
+    ) -> Result<WriteOutcome, WriteError> {
         write_file(
             &self.store,
             &self.locks(),
             &self.dir.path().join(name),
             name,
             content,
+            base,
         )
-        .unwrap()
     }
+}
+
+#[test]
+fn compare_and_swap_replaces_only_the_expected_bytes_keeping_crlf() {
+    let fixture = Fixture::new();
+    let path = fixture.dir.path().join("a.txt");
+    std::fs::write(&path, "\u{feff}one\r\ntwo\r\n").unwrap();
+    let stale = fixture.write_over("a.txt", "x\n", Base::Bytes(b"one\ntwo\n"));
+    assert!(matches!(stale, Err(WriteError::Changed { .. })));
+    let missing = fixture.write_over("b.txt", "x\n", Base::Bytes(b""));
+    assert!(matches!(missing, Err(WriteError::Changed { .. })));
+    assert!(!fixture.dir.path().join("b.txt").exists());
+    let current = std::fs::read(&path).unwrap();
+    fixture
+        .write_over("a.txt", "one\nTWO\n", Base::Bytes(&current))
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "\u{feff}one\r\nTWO\r\n"
+    );
 }
 
 #[test]
@@ -84,14 +113,7 @@ fn created_script_is_executable() {
 fn writing_a_directory_is_refused() {
     let fixture = Fixture::new();
     std::fs::create_dir(fixture.dir.path().join("d")).unwrap();
-    let error = write_file(
-        &fixture.store,
-        &fixture.locks(),
-        &fixture.dir.path().join("d"),
-        "d",
-        "x",
-    )
-    .unwrap_err();
+    let error = fixture.write_over("d", "x", Base::Any).unwrap_err();
     assert_eq!(error.to_string(), "Cannot write d: it is a directory.");
 }
 

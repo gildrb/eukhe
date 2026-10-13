@@ -53,7 +53,43 @@ impl Documents {
     pub fn write(&self, cwd: &Path, path: &str, content: &str) -> Result<WriteOutcome, WriteError> {
         let absolute = crate::path::resolve(cwd, self.home.as_deref(), path);
         let display = read::display_path(&absolute, cwd, self.home.as_deref());
-        write::write_file(&self.store, &self.lock_dir, &absolute, &display, content)
+        write::write_file(
+            &self.store,
+            &self.lock_dir,
+            &absolute,
+            &display,
+            content,
+            write::Base::Any,
+        )
+    }
+
+    /// Replace `path` (relative to `cwd`) with `content` only if its bytes
+    /// on disk are still `expected`, under its path lock: the
+    /// compare-and-swap write for callers that computed `content` from a
+    /// read of their own (LSP renames and code actions). The file keeps its
+    /// BOM, line endings, and mode, and the store records the new text.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::Changed`] when the file is missing or its bytes differ
+    /// from `expected` (nothing is written); otherwise see [`WriteError`].
+    pub fn replace_if(
+        &self,
+        cwd: &Path,
+        path: &str,
+        expected: &[u8],
+        content: &str,
+    ) -> Result<WriteOutcome, WriteError> {
+        let absolute = crate::path::resolve(cwd, self.home.as_deref(), path);
+        let display = read::display_path(&absolute, cwd, self.home.as_deref());
+        write::write_file(
+            &self.store,
+            &self.lock_dir,
+            &absolute,
+            &display,
+            content,
+            write::Base::Bytes(expected),
+        )
     }
 
     /// Apply a hashline payload (`[path#TAG]` sections) relative to `cwd`.

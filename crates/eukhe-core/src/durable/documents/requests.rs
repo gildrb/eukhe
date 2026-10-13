@@ -245,6 +245,7 @@ fn write_reply(outcome: WriteOutcome) -> WriteReply {
 fn write_rejection(error: &WriteError) -> &'static str {
     match error {
         WriteError::IsDirectory { .. } => "is_directory",
+        WriteError::Changed { .. } => "changed",
         WriteError::Io { .. } => "io",
     }
 }
