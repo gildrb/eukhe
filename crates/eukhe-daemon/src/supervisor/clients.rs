@@ -524,7 +524,7 @@ impl Supervisor {
                 return;
             }
             match supervisor.stop_worker(&timer_resident).await {
-                Ok(()) => supervisor.log_line(&format!(
+                Ok(_outcome) => supervisor.log_line(&format!(
                     "stopped client-owned worker {} after its owner {owner} disconnected",
                     timer_resident.worker_id
                 )),

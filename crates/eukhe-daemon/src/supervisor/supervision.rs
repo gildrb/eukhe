@@ -1,12 +1,14 @@
 //! Worker supervision: the watch loop, the restart backoff, and
 //! the spawn/connect plumbing.
-use super::routing::{fail_unsent_request, WORKER_REQUEST_TIMEOUT_MS, WORKER_SOCKET_CLOSED};
+use super::routing::{
+    fail_unsent_request, STOP_GRACE_MS, WORKER_REQUEST_TIMEOUT_MS, WORKER_SOCKET_CLOSED,
+};
 use super::{
     anyhow, connect_transport, create_command_payload, json, mpsc, persist_worker,
     persist_worker_at, probe_worker_socket, util, write_frame, Arc, Child, ClientRouting, Context,
     DaemonWorkerLifecycle, Duration, Ordering, PathBuf, PrivateFrameReader, ResidentWorker, Result,
     RouteAdmission, Supervisor, TempSync, TypedCreateRejection, Value, WorkerReply, WorkerRequest,
-    DEFAULT_PRIVATE_FRAME_LIMITS, ROUTE_TIMEOUT_MS, WORKER_AUTH_FLOOR_MS,
+    DEFAULT_PRIVATE_FRAME_LIMITS, WORKER_AUTH_FLOOR_MS,
 };
 use crate::lease::is_process_alive;
 use crate::registry::WorkerRelay;
@@ -375,7 +377,7 @@ impl Supervisor {
                     resident,
                     "shutdown",
                     json!({}),
-                    ROUTE_TIMEOUT_MS,
+                    STOP_GRACE_MS,
                     RouteAdmission::Control,
                 )
                 .await;

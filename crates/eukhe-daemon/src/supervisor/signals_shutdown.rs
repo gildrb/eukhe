@@ -1,8 +1,6 @@
 //! Shutdown and signal handling: the drain arms, the shutdown entry, and the
 //! daemon-closing shutdown event.
-use super::{
-    json, Arc, ClientRouting, Ordering, RouteAdmission, Supervisor, Value, ROUTE_TIMEOUT_MS,
-};
+use super::{json, Arc, ClientRouting, Ordering, Supervisor, Value};
 
 /// The `daemon_closing` frame (the shutdown command's and the OS-signal
 /// drain's shared spelling): every connected client learns the daemon is
@@ -29,7 +27,10 @@ impl Supervisor {
 
     pub(super) async fn begin_shutdown(self: &Arc<Self>) {
         self.shutting_down.store(true, Ordering::SeqCst);
-        for resident in self.registry.list().await {
+        // Every worker stops at once, each inside ADR 0011's stop grace: a
+        // worker wedged in a run is killed after the grace instead of
+        // holding the whole pass behind it.
+        let stops = self.registry.list().await.into_iter().map(|resident| async move {
             resident.intentional_stop.store(true, Ordering::SeqCst);
             resident.note_retired();
             // The stop tombstone persists before the worker is even told (TS
@@ -42,19 +43,11 @@ impl Supervisor {
                     "session worker {} stop tombstone could not persist; leaving the worker untouched (the next boot retries the stop)",
                     resident.worker_id
                 ));
-                continue;
+                return;
             }
-            let _ = self
-                .route_command_typed(
-                    &resident,
-                    "shutdown",
-                    json!({}),
-                    ROUTE_TIMEOUT_MS,
-                    RouteAdmission::Control,
-                )
-                .await;
-            self.retire_worker_after_stop(&resident).await;
-        }
+            self.shut_down_within_grace(&resident).await;
+        });
+        futures::future::join_all(stops).await;
         self.registry.clear().await;
         // The workers are all stopped now, so the accept loop may exit;
         // setting the gate alone is not enough — an inbound connection

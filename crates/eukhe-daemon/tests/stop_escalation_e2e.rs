@@ -332,8 +332,9 @@ fn a_hung_worker_is_killed_within_the_escalation_window_and_its_lease_frees() {
         std::thread::sleep(Duration::from_millis(5));
     }
 
-    // THE STOP: the wire kill of the hung worker. The route times out;
-    // the stop completes anyway (TS's root-kill `finally`) and escalates.
+    // THE STOP: the wire kill of the hung worker. The cooperative route
+    // misses the stop grace; the stop escalates to the process-group kill
+    // (ADR 0011) and the kill answers done, recorded as effects-unknown.
     let sent = Instant::now();
     let killed = client.request(
         "kill",
@@ -341,24 +342,23 @@ fn a_hung_worker_is_killed_within_the_escalation_window_and_its_lease_frees() {
     );
     let elapsed = sent.elapsed();
     assert_eq!(
-        killed["success"], false,
-        "the hung worker never answers: {killed}"
+        killed["success"], true,
+        "the forced stop completes the kill: {killed}"
+    );
+    assert_eq!(
+        killed["data"]["stopOutcome"], "forcedEffectsUnknown",
+        "a forced stop is recorded as effects-unknown: {killed}"
+    );
+    // The grace windows ran before the escalation (the kill route's and
+    // the shutdown route's, 5 s each), and the whole stop stayed bounded
+    // well inside a parent's 30 s kill budget (two graces + TERM grace +
+    // the SIGKILL verify).
+    assert!(
+        elapsed >= Duration::from_secs(10),
+        "the stop graces must run before the escalation: {elapsed:?}"
     );
     assert!(
-        killed["error"]
-            .as_str()
-            .is_some_and(|error| error.contains("timed out")),
-        "the refusal is the route timeout: {killed}"
-    );
-    // The graceful window ran before the escalation, and the whole stop
-    // stayed bounded (two route budgets + TERM grace + SIGKILL hard
-    // deadline).
-    assert!(
-        elapsed >= Duration::from_secs(30),
-        "the graceful route window must run before the escalation: {elapsed:?}"
-    );
-    assert!(
-        elapsed <= Duration::from_secs(105),
+        elapsed <= Duration::from_secs(25),
         "the escalation must stay bounded: {elapsed:?}"
     );
 

@@ -125,6 +125,16 @@ pub fn signal_process_group(pgid: i32, signal: Signal) -> bool {
     unsafe { libc::kill(-pgid, sig) == 0 }
 }
 
+/// The process group `pid` belongs to (`getpgid`), or `None` when the pid
+/// is gone or not observable. A process spawned through
+/// [`set_new_process_group`] leads its own group: its pgid is its pid.
+#[must_use]
+pub fn process_group_id(pid: u32) -> Option<i32> {
+    let raw = i32::try_from(pid).ok().filter(|raw| *raw > 0)?;
+    let group = unsafe { libc::getpgid(raw) };
+    (group > 0).then_some(group)
+}
+
 /// Kill a process and all its children: the process group first (`bash()`
 /// children run detached in a new group), then the bare pid as fallback.
 /// Returns true when either signal was delivered (TS `killProcessTree`).
