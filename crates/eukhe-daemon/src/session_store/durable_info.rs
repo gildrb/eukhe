@@ -26,7 +26,7 @@ use super::info::{
     SESSION_LIST_SEARCH_TEXT_MAX_CHARS, SESSION_SCAN_MAX_CACHED_STATES,
 };
 use crate::session_usage::SessionUsageSummary;
-use crate::worker::durable_host::meta::SESSION_META_DOC;
+use eukhe_core::durable::session_meta::SESSION_META_DOC;
 
 /// The durable storage's commit log; a directory without it is no session.
 const MAIN_FILE: &str = "main.jsonl";

@@ -9,7 +9,6 @@
 //! resumes the run (no prompt replay, no queue snapshot).
 
 pub(crate) mod bridge;
-pub(crate) mod meta;
 pub(crate) mod suspended;
 pub mod translator;
 pub mod wire_messages;

@@ -45,8 +45,8 @@ use crate::lease::canonical_session_path;
 use crate::protocol::{response_failure, response_line, response_success, DaemonResponse};
 use crate::session_store::read_session_info;
 use crate::supervisor::Supervisor;
-use crate::worker::durable_host::meta::SESSION_META_DOC;
 use crate::worker::Worker;
+use eukhe_core::durable::session_meta::SESSION_META_DOC;
 
 /// The durable storage's commit log; a directory without it is no session.
 const MAIN_FILE: &str = "main.jsonl";

@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::{create_models as create_pi_models, CreateModelsOptions};
@@ -568,16 +567,18 @@ fn section_keys_follow_the_breakdown_order() {
     }
 }
 
-#[test]
-fn legacy_file_is_imported_only_into_a_missing_directory() {
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_file_is_imported_only_into_a_missing_directory() {
+    let cx = &BACKGROUND_CONTEXT;
     let dir = tempfile::tempdir().expect("tempdir");
     let storage = dir.path().join("abc");
-    assert_eq!(legacy_session_file(&storage, "abc"), None);
+    assert!(matches!(ensure_storage(&storage, cx).await, Ok(None)));
     std::fs::write(dir.path().join("abc.jsonl"), "{}\n").expect("legacy");
-    assert_eq!(
-        legacy_session_file(&storage, "abc"),
-        Some(dir.path().join("abc.jsonl"))
-    );
+    assert!(matches!(
+        ensure_storage(&storage, cx).await,
+        Err(ImportError::MissingHeader)
+    ));
+    assert!(!storage.exists(), "a failed import leaves nothing");
     std::fs::create_dir(&storage).expect("storage");
-    assert_eq!(legacy_session_file(Path::new(&storage), "abc"), None);
+    assert!(matches!(ensure_storage(&storage, cx).await, Ok(None)));
 }

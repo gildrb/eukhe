@@ -28,7 +28,7 @@ use super::session::{RpcEngineRequest, RpcSession};
 use super::session_commands;
 use super::LineWriter;
 use crate::compaction::durable::{run_manual_compaction, ManualCompactionError};
-use crate::worker::durable_host::meta::read_session_meta;
+use eukhe_core::durable::session_meta::read_session_meta;
 
 /// The shared handler state: the live session plus the command lanes.
 pub struct RpcState {

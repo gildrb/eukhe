@@ -23,7 +23,7 @@ use super::reads::{
 };
 use super::session::RpcEngineRequest;
 use crate::session_export::durable::export_html as export_session_html;
-use crate::worker::durable_host::meta::set_session_name as persist_session_name;
+use eukhe_core::durable::session_meta::set_session_name as persist_session_name;
 
 /// The TS in-process error texts for the daemon-mode surfaces
 /// (`InProcessAgentConnection`'s throws, verbatim).

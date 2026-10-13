@@ -11,16 +11,17 @@ use eukhe_ai::providers::faux_script::FauxScriptError;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::autonomous::AgentAutonomousConfig;
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous};
+use eukhe_core::durable::session_meta;
 use eukhe_core::durable::{
-    McpLogin, ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole, SessionStorage,
-    TurnWait,
+    ensure_storage, McpLogin, ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole,
+    SessionStorage, TurnWait,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
 use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::ModelThinkingLevel;
 use serde_json::{json, Value};
 
-use super::durable_host::{self, meta, HostRequest, HostedSession};
+use super::durable_host::{self, HostRequest, HostedSession};
 use super::{emit_worker_event_with, paths, response_failure, response_success, Worker};
 use crate::protocol::DaemonResponse;
 
@@ -180,27 +181,30 @@ impl CreateParams {
     }
 
     /// Fill the parent link and RLM depth a create names neither of (the
-    /// TUI resuming a saved child): the storage's recorded lineage, else
-    /// the legacy session header the open imports. A create that names its
-    /// parent (an RLM spawn) keeps its own.
+    /// TUI resuming a saved child): the storage's recorded lineage (a
+    /// legacy session imports first, carrying its header's). A create that
+    /// names its parent (an RLM spawn) keeps its own.
     pub(crate) async fn fill_stored_lineage(&mut self, cx: &Context) {
         if self.parent_session_path.is_some() {
             return;
         }
-        let (session_id, storage) = self.storage();
+        let (_, storage) = self.storage();
         let SessionStorage::Jsonl { dir, .. } = &storage else {
             return;
         };
-        let lineage = if crate::session_store::is_durable_storage(dir) {
-            crate::session_store::read_durable_session_info(dir, cx)
-                .await
-                .and_then(|info| Some((info.parent_session_path?, info.rlm_depth)))
-        } else {
-            match legacy_import_source(&session_id, &storage) {
-                Some(legacy) => legacy_lineage(&legacy).await,
-                None => None,
-            }
-        };
+        if let Err(error) = ensure_storage(dir, cx).await {
+            eprintln!(
+                "eukhe-daemon: importing the legacy session of {} failed: {error}",
+                dir.display()
+            );
+            return;
+        }
+        if !crate::session_store::is_durable_storage(dir) {
+            return;
+        }
+        let lineage = crate::session_store::read_durable_session_info(dir, cx)
+            .await
+            .and_then(|info| Some((info.parent_session_path?, info.rlm_depth)));
         if let Some((parent, depth)) = lineage {
             self.parent_session_path = Some(parent);
             if self.rlm_depth.is_none() {
@@ -222,71 +226,6 @@ impl CreateParams {
 /// A fresh session id (`UUIDv7`, like every eukhe session).
 fn new_session_id() -> String {
     uuid::Uuid::now_v7().to_string()
-}
-
-/// The legacy `<sessions>/<id>.jsonl` the open of `storage` imports (its
-/// storage directory does not exist yet), as `open_session` decides.
-fn legacy_import_source(session_id: &str, storage: &SessionStorage) -> Option<PathBuf> {
-    let SessionStorage::Jsonl { dir, .. } = storage else {
-        return None;
-    };
-    if dir.exists() {
-        return None;
-    }
-    let legacy = dir.parent()?.join(format!("{session_id}.jsonl"));
-    legacy.is_file().then_some(legacy)
-}
-
-/// The parent link and RLM depth a legacy session header records
-/// (`parentSession`, `rlmDepth`), with the parent path resolved to its
-/// imported storage. `None` for a root or an unreadable file.
-async fn legacy_lineage(legacy: &Path) -> Option<(String, u32)> {
-    let content = tokio::fs::read_to_string(legacy).await.ok()?;
-    let header = eukhe_core::session::parse_session_entries(&content)
-        .into_iter()
-        .find_map(|entry| {
-            if let eukhe_types::session::FileEntry::Header { header } = entry {
-                Some(header)
-            } else {
-                None
-            }
-        })?;
-    let parent = header.parent_session?;
-    let depth = header
-        .rlm_depth
-        .and_then(|depth| u32::try_from(depth).ok())
-        .unwrap_or(1);
-    Some((crate::session_store::storage_session_path(&parent), depth))
-}
-
-/// Carry a just-imported legacy session's name into its storage: the
-/// import moves the transcript, while the name (the file's latest
-/// `session_info` row) is daemon metadata (`eukhe.daemon.session`), so a
-/// resumed session keeps the name its saved row showed.
-async fn adopt_legacy_session_name(
-    hosted: &HostedSession,
-    legacy: &Path,
-    cx: &Context,
-) -> Result<(), String> {
-    let content = tokio::fs::read_to_string(legacy)
-        .await
-        .map_err(|error| format!("read {}: {error}", legacy.display()))?;
-    let name = eukhe_core::session::parse_session_entries(&content)
-        .into_iter()
-        .rev()
-        .find_map(|entry| match entry {
-            eukhe_types::session::FileEntry::SessionInfo { payload, .. } => Some(payload.name),
-            _ => None,
-        })
-        .flatten()
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty());
-    let Some(name) = name else {
-        return Ok(());
-    };
-    meta::set_session_name(hosted.harness(), Some(name), cx)
-        .await
-        .map_err(|error| error.to_string())
 }
 
 impl Worker {
@@ -594,7 +533,6 @@ impl Worker {
         let fail = |message: String| Box::new(response_failure(None, "create", &message, None));
         let (session_id, storage) = params.storage();
         let existed = params.reopens();
-        let imported_legacy = legacy_import_source(&session_id, &storage);
         let config = self
             .session_config(params, session_id, storage)
             .await
@@ -612,12 +550,6 @@ impl Worker {
             }
             Err(error) => return Err(fail(error.to_string())),
         };
-        if let Some(legacy) = &imported_legacy {
-            if let Err(error) = adopt_legacy_session_name(&hosted, legacy, cx).await {
-                let _ = hosted.close(cx).await;
-                return Err(fail(error));
-            }
-        }
         // A scripted worker's open already put the script's model in place
         // of a request it overrides (a replay's off-catalog selector), so
         // the reopen reconfigures only a model the script can resolve.
@@ -664,22 +596,24 @@ impl Worker {
         let fail = |message: String| Box::new(response_failure(None, "create", &message, None));
         let installed = async {
             if let Some(name) = &params.name {
-                meta::set_session_name(hosted.harness(), Some(name.trim().to_string()), cx).await?;
+                session_meta::set_session_name(hosted.harness(), Some(name.trim().to_string()), cx)
+                    .await?;
             }
-            let session_meta = meta::read_session_meta(hosted.harness(), cx).await?;
+            let stored_meta = session_meta::read_session_meta(hosted.harness(), cx).await?;
             // The RLM lineage survives into later opens that name none.
             if let Some(parent) = &params.parent_session_path {
                 let depth = params.rlm_depth.unwrap_or(1);
-                if session_meta.parent_session_path.as_ref() != Some(parent)
-                    || session_meta.rlm_depth != Some(depth)
+                if stored_meta.parent_session_path.as_ref() != Some(parent)
+                    || stored_meta.rlm_depth != Some(depth)
                 {
-                    meta::record_lineage(hosted.harness(), parent.clone(), depth, cx).await?;
+                    session_meta::record_lineage(hosted.harness(), parent.clone(), depth, cx)
+                        .await?;
                 }
             }
             // Opening a killed session makes it live again (the old
             // create's `active` state row).
-            if session_meta.archived {
-                meta::clear_archived(hosted.harness(), cx).await?;
+            if stored_meta.archived {
+                session_meta::clear_archived(hosted.harness(), cx).await?;
             }
             let main = hosted.main()?;
             // The withdrawn inputs survive the restart: the durable
@@ -694,8 +628,8 @@ impl Worker {
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 core.session_id = hosted.session_id().to_string();
                 core.session_dir = hosted.storage_dir().map(Path::to_path_buf);
-                core.session_name = session_meta.name;
-                core.anthropic_warning_shown = session_meta.anthropic_warning_shown;
+                core.session_name = stored_meta.name;
+                core.anthropic_warning_shown = stored_meta.anthropic_warning_shown;
                 core.created_at = Some(crate::util::iso_from_unix_ms(crate::util::now_ms()));
                 core.cwd.clone_from(&params.cwd);
                 core.rlm_depth = params.rlm_depth.unwrap_or(0);

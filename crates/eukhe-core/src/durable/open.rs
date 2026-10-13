@@ -2,7 +2,7 @@
 //! settings, models, resources, the extension registry, and the Harness
 //! with its root conversation.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::{create_models as create_pi_models, CreateModelsOptions, Models};
@@ -22,7 +22,7 @@ use super::deps::{
     HostDeps, OpenedSession, ResolvedServices, ServiceStop, SessionConfig, SessionStorage,
 };
 use super::env::env_factory;
-use super::import::{import_legacy_session, ImportError};
+use super::import::{ensure_storage, ImportError};
 use super::main_conversation::{main_conversation, set_main_conversation};
 use super::models::provider::ProviderRuntime;
 use super::models::{create_models, resolve_session_model, ModelsError};
@@ -38,7 +38,7 @@ use crate::settings::SettingsManager;
 /// Why a session could not open.
 #[derive(Debug, thiserror::Error)]
 pub enum OpenError {
-    #[error("failed to import legacy session {}: {source}", path.display())]
+    #[error("failed to import the legacy session of {}: {source}", path.display())]
     Import {
         path: PathBuf,
         #[source]
@@ -349,20 +349,12 @@ async fn open_storage(
     match &config.storage {
         SessionStorage::Memory => Ok((Arc::new(MemoryStorage::new()), None)),
         SessionStorage::Jsonl { dir, fsync } => {
-            if let Some(legacy) = legacy_session_file(dir, &config.session_id) {
-                let report = import_legacy_session(&legacy, dir, cx)
-                    .await
-                    .map_err(|source| OpenError::Import {
-                        path: legacy.clone(),
-                        source,
-                    })?;
-                tracing::info!(
-                    legacy = %legacy.display(),
-                    entries = report.entries,
-                    skipped_rows = report.skipped_rows,
-                    "imported legacy session"
-                );
-            }
+            ensure_storage(dir, cx)
+                .await
+                .map_err(|source| OpenError::Import {
+                    path: dir.clone(),
+                    source,
+                })?;
             let fs = Arc::new(NativeExecutionEnv::new(NativeExecutionEnvOptions {
                 cwd: config.cwd.to_string_lossy().into_owned(),
                 ..NativeExecutionEnvOptions::default()
@@ -381,15 +373,6 @@ async fn open_storage(
             Ok((Arc::new(storage), Some(dir.clone())))
         }
     }
-}
-
-/// The legacy `<sessions_dir>/<id>.jsonl` to import into the missing `dir`.
-fn legacy_session_file(dir: &Path, session_id: &str) -> Option<PathBuf> {
-    if dir.exists() {
-        return None;
-    }
-    let legacy = dir.parent()?.join(format!("{session_id}.jsonl"));
-    legacy.is_file().then_some(legacy)
 }
 
 struct SessionResources {

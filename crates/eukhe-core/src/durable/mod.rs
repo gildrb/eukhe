@@ -31,6 +31,7 @@ mod registry;
 mod retry_outcome;
 pub mod rlm;
 pub(crate) mod session_commands;
+pub mod session_meta;
 mod settings;
 mod staging;
 mod tool_contract;
@@ -60,7 +61,7 @@ pub use fork::{
     fork_main_conversation, fork_session, fork_session_conversation, ForkError, ForkPoint,
     ForkedSession,
 };
-pub use import::{import_legacy_session, ImportError, ImportReport};
+pub use import::{ensure_storage, import_legacy_session, ImportError, ImportReport};
 pub use main_conversation::{
     main_conversation, main_conversation_id, set_main_conversation, SessionState, SESSION_DOC,
 };

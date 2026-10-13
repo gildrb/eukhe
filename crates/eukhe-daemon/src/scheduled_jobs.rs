@@ -50,8 +50,9 @@ use eukhe_core::cron::{
 
 use crate::agent_message_ingest::withdraw_queued;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
-use crate::worker::durable_host::{meta, session_exists, storage_for_path};
+use crate::worker::durable_host::{session_exists, storage_for_path};
 use crate::worker::{submit_input, InputRequest, SessionCore, SessionSlot, Worker};
+use eukhe_core::durable::session_meta;
 
 /// How long a scheduler fire waits for its submission to settle before
 /// answering the scheduler with a skip (a stuck turn must not pin the
@@ -136,7 +137,7 @@ impl QueueHooks {
         if hosted.storage_dir() != Some(dir.as_path()) {
             return false;
         }
-        meta::read_session_meta(hosted.harness(), &BACKGROUND_CONTEXT)
+        session_meta::read_session_meta(hosted.harness(), &BACKGROUND_CONTEXT)
             .await
             .map_or(true, |meta| meta.archived)
     }

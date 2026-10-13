@@ -318,7 +318,7 @@ async fn a_fire_at_a_killed_or_deleted_session_cancels_and_skips() {
 
     let live = job_for(&worker, "hb-live", "nudge", Some(DeliveryMode::Steer));
     let hosted = worker.session.get().expect("hosted");
-    meta::mark_archived(hosted.harness(), &BACKGROUND_CONTEXT)
+    session_meta::mark_archived(hosted.harness(), &BACKGROUND_CONTEXT)
         .await
         .expect("archive");
     assert_eq!(

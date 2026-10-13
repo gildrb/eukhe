@@ -44,7 +44,7 @@ use crate::rlm_ledger::RlmSpawnLedger;
 use crate::scheduled_jobs::session_artifact_dir;
 use crate::session_store::{block_on_storage, is_durable_storage, read_session_info};
 use crate::supervisor::Supervisor;
-use crate::worker::durable_host::meta::mark_storage_archived;
+use eukhe_core::durable::session_meta::mark_storage_archived;
 
 /// One tree member of a stopped root: its durable session id and file
 /// (TS `cancelScheduledJobsForSessionTree`'s `{ sessionId, sessionFile }`
@@ -229,7 +229,8 @@ pub(crate) fn ensure_archived_state(agent_dir: &Path, root_session_file: &Path) 
         if let Some(legacy) = legacy.filter(|_| !is_durable_storage(&dir)) {
             import_legacy_session(legacy, &dir, &BACKGROUND_CONTEXT).await?;
         }
-        mark_storage_archived(&dir, &BACKGROUND_CONTEXT).await
+        mark_storage_archived(&dir, &BACKGROUND_CONTEXT).await?;
+        anyhow::Ok(())
     })?
 }
 

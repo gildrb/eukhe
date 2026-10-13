@@ -4,10 +4,13 @@
 //! conversation: user/assistant/tool-result messages as the built-in
 //! entries, compactions as `pi.compaction` heads, custom rows as eukhe entry
 //! kinds (`crate::durable::entries`); the model, thinking level, and cwd
-//! become the root's `pi.agent`, the branch's goal state the goal doc.
-//! Everything lands in one commit inside a staging directory that is made
-//! durable and renamed into place ([`super::staging`]), so `storage_dir`
-//! either holds the whole import or does not exist. The legacy file is only
+//! become the root's `pi.agent`, the branch's goal state the goal doc, and
+//! the file's name, archived state, Anthropic warning marker, and RLM
+//! lineage the session metadata ([`super::session_meta`]). Everything lands
+//! in one commit inside a staging directory that is made durable and
+//! renamed into place ([`super::staging`]), so `storage_dir` either holds
+//! the whole import or does not exist. The storage's files keep the legacy
+//! file's mtime, so the session keeps its recency. The legacy file is only
 //! read.
 
 mod plan;
@@ -16,12 +19,14 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use eukhe_ai::models::{create_models, CreateModelsOptions};
 use eukhe_chord::context::{without_abort_signal, Context};
-use eukhe_chord::json::JsonError;
+use eukhe_chord::json::{to_json, JsonError, JsonValue};
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::errors::StorageError;
+use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::harness::registry::create_registry;
 use eukhe_durable::harness::types::{AgentChange, FieldChange, HarnessOptions, ModelRef};
 use eukhe_durable::harness::usage::{record_usage, UsageBucket};
@@ -35,6 +40,10 @@ use futures::FutureExt;
 use self::plan::{plan_import, ImportPlan, PlannedHead};
 use super::staging::{publish, staging_dir, StagingKind};
 use crate::durable::goals::import_legacy_goal;
+use crate::durable::session_meta::SESSION_META_DOC;
+
+/// The durable storage's commit log; a directory without it is no session.
+const MAIN_FILE: &str = "main.jsonl";
 
 /// What [`import_legacy_session`] wrote.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,8 +60,9 @@ pub struct ImportReport {
     pub leaf_id: Option<String>,
     /// Durable entries appended to the root conversation.
     pub entries: usize,
-    /// Branch rows with no durable counterpart (labels, session info and
-    /// state, git state, service tiers, child-usage rows, unknown rows).
+    /// Branch rows with no durable entry (labels, session info and state,
+    /// git state, service tiers, child-usage rows, unknown rows); session
+    /// info and state land in the session metadata instead.
     pub skipped_rows: usize,
 }
 
@@ -89,6 +99,47 @@ pub enum ImportError {
     Session(#[from] SessionError),
 }
 
+/// Make the durable storage `dir` exist when only its legacy session file
+/// (the `<dir>.jsonl` sibling) does: the import every reader and opener
+/// of a session goes through, so a legacy file is only ever read here.
+/// `Some` with what this call imported; `None` when there was nothing to
+/// import (`dir` exists, or no legacy sibling), also when a concurrent
+/// import of the same file published the storage first.
+///
+/// # Errors
+///
+/// The legacy file does not import (see [`import_legacy_session`]).
+pub async fn ensure_storage(dir: &Path, cx: &Context) -> Result<Option<ImportReport>, ImportError> {
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return Ok(None);
+    };
+    let mut legacy = name.to_owned();
+    legacy.push(".jsonl");
+    let legacy = parent.join(legacy);
+    if tokio::fs::try_exists(dir).await.unwrap_or(true) || !is_file(&legacy).await {
+        return Ok(None);
+    }
+    match import_legacy_session(&legacy, dir, cx).await {
+        Ok(report) => {
+            tracing::info!(
+                legacy = %legacy.display(),
+                entries = report.entries,
+                skipped_rows = report.skipped_rows,
+                "imported legacy session"
+            );
+            Ok(Some(report))
+        }
+        Err(_) if is_file(&dir.join(MAIN_FILE)).await => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+async fn is_file(path: &Path) -> bool {
+    tokio::fs::metadata(path)
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+}
+
 /// Import the active branch of the legacy session file `legacy` into a new
 /// durable JSONL storage at `storage_dir` (see the module docs).
 ///
@@ -106,6 +157,10 @@ pub async fn import_legacy_session(
     let bytes = tokio::fs::read(legacy)
         .await
         .map_err(io("read legacy session", legacy))?;
+    let modified = tokio::fs::metadata(legacy)
+        .await
+        .and_then(|metadata| metadata.modified())
+        .map_err(io("inspect legacy session", legacy))?;
     let content = legacy_text(&bytes).map_err(|error| ImportError::Io {
         action: "decode legacy session",
         path: legacy.to_owned(),
@@ -131,16 +186,18 @@ pub async fn import_legacy_session(
         .await
         .map_err(io("create staging directory", &staging))?;
     let report = report(&plan);
-    let written = match write_storage(&staging, plan, cx).await {
-        Ok(()) => publish(&staging, storage_dir, &parent)
+    let written = async {
+        write_storage(&staging, plan, cx).await?;
+        stamp_mtime(&staging, modified).await?;
+        publish(&staging, storage_dir, &parent)
             .await
             .map_err(|error| ImportError::Io {
                 action: error.action,
                 path: error.path,
                 source: error.source,
-            }),
-        Err(error) => Err(error),
-    };
+            })
+    }
+    .await;
     if let Err(error) = written {
         // A failed final sync already moved the staging directory into place.
         if tokio::fs::try_exists(&staging).await.unwrap_or(true) {
@@ -155,6 +212,34 @@ pub async fn import_legacy_session(
         return Err(error);
     }
     Ok(report)
+}
+
+/// Give every file of the storage in `dir` the legacy file's mtime, so the
+/// imported session lists where the legacy one did (recency is the newest
+/// mtime of the storage's files).
+async fn stamp_mtime(dir: &Path, modified: SystemTime) -> Result<(), ImportError> {
+    let mut entries = tokio::fs::read_dir(dir)
+        .await
+        .map_err(io("list staging directory", dir))?;
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(io("list staging directory", dir))?
+    {
+        let path = entry.path();
+        let file_type = entry.file_type().await.map_err(io("inspect", &path))?;
+        if !file_type.is_file() {
+            continue;
+        }
+        let file = tokio::fs::File::open(&path)
+            .await
+            .map_err(io("open", &path))?
+            .into_std()
+            .await;
+        file.set_modified(modified)
+            .map_err(io("set the mtime of", &path))?;
+    }
+    Ok(())
 }
 
 fn io<'a>(action: &'static str, path: &'a Path) -> impl FnOnce(std::io::Error) -> ImportError + 'a {
@@ -246,10 +331,10 @@ fn harness_options() -> HarnessOptions {
     )
 }
 
-/// Append every planned entry, then seed the goal state from the branch.
-/// Each imported assistant answer adds its usage to `pi.usage`, as the
-/// commit that recorded a live response does: the session's spend
-/// survives the import.
+/// Append every planned entry, seed the goal state from the branch, and
+/// write the session metadata. Each imported assistant answer adds its
+/// usage to `pi.usage`, as the commit that recorded a live response does:
+/// the session's spend survives the import.
 async fn append_plan(
     tx: Tx,
     conversation_id: ConversationId,
@@ -280,5 +365,14 @@ async fn append_plan(
             record_usage(&tx, conversation_id, UsageBucket::Models, &key, &usage).await?;
         }
     }
-    import_legacy_goal(&tx, conversation_id, &plan.branch).await
+    import_legacy_goal(&tx, conversation_id, &plan.branch).await?;
+    if let JsonValue::Object(fields) = to_json(&plan.meta)? {
+        if !fields.is_empty() {
+            let draft = tx.doc(&SESSION_META_DOC, ()).await?;
+            for (key, value) in fields.iter() {
+                assign_json(&draft, key, value)?;
+            }
+        }
+    }
+    Ok(())
 }

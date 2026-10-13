@@ -7,6 +7,7 @@
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use eukhe_durable::entries::{
     CompactionData, CompactionSummary, HarnessDigest, ToolResultData, ASSISTANT_ENTRY,
@@ -18,6 +19,7 @@ use eukhe_types::ai::AssistantContentBlock;
 use eukhe_types::pi_ai::{Message, ModelThinkingLevel, UserContent};
 use eukhe_types::session::{
     AgentMessage, BranchSummaryMessage, CompactionEntry, CompactionSummaryMessage, FileEntry,
+    SessionHeader, SessionStateStatus,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -31,9 +33,13 @@ use crate::durable::entries::{
 };
 use crate::durable::messages::convert_to_llm;
 use crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE;
+use crate::durable::session_meta::SessionMeta;
+use crate::durable::SessionLocation;
 use crate::iso_time::timestamp_to_millis;
 use crate::session::tree::SessionTree;
-use crate::session::{migrate_to_current_version, parse_session_entries};
+use crate::session::{
+    migrate_to_current_version, parse_session_entries, ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE,
+};
 
 /// Where an imported entry's context range starts (`EntryRecord.head`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +72,9 @@ pub(super) struct ImportPlan {
     pub(super) entries: Vec<PlannedEntry>,
     /// Branch rows neither imported as entries nor applied to agent state.
     pub(super) skipped_rows: usize,
+    /// The session-level rows of the whole file (any branch) and the
+    /// header's RLM lineage, as the storage's session metadata.
+    pub(super) meta: SessionMeta,
 }
 
 /// Plan the import of a legacy session file's content.
@@ -80,8 +89,12 @@ pub(super) fn plan_import(content: &str) -> Result<ImportPlan, ImportError> {
         return Err(ImportError::MissingHeader);
     }
     migrate_to_current_version(&mut entries);
-    let (session_id, cwd) = match entries.first() {
-        Some(FileEntry::Header { header }) => (header.id.clone(), header.cwd.clone()),
+    let (session_id, cwd, meta) = match entries.first() {
+        Some(FileEntry::Header { header }) => (
+            header.id.clone(),
+            header.cwd.clone(),
+            legacy_meta(header, &entries),
+        ),
         _ => return Err(ImportError::MissingHeader),
     };
     // A header-only file has no entries, so no leaf (the header is not one).
@@ -113,7 +126,55 @@ pub(super) fn plan_import(content: &str) -> Result<ImportPlan, ImportError> {
         branch,
         entries,
         skipped_rows,
+        meta,
     })
+}
+
+/// The session metadata a legacy file records outside its branch: the
+/// latest `session_info` name, the latest `session_state` (`archived`), the
+/// Anthropic warning marker, and the header's parent link (named by the
+/// storage the parent's file imports into) and RLM depth (1 when a child's
+/// header names none).
+fn legacy_meta(header: &SessionHeader, entries: &[FileEntry]) -> SessionMeta {
+    let mut meta = SessionMeta::default();
+    for entry in entries {
+        match entry {
+            FileEntry::SessionInfo { payload, .. } => {
+                meta.name = payload
+                    .name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned);
+            }
+            FileEntry::SessionState { payload, .. } => {
+                meta.archived = payload.state.status == SessionStateStatus::Archived;
+            }
+            FileEntry::Custom { payload, .. }
+                if payload.custom_type == ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE
+                    && payload
+                        .data
+                        .as_ref()
+                        .and_then(|data| data.get("shown"))
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true) =>
+            {
+                meta.anthropic_warning_shown = true;
+            }
+            _ => {}
+        }
+    }
+    if let Some(parent) = &header.parent_session {
+        let storage = SessionLocation::from_path(PathBuf::from(parent)).storage_dir();
+        meta.parent_session_path = Some(storage.to_string_lossy().into_owned());
+        meta.rlm_depth = Some(
+            header
+                .rlm_depth
+                .and_then(|depth| u32::try_from(depth).ok())
+                .unwrap_or(1),
+        );
+    }
+    meta
 }
 
 /// File indices from the root down to `leaf_id`, following `parentId`; a

@@ -700,6 +700,77 @@ async fn imports_a_header_only_session_as_an_empty_root() {
     harness.close(&cx()).await.unwrap();
 }
 
+/// The session-level rows of the whole file (any branch) and the header's
+/// lineage land in the session metadata; the storage keeps the legacy
+/// file's mtime.
+#[tokio::test(flavor = "multi_thread")]
+async fn imports_the_session_metadata_and_keeps_the_recency() {
+    let mut child_header = header();
+    child_header["parentSession"] = json!("/sessions/parent.jsonl");
+    child_header["rlmDepth"] = json!(2);
+    let content = jsonl(&[
+        child_header,
+        user("u1", None, "hi", 1),
+        row("session_info", "n1", Some("u1"), 2, json!({"name": "old"})),
+        row(
+            "session_info",
+            "n2",
+            Some("n1"),
+            3,
+            json!({"name": " named "}),
+        ),
+        row(
+            "session_state",
+            "s1",
+            Some("n2"),
+            4,
+            json!({"state": {"status": "archived"}}),
+        ),
+        row(
+            "custom",
+            "w1",
+            Some("s1"),
+            5,
+            json!({"customType": crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE,
+                "data": {"shown": true}}),
+        ),
+    ]);
+    let dir = tempfile::tempdir().unwrap();
+    let legacy = dir.path().join(format!("{SESSION_ID}.jsonl"));
+    std::fs::write(&legacy, &content).unwrap();
+    let stamp = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    std::fs::File::options()
+        .write(true)
+        .open(&legacy)
+        .unwrap()
+        .set_modified(stamp)
+        .unwrap();
+    let storage = dir.path().join(SESSION_ID);
+    let report = super::ensure_storage(&storage, &cx()).await.unwrap();
+    assert!(report.is_some(), "the missing storage imports");
+    assert_eq!(super::ensure_storage(&storage, &cx()).await.unwrap(), None);
+    let modified = std::fs::metadata(storage.join(super::MAIN_FILE))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(modified, stamp);
+    let (harness, _root) = reopen(&storage).await;
+    let meta = crate::durable::session_meta::read_session_meta(&harness, &cx())
+        .await
+        .unwrap();
+    assert_eq!(
+        meta,
+        crate::durable::session_meta::SessionMeta {
+            name: Some("named".to_owned()),
+            anthropic_warning_shown: true,
+            archived: true,
+            parent_session_path: Some("/sessions/parent".to_owned()),
+            rlm_depth: Some(2),
+        }
+    );
+    harness.close(&cx()).await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_existing_storage_is_never_overwritten() {
     let dir = tempfile::tempdir().unwrap();

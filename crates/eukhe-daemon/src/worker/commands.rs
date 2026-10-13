@@ -11,11 +11,11 @@ use eukhe_types::daemon::SessionEvent;
 use serde_json::{json, Value};
 
 use super::durable_host::bridge::{QueuedInput, QueuedMode};
-use super::durable_host::meta;
 use super::durable_host::suspended::{write_suspended, SuspendedState, WithdrawnInput};
 use super::durable_host::wire_messages::entry_wire_message;
 use super::{response_failure, response_success, HostedSession, KillCloseReason, Worker};
 use crate::protocol::DaemonResponse;
+use eukhe_core::durable::session_meta;
 
 impl Worker {
     pub(crate) async fn dispatch(&self, command_type: &str, payload: &Value) -> DaemonResponse {
@@ -596,7 +596,8 @@ impl Worker {
         }
         if let Some(hosted) = self.session.get() {
             if reason != KillCloseReason::Shutdown {
-                if let Err(error) = meta::mark_archived(hosted.harness(), &BACKGROUND_CONTEXT).await
+                if let Err(error) =
+                    session_meta::mark_archived(hosted.harness(), &BACKGROUND_CONTEXT).await
                 {
                     return response_failure(None, "kill", &error.to_string(), None);
                 }
@@ -663,7 +664,9 @@ impl Worker {
         if shown {
             return response_success(None, NAME, None);
         }
-        match meta::mark_anthropic_warning_shown(hosted.harness(), &BACKGROUND_CONTEXT).await {
+        match session_meta::mark_anthropic_warning_shown(hosted.harness(), &BACKGROUND_CONTEXT)
+            .await
+        {
             Ok(()) => {
                 self.core
                     .lock()
@@ -713,7 +716,7 @@ impl Worker {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .session_name
             .clone();
-        if let Err(error) = meta::set_session_name(
+        if let Err(error) = session_meta::set_session_name(
             hosted.harness(),
             Some(name.to_string()),
             &BACKGROUND_CONTEXT,

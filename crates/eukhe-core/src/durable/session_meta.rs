@@ -1,6 +1,7 @@
-//! Daemon-owned session metadata kept in the durable storage: the session
-//! name (`rename` / `set_session_name`) and the once-per-session Anthropic
-//! warning marker. One session-scope document, `eukhe.daemon.session`.
+//! Session metadata kept in the durable storage: the session name, the
+//! once-per-session Anthropic warning marker, the `kill` archive marker,
+//! and the RLM lineage. One session-scope document; its kind keeps the
+//! `eukhe.daemon.session` name existing storages carry.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -18,46 +19,42 @@ use serde::{Deserialize, Serialize};
 /// The `eukhe.daemon.session` document value.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SessionMeta {
+pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) name: Option<String>,
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) anthropic_warning_shown: bool,
+    pub anthropic_warning_shown: bool,
     /// A `kill` (not a `shutdown`) archived the session.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) archived: bool,
+    pub archived: bool,
     /// The spawning session's path (an RLM child's parent link; the old
     /// session header's `parentSession`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) parent_session_path: Option<String>,
+    pub parent_session_path: Option<String>,
     /// The session's RLM depth (the old header's `rlmDepth`); absent for
     /// roots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) rlm_depth: Option<u32>,
+    pub rlm_depth: Option<u32>,
 }
 
 /// The session-scope `eukhe.daemon.session` document (version 1).
-pub(crate) static SESSION_META_DOC: SessionDoc<SessionMeta> =
-    match SessionDoc::define(DocDefinition {
-        kind: "eukhe.daemon.session",
-        version: 1,
-        initial: SessionMeta::default,
-        migrate: None,
-        checkpoint_when: None,
-    }) {
-        Ok(token) => token,
-        Err(_) => panic!("eukhe.daemon.session has a valid version"),
-    };
+pub static SESSION_META_DOC: SessionDoc<SessionMeta> = match SessionDoc::define(DocDefinition {
+    kind: "eukhe.daemon.session",
+    version: 1,
+    initial: SessionMeta::default,
+    migrate: None,
+    checkpoint_when: None,
+}) {
+    Ok(token) => token,
+    Err(_) => panic!("eukhe.daemon.session has a valid version"),
+};
 
 /// The session's metadata (defaults when never written).
 ///
 /// # Errors
 ///
 /// The document cannot be read or decoded.
-pub(crate) async fn read_session_meta(
-    harness: &Harness,
-    cx: &Context,
-) -> SessionResult<SessionMeta> {
+pub async fn read_session_meta(harness: &Harness, cx: &Context) -> SessionResult<SessionMeta> {
     match harness.snapshot(&SESSION_META_DOC, (), cx).await? {
         Some(value) => from_json(&JsonValue::Object(value)).map_err(SessionError::other),
         None => Ok(SessionMeta::default()),
@@ -69,7 +66,7 @@ pub(crate) async fn read_session_meta(
 /// # Errors
 ///
 /// The commit fails.
-pub(crate) async fn set_session_name(
+pub async fn set_session_name(
     harness: &Harness,
     name: Option<String>,
     cx: &Context,
@@ -101,10 +98,7 @@ pub(crate) async fn set_session_name(
 /// # Errors
 ///
 /// The commit fails.
-pub(crate) async fn mark_anthropic_warning_shown(
-    harness: &Harness,
-    cx: &Context,
-) -> SessionResult<()> {
+pub async fn mark_anthropic_warning_shown(harness: &Harness, cx: &Context) -> SessionResult<()> {
     harness
         .commit(
             move |tx| async move {
@@ -123,7 +117,7 @@ pub(crate) async fn mark_anthropic_warning_shown(
 /// # Errors
 ///
 /// The commit fails.
-pub(crate) async fn record_lineage(
+pub async fn record_lineage(
     harness: &Harness,
     parent_session_path: String,
     rlm_depth: u32,
@@ -151,7 +145,7 @@ pub(crate) async fn record_lineage(
 /// # Errors
 ///
 /// The commit fails.
-pub(crate) async fn mark_archived(harness: &Harness, cx: &Context) -> SessionResult<()> {
+pub async fn mark_archived(harness: &Harness, cx: &Context) -> SessionResult<()> {
     harness
         .commit(
             move |tx| async move {
@@ -171,7 +165,7 @@ pub(crate) async fn mark_archived(harness: &Harness, cx: &Context) -> SessionRes
 /// # Errors
 ///
 /// The commit fails.
-pub(crate) async fn clear_archived(harness: &Harness, cx: &Context) -> SessionResult<()> {
+pub async fn clear_archived(harness: &Harness, cx: &Context) -> SessionResult<()> {
     harness
         .commit(
             move |tx| async move {
@@ -193,11 +187,14 @@ pub(crate) async fn clear_archived(harness: &Harness, cx: &Context) -> SessionRe
 ///
 /// # Errors
 ///
-/// The storage cannot open, or the commit fails.
-pub(crate) async fn mark_storage_archived(dir: &Path, cx: &Context) -> anyhow::Result<()> {
-    let directory = dir
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("session storage path {} is not UTF-8", dir.display()))?;
+/// The path is not UTF-8, the storage cannot open, or the commit fails.
+pub async fn mark_storage_archived(dir: &Path, cx: &Context) -> SessionResult<()> {
+    let directory = dir.to_str().ok_or_else(|| {
+        SessionError::other(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("session storage path {} is not UTF-8", dir.display()),
+        ))
+    })?;
     let storage =
         open_native_jsonl_storage(directory, cx, JsonlStorageOptions { fsync: true }).await?;
     let session = Session::new(Arc::new(storage));
