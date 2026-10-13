@@ -232,56 +232,76 @@ fn seen_line_guard_rejects_hidden_anchors_and_accepts_seen_ones() {
     assert_eq!(hidden.read("a.txt").as_deref(), Some("one\ntwo\nTHREE\n"));
 }
 
+const BLOCK_RESOLVER_UNAVAILABLE: &str = "line 1: Block locators (`N*` in `PUT N*:`, `PUT >N*`, \
+                                           `CUT N*`) are not available here (no block resolver \
+                                           configured). Use a concrete line range.";
+
 #[test]
-fn block_ops_take_the_unresolved_path_without_grammars() {
+fn insert_after_block_on_an_opener_is_rejected_and_the_file_unchanged() {
     let source = "function x() {\n  if (y) {\n  }\n}\n";
-    let closer = Workspace::new();
-    closer.write("x.ts", source);
-    let tag = closer.snapshot("x.ts", source, None);
-    let error = closer
+    let ws = Workspace::new();
+    ws.write("x.ts", source);
+    let tag = ws.snapshot("x.ts", source, None);
+    let writer = DiskWriter::default();
+    let error = ws
+        .apply(&format!("[x.ts#{tag}]\nPUT >1*:\n+  z();"), &writer)
+        .expect_err("`PUT >N*:` must not land inside the block");
+    assert_eq!(error.to_string(), BLOCK_RESOLVER_UNAVAILABLE);
+    assert_eq!(ws.read("x.ts").as_deref(), Some(source));
+    assert_eq!(writer.writes(), 0);
+}
+
+#[test]
+fn every_block_locator_form_is_rejected() {
+    let source = "function x() {\n  if (y) {\n  }\n}\n";
+    for op in [
+        "PUT 1*:\n+function w() {}",
+        "PUT 1*:",
+        "PUT <2*:\n+  z();",
+        "PUT >2*:\n+  z();",
+        "CUT 2*",
+        "CUT 2* @hold",
+        "PUT 2* @hold",
+        "PUT >3* @hold",
+        "PUT >3*",
+    ] {
+        let ws = Workspace::new();
+        ws.write("x.ts", source);
+        let tag = ws.snapshot("x.ts", source, None);
+        let error = ws
+            .apply(&format!("[x.ts#{tag}]\n{op}"), &DiskWriter::default())
+            .expect_err(op);
+        assert_eq!(error.to_string(), BLOCK_RESOLVER_UNAVAILABLE, "{op}");
+        assert_eq!(ws.read("x.ts").as_deref(), Some(source), "{op}");
+    }
+}
+
+/// Same drift as `stale_edit_rebases_when_anchor_remap_cannot_prove_one_offset`
+/// (only the byte rebase can apply it), but line 6 was never displayed.
+#[test]
+fn byte_rebase_runs_the_seen_line_guard_on_the_snapshot() {
+    let live = "a\nb\nc\nd\nX\ne\nf\n";
+    let mut ws = Workspace::new();
+    ws.enforce_seen_lines = true;
+    ws.write("a.txt", live);
+    let tag = ws.snapshot("a.txt", "a\nb\nc\nd\ne\nf\n", Some(&[1, 2, 3]));
+    let error = ws
         .apply(
-            &format!("[x.ts#{tag}]\nPUT 3*:\n+  }}"),
+            &format!("[a.txt#{tag}]\nPUT 2.=2:\n+B\nPUT 6.=6:\n+F"),
             &DiskWriter::default(),
         )
-        .expect_err("a block replace cannot resolve");
+        .expect_err("line 6 was never displayed by the tagged read");
     assert_eq!(
         error.to_string(),
-        "line 1: `PUT 3*:` could not resolve a syntactic block beginning on line 3 (unsupported \
-         language, blank/closer line, or parse error). Use `PUT 3.=M:` with explicit lines.\n\n \
-         1:function x() {\n 2:  if (y) {\n*3:  }\n 4:}\n 5:"
-    );
-    assert_eq!(closer.read("x.ts").as_deref(), Some(source));
-
-    let unknown = Workspace::new();
-    unknown.write("data.unknownext", "alpha\nbeta\ngamma\n");
-    let tag = unknown.snapshot("data.unknownext", "alpha\nbeta\ngamma\n", None);
-    let error = unknown
-        .apply(
-            &format!("[data.unknownext#{tag}]\nCUT 1*"),
-            &DiskWriter::default(),
+        format!(
+            "This edit anchors to lines 6 of a.txt that [a.txt#{tag}] never displayed (it showed \
+             a partial range, a search hit, or a folded summary). Actual file content at those \
+             lines:\n  6:f\nVerify the content matches what you intend to touch, then re-issue \
+             the edit with the same [path#tag] header — a straight retry now succeeds without a \
+             re-read. If the content does NOT match, fix your line numbers."
         )
-        .expect_err("rejects a block cut");
-    assert!(error
-        .to_string()
-        .starts_with("line 1: `CUT 1*` could not resolve a syntactic block"));
-
-    let after = Workspace::new();
-    after.write("x.ts", source);
-    let tag = after.snapshot("x.ts", source, None);
-    let outcome = after
-        .apply(
-            &format!("[x.ts#{tag}]\nPUT >1*:\n+  z();"),
-            &DiskWriter::default(),
-        )
-        .expect("an after-block insert lowers to a plain insert");
-    assert_eq!(
-        after.read("x.ts").as_deref(),
-        Some("function x() {\n  z();\n  if (y) {\n  }\n}\n")
     );
-    assert!(outcome.text.contains(
-        "`PUT >1*:` could not resolve a syntactic block on line 1, so it was applied as plain \
-         `PUT >1:`."
-    ));
+    assert_eq!(ws.read("a.txt").as_deref(), Some(live));
 }
 
 /// Two texts with the same 16-bit tag (from omp's snapshot contract).

@@ -30,14 +30,6 @@ pub(crate) enum PasteTarget {
     Span { range: ParsedRange },
 }
 
-/// Deferred block-op mode (`None` = block replacement).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BlockMode {
-    InsertAfter,
-    Cut,
-    PasteAfter,
-}
-
 /// One low-level edit produced by the parser and consumed by the applier.
 /// Multi-line replacements decompose to one `Insert` per replacement line
 /// plus one `Delete` per consumed line.
@@ -74,16 +66,9 @@ pub(crate) enum Edit {
         line_num: u32,
         index: u32,
     },
-    /// Deferred block edit (`PUT N*:`, `PUT >N*:`, `CUT N*`, `@register`
-    /// forms); resolved once file text is available.
-    Block {
-        anchor: Anchor,
-        payloads: Vec<String>,
-        mode: Option<BlockMode>,
-        register: Option<String>,
-        line_num: u32,
-        index: u32,
-    },
+    /// Block-locator edit (`PUT N*:`, `PUT >N*:`, `CUT N*`, register forms).
+    /// eukhe has no block resolver, so staging rejects it.
+    Block { anchor: Anchor, line_num: u32 },
 }
 
 impl Edit {

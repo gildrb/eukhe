@@ -198,7 +198,7 @@ fn read_reply(view: ReadView) -> ReadReply {
             entries: entries
                 .into_iter()
                 .map(|entry| DirEntryReply {
-                    name: entry.name,
+                    name: entry.relative_path,
                     is_dir: entry.is_dir,
                     size: entry.size,
                 })
@@ -312,6 +312,7 @@ fn grep_reply(output: GrepOutput) -> GrepReply {
 fn grep_rejection(error: &GrepError) -> &'static str {
     match error {
         GrepError::EmptyPattern | GrepError::InvalidRegex { .. } => "pattern",
+        GrepError::InvalidSelector { .. } => "selector",
         GrepError::TimedOut => "timeout",
         GrepError::AllPathsMissing { .. } => "not_found",
         GrepError::Workspace { .. } => "io",

@@ -116,6 +116,95 @@ fn overlapping_context_shows_each_line_once_and_marks_gaps() {
 }
 
 #[test]
+fn line_ranged_target_restricts_matches_and_context_to_its_lines() {
+    let content = "1\nneedle a\n3\n4\nneedle b\n6\n7\n8\nneedle c\n";
+    let directory = fixture(&[("f.rs", content)]);
+    let tag = file_hash(content);
+    let ranged = |path: &str| {
+        run(
+            &directory,
+            &GrepRequest {
+                context_before: 1,
+                context_after: 1,
+                ..request("needle", path)
+            },
+        )
+    };
+    let output = ranged("f.rs:4-6");
+    assert_eq!(
+        output.text,
+        format!("[f.rs#{tag}]\n 4:4\n*5:needle b\n 6:6")
+    );
+    assert!(!output.multi_scope);
+    assert_eq!(
+        ranged("f.rs:5-6").text,
+        format!("[f.rs#{tag}]\n*5:needle b\n 6:6")
+    );
+    assert_eq!(
+        ranged("f.rs:1-2,9").text,
+        format!("[f.rs#{tag}]\n 1:1\n*2:needle a\n...\n*9:needle c")
+    );
+}
+
+#[test]
+fn line_ranged_target_reaches_matches_past_the_per_file_fetch() {
+    let content: String = (1..=300)
+        .map(|n| "needle ".to_owned() + &n.to_string() + "\n")
+        .collect();
+    let directory = fixture(&[("f.rs", &content)]);
+    let output = run(&directory, &request("needle", "f.rs:250-251"));
+    assert_eq!(
+        output.text,
+        format!(
+            "[f.rs#{}]\n*250:needle 250\n*251:needle 251",
+            file_hash(&content)
+        )
+    );
+}
+
+#[test]
+fn line_ranges_apply_per_root() {
+    let a = "needle 1\nneedle 2\nneedle 3\n";
+    let b = "needle x\nneedle y\n";
+    let directory = fixture(&[("a.rs", a), ("b.rs", b)]);
+    let output = run(&directory, &request("needle", "a.rs:2-2;b.rs"));
+    let lines: Vec<(&str, Vec<u32>)> = output
+        .files
+        .iter()
+        .map(|file| {
+            (
+                file.path.as_str(),
+                file.matches.iter().map(|m| m.line_number).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(lines, [("a.rs", vec![2]), ("b.rs", vec![1, 2])]);
+}
+
+#[test]
+fn bad_line_selectors_are_rejected() {
+    let directory = fixture(&[("f.rs", "needle\n")]);
+    let error = |path: &str| {
+        grep(
+            &EditStore::new(),
+            directory.path(),
+            &request("needle", path),
+        )
+        .unwrap_err()
+        .to_string()
+    };
+    assert_eq!(
+        error("f.rs:0"),
+        "path entry \"f.rs:0\" has an invalid selector \":0\" — Line selector 0 is invalid; lines \
+         are 1-indexed. Use :1."
+    );
+    assert_eq!(
+        error("*.rs:1-2"),
+        "Line-range selector requires a single file, not a glob: *.rs:1-2"
+    );
+}
+
+#[test]
 fn shown_rows_are_recorded_as_seen_lines_of_the_tagged_snapshot() {
     let content = "1\nneedle\n3\n4\n5\n";
     let directory = fixture(&[("f.rs", content)]);

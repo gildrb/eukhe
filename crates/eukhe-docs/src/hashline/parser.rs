@@ -22,7 +22,7 @@ use super::{
     },
     prefixes::{is_read_metadata_line, strip_one_leading_hashline_prefix},
     tokenizer::{is_hunk_header_text, tokenize, BlockTarget, Token},
-    types::{Anchor, BlockMode, Cursor, Edit, FileOp, ParsedRange, PasteTarget},
+    types::{Anchor, Cursor, Edit, FileOp, ParsedRange, PasteTarget},
 };
 
 const MAX_EXPANDED_RANGE_LINES: u32 = 100_000;
@@ -331,9 +331,7 @@ impl Executor {
         match pending.target {
             BlockTarget::Rem | BlockTarget::Move { .. } => {}
             BlockTarget::Cut { range, register } => self.push_cut(range, register, line),
-            BlockTarget::CutBlock { anchor, register } => {
-                self.push_block(anchor, Vec::new(), Some(BlockMode::Cut), register, line);
-            }
+            BlockTarget::CutBlock { anchor, .. } => self.push_block(anchor, line),
             BlockTarget::Replace { range, register } => {
                 if register.is_some() {
                     self.push_paste(PasteTarget::Span { range }, register, line);
@@ -351,44 +349,20 @@ impl Executor {
                 }
             }
             BlockTarget::Block { anchor, register } => {
-                if register.is_some() {
-                    self.push_block(anchor, Vec::new(), None, register, line);
-                } else if pending.payloads.is_empty() {
+                if register.is_none() && pending.payloads.is_empty() {
                     if !pending.had_colon {
                         return fail_at(line, COLONLESS_SPAN_PUT);
                     }
-                    self.push_block(anchor, Vec::new(), None, None, line);
                     self.warn_once(EMPTY_PUT_AUTO_CUT_WARNING);
-                } else {
-                    self.push_block(
-                        anchor,
-                        pending.payloads.into_iter().map(|row| row.text).collect(),
-                        None,
-                        None,
-                        line,
-                    );
                 }
+                self.push_block(anchor, line);
             }
-            BlockTarget::InsertAfterBlock { anchor, register } => {
-                if register.is_some() || (!pending.had_colon && pending.payloads.is_empty()) {
-                    self.push_block(
-                        anchor,
-                        Vec::new(),
-                        Some(BlockMode::PasteAfter),
-                        register,
-                        line,
-                    );
-                } else if pending.payloads.is_empty() {
+            BlockTarget::InsertBeforeBlock { anchor, register }
+            | BlockTarget::InsertAfterBlock { anchor, register } => {
+                if register.is_none() && pending.had_colon && pending.payloads.is_empty() {
                     return fail_at(line, EMPTY_INSERT);
-                } else {
-                    self.push_block(
-                        anchor,
-                        pending.payloads.into_iter().map(|row| row.text).collect(),
-                        Some(BlockMode::InsertAfter),
-                        None,
-                        line,
-                    );
                 }
+                self.push_block(anchor, line);
             }
             BlockTarget::InsertBefore { anchor, register } => {
                 self.push_gap(
@@ -526,23 +500,8 @@ impl Executor {
         });
     }
 
-    fn push_block(
-        &mut self,
-        anchor: Anchor,
-        payloads: Vec<String>,
-        mode: Option<BlockMode>,
-        register: Option<String>,
-        line_num: u32,
-    ) {
-        let index = self.next_index();
-        self.edits.push(Edit::Block {
-            anchor,
-            payloads,
-            mode,
-            register,
-            line_num,
-            index,
-        });
+    fn push_block(&mut self, anchor: Anchor, line_num: u32) {
+        self.edits.push(Edit::Block { anchor, line_num });
     }
 
     fn normalize_overlaps(&mut self) -> Result<(), String> {

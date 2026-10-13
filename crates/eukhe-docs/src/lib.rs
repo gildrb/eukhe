@@ -50,7 +50,6 @@ pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};
 pub use path::{canonical_key, resolve};
 pub use read::{
     display_path, DirEntry, FileView, LineSpan, ReadContent, ReadError, ReadView, SelectorError,
-    DEFAULT_WINDOW_LINES,
 };
 pub use rebase::{
     apply_edits, canonical_edits, rebase_content, rebase_edits, validate_edits, AppliedEdits,

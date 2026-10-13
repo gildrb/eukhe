@@ -6,7 +6,7 @@ use super::{
         ambiguous_anonymous_paste_message, empty_register_paste_warning,
         empty_register_span_paste_message, EMPTY_PASTE,
     },
-    types::{Anchor, BlockMode, Cursor, Edit, ParsedRange, PasteTarget},
+    types::{Anchor, Cursor, Edit, ParsedRange, PasteTarget},
 };
 use crate::{error::EditError, store::Clipboard};
 
@@ -26,10 +26,7 @@ fn describe_cut(range: ParsedRange, register: Option<&str>) -> String {
 pub(crate) fn has_clipboard_edit(edits: &[Edit]) -> bool {
     edits.iter().any(|edit| match edit {
         Edit::Cut { .. } | Edit::Paste { .. } => true,
-        Edit::Block { mode, register, .. } => {
-            matches!(mode, Some(BlockMode::Cut | BlockMode::PasteAfter)) || register.is_some()
-        }
-        Edit::Insert { .. } | Edit::Delete { .. } => false,
+        Edit::Insert { .. } | Edit::Delete { .. } | Edit::Block { .. } => false,
     })
 }
 

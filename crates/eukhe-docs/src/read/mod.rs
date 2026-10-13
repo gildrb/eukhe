@@ -1,7 +1,8 @@
 //! The read projection: a file becomes `[path#TAG]` plus `N:TEXT` rows, the
-//! shown lines are recorded as seen in the session store, and windows and
-//! selectors bound what is shown (port of omp `read/format.rs` for text
-//! files, without syntax-aware block context).
+//! shown lines are recorded as seen in the session store, and selectors
+//! bound what is shown (port of omp `read/format.rs` for text files, without
+//! syntax-aware block context). A read without a selector shows the whole
+//! file, as in omp; output is bounded once, by the caller.
 
 mod listing;
 pub(crate) mod selector;
@@ -17,8 +18,6 @@ pub use listing::DirEntry;
 pub use selector::SelectorError;
 use selector::{LineRange, Selector};
 
-/// Lines shown by a read without a selector.
-pub const DEFAULT_WINDOW_LINES: usize = 400;
 /// Source lines added before a range whose start was given.
 const RANGE_LEADING_CONTEXT_LINES: usize = 1;
 /// Source lines added after a range whose end was given.
@@ -114,17 +113,29 @@ pub(crate) fn read(
         },
     })?;
     if metadata.is_dir() {
+        let (offset, limit) = match &selector {
+            Selector::Whole | Selector::Raw => (None, None),
+            Selector::Lines { ranges, .. } => match ranges.as_slice() {
+                [range] => (
+                    Some(to_usize(range.start_line)),
+                    range
+                        .end_line
+                        .map(|end| to_usize(end - range.start_line).saturating_add(1)),
+                ),
+                [] | [_, _, ..] => return Err(SelectorError::directory_multi_range().into()),
+            },
+        };
         let entries = listing::list(&absolute).map_err(|source| ReadError::Io {
             display: display.clone(),
             source,
         })?;
-        let rendered = listing::render(&entries);
+        let listing = listing::render(&entries, listing::now_ms(), offset, limit);
         return Ok(ReadView {
             path: display,
             absolute,
             content: ReadContent::Directory(entries),
-            rendered,
-            diags: Vec::new(),
+            rendered: with_notices(listing.text, &listing.diags),
+            diags: listing.diags,
         });
     }
     let bytes = std::fs::read(&absolute).map_err(|source| ReadError::Io {
@@ -153,16 +164,11 @@ pub(crate) fn read(
             .collect();
         store.record(&crate::path::canonical_key(&absolute), &text, Some(&seen))
     });
-    let mut rendered = match (&tag, selector.is_raw()) {
+    let rendered = match (&tag, selector.is_raw()) {
         (Some(tag), false) => format!("[{display}#{tag}]\n{}", projection.text),
         (Some(_) | None, true) | (None, false) => projection.text,
     };
-    for diag in &projection.diags {
-        if !rendered.is_empty() {
-            rendered.push('\n');
-        }
-        let _infallible = write!(rendered, "{diag}");
-    }
+    let rendered = with_notices(rendered, &projection.diags);
     Ok(ReadView {
         path: display,
         absolute,
@@ -175,6 +181,17 @@ pub(crate) fn read(
         rendered,
         diags: projection.diags,
     })
+}
+
+/// Append one `<diag>` line per notice.
+fn with_notices(mut rendered: String, diags: &[Notice]) -> String {
+    for diag in diags {
+        if !rendered.is_empty() {
+            rendered.push('\n');
+        }
+        let _infallible = write!(rendered, "{diag}");
+    }
+    rendered
 }
 
 /// The edit anchor of `path`: relative inside `cwd`, `~/...` inside
@@ -256,7 +273,7 @@ fn project(text: &str, selector: &Selector, label: &str) -> Projection {
             total_lines: total,
             shown: span_of(1, total).into_iter().collect(),
         },
-        Selector::Window => project_window(&lines, None, false, label),
+        Selector::Whole => project_window(&lines, None, false, label),
     }
 }
 
@@ -276,8 +293,8 @@ fn numbered(lines: &[&str], span: LineSpan, out: &mut String) {
     }
 }
 
-/// One window: the default (first [`DEFAULT_WINDOW_LINES`] lines) or one
-/// selected range with its context lines.
+/// One window: the whole file, or one selected range with its context
+/// lines.
 fn project_window(lines: &[&str], range: Option<LineRange>, raw: bool, label: &str) -> Projection {
     let total = lines.len();
     let requested_start = range.map_or(1, |range| to_usize(range.start_line)) - 1;
@@ -299,12 +316,11 @@ fn project_window(lines: &[&str], range: Option<LineRange>, raw: bool, label: &s
             shown: Vec::new(),
         };
     }
-    let limit = match range {
-        Some(range) => range
+    let limit = range.and_then(|range| {
+        range
             .end_line
-            .map(|end| to_usize(end - range.start_line).saturating_add(1)),
-        None => Some(DEFAULT_WINDOW_LINES),
-    };
+            .map(|end| to_usize(end - range.start_line).saturating_add(1))
+    });
     let requested_end = limit.map_or(total, |limit| {
         requested_start.saturating_add(limit).min(total)
     });

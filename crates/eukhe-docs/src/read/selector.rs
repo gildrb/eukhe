@@ -12,8 +12,8 @@ pub struct LineRange {
 /// A parsed read selector.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Selector {
-    /// The default window.
-    Window,
+    /// No selector: the whole file, numbered.
+    Whole,
     /// The whole file verbatim, without numbers or header.
     Raw,
     /// Sorted, merged line ranges; `raw` drops numbering and the header.
@@ -26,7 +26,7 @@ impl Selector {
         match self {
             Self::Raw => true,
             Self::Lines { raw, .. } => *raw,
-            Self::Window => false,
+            Self::Whole => false,
         }
     }
 }
@@ -35,6 +35,20 @@ impl Selector {
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 #[error("{0}")]
 pub struct SelectorError(String);
+
+impl SelectorError {
+    /// A comma-separated range list aimed at a directory.
+    pub(crate) fn directory_multi_range() -> Self {
+        Self("Multi-range line selectors are not supported for directory listings.".to_owned())
+    }
+}
+
+/// Whether one-based `line` falls inside any of `ranges`.
+pub(crate) fn line_in_ranges(line: u64, ranges: &[LineRange]) -> bool {
+    ranges
+        .iter()
+        .any(|range| line >= range.start_line && range.end_line.is_none_or(|end| line <= end))
+}
 
 /// Parse one `N`, `N-M`, `N-`, `N+K`, `N..M`, or `N..` chunk.
 fn parse_line_range_chunk(input: &str) -> Result<Option<LineRange>, SelectorError> {
@@ -156,7 +170,7 @@ fn parse_line_ranges(input: &str) -> Result<Option<Vec<LineRange>>, SelectorErro
 /// not combine.
 pub fn parse_selector(input: Option<&str>) -> Result<Selector, SelectorError> {
     let Some(input) = input.filter(|value| !value.is_empty()) else {
-        return Ok(Selector::Window);
+        return Ok(Selector::Whole);
     };
     if let Some((first, second)) = input.split_once(':') {
         if !second.contains(':') {
@@ -295,7 +309,7 @@ mod tests {
             }
         );
         assert_eq!(parse_selector(Some("RAW")).unwrap(), Selector::Raw);
-        assert_eq!(parse_selector(None).unwrap(), Selector::Window);
+        assert_eq!(parse_selector(None).unwrap(), Selector::Whole);
     }
 
     #[test]

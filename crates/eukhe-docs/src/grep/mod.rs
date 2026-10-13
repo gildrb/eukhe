@@ -23,6 +23,9 @@ use crate::{
     notice::{Notice, NoticeKind, Omitted, Unit},
     path::canonical_key,
     path_tree::{build_path_tree, walk_path_tree, GroupedTreeEventKind},
+    read::selector::{
+        line_in_ranges, parse_selector, split_path_and_selector, LineRange, Selector,
+    },
     scope::{
         has_glob_chars, is_missing, normalize_path_input, resolve_input_path, workspace_relative,
     },
@@ -51,7 +54,9 @@ pub struct GrepRequest {
     /// cross-line matching. An invalid regex is repaired or searched literally.
     pub pattern: String,
     /// Files, directories, or globs relative to the working directory,
-    /// separated by `;`. Empty searches `.`.
+    /// separated by `;`. Empty searches `.`. A file or directory may carry a
+    /// line selector (`src/a.rs:50-100`, `src/a.rs:5-8,12`) that restricts
+    /// matches and context to those lines.
     pub path: String,
     /// Extra file glob for directory roots; a bare name glob matches at any
     /// depth.
@@ -93,6 +98,12 @@ pub enum GrepError {
     AllPathsMissing {
         /// Missing targets in request order.
         paths: Vec<String>,
+    },
+    /// A `path` entry carried an unusable line selector.
+    #[error("{message}")]
+    InvalidSelector {
+        /// The model-facing reason.
+        message: String,
     },
     /// The filesystem failed or a glob did not compile.
     #[error("{message}")]
@@ -192,6 +203,13 @@ enum Target {
     Directory { path: PathBuf, glob: Option<String> },
 }
 
+/// One resolved root: what to search and the lines a selector kept, empty
+/// for an unrestricted root.
+struct Scoped {
+    target: Target,
+    ranges: Vec<LineRange>,
+}
+
 struct Found {
     path: String,
     absolute: PathBuf,
@@ -234,8 +252,9 @@ pub fn grep(store: &EditStore, cwd: &Path, request: &GrepRequest) -> Result<Grep
     let mut targets = Vec::new();
     let mut missing_paths = Vec::new();
     for input in &roots {
-        match resolve_target(&root, input)? {
-            Some(target) => targets.push(target),
+        let (path, ranges) = parse_root(input)?;
+        match resolve_target(&root, path)? {
+            Some(target) => targets.push(Scoped { target, ranges }),
             None => missing_paths.push(input.clone()),
         }
     }
@@ -245,7 +264,7 @@ pub fn grep(store: &EditStore, cwd: &Path, request: &GrepRequest) -> Result<Grep
         });
     }
     let multi_scope = roots.len() > 1
-        || targets.iter().any(|target| match target {
+        || targets.iter().any(|scoped| match scoped.target {
             Target::File(_) => false,
             Target::Directory { .. } => true,
         });
@@ -366,11 +385,13 @@ fn notices(
 }
 
 /// Searches every target in order, fetching at most `per_file_cap + 1`
-/// matches per file and [`INTERNAL_TOTAL_CAP`] in all; a line reached through
-/// two roots counts once.
+/// matches per file (more for a line-ranged root, so every match up to its
+/// last selected line is reached) and [`INTERNAL_TOTAL_CAP`] in all; matches
+/// and context outside a root's ranges are dropped, and a line reached
+/// through two roots counts once.
 fn search_targets(
     root: &Path,
-    targets: &[Target],
+    targets: &[Scoped],
     request: &GrepRequest,
     per_file_cap: usize,
     deadline: Instant,
@@ -383,7 +404,7 @@ fn search_targets(
         options,
         DEFAULT_MAX_COLUMN,
     );
-    let per_file_fetch = u64::try_from(per_file_cap + 1).unwrap_or(u64::MAX);
+    let baseline_fetch = u64::try_from(per_file_cap + 1).unwrap_or(u64::MAX);
     let mut searched = Searched {
         found: Vec::new(),
         limit_reached: false,
@@ -393,7 +414,8 @@ fn search_targets(
     let mut remaining = INTERNAL_TOTAL_CAP;
     let mut seen = HashSet::new();
     let mut buffer = Vec::new();
-    for target in targets {
+    for Scoped { target, ranges } in targets {
+        let per_file_fetch = baseline_fetch.max(range_fetch(ranges, baseline_fetch));
         let files = match target {
             Target::File(path) => {
                 if fs::metadata(path).map_err(workspace_error)?.len() > MAX_FILE_BYTES {
@@ -443,7 +465,16 @@ fn search_targets(
             }
             let absolute = canonical_key(&file);
             let path = display_path(root, &absolute)?;
-            for matched in hits.matches {
+            for mut matched in hits.matches {
+                if !ranges.is_empty() {
+                    if !line_in_ranges(u64::from(matched.line_number), ranges) {
+                        continue;
+                    }
+                    let inside =
+                        |line: &ContextLine| line_in_ranges(u64::from(line.line_number), ranges);
+                    matched.context_before.retain(inside);
+                    matched.context_after.retain(inside);
+                }
                 if !seen.insert((absolute.clone(), matched.line_number)) {
                     continue;
                 }
@@ -461,6 +492,49 @@ fn search_targets(
         }
     }
     Ok(searched)
+}
+
+/// Matches to fetch from one file of a line-ranged root so that every match
+/// up to the last selected line is reached; an open range keeps
+/// `baseline` past its start (omp `fetch_budgets`).
+fn range_fetch(ranges: &[LineRange], baseline: u64) -> u64 {
+    ranges
+        .iter()
+        .map(|range| {
+            range
+                .end_line
+                .unwrap_or_else(|| range.start_line.saturating_sub(1).saturating_add(baseline))
+        })
+        .max()
+        .unwrap_or(0)
+        .min(MAX_FILE_BYTES)
+}
+
+/// Peel a line selector off one root: the path to search and its ranges
+/// (omp `parse_root`). `raw` is accepted and ignored; ranges need a single
+/// file or directory, not a glob.
+fn parse_root(original: &str) -> Result<(&str, Vec<LineRange>), GrepError> {
+    let split = split_path_and_selector(original);
+    let ranges = match split.selector {
+        None => Vec::new(),
+        Some(selector) => match parse_selector(Some(selector)) {
+            Ok(Selector::Lines { ranges, .. }) => ranges,
+            Ok(Selector::Whole | Selector::Raw) => Vec::new(),
+            Err(error) => {
+                return Err(GrepError::InvalidSelector {
+                    message: format!(
+                    "path entry \"{original}\" has an invalid selector \":{selector}\" — {error}"
+                ),
+                })
+            }
+        },
+    };
+    if !ranges.is_empty() && has_glob_chars(split.path) {
+        return Err(GrepError::InvalidSelector {
+            message: format!("Line-range selector requires a single file, not a glob: {original}"),
+        });
+    }
+    Ok((split.path, ranges))
 }
 
 /// Groups matches by file in encounter order, caps each file, and cuts the

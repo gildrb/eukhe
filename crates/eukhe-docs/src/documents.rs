@@ -57,19 +57,19 @@ impl Documents {
     }
 
     /// Apply a hashline payload (`[path#TAG]` sections) relative to `cwd`.
-    /// Anchors must be on lines this session was shown; every write is
-    /// compared against the bytes the edit was applied to under the path
-    /// lock.
+    /// The seen-line guard is off, matching omp's `edit.enforceSeenLines`
+    /// default; every write is compared against the bytes the edit was
+    /// applied to under the path lock.
     ///
     /// # Errors
     ///
-    /// The model-facing parse, anchor, stale-tag, seen-line, no-op loop, or
-    /// write error; see [`apply_hashline`].
+    /// The model-facing parse, anchor, stale-tag, no-op loop, or write
+    /// error; see [`apply_hashline`].
     pub fn edit(&self, cwd: &Path, input: &str) -> Result<HashlineOutcome, EditError> {
         let options = HashlineOptions {
             cwd,
             home: self.home.as_deref(),
-            enforce_seen_lines: true,
+            enforce_seen_lines: false,
         };
         let writer = LockedWriter {
             lock_dir: &self.lock_dir,
@@ -125,6 +125,27 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(cwd.join("a.txt")).unwrap(),
             "ONE\ntwo\nTHREE\n"
+        );
+    }
+
+    /// omp's `edit.enforceSeenLines` defaults to off: an anchor outside the
+    /// read's displayed range still applies.
+    #[test]
+    fn edits_outside_a_partial_read_apply_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().join("w");
+        std::fs::create_dir(&cwd).unwrap();
+        let source = (1..=10).map(|n| n.to_string() + "\n").collect::<String>();
+        std::fs::write(cwd.join("a.txt"), &source).unwrap();
+        let docs = session(dir.path());
+        let view = docs.read(&cwd, "a.txt:1-1").unwrap();
+        assert!(!view.rendered.contains("9:9"));
+        let header = view.rendered.lines().next().unwrap().to_owned();
+        docs.edit(&cwd, &format!("{header}\nPUT 9.=9:\n+NINE"))
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(cwd.join("a.txt")).unwrap(),
+            source.replace("9\n", "NINE\n")
         );
     }
 
