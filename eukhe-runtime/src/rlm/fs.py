@@ -117,7 +117,12 @@ class Doc:
 
 @dataclass(frozen=True)
 class WriteResult:
-    """A committed whole-file write."""
+    """A committed whole-file write. ``diagnostics``: what the language
+    servers reported in the inline window (dicts with ``path``, ``span``,
+    ``severity``, ``message``, ``source``, ``code``, ``server``);
+    ``diagnostics_complete`` is false while some server has not answered
+    (its diagnostics arrive later as a ``[late-diagnostics]`` message);
+    ``diagnostics_error`` says why the servers could not be told."""
 
     version: str
     path: str
@@ -127,6 +132,9 @@ class WriteResult:
     tag: str | None
     made_executable: bool
     rendered: str
+    diagnostics: list[dict[str, Any]]
+    diagnostics_complete: bool
+    diagnostics_error: str | None
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -142,8 +150,10 @@ class WriteResult:
 @dataclass(frozen=True)
 class EditResult:
     """A committed edit. ``files`` holds one dict per section (``path``,
-    ``change``, ``diff``, ``warnings``, ``tag``); ``header`` of the last file
-    is the ``[path#TAG]`` the next edit of it starts with."""
+    ``change``, ``diff``, ``warnings``, ``tag``, and for a file left on disk
+    the language servers' ``diagnostics``, ``diagnostics_complete``, and
+    ``diagnostics_error``, as on :class:`WriteResult`); ``header`` of the
+    last file is the ``[path#TAG]`` the next edit of it starts with."""
 
     version: str
     rendered: str
@@ -153,6 +163,16 @@ class EditResult:
     @property
     def headers(self) -> list[str]:
         return [f"[{file['path']}#{file['tag']}]" for file in self.files if file.get("tag")]
+
+    @property
+    def diagnostics(self) -> list[dict[str, Any]]:
+        """Every edited file's inline diagnostics."""
+        return [item for file in self.files for item in file.get("diagnostics", [])]
+
+    @property
+    def diagnostics_complete(self) -> bool:
+        """Whether every server of every edited file answered inline."""
+        return all(file["diagnostics_complete"] for file in self.files if "diagnostics_complete" in file)
 
     def __str__(self) -> str:
         return _with_warnings(self.rendered, self.warnings)
@@ -247,6 +267,9 @@ def write(*args: Any, **kwargs: Any) -> WriteResult:
         tag=reply["tag"],
         made_executable=reply["made_executable"],
         rendered=reply["rendered"],
+        diagnostics=reply["diagnostics"],
+        diagnostics_complete=reply["diagnostics_complete"],
+        diagnostics_error=reply["diagnostics_error"],
         warnings=reply["warnings"],
     )
 

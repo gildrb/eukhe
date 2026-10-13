@@ -3,7 +3,8 @@
 //! `glob` tools and the kernel's `fs.*` host requests. Both entry points
 //! decode through one contract per function and share the store, so a
 //! `read()` in the kernel makes its lines anchorable for the `edit` tool and
-//! the other way round.
+//! the other way round. Every committed write reaches the session's
+//! language servers, and its result carries their diagnostics.
 
 mod contract;
 mod requests;
@@ -16,6 +17,7 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::Extension;
 
 use self::contract::Function;
+use super::lsp::SessionLsp;
 use super::HostDeps;
 
 /// The extension's name.
@@ -27,14 +29,16 @@ pub const EDIT_TOOL_NAME: &str = Function::Edit.name();
 /// What the requests and the tools share.
 pub(crate) struct DocumentsHost {
     documents: Documents,
+    lsp: Arc<SessionLsp>,
 }
 
 /// The documents extension of one session, over the session's documents
-/// ([`HostDeps::documents`]).
+/// ([`HostDeps::documents`]) and language servers.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let host = Arc::new(DocumentsHost {
         documents: deps.documents.clone(),
+        lsp: Arc::clone(&deps.lsp),
     });
     requests::register(&deps.host_requests, &host);
     define_extension(Extension {

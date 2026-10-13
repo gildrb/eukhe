@@ -75,12 +75,15 @@ class WriteTest(unittest.TestCase):
             "tag": "9F3E",
             "made_executable": False,
             "rendered": "[b.txt#9F3E]\nSuccessfully wrote 3 bytes to b.txt",
+            "diagnostics": [],
+            "diagnostics_complete": True,
+            "diagnostics_error": None,
             "warnings": [],
         }
         with patch.object(rlm, "host_request_sync", return_value=reply) as host:
             result = fs.write("b.txt", "hi\n")
         self.assertEqual(_sent(host)["args"], {"path": "b.txt", "content": "hi\n"})
-        self.assertEqual((result.header, str(result)), ("[b.txt#9F3E]", reply["rendered"]))
+        self.assertEqual((result.header, str(result), result.diagnostics_complete), ("[b.txt#9F3E]", reply["rendered"], True))
 
 
 class EditTest(unittest.TestCase):
@@ -91,18 +94,22 @@ class EditTest(unittest.TestCase):
                 fs.edit("[a.py#1A2B]\nNOPE")
         self.assertEqual((caught.exception.version, caught.exception.reason), ("edit@hl.1", "parse"))
 
-    def test_done_edit_exposes_new_headers(self) -> None:
+    def test_done_edit_exposes_new_headers_and_diagnostics(self) -> None:
+        diagnostic = {"path": "/w/a.py", "message": "undefined name", "severity": "error"}
         reply = {
             "outcome": "done",
             "version": "edit@hl.1",
             "rendered": "[a.py#3C4D]\n...",
-            "files": [{"path": "a.py", "tag": "3C4D", "change": "updated"}],
+            "files": [
+                {"path": "a.py", "tag": "3C4D", "change": "updated", "diagnostics": [diagnostic], "diagnostics_complete": False, "diagnostics_error": None},
+                {"path": "b.py", "tag": None, "change": "deleted"},
+            ],
             "warnings": [],
         }
         with patch.object(rlm, "host_request_sync", return_value=reply) as host:
             result = fs.edit("[a.py#1A2B]\nPUT 1.=1:\n+y = 2")
         self.assertEqual(_sent(host)["args"], {"input": "[a.py#1A2B]\nPUT 1.=1:\n+y = 2"})
-        self.assertEqual(result.headers, ["[a.py#3C4D]"])
+        self.assertEqual((result.headers, result.diagnostics, result.diagnostics_complete), (["[a.py#3C4D]"], [diagnostic], False))
 
 
 class SearchTest(unittest.TestCase):

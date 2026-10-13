@@ -2,8 +2,9 @@
 //! `grep` (`grep@1`), and `glob` (`glob@1`). Each performs its function on
 //! the session's documents, the same engine and edit store as the kernel's
 //! `read()`/`edit()`/`grep()`/`glob()`, so lines either shows are anchorable
-//! by both. The Harness repairs the arguments by the function's declared
-//! dialect before the call; the text is bounded once by [`BoundedOutput`].
+//! by both; an edit's result carries the language servers' diagnostics.
+//! The Harness repairs the arguments by the function's declared dialect
+//! before the call; the text is bounded once by [`BoundedOutput`].
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -87,14 +88,15 @@ async fn execute(
         .cwd
         .clone()
         .map_or_else(|| deps.cwd.clone(), PathBuf::from);
-    let performed =
-        tokio::task::spawn_blocking(move || perform(&host.documents, function, &cwd, args))
-            .await
-            .map_err(|error| {
-                SessionError::error(format!("{} worker failed: {error}", function.name()))
-            })?;
+    let blocking_host = Arc::clone(&host);
+    let performed = tokio::task::spawn_blocking(move || {
+        perform(&blocking_host.documents, function, &cwd, args)
+    })
+    .await
+    .map_err(|error| SessionError::error(format!("{} worker failed: {error}", function.name())))?;
     match performed {
-        Ok(done) => {
+        Ok(mut done) => {
+            done.diagnose(&host.lsp, Some(api.conversation_id())).await;
             let mut output =
                 BoundedOutput::in_session(deps.storage_dir.as_deref(), &api.task_id().to_string());
             output.push(done.rendered());

@@ -31,9 +31,9 @@ use serde_json::Value;
 
 use super::deps::{HarnessCell, HostCall, HostDeps, ServiceStop};
 
-/// Late diagnostics list at most this many entries (omp
+/// Diagnostics listings show at most this many entries (omp
 /// `DIAGNOSTIC_MESSAGE_LIMIT`).
-const LATE_DIAGNOSTIC_LIMIT: usize = 50;
+const DIAGNOSTIC_LIMIT: usize = 50;
 
 /// The LSP state of one session.
 pub struct SessionLsp {
@@ -88,6 +88,33 @@ impl From<Result<DiagnosticsReport, LspError>> for WriteDiagnostics {
                 diagnostics_complete: false,
                 diagnostics_error: Some(error),
             },
+        }
+    }
+}
+
+impl WriteDiagnostics {
+    /// The model text that follows the write of `display`; `None` when the
+    /// servers all answered and found nothing.
+    pub(crate) fn render(&self, display: &str) -> Option<String> {
+        if let Some(error) = &self.diagnostics_error {
+            return Some(format!("LSP diagnostics of {display} unavailable: {error}"));
+        }
+        let found = (!self.diagnostics.is_empty()).then(|| {
+            format!(
+                "LSP diagnostics of {display}: {}",
+                listing(&self.diagnostics)
+            )
+        });
+        let pending = (!self.diagnostics_complete).then(|| {
+            format!(
+                "LSP diagnostics of {display} are still pending; late ones arrive as a {} message.",
+                Report::LateDiagnostics.header()
+            )
+        });
+        match (found, pending) {
+            (None, None) => None,
+            (Some(text), None) | (None, Some(text)) => Some(text),
+            (Some(found), Some(pending)) => Some(format!("{found}\n{pending}")),
         }
     }
 }
@@ -660,16 +687,22 @@ pub(crate) fn late_diagnostics_text(
     root: &Path,
 ) -> String {
     let shown = path.strip_prefix(root).unwrap_or(path).display();
-    let mut text = format!(
+    format!(
         "{shown}\nLate LSP diagnostics arrived after the write returned: {}",
-        summary(diagnostics)
-    );
-    for diagnostic in diagnostics.iter().take(LATE_DIAGNOSTIC_LIMIT) {
+        listing(diagnostics)
+    )
+}
+
+/// The summary, then one line per diagnostic (at most
+/// [`DIAGNOSTIC_LIMIT`]).
+fn listing(diagnostics: &[LspDiagnostic]) -> String {
+    let mut text = summary(diagnostics);
+    for diagnostic in diagnostics.iter().take(DIAGNOSTIC_LIMIT) {
         text.push('\n');
         text.push_str(&diagnostic_line(diagnostic));
     }
-    if diagnostics.len() > LATE_DIAGNOSTIC_LIMIT {
-        let more = diagnostics.len() - LATE_DIAGNOSTIC_LIMIT;
+    if diagnostics.len() > DIAGNOSTIC_LIMIT {
+        let more = diagnostics.len() - DIAGNOSTIC_LIMIT;
         // Writing to a `String` cannot fail.
         let _ = write!(text, "\n({more} more)");
     }

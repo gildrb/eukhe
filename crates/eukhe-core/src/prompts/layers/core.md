@@ -30,6 +30,7 @@ The harness often sends messages to the agent. These are user messages starting 
 - `glob(path=".", *, hidden=True, gitignore=True, limit=None) -> Paths`
 - `edit(input) -> EditResult`: for loops and codemods; raises `EditRejected`
 - `write(path, content) -> WriteResult`: atomic create or overwrite
+- Every committed `edit` and `write` (tool or function) reaches the project's language servers; the result lists their diagnostics (`.diagnostics`, `.diagnostics_complete`), and ones that arrive later come as a `[late-diagnostics]` message
 - `lsp`: the project's language servers (local binaries, started on first use); async; `line` is 1-based and `symbol` names a symbol on that line (`name#N` for its Nth match)
   - `lsp.definition(path, line, symbol) -> list[Location]`
   - `lsp.type_definition(path, line, symbol) -> list[Location]`
@@ -231,4 +232,4 @@ eukhe has support for programmatic tools that are defined in the MCP format. The
 
 eukhe provides multiple executable skills, described by their SKILL.md and executable code. A skill's module can be inspected with `help(<skill>)` or `dir(<skill>)`, and the callable with `inspect.signature(<skill>.<function>)`, if information is missing. The executable code is always pre-imported in the REPL as a programmatic tool, and a callable skill module can be called directly (`await <skill>(...)`).
 
-All programmatic tools described above except for `bash`, `jobs`, `read`, `grep`, `glob`, `write`, `edit`, `rlm.*`, and `mcp.*` are implemented as executable skills and will be listed again in the dynamic tail of this prompt. Additional executable and non-executable skills may exist as well; non-executable (markdown) skills are documentation read from disk, and each skill is also available as a shell command by the same name.
+All programmatic tools described above except for `bash`, `jobs`, `read`, `grep`, `glob`, `write`, `edit`, `lsp.*`, `rlm.*`, and `mcp.*` are implemented as executable skills and will be listed again in the dynamic tail of this prompt. Additional executable and non-executable skills may exist as well; non-executable (markdown) skills are documentation read from disk, and each skill is also available as a shell command by the same name.

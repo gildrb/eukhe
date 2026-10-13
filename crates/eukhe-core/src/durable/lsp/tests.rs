@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Mutex;
 
 use eukhe_lsp::LspHost;
@@ -16,7 +17,7 @@ impl LspHost for ScriptedHost {
     fn call(
         &self,
         request: LspRequest,
-    ) -> impl std::future::Future<Output = Result<LspResponse, LspError>> + Send {
+    ) -> impl Future<Output = Result<LspResponse, LspError>> + Send {
         let response = match &request.op {
             LspOp::Navigate { .. } => LspResponse::Locations(Vec::new()),
             LspOp::Rename { .. } => LspResponse::Edit(self.edit.clone()),

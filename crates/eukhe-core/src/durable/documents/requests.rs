@@ -1,10 +1,11 @@
 //! The documents functions behind both entry points: [`perform`] runs one
-//! decoded call on the session's documents, and the `fs.*` kernel host
-//! requests (`fs.read`, `fs.write`, `fs.edit`, `fs.grep`, `fs.glob`) repair
-//! the kernel's arguments by the function's contract, perform it, and reply
-//! `done` with the typed result and the repair warnings, or `rejected` with
-//! a reason and the model-facing message. Every reply carries the function
-//! revision (`read@1`, `edit@hl.1`).
+//! decoded call on the session's documents, [`Done::diagnose`] hands the
+//! files it wrote to the session's language servers, and the `fs.*` kernel
+//! host requests (`fs.read`, `fs.write`, `fs.edit`, `fs.grep`, `fs.glob`)
+//! repair the kernel's arguments by the function's contract, perform it,
+//! and reply `done` with the typed result and the repair warnings, or
+//! `rejected` with a reason and the model-facing message. Every reply
+//! carries the function revision (`read@1`, `edit@hl.1`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use eukhe_docs::{
     HashlineOutcome, Notice, ReadContent, ReadError, ReadView, WriteDisposition, WriteError,
     WriteOutcome,
 };
+use eukhe_durable::types::ConversationId;
 use eukhe_types::pi_ai::JsonObject;
 use futures::FutureExt;
 use serde::de::DeserializeOwned;
@@ -23,6 +25,7 @@ use serde_json::Value;
 
 use super::contract::{EditArgs, Function, GlobArgs, GrepArgs, ReadArgs, WriteArgs};
 use super::DocumentsHost;
+use crate::durable::lsp::{SessionLsp, WriteDiagnostics};
 use crate::durable::{HostCall, HostRequestRegistry};
 
 /// Every request carries the kernel's working directory, so relative paths
@@ -57,7 +60,7 @@ impl Rejection {
 enum Reply {
     Done {
         #[serde(flatten)]
-        done: Done,
+        done: Box<Done>,
         warnings: Vec<String>,
     },
     Rejected(Rejection),
@@ -84,6 +87,47 @@ impl Done {
             Self::Grep(reply) => &reply.rendered,
             Self::Glob(reply) => &reply.rendered,
         }
+    }
+
+    /// Hand every file this call wrote to the language servers (their
+    /// inline window runs for all files at once) and add what they said to
+    /// the result and its text. Late diagnostics go to `conversation` (the
+    /// root conversation when `None`).
+    pub(super) async fn diagnose(
+        &mut self,
+        lsp: &Arc<SessionLsp>,
+        conversation: Option<ConversationId>,
+    ) {
+        match self {
+            Self::Write(reply) => {
+                let diagnostics = lsp.committed_write(&reply.absolute, conversation).await;
+                append(&mut reply.rendered, diagnostics.render(&reply.path));
+                reply.diagnostics = Some(diagnostics);
+            }
+            Self::Edit(reply) => {
+                let synced = futures::future::join_all(reply.files.iter().map(|file| async {
+                    match &file.committed {
+                        Some(path) => Some(lsp.committed_write(path, conversation).await),
+                        None => None,
+                    }
+                }))
+                .await;
+                for (file, diagnostics) in reply.files.iter_mut().zip(synced) {
+                    if let Some(diagnostics) = &diagnostics {
+                        append(&mut reply.rendered, diagnostics.render(&file.path));
+                    }
+                    file.diagnostics = diagnostics;
+                }
+            }
+            Self::Read(_) | Self::Grep(_) | Self::Glob(_) => {}
+        }
+    }
+}
+
+fn append(rendered: &mut String, text: Option<String>) {
+    if let Some(text) = text {
+        rendered.push('\n');
+        rendered.push_str(&text);
     }
 }
 
@@ -132,6 +176,9 @@ pub(super) struct WriteReply {
     tag: Option<String>,
     made_executable: bool,
     rendered: String,
+    /// What the language servers said; set by [`Done::diagnose`].
+    #[serde(flatten)]
+    diagnostics: Option<WriteDiagnostics>,
 }
 
 #[derive(Serialize)]
@@ -151,6 +198,14 @@ struct EditFileReply {
     first_changed_line: Option<u32>,
     warnings: Vec<String>,
     tag: Option<String>,
+    /// The file the edit left on disk (the destination of a move); `None`
+    /// when it deleted the file or changed nothing.
+    #[serde(skip)]
+    committed: Option<PathBuf>,
+    /// What the language servers said about `committed`; set by
+    /// [`Done::diagnose`].
+    #[serde(flatten)]
+    diagnostics: Option<WriteDiagnostics>,
 }
 
 #[derive(Serialize)]
@@ -239,6 +294,7 @@ fn write_reply(outcome: WriteOutcome) -> WriteReply {
         tag: outcome.tag,
         made_executable: outcome.made_executable,
         rendered: outcome.rendered,
+        diagnostics: None,
     }
 }
 
@@ -258,11 +314,13 @@ fn edit_reply(outcome: HashlineOutcome) -> EditReply {
             .files
             .into_iter()
             .map(|file| {
-                let (change, destination) = match file.change {
-                    FileChange::Updated => ("updated", None),
-                    FileChange::Moved { destination } => ("moved", Some(destination)),
-                    FileChange::Deleted => ("deleted", None),
-                    FileChange::Unchanged => ("unchanged", None),
+                let (change, destination, committed) = match file.change {
+                    FileChange::Updated => ("updated", None, Some(file.absolute.clone())),
+                    FileChange::Moved { destination } => {
+                        ("moved", Some(destination.clone()), Some(destination))
+                    }
+                    FileChange::Deleted => ("deleted", None, None),
+                    FileChange::Unchanged => ("unchanged", None, None),
                 };
                 EditFileReply {
                     path: file.display,
@@ -273,6 +331,8 @@ fn edit_reply(outcome: HashlineOutcome) -> EditReply {
                     first_changed_line: file.first_changed_line,
                     warnings: file.warnings,
                     tag: file.tag,
+                    committed,
+                    diagnostics: None,
                 }
             })
             .collect(),
@@ -411,7 +471,7 @@ fn kernel_reply(documents: &Documents, function: Function, cwd: &Path, args: Jso
     };
     match perform(documents, function, cwd, repaired.arguments) {
         Ok(done) => Reply::Done {
-            done,
+            done: Box::new(done),
             warnings: repaired.repairs.iter().map(ToString::to_string).collect(),
         },
         Err(rejection) => Reply::Rejected(rejection),
@@ -433,10 +493,19 @@ async fn handle(
         "{request_type} cwd must be absolute, got {}",
         request.cwd.display()
     );
-    let reply = tokio::task::spawn_blocking(move || {
-        kernel_reply(&host.documents, function, &request.cwd, request.args)
+    let blocking_host = Arc::clone(&host);
+    let mut reply = tokio::task::spawn_blocking(move || {
+        kernel_reply(
+            &blocking_host.documents,
+            function,
+            &request.cwd,
+            request.args,
+        )
     })
     .await?;
+    if let Reply::Done { done, .. } = &mut reply {
+        done.diagnose(&host.lsp, call.conversation_id()).await;
+    }
     Ok(serde_json::to_value(reply)?)
 }
 

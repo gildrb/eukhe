@@ -1,14 +1,66 @@
+use std::future::Future;
+use std::sync::Mutex;
+
+use eukhe_lsp::{LspHandle, LspHost};
+use eukhe_types::lsp::{
+    DiagnosticsReport, LspDiagnostic, LspError, LspOp, LspPoint, LspRequest, LspResponse,
+    LspSeverity, LspSpan,
+};
 use serde_json::json;
 
 use super::*;
+use crate::durable::HarnessCell;
 
-fn registry(dir: &std::path::Path) -> HostRequestRegistry {
+/// Language servers that answer every committed write with `report` and
+/// record the written paths.
+struct Servers {
+    report: DiagnosticsReport,
+    synced: Mutex<Vec<PathBuf>>,
+}
+
+impl LspHost for Servers {
+    fn call(
+        &self,
+        request: LspRequest,
+    ) -> impl Future<Output = Result<LspResponse, LspError>> + Send {
+        let report = match request.op {
+            LspOp::Sync { path, .. } => {
+                self.synced.lock().unwrap().push(path);
+                self.report.clone()
+            }
+            LspOp::AwaitDiagnostics { .. } => self.report.clone(),
+            other => panic!("unscripted {other:?}"),
+        };
+        std::future::ready(Ok(LspResponse::Diagnostics(report)))
+    }
+}
+
+fn registry_with(dir: &Path, report: DiagnosticsReport) -> (HostRequestRegistry, Arc<Servers>) {
     let registry = HostRequestRegistry::default();
+    let servers = Arc::new(Servers {
+        report,
+        synced: Mutex::default(),
+    });
+    let documents = eukhe_docs::Documents::new(dir.join("locks"), None);
     let host = DocumentsHost {
-        documents: eukhe_docs::Documents::new(dir.join("locks"), None),
+        lsp: Arc::new(SessionLsp::new(
+            Some(LspHandle::new(Arc::clone(&servers))),
+            dir.to_owned(),
+            HarnessCell::default(),
+            documents.clone(),
+        )),
+        documents,
     };
     register(&registry, &Arc::new(host));
-    registry
+    (registry, servers)
+}
+
+fn registry(dir: &Path) -> HostRequestRegistry {
+    let clean = DiagnosticsReport {
+        diagnostics: Vec::new(),
+        pending: Vec::new(),
+    };
+    registry_with(dir, clean).0
 }
 
 async fn call(
@@ -52,6 +104,9 @@ async fn write_then_read_share_one_store() {
             "made_executable": false,
             "rendered": format!("[x.txt#{tag}]\nSuccessfully wrote 4 bytes to x.txt"),
             "warnings": [],
+            "diagnostics": [],
+            "diagnostics_complete": true,
+            "diagnostics_error": null,
         })
     );
     let read = call(
@@ -201,4 +256,59 @@ async fn edit_grep_and_glob_share_the_read_anchors() {
         (&globbed["version"], &globbed["paths"]),
         (&json!("glob@1"), &json!(["a.rs"]))
     );
+}
+
+/// A committed write reaches the language servers, and the result (and its
+/// text) carries what they said in the inline window, including that some
+/// are still pending.
+#[tokio::test]
+async fn committed_writes_carry_the_servers_diagnostics() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a.rs");
+    std::fs::write(&file, "fn one() {}\n").unwrap();
+    let error = LspDiagnostic {
+        path: file.clone(),
+        span: LspSpan {
+            start: LspPoint { line: 1, column: 4 },
+            end: LspPoint { line: 1, column: 7 },
+        },
+        severity: LspSeverity::Error,
+        message: "boom".to_owned(),
+        source: Some("fake".to_owned()),
+        code: None,
+        server: "fake".to_owned(),
+    };
+    let (registry, servers) = registry_with(
+        dir.path(),
+        DiagnosticsReport {
+            diagnostics: vec![error.clone()],
+            pending: vec!["slow".to_owned()],
+        },
+    );
+    let tag = eukhe_docs::file_hash("fn one() {}\n");
+    let edited = call(
+        &registry,
+        "fs.edit",
+        dir.path(),
+        json!({"input": format!("[a.rs#{tag}]\nPUT 1.=1:\n+fn two() {{}}")}),
+    )
+    .await;
+    assert_eq!(
+        (
+            &edited["files"][0]["diagnostics"],
+            &edited["files"][0]["diagnostics_complete"],
+            &edited["files"][0]["diagnostics_error"],
+        ),
+        (&json!([error]), &json!(false), &Value::Null)
+    );
+    let rendered = edited["rendered"].as_str().unwrap();
+    assert!(
+        rendered.ends_with(
+            "\nLSP diagnostics of a.rs: 1 error(s)\n\
+             1:4 error [fake] boom\n\
+             LSP diagnostics of a.rs are still pending; late ones arrive as a [late-diagnostics] message."
+        ),
+        "{rendered}"
+    );
+    assert_eq!(*servers.synced.lock().unwrap(), vec![file]);
 }
