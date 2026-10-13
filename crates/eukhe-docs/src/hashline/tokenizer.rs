@@ -21,6 +21,12 @@ pub(crate) enum BlockTarget {
         anchor: Anchor,
         register: Option<String>,
     },
+    /// `PUT <N*`: omp reads it as `PUT <N`; eukhe keeps the block locator so
+    /// staging rejects it like every other `N*` form.
+    InsertBeforeBlock {
+        anchor: Anchor,
+        register: Option<String>,
+    },
     InsertAfter {
         anchor: Anchor,
         register: Option<String>,
@@ -56,6 +62,7 @@ impl BlockTarget {
             Self::Replace { register, .. }
             | Self::Block { register, .. }
             | Self::InsertBefore { register, .. }
+            | Self::InsertBeforeBlock { register, .. }
             | Self::InsertAfter { register, .. }
             | Self::InsertAfterBlock { register, .. }
             | Self::Cut { register, .. }
@@ -225,6 +232,9 @@ fn with_register(target: BlockTarget, register: Option<String>) -> BlockTarget {
         BlockTarget::Replace { range, .. } => BlockTarget::Replace { range, register },
         BlockTarget::Block { anchor, .. } => BlockTarget::Block { anchor, register },
         BlockTarget::InsertBefore { anchor, .. } => BlockTarget::InsertBefore { anchor, register },
+        BlockTarget::InsertBeforeBlock { anchor, .. } => {
+            BlockTarget::InsertBeforeBlock { anchor, register }
+        }
         BlockTarget::InsertAfter { anchor, .. } => BlockTarget::InsertAfter { anchor, register },
         BlockTarget::InsertAfterBlock { anchor, .. } => {
             BlockTarget::InsertAfterBlock { anchor, register }
@@ -267,14 +277,21 @@ fn parse_put_target(raw: &str) -> Option<(BlockTarget, bool)> {
         let after = after.trim_start();
         let (line, used) = parse_number_prefix(after)?;
         let mut tail = &after[used..];
-        if tail.starts_with('*') {
+        let block = tail.starts_with('*');
+        if block {
             tail = &tail[1..];
         }
-        let target = if line == 1 {
+        let anchor = Anchor { line };
+        let target = if block {
+            BlockTarget::InsertBeforeBlock {
+                anchor,
+                register: None,
+            }
+        } else if line == 1 {
             BlockTarget::Bof { register: None }
         } else {
             BlockTarget::InsertBefore {
-                anchor: Anchor { line },
+                anchor,
                 register: None,
             }
         };

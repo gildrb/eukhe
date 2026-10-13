@@ -64,6 +64,8 @@ pub enum Unit {
     Files,
     /// Lines.
     Lines,
+    /// Directory entries.
+    Entries,
 }
 
 impl Unit {
@@ -71,6 +73,7 @@ impl Unit {
         match self {
             Self::Files => "files",
             Self::Lines => "lines",
+            Self::Entries => "entries",
         }
     }
 }

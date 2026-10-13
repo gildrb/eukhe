@@ -29,22 +29,21 @@ fn whole_small_file_has_header_and_rows_and_records_seen_lines() {
 }
 
 #[test]
-fn default_window_paginates() {
-    let (dir, store) = setup(&numbered_file(DEFAULT_WINDOW_LINES + 5));
+fn selectorless_read_shows_the_whole_file_without_pagination() {
+    let lines = 405;
+    let (dir, store) = setup(&numbered_file(lines));
     let view = read(&store, dir.path(), None, "a.rs").unwrap();
-    assert_eq!(
-        view.rendered.lines().last().unwrap(),
-        "<diag severity=\"info\" kind=\"pagination\" continuation=\":401\" omitted=\"5 lines\">5 lines remain in a.rs.</diag>"
-    );
+    assert_eq!(view.rendered.lines().last().unwrap(), "405:l405");
+    assert!(view.diags.is_empty());
     assert_eq!(
         view.content,
         ReadContent::File(FileView {
-            tag: Some(crate::file_hash(&numbered_file(DEFAULT_WINDOW_LINES + 5))),
-            text: numbered_file(DEFAULT_WINDOW_LINES + 5),
-            total_lines: DEFAULT_WINDOW_LINES + 5,
+            tag: Some(crate::file_hash(&numbered_file(lines))),
+            text: numbered_file(lines),
+            total_lines: lines,
             shown: vec![LineSpan {
                 start_line: 1,
-                end_line: DEFAULT_WINDOW_LINES
+                end_line: lines
             }],
         })
     );
@@ -102,11 +101,46 @@ fn errors_teach_the_fix() {
 }
 
 #[test]
-fn directory_lists_directories_first() {
+fn directory_reads_as_a_depth_two_tree() {
     let (dir, store) = setup("x");
-    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    std::fs::create_dir_all(dir.path().join("sub/deeper")).unwrap();
+    std::fs::write(dir.path().join("sub/deeper/hidden.rs"), "y").unwrap();
+    std::fs::write(dir.path().join("sub/b.rs"), "yy").unwrap();
     let view = read(&store, dir.path(), None, ".").unwrap();
-    assert_eq!(view.rendered, "sub/\na.rs (1B)");
+    let labels: Vec<String> = view
+        .rendered
+        .lines()
+        .map(|line| {
+            let name = line.trim_start();
+            let indent = &line[..line.len() - name.len()];
+            format!("{indent}{}", name.split("  ").next().unwrap())
+        })
+        .collect();
+    assert_eq!(
+        labels,
+        [".", "  - a.rs", "  - sub/", "    - b.rs", "    - deeper/"]
+    );
+    let ReadContent::Directory(entries) = &view.content else {
+        panic!("a directory read carries entries");
+    };
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| entry.relative_path.as_str())
+            .collect::<Vec<_>>(),
+        ["a.rs", "sub", "sub/b.rs", "sub/deeper"]
+    );
+    assert_eq!(
+        read(&store, dir.path(), None, ".:1-2,4")
+            .unwrap_err()
+            .to_string(),
+        "Multi-range line selectors are not supported for directory listings."
+    );
+    let page = read(&store, dir.path(), None, ".:2-3").unwrap();
+    assert!(page.rendered.starts_with("  - a.rs"), "{}", page.rendered);
+    assert!(page.rendered.ends_with(
+        "<diag severity=\"info\" kind=\"pagination\" continuation=\":4\" omitted=\"2 lines\">2 lines remain in listing.</diag>"
+    ));
 }
 
 #[test]

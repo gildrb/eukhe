@@ -144,20 +144,6 @@ fn range_op_range(op: AbsoluteRangeOp, start: u32, end: u32, register: Option<&s
     }
 }
 
-fn block_form_at(op: AbsoluteRangeOp, line: u32, register: Option<&str>) -> String {
-    let suffix = reg_suffix(register);
-    match op {
-        AbsoluteRangeOp::Replace => {
-            if register.is_some() {
-                format!("{HL_PUT_KEYWORD} {line}*{suffix}")
-            } else {
-                format!("{HL_PUT_KEYWORD} {line}*:")
-            }
-        }
-        AbsoluteRangeOp::Cut => format!("{HL_CUT_KEYWORD} {line}*{suffix}"),
-    }
-}
-
 /// Explain absolute range endpoints and provide safe, non-applying retry forms.
 ///
 /// omp also names the syntactic block starting at `start` when tree-sitter
@@ -280,75 +266,10 @@ pub(crate) const MINUS_ROW_REJECTED: &str =
                                       being changed. For Markdown bullets or other literal `-` \
                                       lines, prefix the literal row with `+`: `+- item`.";
 
-/// A block-anchored replace/cut could not resolve to a syntactic block,
-/// followed by the [`format_anchored_context`] preview around the anchor.
-/// `PUT >N*` never reaches this path; it lowers to `PUT >N`.
-///
-/// omp also suggests the next or enclosing block when tree-sitter finds one;
-/// without grammars there is never one to suggest.
-pub(crate) fn block_unresolved_message(
-    line: u32,
-    op: AbsoluteRangeOp,
-    file_lines: &[&str],
-    register: Option<&str>,
-) -> String {
-    let phrase = block_form_at(op, line, register);
-    let fallback = match (op, register) {
-        (AbsoluteRangeOp::Replace, Some(reg)) => {
-            format!("{HL_PUT_KEYWORD} {line}{HL_RANGE_SEP}M @{reg}")
-        }
-        (AbsoluteRangeOp::Replace, None) => format!("{HL_PUT_KEYWORD} {line}{HL_RANGE_SEP}M:"),
-        (AbsoluteRangeOp::Cut, Some(reg)) => {
-            format!("{HL_CUT_KEYWORD} {line}{HL_RANGE_SEP}M @{reg}")
-        }
-        (AbsoluteRangeOp::Cut, None) => format!("{HL_CUT_KEYWORD} {line}{HL_RANGE_SEP}M"),
-    };
-    let mut message = format!(
-        "`{phrase}` could not resolve a syntactic block beginning on line {line} (unsupported \
-         language, blank/closer line, or parse error). Use `{fallback}` with explicit lines."
-    );
-    let context = format_anchored_context(&[line], file_lines);
-    if !context.is_empty() {
-        message.push_str("\n\n");
-        message.push_str(&context.join("\n"));
-    }
-    message
-}
-
-fn closer_lowered_warning(block_form: &str, plain_form: &str) -> String {
-    format!(
-        "`{block_form}` anchors on a closing delimiter, so it was applied as plain `{plain_form}`. \
-         Anchor on the line that OPENS the construct."
-    )
-}
-
-fn unresolved_lowered_warning(block_form: &str, line: u32, plain_form: &str) -> String {
-    format!(
-        "`{block_form}` could not resolve a syntactic block on line {line}, so it was applied as \
-         plain `{plain_form}`. Verify the landing line; anchor on a line that OPENS a construct."
-    )
-}
-
-/// `PUT >N*:` anchored on a closing-delimiter line; applied as `PUT >N:`.
-pub(crate) fn insert_after_block_closer_lowered_warning(line: u32) -> String {
-    closer_lowered_warning(&format!("PUT >{line}*:"), &format!("PUT >{line}:"))
-}
-
-/// `PUT >N*:` anchor unresolvable; applied as `PUT >N:`.
-pub(crate) fn insert_after_block_unresolved_lowered_warning(line: u32) -> String {
-    unresolved_lowered_warning(&format!("PUT >{line}*:"), line, &format!("PUT >{line}:"))
-}
-
-/// Register `PUT >N*` anchored on a closing-delimiter line; applied as
-/// `PUT >N`.
-pub(crate) fn paste_after_block_closer_lowered_warning(line: u32) -> String {
-    closer_lowered_warning(&format!("PUT >{line}*"), &format!("PUT >{line}"))
-}
-
-/// Register `PUT >N*` anchor unresolvable; applied as `PUT >N`.
-pub(crate) fn paste_after_block_unresolved_lowered_warning(line: u32) -> String {
-    unresolved_lowered_warning(&format!("PUT >{line}*"), line, &format!("PUT >{line}"))
-}
+/// Block-anchored edit reached a path with no `BlockResolver` wired in.
+pub(crate) const BLOCK_RESOLVER_UNAVAILABLE: &str =
+    "Block locators (`N*` in `PUT N*:`, `PUT >N*`, `CUT N*`) are not available here (no block \
+     resolver configured). Use a concrete line range.";
 
 /// Which boundary side an ambiguous echo appeared on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

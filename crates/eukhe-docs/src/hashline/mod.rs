@@ -7,8 +7,8 @@
 //! text: `[path#NEWTAG]`, a compact preview of the edited lines, and a
 //! `Warnings:` block.
 //!
-//! Without tree-sitter (tool-surface design, Phase 5), block ops (`N*`) take
-//! omp's path for a language without a grammar.
+//! eukhe has no block resolver (tree-sitter, tool-surface design, Phase 5),
+//! so block ops (`N*`) are rejected with omp's no-resolver message.
 
 // Line numbers, line counts, and edit indices are `u32` like omp's; a text
 // with more than `u32::MAX` lines cannot be held in memory, so the narrowing
@@ -50,7 +50,8 @@ use crate::{
     text::{normalize_to_lf, strip_bom},
 };
 
-/// The `edit` tool description: omp's hashline prompt, byte-identical.
+/// The `edit` tool description: omp's hashline prompt without the block
+/// (`N*`) ops, which eukhe rejects for lack of a block resolver.
 pub const HASHLINE_DESCRIPTION: &str = include_str!("../../prompts/hashline.md");
 
 /// Separates per-file results in the model-facing text.
@@ -64,7 +65,7 @@ pub struct HashlineOptions<'a> {
     /// Directory `~` expands to; `None` keeps `~` literal.
     pub home: Option<&'a Path>,
     /// Reject anchors on lines the tagged read never displayed (omp
-    /// `edit.enforceSeenLines`, on by default).
+    /// `edit.enforceSeenLines`, off by default).
     pub enforce_seen_lines: bool,
 }
 

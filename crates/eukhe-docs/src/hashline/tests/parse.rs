@@ -8,7 +8,7 @@ use super::super::{
     mismatch::{mismatch_error, MismatchDetails},
     parser::parse_patch,
     tokenizer::{tokenize, BlockTarget, Token},
-    types::{BlockMode, Cursor, Edit, FileOp, PasteTarget},
+    types::{Cursor, Edit, FileOp, PasteTarget},
 };
 
 fn cwd() -> &'static Path {
@@ -53,7 +53,7 @@ fn accepts_lenient_range_separators_and_dangling_ranges() {
 #[test]
 fn parses_all_gap_and_block_targets() {
     let parsed = parse_patch(
-        "PUT <2:\n+a\nPUT >3:\n+b\nPUT <1:\n+c\nPUT >$:\n+d\nPUT 4*:\n+e\nPUT >5*:\n+f",
+        "PUT <2:\n+a\nPUT >3:\n+b\nPUT <1:\n+c\nPUT >$:\n+d\nPUT 4*:\n+e\nPUT >5*:\n+f\nPUT <6*:\n+g\nCUT 7*\nPUT 8* @r",
     )
     .unwrap();
     assert!(
@@ -76,11 +76,15 @@ fn parses_all_gap_and_block_targets() {
             ..
         }
     )));
-    assert!(parsed
-        .edits
-        .iter()
-        .any(|edit| matches!(edit, Edit::Block { anchor, mode: None, .. } if anchor.line == 4)));
-    assert!(parsed.edits.iter().any(|edit| matches!(edit, Edit::Block { anchor, mode: Some(BlockMode::InsertAfter), .. } if anchor.line == 5)));
+    for line in [4, 5, 6, 7, 8] {
+        assert!(
+            parsed
+                .edits
+                .iter()
+                .any(|edit| matches!(edit, Edit::Block { anchor, .. } if anchor.line == line)),
+            "block locator on line {line}"
+        );
+    }
 }
 
 #[test]

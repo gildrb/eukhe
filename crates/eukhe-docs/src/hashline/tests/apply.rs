@@ -2,18 +2,19 @@
 //! `tests/hashline_apply.rs`.
 //!
 //! Not ported, because they need tree-sitter (Phase 5): sparing a deleted
-//! closing line, dropping an attribute echo, the block resolver, block
-//! replacement lowering, inward block landing, and the syntax helpers. The
+//! closing line, dropping an attribute echo, and the syntax helpers. eukhe
+//! has no block resolver, so omp's block resolution, lowering, and inward
+//! landing cases do not apply; every block locator is rejected. The
 //! empty-paste drop case covers omp's streaming preview, which is not ported.
 
 use std::{collections::HashMap, path::Path};
 
 use super::super::{
     apply::apply_edits,
-    block::resolve_block_edits,
+    block::reject_block_edits,
     clipboard::{resolve_clipboard_edits, validate_clipboard_sequence},
     recovery::try_recover,
-    types::{Anchor, ApplyResult, BlockMode, Cursor, Edit, ParsedRange, PasteTarget},
+    types::{Anchor, ApplyResult, Cursor, Edit, ParsedRange, PasteTarget},
 };
 use crate::store::{file_hash, Clipboard, EditStore};
 
@@ -224,46 +225,18 @@ fn refuses_to_cross_a_line_targeted_by_another_hunk() {
 }
 
 #[test]
-fn unresolved_insert_after_block_lowers_and_warns() {
-    let edit = Edit::Block {
+fn every_block_locator_is_rejected_without_a_resolver() {
+    let block = Edit::Block {
         anchor: Anchor { line: 1 },
-        payloads: vec!["next".into()],
-        mode: Some(BlockMode::InsertAfter),
-        register: None,
         line_num: 7,
-        index: 0,
     };
-    let mut warnings = Vec::new();
-    let lowered =
-        resolve_block_edits(&[edit], "plain", &mut |warning| warnings.push(warning)).unwrap();
-    assert!(matches!(
-        lowered[0],
-        Edit::Insert {
-            cursor: Cursor::AfterAnchor(Anchor { line: 1 }),
-            ..
-        }
-    ));
-    assert_eq!(warnings.len(), 1);
-}
-
-#[test]
-fn unresolved_block_replacement_reports_context() {
-    let edit = Edit::Block {
-        anchor: Anchor { line: 2 },
-        payloads: vec!["x".into()],
-        mode: None,
-        register: None,
-        line_num: 9,
-        index: 0,
-    };
-    let error =
-        resolve_block_edits(&[edit], "fn f() {}\n\nfn g() {\n}\n", &mut |_| {}).unwrap_err();
+    let error = reject_block_edits(&[insert_after(1, "x", 1), block]).unwrap_err();
     assert_eq!(
         error.to_string(),
-        "line 9: `PUT 2*:` could not resolve a syntactic block beginning on line 2 (unsupported \
-         language, blank/closer line, or parse error). Use `PUT 2.=M:` with explicit lines.\n\n \
-         1:fn f() {}\n*2:\n 3:fn g() {\n 4:}"
+        "line 7: Block locators (`N*` in `PUT N*:`, `PUT >N*`, `CUT N*`) are not available here \
+         (no block resolver configured). Use a concrete line range."
     );
+    assert!(reject_block_edits(&[insert_after(1, "x", 1)]).is_ok());
 }
 
 #[test]

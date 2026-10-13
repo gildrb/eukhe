@@ -9,7 +9,7 @@ use std::{
 
 use super::{
     apply::apply_edits,
-    block::{has_block_edit, resolve_block_edits},
+    block::reject_block_edits,
     clipboard::validate_clipboard_sequence,
     input::PatchSection,
     messages::{
@@ -322,8 +322,15 @@ fn assert_seen_lines(
     )))
 }
 
+/// What the seen-line guard needs to check anchors against a snapshot.
+#[derive(Clone, Copy)]
+struct SeenGuard<'a> {
+    display: &'a str,
+    anchor_lines: &'a [u32],
+}
+
 /// Apply a section whose tag names an older snapshot onto the live text,
-/// or `None` to reject it as stale.
+/// or `Ok(None)` to reject it as stale.
 ///
 /// Tries omp's anchor remap ([`try_recover`]), then the byte-level
 /// three-way rebase ([`rebase_stale`]), each on a clipboard fork, so a
@@ -335,23 +342,30 @@ fn recover_stale(
     tag: &str,
     edits: &[Edit],
     clipboard: &mut Clipboard,
-) -> Option<ApplyResult> {
+    seen_guard: Option<SeenGuard<'_>>,
+) -> Result<Option<ApplyResult>, EditError> {
     let mut fork = clipboard.fork();
     if let Some(recovered) = try_recover(store, canonical, live, tag, edits, &mut fork) {
         *clipboard = fork;
-        return Some(recovered);
+        return Ok(Some(recovered));
     }
     let mut fork = clipboard.fork();
-    let rebased = rebase_stale(store, canonical, live, tag, edits, &mut fork)?;
+    let Some(rebased) = rebase_stale(store, canonical, live, tag, edits, &mut fork, seen_guard)?
+    else {
+        return Ok(None);
+    };
     *clipboard = fork;
-    Some(rebased)
+    Ok(Some(rebased))
 }
 
 /// The byte-level three-way rebase (omp envd `docserver/rebase.rs`): apply
 /// the section to the snapshot it was written against, then carry that
 /// change onto the live text through regions both sides left unchanged.
-/// `None` when there is no snapshot, the section does not apply to it, or
-/// the change overlaps what moved on disk.
+/// `Ok(None)` when there is no snapshot, the section does not apply to it,
+/// or the change overlaps what moved on disk.
+///
+/// Like omp's document server, anchors are checked against the snapshot's
+/// seen lines before rebasing when `seen_guard` is set.
 fn rebase_stale(
     store: &EditStore,
     canonical: &Path,
@@ -359,13 +373,32 @@ fn rebase_stale(
     tag: &str,
     edits: &[Edit],
     clipboard: &mut Clipboard,
-) -> Option<ApplyResult> {
-    let base = store.by_hash(canonical, tag)?;
-    let ours = apply_edits(&base.text, edits, clipboard).ok()?;
-    let rebased = rebase_content(base.text.as_bytes(), live.as_bytes(), ours.text.as_bytes())
-        .ok()?
-        .ok()?;
-    let text = String::from_utf8(rebased.into_parts().0).ok()?;
+    seen_guard: Option<SeenGuard<'_>>,
+) -> Result<Option<ApplyResult>, EditError> {
+    let Some(base) = store.by_hash(canonical, tag) else {
+        return Ok(None);
+    };
+    if let Some(guard) = seen_guard {
+        assert_seen_lines(
+            guard.display,
+            guard.anchor_lines,
+            tag,
+            canonical,
+            store,
+            &base.text,
+        )?;
+    }
+    let Ok(ours) = apply_edits(&base.text, edits, clipboard) else {
+        return Ok(None);
+    };
+    let Some(Ok(rebased)) =
+        rebase_content(base.text.as_bytes(), live.as_bytes(), ours.text.as_bytes()).ok()
+    else {
+        return Ok(None);
+    };
+    let Ok(text) = String::from_utf8(rebased.into_parts().0) else {
+        return Ok(None);
+    };
     let first_changed_line = live
         .split('\n')
         .zip(text.split('\n'))
@@ -374,11 +407,11 @@ fn rebase_stale(
         .map(|index| u32::try_from(index + 1).unwrap_or(u32::MAX));
     let mut warnings = vec![RECOVERY_REBASE_WARNING.to_owned()];
     warnings.extend(ours.warnings);
-    Some(ApplyResult {
+    Ok(Some(ApplyResult {
         text,
         first_changed_line,
         warnings,
-    })
+    }))
 }
 
 /// Apply one section's edits to the live text `normalized`.
@@ -388,6 +421,7 @@ fn rebase_stale(
 /// that tag or holds the live text itself. A matching section applies
 /// directly; a stale one with only head/tail inserts applies with a warning;
 /// any other stale section goes through [`recover_stale`] or is rejected.
+/// Block locators (`N*`) are rejected up front: there is no block resolver.
 #[allow(
     clippy::too_many_arguments,
     reason = "omp's apply_with_recovery contract: section identity, live text, edits, batch clipboard, store, policy"
@@ -402,52 +436,32 @@ fn apply_with_recovery(
     store: &EditStore,
     enforce_seen_lines: bool,
 ) -> Result<ApplyResult, EditError> {
+    reject_block_edits(edits)?;
     let anchor_lines = collect_anchor_lines(edits);
     let stored = store.by_hash(canonical, tag);
     let live_matches = file_hash(normalized).eq_ignore_ascii_case(tag)
         && (stored.is_none() || store.by_content(canonical, normalized).is_some());
-    let mut warnings = Vec::new();
-    let resolved = if has_block_edit(edits) {
-        let base = if live_matches {
-            normalized
-        } else if let Some(snapshot) = &stored {
-            &snapshot.text
-        } else {
-            return Err(mismatch(
-                display,
-                anchor_lines,
-                canonical,
-                normalized,
-                tag,
-                store,
-            ));
-        };
-        resolve_block_edits(edits, base, &mut |warning| warnings.push(warning))?
-    } else {
-        edits.to_vec()
-    };
-    validate_clipboard_sequence(&resolved, clipboard)?;
+    validate_clipboard_sequence(edits, clipboard)?;
     if live_matches {
         if enforce_seen_lines {
             assert_seen_lines(display, &anchor_lines, tag, canonical, store, normalized)?;
         }
-        let mut result = apply_edits(normalized, &resolved, clipboard)?;
+        return apply_edits(normalized, edits, clipboard);
+    }
+    if !has_anchor_scoped_edit(edits) {
+        let mut result = apply_edits(normalized, edits, clipboard)?;
+        let mut warnings = vec![HEADTAIL_DRIFT_WARNING.to_owned()];
         warnings.append(&mut result.warnings);
         result.warnings = warnings;
         return Ok(result);
     }
-    if !has_anchor_scoped_edit(&resolved) {
-        let mut result = apply_edits(normalized, &resolved, clipboard)?;
-        warnings.push(HEADTAIL_DRIFT_WARNING.to_owned());
-        warnings.append(&mut result.warnings);
-        result.warnings = warnings;
-        return Ok(result);
-    }
-    if let Some(mut recovered) =
-        recover_stale(store, canonical, normalized, tag, &resolved, clipboard)
-    {
-        warnings.append(&mut recovered.warnings);
-        recovered.warnings = warnings;
+    let seen_guard = enforce_seen_lines.then_some(SeenGuard {
+        display,
+        anchor_lines: &anchor_lines,
+    });
+    if let Some(recovered) = recover_stale(
+        store, canonical, normalized, tag, edits, clipboard, seen_guard,
+    )? {
         return Ok(recovered);
     }
     Err(mismatch(
