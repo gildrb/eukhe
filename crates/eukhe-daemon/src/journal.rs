@@ -76,6 +76,26 @@ pub struct WorkerRecoveryRecord {
     pub busy: bool,
     pub operation: String,
     pub recorded_at: String,
+    /// Why the worker gave the session up, when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<WorkerFailure>,
+}
+
+/// Why a worker gave its session up: the typed cause the supervisor reads
+/// from the journal when the worker exits, and reports while it revives
+/// the session.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, thiserror::Error)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum WorkerFailure {
+    /// The durable Harness failed (a Storage error closed its Session).
+    /// The revival reopens the session from Storage, where its run and
+    /// queued inputs survive.
+    #[error("durable session failed: {error}")]
+    HarnessFailed { error: String },
 }
 
 fn parse_worker_records(path: &Path) -> Result<HashMap<String, WorkerRecoveryRecord>> {
@@ -202,24 +222,64 @@ impl WorkerRecoveryJournal {
         busy: bool,
         operation: &str,
     ) -> Result<()> {
-        if let Some(previous) = self.latest.get(active_session_id) {
-            if previous.busy == busy
-                && previous.operation == operation
-                && previous.session_file.as_deref() == session_file
-            {
-                return Ok(());
-            }
-        }
-        let record = WorkerRecoveryRecord {
+        self.land(WorkerRecoveryRecord {
             active_session_id: active_session_id.to_string(),
             session_id: session_id.to_string(),
             session_file: session_file.map(str::to_string),
             busy,
             operation: operation.to_string(),
             recorded_at: crate::util::now_iso(),
-        };
+            failure: None,
+        })
+    }
+
+    /// Record that the worker gave the active session up with `failure`.
+    /// The record is busy: the session's work was interrupted, and its
+    /// revival resumes it from Storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the record cannot be serialized or appended.
+    pub fn record_failure(
+        &mut self,
+        active_session_id: &str,
+        session_id: &str,
+        session_file: Option<&str>,
+        failure: WorkerFailure,
+    ) -> Result<()> {
+        self.land(WorkerRecoveryRecord {
+            active_session_id: active_session_id.to_string(),
+            session_id: session_id.to_string(),
+            session_file: session_file.map(str::to_string),
+            busy: true,
+            operation: "failed".to_string(),
+            recorded_at: crate::util::now_iso(),
+            failure: Some(failure),
+        })
+    }
+
+    /// The worker failure a session's latest record carries, if any: why
+    /// the worker that wrote the journal last gave its session up.
+    #[must_use]
+    pub fn read_failure(path: &Path) -> Option<WorkerFailure> {
+        Self::read_latest(path)
+            .ok()?
+            .into_iter()
+            .find_map(|record| record.failure)
+    }
+
+    fn land(&mut self, record: WorkerRecoveryRecord) -> Result<()> {
+        if let Some(previous) = self.latest.get(&record.active_session_id) {
+            if previous.busy == record.busy
+                && previous.operation == record.operation
+                && previous.session_file == record.session_file
+                && previous.failure == record.failure
+            {
+                return Ok(());
+            }
+        }
         append_record(&self.path, &serde_json::to_value(&record)?)?;
-        self.latest.insert(active_session_id.to_string(), record);
+        self.latest.insert(record.active_session_id.clone(), record);
         // TS parity: the all-idle check includes the just-landed record
         // (TS `record` runs `[...this.latest.values()].every(!busy)`
         // AFTER `set`). Checking before the insert let the session's own
@@ -380,6 +440,28 @@ mod tests {
         assert!(!WorkerRecoveryJournal::read_interrupted(&path));
         std::fs::write(&path, "not json").unwrap();
         assert!(!WorkerRecoveryJournal::read_interrupted(&path));
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// A worker's failure record is busy revival evidence that carries its
+    /// typed cause, and the next record for the session (the revived
+    /// worker's `create`) supersedes it.
+    #[test]
+    fn worker_journal_failure_record_is_busy_and_typed() {
+        let path = temp_path("failure.recovery.jsonl");
+        let mut journal = WorkerRecoveryJournal::open(&path).unwrap();
+        let failure = WorkerFailure::HarnessFailed {
+            error: "disk gone".to_string(),
+        };
+        journal
+            .record_failure("s1", "sess1", Some("/a"), failure.clone())
+            .unwrap();
+        assert!(WorkerRecoveryJournal::read_interrupted(&path));
+        assert_eq!(WorkerRecoveryJournal::read_failure(&path), Some(failure));
+        journal
+            .record("s1", "sess1", Some("/a"), true, "create")
+            .unwrap();
+        assert_eq!(WorkerRecoveryJournal::read_failure(&path), None);
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 }

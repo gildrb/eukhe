@@ -556,9 +556,11 @@ async fn a_crashed_run_resumes_on_the_next_create() {
 /// A Storage failure mid-run (the session's files turn unwritable, so the
 /// next commit fails and the Harness fails its Session) does not leave the
 /// session busy: busy derives from the durable Harness, not from the event
-/// mirror (which never hears a run end).
+/// mirror (which never hears a run end). The worker retires with a typed
+/// failure in its journal, and a revived worker reopens the storage,
+/// resumes the run, and drains the steer queued before the failure.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_storage_failure_mid_run_does_not_leave_the_session_busy() {
+async fn a_failed_harness_retires_the_worker_and_the_revival_drains_the_steer() {
     let dir = tempfile::tempdir().expect("tempdir");
     let sessions = dir.path().join("sessions");
     let cwd = dir.path().join("work");
@@ -596,6 +598,45 @@ async fn a_storage_failure_mid_run_does_not_leave_the_session_busy() {
     assert!(!refused.success, "the failing commit answers: {refused:?}");
     wait_busy(&first, false).await;
     set_writable(&storage, true);
+    let failure = tokio::time::timeout(DEADLINE, first.retire_failed_harness())
+        .await
+        .expect("the worker retires its failed session");
+    assert!(
+        matches!(
+            &failure,
+            crate::journal::WorkerFailure::HarnessFailed { .. }
+        ),
+        "{failure:?}"
+    );
+    let failed = latest_record(dir.path(), "first.recovery.jsonl");
+    assert!(
+        failed.busy,
+        "the interrupted session is revival work: {failed:?}"
+    );
+    assert_eq!(failed.failure, Some(failure));
+    assert!(first.session.get().is_none(), "the failed session closed");
+    drop(first);
+
+    let second = worker(
+        dir.path(),
+        "second.recovery.jsonl",
+        json!({ "responses": ["done"], "repeatLastResponse": true }),
+    );
+    create(&second, json!({ "cwd": cwd, "sessionPath": storage })).await;
+    // The steer joins the resumed run at its next boundary and is answered.
+    let transcript = wait_messages(&second, |messages| {
+        messages
+            .iter()
+            .position(|message| message["role"] == "user" && text(message) == "S")
+            .is_some_and(|steer| {
+                messages[steer..]
+                    .iter()
+                    .any(|message| message["role"] == "assistant")
+            })
+    })
+    .await;
+    assert_eq!(texts_of(&transcript, "user"), ["go", "S"]);
+    wait_busy(&second, false).await;
 }
 
 /// Make `dir`'s tree unwritable (or writable again).
