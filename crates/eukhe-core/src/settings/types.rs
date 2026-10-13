@@ -312,6 +312,12 @@ pub struct Settings {
     /// How many subagents may run at once in one daemon (default 32, `0`
     /// unlimited); a spawn batch that would exceed it fails whole.
     pub subagent_max_concurrency: Option<u32>,
+    /// The longest a tool call may block its turn, in ms (default
+    /// 30 000). A call that runs longer settles `detached` with a job
+    /// reference and keeps running; its completion wakes the session
+    /// (ADR 0010). Waits a cell makes on the host (`rlm.collect`,
+    /// `jobs.wait`) are clamped to it.
+    pub tool_blocking_budget_ms: Option<u64>,
     /// `number | "off" | "none"`; raw JSON because the TS getter validates at
     /// access time.
     pub idle_eviction_minutes: Option<serde_json::Value>,

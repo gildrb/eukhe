@@ -28,6 +28,7 @@ from .harness import (
     chat_memory_session,
     get_harness_state,
 )
+from .jobs import Job, jobs
 
 _NOT_CALLABLE_MESSAGE = "'rlm' is not callable; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
 _RENAMED_RUN_MESSAGE = "rlm.run was renamed; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
@@ -753,6 +754,7 @@ __all__ = [
     "RLMSubagentActivity",
     "create_session",
     "RefinementEvent",
+    "Job",
     "bash",
     "delete_subagent",
     "emit",
@@ -760,6 +762,7 @@ __all__ = [
     "get_harness_state",
     "harness",
     "host_request",
+    "jobs",
     "list_subagents",
     "progress_note",
     "rename",

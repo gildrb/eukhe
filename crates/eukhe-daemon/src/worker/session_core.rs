@@ -37,7 +37,8 @@ impl InjectionKind {
             | InputOrigin::Autonomous { .. }
             | InputOrigin::QuotaResume
             | InputOrigin::Report {
-                report: Report::AgentMessage { .. } | Report::BashDone { .. },
+                report:
+                    Report::AgentMessage { .. } | Report::BashDone { .. } | Report::JobSettled { .. },
             } => None,
         }
     }

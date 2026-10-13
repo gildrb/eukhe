@@ -31,6 +31,7 @@ use crate::durable::{
     open_session, EukheSession, HostCall, HostCallHandler, SessionConfig, SessionStorage,
 };
 use crate::kernel::state_snapshot::manifest_path_in;
+use eukhe_types::job::{CellStatus, JobId, JobSettled};
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -39,15 +40,7 @@ fn cx() -> &'static Context {
 /// Kernel boots and cells run in real time.
 const WAIT_MS: u64 = 90_000;
 
-/// Serializes the real-kernel tests: each boots a `CPython` kernel, and
-/// several boots at once starve every wait budget under a parallel test
-/// run (the daemon tests' `FAUX_TEST_LOCK` pattern).
-static KERNEL_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-/// Hold for the whole body of a real-kernel test.
-async fn kernel_test_lock() -> tokio::sync::MutexGuard<'static, ()> {
-    KERNEL_TEST_LOCK.lock().await
-}
+use super::kernel_test_lock;
 
 /// Directories, models, and the faux provider of one session that survive a
 /// reopen, like a worker host's own objects.
@@ -921,4 +914,173 @@ async fn closing_a_session_kills_its_prewarmed_kernel_process() {
         async move { !alive }
     })
     .await;
+}
+
+/// The blocking budget of the detach tests: long enough for a booted
+/// kernel to start a cell, far shorter than the cells they hold open.
+const TEST_BUDGET_MS: u64 = 3_000;
+
+/// Open with `toolBlockingBudgetMs` set and every settled job captured.
+async fn open_with_budget(
+    fixture: &Fixture,
+) -> (
+    EukheSession,
+    tokio::sync::mpsc::UnboundedReceiver<JobSettled>,
+) {
+    std::fs::write(
+        fixture.dir.path().join("agent").join("settings.json"),
+        json!({ "toolBlockingBudgetMs": TEST_BUDGET_MS }).to_string(),
+    )
+    .expect("settings");
+    let (settled_tx, settled) = tokio::sync::mpsc::unbounded_channel();
+    let session = fixture
+        .open_configured(move |config| {
+            config.job_settled = Some(Arc::new(move |job| {
+                let _closed_receiver_ends_the_test = settled_tx.send(job);
+            }));
+        })
+        .await;
+    (session, settled)
+}
+
+/// A cell that loops until `gate` exists, printing `started` first.
+fn gated_cell(gate: &std::path::Path, then: &str) -> String {
+    format!(
+        "import os, time\nprint('started', flush=True)\nwhile not os.path.exists({gate:?}):\n    time.sleep(0.02)\n{then}",
+        gate = gate.display().to_string()
+    )
+}
+
+/// The turn's submission settles within `bound`; a held turn fails the test.
+async fn settle_within(session: &EukheSession, id: SubmissionId, bound: Duration) {
+    let settled = tokio::time::timeout(bound, settle(session, id)).await;
+    assert_eq!(
+        settled.ok(),
+        Some(SubmissionStatus::Done),
+        "the running cell held the turn past {bound:?}"
+    );
+}
+
+async fn job_request(session: &EukheSession, request: &str, data: Value) -> Value {
+    let handler = session
+        .deps()
+        .host_requests
+        .get(request)
+        .expect("the jobs handler");
+    handler(HostCall {
+        data,
+        cell_source_code: None,
+        call: None,
+    })
+    .await
+    .expect("the jobs request")
+}
+
+/// Cause 1 of the stuck-session audit: a cell that outlives the runtime's
+/// blocking budget no longer holds the turn (ADR 0010). Its call settles
+/// `detached` with the output so far and a job reference, the turn goes
+/// on, and the cell's end settles the job with its whole output.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_cell_past_the_blocking_budget_detaches_and_its_end_settles_the_job() {
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    let gate = fixture.dir.path().join("gate");
+    fixture.faux.set_responses(vec![
+        ipython("c1", &gated_cell(&gate, "print('finished')\n6 * 7")),
+        text("the cell runs on as a job"),
+    ]);
+    let (session, mut settled) = open_with_budget(&fixture).await;
+    let id = submit(&session, "go").await;
+    settle_within(&session, id, Duration::from_millis(WAIT_MS)).await;
+
+    let first = results(&entries(&session).await);
+    assert_eq!(first.len(), 1);
+    assert!(!first[0].is_error, "{first:?}");
+    assert!(result_text(&first[0]).starts_with("started\n"), "{first:?}");
+    let details = first[0].details.clone().expect("details");
+    assert_eq!(details["status"], "detached");
+    assert_eq!(details["job"]["kind"], "cell");
+    let job = details["job"]["id"].as_str().expect("a job id").to_owned();
+    assert!(
+        settled.try_recv().is_err(),
+        "the job settled before its cell ended"
+    );
+    let listed = job_request(&session, "jobs.list", json!({})).await;
+    assert_eq!(listed["jobs"][0]["id"], json!(job));
+    assert_eq!(listed["jobs"][0]["state"], "running");
+
+    std::fs::write(&gate, "").expect("open the gate");
+    let settled = tokio::time::timeout(Duration::from_millis(WAIT_MS), settled.recv())
+        .await
+        .expect("the job settles when its cell ends")
+        .expect("a settled job");
+    assert_eq!(
+        settled,
+        JobSettled::Cell {
+            job: JobId::new(job.clone()).expect("id"),
+            status: CellStatus::Ok,
+            output: "started\nfinished\n42".to_owned(),
+        }
+    );
+    let waited = job_request(&session, "jobs.wait", json!({ "job": job })).await;
+    assert_eq!(waited["state"], "ok");
+    assert_eq!(waited["output"], "started\nfinished\n42");
+    session.close(cx()).await.expect("close");
+}
+
+/// A call that finds the kernel held by a detached cell waits for it only
+/// within its own budget, then reports the job without running its code;
+/// `jobs.cancel` stops the job through the kernel's abort and the kernel
+/// serves the next cell.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_call_on_a_kernel_held_by_a_job_reports_it_busy_and_a_cancel_stops_the_job() {
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    let gate = fixture.dir.path().join("never-opened");
+    fixture.faux.set_responses(vec![
+        ipython("c1", &gated_cell(&gate, "")),
+        ipython("c2", "print('second')"),
+        text("both returned"),
+    ]);
+    let (session, mut settled) = open_with_budget(&fixture).await;
+    let id = submit(&session, "go").await;
+    settle_within(&session, id, Duration::from_millis(WAIT_MS)).await;
+
+    let all = results(&entries(&session).await);
+    assert_eq!(all.len(), 2);
+    let job = all[0].details.clone().expect("details")["job"]["id"].clone();
+    let busy = all[1]
+        .details
+        .clone()
+        .unwrap_or_else(|| panic!("no busy details: {all:?}"));
+    assert_eq!(busy["status"], "busy", "{all:?}");
+    assert_eq!(busy["job"]["id"], job);
+    assert!(all[1].is_error);
+    assert!(
+        !result_text(&all[1]).contains("second"),
+        "the busy call's code must not run: {all:?}"
+    );
+
+    let cancelled = job_request(&session, "jobs.cancel", json!({ "job": job })).await;
+    assert_eq!(cancelled["state"], "aborted", "{cancelled}");
+    let settled = settled.recv().await.expect("the cancelled job settles");
+    assert!(
+        matches!(
+            settled,
+            JobSettled::Cell {
+                status: CellStatus::Aborted,
+                ..
+            }
+        ),
+        "{settled:?}"
+    );
+
+    fixture
+        .faux
+        .set_responses(vec![ipython("c3", "print(20 + 22)"), text("done")]);
+    let next = submit(&session, "again").await;
+    assert_eq!(settle(&session, next).await, SubmissionStatus::Done);
+    let all = results(&entries(&session).await);
+    assert_eq!(result_text(&all[2]), "42\n");
+    session.close(cx()).await.expect("close");
 }

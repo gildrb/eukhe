@@ -24,7 +24,7 @@ use crate::kernel::protocol::{parse_event, Event, Request, REPL_PROTOCOL_VERSION
 use crate::kernel::shared::FACTORY_ACTIVITY_ACTIONS;
 use crate::kernel::shared::{
     parse_attachment_display, parse_diff_display, parse_sent_agent_message, BackgroundOutput,
-    ExecuteOptions, ExecuteResult, ExecuteStatus, HostRequestPayload, KernelAttachment,
+    CellJob, ExecuteOptions, ExecuteResult, ExecuteStatus, HostRequestPayload, KernelAttachment,
     KernelBashCommands, KernelDiffDisplay, KernelError, KernelManagerOptions,
     KernelSentAgentMessage, KernelShutdownOptions, LateSentAgentMessageCallback, OutputSink,
     StreamName, AGENT_MESSAGE_DISPLAY_MIME, ATTACHMENT_DISPLAY_MIME, BASH_ACTIVITY_DISPLAY_MIME,
@@ -404,11 +404,35 @@ pub(crate) struct Inner {
     stderr_closed_flag: AtomicBool,
     /// File receiving pre-ready kernel stderr, with its remaining write budget.
     stderr_log: Mutex<Option<Arc<Mutex<StderrLog>>>>,
+    /// The cells executing (or queued) for a call that may detach.
+    cell_jobs: Mutex<Vec<CellJob>>,
 }
 
 struct StderrLog {
     file: std::fs::File,
     budget: u64,
+}
+
+/// One cell's enrollment in [`Inner::cell_jobs`], withdrawn on drop.
+struct PendingCellJob {
+    inner: Arc<Inner>,
+    job: CellJob,
+}
+
+impl PendingCellJob {
+    fn enroll(inner: &Arc<Inner>, job: CellJob) -> Self {
+        lock(&inner.cell_jobs).push(job.clone());
+        Self {
+            inner: Arc::clone(inner),
+            job,
+        }
+    }
+}
+
+impl Drop for PendingCellJob {
+    fn drop(&mut self) {
+        lock(&self.inner.cell_jobs).retain(|job| !job.same(&self.job));
+    }
 }
 
 impl Inner {
@@ -514,6 +538,7 @@ impl ReplKernelManager {
             stderr_closed: Notify::new(),
             stderr_closed_flag: AtomicBool::new(false),
             stderr_log: Mutex::new(None),
+            cell_jobs: Mutex::new(Vec::new()),
         });
         Self { inner }
     }
@@ -526,6 +551,17 @@ impl ReplKernelManager {
     #[must_use]
     pub fn has_background_work(&self) -> bool {
         !lock(&self.inner.guarded).background_bash_handles.is_empty()
+    }
+
+    /// The job of a cell whose call settled `detached` and that is still
+    /// executing or queued (ADR 0010): the kernel runs at most one cell, so
+    /// at most one such job is pending per kernel.
+    #[must_use]
+    pub fn detached_job(&self) -> Option<eukhe_types::job::JobId> {
+        lock(&self.inner.cell_jobs)
+            .iter()
+            .find(|job| job.is_detached())
+            .map(|job| job.id().clone())
     }
 
     /// Process id of the spawned kernel child, when present. Used by tests and
@@ -654,6 +690,12 @@ impl ReplKernelManager {
         opts: ExecuteOptions,
         execution_timeout_ms: Option<u64>,
     ) -> anyhow::Result<ExecuteResult> {
+        // A cell that may detach is a pending job from the moment it queues
+        // until its execution resolves, however this future ends.
+        let _pending = opts
+            .job
+            .clone()
+            .map(|job| PendingCellJob::enroll(&self.inner, job));
         self.wait_for_protocol_repair(opts.signal.as_ref()).await?;
         let result = self
             .enqueue_execute(code, opts, execution_timeout_ms)

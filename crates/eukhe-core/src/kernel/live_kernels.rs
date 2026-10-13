@@ -120,8 +120,12 @@ mod tests {
         );
     }
 
+    /// Shuts down every kernel of this test process, so it holds the
+    /// real-kernel test lock: a live session kernel of a concurrent test
+    /// would otherwise be torn down under it.
     #[tokio::test]
     async fn shutdown_all_is_safe_with_no_kernels() {
+        let _kernels = crate::durable::rlm::kernel_test_lock().await;
         shutdown_all_live_kernels().await;
     }
 }

@@ -144,16 +144,26 @@ impl BoundedOutput {
     /// The projection and its `output_bounded` diagnostic, when the output
     /// passed the bound.
     #[must_use]
-    pub fn finish(self) -> (String, Option<ToolDiagnostic>) {
-        let Some(Spilled { head, artifact }) = self.spilled else {
-            return (self.window, None);
+    pub fn finish(mut self) -> (String, Option<ToolDiagnostic>) {
+        self.projection()
+    }
+
+    /// The projection of the output so far (a detached run's partial
+    /// output); the run keeps appending. The artifact is flushed, so the
+    /// path the diagnostic names already holds everything so far.
+    pub fn projection(&mut self) -> (String, Option<ToolDiagnostic>) {
+        let Some(Spilled { head, artifact }) = &mut self.spilled else {
+            return (self.window.clone(), None);
         };
         let tail = bound_output(&self.window, &limits(OutputRetain::Tail)).text;
-        let artifact = artifact.and_then(|(path, mut file)| {
-            file.flush()
+        let artifact = match artifact {
+            Ok((path, file)) => file
+                .flush()
                 .map(|()| path.to_string_lossy().into_owned())
-                .map_err(|error| format!("writing the full output failed: {error}"))
-        });
+                .map_err(|error| format!("writing the full output failed: {error}")),
+            Err(reason) => Err(reason.clone()),
+        };
+        let head = head.clone();
         let after_line = newlines(&head);
         let omitted = OmittedOutput {
             bytes: self.bytes - (head.len() + tail.len()) as u64,

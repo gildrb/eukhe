@@ -50,6 +50,7 @@ use crate::durable::observe::rlm_usage::{
     apply_child_usage_attributions, entry_assistant_usage, ChildUsageAttributionData,
     CHILD_USAGE_ATTRIBUTED_KIND,
 };
+use crate::durable::settings::EukheSettings;
 
 const PARENT_SESSION_ID: &str = "parent-session";
 const PROMPT: &str = "Investigate the flaky test";
@@ -516,6 +517,13 @@ fn spawn_tool(requests: HostRequestRegistry) -> Arc<Extension> {
     })
 }
 
+/// Settings with no files behind them: every default, the blocking budget
+/// included.
+fn default_settings() -> Arc<EukheSettings> {
+    let absent = std::path::Path::new("/nonexistent/eukhe-children-tests");
+    Arc::new(EukheSettings::new(absent, absent))
+}
+
 async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> Opened {
     let cell = HarnessCell::default();
     let requests = HostRequestRegistry::default();
@@ -528,6 +536,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         models: setup.models.clone(),
         semantic_edges: None,
         progress_note: None,
+        settings: default_settings(),
     });
     let batch = Arc::new(Mutex::new((Value::Null, Vec::new())));
     let registry = create_registry();
@@ -1116,6 +1125,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         models: setup.models.clone(),
         semantic_edges: None,
         progress_note: None,
+        settings: default_settings(),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1141,6 +1151,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         models: setup.models,
         semantic_edges: None,
         progress_note: None,
+        settings: default_settings(),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();

@@ -12,6 +12,7 @@ mod activity;
 mod boundary;
 pub mod factory;
 mod host;
+mod jobs;
 mod kernels;
 pub(crate) mod refine;
 pub mod skills_unavailable_notice;
@@ -20,6 +21,19 @@ mod tool;
 
 #[cfg(test)]
 mod tests;
+
+/// Serializes the real-kernel tests of this crate: each boots a `CPython`
+/// kernel, several boots at once starve every wait budget under a
+/// parallel test run (the daemon tests' `FAUX_TEST_LOCK` pattern), and a
+/// test that shuts every live kernel down must not run beside them.
+#[cfg(test)]
+static KERNEL_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Hold for the whole body of a real-kernel test.
+#[cfg(test)]
+pub(crate) async fn kernel_test_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    KERNEL_TEST_LOCK.lock().await
+}
 
 use std::sync::Arc;
 
@@ -153,6 +167,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     // (weakly: the runtime owns the pool and holds the deps).
     let _first_extension_wins = deps.rlm_kernels.set(Arc::downgrade(&runtime.kernels));
     host::register(&runtime);
+    jobs::register(&runtime);
     let refine_allowed = boundary::register(&runtime);
     let service_runtime = Arc::clone(&runtime);
     deps.add_service(Box::new(move |opened: OpenedSession| {

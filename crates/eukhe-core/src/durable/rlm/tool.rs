@@ -9,9 +9,17 @@
 //! An abort the cell ignores past the grace kills the kernel: the call
 //! settles `killed` with the output so far and a `kernel_killed`
 //! diagnostic naming what was lost, and the next call revives the same way.
+//!
+//! The runtime's blocking budget bounds the call (ADR 0010): a cell still
+//! running when it expires keeps running as a job, the call settles
+//! `detached` with the output so far, and the cell's end settles the job
+//! ([`super::jobs`]). A later call waits for the job within its own budget,
+//! then settles `busy` without running its code.
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use eukhe_ai::typebox::{Options, TSchema, Type};
 use eukhe_chord::context::Context;
@@ -23,17 +31,21 @@ use eukhe_durable::harness::types::{
     ToolOutputLimits, ToolRegistration, ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
+use eukhe_types::job::{CellStatus, JobId, JobSettled};
+use eukhe_types::output::describe_bound;
 use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use futures::FutureExt;
 use serde_json::json;
 
+use super::jobs::{CellJobEntry, CellJobState};
 use super::kernels::ConversationKernel;
 use super::RlmRuntime;
 use crate::durable::bounded_output::BoundedOutput;
 use crate::kernel::cancellation::AbortSignal as KernelAbortSignal;
 use crate::kernel::shared::{
-    ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment, KernelSentAgentMessage,
-    LateSentAgentMessageCallback, OutputSink, StreamCallback, StreamName, KERNEL_ABORT_GRACE_MS,
+    CellJob, ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment,
+    KernelSentAgentMessage, LateSentAgentMessageCallback, OutputSink, StreamCallback, StreamName,
+    KERNEL_ABORT_GRACE_MS,
 };
 use crate::kernel::state_snapshot::snapshot_path_in;
 use crate::kernel::KernelBootstrapProgressHandler;
@@ -43,7 +55,7 @@ use crate::kernel::ReplKernelManager;
 pub const IPYTHON_TOOL_NAME: &str = "ipython";
 
 /// The tool description.
-const IPYTHON_TOOL_DESCRIPTION: &str = "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, imports, and loaded data persist across calls, and are revived on a best-effort basis when a session is resumed (objects that cannot be serialized are dropped and reported). Run shell commands with `bash('cmd')` / `await bash('cmd')`. Project imports, tests, scripts, CLIs, and dependency checks should run through the target project's own environment.";
+const IPYTHON_TOOL_DESCRIPTION: &str = "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, imports, and loaded data persist across calls, and are revived on a best-effort basis when a session is resumed (objects that cannot be serialized are dropped and reported). Run shell commands with `bash('cmd')` / `await bash('cmd')`. Project imports, tests, scripts, CLIs, and dependency checks should run through the target project's own environment. A cell that outlives the runtime's blocking budget keeps running as a job: the call returns its output so far, and the job's end arrives later as a `[job-settled ...]` message.";
 
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -106,6 +118,23 @@ fn error_result(message: String) -> ToolExecutionResult {
     }
 }
 
+/// Resolves when the call aborts; never for a call without an abort signal.
+async fn call_aborted(cx: &Context) {
+    match cx.abort_signal() {
+        Some(signal) => {
+            signal.cancelled().await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
+/// How the call's wait on its cell ended.
+enum Waited {
+    Ran(Box<Result<anyhow::Result<ExecuteResult>, tokio::task::JoinError>>),
+    Detach,
+}
+
+#[tracing::instrument(skip_all, fields(call = api.call_id()))]
 async fn execute(
     runtime: &RlmRuntime,
     args: &PiJsonValue,
@@ -117,6 +146,12 @@ async fn execute(
         .and_then(PiJsonValue::as_str)
         .ok_or_else(|| SessionError::error("ipython tool requires a code string"))?
         .to_owned();
+    // The runtime's one blocking budget bounds this call's waits on the
+    // kernel (ADR 0010): on a detached cell still holding it, then on this
+    // cell. Booting the kernel is the provisioner's, bounded by its own
+    // startup deadlines, so its time extends the deadline.
+    let budget = runtime.deps.blocking_budget();
+    let mut deadline = tokio::time::Instant::now() + budget;
     let conversation_id = api.conversation_id();
     let cwd = api
         .agent(cx)
@@ -128,11 +163,26 @@ async fn execute(
         .kernels
         .kernel(conversation_id, cwd)
         .map_err(|error| session_error(&error))?;
+
+    // A detached cell still holds the kernel: wait for it within the budget,
+    // then report it instead of queueing this cell behind it.
+    if let Some(running) = kernel.jobs.running() {
+        let state = tokio::select! {
+            state = running.wait_until(deadline) => state,
+            () = call_aborted(cx) => {
+                return Err(aborted(cx).unwrap_or_else(|| SessionError::error("aborted")));
+            }
+        };
+        if state == CellJobState::Running {
+            return Ok(busy_result(&running));
+        }
+    }
+
     let signal = cx
         .abort_signal()
         .map(|signal| KernelAbortSignal::from_token(signal.cancellation_token()));
-
-    let manager = match ensure_kernel(&kernel, &api, signal.clone(), cx).await {
+    let boot_started = tokio::time::Instant::now();
+    let manager = match ensure_kernel(&kernel, &api, signal, cx).await {
         Ok(manager) => manager,
         Err(error) => {
             return match aborted(cx) {
@@ -142,7 +192,14 @@ async fn execute(
         }
     };
     deliver_boot_notices(&kernel, &api, cx).await?;
+    deadline += boot_started.elapsed();
 
+    let job_id = JobId::new(format!("cell-{}", uuid::Uuid::new_v4().simple()))
+        .map_err(|error| SessionError::error(error.to_string()))?;
+    let job = CellJob::new(job_id);
+    // The cell's own stop: the call's abort while it blocks the turn, a
+    // `jobs.cancel` once it detached.
+    let job_signal = KernelAbortSignal::new();
     let cell_output = Arc::new(Mutex::new(BoundedOutput::in_session(
         runtime.deps.storage_dir.as_deref(),
         &api.task_id().to_string(),
@@ -152,11 +209,16 @@ async fn execute(
         let api = Arc::clone(&api);
         let cell_output = Arc::clone(&cell_output);
         let failure = Arc::clone(&output_failure);
+        let job = job.clone();
         Arc::new(move |chunk: &str, _stream: StreamName| {
             cell_output
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(chunk);
+            // A detached cell's call has settled; its output goes to the job.
+            if job.is_detached() {
+                return;
+            }
             if let Err(error) = api.output(ToolOutputChunk::Text(chunk), None) {
                 failure
                     .lock()
@@ -173,25 +235,77 @@ async fn execute(
         let call_id = api.call_id().to_owned();
         Arc::new(move |message| sink(&call_id, message)) as LateSentAgentMessageCallback
     });
-    let executed = manager
-        .execute(
-            &code,
-            ExecuteOptions {
-                signal,
-                output: OutputSink::Forward(on_stream),
-                call: Some(Arc::clone(&api)),
-                on_late_sent_agent_message,
-                ..ExecuteOptions::default()
-            },
-        )
-        .await;
+    let mut execution = {
+        let manager = manager.clone();
+        let opts = ExecuteOptions {
+            signal: Some(job_signal.clone()),
+            output: OutputSink::Forward(on_stream),
+            call: Some(Arc::clone(&api)),
+            on_late_sent_agent_message,
+            job: Some(job.clone()),
+            ..ExecuteOptions::default()
+        };
+        tokio::spawn(async move { manager.execute(&code, opts).await })
+    };
+    let abort = call_aborted(cx).fuse();
+    futures::pin_mut!(abort);
+    let mut stopping = false;
+    let waited = loop {
+        tokio::select! {
+            joined = &mut execution => break Waited::Ran(Box::new(joined)),
+            // The abort stops the cell (interrupt, then the kill after the
+            // grace); the call settles when the cell does.
+            () = &mut abort, if !stopping => {
+                stopping = true;
+                job_signal.abort();
+            }
+            () = tokio::time::sleep_until(deadline), if !stopping => break Waited::Detach,
+        }
+    };
+    let executed = match waited {
+        Waited::Ran(joined) => *joined,
+        Waited::Detach => {
+            job.detach();
+            let settle = kernel.jobs.start(job.id().clone(), job_signal);
+            let (partial, bounded) = cell_output
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .projection();
+            let detached = detached_result(job.id(), budget, partial, bounded);
+            let sink = runtime.deps.job_settled.clone();
+            let job_id = job.id().clone();
+            tokio::spawn(async move {
+                let joined = execution.await;
+                let (status, output) = {
+                    let mut cell_output =
+                        cell_output.lock().unwrap_or_else(PoisonError::into_inner);
+                    settle_detached(joined, &mut cell_output, &kernel)
+                };
+                tracing::debug!(job = %job_id, status = status.label(), "detached cell settled");
+                settle.settle(status, output.clone());
+                if let Some(sink) = sink {
+                    sink(JobSettled::Cell {
+                        job: job_id,
+                        status,
+                        output,
+                    });
+                }
+            });
+            return Ok(detached);
+        }
+    };
     let result = match executed {
-        Ok(result) => result,
-        Err(error) => {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => {
             return match aborted(cx) {
                 Some(abort) => Err(abort),
                 None => Ok(error_result(format!("{error:#}"))),
             }
+        }
+        Err(error) => {
+            return Err(SessionError::error(format!(
+                "the cell's task failed: {error}"
+            )))
         }
     };
     if let Some(error) = output_failure
@@ -204,10 +318,24 @@ async fn execute(
         }
         return Err(error);
     }
-    let mut cell_output = Arc::try_unwrap(cell_output)
-        .map_err(|_shared| SessionError::error("the cell's output is still streaming"))?
-        .into_inner()
-        .unwrap_or_else(PoisonError::into_inner);
+    let (text, diagnostics) = settled_projection(
+        &result,
+        &mut cell_output.lock().unwrap_or_else(PoisonError::into_inner),
+        &kernel,
+    );
+    let mut settled = tool_result(&result, text);
+    settled.diagnostics = (!diagnostics.is_empty()).then_some(diagnostics);
+    Ok(settled)
+}
+
+/// The settled cell's whole projection: the streamed output, then its
+/// result value, traceback, and background output, bounded once, with the
+/// diagnostics naming what the bound and a kill dropped.
+fn settled_projection(
+    result: &ExecuteResult,
+    cell_output: &mut BoundedOutput,
+    kernel: &ConversationKernel,
+) -> (String, Vec<ToolDiagnostic>) {
     let mut diagnostics = Vec::new();
     if let Some(value) = &result.result {
         cell_output.push_part(value);
@@ -237,7 +365,7 @@ async fn execute(
             lines,
         });
     }
-    let (text, bounded) = cell_output.finish();
+    let (text, bounded) = cell_output.projection();
     diagnostics.extend(bounded);
     if result.status == ExecuteStatus::Killed {
         let snapshot_exists = kernel
@@ -263,9 +391,108 @@ async fn execute(
             lines: None,
         });
     }
-    let mut settled = tool_result(&result, text);
-    settled.diagnostics = (!diagnostics.is_empty()).then_some(diagnostics);
-    Ok(settled)
+    (text, diagnostics)
+}
+
+/// A detached cell's end as its job's status and model-facing output: the
+/// same projection a foreground call settles with, its diagnostics rendered
+/// after it.
+fn settle_detached(
+    joined: Result<anyhow::Result<ExecuteResult>, tokio::task::JoinError>,
+    cell_output: &mut BoundedOutput,
+    kernel: &ConversationKernel,
+) -> (CellStatus, String) {
+    let failure = match joined {
+        Ok(Ok(result)) => {
+            let (text, diagnostics) = settled_projection(&result, cell_output, kernel);
+            let status = match result.status {
+                ExecuteStatus::Ok => CellStatus::Ok,
+                ExecuteStatus::Error => CellStatus::Error,
+                ExecuteStatus::Aborted => CellStatus::Aborted,
+                ExecuteStatus::Killed => CellStatus::Killed,
+            };
+            return (status, with_diagnostics(text, &diagnostics));
+        }
+        Ok(Err(error)) => format!("{error:#}"),
+        Err(error) => format!("the cell's task failed: {error}"),
+    };
+    cell_output.push_part(&failure);
+    let (text, bounded) = cell_output.projection();
+    (
+        CellStatus::Error,
+        with_diagnostics(text, bounded.as_slice()),
+    )
+}
+
+/// `text`, then one line per diagnostic (its message and what it bounded).
+fn with_diagnostics(mut text: String, diagnostics: &[ToolDiagnostic]) -> String {
+    for diagnostic in diagnostics {
+        let severity = match diagnostic.severity {
+            ToolDiagnosticSeverity::Info => "info",
+            ToolDiagnosticSeverity::Warn => "warn",
+            ToolDiagnosticSeverity::Error => "error",
+        };
+        let bound = describe_bound(diagnostic.omitted.as_ref(), diagnostic.artifact.as_deref());
+        let _infallible = write!(text, "\n[{severity}] {} {bound}", diagnostic.message);
+    }
+    text
+}
+
+/// The call of a cell that outlived the blocking budget: the output so
+/// far, and the job its cell became.
+fn detached_result(
+    job: &JobId,
+    budget: Duration,
+    partial: String,
+    bounded: Option<ToolDiagnostic>,
+) -> ToolExecutionResult {
+    let budget_ms = budget.as_millis();
+    let mut diagnostics: Vec<ToolDiagnostic> = bounded.into_iter().collect();
+    diagnostics.push(ToolDiagnostic {
+        severity: ToolDiagnosticSeverity::Info,
+        code: Some("detached".to_owned()),
+        message: format!(
+            "The cell outlived the {budget_ms} ms blocking budget, so this call settled as job {job}; \
+             the cell keeps running. Its end reaches this session as a [job-settled job:{job}] message \
+             with its output, waking the session if idle. Until then the kernel is busy: an ipython call \
+             waits for the job up to the budget, then reports it still running."
+        ),
+        omitted: None,
+        artifact: None,
+        lines: None,
+    });
+    ToolExecutionResult {
+        output: Some(vec![UserContentBlock::Text(TextContent::new(partial))]),
+        is_error: Some(false),
+        details: Some(JsonValue::from(json!({
+            "status": "detached",
+            "job": { "id": job.as_str(), "kind": "cell" },
+            "kernelRestarted": false,
+            "durationMs": u64::try_from(budget_ms).unwrap_or(u64::MAX),
+        }))),
+        diagnostics: Some(diagnostics),
+        ..ToolExecutionResult::default()
+    }
+}
+
+/// A call that found the kernel still held by a detached cell past the
+/// budget: its code did not run.
+fn busy_result(running: &CellJobEntry) -> ToolExecutionResult {
+    let job = &running.id;
+    let elapsed_ms = running.elapsed().as_millis();
+    ToolExecutionResult {
+        output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
+            "Not run: the kernel is still running job {job} (started {elapsed_ms} ms ago). \
+             Its end reaches this session as a [job-settled job:{job}] message with its output."
+        )))]),
+        is_error: Some(true),
+        details: Some(JsonValue::from(json!({
+            "status": "busy",
+            "job": { "id": job.as_str(), "kind": "cell" },
+            "kernelRestarted": false,
+        }))),
+        ..ToolExecutionResult::default()
+    }
 }
 
 /// Start (or reuse) the kernel; startup stages reach the call's details as

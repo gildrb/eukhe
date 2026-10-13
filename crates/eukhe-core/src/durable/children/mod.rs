@@ -48,6 +48,7 @@ pub use wire::{
 
 use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink};
 use crate::durable::observe::semantic_edges::SemanticEdgeRecorder;
+use crate::durable::settings::EukheSettings;
 use task::{child_task, ChildTask, ChildrenServices};
 
 /// The extension name.
@@ -63,6 +64,8 @@ pub(crate) struct Children {
     models: Models,
     /// Told every accepted progress note of this session.
     progress_note: Option<ProgressNoteSink>,
+    /// The session settings: `rlm.collect` waits within the blocking budget.
+    settings: Arc<EukheSettings>,
 }
 
 /// Inputs of [`Children::new`].
@@ -78,6 +81,7 @@ pub(crate) struct ChildrenConfig {
     /// the ledger before its notice.
     pub(crate) semantic_edges: Option<Arc<SemanticEdgeRecorder>>,
     pub(crate) progress_note: Option<ProgressNoteSink>,
+    pub(crate) settings: Arc<EukheSettings>,
 }
 
 impl Children {
@@ -98,6 +102,7 @@ impl Children {
             harness: config.harness,
             models: config.models,
             progress_note: config.progress_note,
+            settings: config.settings,
         })
     }
 
@@ -125,6 +130,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         models: deps.models.clone(),
         semantic_edges: Some(Arc::clone(&deps.semantic_edges)),
         progress_note: deps.progress_note.clone(),
+        settings: Arc::clone(&deps.settings),
     })
     .install(&deps.host_requests)
 }

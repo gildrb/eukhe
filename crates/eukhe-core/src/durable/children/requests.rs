@@ -47,7 +47,6 @@ use crate::kernel::rlm_runtime::{
     MAX_RLM_MODEL_SEARCH_LIMIT,
 };
 
-const RLM_COLLECT_MAX_TIMEOUT_MS: u64 = 2_147_483_647;
 const NO_SPAWN_RUNTIME: &str =
     "rlm.spawn requires a daemon-backed session: this session has no RLM child runtime";
 
@@ -799,21 +798,20 @@ fn collect_targets(data: &Value) -> anyhow::Result<Vec<String>> {
 }
 
 /// `rlm.collect`: typed fan-in. Running children are awaited inside one
-/// shared budget (their task ends once the run settled and its report was
-/// delivered); a timeout returns current snapshots, never an error.
+/// shared wait, `timeout_ms` clamped to the runtime's blocking budget (a
+/// longer wait would hold the cell past it); a timeout returns current
+/// snapshots, never an error.
 async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let targets = collect_targets(&call.data)?;
-    let timeout_ms = match call.data.get("timeout_ms") {
-        None | Some(Value::Null) => Some(0),
-        Some(value) => value
-            .as_u64()
-            .filter(|timeout| *timeout <= RLM_COLLECT_MAX_TIMEOUT_MS),
+    let requested = match call.data.get("timeout_ms") {
+        None | Some(Value::Null) => Duration::ZERO,
+        Some(value) => Duration::from_millis(
+            value
+                .as_u64()
+                .ok_or_else(|| anyhow!("rlm.collect timeout_ms must be a non-negative integer"))?,
+        ),
     };
-    let Some(timeout_ms) = timeout_ms else {
-        bail!(
-            "rlm.collect timeout_ms must be a non-negative integer up to {RLM_COLLECT_MAX_TIMEOUT_MS}"
-        );
-    };
+    let timeout = requested.min(children.settings.manager().get_tool_blocking_budget());
     let harness = children.harness.require().map_err(session_error)?;
     let conversation_id = conversation_of(&call);
     let state = read_children(&harness, conversation_id, &cx())
@@ -857,7 +855,7 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
             }
         }
     }
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
+    let deadline = tokio::time::Instant::now() + timeout;
     for task_id in &live {
         let running = state
             .children

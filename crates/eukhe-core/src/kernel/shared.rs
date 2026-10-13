@@ -5,8 +5,10 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use eukhe_types::job::JobId;
 use serde_json::Value;
 
 use crate::kernel::bootstrap::KernelPythonSkill;
@@ -295,6 +297,48 @@ pub struct ExecuteOptions {
     /// The durable tool call executing this cell. Host requests the cell
     /// sends while it runs carry it to a [`KernelHostDispatch`].
     pub call: Option<KernelCallContext>,
+    /// The job this cell becomes when its call detaches at the blocking
+    /// budget (ADR 0010).
+    pub job: Option<CellJob>,
+}
+
+/// The job identity of a cell whose call may detach at the runtime's
+/// blocking budget. Once [`CellJob::detach`]ed, the call has settled: the
+/// cell's host requests no longer carry it, and the manager reports the
+/// cell as a pending job until its execution resolves.
+#[derive(Debug, Clone)]
+pub struct CellJob {
+    id: JobId,
+    detached: Arc<AtomicBool>,
+}
+
+impl CellJob {
+    #[must_use]
+    pub fn new(id: JobId) -> Self {
+        Self {
+            id,
+            detached: Arc::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn id(&self) -> &JobId {
+        &self.id
+    }
+
+    /// The cell's call settled `detached`; the cell keeps running.
+    pub fn detach(&self) {
+        self.detached.store(true, Ordering::SeqCst);
+    }
+
+    #[must_use]
+    pub fn is_detached(&self) -> bool {
+        self.detached.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.detached, &other.detached)
+    }
 }
 
 /// The durable tool call (`ipython` invocation) that runs a kernel cell.
