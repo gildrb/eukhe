@@ -526,9 +526,12 @@ async fn crashing_servers_back_off() {
 }
 
 /// A real server, when installed: rust-analyzer finds a definition in a
-/// fresh crate.
+/// fresh crate, then reports an error a committed write introduced (inline
+/// or in the late window) and clears it when the next write fixes it. The
+/// error is one rust-analyzer finds itself: the server table turns
+/// `cargo check` on save off, as omp does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn rust_analyzer_finds_a_definition() {
+async fn rust_analyzer_navigates_and_diagnoses_writes() {
     let installed = std::process::Command::new("rust-analyzer")
         .arg("--version")
         .output()
@@ -546,28 +549,67 @@ async fn rust_analyzer_finds_a_definition() {
     .unwrap();
     std::fs::create_dir(root.join("src")).unwrap();
     let main = root.join("src/main.rs");
-    std::fs::write(
-        &main,
-        "fn helper() -> u8 { 1 }\n\nfn main() {\n    helper();\n}\n",
-    )
-    .unwrap();
+    let clean = "fn helper() -> u8 { 1 }\n\nfn main() {\n    helper();\n}\n";
+    std::fs::write(&main, clean).unwrap();
     let service = LspService::new(ServerTable::builtin());
-    let response = service
-        .call(LspRequest {
+    let call = |op| {
+        service.call(LspRequest {
             root: root.clone(),
-            op: LspOp::Navigate {
-                navigation: LspNavigation::Definition,
-                target: LspTarget {
-                    path: main.clone(),
-                    line: 4,
-                    symbol: "helper".to_owned(),
-                },
-            },
+            op,
         })
-        .await;
+    };
+    let definition = call(LspOp::Navigate {
+        navigation: LspNavigation::Definition,
+        target: LspTarget {
+            path: main.clone(),
+            line: 4,
+            symbol: "helper".to_owned(),
+        },
+    })
+    .await;
+    eprintln!("definition: {definition:?}");
+
+    // A committed write: the inline window, then the late window when the
+    // server had not answered yet (what a session's late message waits on).
+    let broken = "fn helper() -> u8 { 1 }\n\nfn main() {\n    helper(1);\n}\n";
+    std::fs::write(&main, broken).unwrap();
+    let written = |text: &str| LspOp::Sync {
+        path: main.clone(),
+        text: text.to_owned(),
+    };
+    let late = || LspOp::AwaitDiagnostics { path: main.clone() };
+    let inline = call(written(broken)).await;
+    eprintln!("inline after the broken write: {inline:?}");
+    let mut report = match inline {
+        Ok(LspResponse::Diagnostics(report)) => report,
+        other => panic!("unexpected {other:?}"),
+    };
+    if !report.pending.is_empty() {
+        report = match call(late()).await {
+            Ok(LspResponse::Diagnostics(report)) => report,
+            other => panic!("unexpected {other:?}"),
+        };
+        eprintln!("late after the broken write: {report:?}");
+    }
+
+    std::fs::write(&main, clean).unwrap();
+    let fixed = call(written(clean)).await;
+    eprintln!("inline after the fixing write: {fixed:?}");
+    let mut fixed = match fixed {
+        Ok(LspResponse::Diagnostics(report)) => report,
+        other => panic!("unexpected {other:?}"),
+    };
+    if !fixed.pending.is_empty() {
+        fixed = match call(late()).await {
+            Ok(LspResponse::Diagnostics(report)) => report,
+            other => panic!("unexpected {other:?}"),
+        };
+        eprintln!("late after the fixing write: {fixed:?}");
+    }
     service.shutdown().await;
+
     assert_eq!(
-        response,
+        definition,
         Ok(LspResponse::Locations(vec![location(
             &main,
             1,
@@ -575,5 +617,22 @@ async fn rust_analyzer_finds_a_definition() {
             10,
             "fn helper() -> u8 { 1 }"
         )]))
+    );
+    assert!(
+        report.pending.is_empty(),
+        "rust-analyzer never answered: {report:?}"
+    );
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.span.start.line == 4
+                && diagnostic.severity == LspSeverity::Error
+                && diagnostic.code.as_deref() == Some("E0061")),
+        "no error for the extra argument: {report:?}"
+    );
+    assert!(
+        fixed.pending.is_empty() && fixed.diagnostics.is_empty(),
+        "the fixing write left diagnostics: {fixed:?}"
     );
 }
