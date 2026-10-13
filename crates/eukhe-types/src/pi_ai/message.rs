@@ -82,6 +82,37 @@ pub struct AssistantMessageDiagnostic {
     pub details: Option<JsonObject>,
 }
 
+string_enum! {
+    /// The classified cause of a provider stream failure, as a
+    /// `provider_stream_failure` diagnostic records it.
+    pub enum StreamFailureKind {
+        Refusal => "refusal",
+        Safety => "safety",
+        /// A payment/balance rejection (HTTP 402): the account or team wallet
+        /// cannot fund the request. Deterministic by status — a wallet drain
+        /// does not refill inside a retry ladder, so the status classifies
+        /// before any body-text pattern (the 402 diagnosis: the same incident
+        /// must not fork on the response body's `error.type` text).
+        PaymentRequired => "payment_required",
+        Overloaded => "overloaded",
+        RateLimit => "rate_limit",
+        ServerError => "server_error",
+        Auth => "auth",
+        Permission => "permission",
+        InvalidRequest => "invalid_request",
+        MalformedResponse => "malformed_response",
+        /// The provider ended the response stream without its terminal marker:
+        /// mid-block, no stop signal, no error frame (the connection just
+        /// ends). Transient by nature — the same request can be re-issued.
+        StreamDrop => "stream_drop",
+        /// The response stream went silent: no provider event within the
+        /// stream-idle deadline (a half-open connection or a hung upstream).
+        /// Transient by nature — the same request can be re-issued.
+        StreamStalled => "stream_stalled",
+        Unknown => "unknown",
+    }
+}
+
 /// System instructions and tool declarations at one point in the transcript.
 ///
 /// The leading system message is the system prompt. Later system messages

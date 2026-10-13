@@ -53,7 +53,7 @@ pub use images::{
 pub use message::{
     AssistantMessage, AssistantMessageDiagnostic, DeferredHandle, DiagnosticCode,
     DiagnosticErrorInfo, Message, NestedToolCallRecord, NestedToolCallStatus, NestedToolCalls,
-    SystemMessage, ToolResultMessage, UserMessage,
+    StreamFailureKind, SystemMessage, ToolResultMessage, UserMessage,
 };
 pub use model::{
     AnyModel, ChatModelType, ClassifierModel, ImageModel, Modality, Model, ModelCost,

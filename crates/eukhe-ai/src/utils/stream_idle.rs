@@ -5,7 +5,7 @@
 //! chat and deferred-fetch stream `Models` dispatches is therefore watched
 //! in one place, whatever its codec or transport: a stream with no provider
 //! event for the deadline aborts its request and ends with a
-//! [`StreamFailureKind::StreamStalled`](super::stream_failure::StreamFailureKind)
+//! [`StreamFailureKind::StreamStalled`](eukhe_types::pi_ai::StreamFailureKind)
 //! error, which the caller's retry policy re-issues.
 
 use std::future::Future;

@@ -11,7 +11,7 @@ use eukhe_types::pi_ai::{AssistantMessage, StopReason};
 
 use super::diagnostics::Thrown;
 use super::sleep::timer_duration;
-use super::stream_failure::StreamFailureKind;
+use eukhe_types::pi_ai::StreamFailureKind;
 
 fn build_provider_error_pattern(patterns: &[&str]) -> Regex {
     let pattern = format!("(?i){}", patterns.join("|"));
