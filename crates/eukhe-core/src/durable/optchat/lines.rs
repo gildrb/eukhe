@@ -248,7 +248,14 @@ fn report_line(report: &Report, body: &str) -> String {
             format!("child:{child}"),
             format!("exited ({})", exit.label()),
         ),
-        Report::ChildFailed { child } => (format!("child:{child}"), "failed".to_owned()),
+        Report::ChildFailed {
+            child,
+            failure: Some(failure),
+        } => (format!("child:{child}"), format!("failed ({failure})")),
+        Report::ChildFailed {
+            child,
+            failure: None,
+        } => (format!("child:{child}"), "failed".to_owned()),
         Report::Heartbeat { schedule, run } => {
             ("heartbeat".to_owned(), format!("{schedule} run#{run}"))
         }

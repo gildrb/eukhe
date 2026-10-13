@@ -1168,6 +1168,16 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native: the session's run outcome, read from its durable
+    /// state (its run in flight, its last run's terminal, its pending
+    /// background jobs); the parent's child-settle watch reads it.
+    GetRunOutcome {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetSystemPrompt {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

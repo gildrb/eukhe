@@ -557,7 +557,7 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
                 })
                 .await;
             match observation.map(|observation| observation.state) {
-                Ok(RlmChildRunState::Settled { answer_preview, .. }) => {
+                Ok(RlmChildRunState::Answered { answer_preview }) => {
                     assert_eq!(
                         answer_preview.as_deref(),
                         Some("replacement kid answer"),
@@ -565,9 +565,11 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
                     );
                     break;
                 }
-                Ok(RlmChildRunState::Failed { error }) => panic!("{child_id} failed: {error}"),
+                Ok(RlmChildRunState::Failed { failure, error }) => {
+                    panic!("{child_id} failed ({failure}): {error}")
+                }
                 // Running, or unreachable mid-replacement: poll again.
-                Ok(RlmChildRunState::Running) | Err(_) => {
+                Ok(RlmChildRunState::Running | RlmChildRunState::Idle { .. }) | Err(_) => {
                     assert!(Instant::now() < deadline, "{child_id} never settled");
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }

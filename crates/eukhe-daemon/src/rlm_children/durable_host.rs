@@ -18,6 +18,7 @@ use eukhe_core::agent_messaging::{
 };
 use eukhe_core::durable::children as durable;
 use eukhe_types::daemon::{DaemonCommand, PromptInput};
+use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{Usage, UsageCost};
 
 use super::{
@@ -487,6 +488,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             let interrupted = || async {
                 durable::RlmChildObservation {
                     state: durable::RlmChildRunState::Failed {
+                        failure: ChildFailure::Interrupted,
                         error: INTERRUPTED_ERROR.to_owned(),
                     },
                     usage: this.child_usage(&request.session_id).await,
@@ -510,27 +512,39 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             }
             this.wait_for_child(&selector, Duration::from_millis(request.timeout_ms))
                 .await;
-            if this.child_busy(&selector).await? {
+            if this.child_outcome(&selector).await? == durable::RlmChildRunState::Running {
                 return Ok(running().await);
             }
             // Stability re-check: a prompt admitted to an idle worker can
             // read idle once before its run starts.
             tokio::time::sleep(Duration::from_millis(WATCH_SETTLE_GRACE_MS)).await;
-            if this.child_busy(&selector).await? {
-                return Ok(running().await);
-            }
-            if unsettled_resume {
-                return Ok(interrupted().await);
-            }
-            let answer = this.child_answer(&selector).await.ok().flatten();
-            // The settled run completes the child's display entry, so a
-            // restarted parent relists it as completed.
-            super::lifecycle::complete_child_display(child_dir, request.rlm_child_id.clone()).await;
+            let state = match this.child_outcome(&selector).await? {
+                durable::RlmChildRunState::Running => return Ok(running().await),
+                // The run ended but the child's background jobs still
+                // run: it is alive, and their settlement wakes it.
+                state @ durable::RlmChildRunState::Idle { .. } => {
+                    this.durable_calls()
+                        .seen_running
+                        .insert(request.session_id.clone());
+                    state
+                }
+                state @ durable::RlmChildRunState::Failed { .. } => state,
+                durable::RlmChildRunState::Answered { .. } if unsettled_resume => {
+                    return Ok(interrupted().await);
+                }
+                state @ durable::RlmChildRunState::Answered { .. } => {
+                    // The answered run completes the child's display entry,
+                    // so a restarted parent relists it as completed.
+                    super::lifecycle::complete_child_display(
+                        child_dir,
+                        request.rlm_child_id.clone(),
+                    )
+                    .await;
+                    state
+                }
+            };
             Ok(durable::RlmChildObservation {
-                state: durable::RlmChildRunState::Settled {
-                    // `child_answer` already compacts it for the roster.
-                    answer_preview: answer,
-                },
+                state,
                 usage: this.child_usage(&request.session_id).await,
             })
         })

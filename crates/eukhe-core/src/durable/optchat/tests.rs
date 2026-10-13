@@ -841,6 +841,9 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
     };
     let failed = Report::ChildFailed {
         child: "scout".to_owned(),
+        failure: Some(eukhe_types::input_origin::ChildFailure::Provider {
+            kind: eukhe_types::pi_ai::StreamFailureKind::Auth,
+        }),
     };
     let message = Report::AgentMessage {
         sender: "child:x".to_owned(),
@@ -883,7 +886,10 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
                 Kind::Work,
                 "[child:scout] exited (no-reply)\nLast assistant text: hi".to_string()
             ),
-            (Kind::Work, "[child:scout] failed\nboom".to_string()),
+            (
+                Kind::Work,
+                "[child:scout] failed (provider-auth)\nboom".to_string()
+            ),
             (Kind::Work, "[child:x] body".to_string()),
             (Kind::User, "plain words".to_string()),
         ]

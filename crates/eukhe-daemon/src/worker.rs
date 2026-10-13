@@ -23,6 +23,7 @@ mod harness_end;
 mod lifecycle;
 mod memory_updates;
 mod passivation;
+mod run_outcome;
 mod summary;
 
 mod connection;

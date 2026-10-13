@@ -499,6 +499,12 @@ fn last_timestamp_ms(view: &ShownView) -> Option<u64> {
         .filter(|timestamp| *timestamp > 0)
 }
 
+/// The inputs still owed a turn: the shown conversation's inbox, the
+/// inputs an abort suspended, and the admissions an input pause holds.
+pub(crate) fn queued_inputs(core: &SessionCore) -> usize {
+    core.view.as_ref().map_or(0, |view| view.inbox.len()) + core.suspended.len() + core.held.len()
+}
+
 pub(crate) fn session_summary(
     core: &SessionCore,
     thinking_level: &str,
@@ -508,9 +514,7 @@ pub(crate) fn session_summary(
 ) -> SessionSummary {
     let streaming = core.is_busy();
     let compacting = core.is_compacting();
-    let queued = core.view.as_ref().map_or(0, |view| view.inbox.len())
-        + core.suspended.len()
-        + core.held.len();
+    let queued = queued_inputs(core);
     let messages = message_count(core);
     let view = core.view.as_ref();
     let running_tools = view.is_some_and(|view| !view.translator.mirror().tools.is_empty());

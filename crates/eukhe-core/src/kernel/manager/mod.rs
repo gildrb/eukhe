@@ -402,6 +402,9 @@ pub(crate) struct Inner {
     snapshot_timer: Mutex<Option<tokio::task::JoinHandle<()>>>,
     stderr_closed: Notify,
     stderr_closed_flag: AtomicBool,
+    /// Woken when the last background job settles (the map emptied or a
+    /// teardown cleared it): [`ReplKernelManager::background_jobs_settled`].
+    background_jobs_settled: Notify,
     /// File receiving pre-ready kernel stderr, with its remaining write budget.
     stderr_log: Mutex<Option<Arc<Mutex<StderrLog>>>>,
     /// The cells executing (or queued) for a call that may detach.
@@ -432,6 +435,9 @@ impl PendingCellJob {
 impl Drop for PendingCellJob {
     fn drop(&mut self) {
         lock(&self.inner.cell_jobs).retain(|job| !job.same(&self.job));
+        // A detached cell that resolved may have been the last background
+        // job a quiescence wait holds for.
+        self.inner.background_jobs_settled.notify_waiters();
     }
 }
 
@@ -442,6 +448,7 @@ impl Inner {
     /// neither breaks the kernel event path nor aborts the teardown — it
     /// lands in the diagnostics tail.
     fn notify_background_work_settled(&self) {
+        self.background_jobs_settled.notify_waiters();
         let Some(callback) = self.options.on_background_work_settled.clone() else {
             return;
         };
@@ -537,6 +544,7 @@ impl ReplKernelManager {
             snapshot_timer: Mutex::new(None),
             stderr_closed: Notify::new(),
             stderr_closed_flag: AtomicBool::new(false),
+            background_jobs_settled: Notify::new(),
             stderr_log: Mutex::new(None),
             cell_jobs: Mutex::new(Vec::new()),
         });
@@ -562,6 +570,31 @@ impl ReplKernelManager {
             .iter()
             .find(|job| job.is_detached())
             .map(|job| job.id().clone())
+    }
+
+    /// The kernel's background jobs still running: its live background
+    /// bash handles and its detached cell. Their completion wakes the
+    /// session, so a session with one is not done.
+    #[must_use]
+    pub fn background_job_count(&self) -> usize {
+        lock(&self.inner.guarded).background_bash_handles.len()
+            + usize::from(self.detached_job().is_some())
+    }
+
+    /// Resolves once no background job runs (at once when none does): the
+    /// long-poll a quiescence wait holds instead of re-polling the count.
+    pub async fn background_jobs_settled(&self) {
+        loop {
+            let settled = self.inner.background_jobs_settled.notified();
+            let mut settled = std::pin::pin!(settled);
+            // Registered before the count read, so a settle racing the
+            // read still wakes this waiter.
+            settled.as_mut().enable();
+            if self.background_job_count() == 0 {
+                return;
+            }
+            settled.await;
+        }
     }
 
     /// Process id of the spawned kernel child, when present. Used by tests and

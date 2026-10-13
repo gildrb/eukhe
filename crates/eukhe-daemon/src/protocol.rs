@@ -150,6 +150,7 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "get_memory",
     "agent_relay",
     "agent_reply",
+    "get_run_outcome",
 ];
 
 /// Parsed client command envelope.
@@ -867,6 +868,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::GetLastAssistantText {
             active_session_id, ..
         }
+        | DaemonCommand::GetRunOutcome {
+            active_session_id, ..
+        }
         | DaemonCommand::GetSystemPrompt {
             active_session_id, ..
         }
@@ -1056,6 +1060,7 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetSessionTree { .. } => "get_session_tree",
         DaemonCommand::GetUserMessagesForForking { .. } => "get_user_messages_for_forking",
         DaemonCommand::GetLastAssistantText { .. } => "get_last_assistant_text",
+        DaemonCommand::GetRunOutcome { .. } => "get_run_outcome",
         DaemonCommand::GetSystemPrompt { .. } => "get_system_prompt",
         DaemonCommand::GetChatView { .. } => "get_chat_view",
         DaemonCommand::GetMemory { .. } => "get_memory",

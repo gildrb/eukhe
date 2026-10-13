@@ -722,7 +722,7 @@ async fn spawn_reports_once_across_a_reopen_between_submit_and_terminal() {
     setup.faux.append_responses(vec![answer("noted")]);
     host.settle(
         &row.session_id,
-        RlmChildRunState::Settled {
+        RlmChildRunState::Answered {
             answer_preview: Some("the flake is a race".to_owned()),
         },
         None,
@@ -904,7 +904,7 @@ async fn a_child_that_replied_settles_without_a_notice() {
     assert!(marked, "the unsettled child takes the mark");
     host.settle(
         &row.session_id,
-        RlmChildRunState::Settled {
+        RlmChildRunState::Answered {
             answer_preview: Some("done".to_owned()),
         },
         None,
@@ -983,7 +983,7 @@ async fn collect_waits_for_the_child_to_settle_and_attributes_its_usage() {
     setup.faux.append_responses(vec![answer("thanks")]);
     host.settle(
         &row.session_id,
-        RlmChildRunState::Settled {
+        RlmChildRunState::Answered {
             answer_preview: Some("done".to_owned()),
         },
         Some(usage),
@@ -1050,7 +1050,7 @@ async fn child_usage_attribution_rows_target_the_spawning_assistant_row() {
     setup.faux.append_responses(vec![answer("thanks")]);
     host.settle(
         &row.session_id,
-        RlmChildRunState::Settled {
+        RlmChildRunState::Answered {
             answer_preview: Some("done".to_owned()),
         },
         Some(usage(150, 30)),
@@ -1109,6 +1109,107 @@ async fn child_usage_attribution_rows_target_the_spawning_assistant_row() {
     let totals = opened.harness.usage(cx()).await.unwrap();
     assert_eq!(totals.tools.get(CHILD_USAGE_KEY), Some(&usage(150, 30)));
     assert!(lock(&setup.reports).is_empty());
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// Regression (stuck.md cause 3): a child whose run ended while a
+/// background job it started still runs is not done. The old watch
+/// settled any idle child as `no-reply` and ended its task, so the job's
+/// completion woke a child nobody watched any more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_child_with_a_pending_job_keeps_its_task_running() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let row = spawn_child(&opened, &setup).await;
+    eventually(|| async { !host.prompt_keys().is_empty() }).await;
+    let observed = Usage {
+        input: 10,
+        output: 2,
+        total_tokens: 12,
+        ..Usage::default()
+    };
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Idle { pending_jobs: 1 },
+        Some(observed),
+    );
+    // The poll that observed the idle child committed its usage.
+    eventually(|| async {
+        row_of(&opened.harness, row.task_id)
+            .await
+            .is_some_and(|row| row.usage == Some(observed))
+    })
+    .await;
+    let watched = row_of(&opened.harness, row.task_id).await.unwrap();
+    assert_eq!(watched.status, ChildStatus::Running);
+    assert!(!watched.settled, "an idle child with a pending job settled");
+    assert_eq!(
+        user_texts(&opened.root, "[child-").await,
+        Vec::<String>::new()
+    );
+
+    // The job's completion woke the child, which then answered.
+    setup.faux.append_responses(vec![answer("thanks")]);
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("done".to_owned()),
+        },
+        None,
+    );
+    let settled = opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(row.task_id), cx())
+        .await
+        .unwrap();
+    assert_eq!(
+        settled.outcome,
+        TaskOutcome::Completed {
+            result: eukhe_chord::json::to_json(&ChildStatus::Done).unwrap()
+        }
+    );
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// Regression (stuck.md causes 3 and 6): a child whose run ended on a
+/// provider error reports a typed failure carrying the provider's kind,
+/// never `no-reply`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_run_ended_by_a_provider_error_reports_a_typed_failure() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let row = spawn_child(&opened, &setup).await;
+    eventually(|| async { !host.prompt_keys().is_empty() }).await;
+    let error = "Provider rate limit exceeded (rate_limit_error, 429)";
+    setup.faux.append_responses(vec![answer("noted")]);
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Failed {
+            failure: eukhe_types::input_origin::ChildFailure::Provider {
+                kind: eukhe_types::pi_ai::StreamFailureKind::RateLimit,
+            },
+            error: error.to_owned(),
+        },
+        None,
+    );
+    opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(row.task_id), cx())
+        .await
+        .unwrap();
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    let failed = row_of(&opened.harness, row.task_id).await.unwrap();
+    assert_eq!(failed.status, ChildStatus::Error);
+    assert_eq!(failed.error.as_deref(), Some(error));
+    assert_eq!(
+        user_texts(&opened.root, "[child-").await,
+        vec![format!(
+            "[child-failed: provider-rate_limit child:{}]\n\n{error}",
+            row.session_name
+        )]
+    );
     opened.harness.close(cx()).await.unwrap();
 }
 
@@ -1309,7 +1410,7 @@ async fn delete_inactive_child_refuses_a_running_child_and_deletes_a_settled_one
     setup.faux.append_responses(vec![answer("noted")]);
     host.settle(
         &row.session_id,
-        RlmChildRunState::Settled {
+        RlmChildRunState::Answered {
             answer_preview: Some("done".to_owned()),
         },
         None,

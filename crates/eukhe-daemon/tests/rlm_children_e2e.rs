@@ -387,17 +387,17 @@ async fn rlm_children_spawn_prompt_settle_delete_end_to_end() {
             .await
             .expect("wait settled");
         match observation.state {
-            RlmChildRunState::Running => {
+            RlmChildRunState::Running | RlmChildRunState::Idle { .. } => {
                 assert!(Instant::now() < deadline, "child never settled");
             }
-            state @ (RlmChildRunState::Settled { .. } | RlmChildRunState::Failed { .. }) => {
+            state @ (RlmChildRunState::Answered { .. } | RlmChildRunState::Failed { .. }) => {
                 break state;
             }
         }
     };
     assert_eq!(
         settled,
-        RlmChildRunState::Settled {
+        RlmChildRunState::Answered {
             answer_preview: Some("child answer".to_string()),
         }
     );
