@@ -498,11 +498,15 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
                 ZOOM_TOOL_DESCRIPTION.to_string(),
                 serde_json::json!({
                     "type": "object",
+                    "required": ["id", "n"],
                     "properties": {
+                        "i": {
+                            "type": "string",
+                            "description": "Short present-participle intent for this call."
+                        },
                         "id": { "type": "integer", "minimum": 0 },
                         "n": { "type": "integer", "minimum": 1 }
                     },
-                    "required": ["id", "n"],
                     "additionalProperties": false
                 }),
             ),
@@ -511,8 +515,14 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
                 DATE_TOOL_DESCRIPTION.to_string(),
                 serde_json::json!({
                     "type": "object",
-                    "properties": { "id": { "type": "integer", "minimum": 0 } },
                     "required": ["id"],
+                    "properties": {
+                        "i": {
+                            "type": "string",
+                            "description": "Short present-participle intent for this call."
+                        },
+                        "id": { "type": "integer", "minimum": 0 }
+                    },
                     "additionalProperties": false
                 }),
             ),
