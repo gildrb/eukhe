@@ -161,9 +161,9 @@ async fn omits_block_binding_for_4_6_models() {
 }
 
 #[tokio::test]
-async fn omits_display_for_govcloud_model_ids_on_non_adaptive_claude_thinking() {
+async fn omits_display_for_govcloud_model_arns_on_non_adaptive_claude_thinking() {
     let model = Model {
-        id: "us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0".into(),
+        id: "arn:aws-us-gov:bedrock:us-gov-west-1:123456789012:inference-profile/us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0".into(),
         name: "Claude Sonnet 4.5 (GovCloud)".into(),
         ..get_model(
             "amazon-bedrock",

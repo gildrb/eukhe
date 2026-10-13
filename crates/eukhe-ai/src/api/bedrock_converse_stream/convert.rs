@@ -12,7 +12,7 @@ use eukhe_types::pi_ai::{
 };
 use serde_json::json;
 
-use super::client_config::get_configured_bedrock_region;
+use super::client_config::{arn_region, get_configured_bedrock_region};
 use super::{BedrockOptions, BedrockThinkingDisplay, BedrockToolChoice};
 use crate::api::cache_breakpoints::{has_cache_breakpoint, CacheMarkBudget};
 use crate::api::constrained_sampling::{
@@ -495,15 +495,13 @@ pub(crate) fn map_stop_reason(reason: Option<&str>) -> (StopReason, Option<Strin
     }
 }
 
-/// TS `isGovCloudBedrockTarget`.
+/// TS `isGovCloudBedrockTarget`, decided by the region the request goes
+/// to: the model ARN's region, else the configured one.
 fn is_gov_cloud_bedrock_target(model: &Model, options: &BedrockOptions) -> bool {
-    if get_configured_bedrock_region(options)
+    arn_region(&model.id)
+        .map(str::to_owned)
+        .or_else(|| get_configured_bedrock_region(options))
         .is_some_and(|region| region.to_lowercase().starts_with("us-gov-"))
-    {
-        return true;
-    }
-    let model_id = model.id.to_lowercase();
-    model_id.starts_with("us-gov.") || model_id.starts_with("arn:aws-us-gov:")
 }
 
 /// TS `buildAdditionalModelRequestFields`.

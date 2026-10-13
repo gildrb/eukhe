@@ -112,6 +112,15 @@ static ARN_REGION: LazyLock<Regex> = LazyLock::new(|| {
         .unwrap_or_else(|_| unreachable!("static regex"))
 });
 
+/// The region a Bedrock model ARN addresses (`None` for a plain model or
+/// inference profile id).
+pub(crate) fn arn_region(model_id: &str) -> Option<&str> {
+    ARN_REGION
+        .captures(model_id)
+        .and_then(|captures| captures.get(1))
+        .map(|region| region.as_str())
+}
+
 /// TS `getStandardBedrockEndpointRegion`.
 pub(crate) fn get_standard_bedrock_endpoint_region(base_url: &str) -> Option<String> {
     if base_url.is_empty() {
@@ -181,8 +190,8 @@ pub(crate) fn resolve_client_config(
 
     // Region resolution: ARN-embedded > explicit option > env vars > SDK
     // default chain.
-    let region = if let Some(captures) = ARN_REGION.captures(&model.id) {
-        captures.get(1).map(|region| region.as_str().to_owned())
+    let region = if let Some(region) = arn_region(&model.id) {
+        Some(region.to_owned())
     } else if configured_region.is_some() {
         configured_region
     } else if endpoint_region.is_some() && use_explicit_endpoint {
