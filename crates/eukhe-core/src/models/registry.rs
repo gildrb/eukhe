@@ -8,9 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use eukhe_models::ModelCatalog;
-use eukhe_types::ai::{
-    CompatKind, Model, ModelCompat, ModelThinkingLevel, OpenAiResponsesCompat, ThinkingLevelMap,
-};
+use eukhe_types::ai::{CompatKind, Model, ModelCompat, ModelThinkingLevel, OpenAiResponsesCompat};
 
 use crate::auth::manager::AuthStorage;
 use crate::auth::types::AuthCredential;
@@ -99,18 +97,30 @@ pub struct ModelRegistry {
 }
 
 /// TS `getXaiSubscriptionModel`: the xAI provider's models switch onto
-/// the openai-responses API under a stored subscription — the TS
-/// thinking map per model id (the explicit maps for the models the TS
-/// flow knows, an all-null map otherwise) and the
-/// `supportsLongCacheRetention: false` compat.
+/// the openai-responses API under a stored subscription with the
+/// `supportsLongCacheRetention: false` compat. A model keeps the thinking
+/// map its catalog row declares; a model without one gets every level
+/// unsupported (the reasoning output stays; unverified effort controls
+/// never send).
 fn xai_subscription_model(model: &Model) -> Model {
     let mut adapted = model.clone();
     adapted.api = "openai-responses".to_string();
     adapted.base_url = "https://api.x.ai/v1".to_string();
-    // TS `getXaiSubscriptionModel` fills only an absent map: a model
-    // that already declares its levels keeps them.
     if adapted.thinking_level_map.is_none() {
-        adapted.thinking_level_map = Some(xai_subscription_thinking_map(&model.id));
+        adapted.thinking_level_map = Some(
+            [
+                ModelThinkingLevel::Off,
+                ModelThinkingLevel::Minimal,
+                ModelThinkingLevel::Low,
+                ModelThinkingLevel::Medium,
+                ModelThinkingLevel::High,
+                ModelThinkingLevel::Xhigh,
+                ModelThinkingLevel::Max,
+            ]
+            .into_iter()
+            .map(|level| (level, None))
+            .collect(),
+        );
     }
     adapted.compat = Some(ModelCompat::from_kind(CompatKind::OpenAiResponses(
         OpenAiResponsesCompat {
@@ -119,48 +129,6 @@ fn xai_subscription_model(model: &Model) -> Model {
         },
     )));
     adapted
-}
-
-/// The TS flow's thinking maps (`getXaiSubscriptionModel`'s switch): an
-/// explicit map for the grok models the TS flow names, and the
-/// all-levels-null default for every other xAI model (the reasoning
-/// output stays; unverified effort controls never send).
-fn xai_subscription_thinking_map(model_id: &str) -> ThinkingLevelMap {
-    // The map's value is the TS table's entry: `None` for the null
-    // mapping (unsupported), the wire string for a named level; an
-    // absent level keeps its default support.
-    let null = || None;
-    let value = |text: &str| Some(text.to_string());
-    let mut map = ThinkingLevelMap::new();
-    match model_id {
-        "grok-4.3" => {
-            map.insert(ModelThinkingLevel::Off, value("none"));
-            map.insert(ModelThinkingLevel::Minimal, null());
-        }
-        "grok-4.5" => {
-            map.insert(ModelThinkingLevel::Off, null());
-            map.insert(ModelThinkingLevel::Minimal, null());
-        }
-        "grok-4.6" | "grok-4.7" => {
-            map.insert(ModelThinkingLevel::Off, null());
-            map.insert(ModelThinkingLevel::Minimal, null());
-            map.insert(ModelThinkingLevel::Xhigh, value("xhigh"));
-        }
-        _ => {
-            for level in [
-                ModelThinkingLevel::Off,
-                ModelThinkingLevel::Minimal,
-                ModelThinkingLevel::Low,
-                ModelThinkingLevel::Medium,
-                ModelThinkingLevel::High,
-                ModelThinkingLevel::Xhigh,
-                ModelThinkingLevel::Max,
-            ] {
-                map.insert(level, null());
-            }
-        }
-    }
-    map
 }
 
 impl ModelRegistry {

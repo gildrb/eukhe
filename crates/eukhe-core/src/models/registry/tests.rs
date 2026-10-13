@@ -273,26 +273,11 @@ fn a_stored_xai_subscription_switches_its_models_onto_responses() {
         compat.raw.get("supportsLongCacheRetention"),
         Some(&serde_json::json!(false))
     );
-    // The TS flow's explicit maps stay per model id (unit level;
-    // the offline catalog no longer carries those models).
-    let map_46 = xai_subscription_thinking_map("grok-4.6");
-    assert_eq!(map_46.get(&ModelThinkingLevel::Off), Some(&None));
-    assert_eq!(
-        map_46.get(&ModelThinkingLevel::Xhigh),
-        Some(&Some("xhigh".to_string()))
-    );
-    let map_43 = xai_subscription_thinking_map("grok-4.3");
-    assert_eq!(
-        map_43.get(&ModelThinkingLevel::Off),
-        Some(&Some("none".to_string()))
-    );
 }
 
 /// TS `getXaiSubscriptionModel` fills only an absent `thinkingLevelMap`:
-/// a model that already declares addressable levels keeps them under
-/// the subscription — a blanket replacement collapsed a thinking-capable
-/// route onto the all-null "unverified controls" default arm (the
-/// `/effort` false refusal).
+/// a model keeps the levels its catalog row declares under the
+/// subscription, and a model without a map gets every level unsupported.
 #[test]
 fn a_subscription_model_keeps_its_own_thinking_level_map() {
     let mut grok = model("grok-build-0.1", "xai");
@@ -305,10 +290,9 @@ fn a_subscription_model_keeps_its_own_thinking_level_map() {
     let bare = model("grok-4.5", "xai");
     assert!(bare.thinking_level_map.is_none());
     let adapted = xai_subscription_model(&bare);
-    assert_eq!(
-        adapted.thinking_level_map,
-        Some(xai_subscription_thinking_map("grok-4.5"))
-    );
+    let map = adapted.thinking_level_map.expect("a map is filled in");
+    assert_eq!(map.len(), 7);
+    assert!(map.values().all(Option::is_none));
 }
 
 #[test]
