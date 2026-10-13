@@ -1042,6 +1042,7 @@ fn reconstructs_the_child_status_origins_from_session_actions() {
             &InputOrigin::Report {
                 report: Report::ChildFailed {
                     child: "broken".to_string(),
+                    failure: None,
                 },
             },
         ],
