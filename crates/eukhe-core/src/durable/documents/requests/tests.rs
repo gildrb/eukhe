@@ -6,7 +6,6 @@ fn registry(dir: &std::path::Path) -> HostRequestRegistry {
     let registry = HostRequestRegistry::default();
     let host = DocumentsHost {
         documents: eukhe_docs::Documents::new(dir.join("locks"), None),
-        kernel_cwds: std::sync::Mutex::default(),
     };
     register(&registry, &Arc::new(host));
     registry
