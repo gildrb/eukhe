@@ -448,6 +448,13 @@ impl Worker {
         // `createDefaultRuntimeFactory`); the core gates it to top-level
         // sessions.
         config.prewarm_kernel = true;
+        // This crate's tests run this checkout's runtime, never the user's
+        // `~/.eukhe` kernel venv.
+        #[cfg(test)]
+        {
+            config.kernel_python =
+                Some(crate::durable_test_support::kernel_runtime::kernel_python());
+        }
         let scripted = self.config.script.is_some();
         if !scripted && config.role.is_root() {
             config.memory = Some(self.chat_memory().await?);

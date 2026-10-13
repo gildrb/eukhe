@@ -15,6 +15,9 @@ use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
 use eukhe_durable::types::EntryRecord;
 
+#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
+pub(crate) mod kernel_runtime;
+
 pub(crate) const SESSION_ID: &str = "0192a000-0000-7000-8000-0000000000f1";
 
 pub(crate) fn cx() -> &'static Context {
@@ -91,6 +94,7 @@ impl Fixture {
         );
         config.models = Some(self.models.clone());
         config.model = Some(self.model().into());
+        config.kernel_python = Some(kernel_runtime::kernel_python());
         config
     }
 
