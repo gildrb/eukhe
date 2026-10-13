@@ -58,6 +58,27 @@ impl ModelCostTier {
     }
 }
 
+/// The price multipliers of the service tiers a model publishes its own
+/// price for. A tier absent here bills at the API's default multiplier.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceTierMultipliers {
+    /// Flex processing multiplier.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "super::js_number::option::serialize"
+    )]
+    pub flex: Option<f64>,
+    /// Priority processing (fast mode) multiplier.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "super::js_number::option::serialize"
+    )]
+    pub priority: Option<f64>,
+}
+
 /// A model's prices.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +94,9 @@ pub struct ModelCost {
     /// Request-wide pricing tiers. The highest matching input threshold applies to the full request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tiers: Option<Vec<ModelCostTier>>,
+    /// This model's own service tier multipliers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier_multipliers: Option<ServiceTierMultipliers>,
 }
 
 impl ModelCost {

@@ -433,6 +433,7 @@ pub fn build_prime_inference_models(
                 cache_read,
                 cache_write,
                 tiers: None,
+                service_tier_multipliers: None,
             },
             headers: None,
             model_type: None,

@@ -608,11 +608,14 @@ async fn clamps_minimal_reasoning_effort_to_low() {
 
 #[tokio::test]
 async fn uses_the_client_sent_service_tier_when_codex_echoes_default() {
-    for (model_id, service_tier, multiplier) in [
-        ("gpt-5.1-codex", "flex", 0.5),
-        ("gpt-5.1-codex", "priority", 2.0),
-        ("gpt-5.5", "flex", 0.5),
-        ("gpt-5.5", "priority", 2.5),
+    let base_cost = json!({ "input": 1, "output": 2, "cacheRead": 0, "cacheWrite": 0 });
+    let mut row_priced_cost = base_cost.clone();
+    row_priced_cost["serviceTierMultipliers"] = json!({ "priority": 2.5 });
+    for (cost, service_tier, multiplier) in [
+        (&base_cost, "flex", 0.5),
+        (&base_cost, "priority", 2.0),
+        (&row_priced_cost, "flex", 0.5),
+        (&row_priced_cost, "priority", 2.5),
     ] {
         let _isolation = isolate().await;
         let mut events = super::support::hello_events();
@@ -634,11 +637,7 @@ async fn uses_the_client_sent_service_tier_when_codex_echoes_default() {
             let sse = sse.clone();
             Box::pin(async move { Ok(sse_response(&sse)) })
         });
-        let model = model_with(json!({
-            "id": model_id,
-            "name": if model_id == "gpt-5.5" { "GPT-5.5" } else { "GPT-5.1 Codex" },
-            "cost": { "input": 1, "output": 2, "cacheRead": 0, "cacheWrite": 0 },
-        }));
+        let model = model_with(json!({ "cost": cost }));
 
         let result = stream(
             &model,
@@ -648,7 +647,7 @@ async fn uses_the_client_sent_service_tier_when_codex_echoes_default() {
         .result()
         .await;
 
-        let label = format!("{model_id} {service_tier}");
+        let label = format!("{cost} {service_tier}");
         assert!(
             (result.usage.cost.input - multiplier).abs() < f64::EPSILON,
             "{label}"

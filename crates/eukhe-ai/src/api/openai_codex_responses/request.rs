@@ -8,7 +8,8 @@ use base64::engine::DecodePaddingMode;
 use base64::Engine as _;
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::{
-    JsonObject, JsonValue, Model, ModelThinkingLevel, ProviderHeaders, TranscriptContext, Usage,
+    JsonObject, JsonValue, Model, ModelThinkingLevel, ProviderHeaders, ServiceTierMultipliers,
+    TranscriptContext, Usage,
 };
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::json;
@@ -199,17 +200,15 @@ fn nullish_or(value: Option<&JsonValue>, fallback: JsonValue) -> JsonValue {
     }
 }
 
-/// TS `getServiceTierCostMultiplier`.
-fn get_service_tier_cost_multiplier(model_id: &str, service_tier: Option<&str>) -> f64 {
+/// TS `getServiceTierCostMultiplier`: the Codex defaults, unless the
+/// model's catalog row prices the tier itself.
+fn get_service_tier_cost_multiplier(
+    own: Option<ServiceTierMultipliers>,
+    service_tier: Option<&str>,
+) -> f64 {
     match service_tier {
-        Some("flex") => 0.5,
-        Some("priority") => {
-            if model_id == "gpt-5.5" {
-                2.5
-            } else {
-                2.0
-            }
-        }
+        Some("flex") => own.and_then(|own| own.flex).unwrap_or(0.5),
+        Some("priority") => own.and_then(|own| own.priority).unwrap_or(2.0),
         _ => 1.0,
     }
 }
@@ -218,9 +217,9 @@ fn get_service_tier_cost_multiplier(model_id: &str, service_tier: Option<&str>) 
 pub(crate) fn apply_service_tier_pricing(
     usage: &mut Usage,
     service_tier: Option<&str>,
-    model_id: &str,
+    own: Option<ServiceTierMultipliers>,
 ) {
-    let multiplier = get_service_tier_cost_multiplier(model_id, service_tier);
+    let multiplier = get_service_tier_cost_multiplier(own, service_tier);
     // The multiplier table is discrete; equality with 1 is the TS no-op check.
     #[allow(clippy::float_cmp)]
     if multiplier == 1.0 {

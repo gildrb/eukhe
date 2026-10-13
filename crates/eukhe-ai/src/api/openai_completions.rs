@@ -521,7 +521,7 @@ async fn run_stream(
         apply_service_tier_pricing(
             &mut state.output.usage,
             state.response_service_tier.as_deref(),
-            &model.id,
+            model.cost.service_tier_multipliers,
         );
     }
 

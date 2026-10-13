@@ -59,7 +59,7 @@ pub use message::{
 pub use model::{
     AnyModel, ChatModelType, ClassifierModel, ImageModel, Modality, Model, ModelCost,
     ModelCostRates, ModelCostTier, ModelImageInputLimits, ModelImageResizeOptions,
-    ModelInputLimits, ModelType,
+    ModelInputLimits, ModelType, ServiceTierMultipliers,
 };
 pub use routing::{
     DataCollection, OpenRouterMaxPrice, OpenRouterPercentiles, OpenRouterRouting, OpenRouterSort,

@@ -73,6 +73,7 @@ fn applies_request_wide_pricing_tiers_above_the_configured_input_threshold() {
             cache_read: 1.0,
             cache_write: 12.5,
         }]),
+        service_tier_multipliers: None,
     };
     let create_usage = |cache_write: u64| Usage {
         input: 200_000,

@@ -183,14 +183,14 @@ fn responses_stream_options(
     options: &CodexOptions,
     grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> OpenAIResponsesStreamOptions {
-    let model_id = model.id.clone();
+    let own_multipliers = model.cost.service_tier_multipliers;
     OpenAIResponsesStreamOptions {
         service_tier: options.service_tier_text(),
         grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
         resolve_service_tier: Some(Arc::new(resolve_codex_service_tier)),
         apply_service_tier_pricing: Some(Arc::new(
             move |usage: &mut Usage, service_tier: Option<&str>| {
-                apply_service_tier_pricing(usage, service_tier, &model_id);
+                apply_service_tier_pricing(usage, service_tier, own_multipliers);
             },
         )),
         ..OpenAIResponsesStreamOptions::default()

@@ -26,8 +26,8 @@ use crate::models::clamp_thinking_level;
 use crate::types::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, ErrorReason, JsonObject, JsonValue,
     Model, ModelThinkingLevel, ProviderEnv, ProviderHeaders, ProviderResponse,
-    ProviderStreamOptions, SimpleStreamOptions, StopReason, ThinkingLevel, TranscriptContext,
-    Usage,
+    ProviderStreamOptions, ServiceTierMultipliers, SimpleStreamOptions, StopReason, ThinkingLevel,
+    TranscriptContext, Usage,
 };
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::error_body::{format_provider_error, normalize_provider_error};
@@ -218,24 +218,26 @@ impl OpenAIResponsesOptions {
     }
 }
 
-/// Multipliers per <https://developers.openai.com/api/docs/pricing>.
-fn get_service_tier_cost_multiplier(model_id: &str, service_tier: Option<&str>) -> f64 {
+/// Multipliers per <https://developers.openai.com/api/docs/pricing>: the
+/// API defaults, unless the model's catalog row prices the tier itself.
+fn get_service_tier_cost_multiplier(
+    own: Option<ServiceTierMultipliers>,
+    service_tier: Option<&str>,
+) -> f64 {
     match service_tier {
-        Some("flex") => 0.5,
-        Some("priority" | "fast") => {
-            if model_id == "gpt-5.5" {
-                2.5
-            } else {
-                2.0
-            }
-        }
+        Some("flex") => own.and_then(|own| own.flex).unwrap_or(0.5),
+        Some("priority" | "fast") => own.and_then(|own| own.priority).unwrap_or(2.0),
         _ => 1.0,
     }
 }
 
 /// TS `applyServiceTierPricing`.
-pub fn apply_service_tier_pricing(usage: &mut Usage, service_tier: Option<&str>, model_id: &str) {
-    let multiplier = get_service_tier_cost_multiplier(model_id, service_tier);
+pub fn apply_service_tier_pricing(
+    usage: &mut Usage,
+    service_tier: Option<&str>,
+    own: Option<ServiceTierMultipliers>,
+) {
+    let multiplier = get_service_tier_cost_multiplier(own, service_tier);
     // The multiplier table is discrete; 1 is the no-op sentinel.
     #[allow(clippy::float_cmp)]
     if multiplier == 1.0 {
@@ -665,7 +667,7 @@ async fn run(
         partial: output.clone(),
     });
 
-    let model_id = model.id.clone();
+    let own_multipliers = model.cost.service_tier_multipliers;
     let stream_options = OpenAIResponsesStreamOptions {
         on_provider_stream_event: options.stream.on_provider_stream_event.clone(),
         service_tier: effective_service_tier(&get_compat(model), options, &api)
@@ -673,7 +675,7 @@ async fn run(
         grammar_tool_input_properties: Some(grammar),
         resolve_service_tier: None,
         apply_service_tier_pricing: Some(Arc::new(move |usage, service_tier| {
-            apply_service_tier_pricing(usage, service_tier, &model_id);
+            apply_service_tier_pricing(usage, service_tier, own_multipliers);
         })),
     };
     process_responses_stream(response.events, output, stream, model, &stream_options).await?;
