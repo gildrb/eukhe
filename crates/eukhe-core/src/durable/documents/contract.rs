@@ -16,10 +16,8 @@ use serde::Deserialize;
 const GREP_CONTEXT_BEFORE: u32 = 1;
 const GREP_CONTEXT_AFTER: u32 = 3;
 
-const INTENT_DESCRIPTION: &str = "Short present-participle intent for this call.";
-
 /// How a relative path resolves, the same for every function.
-const PATH_RULE: &str = "Relative paths resolve against the Python kernel's working directory (as of its last read/write/edit/grep/glob call), else the session's working directory.";
+const PATH_RULE: &str = "Relative paths resolve against the session's working directory; the Python functions of the same name resolve against the REPL's current directory (`os.getcwd()`).";
 
 const PATH_ALIASES: &[&str] = &["file_path", "filepath", "file", "filename"];
 
@@ -118,10 +116,9 @@ impl Function {
         format!("{}\n\n{PATH_RULE}", body.trim_end())
     }
 
-    /// The parameter schema: `i` first and required, then the function's
-    /// own arguments; closed.
+    /// The parameter schema: the shared `i`, then the function's own
+    /// arguments; closed.
     pub(super) fn parameters(self) -> TSchema {
-        let intent = ("i", Type::string_with(described(INTENT_DESCRIPTION)));
         let own: Vec<(&str, TSchema)> = match self {
             Self::Read => vec![(
                 "path",
@@ -167,10 +164,7 @@ impl Function {
                 ("limit", optional_integer("max results", 1)),
             ],
         };
-        Type::object_with(
-            std::iter::once(intent).chain(own),
-            Options::new().set("additionalProperties", false),
-        )
+        crate::durable::tool_contract::parameters(own)
     }
 
     /// The names models also use for these arguments, and the keys of

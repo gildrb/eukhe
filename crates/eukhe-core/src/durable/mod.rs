@@ -33,6 +33,7 @@ pub mod rlm;
 pub(crate) mod session_commands;
 mod settings;
 mod staging;
+mod tool_contract;
 
 pub use admission_gate::AdmissionStateSink;
 pub use deps::{

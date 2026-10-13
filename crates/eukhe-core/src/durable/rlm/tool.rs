@@ -63,11 +63,13 @@ const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "im
 /// The `code` parameter description.
 const CODE_DESCRIPTION: &str = "Python code to execute in the persistent Python REPL. Use the target project's own environment for project imports, tests, scripts, CLIs, and dependency checks instead of direct kernel imports.";
 
-/// `Type.Object({ code: Type.String({ description }) })`: the `ipython`
-/// tool schema (`type`, `required: ["code"]`, `properties`).
+/// The durable identity of the tool's contract.
+const IPYTHON_VERSION: &str = "ipython@1";
+
+/// The `ipython` tool schema: the shared `i`, then `code`.
 #[must_use]
 pub fn ipython_parameters() -> TSchema {
-    Type::object([(
+    crate::durable::tool_contract::parameters([(
         "code",
         Type::string_with(Options::new().set("description", CODE_DESCRIPTION)),
     )])
@@ -586,6 +588,7 @@ pub(crate) fn tool_result(result: &ExecuteResult, text: String) -> ToolExecution
     let mut content = vec![UserContentBlock::Text(TextContent::new(text))];
     content.extend(result.attachments.iter().flatten().filter_map(image_block));
     let mut details = json!({
+        "version": IPYTHON_VERSION,
         "status": status_name(result.status),
         "kernelRestarted": false,
     });
