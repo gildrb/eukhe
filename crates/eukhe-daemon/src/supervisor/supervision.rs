@@ -376,7 +376,7 @@ impl Supervisor {
                     "shutdown",
                     json!({}),
                     ROUTE_TIMEOUT_MS,
-                    RouteAdmission::SupervisorInternal,
+                    RouteAdmission::Control,
                 )
                 .await;
             let mut child = child;

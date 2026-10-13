@@ -19,10 +19,19 @@
 //! worker saturated is answered with the typed [`DaemonErrorInfo`]
 //! `worker_overloaded` refusal (the `-32001` analog): the request never
 //! entered the queue, so nothing is dropped silently and a retry cannot
-//! duplicate it. Supervisor-internal routes (stop/kill, create replay,
-//! disconnect cleanup, polls) are never refused — they wait for a slot
-//! inside the route's own timeout budget, the same backpressure split
-//! Codex makes between requests and notifications.
+//! duplicate it. Supervisor-internal routes (create replay, disconnect
+//! cleanup) are never refused — they wait for a slot inside the route's own
+//! timeout budget, the same backpressure split Codex makes between requests
+//! and notifications.
+//!
+//! Two classes stay outside the in-flight bound entirely (omp2
+//! processes.md: liveness and control come from the supervisor, not from a
+//! request queue). Control-plane routes (kill, abort, status, shutdown)
+//! take no permit, so a saturated worker can always be inspected and
+//! stopped. Watches (`wait_for_idle`, `prompt_and_wait`,
+//! `wait_for_headless_completion`) are long-polls on settlement state: they
+//! take no permit either, and a watch whose requester drops is cancelled,
+//! so turn-long waits can never starve the bound.
 
 use eukhe_types::daemon::DaemonErrorInfo;
 
@@ -75,21 +84,31 @@ const _: () = assert!(CLIENT_OUTBOUND_CAPACITY > WORKER_INFLIGHT_CAPACITY);
 /// generous headroom for one client with many sessions.
 pub(crate) const CLIENT_DISPATCH_CONCURRENCY: usize = 64;
 
-/// What a route does when its worker is at the in-flight bound. Codex's
-/// split: a request answers the explicit overload error immediately
-/// (`mod.rs:228-259`), a notification awaits capacity (`mod.rs:265`).
-#[derive(Clone, Copy)]
+/// What a route does about the worker's in-flight bound. Codex's split for
+/// the bounded classes: a request answers the explicit overload error
+/// immediately (`mod.rs:228-259`), a notification awaits capacity
+/// (`mod.rs:265`); control and watches never enter the bound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RouteAdmission {
     /// A client's request-shaped command: the route answers the typed
     /// `worker_overloaded` refusal the moment the worker saturates. The
     /// caller retries; the request was never queued, so the retry cannot
     /// duplicate it.
     ClientRequest,
-    /// Supervisor-internal traffic (stop/kill, create replay, disconnect
-    /// cleanup, polls): the route waits for an in-flight slot inside its
-    /// own timeout budget and surfaces the existing timeout error if the
-    /// budget runs out — control-plane traffic is never refused.
+    /// Supervisor-internal traffic (create replay, disconnect cleanup,
+    /// deliveries): the route waits for an in-flight slot inside its own
+    /// timeout budget and surfaces the existing timeout error if the
+    /// budget runs out.
     SupervisorInternal,
+    /// Control plane (kill, abort, status, shutdown): no in-flight permit,
+    /// never refused. A saturated or wedged worker is still inspected and
+    /// stopped within the route's own budget.
+    Control,
+    /// A long-poll on settlement state (`wait_for_idle`, `prompt_and_wait`,
+    /// `wait_for_headless_completion`): no in-flight permit, never refused.
+    /// Dropping the route before its reply (a requester that went away)
+    /// tells the worker to drop the parked wait.
+    Watch,
 }
 
 /// The saturated-route refusal a client command answers: typed
@@ -385,5 +404,206 @@ mod tests {
             cmd_rx.try_recv().is_err(),
             "nothing was enqueued behind the retire"
         );
+    }
+
+    /// A worker that answers every request at once except the watches,
+    /// which it parks (a session that never goes idle). Every frame it
+    /// received is recorded.
+    async fn parking_worker(
+        resident: &Arc<ResidentWorker>,
+    ) -> Arc<std::sync::Mutex<Vec<WorkerRequest>>> {
+        let (cmd_tx, mut cmd_rx) =
+            tokio::sync::mpsc::channel::<WorkerRequest>(WORKER_INFLIGHT_CAPACITY);
+        *resident.cmd_tx.lock().await = Some(cmd_tx);
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let responder = Arc::clone(resident);
+        let record = Arc::clone(&seen);
+        tokio::spawn(async move {
+            while let Some(request) = cmd_rx.recv().await {
+                let parks = matches!(
+                    request.command_type.as_str(),
+                    "wait_for_idle" | "cancel_request"
+                );
+                if !parks {
+                    if let Some(reply) = responder.pending.lock().await.remove(&request.request_id)
+                    {
+                        let _ = reply.send(crate::registry::WorkerReply::Typed(
+                            crate::protocol::response_success(None, &request.command_type, None),
+                        ));
+                    }
+                }
+                record
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(request);
+            }
+        });
+        seen
+    }
+
+    /// Poll an observable condition until it holds (bounded).
+    async fn until(mut condition: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !condition() {
+            assert!(std::time::Instant::now() < deadline, "condition never held");
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    }
+
+    /// Cause 4 of the stuck-session audit: turn-long watches held one of
+    /// the 128 in-flight permits each, so accumulated waits starved the
+    /// worker and every later client request answered `worker_overloaded`.
+    /// Watches past the bound now take no permit, and status and kill
+    /// (control plane) and ordinary requests still go through.
+    #[tokio::test]
+    async fn watches_past_the_inflight_bound_never_block_status_or_kill() {
+        use eukhe_types::daemon::DaemonCommand;
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let supervisor = Arc::new(supervisor(dir.path()));
+        let resident = resident("w-watched");
+        let _seen = parking_worker(&resident).await;
+        let selector = || "w-watched".to_string();
+        let watch = DaemonCommand::WaitForIdle {
+            id: None,
+            active_session_id: selector(),
+            wait_for_rlm_quiescence: None,
+            rest: serde_json::Map::default(),
+        };
+        let watches = 2 * WORKER_INFLIGHT_CAPACITY;
+        let parked: Vec<_> = (0..watches)
+            .map(|_| {
+                let supervisor = Arc::clone(&supervisor);
+                let resident = Arc::clone(&resident);
+                let admission = crate::supervisor::client_route_admission(&watch);
+                tokio::spawn(async move {
+                    supervisor
+                        .route_command_typed(
+                            &resident,
+                            "wait_for_idle",
+                            serde_json::json!({}),
+                            60_000,
+                            admission,
+                        )
+                        .await
+                })
+            })
+            .collect();
+        // Readiness: every watch is parked on the worker.
+        until(|| {
+            resident
+                .pending
+                .try_lock()
+                .is_ok_and(|pending| pending.len() == watches)
+        })
+        .await;
+        assert_eq!(
+            resident.inflight.available_permits(),
+            WORKER_INFLIGHT_CAPACITY,
+            "a watch holds no in-flight permit"
+        );
+        for command in [
+            DaemonCommand::GetState {
+                id: None,
+                active_session_id: selector(),
+                rest: serde_json::Map::default(),
+            },
+            DaemonCommand::Kill {
+                id: None,
+                active_session_id: selector(),
+                rest: serde_json::Map::default(),
+            },
+            DaemonCommand::GetMessages {
+                id: None,
+                active_session_id: selector(),
+                rest: serde_json::Map::default(),
+            },
+        ] {
+            let command_type = crate::protocol::command_type_name(&command);
+            let response = supervisor
+                .route_command_typed(
+                    &resident,
+                    command_type,
+                    serde_json::json!({}),
+                    1_000,
+                    crate::supervisor::client_route_admission(&command),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("{command_type} must route: {error:#}"));
+            assert!(response.success, "{command_type}: {response:?}");
+        }
+        for watch in parked {
+            watch.abort();
+        }
+    }
+
+    /// A watch whose requester's connection closed is cancelled: the route
+    /// answers nobody, its reply slot leaves the pending map, and the
+    /// worker is told to drop the parked wait (ADR 0011: the cancellation
+    /// reaches the resource, not only the awaiting future).
+    #[tokio::test]
+    async fn a_watch_whose_requester_left_is_cancelled_on_the_worker() {
+        use eukhe_types::daemon::{DaemonCommand, DaemonWorkerCommand};
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let supervisor = Arc::new(supervisor(dir.path()));
+        let resident = resident("w-left");
+        let seen = parking_worker(&resident).await;
+        supervisor.registry.insert(Arc::clone(&resident)).await;
+        resident.note_connection_live();
+        resident.note_session_ready();
+        let (queue, receiver) = tokio::sync::mpsc::channel(4);
+        let attached =
+            crate::supervisor::subscribers::ClientSubscriptions::new("gone".to_string(), queue);
+        let route = {
+            let supervisor = Arc::clone(&supervisor);
+            tokio::spawn(async move {
+                let command = DaemonCommand::WaitForIdle {
+                    id: None,
+                    active_session_id: "w-left".to_string(),
+                    wait_for_rlm_quiescence: None,
+                    rest: serde_json::Map::default(),
+                };
+                supervisor
+                    .route_client_command(
+                        &command,
+                        "client",
+                        &attached,
+                        "c-1".to_string(),
+                        "wait_for_idle".to_string(),
+                        None,
+                    )
+                    .await
+            })
+        };
+        until(|| {
+            resident
+                .pending
+                .try_lock()
+                .is_ok_and(|pending| pending.len() == 1)
+        })
+        .await;
+        let watch_id = seen
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)[0]
+            .request_id
+            .clone();
+        // The requester's connection closes.
+        drop(receiver);
+        let (lines, stop) = route.await.expect("the route task lives");
+        assert!(lines.is_empty() && !stop, "nobody is left to answer");
+        assert!(resident.pending.lock().await.is_empty());
+        until(|| {
+            seen.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .any(|frame| {
+                    frame.command_type == "cancel_request"
+                        && matches!(
+                            serde_json::from_value(frame.payload.clone()),
+                            Ok(DaemonWorkerCommand::CancelRequest { request_id, .. })
+                                if request_id == watch_id
+                        )
+                })
+        })
+        .await;
     }
 }

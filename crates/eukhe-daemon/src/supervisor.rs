@@ -56,7 +56,8 @@ pub(crate) use clients::client_command_payload;
 // (external callers: supervisor_parent_death, create_reuse, prompt_admission,
 // scheduling_catalog).
 pub(crate) use routing::{
-    client_route_timeout, ROUTE_TIMEOUT_MS, SUMMARY_TIMEOUT_MS, WORKER_NOT_CONNECTED,
+    client_route_admission, client_route_timeout, ROUTE_TIMEOUT_MS, SUMMARY_TIMEOUT_MS,
+    WORKER_NOT_CONNECTED,
 };
 
 // probe_worker_socket/worker_connect_deadline are called only by the supervision sibling

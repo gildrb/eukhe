@@ -286,7 +286,7 @@ impl Supervisor {
                 "get_state",
                 json!({}),
                 ROUTE_TIMEOUT_MS,
-                RouteAdmission::SupervisorInternal,
+                RouteAdmission::Control,
             )
             .await;
         let Ok(response) = response else {

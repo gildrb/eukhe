@@ -69,7 +69,7 @@ impl Supervisor {
                             command,
                             json!({}),
                             remaining_ms,
-                            RouteAdmission::SupervisorInternal,
+                            RouteAdmission::Control,
                         )
                         .await;
                 }
@@ -797,7 +797,7 @@ impl Supervisor {
                 "shutdown",
                 json!({}),
                 ROUTE_TIMEOUT_MS,
-                RouteAdmission::SupervisorInternal,
+                RouteAdmission::Control,
             )
             .await
         {

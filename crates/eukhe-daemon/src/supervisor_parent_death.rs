@@ -134,7 +134,7 @@ impl Supervisor {
                 "kill",
                 json!({ "rlmCloseReason": "shutdown" }),
                 ROUTE_TIMEOUT_MS,
-                RouteAdmission::SupervisorInternal,
+                RouteAdmission::Control,
             )
             .await
         {

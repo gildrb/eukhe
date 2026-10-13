@@ -509,7 +509,7 @@ impl crate::supervisor::Supervisor {
                         "abort_compaction",
                         payload,
                         ABORT_FORWARD_TIMEOUT_MS,
-                        RouteAdmission::SupervisorInternal,
+                        RouteAdmission::Control,
                     )
                     .await
                     .and_then(|response| {

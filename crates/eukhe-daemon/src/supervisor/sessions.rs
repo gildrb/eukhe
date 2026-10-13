@@ -587,7 +587,7 @@ impl Supervisor {
                 "get_state",
                 json!({}),
                 SUMMARY_TIMEOUT_MS,
-                RouteAdmission::SupervisorInternal,
+                RouteAdmission::Control,
             )
             .await;
         match response {
@@ -707,7 +707,7 @@ impl Supervisor {
                 "get_state",
                 json!({}),
                 ROUTE_TIMEOUT_MS,
-                RouteAdmission::SupervisorInternal,
+                RouteAdmission::Control,
             )
             .await
         {

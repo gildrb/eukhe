@@ -24,7 +24,8 @@ use serde_json::{json, Value};
 use crate::backpressure::RouteAdmission;
 use crate::protocol::{response_failure, response_line, response_success, DaemonResponse};
 use crate::supervisor::{
-    client_command_payload, client_route_timeout, Supervisor, ROUTE_TIMEOUT_MS,
+    client_command_payload, client_route_admission, client_route_timeout, Supervisor,
+    ROUTE_TIMEOUT_MS,
 };
 use crate::worker::Worker;
 
@@ -318,16 +319,15 @@ impl Supervisor {
         // provably never left the supervisor retries on the next
         // connection - the admission id stays the idempotency key, so the
         // prompt still lands exactly once (the generic client route's
-        // contract).
-        let response = self
-            .route_command_ready_typed(
-                &resident,
-                command_type,
-                payload,
-                timeout,
-                RouteAdmission::ClientRequest,
-            )
-            .await;
+        // contract). A `prompt_and_wait` is a watch: no in-flight permit,
+        // and it ends with its requester.
+        let admission = client_route_admission(command);
+        let routed =
+            self.route_command_ready_typed(&resident, command_type, payload, timeout, admission);
+        let Some(response) = attached.unless_requester_gone(routed, admission).await else {
+            connection.prompt_admissions.remove(&key);
+            return (Vec::new(), false);
+        };
         let mut response = match response {
             Ok(response) => response,
             Err(error) => {
