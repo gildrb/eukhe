@@ -1,8 +1,11 @@
 //! `eukhe.documents`: the session's documents (`eukhe_docs::Documents`,
-//! one edit store per session) behind the kernel's `fs.*` host requests and
-//! the wire `edit` tool. Both entry points share the store, so a `read()` in
-//! the kernel makes its lines anchorable for the tool.
+//! one edit store per session) behind the wire `read`, `edit`, `grep`, and
+//! `glob` tools and the kernel's `fs.*` host requests. Both entry points
+//! decode through one contract per function and share the store, so a
+//! `read()` in the kernel makes its lines anchorable for the `edit` tool and
+//! the other way round.
 
+mod contract;
 mod requests;
 mod tool;
 
@@ -15,14 +18,16 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::Extension;
 use eukhe_durable::types::{ConversationId, ROOT_CONVERSATION_ID};
 
+use self::contract::Function;
 use super::{HostCall, HostDeps};
-
-pub use tool::EDIT_TOOL_NAME;
 
 /// The extension's name.
 pub const DOCUMENTS_EXTENSION: &str = "eukhe.documents";
 
-/// What the requests and the tool share.
+/// The wire `edit` tool's name.
+pub const EDIT_TOOL_NAME: &str = Function::Edit.name();
+
+/// What the requests and the tools share.
 pub(crate) struct DocumentsHost {
     documents: Documents,
     /// The kernel cwd each conversation's last `fs.*` request came from.
@@ -63,7 +68,15 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     });
     requests::register(&deps.host_requests, &host);
     define_extension(Extension {
-        tools: vec![tool::edit_tool(&host, deps)],
+        tools: [
+            Function::Read,
+            Function::Edit,
+            Function::Grep,
+            Function::Glob,
+        ]
+        .into_iter()
+        .map(|function| tool::document_tool(function, &host, deps))
+        .collect(),
         ..Extension::named(DOCUMENTS_EXTENSION)
     })
 }

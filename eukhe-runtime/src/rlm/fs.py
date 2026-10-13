@@ -2,21 +2,21 @@
 session edit store, ``grep``, ``glob``, ``edit``).
 
 Every function is synchronous and resolves relative paths against the
-kernel's current directory. Results print as the model-facing projection
-(``[path#TAG]`` then ``N:TEXT`` rows) and keep the typed fields. Argument
-dialect is repaired charitably (aliases such as ``file_path`` -> ``path``,
-``"true"`` -> ``True``, ``"3"`` -> ``3``); each repair is reported in the
-result's ``warnings``. Semantic errors raise :class:`FsError`.
+kernel's current directory. Each takes the arguments of the wire tool of the
+same name (positionally in the order shown, or by keyword), and the host
+decodes them by that tool's contract: the same aliases (``file_path`` ->
+``path``), scalar spellings (``"false"`` -> ``False``), and refusals, each
+repair reported in the result's ``warnings``. Results print as the
+model-facing projection (``[path#TAG]`` then ``N:TEXT`` rows) and keep the
+typed fields. Rejections, including arguments no repair can fix, raise
+:class:`FsError`.
 """
 
 from __future__ import annotations
 
-import functools
-import inspect
 import os
-import typing
 from dataclasses import dataclass, field
-from typing import Any, Callable, TypeVar
+from typing import Any
 
 __all__ = [
     "Doc",
@@ -38,7 +38,7 @@ __all__ = [
 class FsError(Exception):
     """A rejected document operation; ``str(error)`` teaches the fix.
 
-    ``reason`` is a stable code (``not_found``, ``selector``, ``binary``, ...),
+    ``reason`` is a stable code (``arguments``, ``not_found``, ``selector``, ...),
     ``version`` the function revision that produced it (``read@1``).
     """
 
@@ -50,17 +50,26 @@ class FsError(Exception):
 
 
 class EditRejected(FsError):
-    """An ``edit`` that changed nothing. ``reason``: ``parse`` (bad grammar),
-    ``anchor`` (a line not shown by ``read``/``grep``), ``apply`` (stale tag,
-    no-op loop, file changed meanwhile), or ``io``. The message names the fix."""
+    """An ``edit`` that changed nothing. ``reason``: ``arguments`` (no repair
+    fits, e.g. old/new strings), ``parse`` (bad grammar), ``anchor`` (a line
+    not shown by ``read``/``grep``), ``apply`` (stale tag, no-op loop, file
+    changed meanwhile), or ``io``. The message names the fix."""
 
 
-def _call(request_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _call(name: str, positional: tuple[str, ...], args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Send ``name``'s arguments as given; the host repairs and checks them."""
     from . import host_request_sync
 
-    reply = host_request_sync(request_type, {**payload, "cwd": os.getcwd()})
+    if len(args) > len(positional):
+        raise TypeError(f"{name}() takes at most {len(positional)} positional arguments ({len(args)} given)")
+    sent = dict(zip(positional, args))
+    for key, value in kwargs.items():
+        if key in sent:
+            raise TypeError(f"{name}() got multiple values for argument {key!r}")
+        sent[key] = value
+    reply = host_request_sync(f"fs.{name}", {"cwd": os.getcwd(), "args": sent})
     if reply.get("outcome") == "rejected":
-        error = EditRejected if request_type == "fs.edit" else FsError
+        error = EditRejected if name == "edit" else FsError
         raise error(reply["version"], reply["reason"], reply["message"])
     return reply
 
@@ -164,13 +173,15 @@ class Hit:
 class Hits(list):
     """``grep`` hits: a list of :class:`Hit` that prints as the tagged rows."""
 
-    def __init__(self, hits: list[Hit], version: str, rendered: str, total_files: int, more_files: bool) -> None:
+    def __init__(
+        self, hits: list[Hit], version: str, rendered: str, total_files: int, more_files: bool, warnings: list[str]
+    ) -> None:
         super().__init__(hits)
         self.version = version
         self.rendered = rendered
         self.total_files = total_files
         self.more_files = more_files
-        self.warnings: list[str] = []
+        self.warnings = warnings
 
     def __str__(self) -> str:
         return _with_warnings(self.rendered, self.warnings)
@@ -182,12 +193,12 @@ class Paths(list):
     """``glob`` matches: a list of paths, newest first, that prints as the
     folded listing."""
 
-    def __init__(self, paths: list[str], version: str, rendered: str, truncated: bool) -> None:
+    def __init__(self, paths: list[str], version: str, rendered: str, truncated: bool, warnings: list[str]) -> None:
         super().__init__(paths)
         self.version = version
         self.rendered = rendered
         self.truncated = truncated
-        self.warnings: list[str] = []
+        self.warnings = warnings
 
     def __str__(self) -> str:
         return _with_warnings(self.rendered, self.warnings)
@@ -195,88 +206,14 @@ class Paths(list):
     __repr__ = __str__
 
 
-_F = TypeVar("_F", bound=Callable[..., Any])
-
-_TRUE = {"true", "yes", "1", "on"}
-_FALSE = {"false", "no", "0", "off"}
-
-
-def _coerce(name: str, value: Any, hint: Any, repairs: list[str]) -> Any:
-    """Repair a string spelling of a declared bool/int; leave the rest."""
-    if not isinstance(value, str):
-        return value
-    accepted = typing.get_args(hint) or (hint,)
-    if bool in accepted and value.strip().lower() in _TRUE | _FALSE:
-        repaired = value.strip().lower() in _TRUE
-        repairs.append(f"{name}={value!r} read as {repaired!r}")
-        return repaired
-    if int in accepted and value.strip().lstrip("-").isdigit():
-        repaired = int(value.strip())
-        repairs.append(f"{name}={value!r} read as {repaired!r}")
-        return repaired
-    return value
-
-
-def charitable(
-    aliases: dict[str, tuple[str, ...]], refused: dict[str, str] | None = None
-) -> Callable[[_F], _F]:
-    """Strict on meaning, charitable on dialect (omp ADR 0020).
-
-    ``aliases`` maps a parameter to the names models also use for it. A
-    repaired call proceeds and its result carries one warning per repair.
-    ``refused`` maps keywords of another dialect to the hint that teaches
-    this one; they and any unknown keyword raise TypeError.
-    """
-    refusals = refused or {}
-
-    def decorate(function: _F) -> _F:
-        signature = inspect.signature(function)
-        hints = typing.get_type_hints(function)
-        alias_of = {alias: name for name, names in aliases.items() for alias in names}
-
-        @functools.wraps(function)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            repairs: list[str] = []
-            canonical: dict[str, Any] = {}
-            for key, value in kwargs.items():
-                if key in refusals:
-                    raise TypeError(f"{function.__name__}() does not take {key!r}: {refusals[key]}")
-                name = alias_of.get(key, key)
-                if name not in signature.parameters:
-                    valid = ", ".join(signature.parameters)
-                    raise TypeError(f"{function.__name__}() got an unexpected keyword argument {key!r}; valid: {valid}")
-                if name in canonical:
-                    raise TypeError(f"{function.__name__}() got {name!r} twice (as {key!r})")
-                if name != key:
-                    repairs.append(f"{key}= read as {name}=")
-                canonical[name] = value
-            bound = signature.bind(*args, **canonical)
-            for name, value in bound.arguments.items():
-                bound.arguments[name] = _coerce(name, value, hints.get(name), repairs)
-            result = function(*bound.args, **bound.kwargs)
-            if repairs:
-                result.warnings.extend(f"Repaired argument: {repair}" for repair in repairs)
-            return result
-
-        return typing.cast(_F, wrapper)
-
-    return decorate
-
-
-_PATH_ALIASES = ("file_path", "filepath", "file", "filename", "path_or_file")
-
-
-@charitable({"path": _PATH_ALIASES, "sel": ("selector", "lines", "range")})
-def read(path: str, sel: str | None = None) -> Doc:
-    """Read a file or directory (``read@1``).
+def read(*args: Any, **kwargs: Any) -> Doc:
+    """``read(path)``: read a file or directory (``read@1``).
 
     ``path`` may carry a selector: ``"src/a.rs:50-120"``, ``":N+K"``,
-    ``":raw"``. ``sel`` is the same selector without the colon. A file
-    prints as ``[path#TAG]`` plus ``N:TEXT`` rows (first 400 lines unless a
-    selector says otherwise); the shown lines become editable anchors.
+    ``":raw"``. A file prints as ``[path#TAG]`` plus ``N:TEXT`` rows; the
+    shown lines become editable anchors.
     """
-    target = path if sel is None else f"{path}:{sel}"
-    reply = _call("fs.read", {"path": target})
+    reply = _call("read", ("path",), args, kwargs)
     return Doc(
         version=reply["version"],
         path=reply["path"],
@@ -289,19 +226,18 @@ def read(path: str, sel: str | None = None) -> Doc:
         total_lines=reply.get("total_lines", 0),
         shown=[(start, end) for start, end in reply.get("shown", [])],
         entries=reply.get("entries", []),
+        warnings=reply["warnings"],
     )
 
 
-@charitable({"path": _PATH_ALIASES, "content": ("text", "contents", "data", "body")})
-def write(path: str, content: str) -> WriteResult:
-    """Create or overwrite a file atomically (``write@1``).
+def write(*args: Any, **kwargs: Any) -> WriteResult:
+    """``write(path, content)``: create or overwrite a file atomically
+    (``write@1``).
 
     Parent directories are created. A replaced file keeps its BOM, line
     endings, and mode. Prefer ``edit`` for changes to an existing file.
     """
-    if not isinstance(content, str):
-        raise TypeError(f"content must be str, got {type(content).__name__}")
-    reply = _call("fs.write", {"path": path, "content": content})
+    reply = _call("write", ("path", "content"), args, kwargs)
     return WriteResult(
         version=reply["version"],
         path=reply["path"],
@@ -311,82 +247,43 @@ def write(path: str, content: str) -> WriteResult:
         tag=reply["tag"],
         made_executable=reply["made_executable"],
         rendered=reply["rendered"],
+        warnings=reply["warnings"],
     )
 
 
-_EXACT_STRING_HINT = (
-    "edit() takes a hashline patch, not old/new strings. read() or grep() the file, then send "
-    "'[path#TAG]\\nPUT 12.=14:\\n+new line' with the header and line numbers they printed."
-)
-
-
-@charitable(
-    {"patch": ("input", "diff", "edits", "payload")},
-    {name: _EXACT_STRING_HINT for name in ("old_str", "new_str", "old_string", "new_string", "old", "new")},
-)
-def edit(patch: str) -> EditResult:
-    """Apply a hashline payload (``edit@hl.1``), the grammar of the ``edit``
-    tool: ``[path#TAG]`` sections of ``PUT``/``CUT``/``REM``/``MV`` ops whose
-    line numbers come from the latest ``read``/``grep``/edit result.
+def edit(*args: Any, **kwargs: Any) -> EditResult:
+    """``edit(input)``: apply a hashline payload (``edit@hl.1``), the grammar
+    of the ``edit`` tool: ``[path#TAG]`` sections of ``PUT``/``CUT``/``REM``/``MV``
+    ops whose line numbers come from the latest ``read``/``grep``/edit result.
 
     For programmatic edits (loops, codemods); raises :class:`EditRejected`.
     """
-    if not isinstance(patch, str):
-        raise TypeError(f"patch must be str, got {type(patch).__name__}")
-    reply = _call("fs.edit", {"input": patch})
-    return EditResult(version=reply["version"], rendered=reply["rendered"], files=reply["files"])
+    reply = _call("edit", ("input",), args, kwargs)
+    return EditResult(version=reply["version"], rendered=reply["rendered"], files=reply["files"], warnings=reply["warnings"])
 
 
-@charitable(
-    {
-        "pattern": ("regex", "query", "pat"),
-        "path": _PATH_ALIASES + ("paths", "dir", "directory"),
-        "ignore_case": ("i", "case_insensitive", "ignorecase"),
-        "context": ("C", "context_lines"),
-    }
-)
-def grep(
-    pattern: str,
-    path: str = ".",
-    *,
-    glob: str | None = None,
-    ignore_case: bool = False,
-    context: int = 0,
-    limit: int | None = None,
-    skip: int = 0,
-) -> Hits:
-    """Search files with a Rust regex (``grep@1``), gitignore-aware.
+def grep(*args: Any, **kwargs: Any) -> Hits:
+    """``grep(pattern, path=".", *, case=True, gitignore=True, skip=0)``:
+    search files with a Rust regex (``grep@1``).
 
-    ``path`` is a file, directory, or glob; ``;`` separates several. Prints
-    ``[path#TAG]`` groups of ``*N:TEXT`` (match) and `` N:TEXT`` (context)
-    rows; every printed line becomes an ``edit`` anchor. Results page by
-    file: pass ``skip`` from the pagination notice.
+    ``path`` is a file, directory, glob, or ``file:lines`` selector; ``;``
+    separates several. Prints ``[path#TAG]`` groups of ``*N:TEXT`` (match)
+    and `` N:TEXT`` (context) rows; every printed line becomes an ``edit``
+    anchor. Results page by file: pass ``skip`` from the pagination notice.
     """
-    reply = _call(
-        "fs.grep",
-        {
-            "pattern": pattern,
-            "path": path,
-            "glob": glob,
-            "ignore_case": ignore_case,
-            "context": context,
-            "limit": limit,
-            "skip": skip,
-        },
-    )
+    reply = _call("grep", ("pattern", "path"), args, kwargs)
     hits = [
         Hit(path=file["path"], tag=file["tag"], line=line, text=text)
         for file in reply["files"]
         for line, text in file["matches"]
     ]
-    return Hits(hits, reply["version"], reply["rendered"], reply["total_files"], reply["more_files"])
+    return Hits(hits, reply["version"], reply["rendered"], reply["total_files"], reply["more_files"], reply["warnings"])
 
 
-@charitable({"pattern": ("glob", "patterns", "query"), "path": _PATH_ALIASES + ("dir", "directory", "root")})
-def glob(pattern: str, path: str = ".", *, hidden: bool = False, limit: int | None = None) -> Paths:
-    """List paths matching ``pattern`` under ``path`` (``glob@1``),
-    gitignore-aware, newest first. A bare ``*.rs`` matches at any depth; ``;``
-    separates several patterns."""
-    target = pattern if path in (".", "") else ";".join(f"{path.rstrip('/')}/{part.strip()}" for part in pattern.split(";"))
-    reply = _call("fs.glob", {"path": target, "hidden": hidden, "limit": limit})
-    return Paths(reply["paths"], reply["version"], reply["rendered"], reply["truncated"])
+def glob(*args: Any, **kwargs: Any) -> Paths:
+    """``glob(path=".", *, hidden=True, gitignore=True, limit=None)``: list
+    paths matching globs (``glob@1``), newest first. ``;`` separates several
+    (``"src/**/*.rs; tests/*.rs"``); a bare ``*.rs`` matches at any depth.
+    """
+    reply = _call("glob", ("path",), args, kwargs)
+    return Paths(reply["paths"], reply["version"], reply["rendered"], reply["truncated"], reply["warnings"])

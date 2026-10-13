@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::{create_models as create_pi_models, CreateModelsOptions};
 use eukhe_ai::providers::faux::{
-    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxProviderHandle,
-    FauxResponseStep, RegisterFauxProviderOptions,
+    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_ai::utils::text::get_system_message_text;
 use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools};
@@ -12,7 +12,9 @@ use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::types::EntryRecord;
-use eukhe_types::pi_ai::{AssistantContentBlock, Message, Modality, UserContent, UserContentBlock};
+use eukhe_types::pi_ai::{
+    AssistantContentBlock, Message, Modality, StopReason, UserContent, UserContentBlock,
+};
 
 use super::*;
 use crate::durable::deps::PromptConfig;
@@ -240,6 +242,96 @@ async fn reopening_the_storage_keeps_the_root_and_its_entries() {
             })
             .count(),
         1
+    );
+    session.close(cx()).await.expect("close");
+}
+
+fn tool_call(name: &str, arguments: serde_json::Value, id: &str) -> FauxResponseStep {
+    let serde_json::Value::Object(arguments) = arguments else {
+        panic!("tool arguments are an object");
+    };
+    faux_assistant_message(
+        faux_tool_call(name, arguments, Some(id.to_owned())),
+        FauxAssistantMessageOptions {
+            stop_reason: Some(StopReason::ToolUse),
+            ..FauxAssistantMessageOptions::default()
+        },
+    )
+    .into()
+}
+
+/// `(tool name, is_error, text)` of each tool result, oldest first.
+fn tool_results(entries: &[EntryRecord]) -> Vec<(String, bool, String)> {
+    entries
+        .iter()
+        .filter_map(|entry| match entry.model.as_deref() {
+            Some([Message::ToolResult(result)]) => Some((
+                result.tool_name.clone(),
+                result.is_error,
+                result
+                    .content
+                    .iter()
+                    .filter_map(|block| match block {
+                        UserContentBlock::Text(text) => Some(text.text.as_str()),
+                        UserContentBlock::Image(_) => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )),
+            Some(_) | None => None,
+        })
+        .collect()
+}
+
+/// A model's wire `read` then `edit` round-trip through the session's edit
+/// store: the read's header and rows anchor the edit, the misspelled
+/// argument is repaired with a warning, and the file changes on disk.
+#[tokio::test]
+async fn a_model_reads_then_edits_through_the_wire_tools() {
+    let fixture = fixture();
+    let file = fixture.cwd.join("notes.txt");
+    std::fs::write(&file, "alpha\nbeta\ngamma\n").expect("file");
+    let tag = eukhe_docs::file_hash("alpha\nbeta\ngamma\n");
+    fixture.faux.set_responses(vec![
+        tool_call(
+            "read",
+            serde_json::json!({"i": "Reading notes", "file_path": "notes.txt"}),
+            "call-read",
+        ),
+        tool_call(
+            "edit",
+            serde_json::json!({
+                "i": "Fixing beta",
+                "input": format!("[notes.txt#{tag}]\nPUT 2.=2:\n+BETA"),
+            }),
+            "call-edit",
+        ),
+        answer("done"),
+    ]);
+    let mut config = fixture.config(SessionStorage::Memory);
+    config.model = Some(fixture.model().into());
+    let session = open_session(config, cx()).await.expect("open");
+    ask(&session, "fix the notes").await;
+    let results = tool_results(&entries(&session).await);
+    assert_eq!(
+        results[0],
+        (
+            "read".to_owned(),
+            false,
+            format!(
+                "[notes.txt#{tag}]\n1:alpha\n2:beta\n3:gamma\n<harness>\n[warn] Repaired argument: file_path read as path\n</harness>"
+            ),
+        )
+    );
+    assert_eq!((results[1].0.as_str(), results[1].1), ("edit", false));
+    assert!(
+        results[1].2.starts_with("[notes.txt#"),
+        "the edit answers with the fresh header: {}",
+        results[1].2
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("file"),
+        "alpha\nBETA\ngamma\n"
     );
     session.close(cx()).await.expect("close");
 }

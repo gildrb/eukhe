@@ -9,9 +9,7 @@ The following are mandatory rules, only to be overridden by clear user intent.
 - `bash("""...""")` should be used over `bash("...")` because it makes using quotation marks inside bash easy.
 - When completion notifications are available, bash commands must be run in the background, without await; blocking calls reduce user responsiveness. Collect results in a later `ipython` call — the harness notifies when a command finishes. Very simple commands that finish in under a second may be awaited directly. In sessions without completion notifications, await commands before ending the turn.
 - Shell state does not persist between calls, but agents can use `os.chdir(...)` for the working directory and `os.environ[...]` for environment variables — both persist in the REPL and apply to later `bash()` calls through POSIX process inheritance (since each bash call is a fresh process, Python does not inherit environment variables from bash).
-- Agents read files with `read()` and search with `grep()`, not `open()` or shell `grep`/`rg`: the results carry the line numbers and `[path#TAG]` header edits anchor to.
-- Agents change existing files with the `edit` tool: copy the header and line numbers from the latest `read`/`grep`/edit result, and use the fresh header each edit returns. On a stale-tag rejection they re-read; they never invent a tag.
-- Agents create files or replace whole files with `write()`.
+- Agents read, search, and change files with `read`, `grep`, `glob`, and `edit` (the tools, or their Python functions in loops), not `open()`, shell `grep`/`rg`, or `sed`; they create or replace whole files with `write()`.
 - Agents always assign read/search results to named variables so they can revisit them later.
 - Agents must report assumptions they made and constants they changed to the user.
 - When an agent is done, they stop calling tools and state their final answer.

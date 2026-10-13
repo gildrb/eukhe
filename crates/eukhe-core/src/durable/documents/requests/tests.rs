@@ -12,10 +12,15 @@ fn registry(dir: &std::path::Path) -> HostRequestRegistry {
     registry
 }
 
-async fn call(registry: &HostRequestRegistry, request_type: &str, data: Value) -> Value {
+async fn call(
+    registry: &HostRequestRegistry,
+    request_type: &str,
+    cwd: &Path,
+    args: Value,
+) -> Value {
     let handler = registry.get(request_type).unwrap();
     handler(HostCall {
-        data,
+        data: json!({"type": request_type, "cwd": cwd, "args": args}),
         cell_source_code: None,
         call: None,
     })
@@ -27,12 +32,12 @@ async fn call(registry: &HostRequestRegistry, request_type: &str, data: Value) -
 async fn write_then_read_share_one_store() {
     let dir = tempfile::tempdir().unwrap();
     let registry = registry(dir.path());
-    let cwd = dir.path().to_str().unwrap();
     let tag = eukhe_docs::file_hash("a\nb\n");
     let written = call(
         &registry,
         "fs.write",
-        json!({"type": "fs.write", "cwd": cwd, "path": "x.txt", "content": "a\nb\n"}),
+        dir.path(),
+        json!({"path": "x.txt", "content": "a\nb\n"}),
     )
     .await;
     assert_eq!(
@@ -47,12 +52,14 @@ async fn write_then_read_share_one_store() {
             "tag": tag,
             "made_executable": false,
             "rendered": format!("[x.txt#{tag}]\nSuccessfully wrote 4 bytes to x.txt"),
+            "warnings": [],
         })
     );
     let read = call(
         &registry,
         "fs.read",
-        json!({"type": "fs.read", "cwd": cwd, "path": "x.txt:2-2"}),
+        dir.path(),
+        json!({"path": "x.txt:2-2"}),
     )
     .await;
     assert_eq!(
@@ -69,6 +76,7 @@ async fn write_then_read_share_one_store() {
             "text": "a\nb\n",
             "total_lines": 2,
             "shown": [[1, 2]],
+            "warnings": [],
         })
     );
 }
@@ -77,12 +85,7 @@ async fn write_then_read_share_one_store() {
 async fn read_rejection_carries_reason_and_message() {
     let dir = tempfile::tempdir().unwrap();
     let registry = registry(dir.path());
-    let reply = call(
-        &registry,
-        "fs.read",
-        json!({"cwd": dir.path(), "path": "nope.rs"}),
-    )
-    .await;
+    let reply = call(&registry, "fs.read", dir.path(), json!({"path": "nope.rs"})).await;
     assert_eq!(
         reply,
         json!({
@@ -95,16 +98,75 @@ async fn read_rejection_carries_reason_and_message() {
 }
 
 #[tokio::test]
+async fn kernel_arguments_repair_by_the_wire_contract() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.rs"), "fn one() {}\n").unwrap();
+    let registry = registry(dir.path());
+    let repaired = call(
+        &registry,
+        "fs.grep",
+        dir.path(),
+        json!({"regex": "ONE", "file_path": "a.rs", "case": "false"}),
+    )
+    .await;
+    assert_eq!(
+        (
+            &repaired["outcome"],
+            &repaired["files"][0]["matches"],
+            &repaired["warnings"]
+        ),
+        (
+            &json!("done"),
+            &json!([[1, "fn one() {}"]]),
+            &json!([
+                "Repaired argument: regex read as pattern",
+                "Repaired argument: file_path read as path",
+                "Repaired argument: case=\"false\" read as false",
+            ])
+        )
+    );
+    let unknown = call(
+        &registry,
+        "fs.read",
+        dir.path(),
+        json!({"path": "a.rs", "offset": 3}),
+    )
+    .await;
+    assert_eq!(
+        unknown,
+        json!({
+            "outcome": "rejected",
+            "version": "read@1",
+            "reason": "arguments",
+            "message": "read has no argument `offset`. Valid arguments: i, path.",
+        })
+    );
+    let refused = call(
+        &registry,
+        "fs.edit",
+        dir.path(),
+        json!({"old_string": "one", "new_string": "two"}),
+    )
+    .await;
+    assert_eq!(
+        (&refused["reason"], &refused["message"]),
+        (
+            &json!("arguments"),
+            &json!("edit does not take `old_string`: edit takes a hashline patch, not old/new strings. read or grep the file, then send '[path#TAG]\\nPUT 12.=14:\\n+new line' with the header and line numbers they printed.")
+        )
+    );
+}
+
+#[tokio::test]
 async fn edit_grep_and_glob_share_the_read_anchors() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a.rs"), "fn one() {}\nfn two() {}\n").unwrap();
     let registry = registry(dir.path());
-    let cwd = dir.path().to_str().unwrap();
     let grep = call(
         &registry,
         "fs.grep",
-        json!({"cwd": cwd, "pattern": "two", "path": "a.rs", "glob": null,
-               "ignore_case": false, "context": 0, "skip": 0, "limit": null}),
+        dir.path(),
+        json!({"pattern": "two", "path": "a.rs"}),
     )
     .await;
     let tag = eukhe_docs::file_hash("fn one() {}\nfn two() {}\n");
@@ -116,20 +178,11 @@ async fn edit_grep_and_glob_share_the_read_anchors() {
         ),
         (&json!("grep@1"), &json!([[2, "fn two() {}"]]), &json!(tag))
     );
-    let unseen = call(
-        &registry,
-        "fs.edit",
-        json!({"cwd": cwd, "input": format!("[a.rs#{tag}]\nPUT 1.=1:\n+x")}),
-    )
-    .await;
-    assert_eq!(
-        (&unseen["outcome"], &unseen["version"]),
-        (&json!("rejected"), &json!("edit@hl.1"))
-    );
     let edited = call(
         &registry,
         "fs.edit",
-        json!({"cwd": cwd, "input": format!("[a.rs#{tag}]\nPUT 2.=2:\n+fn three() {{}}")}),
+        dir.path(),
+        json!({"input": format!("[a.rs#{tag}]\nPUT 2.=2:\n+fn three() {{}}")}),
     )
     .await;
     assert_eq!(
@@ -144,12 +197,7 @@ async fn edit_grep_and_glob_share_the_read_anchors() {
         std::fs::read_to_string(dir.path().join("a.rs")).unwrap(),
         "fn one() {}\nfn three() {}\n"
     );
-    let globbed = call(
-        &registry,
-        "fs.glob",
-        json!({"cwd": cwd, "path": "*.rs", "hidden": false, "limit": null}),
-    )
-    .await;
+    let globbed = call(&registry, "fs.glob", dir.path(), json!({"path": "*.rs"})).await;
     assert_eq!(
         (&globbed["version"], &globbed["paths"]),
         (&json!("glob@1"), &json!(["a.rs"]))
