@@ -578,6 +578,13 @@ async fn parent_child_agent_message_round_trip_end_to_end() {
     // child worker with the TS receipt shape.
     let mut expected_cards = 0;
     for selector in ["kid", &child_id, &child_session_id] {
+        // Each send lands on an idle child, so it starts a fresh child
+        // run whose first scripted answer is the reply cell. The parent's
+        // reply card does not mean the child is idle: the card commits
+        // while the child's cell still runs, and a send reaching that run
+        // is a steer placed at its post-tools boundary, where the scripted
+        // closing text answers it - a reply that never comes.
+        client.wait_idle("w-child", &child_active_session_id);
         let receipt = send_agent_message(&handlers, selector)
             .await
             .unwrap_or_else(|error| panic!("child send by {selector} failed: {error:#}"));
@@ -595,29 +602,21 @@ async fn parent_child_agent_message_round_trip_end_to_end() {
         );
         assert_eq!(receipt["receiverRole"], "child", "{receipt}");
         assert!(receipt["id"].as_str().unwrap().starts_with("agentmsg_"));
-        // Send sequentially - the next selector only fires after this
-        // prompt's reply card renders. The batched-steering default (one
-        // turn at the tool boundary) would otherwise merge rapid queued
-        // prompts into a single turn and its single reply.
+        // The child's reply run settles only after its cell's send
+        // returned, and that receipt answers once the parent admitted the
+        // reply (a started run or a queued input: busy either way), so
+        // the parent's idle that follows includes the reply turn.
         expected_cards += 1;
-        let card_deadline = Instant::now() + Duration::from_secs(20);
-        loop {
-            client.wait_idle("w-parent", &parent_active_session_id);
-            if client
-                .messages("gm-parent", &parent_active_session_id)
+        client.wait_idle("w-child", &child_active_session_id);
+        client.wait_idle("w-parent", &parent_active_session_id);
+        let parent_messages = client.messages("gm-parent", &parent_active_session_id);
+        assert_eq!(
+            parent_messages
                 .matches("[agent-message from child:kid]")
-                .count()
-                >= expected_cards
-            {
-                break;
-            }
-            assert!(
-                Instant::now() < card_deadline,
-                "the parent never rendered the child's reply to the {selector} send: {}",
-                client.messages("gm-parent", &parent_active_session_id)
-            );
-            std::thread::sleep(Duration::from_millis(200));
-        }
+                .count(),
+            expected_cards,
+            "the parent rendered the child's reply to the {selector} send: {parent_messages}"
+        );
     }
 
     // The child rendered every delivered prompt once and answered each
