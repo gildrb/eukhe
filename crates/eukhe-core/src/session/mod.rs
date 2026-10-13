@@ -14,6 +14,8 @@ use eukhe_types::session::{
 };
 use eukhe_types::JsonMap;
 
+use crate::iso_time::timestamp_to_millis;
+
 /// Current on-disk session format version.
 pub const CURRENT_SESSION_VERSION: u32 = 3;
 
@@ -40,76 +42,6 @@ pub const CONTENT_ENTRY_TYPES: [&str; 10] = [
     "compaction",
     "branch_summary",
 ];
-
-/// ISO-8601 timestamp -> unix milliseconds (best effort, UTC assumed).
-#[must_use]
-pub fn timestamp_to_millis(timestamp: &str) -> u64 {
-    // Accept common forms: with/without fractional seconds and Z/offset.
-    timeparse(timestamp).unwrap_or(0)
-}
-
-fn timeparse(timestamp: &str) -> Option<u64> {
-    // Minimal ISO-8601 parser for the formats the product writes:
-    // YYYY-MM-DDTHH:MM:SS(.fff)?(Z|+HH:MM|+HHMM)?
-    let bytes = timestamp.as_bytes();
-    if bytes.len() < 19 {
-        return None;
-    }
-    let num = |from: usize, to: usize| -> Option<i64> {
-        std::str::from_utf8(&bytes[from..to]).ok()?.parse().ok()
-    };
-    let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
-    let (hour, minute, second) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
-    // days from civil epoch
-    let days = civil_days(year, month, day)?;
-    let mut millis = ((days * 86_400) + hour * 3_600 + minute * 60 + second) * 1_000;
-    let mut rest = &timestamp[19..];
-    if rest.starts_with('.') {
-        let fraction_end = rest[1..]
-            .find(|c: char| !c.is_ascii_digit())
-            .map_or(rest.len(), |idx| idx + 1);
-        let fraction = &rest[1..fraction_end];
-        let millis_part: u64 = fraction
-            .chars()
-            .take(3)
-            .collect::<String>()
-            .parse()
-            .unwrap_or(0);
-        millis += millis_part as i64;
-        rest = &rest[fraction_end..];
-    }
-    if let Some(offset) = rest.strip_prefix('+') {
-        let (h, m) = parse_offset(offset)?;
-        millis -= h * 3_600_000 + m * 60_000;
-    } else if let Some(offset) = rest.strip_prefix('-') {
-        let (h, m) = parse_offset(offset)?;
-        millis += h * 3_600_000 + m * 60_000;
-    }
-    Some(millis.max(0) as u64)
-}
-
-fn parse_offset(offset: &str) -> Option<(i64, i64)> {
-    let offset = offset.trim_end_matches('Z').trim_end_matches('Z');
-    let offset = offset.trim();
-    if offset.is_empty() {
-        return Some((0, 0));
-    }
-    let (h, m) = offset.split_once(':').unwrap_or((offset, "0"));
-    Some((h.parse().ok()?, m.parse().ok()?))
-}
-
-fn civil_days(year: i64, month: i64, day: i64) -> Option<i64> {
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = if month > 2 { month - 3 } else { month + 9 };
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    Some(era * 146_097 + doe - 719_468)
-}
 
 /// Parse a session file body into entries; malformed lines are skipped.
 #[must_use]

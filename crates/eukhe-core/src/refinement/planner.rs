@@ -290,7 +290,7 @@ fn validate_edit(edit: &RefinementEdit, computed_id: Option<&str>) -> Option<Str
 }
 
 fn now_iso() -> String {
-    crate::session::manager::format_iso_now()
+    crate::iso_time::format_iso_now()
 }
 
 /// Options for applying a proposal.

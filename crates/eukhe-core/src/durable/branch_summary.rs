@@ -124,7 +124,7 @@ fn get_message_from_entry(entry: &FileEntry) -> Option<AgentMessage> {
                 content: payload.content.clone(),
                 display: payload.display,
                 details: payload.details.clone(),
-                timestamp: crate::session::timestamp_to_millis(entry.timestamp()),
+                timestamp: crate::iso_time::timestamp_to_millis(entry.timestamp()),
                 rest: serde_json::Map::default(),
             }))
         }
@@ -132,7 +132,7 @@ fn get_message_from_entry(entry: &FileEntry) -> Option<AgentMessage> {
             eukhe_types::session::BranchSummaryMessage {
                 summary: payload.summary.clone(),
                 from_id: payload.from_id.clone(),
-                timestamp: crate::session::timestamp_to_millis(entry.timestamp()),
+                timestamp: crate::iso_time::timestamp_to_millis(entry.timestamp()),
             },
         )),
         FileEntry::Compaction { payload, .. } => {
@@ -143,7 +143,7 @@ fn get_message_from_entry(entry: &FileEntry) -> Option<AgentMessage> {
                 custom_instructions: payload.custom_instructions.clone(),
                 harness_digest: payload.harness_digest.clone(),
                 harness_state_fingerprint: payload.harness_state_fingerprint.clone(),
-                timestamp: crate::session::timestamp_to_millis(entry.timestamp()),
+                timestamp: crate::iso_time::timestamp_to_millis(entry.timestamp()),
             }))
         }
         _ => None,

@@ -414,7 +414,7 @@ pub fn build_autonomous_gate_failure_continuation(
         } else {
             format!("\nOutput:\n{}\n", failure.output)
         },
-        crate::session::manager::format_iso(timestamp as i64),
+        crate::iso_time::format_iso(timestamp as i64),
     )
 }
 

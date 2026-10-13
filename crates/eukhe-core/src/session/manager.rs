@@ -47,17 +47,14 @@ use super::{build_session_context, SessionContext};
 mod lifecycle;
 use super::window;
 
-// The id + timestamp mint (the session id minters, the session file
-// path, and the ISO-8601 timestamps) moved to the child module at the
-// same tree position (session::manager::ids); the re-exports keep the
-// pub API paths stable (format_iso 8 + format_iso_now 5 external callers;
-// get_session_file_path has zero external callers - the re-export keeps
-// the path stable and avoids dead-code lint churn, the session_store
-// find_most_recent_session_for_cwd precedent) and the pub(super)
-// bindings keep the constructors' + the append arm's bare calls in scope.
+// The id mint (the session id minters and the session file path) moved to
+// the child module at the same tree position (session::manager::ids); the
+// pub(super) bindings keep the constructors' + the append arm's bare calls
+// in scope.
 mod ids;
+use crate::iso_time::format_iso_now;
+pub use ids::get_session_file_path;
 use ids::{create_session_id, generate_id};
-pub use ids::{format_iso, format_iso_now, get_session_file_path};
 
 // The header + rlm-depth concern (the first-line header read and the
 // RLM depth resolution) moved to the child module at the same tree

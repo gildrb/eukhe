@@ -160,7 +160,7 @@ pub fn quota_failure_reset_ms(message: &AssistantMessage) -> Option<u64> {
 }
 
 fn iso_ms(resume_at_ms: u64) -> String {
-    crate::session::manager::format_iso(i64::try_from(resume_at_ms).unwrap_or(i64::MAX))
+    crate::iso_time::format_iso(i64::try_from(resume_at_ms).unwrap_or(i64::MAX))
 }
 
 /// The parked status text surfaced as the chain's final error (TS
@@ -367,7 +367,7 @@ mod tests {
         let resume_at = 1_768_000_000_000_u64;
         // `format_iso` renders in the host's timezone; the sentence
         // must carry exactly its rendering, whatever it is here.
-        let iso = crate::session::manager::format_iso(i64::try_from(resume_at).unwrap());
+        let iso = crate::iso_time::format_iso(i64::try_from(resume_at).unwrap());
         let parked = quota_parked_final_error("Provider requested a wait", resume_at, "429");
         assert!(
             parked.contains(&format!(
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn entry_data_keeps_the_old_row_keys() {
         let resume_at = 1_768_000_000_000_u64;
-        let iso = crate::session::manager::format_iso(i64::try_from(resume_at).unwrap());
+        let iso = crate::iso_time::format_iso(i64::try_from(resume_at).unwrap());
         assert_eq!(
             park_entry_data(resume_at, 2, Some("job-7"), Some("prime-inference")),
             serde_json::json!({

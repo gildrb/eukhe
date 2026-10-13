@@ -34,6 +34,7 @@ pub mod durable;
 pub mod export_html;
 pub mod goals;
 pub mod image_dimensions;
+pub mod iso_time;
 pub mod kernel;
 pub mod mcp;
 pub mod memory;

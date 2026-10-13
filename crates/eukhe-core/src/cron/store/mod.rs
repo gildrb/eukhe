@@ -68,7 +68,7 @@ pub(crate) fn now_millis() -> u64 {
 }
 
 pub(crate) fn iso_from_millis(millis: u64) -> String {
-    crate::session::manager::format_iso(millis as i64)
+    crate::iso_time::format_iso(millis as i64)
 }
 
 /// Opaque debug form (the store holds change listeners that have no debug

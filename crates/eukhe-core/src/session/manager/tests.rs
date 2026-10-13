@@ -1,5 +1,5 @@
 //! The manager unit battery (moved with its concern): the id mint, the
-//! compaction row shape, the ISO round-trip, and the read-only legacy load.
+//! compaction row shape, and the read-only legacy load.
 
 use super::*;
 
@@ -60,13 +60,6 @@ fn append_compaction_serializes_the_full_ts_record() {
     assert!(line.contains("\"fromHook\":false"));
     assert!(line.contains("\"tokensBefore\":214"));
     assert!(line.contains("\"usage\":"));
-}
-
-#[test]
-fn iso_format_round_trips() {
-    let stamp = format_iso(1_704_067_200_012);
-    assert_eq!(stamp, "2024-01-01T00:00:00.012Z");
-    assert_eq!(super::super::timestamp_to_millis(&stamp), 1_704_067_200_012);
 }
 
 /// Loading a legacy session file is read-only: a torn tail row is skipped

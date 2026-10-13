@@ -31,8 +31,9 @@ use crate::durable::entries::{
 };
 use crate::durable::messages::convert_to_llm;
 use crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE;
+use crate::iso_time::timestamp_to_millis;
 use crate::session::tree::SessionTree;
-use crate::session::{migrate_to_current_version, parse_session_entries, timestamp_to_millis};
+use crate::session::{migrate_to_current_version, parse_session_entries};
 
 /// Where an imported entry's context range starts (`EntryRecord.head`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

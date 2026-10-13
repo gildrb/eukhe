@@ -9,7 +9,7 @@ use eukhe_ai::utils::text::get_system_message_text;
 use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::{export_header, export_rows, ExportRows, HostDeps};
-use eukhe_core::session::manager::format_iso_now;
+use eukhe_core::iso_time::format_iso_now;
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
 use eukhe_durable::types::EntryRecord;
 use serde_json::{json, Value};

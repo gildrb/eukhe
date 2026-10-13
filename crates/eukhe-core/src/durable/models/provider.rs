@@ -894,7 +894,7 @@ async fn create_wake_job(inner: &Inner, resume_at_ms: u64) -> Option<String> {
     let (store, binding) = cron_wiring(inner);
     let schedule_text = format!(
         "at {}",
-        crate::session::manager::format_iso(i64::try_from(resume_at_ms).unwrap_or(i64::MAX))
+        crate::iso_time::format_iso(i64::try_from(resume_at_ms).unwrap_or(i64::MAX))
     );
     let job = store
         .create(&CreateAgentCronJobInput {

@@ -20,7 +20,7 @@ use super::entries::{
     BRANCH_SUMMARY_ENTRY, CUSTOM_ENTRY,
 };
 use crate::export_html::SessionExportData;
-use crate::session::manager::{format_iso, format_iso_now};
+use crate::iso_time::{format_iso, format_iso_now};
 use crate::session::CURRENT_SESSION_VERSION;
 
 /// The exported history rows and the id of the last one (the leaf).

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
-use crate::session::manager::format_iso;
+use crate::iso_time::format_iso;
 
 /// TS `AGENT_LOG_MAX_BYTES` (`logging.ts`): the log rotates at 20 MiB.
 const AGENT_LOG_MAX_BYTES: u64 = 20 * 1024 * 1024;

@@ -35,7 +35,7 @@ pub struct RefinementPlan {
 
 /// Mint a refinement id in the canonical `refine_<timestamp>` format.
 pub fn generate_refinement_id() -> String {
-    let iso = crate::session::manager::format_iso_now();
+    let iso = crate::iso_time::format_iso_now();
     let digits: String = iso.chars().filter(char::is_ascii_digit).collect();
     format!("refine_{}", &digits[..digits.len().min(17)])
 }
