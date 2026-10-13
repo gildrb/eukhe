@@ -22,7 +22,7 @@ use super::nested::{
     NestedResultState, NESTED_RESULT_DOC,
 };
 use super::result::{bound_content, tool_diagnostic, truncated, ToolEnding};
-use super::{json_bytes, settle, Runtime, ToolTaskInput, ToolTaskResult};
+use super::{json_bytes, settle, Repair, Runtime, ToolTaskInput, ToolTaskResult};
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::env::{ExecutionEnv, ShellOutputSkip, ShellOutputWindow};
 use crate::harness::json::assign_json;
@@ -572,16 +572,22 @@ fn reporting_for(
     (limits, reporting, output_window)
 }
 
-/// Execute with the resolved implementation, then settle its result.
+/// Execute with the resolved implementation, then settle its result. The
+/// dialect repairs lead the result's diagnostics.
 pub(super) async fn run(
     runtime: &Runtime,
     input: &ToolTaskInput,
     call: &ToolHookCall,
     tool: &ToolRegistration,
     args: PiJsonObject,
+    repairs: Vec<Repair>,
     cx: &Context,
 ) -> SessionResult<()> {
     let (limits, reporting, output_window) = reporting_for(runtime, input, call, tool, cx);
+    reporting
+        .lock()
+        .diagnostics
+        .extend(repairs.iter().map(Repair::diagnostic));
 
     let mut ending = ToolEnding::Completed;
     // Execution time of this attempt; a rerun after recovery measures only itself.

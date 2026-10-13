@@ -258,6 +258,7 @@ async fn answers_an_unsafe_tool_interrupted_after_intent_with_its_durable_partia
         checkpoint,
         ToolTaskCheckpoint::Execute {
             arguments: PiJsonObject::new(),
+            repairs: Vec::new(),
             replay: ToolReplay::Unsafe,
         }
     );

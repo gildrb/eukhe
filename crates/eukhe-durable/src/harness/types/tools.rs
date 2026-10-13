@@ -24,6 +24,7 @@ use super::data::ToolDiagnostic;
 use super::registry::RegistrySnapshot;
 use super::settings::ToolExecutionMode;
 use crate::env::{ExecutionEnv, ShellOutputSkip, ShellOutputWindow};
+use crate::harness::tool::ArgDialect;
 use crate::session::{SessionError, SessionResult, Tx};
 use crate::tasks::{AnyTask, SettledTask, Task, TaskValue};
 use crate::types::{
@@ -429,6 +430,9 @@ pub struct ToolRegistration {
     /// whole round sequential.
     pub execution_mode: Option<ToolExecutionMode>,
     pub prepare_arguments: Option<PrepareArguments>,
+    /// The argument aliases and refused keys the Harness repairs before
+    /// `prepare_arguments` and validation, each repair a warning.
+    pub dialect: ArgDialect,
     /// Schema of `structured_output`, which programs that call the tool
     /// receive. `None`: they receive the result's bounded output, success or
     /// error, as [`NestedToolExecutionResult::structured_output`] describes.
@@ -462,6 +466,7 @@ impl ToolRegistration {
             replay: None,
             execution_mode: None,
             prepare_arguments: None,
+            dialect: ArgDialect::default(),
             structured_output_schema: None,
             callers: None,
             output_limits: None,
@@ -506,6 +511,7 @@ impl fmt::Debug for ToolRegistration {
             .field("replay", &self.replay)
             .field("execution_mode", &self.execution_mode)
             .field("prepare_arguments", &self.prepare_arguments.is_some())
+            .field("dialect", &self.dialect)
             .field("structured_output_schema", &self.structured_output_schema)
             .field("callers", &self.callers)
             .field("output_limits", &self.output_limits)
