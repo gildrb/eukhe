@@ -9,8 +9,11 @@
 
 use std::path::{Path, PathBuf};
 
+use eukhe_ai::providers::prime_inference::{
+    is_private_prime_inference_model_id, PRIME_INFERENCE_BASE_URL,
+};
+
 use crate::pinning::{pin_catalog_models, PinnedTemplates};
-use crate::prime_inference::is_private_prime_inference_model_id;
 use crate::schema::{parse_model_catalog, InvalidEntries};
 use crate::transports;
 use crate::Model;
@@ -102,7 +105,7 @@ pub fn load_bundled_models(asset: &str, templates: &PinnedTemplates) -> Option<V
     for model in catalog.models {
         if model.provider != "prime-inference"
             || model.api != "openai-completions"
-            || model.base_url != crate::prime_inference::PRIME_INFERENCE_BASE_URL
+            || model.base_url != PRIME_INFERENCE_BASE_URL
             || is_private_prime_inference_model_id(&model.id)
         {
             continue;

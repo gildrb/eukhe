@@ -136,7 +136,9 @@ pub fn prime_inference_offline_entries() -> Vec<Model> {
         .iter()
         .filter(|model| {
             model.provider == "prime-inference"
-                && !crate::prime_inference::is_private_prime_inference_model_id(&model.id)
+                && !eukhe_ai::providers::prime_inference::is_private_prime_inference_model_id(
+                    &model.id,
+                )
         })
         .cloned()
         .collect()
@@ -158,7 +160,9 @@ mod tests {
             prime_inference_offline_entries().len(),
             PRIME_INFERENCE_MODELS
                 .keys()
-                .filter(|id| !crate::prime_inference::is_private_prime_inference_model_id(id))
+                .filter(|id| {
+                    !eukhe_ai::providers::prime_inference::is_private_prime_inference_model_id(id)
+                })
                 .count()
         );
     }

@@ -21,7 +21,6 @@
 pub mod bundled;
 pub mod pi_ai_model;
 pub mod pinning;
-pub mod prime_inference;
 pub mod schema;
 pub mod transports;
 

@@ -1,19 +1,12 @@
-//! Private Prime Inference models (prime-inference-models.ts) and the
-//! private-model id predicate (packages/ai prime-inference-model-catalog.ts).
+//! Private Prime Inference models (prime-inference-models.ts). The
+//! private-model id grammar is the provider's
+//! ([`eukhe_ai::providers::prime_inference::is_private_prime_inference_model_id`]).
 
+use eukhe_ai::providers::prime_inference::{
+    is_private_prime_inference_model_id, PRIME_INFERENCE_BASE_URL,
+};
 use eukhe_types::ai::{CompatKind, Model, ModelCompat, ModelCost};
 use eukhe_types::JsNumber;
-
-pub const PRIME_INFERENCE_BASE_URL: &str = "https://api.pinference.ai/api/v1";
-
-/// Private ids: `internal/*`, `dev/*`, or any id containing `:`.
-#[must_use]
-pub fn is_private_prime_inference_model_id(model_id: &str) -> bool {
-    let normalized = model_id.to_lowercase();
-    normalized.starts_with("internal/")
-        || normalized.starts_with("dev/")
-        || normalized.contains(':')
-}
 
 #[must_use]
 pub fn is_private_prime_inference_model(model: &Model) -> bool {
@@ -57,14 +50,6 @@ pub fn private_prime_inference_models() -> Vec<Model> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn private_id_predicate() {
-        assert!(is_private_prime_inference_model_id("internal/glm-5.2-fast"));
-        assert!(is_private_prime_inference_model_id("DEV/x"));
-        assert!(is_private_prime_inference_model_id("z-ai/glm:exacto"));
-        assert!(!is_private_prime_inference_model_id("z-ai/glm-5.3"));
-    }
 
     /// Locate the TS reference repo: `EUKHE_TS_REFERENCE` or `~/eukhe`.
     /// The repo ships with the dev box; other environments skip the

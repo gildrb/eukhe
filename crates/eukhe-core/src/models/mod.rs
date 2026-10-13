@@ -23,10 +23,7 @@ pub use custom::{
 pub use image_model_routing::{
     resolve_image_model_override, ImageModelRoutingInputs, ResolvedImageModel,
 };
-pub use prime_inference::{
-    is_private_prime_inference_model, is_private_prime_inference_model_id,
-    private_prime_inference_models, PRIME_INFERENCE_BASE_URL,
-};
+pub use prime_inference::{is_private_prime_inference_model, private_prime_inference_models};
 pub use resolver::{
     build_fallback_model, failover_candidates, find_exact_model_reference_match,
     find_initial_model, find_preferred_default_model, initial_model_unavailable_message,

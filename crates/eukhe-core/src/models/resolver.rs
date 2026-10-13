@@ -686,7 +686,7 @@ pub fn initial_model_unavailable_message(options: &InitialModelOptions<'_>) -> S
 /// `isPrivatePrimeInferenceModel({ provider, id })`).
 fn is_private_prime_inference_reference(provider: &str, model_id: &str) -> bool {
     provider == "prime-inference"
-        && super::prime_inference::is_private_prime_inference_model_id(model_id)
+        && eukhe_ai::providers::prime_inference::is_private_prime_inference_model_id(model_id)
 }
 
 #[cfg(test)]
