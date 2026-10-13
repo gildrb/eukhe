@@ -1,8 +1,8 @@
 //! Expanded cell output; painting and counting share the same output decisions.
 
 use super::{
-    add_wrapped, is_agent_message_receipt, is_edit_confirmation, normalize_error_details,
-    str_width, summarize_error_details, IpythonDetails, IpythonError, Line, RowOutput, Span, Theme,
+    add_wrapped, is_agent_message_receipt, normalize_error_details, str_width,
+    summarize_error_details, IpythonDetails, IpythonError, Line, RowOutput, Span, Theme,
     ThemeColor, ToolCallCard, Value, OUTPUT_INDENT,
 };
 
@@ -124,7 +124,6 @@ pub(super) fn render_output(
         }
     } else if !text.trim().is_empty()
         && !is_agent_message_receipt(Some(text.as_str()), &details.sent_agent_messages)
-        && !is_edit_confirmation(Some(text.as_str()), &details.diffs)
     {
         start_output(&mut output_started, lines);
         rendered_text_output = true;
@@ -158,7 +157,6 @@ pub(super) fn render_output(
     } else if !rendered_text_output
         && traceback.is_none()
         && details.error.is_none()
-        && details.diffs.is_empty()
         && details.sent_agent_messages.is_empty()
         && card.started
         && image_count == 0

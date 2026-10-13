@@ -10,8 +10,8 @@ use output::render_output;
 use serde_json::Value;
 
 use super::ipython_details::{
-    format_duration, is_agent_message_receipt, is_edit_confirmation, parse_sent_agent_message,
-    read_background_shell, BackgroundShell, BashCommands, IpythonDetails, IpythonError,
+    format_duration, is_agent_message_receipt, parse_sent_agent_message, read_background_shell,
+    BackgroundShell, BashCommands, IpythonDetails, IpythonError,
 };
 use super::layout::RowOutput;
 use super::{highlight, ToolCallCard};
@@ -62,7 +62,6 @@ impl CardStatus {
         }
         let has_result = result.is_some_and(|r| {
             details.error.is_some()
-                || !details.diffs.is_empty()
                 || !details.sent_agent_messages.is_empty()
                 || !r.content.is_empty()
         });
@@ -262,11 +261,9 @@ fn dominant_bash<'a>(details: &'a IpythonDetails, code: &str) -> Option<&'a Bash
 }
 
 /// `^in vout lines` (TS `lineCounts`): non-empty input
-/// lines, output lines of the result text (edits show the diff, so their
-/// output counts zero).
+/// lines, output lines of the result text.
 fn line_counts(card: &ToolCallCard, details: &IpythonDetails, code: &str) -> Option<String> {
     let input = input_line_count(code);
-    let has_diffs = !details.diffs.is_empty();
 
     let blocks_text = text_from_blocks(card);
     let output_text =
@@ -275,7 +272,7 @@ fn line_counts(card: &ToolCallCard, details: &IpythonDetails, code: &str) -> Opt
         } else {
             blocks_text
         };
-    let output = if has_diffs || output_text.trim().is_empty() {
+    let output = if output_text.trim().is_empty() {
         0
     } else {
         output_text.trim().lines().count()

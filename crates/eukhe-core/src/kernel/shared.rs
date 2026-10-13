@@ -61,8 +61,6 @@ pub const KERNEL_STDERR_LOG_BUDGET_MARKER: &str = "[stderr log budget exhausted]
 /// here — only a non-skill emit can hit this.
 pub const MAX_ATTACHMENT_DATA_CHARS: usize = 10_000_000;
 
-/// MIME tag the `edit` skill emits diff payloads under.
-pub const DIFF_DISPLAY_MIME: &str = "application/vnd.eukhe.diff+json";
 /// MIME tag the `attach-image` skill emits media payloads under.
 pub const ATTACHMENT_DISPLAY_MIME: &str = "application/vnd.eukhe.attachment+json";
 /// MIME tag the `agent-message` skill emits after sending a message.
@@ -142,16 +140,6 @@ pub type BackgroundWorkSettledCallback = Arc<dyn Fn() + Send + Sync>;
 
 /// Callback receiving an agent message sent late by the kernel.
 pub type LateSentAgentMessageCallback = Arc<dyn Fn(KernelSentAgentMessage) + Send + Sync>;
-
-/// One file edit, captured from a [`DIFF_DISPLAY_MIME`] display payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KernelDiffDisplay {
-    pub path: String,
-    pub old_str: String,
-    pub new_str: String,
-    /// 1-based line where `old_str` begins in the file, for absolute line numbers.
-    pub start_line: Option<u64>,
-}
 
 /// One media attachment, captured from an [`ATTACHMENT_DISPLAY_MIME`] display payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -268,8 +256,6 @@ pub struct ExecuteResult {
     pub stderr: String,
     /// Text of the cell's trailing expression value, if the cell produced one.
     pub result: Option<String>,
-    /// Diffs emitted via display events, in order.
-    pub diffs: Option<Vec<KernelDiffDisplay>>,
     /// Media attachments emitted via display events, in order.
     pub attachments: Option<Vec<KernelAttachment>>,
     /// Agent messages sent from this cell, in order.
@@ -527,25 +513,6 @@ pub struct KernelManagerOptions {
 pub struct KernelShutdownOptions {
     pub snapshot: bool,
     pub drain_host_requests: bool,
-}
-
-/// Parse a [`DIFF_DISPLAY_MIME`] payload, tolerating malformed input.
-#[must_use]
-pub fn parse_diff_display(payload: &Value) -> Option<KernelDiffDisplay> {
-    let obj = payload.as_object()?;
-    let path = obj.get("path")?.as_str()?;
-    let old_str = obj.get("old_str")?.as_str()?;
-    let new_str = obj.get("new_str")?.as_str()?;
-    let start_line = match obj.get("start_line") {
-        Some(v) => v.as_u64(),
-        None => None,
-    };
-    Some(KernelDiffDisplay {
-        path: path.to_string(),
-        old_str: old_str.to_string(),
-        new_str: new_str.to_string(),
-        start_line,
-    })
 }
 
 /// Parse an [`ATTACHMENT_DISPLAY_MIME`] payload. Malformed payloads are

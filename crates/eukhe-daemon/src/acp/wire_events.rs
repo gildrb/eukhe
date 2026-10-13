@@ -538,7 +538,7 @@ fn base64_byte_length(data: &str) -> u64 {
     (data.len() as u64 * 3 / 4).saturating_sub(padding)
 }
 
-/// TS `ipythonRichOutput`: media and diffs ride the namespaced meta.
+/// TS `ipythonRichOutput`: media rides the namespaced meta.
 fn ipython_rich_output(result: Option<&Value>) -> Option<Value> {
     let details = result?.get("details")?;
     let attachments = details
@@ -566,21 +566,9 @@ fn ipython_rich_output(result: Option<&Value>) -> Option<Value> {
                 })
                 .collect::<Vec<_>>()
         })
-        .filter(|attachments| !attachments.is_empty());
-    let diff_count = details
-        .get("diffs")
-        .and_then(Value::as_array)
-        .map(|diffs| diffs.len() as u64);
-    if attachments.is_none() && diff_count.is_none() {
-        return None;
-    }
+        .filter(|attachments| !attachments.is_empty())?;
     let mut meta = serde_json::Map::new();
-    if let Some(attachments) = attachments {
-        meta.insert("attachments".to_string(), Value::Array(attachments));
-    }
-    if let Some(diff_count) = diff_count {
-        meta.insert("diffCount".to_string(), json!(diff_count));
-    }
+    meta.insert("attachments".to_string(), Value::Array(attachments));
     Some(Value::Object(meta))
 }
 

@@ -1037,12 +1037,6 @@ class ReplTest(unittest.TestCase):
 
     def test_emit_display(self):
         payloads = {
-            "application/vnd.eukhe.diff+json": {
-                "path": "/tmp/file.py",
-                "old_str": "a",
-                "new_str": "b",
-                "start_line": 3,
-            },
             "application/vnd.eukhe.attachment+json": {
                 "mime_type": "image/png",
                 "data": "aGVsbG8=",
