@@ -8,7 +8,7 @@ use eukhe_types::input_origin::{InputOrigin, Report};
 use serde_json::Value;
 
 use super::durable_host::bridge::QueuedInput;
-use super::durable_host::ShownView;
+use super::durable_host::{DurableView, ShownView};
 use crate::types::SessionActionSnapshot;
 
 /// The queue strip's riders (the parked-row classification): the kinds
@@ -62,6 +62,9 @@ pub(crate) struct SessionCore {
     pub(crate) created_at: Option<String>,
     /// The shown conversation's event mirror; `None` before `create`.
     pub(crate) view: Option<ShownView>,
+    /// The shown conversation's durable view, installed with `view`: the
+    /// lifecycle truth busy derives from; `None` before `create`.
+    pub(crate) durable: Option<DurableView>,
     /// Inputs an `abort` withdrew from the inbox: they stay visible in the
     /// queue and resubmit on `resume_queue` (or the next steered prompt),
     /// like the TS suspended session-input pump. Durable: the
@@ -134,6 +137,7 @@ impl SessionCore {
             created_at: None,
             cwd: String::new(),
             view: None,
+            durable: None,
             suspended: Vec::new(),
             held: Vec::new(),
             withdrawn_gate: std::sync::Arc::new(tokio::sync::Mutex::new(())),
@@ -159,9 +163,10 @@ impl SessionCore {
         }
     }
 
-    /// A run is active on the shown conversation.
+    /// A run is active on the shown conversation (its committed
+    /// `pi.live.run`, on a usable Harness).
     pub(crate) fn is_busy(&self) -> bool {
-        self.view.as_ref().is_some_and(ShownView::is_busy)
+        self.durable.as_ref().is_some_and(DurableView::run_live)
     }
 
     /// A compaction is running on the shown conversation.
