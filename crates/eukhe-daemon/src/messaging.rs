@@ -167,7 +167,7 @@ impl Supervisor {
                 "get_state",
                 json!({}),
                 WORKER_REQUEST_TIMEOUT_MS,
-                RouteAdmission::SupervisorInternal,
+                RouteAdmission::Control,
             )
             .await?;
         if !state.success {

@@ -9,6 +9,9 @@ use super::{
     TransportStream, Value, Worker, WorkerRecoveryJournal, DAEMON_APP_VERSION, DAEMON_SCHEMA_ID,
     DAEMON_SCHEMA_REVISION, DEFAULT_PRIVATE_FRAME_LIMITS, PEER_COMMAND_NOT_ALLOWED,
 };
+use std::collections::HashMap;
+
+use eukhe_types::daemon::DaemonWorkerCommand;
 
 /// Result of one connection's authentication command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -466,6 +469,12 @@ impl Worker {
         };
         let mut reader =
             crate::framing::PrivateFrameReader::new(reader, DEFAULT_PRIVATE_FRAME_LIMITS);
+        // The supervisor's parked watches on this connection, by frame
+        // request id: a `cancel_request` (the watch's requester went
+        // away) aborts the wait instead of leaving it parked until the
+        // session next goes idle.
+        let parked_watches: Arc<std::sync::Mutex<HashMap<String, tokio::task::AbortHandle>>> =
+            Arc::default();
         loop {
             let frame: Option<crate::framing::PrivateFrame> = reader.read_frame().await?;
             let Some(frame) = frame else {
@@ -543,16 +552,51 @@ impl Worker {
                         }
                         continue;
                     }
+                    if command_type == "cancel_request" {
+                        let watch = match serde_json::from_value(payload) {
+                            Ok(DaemonWorkerCommand::CancelRequest { request_id, .. }) => {
+                                parked_watches
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                    .remove(&request_id)
+                            }
+                            Ok(_) | Err(_) => None,
+                        };
+                        if let Some(watch) = watch {
+                            watch.abort();
+                        }
+                        continue;
+                    }
+                    let watch = matches!(
+                        command_type.as_str(),
+                        "wait_for_idle" | "wait_for_headless_completion"
+                    );
                     let worker = Arc::clone(&self);
                     let sink = Arc::clone(&sink);
-                    let request_id = request_id.clone();
                     let command_type = command_type.clone();
-                    tokio::spawn(async move {
+                    let parked = Arc::clone(&parked_watches);
+                    // The registration happens under the lock the task's
+                    // own removal takes, so a fast task cannot finish
+                    // before its entry exists.
+                    let mut registry = parked_watches
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let task_request_id = request_id.clone();
+                    let task = tokio::spawn(async move {
                         let response = worker.dispatch(&command_type, &payload).await;
                         worker
-                            .write_response_frame(&sink, &request_id, response)
+                            .write_response_frame(&sink, &task_request_id, response)
                             .await;
+                        if watch {
+                            parked
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .remove(&task_request_id);
+                        }
                     });
+                    if watch {
+                        registry.insert(request_id.clone(), task.abort_handle());
+                    }
                 }
                 ConnectionRole::SessionClient { ref session } => {
                     // The connection token rides the attach/detach payloads

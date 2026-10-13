@@ -187,6 +187,17 @@ pub enum DaemonWorkerCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Drop a parked watch (`wait_for_idle`, `wait_for_headless_completion`)
+    /// whose requester went away: the supervisor sends it with the watch's
+    /// own frame request id, and the worker aborts that wait without
+    /// answering it.
+    CancelRequest {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        request_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
 }
 
 /// The subset of `create` persisted in the durable worker descriptor.

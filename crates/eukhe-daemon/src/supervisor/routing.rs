@@ -7,6 +7,7 @@ use super::{
     RouteAdmission, SnapshotPurpose, Supervisor, Value, WorkerReply, WorkerRequest,
 };
 use anyhow::Context as _;
+use eukhe_types::daemon::DaemonWorkerCommand;
 
 /// The route-level wake outcome: a woken resident, or the fallthrough
 /// error the caller answers (no saved session matched).
@@ -42,6 +43,54 @@ pub(super) async fn fail_unsent_request(resident: &Arc<ResidentWorker>, request_
         )));
     }
 }
+
+/// One routed request's reply slot in the resident's pending map, held for
+/// the life of the route. Every exit releases it — a refusal, a budget
+/// error, or a requester that dropped the route future — so an abandoned
+/// route never leaks its slot. A watch dropped while parked on the worker
+/// also sends the worker `cancel_request`, so the parked wait ends with
+/// its requester (ADR 0011: the cancellation reaches the resource).
+struct ReplySlot<'a> {
+    resident: &'a Arc<ResidentWorker>,
+    cmd_tx: &'a mpsc::Sender<WorkerRequest>,
+    request_id: String,
+    /// The frame reached the worker's queue and no reply has resolved.
+    parked: bool,
+    watch: bool,
+}
+
+impl Drop for ReplySlot<'_> {
+    fn drop(&mut self) {
+        let request_id = std::mem::take(&mut self.request_id);
+        if self.parked && self.watch {
+            let cancel = DaemonWorkerCommand::CancelRequest {
+                id: None,
+                request_id: request_id.clone(),
+                rest: serde_json::Map::default(),
+            };
+            if let Ok(payload) = serde_json::to_value(&cancel) {
+                // Best effort: a full queue is a wedged writer, whose
+                // worker the parked wait cannot outlive anyway.
+                let _ = self.cmd_tx.try_send(WorkerRequest {
+                    request_id: uuid::Uuid::new_v4().to_string(),
+                    command_type: "cancel_request".to_string(),
+                    payload,
+                });
+            }
+        }
+        // An answered request already left the map (the reader pump takes
+        // the slot to resolve it); the removal is then a no-op.
+        if let Ok(mut pending) = self.resident.pending.try_lock() {
+            pending.remove(&request_id);
+        } else {
+            let resident = Arc::clone(self.resident);
+            tokio::spawn(async move {
+                resident.pending.lock().await.remove(&request_id);
+            });
+        }
+    }
+}
+
 /// TS daemon-supervisor.ts:204 `WORKER_REQUEST_TIMEOUT_MS`.
 pub(crate) const WORKER_REQUEST_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1000;
 
@@ -62,6 +111,31 @@ pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
         WORKER_REQUEST_TIMEOUT_MS
     } else {
         ROUTE_TIMEOUT_MS
+    }
+}
+
+/// The admission class of a client command (see `crate::backpressure`):
+/// watches on settlement state and control-plane commands never take an
+/// in-flight permit and are never refused as overloaded; everything else
+/// is a bounded client request.
+pub(crate) fn client_route_admission(command: &DaemonCommand) -> RouteAdmission {
+    if matches!(
+        command,
+        DaemonCommand::PromptAndWait { .. }
+            | DaemonCommand::WaitForIdle { .. }
+            | DaemonCommand::WaitForHeadlessCompletion { .. }
+    ) {
+        RouteAdmission::Watch
+    } else if matches!(
+        command,
+        // `Kill` also carries a durable pre-route side effect (its stop
+        // tombstone persists before the route), which a saturation
+        // refusal ("nothing happened, retry") would contradict.
+        DaemonCommand::Kill { .. } | DaemonCommand::Abort { .. } | DaemonCommand::GetState { .. }
+    ) {
+        RouteAdmission::Control
+    } else {
+        RouteAdmission::ClientRequest
     }
 }
 
@@ -141,9 +215,10 @@ impl Supervisor {
         // the moment the worker's in-flight bound is full — nothing is
         // queued and nothing is dropped, so the caller's retry cannot
         // duplicate the command; supervisor-internal traffic waits for a
-        // slot inside the route's own budget, so control-plane routes are
-        // never refused. The whole route — admission, enqueue, and reply
-        // waits — never exceeds the caller's budget.
+        // slot inside the route's own budget. Control-plane routes and
+        // watches never enter the bound (see `crate::backpressure`). The
+        // whole route — admission, enqueue, and reply waits — never
+        // exceeds the caller's budget.
         let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
         // The semaphore methods take their Arc by value (the permit owns
         // it for its lifetime), so the route hands them a strong reference
@@ -151,7 +226,7 @@ impl Supervisor {
         let inflight = Arc::clone(&resident.inflight);
         let _permit = match admission {
             RouteAdmission::ClientRequest => match inflight.try_acquire_owned() {
-                Ok(permit) => permit,
+                Ok(permit) => Some(permit),
                 Err(_saturated) => {
                     return Ok(WorkerReply::Typed(
                         crate::backpressure::overloaded_response(command_type, &resident.worker_id),
@@ -160,7 +235,7 @@ impl Supervisor {
             },
             RouteAdmission::SupervisorInternal => {
                 match tokio::time::timeout_at(deadline, inflight.acquire_owned()).await {
-                    Ok(Ok(permit)) => permit,
+                    Ok(Ok(permit)) => Some(permit),
                     // Both remaining shapes are budget exhaustion: the
                     // wait elapsed, or the semaphore closed with its
                     // resident. The budget error is the same one a wedged
@@ -168,12 +243,17 @@ impl Supervisor {
                     Ok(Err(_)) | Err(_) => return Err(anyhow!("Session worker timed out")),
                 }
             }
+            RouteAdmission::Control | RouteAdmission::Watch => None,
         };
-        // A retired worker admits no client request (the
+        // A retired worker admits no client request or watch (the
         // retire-then-release order of the idle passivation fence): the
         // check runs after admission, so a route that passed readiness
         // before the retire cannot enqueue behind it.
-        if matches!(admission, RouteAdmission::ClientRequest) && resident.route_state().retired {
+        if matches!(
+            admission,
+            RouteAdmission::ClientRequest | RouteAdmission::Watch
+        ) && resident.route_state().retired
+        {
             return Err(anyhow!(WORKER_NOT_CONNECTED));
         }
         let (reply_tx, reply_rx) = oneshot::channel();
@@ -183,17 +263,26 @@ impl Supervisor {
             .lock()
             .await
             .insert(request_id.clone(), reply_tx);
+        // From here every exit — a refusal, a budget error, a requester
+        // that dropped the route — releases the reply slot.
+        let mut slot = ReplySlot {
+            resident,
+            cmd_tx: &cmd_tx,
+            request_id: request_id.clone(),
+            parked: false,
+            watch: admission == RouteAdmission::Watch,
+        };
         // The enqueue seam of the bounded queue (the Codex full-queue
         // answer, `mod.rs:228-259`): a full channel means the writer pump
         // is wedged — parked frames whose routes already timed out freed
         // their permits, so a slot can be free while the queue is not. A
         // client command answers the same explicit overload refusal there;
-        // supervisor-internal traffic instead waits out the remaining
-        // budget (never refused, never silently dropped — the cancelled
-        // send enqueues nothing, so the refused request provably never
-        // left the supervisor and a retry cannot duplicate it).
+        // every other class instead waits out the remaining budget (never
+        // refused, never silently dropped — the cancelled send enqueues
+        // nothing, so the refused request provably never left the
+        // supervisor and a retry cannot duplicate it).
         let request = WorkerRequest {
-            request_id: request_id.clone(),
+            request_id,
             command_type: command_type.to_string(),
             payload,
         };
@@ -201,34 +290,33 @@ impl Supervisor {
             Ok(()) => None,
             Err(mpsc::error::TrySendError::Full(unsent)) => Some(unsent),
             Err(mpsc::error::TrySendError::Closed(_)) => {
-                resident.pending.lock().await.remove(&request_id);
                 return Err(anyhow!(WORKER_NOT_CONNECTED));
             }
         };
         if let Some(unsent) = unsent {
             match admission {
                 RouteAdmission::ClientRequest => {
-                    resident.pending.lock().await.remove(&request_id);
                     return Ok(WorkerReply::Typed(
                         crate::backpressure::overloaded_response(command_type, &resident.worker_id),
                     ));
                 }
-                RouteAdmission::SupervisorInternal => {
+                RouteAdmission::SupervisorInternal
+                | RouteAdmission::Control
+                | RouteAdmission::Watch => {
                     match tokio::time::timeout_at(deadline, cmd_tx.send(unsent)).await {
                         Ok(Ok(())) => {}
-                        Ok(Err(_channel_closed)) => {
-                            resident.pending.lock().await.remove(&request_id);
-                            return Err(anyhow!(WORKER_NOT_CONNECTED));
-                        }
-                        Err(_budget_elapsed) => {
-                            resident.pending.lock().await.remove(&request_id);
-                            return Err(anyhow!("Session worker timed out"));
-                        }
+                        Ok(Err(_channel_closed)) => return Err(anyhow!(WORKER_NOT_CONNECTED)),
+                        Err(_budget_elapsed) => return Err(anyhow!("Session worker timed out")),
                     }
                 }
             }
         }
-        match tokio::time::timeout_at(deadline, reply_rx).await {
+        slot.parked = true;
+        let reply = tokio::time::timeout_at(deadline, reply_rx).await;
+        if reply.is_ok() {
+            slot.parked = false;
+        }
+        match reply {
             // The writer pump resolves provably-unsent requests with the
             // not-connected failure: surface it as the retryable route
             // error instead of a worker response. Only a typed reply can
@@ -241,14 +329,10 @@ impl Supervisor {
             }
             Ok(Ok(reply)) => Ok(reply),
             Ok(Err(_)) => Err(anyhow!(WORKER_SOCKET_CLOSED)),
-            Err(_) => {
-                // A timed-out request's reply slot must not sit in the
-                // pending map forever (a wedged worker never answers, and
-                // repeated bounded-timeout routes would otherwise grow the
-                // map without bound).
-                resident.pending.lock().await.remove(&request_id);
-                Err(anyhow!("Session worker timed out"))
-            }
+            // A timed-out request's reply slot leaves with `slot` (a
+            // wedged worker never answers, and repeated bounded-timeout
+            // routes would otherwise grow the map without bound).
+            Err(_) => Err(anyhow!("Session worker timed out")),
         }
     }
 
@@ -687,16 +771,9 @@ impl Supervisor {
         // inside the command's own budget: a command aimed at a worker that
         // crashed and is being relaunched (crash backoff, relaunch, create
         // replay) must not be lost to the dead window, and must never
-        // overtake the replayed session into existence. `Kill` is the one
-        // client command with a durable pre-route side effect — its stop
-        // tombstone persists before the route — so it rides the
-        // never-refused control admission: a saturation refusal ("nothing
-        // happened, retry") would contradict the landed tombstone, while
-        // the budget-bounded wait keeps the route's honest timeout shape.
-        let admission = match command {
-            DaemonCommand::Kill { .. } => RouteAdmission::SupervisorInternal,
-            _ => RouteAdmission::ClientRequest,
-        };
+        // overtake the replayed session into existence. Watches and
+        // control-plane commands never take an in-flight permit.
+        let admission = client_route_admission(command);
         // TS daemon-supervisor's `routeClientCommand` wraps the live
         // `rename`/`set_session_name` forward in the name-reservation
         // ladder: name uniqueness is daemon-owned, so a session worker's
@@ -721,8 +798,20 @@ impl Supervisor {
                 }
             }
             _ => {
-                self.route_command_ready(&resident, worker_command, payload, timeout, admission)
-                    .await
+                let routed = self.route_command_ready(
+                    &resident,
+                    worker_command,
+                    payload,
+                    timeout,
+                    admission,
+                );
+                match attached.unless_requester_gone(routed, admission).await {
+                    Some(response) => response,
+                    // The requester left: the dropped route released its
+                    // reply slot and cancelled the worker's parked wait;
+                    // nobody is left to answer.
+                    None => return (Vec::new(), false),
+                }
             }
         };
         // The byte relay: a routed response the supervisor neither edits nor

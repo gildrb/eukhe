@@ -50,7 +50,7 @@ impl Supervisor {
                     "shutdown",
                     json!({}),
                     ROUTE_TIMEOUT_MS,
-                    RouteAdmission::SupervisorInternal,
+                    RouteAdmission::Control,
                 )
                 .await;
             self.retire_worker_after_stop(&resident).await;

@@ -29,6 +29,7 @@
 //! prune their entry, so a disconnect racing its own cleanup cannot leak.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
@@ -60,6 +61,26 @@ impl ClientSubscriptions {
     /// routing): the registry may lag this list momentarily, never lead it.
     pub(crate) fn session_ids(&self) -> Vec<String> {
         self.sessions.lock().unwrap().clone()
+    }
+
+    /// Run one route on this connection's behalf. A watch route ends with
+    /// its requester: when the connection closes (the connection loop
+    /// drops this queue's receiver), the route future is dropped and the
+    /// answer is `None` — its reply slot leaves the worker's pending map
+    /// and the worker drops the parked wait. Every other class runs to its
+    /// own end (`Some`).
+    pub(crate) async fn unless_requester_gone<F: Future>(
+        &self,
+        route: F,
+        admission: crate::backpressure::RouteAdmission,
+    ) -> Option<F::Output> {
+        if admission != crate::backpressure::RouteAdmission::Watch {
+            return Some(route.await);
+        }
+        tokio::select! {
+            output = route => Some(output),
+            () = self.queue.closed() => None,
+        }
     }
 
     pub(crate) fn contains(&self, active_session_id: &str) -> bool {
