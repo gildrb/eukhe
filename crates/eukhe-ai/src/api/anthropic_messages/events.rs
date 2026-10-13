@@ -7,7 +7,7 @@ use std::sync::{Mutex, PoisonError};
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, JsonObject, JsonValue, Model,
-    StopReason, TextContent, ThinkingContent, Tool, ToolCall,
+    StopReason, StreamFailureKind, TextContent, ThinkingContent, Tool, ToolCall,
 };
 use reqwest::header::HeaderMap;
 
@@ -24,7 +24,7 @@ use crate::utils::provider_retry::{retry_provider_request, ProviderRetryOptions}
 use crate::utils::stream_failure::{
     classify_stream_failure, stream_failure_from_stop_reason, stream_failure_message,
     truncate_raw_payload, ConnectionErrorKind, ConnectionErrorProfile, ProviderConnectionError,
-    ProviderError, StreamFailureError, StreamFailureInfo, StreamFailureKind,
+    ProviderError, StreamFailureError, StreamFailureInfo,
 };
 
 fn header_map_to_hash(headers: &HeaderMap) -> HashMap<String, String> {

@@ -8,63 +8,13 @@ use std::fmt::Write as _;
 
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageDiagnostic, DiagnosticCode, DiagnosticErrorInfo, StopReason,
+    StreamFailureKind,
 };
 use serde::Serialize;
 
 use crate::utils::diagnostics::append_assistant_message_diagnostic;
 use crate::utils::js::{utf16_len, utf16_prefix};
 use crate::utils::now_ms;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StreamFailureKind {
-    Refusal,
-    Safety,
-    /// A payment/balance rejection (HTTP 402): the account or team wallet
-    /// cannot fund the request. Deterministic by status — a wallet drain
-    /// does not refill inside a retry ladder, so the status classifies
-    /// before any body-text pattern (the 402 diagnosis: the same incident
-    /// must not fork on the response body's `error.type` text).
-    PaymentRequired,
-    Overloaded,
-    RateLimit,
-    ServerError,
-    Auth,
-    Permission,
-    InvalidRequest,
-    MalformedResponse,
-    /// The provider ended the response stream without its terminal marker:
-    /// mid-block, no stop signal, no error frame (the connection just
-    /// ends). Transient by nature — the same request can be re-issued.
-    StreamDrop,
-    /// The response stream went silent: no provider event within the
-    /// stream-idle deadline (a half-open connection or a hung upstream).
-    /// Transient by nature — the same request can be re-issued.
-    StreamStalled,
-    Unknown,
-}
-
-impl StreamFailureKind {
-    /// The serialized (`snake_case`) name, as logged.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Refusal => "refusal",
-            Self::Safety => "safety",
-            Self::PaymentRequired => "payment_required",
-            Self::Overloaded => "overloaded",
-            Self::RateLimit => "rate_limit",
-            Self::ServerError => "server_error",
-            Self::Auth => "auth",
-            Self::Permission => "permission",
-            Self::InvalidRequest => "invalid_request",
-            Self::MalformedResponse => "malformed_response",
-            Self::StreamDrop => "stream_drop",
-            Self::StreamStalled => "stream_stalled",
-            Self::Unknown => "unknown",
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StreamFailureInfo {
