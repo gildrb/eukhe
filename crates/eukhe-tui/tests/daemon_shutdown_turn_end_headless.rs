@@ -141,30 +141,22 @@ impl FirstGeneration {
                         &mut writer,
                         &json!({
                             "type": "message_start",
-                            "message": { "role": "user", "content": question },
+                            "message": { "role": "user", "content": question, "timestamp": 1 },
                         }),
                     );
                     write_session_event(
                         &mut writer,
                         &json!({
                             "type": "message_start",
-                            "message": {
-                                "role": "assistant",
-                                "content": [{ "type": "text", "text": "" }],
-                                "assistantMessageEvent": { "type": "start" },
-                            },
+                            "message": assistant_message(""),
+                            "assistantMessageEvent": { "type": "start" },
                         }),
                     );
                     write_session_event(
                         &mut writer,
                         &json!({
                             "type": "message_update",
-                            "message": {
-                                "role": "assistant",
-                                "content": [
-                                    { "type": "text", "text": "the streamed answer" },
-                                ],
-                            },
+                            "message": assistant_message("the streamed answer"),
                             "assistantMessageEvent": {
                                 "type": "text_delta",
                                 "delta": "the streamed answer",
@@ -180,13 +172,7 @@ impl FirstGeneration {
                         &mut writer,
                         &json!({
                             "type": "message_end",
-                            "message": {
-                                "role": "assistant",
-                                "stopReason": "stop",
-                                "content": [
-                                    { "type": "text", "text": "the streamed answer" },
-                                ],
-                            },
+                            "message": assistant_message("the streamed answer"),
                         }),
                     );
                     write_session_event(&mut writer, &json!({ "type": "turn_end" }));
@@ -312,6 +298,23 @@ fn success_response(id: &str, command: &str) -> Value {
         "command": command,
         "success": true,
         "data": {},
+    })
+}
+
+/// A streamed assistant message whose one text block is `text`.
+fn assistant_message(text: &str) -> Value {
+    json!({
+        "role": "assistant",
+        "content": [{ "type": "text", "text": text }],
+        "api": "scripted",
+        "provider": "scripted",
+        "model": "faux-1",
+        "usage": {
+            "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+        },
+        "stopReason": "stop",
+        "timestamp": 1,
     })
 }
 

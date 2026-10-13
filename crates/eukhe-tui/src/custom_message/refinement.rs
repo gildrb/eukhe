@@ -17,14 +17,17 @@ use serde_json::Value;
 
 /// TS `isRefinementOutcomeMessage` (summary + scope + applied-edit list)
 /// with the full outcome shape; malformed payloads render the notice.
-pub(crate) fn refinement_outcome_entries(message: &Value, details: &Value) -> Vec<ChatEntry> {
+pub(crate) fn refinement_outcome_entries(
+    content: &eukhe_types::ai::UserContent,
+    details: &Value,
+) -> Vec<ChatEntry> {
     let summary = details.get("summary").and_then(Value::as_str);
     let scope_ok = matches!(
         details.get("scope").and_then(Value::as_str),
         Some("local" | "global")
     );
     let edits = details.get("edits").and_then(Value::as_array);
-    let valid = message.get("content").is_some_and(Value::is_string)
+    let valid = matches!(content, eukhe_types::ai::UserContent::Text(_))
         && summary.is_some()
         && scope_ok
         && edits.is_some_and(|edits| {
@@ -427,7 +430,6 @@ mod render_oracle;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::custom_message::REFINEMENT_OUTCOME_CUSTOM_TYPE;
     use serde_json::json;
 
     #[test]
@@ -507,14 +509,14 @@ mod tests {
     }
 
     fn decoded(message: &serde_json::Value) -> Vec<ChatEntry> {
-        crate::custom_message::custom_message_entries(message)
+        crate::custom_message::tests::decoded(message)
     }
 
     #[test]
     fn refinement_outcome_decodes_header_and_edits() {
         let entries = decoded(&json!({
             "role": "custom",
-            "customType": REFINEMENT_OUTCOME_CUSTOM_TYPE,
+            "customType": "refinement_outcome",
             "content": "Refinement complete: add a memory",
             "display": true,
             "details": {
@@ -561,7 +563,7 @@ mod tests {
         // and renders the `Harness unchanged` row.
         let empty = decoded(&json!({
             "role": "custom",
-            "customType": REFINEMENT_OUTCOME_CUSTOM_TYPE,
+            "customType": "refinement_outcome",
             "content": "Refinement complete: ?",
             "display": true,
             "details": { "refinementId": "x", "summary": "?", "scope": "local", "edits": [] },
@@ -574,7 +576,7 @@ mod tests {
         // An unknown scope fails the TS envelope check and renders the notice.
         let malformed = decoded(&json!({
             "role": "custom",
-            "customType": REFINEMENT_OUTCOME_CUSTOM_TYPE,
+            "customType": "refinement_outcome",
             "content": "Refinement complete: ?",
             "display": true,
             "details": { "refinementId": "x", "summary": "?", "scope": "team", "edits": [] },

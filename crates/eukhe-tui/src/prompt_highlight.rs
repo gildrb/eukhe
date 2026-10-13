@@ -140,14 +140,14 @@ pub fn style_argument_tokens(
 /// TS `styleQueuedMessagePreview`: the strip preview styling. Plain messages
 /// render dim with argument tokens colored; a message led by a recognized
 /// builtin slash command renders its `/name` segment in accent and the rest
-/// dim (argument tokens still colored). `label` is the lane label
-/// [`crate::queued::format_queued_message_preview`] prepends.
+/// dim (argument tokens still colored). `label` is the lane label the
+/// preview starts with.
 ///
 /// The TS recognition check also admits daemon-registered connection
 /// commands; the Rust strip recognizes builtin commands (aliases included).
 pub fn style_queued_message_preview(theme: &Theme, message: &str, label: &str) -> Line {
     let registry = SlashCommandRegistry::builtin_cached();
-    let preview = crate::queued::format_queued_message_preview(message, label);
+    let preview = format!("{label}: {message}");
     // TS `isLeadingSlashCommand`: a leading `/name` naming a known command.
     let leading = parse_slash_command(message).filter(|(name, _)| registry.is_builtin(name));
     let Some((name, _)) = leading else {
@@ -699,13 +699,12 @@ mod tests {
             spans(&line),
             vec![("Steering: /definitely-not-builtin x".to_string(), dim())]
         );
-        // A labeled internal prompt keeps its own label and stays dim.
-        let line =
-            style_queued_message_preview(&theme(), "Heartbeat prompt: run @check", "Steering");
+        // Argument tokens keep their own color after the dim label.
+        let line = style_queued_message_preview(&theme(), "run @check", "Steering");
         assert_eq!(
             spans(&line),
             vec![
-                ("Heartbeat prompt: run ".to_string(), dim()),
+                ("Steering: run ".to_string(), dim()),
                 ("@check".to_string(), success()),
             ]
         );

@@ -152,36 +152,17 @@ pub fn entry_to_items(entry: &FileEntry) -> Vec<TranscriptItem> {
             provider: payload.provider.clone(),
             model_id: payload.model_id.clone(),
         }],
-        // Custom rows rejoin as their wire message form and decode through
-        // the same custom-type dispatch the live path uses.
-        FileEntry::CustomMessage { payload, .. } => {
-            let message = custom_message_wire_value(payload);
-            crate::custom_message::custom_message_entries(&message)
-                .into_iter()
-                .map(|entry| TranscriptItem::CustomRow { entry })
-                .collect()
-        }
+        FileEntry::CustomMessage { payload, .. } => crate::custom_message::custom_message_entries(
+            &eukhe_types::custom_type::CustomType::parse(&payload.custom_type),
+            &payload.content,
+            payload.display,
+            payload.details.as_ref(),
+        )
+        .into_iter()
+        .map(|entry| TranscriptItem::CustomRow { entry })
+        .collect(),
         _ => Vec::new(),
     }
-}
-
-/// Rebuild the `role: "custom"` wire message shape from a persisted
-/// `custom_message` entry (the same rejoin the daemon session store and
-/// the TS session manager perform on load).
-fn custom_message_wire_value(
-    payload: &eukhe_types::session::CustomMessageEntry,
-) -> serde_json::Value {
-    let content = match serde_json::to_value(&payload.content) {
-        Ok(value) => value,
-        Err(_) => serde_json::Value::Null,
-    };
-    serde_json::json!({
-        "role": "custom",
-        "customType": payload.custom_type,
-        "content": content,
-        "display": payload.display,
-        "details": payload.details.clone().unwrap_or(serde_json::Value::Null),
-    })
 }
 
 fn message_to_items(message: &AgentMessage) -> Vec<TranscriptItem> {

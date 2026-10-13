@@ -170,6 +170,23 @@ fn tool_calls() -> Value {
     ])
 }
 
+/// A streamed assistant message carrying `content`.
+fn assistant(content: &Value) -> Value {
+    json!({
+        "role": "assistant",
+        "content": content,
+        "api": "scripted",
+        "provider": "scripted",
+        "model": "faux-1",
+        "usage": {
+            "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+        },
+        "stopReason": "stop",
+        "timestamp": 1,
+    })
+}
+
 /// One scripted turn: thinking, streamed text with two tool calls, a
 /// streamed successful bash run, a failing read, and the final answer.
 // One flat scripted event sequence: splitting it would scatter the
@@ -189,14 +206,14 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_start",
-            "message": { "role": "user", "content": "list and read" },
+            "message": { "role": "user", "content": "list and read", "timestamp": 1 },
         })),
     );
     write_json(
         writer,
         &event(json!({
             "type": "message_start",
-            "message": { "role": "assistant", "content": [{ "type": "text", "text": "" }] },
+            "message": assistant(&json!([{ "type": "text", "text": "" }])),
             "assistantMessageEvent": { "type": "start" },
         })),
     );
@@ -204,7 +221,7 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_update",
-            "message": { "role": "assistant", "content": first },
+            "message": assistant(&first),
             "assistantMessageEvent": { "type": "text_delta", "delta": "Checking the directory." },
         })),
     );
@@ -212,7 +229,7 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_end",
-            "message": { "role": "assistant", "content": first },
+            "message": assistant(&first),
         })),
     );
     write_json(
@@ -229,6 +246,8 @@ fn stream_turn(writer: &mut UnixStream) {
         &event(json!({
             "type": "tool_execution_update",
             "toolCallId": "tc-ls",
+            "toolName": "bash",
+            "args": { "command": "ls -la" },
             "partialResult": { "content": [{ "type": "text", "text": "total 8\n" }] },
         })),
     );
@@ -237,6 +256,7 @@ fn stream_turn(writer: &mut UnixStream) {
         &event(json!({
             "type": "tool_execution_end",
             "toolCallId": "tc-ls",
+            "toolName": "bash",
             "result": {
                 "content": [{
                     "type": "text",
@@ -260,6 +280,7 @@ fn stream_turn(writer: &mut UnixStream) {
         &event(json!({
             "type": "tool_execution_end",
             "toolCallId": "tc-read",
+            "toolName": "read",
             "result": {
                 "content": [{ "type": "text", "text": "ENOENT: no such file or directory, open '/tmp/missing.txt'" }],
             },
@@ -271,7 +292,7 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_start",
-            "message": { "role": "assistant", "content": [{ "type": "text", "text": "" }] },
+            "message": assistant(&json!([{ "type": "text", "text": "" }])),
             "assistantMessageEvent": { "type": "start" },
         })),
     );
@@ -279,11 +300,14 @@ fn stream_turn(writer: &mut UnixStream) {
         writer,
         &event(json!({
             "type": "message_end",
-            "message": { "role": "assistant", "content": answer },
+            "message": assistant(&answer),
         })),
     );
     write_json(writer, &event(json!({ "type": "turn_end" })));
-    write_json(writer, &event(json!({ "type": "agent_end" })));
+    write_json(
+        writer,
+        &event(json!({ "type": "agent_end", "messages": [] })),
+    );
 }
 
 fn options(socket: PathBuf, screen_mode: ScreenMode) -> InteractiveOptions {

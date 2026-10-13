@@ -4,45 +4,11 @@
 //! is through the core mutex; the event bridge emits under it, so the
 //! sequence and the view always advance together.
 
-use eukhe_types::input_origin::{InputOrigin, Report};
 use serde_json::Value;
 
 use super::durable_host::bridge::QueuedInput;
 use super::durable_host::{DurableView, ShownView};
 use eukhe_types::daemon::SessionActionSnapshot;
-
-/// The queue strip's riders (the parked-row classification): the kinds
-/// mark which parked rows the TUI renders as daemon work, never plain user
-/// rows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InjectionKind {
-    /// An RLM child status notice.
-    ChildStatusNotice,
-    /// An engine-minted internal prompt (a heartbeat fire).
-    InjectedPrompt,
-}
-
-impl InjectionKind {
-    /// The rider of an input of `origin`, if any.
-    pub(crate) fn of(origin: &InputOrigin) -> Option<Self> {
-        match origin {
-            InputOrigin::Report {
-                report: Report::ChildExited { .. } | Report::ChildFailed { .. },
-            } => Some(Self::ChildStatusNotice),
-            InputOrigin::Report {
-                report: Report::Heartbeat { .. },
-            } => Some(Self::InjectedPrompt),
-            InputOrigin::User
-            | InputOrigin::Goal { .. }
-            | InputOrigin::Autonomous { .. }
-            | InputOrigin::QuotaResume
-            | InputOrigin::Report {
-                report:
-                    Report::AgentMessage { .. } | Report::BashDone { .. } | Report::JobSettled { .. },
-            } => None,
-        }
-    }
-}
 
 pub(crate) struct SessionCore {
     pub(crate) active_session_id: String,

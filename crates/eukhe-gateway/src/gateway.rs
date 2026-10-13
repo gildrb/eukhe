@@ -7,7 +7,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use eukhe_tui::daemon_client::DaemonClientEvent;
-use eukhe_types::daemon::{DaemonCommand, PromptInput, StreamingBehavior};
+use eukhe_types::ai::{
+    AssistantContentBlock, AssistantMessage, StopReason, UserContent, UserContentBlock,
+};
+use eukhe_types::daemon::{DaemonCommand, PromptInput, SessionEvent, StreamingBehavior};
+use eukhe_types::session::AgentMessage;
 use serde_json::{json, Map, Value};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
@@ -693,6 +697,12 @@ impl<L: DaemonLauncher> Gateway<L> {
                     self.relay(&event).await;
                 }
             }
+            DaemonClientEvent::UndecodableSessionEvent {
+                active_session_id,
+                error,
+            } => {
+                tracing::warn!(%active_session_id, %error, "a session event could not be decoded");
+            }
             DaemonClientEvent::SessionClosed {
                 active_session_id,
                 reason,
@@ -757,40 +767,26 @@ impl<L: DaemonLauncher> Gateway<L> {
     /// Apply one session event of the bound session: run state, the floor,
     /// and the replies Signal gets while it holds the floor.
     #[tracing::instrument(skip_all)]
-    async fn relay(&mut self, event: &Value) {
-        let message = event.get("message");
-        let role = message
-            .and_then(|message| message.get("role"))
-            .and_then(Value::as_str);
-        let text = || {
-            let content = message.and_then(|message| message.get("content"));
-            match content {
-                Some(Value::String(text)) => text.clone(),
-                Some(Value::Array(blocks)) => blocks
-                    .iter()
-                    .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
-                    .filter_map(|block| block.get("text").and_then(Value::as_str))
-                    .collect::<Vec<_>>()
-                    .join("\n\n"),
-                Some(_) | None => String::new(),
-            }
-        };
-        match (event.get("type").and_then(Value::as_str), role) {
-            (Some("agent_start"), _) => {
+    async fn relay(&mut self, event: &SessionEvent) {
+        match event {
+            SessionEvent::AgentStart => {
                 self.running = true;
                 if let Some(peer) = self.floor.clone() {
                     self.start_typing(&peer).await;
                 }
             }
-            (Some("agent_end"), _) => {
+            SessionEvent::AgentEnd { .. } => {
                 self.running = false;
                 self.stop_typing().await;
                 if let Some(peer) = self.stop_pending.take() {
                     self.reply(&peer, "Stopped.".to_string()).await;
                 }
             }
-            (Some("message_start"), Some("user")) => {
-                let text = text();
+            SessionEvent::MessageStart {
+                message: AgentMessage::User(user),
+                ..
+            } => {
+                let text = user_text(&user.content);
                 if let Some(index) = self.sent_prompts.iter().position(|sent| *sent == text) {
                     self.sent_prompts.remove(index);
                 } else if self.floor.take().is_some() {
@@ -798,46 +794,82 @@ impl<L: DaemonLauncher> Gateway<L> {
                     self.stop_typing().await;
                 }
             }
-            (Some("message_end"), Some("assistant")) => {
-                let Some(peer) = self.floor.clone() else {
+            SessionEvent::MessageEnd {
+                message: AgentMessage::Assistant(message),
+            } => self.relay_answer(message).await,
+            SessionEvent::MessageStart { .. }
+            | SessionEvent::MessageUpdate { .. }
+            | SessionEvent::MessageEnd { .. }
+            | SessionEvent::TurnStart
+            | SessionEvent::TurnEnd { .. }
+            | SessionEvent::ToolExecutionStart { .. }
+            | SessionEvent::ToolExecutionUpdate { .. }
+            | SessionEvent::ToolExecutionEnd { .. }
+            | SessionEvent::AutoRetryStart { .. }
+            | SessionEvent::AutoRetryEnd { .. }
+            | SessionEvent::CompactionStart { .. }
+            | SessionEvent::CompactionSummaryDelta { .. }
+            | SessionEvent::CompactionEnd { .. }
+            | SessionEvent::SessionInfoChanged { .. }
+            | SessionEvent::ServiceTierChanged { .. }
+            | SessionEvent::SessionActionUpdate { .. }
+            | SessionEvent::GoalUpdate { .. }
+            | SessionEvent::ChatTurnWait { .. }
+            | SessionEvent::MemoryUpdate { .. }
+            | SessionEvent::AgentRelay(_)
+            | SessionEvent::BashStart { .. }
+            | SessionEvent::BashOutput { .. }
+            | SessionEvent::BashEnd { .. }
+            | SessionEvent::RefineComplete { .. }
+            | SessionEvent::RefineFailed { .. }
+            | SessionEvent::IpythonSentAgentMessage { .. } => {}
+        }
+    }
+
+    /// Relay one settled assistant message to the peer holding the floor.
+    async fn relay_answer(&mut self, message: &AssistantMessage) {
+        let Some(peer) = self.floor.clone() else {
+            return;
+        };
+        match message.stop_reason {
+            StopReason::Stop | StopReason::Length => {
+                let text = message
+                    .content
+                    .iter()
+                    .filter_map(|block| match block {
+                        AssistantContentBlock::Text(text) => Some(text.text.as_str()),
+                        AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                if text.trim().is_empty() {
                     return;
-                };
-                let message = message.unwrap_or(&Value::Null);
-                match message.get("stopReason").and_then(Value::as_str) {
-                    Some("stop" | "length") => {
-                        let text = text();
-                        if text.trim().is_empty() {
-                            return;
-                        }
-                        for chunk in style::render(&text) {
-                            if let Err(error) = self.signal.send(&peer, &chunk).await {
-                                tracing::error!(error = %format!("{error:#}"), "reply send failed");
-                                break;
-                            }
-                        }
-                    }
-                    Some("error") => {
-                        let reason = message
-                            .get("errorMessage")
-                            .and_then(Value::as_str)
-                            .filter(|reason| !reason.trim().is_empty())
-                            .unwrap_or("the model request failed");
-                        let line = reason.split_whitespace().collect::<Vec<_>>().join(" ");
-                        self.reply(&peer, format!("Error: {line}")).await;
-                    }
-                    Some("aborted") => {
-                        if self.stop_pending.as_ref() == Some(&peer) {
-                            self.stop_pending = None;
-                        }
-                        self.reply(&peer, "Stopped.".to_string()).await;
-                    }
-                    Some("toolUse") => {}
-                    other => {
-                        tracing::warn!(stop_reason = ?other, "unknown assistant stop reason; not relayed");
+                }
+                for chunk in style::render(&text) {
+                    if let Err(error) = self.signal.send(&peer, &chunk).await {
+                        tracing::error!(error = %format!("{error:#}"), "reply send failed");
+                        break;
                     }
                 }
             }
-            _ => {}
+            StopReason::Error => {
+                let reason = message
+                    .error_message
+                    .as_deref()
+                    .filter(|reason| !reason.trim().is_empty())
+                    .unwrap_or("the model request failed");
+                let line = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+                self.reply(&peer, format!("Error: {line}")).await;
+            }
+            StopReason::Aborted => {
+                if self.stop_pending.as_ref() == Some(&peer) {
+                    self.stop_pending = None;
+                }
+                self.reply(&peer, "Stopped.".to_string()).await;
+            }
+            StopReason::ToolUse => {}
         }
     }
 
@@ -895,5 +927,20 @@ impl<L: DaemonLauncher> Gateway<L> {
         if let Err(error) = self.signal.typing(&shown.peer, Typing::Started).await {
             tracing::warn!(error = %format!("{error:#}"), "typing refresh failed");
         }
+    }
+}
+
+/// The text of a user message: its text blocks, blank-line separated.
+fn user_text(content: &UserContent) -> String {
+    match content {
+        UserContent::Text(text) => text.clone(),
+        UserContent::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|block| match block {
+                UserContentBlock::Text(text) => Some(text.text.as_str()),
+                UserContentBlock::Image(_) | UserContentBlock::Raw(_) => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n"),
     }
 }

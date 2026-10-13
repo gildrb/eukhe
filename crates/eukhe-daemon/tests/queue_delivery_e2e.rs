@@ -540,7 +540,15 @@ fn wait_for_projection(
 
 /// Every `session_action_update` event with the given lane contents.
 fn action_updates_with(events: &[Value], steering: &[&str], follow_ups: &[&str]) -> Vec<usize> {
-    let expected = json!({ "steering": steering, "followUps": follow_ups });
+    let lane = |texts: &[&str]| {
+        Value::Array(
+            texts
+                .iter()
+                .map(|text| json!({ "text": text, "origin": { "kind": "user" } }))
+                .collect(),
+        )
+    };
+    let expected = json!({ "steering": lane(steering), "followUps": lane(follow_ups) });
     events
         .iter()
         .enumerate()

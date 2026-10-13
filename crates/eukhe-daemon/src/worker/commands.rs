@@ -488,7 +488,10 @@ impl Worker {
         response_success(
             None,
             "get_queue",
-            Some(json!({ "steering": snapshot.steering, "followUp": snapshot.follow_ups })),
+            Some(json!({
+                "steering": snapshot.steering.into_iter().map(|item| item.text).collect::<Vec<_>>(),
+                "followUp": snapshot.follow_ups.into_iter().map(|item| item.text).collect::<Vec<_>>(),
+            })),
         )
     }
 

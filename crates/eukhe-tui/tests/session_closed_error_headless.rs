@@ -103,12 +103,15 @@ fn attach_data(id: &str) -> Value {
         "data": {
             "activeSessionId": "s1",
             "snapshot": {
+                "activeSessionId": "s1",
+                "summary": { "id": "s1", "cwd": "/tmp" },
                 "state": {
                     "sessionId": "sess-1",
                     "sessionName": "closing session",
                     "isStreaming": false,
                 },
                 "messages": [],
+                "lastEventSequence": 0,
             },
         },
     })

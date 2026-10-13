@@ -1,17 +1,65 @@
 use super::*;
 use crate::theme::ColorMode;
 
+fn user(text: &str) -> QueuedItem {
+    QueuedItem {
+        text: text.to_owned(),
+        origin: InputOrigin::User,
+    }
+}
+
+fn internal(text: &str, origin: InputOrigin) -> QueuedItem {
+    QueuedItem {
+        text: text.to_owned(),
+        origin,
+    }
+}
+
+fn heartbeat(text: &str) -> QueuedItem {
+    let report = Report::Heartbeat {
+        schedule: "every 10m".to_owned(),
+        run: 0,
+    };
+    internal(text, InputOrigin::Report { report })
+}
+
+fn agent_mail(text: &str) -> QueuedItem {
+    let report = Report::AgentMessage {
+        sender: "child:research".to_owned(),
+    };
+    internal(text, InputOrigin::Report { report })
+}
+
+fn goal(text: &str) -> QueuedItem {
+    let context = eukhe_types::goal::GoalContextKind::Continuation;
+    internal(text, InputOrigin::Goal { context })
+}
+
+fn bash_done(text: &str) -> QueuedItem {
+    let report = Report::BashDone {
+        pid: 7,
+        exit_code: 0,
+    };
+    internal(text, InputOrigin::Report { report })
+}
+
+fn child_exited(text: &str) -> QueuedItem {
+    let report = Report::ChildExited {
+        child: "lane".to_owned(),
+        exit: eukhe_types::input_origin::ChildExit::NoReply,
+    };
+    internal(text, InputOrigin::Report { report })
+}
+
 fn theme() -> Theme {
     Theme::builtin("eukhe", ColorMode::TrueColor)
 }
 
 fn queue() -> QueuedMessages {
     QueuedMessages {
-        steering: vec!["turn right".to_string()],
-        follow_ups: vec!["then summarize".to_string()],
+        steering: vec![user("turn right")],
+        follow_ups: vec![user("then summarize")],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     }
 }
 
@@ -31,8 +79,6 @@ fn a_preparing_turn_renders_the_starting_row_alone() {
         steering: Vec::new(),
         follow_ups: Vec::new(),
         starting: Some("queued before compaction".to_string()),
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(rows.len(), 2, "spacer + the starting row, no hint");
@@ -46,10 +92,8 @@ fn a_preparing_turn_renders_the_starting_row_alone() {
 fn the_starting_row_renders_above_the_parked_lanes() {
     let queue = QueuedMessages {
         steering: Vec::new(),
-        follow_ups: vec!["then summarize".to_string()],
+        follow_ups: vec![user("then summarize")],
         starting: Some("queued before compaction".to_string()),
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(rows.len(), 4, "spacer + starting + follow-up + hint");
@@ -70,8 +114,6 @@ fn the_starting_row_drops_with_the_projection() {
             steering: Vec::new(),
             follow_ups: Vec::new(),
             starting: None,
-            rlm_child_status: QueueLaneIndices::default(),
-            injected_prompts: QueueLaneIndices::default(),
         },
         "alt+up",
         80,
@@ -114,11 +156,9 @@ fn queue_renders_labels_and_hint() {
 #[test]
 fn slash_previews_render_the_command_segment_in_accent() {
     let queue = QueuedMessages {
-        steering: vec!["/hotkeys".to_string()],
-        follow_ups: vec!["fix @Cargo.toml --quiet".to_string()],
+        steering: vec![user("/hotkeys")],
+        follow_ups: vec![user("fix @Cargo.toml --quiet")],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let theme = theme();
     let rows = render_queue(&theme, &queue, "alt+up", 80);
@@ -154,11 +194,9 @@ fn slash_previews_render_the_command_segment_in_accent() {
 #[test]
 fn long_previews_truncate_with_ellipsis() {
     let queue = QueuedMessages {
-        steering: vec!["x".repeat(100)],
+        steering: vec![user(&"x".repeat(100))],
         follow_ups: Vec::new(),
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 30);
     assert_eq!(rows.len(), 3);
@@ -178,11 +216,9 @@ fn long_previews_truncate_with_ellipsis() {
 #[test]
 fn multiline_preview_renders_its_first_line() {
     let queue = QueuedMessages {
-        steering: vec!["first line\nsecond line".to_string()],
+        steering: vec![user("first line\nsecond line")],
         follow_ups: Vec::new(),
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     let text: String = rows[1].iter().map(|span| span.content.as_str()).collect();
@@ -190,31 +226,14 @@ fn multiline_preview_renders_its_first_line() {
 }
 
 #[test]
-fn labeled_internal_prompts_keep_their_own_label() {
-    assert_eq!(
-        format_queued_message_preview("Heartbeat prompt: tick", STEERING_LABEL),
-        "Heartbeat prompt: tick"
-    );
-    assert_eq!(
-        format_queued_message_preview("run tests", FOLLOW_UP_LABEL),
-        "Follow-up: run tests"
-    );
-    // The strip itself no longer renders internal prompts as their
-    // own rows (the sanctioned divergence): the condensation tests
-    // below own that behavior.
-}
-
-#[test]
 fn internal_prompts_condense_into_one_counted_row() {
     let queue = QueuedMessages {
         steering: vec![
-            "Heartbeat prompt: [heartbeat: every 10m run#0]\n\nnudge".to_string(),
-            "Agent message received: the research is done".to_string(),
+            heartbeat("[heartbeat: every 10m run#0]\n\nnudge"),
+            agent_mail("the research is done"),
         ],
-        follow_ups: vec!["Goal context: milestone".to_string()],
+        follow_ups: vec![goal("milestone")],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(
@@ -246,17 +265,9 @@ fn internal_prompts_condense_into_one_counted_row() {
 #[test]
 fn human_prompts_render_before_the_condensed_row() {
     let queue = QueuedMessages {
-        steering: vec![
-            "Heartbeat prompt: nudge".to_string(),
-            "turn right".to_string(),
-        ],
-        follow_ups: vec![
-            "then summarize".to_string(),
-            "Background command finished: sleep done".to_string(),
-        ],
+        steering: vec![heartbeat("nudge"), user("turn right")],
+        follow_ups: vec![user("then summarize"), bash_done("sleep done")],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(
@@ -289,17 +300,15 @@ fn human_prompts_render_before_the_condensed_row() {
 fn condensed_row_counts_each_origin_with_correct_plurals() {
     let queue = QueuedMessages {
         steering: vec![
-            "Agent message received: one".to_string(),
-            "Agent message received: two".to_string(),
-            "Agent message received: three".to_string(),
-            "Heartbeat prompt: nudge".to_string(),
-            "Goal context: milestone".to_string(),
-            "Goal context: next".to_string(),
+            agent_mail("one"),
+            agent_mail("two"),
+            agent_mail("three"),
+            heartbeat("nudge"),
+            goal("milestone"),
+            goal("next"),
         ],
-        follow_ups: vec!["Heartbeat prompt: again".to_string()],
+        follow_ups: vec![heartbeat("again")],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(rows.len(), 3);
@@ -314,11 +323,9 @@ fn condensed_row_counts_each_origin_with_correct_plurals() {
 #[test]
 fn one_queued_agent_message_reads_singular() {
     let queue = QueuedMessages {
-        steering: vec!["Agent message received: hi".to_string()],
+        steering: vec![agent_mail("hi")],
         follow_ups: Vec::new(),
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(rows.len(), 3);
@@ -329,14 +336,9 @@ fn one_queued_agent_message_reads_singular() {
 #[test]
 fn condensed_row_truncates_to_the_width() {
     let queue = QueuedMessages {
-        steering: vec![
-            "Heartbeat prompt: nudge".to_string(),
-            "Agent message received: done".to_string(),
-        ],
+        steering: vec![heartbeat("nudge"), agent_mail("done")],
         follow_ups: vec![],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 30);
     assert_eq!(rows.len(), 3);
@@ -354,14 +356,9 @@ fn condensed_row_truncates_to_the_width() {
 #[test]
 fn internal_prompts_stay_browseable_when_condensed() {
     let queue = QueuedMessages {
-        steering: vec![
-            "Heartbeat prompt: nudge".to_string(),
-            "turn right".to_string(),
-        ],
-        follow_ups: vec!["then summarize".to_string()],
+        steering: vec![heartbeat("nudge"), user("turn right")],
+        follow_ups: vec![user("then summarize")],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let mut selection = QueueSelection::default();
     // Browsing still walks every queued item newest-first, the
@@ -372,7 +369,7 @@ fn internal_prompts_stay_browseable_when_condensed() {
     let text = selection.browse(&queue, "", QueueBrowseDirection::Older);
     assert_eq!(text.as_deref(), Some("turn right"));
     let text = selection.browse(&queue, "", QueueBrowseDirection::Older);
-    assert_eq!(text.as_deref(), Some("Heartbeat prompt: nudge"));
+    assert_eq!(text.as_deref(), Some("nudge"));
 }
 
 #[test]
@@ -439,11 +436,9 @@ fn refresh_keeps_a_matching_selection_and_drops_a_stale_one() {
     // A moved item (queue changed) drops the selection and returns the
     // stashed draft.
     let changed = QueuedMessages {
-        steering: vec!["turn right".to_string()],
-        follow_ups: vec!["edited".to_string()],
+        steering: vec![user("turn right")],
+        follow_ups: vec![user("edited")],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     assert_eq!(
         selection.refresh_at(&changed, QueueLane::FollowUp, 0, "then summarize"),
@@ -455,72 +450,28 @@ fn refresh_keeps_a_matching_selection_and_drops_a_stale_one() {
 #[test]
 fn mirror_lane_move_swaps_within_the_lane_only() {
     let mut queue = QueuedMessages {
-        steering: vec!["one".to_string(), "two".to_string()],
-        follow_ups: vec!["later".to_string()],
+        steering: vec![user("one"), user("two")],
+        follow_ups: vec![user("later")],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     mirror_lane_move(&mut queue, QueueLane::Steering, 0, 1);
-    assert_eq!(queue.steering, vec!["two", "one"]);
+    assert_eq!(queue.steering, vec![user("two"), user("one")]);
     assert_eq!(
         queue.follow_ups,
-        vec!["later"],
+        vec![user("later")],
         "the other lane is untouched"
     );
     mirror_lane_move(&mut queue, QueueLane::FollowUp, 0, -1);
     assert_eq!(
         queue.follow_ups,
-        vec!["later"],
+        vec![user("later")],
         "a negative target is a noop"
     );
     mirror_lane_move(&mut queue, QueueLane::FollowUp, 0, 7);
     assert_eq!(
         queue.follow_ups,
-        vec!["later"],
+        vec![user("later")],
         "an out-of-range target is a noop"
-    );
-}
-
-/// A reorder through the local mirror keeps the typed provenance on
-/// the item it marks (the swap rides the index), so the folded row
-/// never misclassifies in the window before the daemon's action
-/// update lands.
-#[test]
-fn mirror_lane_move_rides_the_marked_indices() {
-    let mut queue = QueuedMessages {
-        steering: vec![
-            "notice parked first".to_string(),
-            "turn right".to_string(),
-            "notice parked last".to_string(),
-        ],
-        follow_ups: Vec::new(),
-        starting: None,
-        rlm_child_status: QueueLaneIndices {
-            steering: vec![0, 2],
-            follow_up: Vec::new(),
-        },
-        injected_prompts: QueueLaneIndices::default(),
-    };
-    mirror_lane_move(&mut queue, QueueLane::Steering, 1, 0);
-    assert_eq!(
-        queue.steering,
-        vec!["turn right", "notice parked first", "notice parked last"]
-    );
-    assert_eq!(
-        queue.rlm_child_status.steering,
-        vec![1, 2],
-        "the marked index rides its item through the swap"
-    );
-    mirror_lane_move(&mut queue, QueueLane::Steering, 2, 1);
-    assert_eq!(
-        queue.steering,
-        vec!["turn right", "notice parked last", "notice parked first"]
-    );
-    assert_eq!(
-        queue.rlm_child_status.steering,
-        vec![2, 1],
-        "the second swap rides the other marked item too"
     );
 }
 
@@ -570,25 +521,19 @@ fn an_internal_item_headers_read_only() {
 }
 
 /// The queue-fold bug (operator 2026-09-25): many child exits parked
-/// behind one busy turn rendered as that many user-like rows. The
-/// wire-typed provenance marks them, so they fold into the counted
-/// row instead -- one row however many notices queue, with the
-/// human-typed previews untouched.
+/// behind one busy turn rendered as that many user-like rows. Their
+/// typed origin folds them into the counted row instead -- one row
+/// however many notices queue, with the human-typed previews untouched.
 #[test]
-fn child_status_notices_condense_by_wire_provenance() {
+fn child_status_notices_condense_by_origin() {
     let queue = QueuedMessages {
-        steering: vec!["turn right".to_string()],
+        steering: vec![user("turn right")],
         follow_ups: vec![
-            "[child-exited: no-reply child:lane-one]".to_string(),
-            "[child-exited: no-reply child:lane-two]\n\nLast assistant text: done".to_string(),
-            "then summarize".to_string(),
+            child_exited("[child-exited: no-reply child:lane-one]"),
+            child_exited("[child-exited: no-reply child:lane-two]\n\nLast assistant text: done"),
+            user("then summarize"),
         ],
         starting: None,
-        rlm_child_status: QueueLaneIndices {
-            steering: Vec::new(),
-            follow_up: vec![0, 1],
-        },
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(
@@ -619,16 +564,11 @@ fn child_status_notices_condense_by_wire_provenance() {
 fn a_steering_lane_notice_condenses_too() {
     let queue = QueuedMessages {
         steering: vec![
-            "[child-exited: cancelled child:quiet]".to_string(),
-            "turn right".to_string(),
+            child_exited("[child-exited: cancelled child:quiet]"),
+            user("turn right"),
         ],
         follow_ups: Vec::new(),
         starting: None,
-        rlm_child_status: QueueLaneIndices {
-            steering: vec![0],
-            follow_up: Vec::new(),
-        },
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(
@@ -657,13 +597,11 @@ fn a_steering_lane_notice_condenses_too() {
 fn user_typed_rows_that_look_like_notices_stay_human() {
     let queue = QueuedMessages {
         steering: vec![
-            "[child-exited: no-reply child:not-a-notice]".to_string(),
-            "[child-failed child:also-not-a-notice]".to_string(),
+            user("[child-exited: no-reply child:not-a-notice]"),
+            user("[child-failed child:also-not-a-notice]"),
         ],
-        follow_ups: vec!["RLM child status: typed by hand".to_string()],
+        follow_ups: vec![user("RLM child status: typed by hand")],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(
@@ -700,22 +638,17 @@ fn user_typed_rows_that_look_like_notices_stay_human() {
 fn mixed_origins_count_child_status_in_the_fixed_order() {
     let queue = QueuedMessages {
         steering: vec![
-            "Agent message received: hi".to_string(),
-            "Heartbeat prompt: nudge".to_string(),
-            "[child-exited: no-reply child:worker]".to_string(),
-            "[child-failed child:broken]".to_string(),
+            agent_mail("hi"),
+            heartbeat("nudge"),
+            child_exited("[child-exited: no-reply child:worker]"),
+            child_exited("[child-failed child:broken]"),
         ],
         follow_ups: vec![
-            "Goal context: milestone".to_string(),
-            "[child-exited: cancelled child:quiet]".to_string(),
-            "edit this".to_string(),
+            goal("milestone"),
+            child_exited("[child-exited: cancelled child:quiet]"),
+            user("edit this"),
         ],
         starting: None,
-        rlm_child_status: QueueLaneIndices {
-            steering: vec![2, 3],
-            follow_up: vec![1],
-        },
-        injected_prompts: QueueLaneIndices::default(),
     };
     // Width 120 so the four-origin row reads untruncated (the row
     // text is 88 chars; at 80 the strip's ellipsis cut it).
@@ -767,15 +700,10 @@ fn browse_still_walks_the_parked_notices() {
     let queue = QueuedMessages {
         steering: Vec::new(),
         follow_ups: vec![
-            "[child-exited: no-reply child:lane]\n\nLast assistant text: done".to_string(),
-            "then summarize".to_string(),
+            child_exited("[child-exited: no-reply child:lane]\n\nLast assistant text: done"),
+            user("then summarize"),
         ],
         starting: None,
-        rlm_child_status: QueueLaneIndices {
-            steering: Vec::new(),
-            follow_up: vec![0],
-        },
-        injected_prompts: QueueLaneIndices::default(),
     };
     let mut selection = QueueSelection::default();
     let text = selection.browse(&queue, "draft", QueueBrowseDirection::Older);
@@ -808,17 +736,14 @@ fn seven_child_exits_render_as_one_counted_row() {
         "lane-six",
         "lane-seven",
     ] {
-        follow_ups.push(format!("[child-exited: no-reply child:{child}]"));
+        follow_ups.push(child_exited(&format!(
+            "[child-exited: no-reply child:{child}]"
+        )));
     }
     let queue = QueuedMessages {
-        steering: vec!["turn right".to_string()],
+        steering: vec![user("turn right")],
         follow_ups,
         starting: None,
-        rlm_child_status: QueueLaneIndices {
-            steering: Vec::new(),
-            follow_up: vec![0, 1, 2, 3, 4, 5, 6],
-        },
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(
@@ -851,26 +776,19 @@ fn seven_child_exits_render_as_one_counted_row() {
 }
 
 /// The engine-minted continuations (goal continuations and
-/// threshold-compaction continuations) park preview-less: without the
-/// rider they rendered as user-like rows (TS's projection filters them
-/// out entirely). The `injectedPrompts` wire-typed provenance folds
-/// them into the counted row's "other internal prompt" bucket -- they
+/// threshold-compaction continuations) carry a non-user origin, so they
+/// fold into the counted row's "other internal prompt" bucket -- they
 /// never render their own rows.
 #[test]
 fn injected_continuations_condense_into_the_counted_row() {
     let queue = QueuedMessages {
-        steering: vec!["[goal: continuation]\n\nKeep driving the goal.".to_string()],
+        steering: vec![goal("[goal: continuation]\n\nKeep driving the goal.")],
         follow_ups: vec![
-            "keep going".to_string(),
-            "[goal: continuation]\n\nKeep driving the goal.".to_string(),
-            "[autonomous continuation after compaction]".to_string(),
+            user("keep going"),
+            goal("[goal: continuation]\n\nKeep driving the goal."),
+            goal("[autonomous continuation after compaction]"),
         ],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices {
-            steering: vec![0],
-            follow_up: vec![1, 2],
-        },
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(
@@ -910,15 +828,10 @@ fn an_only_internal_queue_renders_just_the_summary_row() {
     let queue = QueuedMessages {
         steering: Vec::new(),
         follow_ups: vec![
-            "Heartbeat prompt: nudge".to_string(),
-            "[goal: continuation]\n\nKeep driving the goal.".to_string(),
+            heartbeat("nudge"),
+            goal("[goal: continuation]\n\nKeep driving the goal."),
         ],
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices {
-            steering: Vec::new(),
-            follow_up: vec![1],
-        },
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(rows.len(), 3, "spacer + the condensed row + hint");
@@ -930,18 +843,14 @@ fn an_only_internal_queue_renders_just_the_summary_row() {
     );
 }
 
-/// The spoof regression for the second rider (the child-status
-/// precedent's contract): provenance is the ONLY classifier. A
-/// user-typed prompt with a continuation's exact text -- without the
-/// wire mark -- stays the human preview row it is.
+/// The origin is the ONLY classifier: a user-typed prompt with a
+/// continuation's exact text stays the human preview row it is.
 #[test]
-fn a_same_text_user_row_never_rides_the_injected_rider() {
+fn a_same_text_user_row_stays_human() {
     let queue = QueuedMessages {
-        steering: vec!["[goal: continuation]\n\nKeep driving the goal.".to_string()],
+        steering: vec![user("[goal: continuation]\n\nKeep driving the goal.")],
         follow_ups: Vec::new(),
         starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices::default(),
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 80);
     assert_eq!(
@@ -963,24 +872,13 @@ fn a_same_text_user_row_never_rides_the_injected_rider() {
 fn mixed_origins_count_the_injected_continuations_as_other() {
     let queue = QueuedMessages {
         steering: vec![
-            "Agent message received: hi".to_string(),
-            "Heartbeat prompt: nudge".to_string(),
-            "[goal: continuation]\n\nKeep driving the goal.".to_string(),
-            "[child-exited: no-reply child:worker]".to_string(),
+            agent_mail("hi"),
+            heartbeat("nudge"),
+            goal("[goal: continuation]\n\nKeep driving the goal."),
+            child_exited("[child-exited: no-reply child:worker]"),
         ],
-        follow_ups: vec![
-            "[compaction continuation]".to_string(),
-            "edit this".to_string(),
-        ],
+        follow_ups: vec![goal("[compaction continuation]"), user("edit this")],
         starting: None,
-        rlm_child_status: QueueLaneIndices {
-            steering: vec![3],
-            follow_up: Vec::new(),
-        },
-        injected_prompts: QueueLaneIndices {
-            steering: vec![2],
-            follow_up: vec![0],
-        },
     };
     let rows = render_queue(&theme(), &queue, "alt+up", 120);
     assert_eq!(
@@ -1011,23 +909,15 @@ fn mixed_origins_count_the_injected_continuations_as_other() {
 fn browse_items_carry_their_origin_for_the_edit_gate() {
     let queue = QueuedMessages {
         steering: vec![
-            "Heartbeat prompt: nudge".to_string(),
-            "turn right".to_string(),
-            "[goal: continuation]\n\nKeep driving the goal.".to_string(),
+            heartbeat("nudge"),
+            user("turn right"),
+            goal("[goal: continuation]\n\nKeep driving the goal."),
         ],
         follow_ups: vec![
-            "[child-exited: no-reply child:lane]".to_string(),
-            "then summarize".to_string(),
+            child_exited("[child-exited: no-reply child:lane]"),
+            user("then summarize"),
         ],
         starting: None,
-        rlm_child_status: QueueLaneIndices {
-            steering: Vec::new(),
-            follow_up: vec![0],
-        },
-        injected_prompts: QueueLaneIndices {
-            steering: vec![2],
-            follow_up: Vec::new(),
-        },
     };
     let mut selection = QueueSelection::default();
     // Newest-first: draft -> follow-ups -> steering, oldest last.
@@ -1075,44 +965,10 @@ fn browse_items_carry_their_origin_for_the_edit_gate() {
         selection
             .browse(&queue, "", QueueBrowseDirection::Older)
             .as_deref(),
-        Some("Heartbeat prompt: nudge")
+        Some("nudge")
     );
     assert!(
         selection.selected().unwrap().internal,
         "the labeled heartbeat browses read-only"
-    );
-}
-
-/// A user row's reorder can swap it across an injected continuation:
-/// the injected rider rides the swap like the child-status rider, so
-/// the folded classification never misreads in the window before
-/// the daemon's action update lands.
-#[test]
-fn mirror_lane_move_rides_the_injected_rider_too() {
-    let mut queue = QueuedMessages {
-        steering: vec![
-            "[goal: continuation]\n\nKeep driving the goal.".to_string(),
-            "turn right".to_string(),
-        ],
-        follow_ups: Vec::new(),
-        starting: None,
-        rlm_child_status: QueueLaneIndices::default(),
-        injected_prompts: QueueLaneIndices {
-            steering: vec![0],
-            follow_up: Vec::new(),
-        },
-    };
-    mirror_lane_move(&mut queue, QueueLane::Steering, 1, 0);
-    assert_eq!(
-        queue.steering,
-        vec![
-            "turn right",
-            "[goal: continuation]\n\nKeep driving the goal."
-        ]
-    );
-    assert_eq!(
-        queue.injected_prompts.steering,
-        vec![1],
-        "the injected mark rides its item through the swap"
     );
 }

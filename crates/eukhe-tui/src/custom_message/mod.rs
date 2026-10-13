@@ -42,30 +42,9 @@ pub use injected_prompt::{InjectedPromptKind, InjectedPromptRow};
 
 use crate::chat::{ChatEntry, StatusKind};
 use crate::theme::ThemeColor;
+use eukhe_types::ai::{UserContent, UserContentBlock};
+use eukhe_types::custom_type::CustomType;
 use serde_json::Value;
-
-/// Custom types with a dedicated component (TS constants; eukhe-core owns the
-/// engine-side vocabulary, the render dispatch owns these).
-pub const AGENT_MESSAGE_CUSTOM_TYPE: &str = "agent_message";
-/// An agent's answer to the user's `@name` message (wire twin of
-/// `eukhe_core::agent_messaging::AGENT_REPLY_CUSTOM_TYPE`).
-pub const AGENT_REPLY_CUSTOM_TYPE: &str = "agent_reply";
-pub const HEARTBEAT_PROMPT_CUSTOM_TYPE: &str = "heartbeat_prompt";
-pub const GOAL_CONTEXT_CUSTOM_TYPE: &str = "goal_context";
-pub const IPYTHON_STATE_RESTORED_CUSTOM_TYPE: &str = "ipython_state_restored";
-pub const PYTHON_SKILLS_UNAVAILABLE_CUSTOM_TYPE: &str = "python_skills_unavailable";
-pub const RLM_CHILD_FAILURE_CUSTOM_TYPE: &str = "rlm_child_failure";
-pub const RLM_CHILD_TERMINAL_NOTICE_CUSTOM_TYPE: &str = "rlm_child_terminal_notice";
-pub const ASYNC_BASH_COMPLETION_CUSTOM_TYPE: &str = "async_bash_completion";
-pub const COMPACTION_OUTCOME_CUSTOM_TYPE: &str = "compaction_outcome";
-pub const REFINEMENT_OUTCOME_CUSTOM_TYPE: &str = "refinement_outcome";
-/// The durable single-line outcome of one provider-retry episode (SANCTIONED
-/// DIVERGENCE, operator ruling 2026-09-23: one resolved/terminal row per
-/// episode instead of the per-attempt error rows TS keeps). Wire twin of
-/// `eukhe_core::durable::messages::PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE`.
-pub const PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE: &str = "provider_retry_outcome";
-/// Wire twin of `eukhe_core::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE`.
-pub const MODEL_PROMPT_ERROR_CUSTOM_TYPE: &str = "model_prompt_error";
 
 // ---------------------------------------------------------------------------
 // Row payloads (carried by ChatEntry variants)
@@ -186,34 +165,28 @@ pub struct CustomPanelRow {
 /// messages (the received agent-message rows and the RLM child status
 /// notices, the same class), shell completions, injected prompts, then the
 /// generic panel. Non-display rows render nothing.
-pub fn custom_message_entries(message: &Value) -> Vec<ChatEntry> {
-    use eukhe_types::slash_commands::{
-        SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
-    };
-    let custom_type = message
-        .get("customType")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let display = message
-        .get("display")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
+#[must_use]
+pub fn custom_message_entries(
+    custom_type: &CustomType,
+    content: &UserContent,
+    display: bool,
+    details: Option<&Value>,
+) -> Vec<ChatEntry> {
     if !display {
         return Vec::new();
     }
-    let content = crate::snapshot::message_text(message);
-    let details = message.get("details").unwrap_or(&Value::Null);
+    let text = crate::snapshot::content_text(content);
+    let details = details.unwrap_or(&Value::Null);
     match custom_type {
-        SESSION_SLASH_COMMAND_CUSTOM_TYPE | SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE => {
-            slash_row_entries(message, custom_type, &content, details)
-        }
-        COMPACTION_OUTCOME_CUSTOM_TYPE => vec![compaction_outcome_entry(message, details)],
-        PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE => {
+        CustomType::SessionSlashCommand => slash_row_entries(content, true, &text, details),
+        CustomType::SessionSlashCommandResult => slash_row_entries(content, false, &text, details),
+        CustomType::CompactionOutcome => vec![compaction_outcome_entry(content, details)],
+        CustomType::ProviderRetryOutcome => {
             // The ONE line a retry episode leaves in the chat: the row text
             // the daemon carried (the live rows use the same text), the
             // tone from the structured verdict.
             vec![ChatEntry::Status {
-                text: content,
+                text,
                 kind: if details.get("success").and_then(Value::as_bool) == Some(true) {
                     crate::chat::StatusKind::Info
                 } else {
@@ -221,18 +194,18 @@ pub fn custom_message_entries(message: &Value) -> Vec<ChatEntry> {
                 },
             }]
         }
-        MODEL_PROMPT_ERROR_CUSTOM_TYPE => vec![ChatEntry::Status {
-            text: content,
+        CustomType::ModelPromptError => vec![ChatEntry::Status {
+            text,
             kind: crate::chat::StatusKind::Warning,
         }],
-        REFINEMENT_OUTCOME_CUSTOM_TYPE => refinement::refinement_outcome_entries(message, details),
-        AGENT_MESSAGE_CUSTOM_TYPE => agent_message_entry(details).map_or_else(
-            || vec![generic_panel_entry(custom_type, message)],
+        CustomType::RefinementOutcome => refinement::refinement_outcome_entries(content, details),
+        CustomType::AgentMessage => agent_message_entry(details).map_or_else(
+            || vec![generic_panel_entry(custom_type, content)],
             |entry| vec![entry],
         ),
         // An agent's answer to the user's `@name` message: the
         // `name -> you` family row (first line; full text at Detail::All).
-        AGENT_REPLY_CUSTOM_TYPE => {
+        CustomType::AgentReply => {
             let field = |key: &str| details.get(key).and_then(Value::as_str);
             match (field("from"), field("message")) {
                 (Some(from), Some(text)) => vec![ChatEntry::Swarm(Box::new(
@@ -242,22 +215,19 @@ pub fn custom_message_entries(message: &Value) -> Vec<ChatEntry> {
                         text: text.to_string(),
                     }),
                 ))],
-                _ => vec![generic_panel_entry(custom_type, message)],
+                (None, _) | (_, None) => vec![generic_panel_entry(custom_type, content)],
             }
         }
-        ASYNC_BASH_COMPLETION_CUSTOM_TYPE => vec![ChatEntry::ShellCompletion(Box::new(
-            shell_completion_row(message, details),
+        CustomType::AsyncBashCompletion => vec![ChatEntry::ShellCompletion(Box::new(
+            shell_completion_row(content, details),
         ))],
-        HEARTBEAT_PROMPT_CUSTOM_TYPE
-        | GOAL_CONTEXT_CUSTOM_TYPE
-        | IPYTHON_STATE_RESTORED_CUSTOM_TYPE
-        | PYTHON_SKILLS_UNAVAILABLE_CUSTOM_TYPE => {
-            vec![ChatEntry::InjectedPrompt(Box::new(injected_prompt_row(
-                custom_type,
-                message,
-                details,
-            )))]
-        }
+        CustomType::HeartbeatPrompt
+        | CustomType::GoalContext
+        | CustomType::IpythonStateRestored
+        | CustomType::PythonSkillsUnavailable => injected_prompt_row(custom_type, content, details)
+            .map(|row| ChatEntry::InjectedPrompt(Box::new(row)))
+            .into_iter()
+            .collect(),
         // The RLM child status notices are child-originated mail -- the
         // spawned subagent's exit status (a factory's children included) --
         // so they render in the same quiet, counterpart-attributed
@@ -266,25 +236,25 @@ pub fn custom_message_entries(message: &Value) -> Vec<ChatEntry> {
         // status notices should be like subagent messages not user
         // messages"), not as turn-prompt rows. The notice text rides as
         // the row body, so nothing is lost.
-        RLM_CHILD_FAILURE_CUSTOM_TYPE | RLM_CHILD_TERMINAL_NOTICE_CUSTOM_TYPE => {
+        CustomType::RlmChildFailure | CustomType::RlmChildTerminalNotice => {
             vec![ChatEntry::AgentMessage(Box::new(rlm_child_status_row(
-                message, details,
+                content, details,
             )))]
         }
         // Everything else - engine bookkeeping (`harness_digest`,
         // `refinement_notice`, worker recovery) and unknown types - renders
         // the generic panel, exactly like the TS live dispatch fallthrough
         // (those types persist with `display: false` and render nothing).
-        _ => vec![generic_panel_entry(custom_type, message)],
+        CustomType::Other(_) => vec![generic_panel_entry(custom_type, content)],
     }
 }
 
 /// TS `CustomMessageComponent` fallthrough: the `[<customType>]` guttered
 /// panel row.
-fn generic_panel_entry(custom_type: &str, message: &Value) -> ChatEntry {
+fn generic_panel_entry(custom_type: &CustomType, content: &UserContent) -> ChatEntry {
     ChatEntry::CustomPanel(Box::new(CustomPanelRow {
-        custom_type: custom_type.to_string(),
-        content: custom_content_text(message),
+        custom_type: custom_type.as_str().to_string(),
+        content: custom_content_text(content),
     }))
 }
 
@@ -292,23 +262,18 @@ fn generic_panel_entry(custom_type: &str, message: &Value) -> ChatEntry {
 /// user-block slash row (the typed command IS user input); the result
 /// row decodes to the status-row class with the severity's tone.
 fn slash_row_entries(
-    message: &Value,
-    custom_type: &str,
-    content: &str,
+    content: &UserContent,
+    is_command_row: bool,
+    text: &str,
     details: &Value,
 ) -> Vec<ChatEntry> {
-    use eukhe_types::slash_commands::SESSION_SLASH_COMMAND_CUSTOM_TYPE;
-    let is_command_row = custom_type == SESSION_SLASH_COMMAND_CUSTOM_TYPE;
-    let content_is_text = match message.get("content") {
-        Some(Value::String(_)) => true,
-        Some(Value::Array(blocks)) => {
-            blocks.len() == 1
-                && matches!(
-                    blocks[0].get("type").and_then(Value::as_str),
-                    Some("text") | None
-                )
-        }
-        _ => false,
+    let content_is_text = match content {
+        UserContent::Text(_) => true,
+        UserContent::Blocks(blocks) => match blocks.as_slice() {
+            [UserContentBlock::Text(_)] => true,
+            [UserContentBlock::Raw(raw)] => raw.get("type").is_none(),
+            [] | [UserContentBlock::Image(_)] | [_, _, ..] => false,
+        },
     };
     let command_details_valid = details.get("command").is_some_and(|command| {
         command.get("name").is_some()
@@ -322,7 +287,7 @@ fn slash_row_entries(
     }
     if is_command_row {
         vec![ChatEntry::SlashCommand {
-            text: content.to_string(),
+            text: text.to_string(),
         }]
     } else {
         // The outcome row is system output, never user text (the
@@ -336,7 +301,7 @@ fn slash_row_entries(
             _ => StatusKind::Info,
         };
         vec![ChatEntry::Status {
-            text: content.to_string(),
+            text: text.to_string(),
             kind,
         }]
     }
@@ -344,8 +309,8 @@ fn slash_row_entries(
 
 /// TS `isCompactionOutcomeMessage` envelope: content string + a known
 /// reason/outcome pair; anything else is the malformed notice.
-fn compaction_outcome_entry(message: &Value, details: &Value) -> ChatEntry {
-    let valid = message.get("content").is_some_and(Value::is_string)
+fn compaction_outcome_entry(content: &UserContent, details: &Value) -> ChatEntry {
+    let valid = matches!(content, UserContent::Text(_))
         && matches!(
             details.get("reason").and_then(Value::as_str),
             Some("threshold" | "overflow" | "requested")
@@ -365,7 +330,7 @@ fn compaction_outcome_entry(message: &Value, details: &Value) -> ChatEntry {
         .and_then(Value::as_str)
         .unwrap_or("failed");
     ChatEntry::Status {
-        text: crate::snapshot::message_text(message),
+        text: crate::snapshot::content_text(content),
         kind: if outcome == "skipped" {
             StatusKind::Warning
         } else {
@@ -401,33 +366,23 @@ fn agent_message_entry(details: &Value) -> Option<ChatEntry> {
 /// `rlm_child_failure`) as the subagent-mail row: the child that exited is
 /// the mail's counterpart, the notice text is the body (the full content,
 /// header included, so the outcome wording rides intact).
-fn rlm_child_status_row(message: &Value, details: &Value) -> AgentMessageRow {
-    let content = custom_content_text(message);
+fn rlm_child_status_row(content: &UserContent, details: &Value) -> AgentMessageRow {
+    let text = custom_content_text(content);
     AgentMessageRow {
         direction: AgentMessageDirection::Received,
-        counterpart: rlm_child_session_name(details, &content),
-        message: content,
+        counterpart: rlm_child_session_name(details),
+        message: text,
     }
 }
 
-/// The child's session name: the `sessionName` details key, falling back to
-/// the `child:<name>]` token of the content header (the pre-details wire
-/// rows), then the agent-message row's `unknown`.
-fn rlm_child_session_name(details: &Value, content: &str) -> String {
+/// The child's session name: the `sessionName` details key, else the
+/// agent-message row's `unknown`.
+fn rlm_child_session_name(details: &Value) -> String {
     details
         .get("sessionName")
         .and_then(Value::as_str)
         .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            content
-                .split_once("child:")
-                .and_then(|(_, rest)| rest.split(']').next())
-                .map(str::trim)
-                .filter(|name| !name.is_empty())
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| "unknown".to_string())
+        .map_or_else(|| "unknown".to_string(), str::to_string)
 }
 
 /// TS `readShellCompletion` + `ShellCompletionComponent.render`: a valid
@@ -437,7 +392,7 @@ fn rlm_child_session_name(details: &Value, content: &str) -> String {
 /// `shellCompletionText` for a valid completion (content string or text
 /// blocks joined with newlines, images as `[image]`), the content string or
 /// its JSON form otherwise.
-fn shell_completion_row(message: &Value, details: &Value) -> ShellCompletionRow {
+fn shell_completion_row(content: &UserContent, details: &Value) -> ShellCompletionRow {
     let pid = details.get("pid").and_then(Value::as_i64);
     let command = details.get("command").and_then(Value::as_str);
     let exit_code = details.get("exitCode").and_then(Value::as_i64);
@@ -449,16 +404,15 @@ fn shell_completion_row(message: &Value, details: &Value) -> ShellCompletionRow 
         ShellCompletionRow {
             pid,
             exit_code,
-            content: custom_content_text(message),
+            content: custom_content_text(content),
         }
     } else {
         ShellCompletionRow {
             pid: None,
             exit_code: None,
-            content: match message.get("content") {
-                Some(Value::String(_)) => custom_content_text(message),
-                Some(value) => serde_json::to_string(value).unwrap_or_default(),
-                None => String::new(),
+            content: match content {
+                UserContent::Text(text) => text.clone(),
+                UserContent::Blocks(blocks) => serde_json::to_string(blocks).unwrap_or_default(),
             },
         }
     }
@@ -466,25 +420,17 @@ fn shell_completion_row(message: &Value, details: &Value) -> ShellCompletionRow 
 
 /// TS `readCustomText`: content string or blocks joined with newlines
 /// (text blocks keep their text, every non-text block renders `[image]`).
-pub(crate) fn custom_content_text(message: &Value) -> String {
-    match message.get("content") {
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(blocks)) => blocks
+pub(crate) fn custom_content_text(content: &UserContent) -> String {
+    match content {
+        UserContent::Text(text) => text.clone(),
+        UserContent::Blocks(blocks) => blocks
             .iter()
-            .map(|block| {
-                if block.get("type").and_then(Value::as_str) == Some("text") {
-                    block
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string()
-                } else {
-                    "[image]".to_string()
-                }
+            .map(|block| match block {
+                UserContentBlock::Text(text) => text.text.clone(),
+                UserContentBlock::Image(_) | UserContentBlock::Raw(_) => "[image]".to_string(),
             })
             .collect::<Vec<_>>()
             .join("\n"),
-        _ => String::new(),
     }
 }
 
@@ -494,8 +440,18 @@ mod tests {
     use crate::{Line, Span};
     use serde_json::json;
 
-    fn decoded(message: &serde_json::Value) -> Vec<ChatEntry> {
-        custom_message_entries(message)
+    /// Decode one `role: "custom"` wire fixture and dispatch it.
+    pub(super) fn decoded(message: &serde_json::Value) -> Vec<ChatEntry> {
+        let mut message = message.clone();
+        message["timestamp"] = json!(0);
+        let message: eukhe_types::session::CustomMessage =
+            serde_json::from_value(message).expect("custom fixture decodes");
+        custom_message_entries(
+            &CustomType::parse(&message.custom_type),
+            &message.content,
+            message.display,
+            message.details.as_ref(),
+        )
     }
 
     /// An agent's answer to the user's `@name` message decodes to the
@@ -503,7 +459,7 @@ mod tests {
     #[test]
     fn an_agent_reply_decodes_to_the_family_row() {
         let message = json!({
-            "role": "custom", "customType": AGENT_REPLY_CUSTOM_TYPE, "display": true,
+            "role": "custom", "customType": "agent_reply", "display": true,
             "content": "[agent-reply from alpha]\n\nI reported 42.",
             "details": { "id": "r1", "from": "alpha", "message": "I reported 42." },
         });
@@ -527,7 +483,7 @@ mod tests {
             "harness_digest",
             "refinement_notice",
             "eukhe.worker_recovery",
-            AGENT_MESSAGE_CUSTOM_TYPE,
+            "agent_message",
         ] {
             let entries = decoded(&json!({
                 "role": "custom",
@@ -575,7 +531,7 @@ mod tests {
     fn agent_message_decodes_counterpart_and_body() {
         let entries = decoded(&json!({
             "role": "custom",
-            "customType": AGENT_MESSAGE_CUSTOM_TYPE,
+            "customType": "agent_message",
             "content": "[agent-message from child:model-probe]\n\nready",
             "display": true,
             "details": {
@@ -606,7 +562,7 @@ mod tests {
         let base = |from: serde_json::Value| {
             decoded(&json!({
                 "role": "custom",
-                "customType": AGENT_MESSAGE_CUSTOM_TYPE,
+                "customType": "agent_message",
                 "content": "[agent-message from x]\n\nhi",
                 "display": true,
                 "details": {
@@ -641,7 +597,7 @@ mod tests {
         // it falls through to the generic box.
         let entries = decoded(&json!({
             "role": "custom",
-            "customType": AGENT_MESSAGE_CUSTOM_TYPE,
+            "customType": "agent_message",
             "content": "[agent-message from x]",
             "display": true,
             "details": { "id": 1, "message": null },
@@ -653,7 +609,7 @@ mod tests {
     fn injected_prompt_kinds_decode() {
         let heartbeat = decoded(&json!({
             "role": "custom",
-            "customType": HEARTBEAT_PROMPT_CUSTOM_TYPE,
+            "customType": "heartbeat_prompt",
             "content": "[heartbeat: every 10m run#0]\n\nnudge",
             "display": true,
             "details": { "jobId": "j1", "schedule": "every 10m", "runCount": 0 },
@@ -666,7 +622,7 @@ mod tests {
         ));
         let goal = decoded(&json!({
             "role": "custom",
-            "customType": GOAL_CONTEXT_CUSTOM_TYPE,
+            "customType": "goal_context",
             "content": "[goal: continuation]",
             "display": true,
             "details": { "kind": "continuation", "objective": "ship it" },
@@ -681,7 +637,7 @@ mod tests {
         ));
         let restored = decoded(&json!({
             "role": "custom",
-            "customType": IPYTHON_STATE_RESTORED_CUSTOM_TYPE,
+            "customType": "ipython_state_restored",
             "content": "[python-state-restored]",
             "display": true,
             "details": { "restored": false },
@@ -694,7 +650,7 @@ mod tests {
         // The kernel-state row carries no expandable body.
         let restored = decoded(&json!({
             "role": "custom",
-            "customType": IPYTHON_STATE_RESTORED_CUSTOM_TYPE,
+            "customType": "ipython_state_restored",
             "content": "[python-state-restored]",
             "display": true,
             "details": { "restored": true },
@@ -716,17 +672,17 @@ mod tests {
     fn rlm_child_notice_rows_decode_to_the_agent_message_class() {
         let notices = [
             (
-                RLM_CHILD_FAILURE_CUSTOM_TYPE,
+                "rlm_child_failure",
                 "[child-failed child:lane]\n\nboom",
                 json!({ "childId": "sub-1", "sessionName": "lane", "error": "boom" }),
             ),
             (
-                RLM_CHILD_TERMINAL_NOTICE_CUSTOM_TYPE,
+                "rlm_child_terminal_notice",
                 "[child-exited: no-reply child:lane]\n\nLast assistant text: done",
                 json!({ "childId": "sub-2", "sessionName": "lane", "kind": "completed_without_reply" }),
             ),
             (
-                RLM_CHILD_TERMINAL_NOTICE_CUSTOM_TYPE,
+                "rlm_child_terminal_notice",
                 "[child-exited: cancelled child:cancel-worker]\n\nDeleted by parent",
                 json!({ "childId": "sub-3", "sessionName": "cancel-worker", "kind": "cancelled", "reason": "Deleted by parent" }),
             ),
@@ -756,11 +712,11 @@ mod tests {
                 "{custom_type} must not render as a turn-prompt/user row"
             );
         }
-        // The pre-details wire rows keep their identity: the name comes
-        // from the `child:<name>]` content token.
+        // A row without details names no counterpart: the content header
+        // is never parsed for one.
         let entries = decoded(&json!({
             "role": "custom",
-            "customType": RLM_CHILD_FAILURE_CUSTOM_TYPE,
+            "customType": "rlm_child_failure",
             "content": "[child-failed child:legacy-worker]\n\nspawn failed",
             "display": true,
             "details": serde_json::Value::Null,
@@ -768,7 +724,7 @@ mod tests {
         assert!(matches!(
             entries.as_slice(),
             [ChatEntry::AgentMessage(row)]
-                if row.counterpart == "legacy-worker"
+                if row.counterpart == "unknown"
                     && row.message == "[child-failed child:legacy-worker]\n\nspawn failed"
         ));
     }
@@ -779,7 +735,7 @@ mod tests {
     fn python_skills_unavailable_row_decodes() {
         let unavailable = decoded(&json!({
             "role": "custom",
-            "customType": PYTHON_SKILLS_UNAVAILABLE_CUSTOM_TYPE,
+            "customType": "python_skills_unavailable",
             "content": "[python-skills-unavailable]\n\n- lookup: No module named 'lookup'",
             "display": true,
             "details": { "skills": ["lookup", "edit"] },
@@ -798,7 +754,7 @@ mod tests {
     fn model_prompt_error_row_is_a_warning_status_line() {
         let entries = decoded(&json!({
             "role": "custom",
-            "customType": MODEL_PROMPT_ERROR_CUSTOM_TYPE,
+            "customType": "model_prompt_error",
             "content": "[model-prompt-error]\n\nPer-model system prompt additions were not applied:\n- /x/model-prompts.toml: bad TOML",
             "display": true,
         }));
@@ -816,7 +772,7 @@ mod tests {
     fn shell_completion_decodes_details() {
         let entries = decoded(&json!({
             "role": "custom",
-            "customType": ASYNC_BASH_COMPLETION_CUSTOM_TYPE,
+            "customType": "async_bash_completion",
             "content": "[bash-done pid:4371 exit:0]\n\nCommand: \"ls\"",
             "display": true,
             "details": { "pid": 4371, "command": "ls", "exitCode": 0 },
@@ -831,7 +787,7 @@ mod tests {
         // the default finished row and the JSON content fallback.
         let entries = decoded(&json!({
             "role": "custom",
-            "customType": ASYNC_BASH_COMPLETION_CUSTOM_TYPE,
+            "customType": "async_bash_completion",
             "content": [{ "type": "text", "text": "[bash-done]" }],
             "display": true,
             "details": { "pid": -1, "exitCode": 3 },
@@ -850,7 +806,7 @@ mod tests {
         // agent-message rows.
         let entries = decoded(&json!({
             "role": "custom",
-            "customType": AGENT_MESSAGE_CUSTOM_TYPE,
+            "customType": "agent_message",
             "content": "[agent-message from x]",
             "display": true,
             "details": { "id": "", "message": "" },
@@ -862,7 +818,7 @@ mod tests {
     fn compaction_outcome_maps_to_status_rows() {
         let skipped = decoded(&json!({
             "role": "custom",
-            "customType": COMPACTION_OUTCOME_CUSTOM_TYPE,
+            "customType": "compaction_outcome",
             "content": "Compaction skipped: below threshold",
             "display": true,
             "details": { "reason": "threshold", "outcome": "skipped" },
@@ -876,7 +832,7 @@ mod tests {
         );
         let failed = decoded(&json!({
             "role": "custom",
-            "customType": COMPACTION_OUTCOME_CUSTOM_TYPE,
+            "customType": "compaction_outcome",
             "content": "Compaction failed",
             "display": true,
             "details": { "reason": "requested", "outcome": "failed" },
@@ -890,7 +846,7 @@ mod tests {
         );
         let malformed = decoded(&json!({
             "role": "custom",
-            "customType": COMPACTION_OUTCOME_CUSTOM_TYPE,
+            "customType": "compaction_outcome",
             "content": "Compaction?",
             "display": true,
             "details": { "reason": "wat" },

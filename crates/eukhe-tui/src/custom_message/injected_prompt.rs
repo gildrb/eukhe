@@ -18,14 +18,13 @@
 //! TS binary still renders a heart. The TS side is expected to
 //! adopt the same glyph.
 
+use super::custom_content_text;
 use super::render::{spacer, text_rows, truncate_text};
-use super::{
-    custom_content_text, GOAL_CONTEXT_CUSTOM_TYPE, HEARTBEAT_PROMPT_CUSTOM_TYPE,
-    IPYTHON_STATE_RESTORED_CUSTOM_TYPE, PYTHON_SKILLS_UNAVAILABLE_CUSTOM_TYPE,
-};
 use crate::chat::Detail;
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
+use eukhe_types::ai::UserContent;
+use eukhe_types::custom_type::CustomType;
 use serde_json::Value;
 
 /// One injected prompt row (TS `InjectedPromptMessageComponent`); the kind
@@ -56,21 +55,21 @@ pub enum InjectedPromptKind {
     PythonSkillsUnavailable { skills: Vec<String> },
 }
 
-/// One injected-prompt row (TS `isInjectedPromptMessage` kinds).
+/// One injected-prompt row (TS `isInjectedPromptMessage` kinds); `None`
+/// for every other custom type.
 pub(crate) fn injected_prompt_row(
-    custom_type: &str,
-    message: &Value,
+    custom_type: &CustomType,
+    content: &UserContent,
     details: &Value,
-) -> InjectedPromptRow {
-    let content = custom_content_text(message);
+) -> Option<InjectedPromptRow> {
     let kind = match custom_type {
-        HEARTBEAT_PROMPT_CUSTOM_TYPE => InjectedPromptKind::Heartbeat {
+        CustomType::HeartbeatPrompt => InjectedPromptKind::Heartbeat {
             schedule: details
                 .get("schedule")
                 .and_then(Value::as_str)
                 .map(str::to_string),
         },
-        GOAL_CONTEXT_CUSTOM_TYPE => InjectedPromptKind::Goal {
+        CustomType::GoalContext => InjectedPromptKind::Goal {
             kind: details
                 .get("kind")
                 .and_then(Value::as_str)
@@ -80,10 +79,10 @@ pub(crate) fn injected_prompt_row(
                 .and_then(Value::as_str)
                 .map(str::to_string),
         },
-        IPYTHON_STATE_RESTORED_CUSTOM_TYPE => InjectedPromptKind::KernelRestored {
+        CustomType::IpythonStateRestored => InjectedPromptKind::KernelRestored {
             restored: details.get("restored").and_then(Value::as_bool) != Some(false),
         },
-        PYTHON_SKILLS_UNAVAILABLE_CUSTOM_TYPE => InjectedPromptKind::PythonSkillsUnavailable {
+        CustomType::PythonSkillsUnavailable => InjectedPromptKind::PythonSkillsUnavailable {
             skills: details
                 .get("skills")
                 .and_then(Value::as_array)
@@ -96,19 +95,28 @@ pub(crate) fn injected_prompt_row(
                 })
                 .unwrap_or_default(),
         },
-        // The dispatch routes only this module's four kinds here; every
-        // other custom type (the RLM child status notices included -- they
-        // render in the `agent_message` class now) owns its own dispatch
-        // arm, and an unknown type never reaches this function.
-        _ => unreachable!("injected_prompt_row sees only its four kinds"),
+        CustomType::AgentMessage
+        | CustomType::AgentReply
+        | CustomType::RlmChildFailure
+        | CustomType::RlmChildTerminalNotice
+        | CustomType::AsyncBashCompletion
+        | CustomType::CompactionOutcome
+        | CustomType::RefinementOutcome
+        | CustomType::ProviderRetryOutcome
+        | CustomType::ModelPromptError
+        | CustomType::SessionSlashCommand
+        | CustomType::SessionSlashCommandResult
+        | CustomType::Other(_) => return None,
     };
     let body = match &kind {
         // The kernel-state row stays header-only (TS keeps
         // `ipython_state_restored` header-only).
         InjectedPromptKind::KernelRestored { .. } => None,
-        _ => Some(content),
+        InjectedPromptKind::Heartbeat { .. }
+        | InjectedPromptKind::Goal { .. }
+        | InjectedPromptKind::PythonSkillsUnavailable { .. } => Some(custom_content_text(content)),
     };
-    InjectedPromptRow { kind, body }
+    Some(InjectedPromptRow { kind, body })
 }
 
 /// One injected-prompt row (TS `InjectedPromptMessageComponent`): a leading

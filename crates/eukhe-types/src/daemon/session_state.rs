@@ -5,6 +5,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::input_origin::InputOrigin;
+
 /// Lightweight daemon session shape used by list, create, rename, attach, and
 /// state responses (port of `SessionSummary` in daemon-session-list.ts).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,58 +127,24 @@ pub struct SessionSummary {
     pub anthropic_warning_shown: Option<bool>,
 }
 
-/// Port of `SessionActionSnapshot` (core/session-action-store.ts).
+/// The queue projection (TS `SessionActionSnapshot`): the parked inputs of
+/// each lane, oldest first, and the run being prepared.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionActionSnapshot {
     pub queued_count: u32,
-    pub steering: Vec<String>,
-    pub follow_ups: Vec<String>,
-    /// Rust-native typed provenance the TS snapshot has no counterpart
-    /// for: which parked lane items are RLM child status notices, by
-    /// index (the condensed queue strip folds exactly these rows). The
-    /// lane strings stay the TS preview projection verbatim.
-    #[serde(default, skip_serializing_if = "QueueLaneIndices::is_empty")]
-    pub rlm_child_status: QueueLaneIndices,
-    /// Rust-native typed provenance the TS snapshot has no counterpart
-    /// for: which parked lane items are engine-minted internal prompts
-    /// (the injected, queue-invisible continuations TS's projection
-    /// filters out entirely — goal continuations and threshold
-    /// compaction continuations), by index. The condensed queue strip
-    /// folds exactly these rows into its counts too (operator directive
-    /// 2026-09-28: internal prompts never render as individual rows),
-    /// and the browser renders them read-only.
-    #[serde(default, skip_serializing_if = "QueueLaneIndices::is_empty")]
-    pub injected_prompts: QueueLaneIndices,
+    pub steering: Vec<QueuedItem>,
+    pub follow_ups: Vec<QueuedItem>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active: Option<SessionActionActive>,
 }
 
-/// The lane-indices rider shape the queue projection's typed-provenance
-/// marks share: parked lane items, by index, of one internal class. The
-/// riders are [`SessionActionSnapshot::rlm_child_status`] (the
-/// `rlm_child_terminal_notice` / `rlm_child_failure` injected rows — the
-/// worker derives the indices from each parked item's injected custom
-/// row) and [`SessionActionSnapshot::injected_prompts`] (the
-/// engine-minted continuations). The classification rides the wire typed
-/// either way — a user-typed message that merely looks like an internal
-/// preview never carries either mark.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QueueLaneIndices {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub steering: Vec<usize>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub follow_up: Vec<usize>,
-}
-
-impl QueueLaneIndices {
-    /// Whether no lane item is marked (the wire omits the rider then, so
-    /// a notice-free projection serializes byte-identical to TS).
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.steering.is_empty() && self.follow_up.is_empty()
-    }
+/// One parked input: its preview text and who produced it. Clients
+/// classify the item by `origin`, never by the text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedItem {
+    pub text: String,
+    pub origin: InputOrigin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -18,31 +18,10 @@
 //! too; Rust renders one counted row naming each origin with its own
 //! plural-correct count - "1 agent message, 1 heartbeat, and 1 other
 //! internal prompt queued" - so the visual queue prioritizes
-//! human-inserted prompts. The classifier
-//! is TS `isLabeledQueuedPreview` on the preview string (the wire carries
-//! no provenance), so a human-typed prompt that begins with one of the
-//! internal labels condenses too - it still delivers, and the browse
-//! affordance walks and shows it. The parked RLM child status notices
-//! (`[child-exited: ...]` / `[child-failed ...]` lifecycle rows) are the
-//! one origin that NEVER string-classifies: they condense by WIRE-TYPED
-//! provenance (operator directive 2026-09-25 -- the queue-fold bug: many
-//! child exits parked behind one busy turn rendered as that many
-//! user-like rows), the daemon marking its own injected rows by index on
-//! the queue projection, so a user-typed prompt that merely looks like a
-//! notice stays the human row it is.
-//!
-//! The engine-minted continuations (goal continuations and budget-limit
-//! steers, threshold-compaction continuations) park preview-less and
-//! queue-invisible - TS's `visibleSessionActionProjection` filters them
-//! out of the projection entirely, Rust's projection kept serving their
-//! raw text, so they rendered as user-like rows. They now carry their own
-//! WIRE-TYPED provenance too (the `injectedPrompts` rider, the
-//! `rlmChildStatus` precedent; operator directive 2026-09-28: "please
-//! group the child exits in the summary of agent messages, internal
-//! messages, etc. they should not be individual rows"): they count into
-//! the condensed row's "other internal prompt" bucket and never render
-//! their own rows, while a user-typed prompt with a continuation's exact
-//! text stays the human row it is.
+//! human-inserted prompts. Every queued item carries the typed
+//! [`InputOrigin`] its producer set; the strip classifies by it, never by
+//! the text, so a user-typed prompt that merely looks like a notice stays
+//! the human row it is.
 //!
 //! The browse affordances TS gives the strip (TS `QueueSelection`,
 //! alt+up/alt+down to pick a parked message, ctrl+alt+arrows to reorder,
@@ -61,6 +40,8 @@
 use crate::theme::{Theme, ThemeColor};
 use crate::width::{pad_line, truncate_line};
 use crate::Line;
+use eukhe_types::daemon::QueuedItem;
+use eukhe_types::input_origin::{InputOrigin, Report};
 
 #[cfg(test)]
 mod tests;
@@ -75,44 +56,40 @@ pub const FOLLOW_UP_LABEL: &str = "Follow-up";
 pub const STARTING_LABEL: &str = "Starting";
 
 /// The origin of a queued internal prompt: what the condensed row counts
-/// the prompt as. The four TS labels classify by preview string (the wire
-/// carries no provenance for them - the label is the classifier); the RLM
-/// child status notices classify only by wire-typed provenance.
+/// the prompt as.
 #[derive(Debug, Clone, Copy)]
 enum InternalPromptOrigin {
-    /// An `Agent message received: ` preview.
+    /// Mail from another agent session.
     AgentMessage,
-    /// A `Heartbeat prompt: ` preview.
+    /// A heartbeat fire.
     Heartbeat,
-    /// A parked RLM child status notice (an injected
-    /// `rlm_child_terminal_notice` / `rlm_child_failure` row), classified
-    /// by wire-typed provenance only (see [`QueueLaneIndices`]).
+    /// A child run's exit or failure report.
     ChildStatus,
-    /// Every other internal prompt: `Goal context: ` and
-    /// `Background command finished: ` previews.
+    /// Every other internal prompt: goal and autonomous continuations, the
+    /// quota resume marker, finished background commands.
     Other,
 }
 
-/// TS `HEARTBEAT_PROMPT_PREVIEW_LABEL` & co.: internal prompts that queue
-/// with their own visible label render as-is (no lane label prepended),
-/// each paired with the origin the condensed row counts it as.
-const LABELED_PREVIEW_PREFIXES: [(&str, InternalPromptOrigin); 4] = [
-    ("Heartbeat prompt: ", InternalPromptOrigin::Heartbeat),
-    ("Goal context: ", InternalPromptOrigin::Other),
-    (
-        "Agent message received: ",
-        InternalPromptOrigin::AgentMessage,
-    ),
-    ("Background command finished: ", InternalPromptOrigin::Other),
-];
-
-/// TS `isLabeledQueuedPreview`: the queued prompt's origin when it
-/// carries an internal label, `None` when it is human-typed.
-fn internal_prompt_origin(message: &str) -> Option<InternalPromptOrigin> {
-    LABELED_PREVIEW_PREFIXES
-        .iter()
-        .find(|(prefix, _)| message.starts_with(prefix))
-        .map(|(_, origin)| *origin)
+/// The internal origin of a queued item, `None` for the user's own input.
+fn internal_origin(origin: &InputOrigin) -> Option<InternalPromptOrigin> {
+    match origin {
+        InputOrigin::User => None,
+        InputOrigin::Report {
+            report: Report::AgentMessage { .. },
+        } => Some(InternalPromptOrigin::AgentMessage),
+        InputOrigin::Report {
+            report: Report::Heartbeat { .. },
+        } => Some(InternalPromptOrigin::Heartbeat),
+        InputOrigin::Report {
+            report: Report::ChildExited { .. } | Report::ChildFailed { .. },
+        } => Some(InternalPromptOrigin::ChildStatus),
+        InputOrigin::Goal { .. }
+        | InputOrigin::Autonomous { .. }
+        | InputOrigin::QuotaResume
+        | InputOrigin::Report {
+            report: Report::BashDone { .. } | Report::JobSettled { .. },
+        } => Some(InternalPromptOrigin::Other),
+    }
 }
 
 /// The queued internal prompts' counts by origin across both lanes, or
@@ -171,8 +148,8 @@ impl CondensedCounts {
 /// `None` when every queued message is human-typed.
 fn condensed_counts(queue: &QueuedMessages) -> Option<CondensedCounts> {
     let mut counts = CondensedCounts::default();
-    for (lane, index, message) in queued_items(queue) {
-        if let Some(origin) = queued_item_origin(message, queue, lane, index) {
+    for (_, item) in queued_items(queue) {
+        if let Some(origin) = internal_origin(&item.origin) {
             match origin {
                 InternalPromptOrigin::AgentMessage => counts.agent_messages += 1,
                 InternalPromptOrigin::Heartbeat => counts.heartbeats += 1,
@@ -185,58 +162,18 @@ fn condensed_counts(queue: &QueuedMessages) -> Option<CondensedCounts> {
 }
 
 /// Walk the parked queue items lane-by-lane, oldest-first, with each
-/// item's lane and index (its provenance address).
-fn queued_items(queue: &QueuedMessages) -> impl Iterator<Item = (QueueLane, usize, &str)> {
+/// item's lane.
+fn queued_items(queue: &QueuedMessages) -> impl Iterator<Item = (QueueLane, &QueuedItem)> {
     queue
         .steering
         .iter()
-        .enumerate()
-        .map(|(index, message)| (QueueLane::Steering, index, message.as_str()))
+        .map(|item| (QueueLane::Steering, item))
         .chain(
             queue
                 .follow_ups
                 .iter()
-                .enumerate()
-                .map(|(index, message)| (QueueLane::FollowUp, index, message.as_str())),
+                .map(|item| (QueueLane::FollowUp, item)),
         )
-}
-
-/// One queued item's origin for the strip: the wire-typed provenance
-/// decides FIRST (the daemon marks its own injected rows -- the child
-/// status notices and the engine-minted continuations; the preview text
-/// never classifies them), then the TS internal labels classify by
-/// preview string exactly like `isLabeledQueuedPreview`. `None` is a
-/// human-typed row.
-fn queued_item_origin(
-    message: &str,
-    queue: &QueuedMessages,
-    lane: QueueLane,
-    index: usize,
-) -> Option<InternalPromptOrigin> {
-    if queue.rlm_child_status.is_marked(lane, index) {
-        return Some(InternalPromptOrigin::ChildStatus);
-    }
-    if let Some(origin) = internal_prompt_origin(message) {
-        return Some(origin);
-    }
-    // The engine-minted continuations carry no preview label, so the
-    // rider is the only thing that can classify them (a user-typed
-    // prompt with the continuation's exact text never rides it).
-    if queue.injected_prompts.is_marked(lane, index) {
-        return Some(InternalPromptOrigin::Other);
-    }
-    None
-}
-
-/// TS `formatQueuedMessagePreview`: the lane label plus the message, or
-/// the message itself when it carries an internal label.
-#[must_use]
-pub fn format_queued_message_preview(message: &str, label: &str) -> String {
-    if internal_prompt_origin(message).is_some() {
-        message.to_string()
-    } else {
-        format!("{label}: {message}")
-    }
 }
 
 /// The queued input lanes as the session reports them
@@ -244,9 +181,9 @@ pub fn format_queued_message_preview(message: &str, label: &str) -> String {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QueuedMessages {
     /// Messages delivered at the next turn boundary (Enter while busy).
-    pub steering: Vec<String>,
+    pub steering: Vec<QueuedItem>,
     /// Messages delivered when the run goes idle (the follow-up key).
-    pub follow_ups: Vec<String>,
+    pub follow_ups: Vec<QueuedItem>,
     /// The picked-up prompt whose turn is still preparing (TS #2063
     /// `sessionActions.active` with `kind: "turn"` and
     /// `phase: "preparing"`): the strip keeps it visible as its
@@ -255,49 +192,12 @@ pub struct QueuedMessages {
     /// until the turn renders it. Not browsable: the browse affordances
     /// walk the parked lanes only (the prompt is already delivered).
     pub starting: Option<String>,
-    /// Which parked items are RLM child status notices, by lane index
-    /// (the wire-typed provenance; see [`QueueLaneIndices`]). The
-    /// strip folds exactly these rows into the condensed count -- they
-    /// stay browseable with their full notice text.
-    pub rlm_child_status: QueueLaneIndices,
-    /// Which parked items are engine-minted internal prompts (the
-    /// injected, queue-invisible continuations), by lane index (the
-    /// second wire-typed provenance rider; see [`QueueLaneIndices`]).
-    /// The strip folds exactly these rows into the condensed count too
-    /// -- they stay browseable with their full text, read-only.
-    pub injected_prompts: QueueLaneIndices,
 }
 
 impl QueuedMessages {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.steering.is_empty() && self.follow_ups.is_empty()
-    }
-}
-
-/// The lane-indices rider shape the queue projection's typed-provenance
-/// marks share (`sessionActions.rlmChildStatus` for the parked RLM child
-/// status notices -- the daemon derives the indices from the parked rows'
-/// injected custom rows, the `rlm_child_terminal_notice` /
-/// `rlm_child_failure` kinds -- and `sessionActions.injectedPrompts` for
-/// the engine-minted continuations). The strip never classifies by
-/// preview text through either: a user-typed message that merely looks
-/// like a notice or a continuation (or starts with any internal-looking
-/// prefix) stays a human row.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct QueueLaneIndices {
-    pub steering: Vec<usize>,
-    pub follow_up: Vec<usize>,
-}
-
-impl QueueLaneIndices {
-    /// Whether the lane item at `index` is a child status notice.
-    #[must_use]
-    pub fn is_marked(&self, lane: QueueLane, index: usize) -> bool {
-        match lane {
-            QueueLane::Steering => self.steering.contains(&index),
-            QueueLane::FollowUp => self.follow_up.contains(&index),
-        }
     }
 }
 
@@ -369,18 +269,15 @@ pub fn render_queue(
     if let Some(starting) = queue.starting.as_deref() {
         rows.push(preview_row(theme, STARTING_LABEL, starting, width));
     }
-    // The human-typed previews (the non-labeled messages) render
-    // individually, so what the user parked stays explicit and
-    // prioritized above the condensed row. The child status notices
-    // classify by typed provenance here (never by their text), so a
-    // user-typed row that merely looks like a notice renders too.
-    for (lane, index, message) in queued_items(queue) {
-        if queued_item_origin(message, queue, lane, index).is_none() {
+    // The user's own messages render individually, so what the user
+    // parked stays explicit and prioritized above the condensed row.
+    for (lane, item) in queued_items(queue) {
+        if internal_origin(&item.origin).is_none() {
             let label = match lane {
                 QueueLane::Steering => STEERING_LABEL,
                 QueueLane::FollowUp => FOLLOW_UP_LABEL,
             };
-            rows.push(preview_row(theme, label, message, width));
+            rows.push(preview_row(theme, label, &item.text, width));
         }
     }
     if let Some(counts) = condensed_counts(queue) {
@@ -618,30 +515,6 @@ pub fn mirror_lane_move(queue: &mut QueuedMessages, lane: QueueLane, index: usiz
     };
     if index < lane_items.len() && target < lane_items.len() && index != target {
         lane_items.swap(index, target);
-        // The typed provenance mirrors the same swap (a marked index
-        // rides its item through the move), so the strip classification
-        // stays correct in the window before the daemon's action update
-        // lands with the fresh indices. Both riders mirror: a user
-        // row's reorder can swap it across an internal one.
-        let (lane_child, lane_injected) = match lane {
-            QueueLane::Steering => (
-                &mut queue.rlm_child_status.steering,
-                &mut queue.injected_prompts.steering,
-            ),
-            QueueLane::FollowUp => (
-                &mut queue.rlm_child_status.follow_up,
-                &mut queue.injected_prompts.follow_up,
-            ),
-        };
-        for indices in [lane_child, lane_injected] {
-            for marked in indices.iter_mut() {
-                if *marked == index {
-                    *marked = target;
-                } else if *marked == target {
-                    *marked = index;
-                }
-            }
-        }
     }
 }
 
@@ -649,21 +522,19 @@ pub fn mirror_lane_move(queue: &mut QueuedMessages, lane: QueueLane, index: usiz
 /// follow-up lane, both oldest-first, so the last item is the newest
 /// follow-up and the cursor walks newest-first down to the oldest steering.
 fn flatten(queue: &QueuedMessages) -> Vec<QueueSelectionItem> {
-    let item = |lane: QueueLane, index: usize, text: &str| QueueSelectionItem {
-        lane,
-        index,
-        text: text.to_string(),
-        internal: queued_item_origin(text, queue, lane, index).is_some(),
+    let lane_items = |lane: QueueLane, items: &[QueuedItem]| {
+        items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| QueueSelectionItem {
+                lane,
+                index,
+                text: item.text.clone(),
+                internal: internal_origin(&item.origin).is_some(),
+            })
+            .collect::<Vec<_>>()
     };
-    let steering = queue
-        .steering
-        .iter()
-        .enumerate()
-        .map(|(index, text)| item(QueueLane::Steering, index, text));
-    let follow_up = queue
-        .follow_ups
-        .iter()
-        .enumerate()
-        .map(|(index, text)| item(QueueLane::FollowUp, index, text));
-    steering.chain(follow_up).collect()
+    let mut items = lane_items(QueueLane::Steering, &queue.steering);
+    items.extend(lane_items(QueueLane::FollowUp, &queue.follow_ups));
+    items
 }

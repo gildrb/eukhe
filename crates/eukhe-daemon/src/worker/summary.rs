@@ -6,7 +6,6 @@
 use super::durable_host::bridge::{QueuedMode, ShownView};
 use super::durable_host::wire_messages::entry_wire_message;
 use super::lifecycle::active_lifecycle;
-use super::session_core::InjectionKind;
 use super::{
     create_daemon_event_meta, AgentConnectionState, Arc, DaemonOutbound, DaemonSessionClosedReason,
     EventPump, Map, Mutex, OutboundFrame, Result, SessionActionSnapshot, SessionCore, SessionSlot,
@@ -14,7 +13,7 @@ use super::{
 };
 
 use eukhe_durable::harness::usage::UsageState;
-use eukhe_types::daemon::SessionEvent;
+use eukhe_types::daemon::{QueuedItem, SessionEvent};
 use eukhe_types::pi_ai::Model;
 use serde_json::json;
 
@@ -149,11 +148,11 @@ impl Worker {
             cwd: core.cwd.clone(),
             model,
             thinking_level: thinking_level(core),
-            service_tier: crate::setting_switches::service_tier_wire_name(
-                core.active_service_tier
-                    .unwrap_or(eukhe_types::ai::ServiceTier::Auto),
-            )
-            .to_string(),
+            service_tier: core
+                .active_service_tier
+                .unwrap_or(eukhe_types::ai::ServiceTier::Auto)
+                .as_str()
+                .to_string(),
             available_thinking_levels: available_thinking_levels(core, &self.session),
             is_bash_running: self.user_bash.is_running(),
             retry_attempt: mirror
@@ -583,10 +582,9 @@ pub(crate) fn session_summary(
 
 /// The queue snapshot for one core (TS `sessionActions`): the queued
 /// steer and follow-up inputs of the shown conversation's inbox, then the
-/// inputs an abort suspended and the admissions an input pause holds.
-/// The riders mark the daemon-classified parked rows (child status
-/// notices, injected prompts) by lane index; `active` is the run the
-/// bridge's active action tracks (the strip's Starting row).
+/// inputs an abort suspended and the admissions an input pause holds, each
+/// with its origin; `active` is the run the bridge's active action tracks
+/// (the strip's Starting row).
 pub(crate) fn session_snapshot(core: &SessionCore) -> SessionActionSnapshot {
     let inbox = core
         .view
@@ -596,29 +594,16 @@ pub(crate) fn session_snapshot(core: &SessionCore) -> SessionActionSnapshot {
     let lane = |mode: QueuedMode| {
         queued()
             .filter(|input| input.mode == mode)
-            .map(|input| input.text.clone())
-            .collect::<Vec<String>>()
-    };
-    let indices = |mode: QueuedMode, kind: InjectionKind| {
-        queued()
-            .filter(|input| input.mode == mode)
-            .enumerate()
-            .filter(|(_, input)| InjectionKind::of(&input.origin) == Some(kind))
-            .map(|(index, _)| index)
-            .collect::<Vec<usize>>()
+            .map(|input| QueuedItem {
+                text: input.text.clone(),
+                origin: input.origin.clone(),
+            })
+            .collect::<Vec<QueuedItem>>()
     };
     SessionActionSnapshot {
         queued_count: u32::try_from(queued().count()).unwrap_or(u32::MAX),
         steering: lane(QueuedMode::Steer),
         follow_ups: lane(QueuedMode::FollowUp),
-        rlm_child_status: eukhe_types::daemon::QueueLaneIndices {
-            steering: indices(QueuedMode::Steer, InjectionKind::ChildStatusNotice),
-            follow_up: indices(QueuedMode::FollowUp, InjectionKind::ChildStatusNotice),
-        },
-        injected_prompts: eukhe_types::daemon::QueueLaneIndices {
-            steering: indices(QueuedMode::Steer, InjectionKind::InjectedPrompt),
-            follow_up: indices(QueuedMode::FollowUp, InjectionKind::InjectedPrompt),
-        },
         active: core.view.as_ref().and_then(|view| view.active.clone()),
     }
 }
@@ -706,78 +691,53 @@ mod tests {
         core
     }
 
-    /// The riders mark exactly the daemon-classified parked rows, by lane
-    /// index (lane-relative, like the old projection); a same-text user
-    /// row never flags, and withdrawn inputs ride the strip with the
-    /// inbox ones.
+    /// Withdrawn and held inputs ride the strip after the inbox ones, each
+    /// with the origin its producer set.
     #[test]
-    fn the_riders_mark_the_injected_rows_by_lane_index() {
+    fn the_queue_items_carry_their_origins() {
+        let child = InputOrigin::Report {
+            report: Report::ChildExited {
+                child: "a".to_owned(),
+                exit: ChildExit::NoReply,
+            },
+        };
+        let heartbeat = InputOrigin::Report {
+            report: Report::Heartbeat {
+                schedule: "every 10m".to_owned(),
+                run: 0,
+            },
+        };
         let core = core_with(
             vec![
                 queued(1, QueuedMode::Steer, "user text"),
-                queued_from(
-                    2,
-                    QueuedMode::Steer,
-                    "[child-exited: no-reply child:a]",
-                    InputOrigin::Report {
-                        report: Report::ChildExited {
-                            child: "a".to_owned(),
-                            exit: ChildExit::NoReply,
-                        },
-                    },
-                ),
+                queued_from(2, QueuedMode::Steer, "child notice", child.clone()),
             ],
             vec![queued(3, QueuedMode::FollowUp, "aborted earlier")],
             vec![queued_from(
                 4,
                 QueuedMode::Steer,
                 "paused admission",
-                InputOrigin::Report {
-                    report: Report::Heartbeat {
-                        schedule: "every 10m".to_owned(),
-                        run: 0,
-                    },
-                },
+                heartbeat.clone(),
             )],
         );
+        let item = |text: &str, origin: InputOrigin| QueuedItem {
+            text: text.to_owned(),
+            origin,
+        };
         let snapshot = session_snapshot(&core);
         assert_eq!(snapshot.queued_count, 4);
         assert_eq!(
             snapshot.steering,
             [
-                "user text",
-                "[child-exited: no-reply child:a]",
-                "paused admission"
+                item("user text", InputOrigin::User),
+                item("child notice", child),
+                item("paused admission", heartbeat),
             ]
         );
-        assert_eq!(snapshot.follow_ups, ["aborted earlier"]);
-        assert_eq!(snapshot.rlm_child_status.steering, vec![1]);
-        assert!(snapshot.rlm_child_status.follow_up.is_empty());
-        assert_eq!(snapshot.injected_prompts.steering, vec![2]);
-        assert!(snapshot.injected_prompts.follow_up.is_empty());
-
-        // The wire omits an empty rider entirely (the TS shape).
-        let wire = serde_json::to_value(&snapshot).expect("wire");
         assert_eq!(
-            wire["rlmChildStatus"],
-            json!({ "steering": [1] }),
-            "the rider carries its lane indices, the empty lane omitted"
+            snapshot.follow_ups,
+            [item("aborted earlier", InputOrigin::User)]
         );
-        assert_eq!(wire["injectedPrompts"], json!({ "steering": [2] }));
-    }
-
-    /// A notice-free projection stays the TS wire shape: neither rider
-    /// serializes.
-    #[test]
-    fn a_notice_free_projection_has_no_riders() {
-        let core = core_with(
-            vec![queued(1, QueuedMode::FollowUp, "plain")],
-            vec![],
-            vec![],
-        );
-        let wire = serde_json::to_value(session_snapshot(&core)).expect("wire");
-        assert!(wire.get("rlmChildStatus").is_none());
-        assert!(wire.get("injectedPrompts").is_none());
     }
 
     /// The active action rides the projection as the bridge tracked it.

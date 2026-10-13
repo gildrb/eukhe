@@ -349,7 +349,7 @@ impl SessionUi {
         // mounted card id survives the patch (TS keeps
         // `activeBashComponent` tracked) -- the rebuild's kind decides
         // its fate.
-        let state = attach.snapshot.get("state");
+        let state = Some(&attach.snapshot.state);
         let resync_bash = ResyncBash {
             was_running: self.user_bash_running,
             snap_running: state
@@ -363,7 +363,7 @@ impl SessionUi {
         };
         self.user_bash_running = resync_bash.snap_running;
         self.resync_bash = Some(resync_bash);
-        let reconstructed = reconstruct(&attach);
+        let reconstructed = reconstruct(&attach)?;
         let mounted_session_changes = previous != attach.active_session_id;
         self.active_session_id = attach.active_session_id;
         // The new attachment exists (the snapshot above rebuilt from it):
@@ -400,8 +400,8 @@ impl SessionUi {
         self.service_tier.clone_from(&reconstructed.service_tier);
         self.session_file = attach
             .snapshot
-            .get("state")
-            .and_then(|state| state.get("sessionFile"))
+            .state
+            .get("sessionFile")
             .and_then(Value::as_str)
             .filter(|file| !file.is_empty())
             .map(str::to_string);
@@ -501,10 +501,13 @@ impl SessionUi {
         // rebuilds from the snapshot): a turn that is still live behind the
         // re-attach keeps the spinner, one that died with the old link (or
         // never ran) does not.
-        let streaming = attach.snapshot.get("state").is_some_and(|state| {
-            ["isStreaming", "isCompacting"]
-                .iter()
-                .any(|flag| state.get(flag).and_then(Value::as_bool).unwrap_or(false))
+        let streaming = ["isStreaming", "isCompacting"].iter().any(|flag| {
+            attach
+                .snapshot
+                .state
+                .get(flag)
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
         });
         self.turn_active = streaming;
         self.streaming_index = None;

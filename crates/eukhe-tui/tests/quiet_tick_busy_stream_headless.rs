@@ -103,6 +103,15 @@ fn stream_reply(mut writer: UnixStream) {
                 "message": {
                     "role": "assistant",
                     "content": [{ "type": "text", "text": format!("reply delta {delta}") }],
+                    "api": "scripted",
+                    "provider": "scripted",
+                    "model": "faux-1",
+                    "usage": {
+                        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+                    },
+                    "stopReason": "stop",
+                    "timestamp": 1,
                 },
                 "assistantMessageEvent": { "type": "text_delta", "delta": " more text" },
             })),
@@ -128,12 +137,15 @@ fn attach_data(id: &str) -> Value {
         "data": {
             "activeSessionId": "s1",
             "snapshot": {
+                "activeSessionId": "s1",
+                "summary": { "id": "s1", "cwd": "/tmp" },
                 "state": {
                     "sessionId": "sess-1",
                     "sessionName": "busy stream session",
                     "isStreaming": false,
                 },
                 "messages": [],
+                "lastEventSequence": 0,
             },
         },
     })

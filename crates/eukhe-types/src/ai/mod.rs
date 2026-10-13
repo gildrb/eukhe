@@ -98,6 +98,20 @@ pub enum ServiceTier {
     Priority,
 }
 
+impl ServiceTier {
+    /// The wire name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Default => "default",
+            Self::Flex => "flex",
+            Self::Scale => "scale",
+            Self::Priority => "priority",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Content blocks
 // ---------------------------------------------------------------------------

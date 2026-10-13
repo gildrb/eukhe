@@ -100,7 +100,9 @@ impl MockBoot {
                                              "snapshot": {"activeSessionId": "s1",
                                                           "summary": {"id": "s1", "cwd": "/tmp"},
                                                           "state": {"activeSessionId": "s1", "cwd": "/tmp",
-                                                                    "sessionId": "sess-1"}}}
+                                                                    "sessionId": "sess-1"},
+                                                          "messages": [],
+                                                          "lastEventSequence": 0}}
                                 })
                             );
                         }

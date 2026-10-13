@@ -14,7 +14,7 @@ fn backup_switch_loader_renders_the_failover_message() {
     // immediately on the backup provider.
     let retry = RetryState {
         attempt: 3,
-        max_attempts: 5,
+        max_attempts: Some(5),
         ends_at: std::time::Instant::now(),
         error_message: "Connection failed".to_string(),
         reason: RetryStartReason::Backup {
@@ -38,7 +38,7 @@ fn backup_switch_loader_renders_the_failover_message() {
 fn retry_loader_renders_countdown() {
     let retry = RetryState {
         attempt: 1,
-        max_attempts: 2,
+        max_attempts: Some(2),
         ends_at: std::time::Instant::now() + std::time::Duration::from_millis(1500),
         error_message: "provider down".to_string(),
         reason: RetryStartReason::Quick,
@@ -63,7 +63,7 @@ fn retry_loader_renders_countdown() {
 fn retry_loader_spans_carry_the_ts_sgr_boundaries() {
     let retry = RetryState {
         attempt: 1,
-        max_attempts: 2,
+        max_attempts: Some(2),
         ends_at: std::time::Instant::now() + std::time::Duration::from_millis(1500),
         error_message: "provider down".to_string(),
         reason: RetryStartReason::Quick,

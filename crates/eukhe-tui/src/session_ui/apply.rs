@@ -158,10 +158,21 @@ impl SessionUi {
         else {
             return;
         };
-        let Some(messages) = data.get("messages").and_then(Value::as_array) else {
-            return;
+        let messages = match data
+            .get("messages")
+            .map(<Vec<eukhe_types::session::AgentMessage> as serde::Deserialize>::deserialize)
+        {
+            Some(Ok(messages)) => messages,
+            Some(Err(error)) => {
+                self.error_row(
+                    &format!("the transcript could not be decoded: {error}"),
+                    view,
+                );
+                return;
+            }
+            None => return,
         };
-        let mut entries = crate::snapshot::transcript_to_entries(messages);
+        let mut entries = crate::snapshot::transcript_to_entries(&messages);
         // The durable summary entry does not record the `/compact` focus;
         // the live `compaction_end` did (the outcome row pushed before the
         // re-fetch), so the rebuilt summary keeps it.
@@ -229,8 +240,17 @@ impl SessionUi {
                 if meta_sequence > self.last_event_sequence {
                     self.last_event_sequence = meta_sequence;
                 }
-                if let Some(update) = event_to_update(&event) {
-                    self.apply_update(update, view);
+                self.apply_update(event_to_update(&event), view);
+            }
+            DaemonClientEvent::UndecodableSessionEvent {
+                active_session_id,
+                error,
+            } => {
+                if active_session_id == self.active_session_id {
+                    self.error_row(
+                        &format!("A session event could not be decoded: {error}"),
+                        view,
+                    );
                 }
             }
             DaemonClientEvent::SideQuestionEvent {
@@ -363,7 +383,7 @@ impl SessionUi {
             // `service_tier_changed`: keep the local tier state current (TS
             // patches the connection state; `/fast` reads it).
             TurnUpdate::ServiceTierChanged { tier } => {
-                self.service_tier = Some(tier);
+                self.service_tier = Some(tier.as_str().to_string());
                 // The tray badge follows the applied tier (the `fast`
                 // token for priority).
                 view.chrome.service_tier.clone_from(&self.service_tier);
@@ -530,7 +550,7 @@ impl SessionUi {
                 view.working = None;
                 view.compaction_generation += 1;
                 view.compaction = Some(CompactionState {
-                    reason: CompactionReason::parse(&reason),
+                    reason,
                     custom_instructions,
                     // A fresh run starts with an empty live summary:
                     // the deltas of THIS run accumulate from here (a
@@ -568,19 +588,12 @@ impl SessionUi {
                     // so the compacted-away rows drop (TS
                     // `rebuildChatFromMessages`).
                     view.push_entry(ChatEntry::CompactionSummary {
-                        summary: result
-                            .get("summary")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string(),
-                        tokens_before: result
-                            .get("tokensBefore")
-                            .and_then(Value::as_u64)
-                            .unwrap_or_default(),
+                        summary: result.summary,
+                        tokens_before: result.tokens_before,
                         custom_instructions,
                     });
                     self.transcript_stale = true;
-                } else if reason == "manual" {
+                } else if reason == CompactionReason::Manual {
                     // TS `compaction_end` handling: aborts and error
                     // messages surface only for user-issued compactions,
                     // through `showError`/`showWarning` (whose rows carry
@@ -591,7 +604,7 @@ impl SessionUi {
                             kind: StatusKind::Error,
                         });
                     } else if let Some(message) = error_message {
-                        if error_severity.as_deref() == Some("warning") {
+                        if error_severity == Some(eukhe_types::daemon::ErrorSeverity::Warning) {
                             view.push_entry(ChatEntry::Status {
                                 text: format!("{WARN} {message}"),
                                 kind: StatusKind::Warning,
@@ -635,14 +648,13 @@ impl SessionUi {
             TurnUpdate::BashStart {
                 command,
                 exclude_from_context,
-                transient,
-                run_id,
+                run,
             } => {
                 self.apply_bash_start(
                     &command,
                     exclude_from_context,
-                    transient,
-                    run_id.as_deref(),
+                    run.transient,
+                    run.run_id.as_deref(),
                     view,
                 );
             }
@@ -656,8 +668,7 @@ impl SessionUi {
                 omitted,
                 artifact,
                 error_message,
-                transient,
-                run_id,
+                run,
             } => {
                 self.apply_bash_end(
                     exit_code,
@@ -668,25 +679,13 @@ impl SessionUi {
                         artifact,
                     },
                     error_message,
-                    transient,
-                    run_id.as_deref(),
+                    run.transient,
+                    run.run_id.as_deref(),
                     view,
                 );
             }
-            TurnUpdate::QueueUpdated {
-                steering,
-                follow_ups,
-                starting,
-                rlm_child_status,
-                injected_prompts,
-            } => {
-                view.queued = crate::queued::QueuedMessages {
-                    steering,
-                    follow_ups,
-                    starting,
-                    rlm_child_status,
-                    injected_prompts,
-                };
+            TurnUpdate::QueueUpdated(queued) => {
+                view.queued = queued;
                 // A queue change under an active browse reconciles the
                 // selection (TS `refreshQueueSelectionAt`): the cursor
                 // survives only when the addressed item is unchanged; a
@@ -744,9 +743,9 @@ impl SessionUi {
     /// plus a card per tool call.
     fn apply_assistant_message(
         &mut self,
-        message: &Value,
+        message: &eukhe_types::ai::AssistantMessage,
         streaming: bool,
-        stream_event: Option<&Value>,
+        stream_event: Option<&eukhe_types::daemon::StreamUpdate>,
         view: &mut AgentView,
     ) {
         if let Some(event) = stream_event {
@@ -755,15 +754,8 @@ impl SessionUi {
         let (blocks, tool_calls) = assistant_message_parts(message);
         // A message_start always opens a new streaming message (the engine
         // emits one per provider call); later frames update it in place.
-        let starts_message = stream_event
-            .and_then(|event| event.get("type"))
-            .and_then(Value::as_str)
-            == Some("start");
-        let usage_output = message
-            .get("usage")
-            .and_then(|usage| usage.get("output"))
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
+        let starts_message = matches!(stream_event, Some(eukhe_types::daemon::StreamUpdate::Start));
+        let usage_output = message.usage.output;
         if streaming {
             if starts_message {
                 self.working_tokens.start_message();
@@ -866,7 +858,7 @@ impl SessionUi {
     /// previous reply (TS `AssistantMessageComponent.rebuild`).
     fn finalize_assistant_error(
         &mut self,
-        message: &Value,
+        message: &eukhe_types::ai::AssistantMessage,
         tool_calls: &[(String, String, Value)],
         open: Option<usize>,
         view: &mut AgentView,
@@ -876,8 +868,8 @@ impl SessionUi {
         // suffix never ride the wire (the rebuild keeps the stored
         // "Operation aborted") -- and every still-pending tool card settles
         // with the failure text; late result frames land on nothing.
-        let stop_reason = message.get("stopReason").and_then(Value::as_str);
-        let abort_text = if stop_reason == Some("aborted") {
+        let stop_reason = message.stop_reason;
+        let abort_text = if stop_reason == eukhe_types::ai::StopReason::Aborted {
             Some(crate::chat::live_abort_text(
                 view.retry.as_ref().map_or(0, |retry| retry.attempt),
                 view.working_since.map(|since| since.elapsed().as_secs()),
@@ -885,11 +877,11 @@ impl SessionUi {
         } else {
             None
         };
-        if abort_text.is_some() || stop_reason == Some("error") {
+        if abort_text.is_some() || stop_reason == eukhe_types::ai::StopReason::Error {
             let settle_text = abort_text.clone().unwrap_or_else(|| {
                 message
-                    .get("errorMessage")
-                    .and_then(Value::as_str)
+                    .error_message
+                    .as_deref()
                     .filter(|text| !text.is_empty())
                     .unwrap_or("Error")
                     .to_string()
@@ -943,20 +935,12 @@ impl SessionUi {
     fn apply_tool_result(
         &mut self,
         tool_call_id: &str,
-        result: &Value,
+        result: &eukhe_types::daemon::ToolOutput,
         is_error: bool,
         partial: bool,
         view: &mut AgentView,
     ) -> bool {
-        let result = ToolResultView {
-            content: result
-                .get("content")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-            details: result.get("details").cloned().unwrap_or(Value::Null),
-            is_error,
-        };
+        let result = ToolResultView::new(result, is_error);
         // The result lands on the newest card carrying the id: a re-armed
         // invocation pushed its own card, and the older settled card keeps
         // its sweep-written result (TS's pending map only ever holds the
