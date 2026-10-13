@@ -371,6 +371,59 @@ async fn pull_servers_are_asked() {
     );
 }
 
+/// A server that answers pulls and also publishes after a save
+/// (rust-analyzer: its own diagnostics by pull, `cargo check`'s by publish)
+/// reports both for a committed write.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dual_mode_servers_report_pulled_and_published_diagnostics() {
+    let project = project(&["--pull", "--check-on-save"]);
+    let file = project.file.clone();
+    let opened = project
+        .diagnostics(LspOp::Diagnostics {
+            scope: LspScope::File(file.clone()),
+        })
+        .await;
+    assert_eq!(
+        opened,
+        DiagnosticsReport {
+            diagnostics: vec![error_diagnostic(&file, 4, 23)],
+            pending: Vec::new(),
+        }
+    );
+    let edited = SOURCE.replace("ERROR", "ERROR WARN");
+    std::fs::write(&file, &edited).unwrap();
+    let written = project
+        .diagnostics(LspOp::Sync {
+            path: file.clone(),
+            text: edited,
+        })
+        .await;
+    assert!(written.pending.is_empty(), "{written:?}");
+    assert_eq!(
+        written
+            .diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.severity, diagnostic.span.start))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                LspSeverity::Error,
+                LspPoint {
+                    line: 4,
+                    column: 23
+                }
+            ),
+            (
+                LspSeverity::Warning,
+                LspPoint {
+                    line: 4,
+                    column: 29
+                }
+            ),
+        ]
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rename_and_code_actions_return_edits() {
     let project = project(&[]);

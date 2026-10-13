@@ -6,6 +6,9 @@
 //! - `--crash`: exit before reading anything.
 //! - `--delay-ms N`: publish diagnostics N ms late.
 //! - `--pull`: serve pull diagnostics instead of publishing.
+//! - `--check-on-save` (with `--pull`): like rust-analyzer, pull serves
+//!   only the errors; each save runs a "check" (a work-done progress
+//!   round) that publishes the warnings.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
@@ -97,6 +100,7 @@ struct Server {
     greeting: Value,
     delay: Option<Duration>,
     pull: bool,
+    check_on_save: bool,
 }
 
 impl Server {
@@ -371,7 +375,11 @@ impl Server {
             "textDocument/diagnostic" => {
                 let uri = params.pointer("/textDocument/uri").and_then(Value::as_str).unwrap_or_default();
                 let text = self.documents.get(uri).map(|(_, text)| text.as_str()).unwrap_or_default();
-                json!({ "kind": "full", "items": Self::diagnostics(text) })
+                let mut items = Self::diagnostics(text);
+                if self.check_on_save {
+                    items.retain(|item| item["severity"] == 1);
+                }
+                json!({ "kind": "full", "items": items })
             }
             _ => Value::Null,
         }
@@ -430,6 +438,32 @@ impl Server {
                 self.documents.insert(uri.clone(), (version, text));
                 self.publish(&uri);
             }
+            "textDocument/didSave" if self.check_on_save => {
+                let uri = params
+                    .pointer("/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let Some((version, text)) = self.documents.get(uri) else {
+                    return;
+                };
+                let mut warnings = Self::diagnostics(text);
+                warnings.retain(|item| item["severity"] == 2);
+                let progress = |kind: &str| json!({ "jsonrpc": "2.0", "method": "$/progress", "params": { "token": "check", "value": { "kind": kind, "title": "check" } } });
+                let (begin, end) = (progress("begin"), progress("end"));
+                let publish = json!({
+                    "jsonrpc": "2.0",
+                    "method": "textDocument/publishDiagnostics",
+                    "params": { "uri": uri, "version": version, "diagnostics": warnings },
+                });
+                let out = Arc::clone(&self.out);
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(50));
+                    send(&out, &begin);
+                    std::thread::sleep(Duration::from_millis(100));
+                    send(&out, &publish);
+                    send(&out, &end);
+                });
+            }
             "exit" => std::process::exit(0),
             _ => {}
         }
@@ -454,6 +488,7 @@ fn main() {
             .and_then(|at| args.get(at + 1)?.parse().ok())
             .map(Duration::from_millis),
         pull: args.iter().any(|arg| arg == "--pull"),
+        check_on_save: args.iter().any(|arg| arg == "--check-on-save"),
     };
     loop {
         let message = match server.backlog.pop_front() {

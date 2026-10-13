@@ -65,8 +65,9 @@ struct OpenDocument {
     uri: Url,
     version: i32,
     text: String,
-    /// The publish counter when the server last received this text.
+    /// The event counter when the server last received this text, and when.
     synced_at: u64,
+    synced: Instant,
 }
 
 #[derive(Default)]
@@ -81,8 +82,9 @@ struct Shared {
     root_name: String,
     settings: Value,
     diagnostics: Mutex<HashMap<Url, Published>>,
-    /// Counts publishes; waiters watch it.
-    publishes: watch::Sender<u64>,
+    /// Counts publishes and work-done progress begins and ends; waiters
+    /// watch it.
+    events: watch::Sender<u64>,
     /// Methods registered with `client/registerCapability`.
     registered: Mutex<HashSet<String>>,
     /// Work-done progress tokens in flight, and whether the server reports
@@ -105,7 +107,7 @@ impl Inbound for Shared {
                     return;
                 };
                 // The reader task is the only writer of the counter.
-                let sequence = *self.publishes.borrow() + 1;
+                let sequence = *self.events.borrow() + 1;
                 self.diagnostics.lock().insert(
                     params.uri,
                     Published {
@@ -115,7 +117,7 @@ impl Inbound for Shared {
                         at: Instant::now(),
                     },
                 );
-                self.publishes.send_replace(sequence);
+                self.events.send_replace(sequence);
             }
             "$/progress" => {
                 let token = params
@@ -134,8 +136,10 @@ impl Inbound for Shared {
                             self.loaded.send_replace(true);
                         }
                     }
-                    Some(_) | None => {}
+                    Some(_) | None => return,
                 }
+                drop(progress);
+                self.events.send_modify(|events| *events += 1);
             }
             "experimental/serverStatus" => {
                 self.progress.lock().reports_status = true;
@@ -284,7 +288,7 @@ impl LspClient {
             root_name: root_name.clone(),
             settings: settings.clone(),
             diagnostics: Mutex::default(),
-            publishes: watch::Sender::new(0),
+            events: watch::Sender::new(0),
             registered: Mutex::default(),
             progress: Mutex::default(),
             loaded: watch::Sender::new(false),
@@ -452,7 +456,7 @@ impl LspClient {
     /// change when the text differs from what it has).
     pub(crate) async fn sync(&self, path: &Path, text: String) -> Result<(), LspError> {
         let mut documents = self.documents.lock().await;
-        let published = *self.shared.publishes.borrow();
+        let synced_at = *self.shared.events.borrow();
         match documents.get_mut(path) {
             Some(document) if document.text == text => Ok(()),
             Some(document) => {
@@ -461,7 +465,8 @@ impl LspClient {
                 }
                 document.version += 1;
                 document.text = text;
-                document.synced_at = published;
+                document.synced_at = synced_at;
+                document.synced = Instant::now();
                 self.notify(
                     "textDocument/didChange",
                     &json!({
@@ -496,7 +501,8 @@ impl LspClient {
                         uri,
                         version: 1,
                         text,
-                        synced_at: published,
+                        synced_at,
+                        synced: Instant::now(),
                     },
                 );
                 Ok(())
@@ -521,21 +527,24 @@ impl LspClient {
 
     /// Fresh diagnostics of the open document `path`, waiting until
     /// `deadline`; `None` when none arrived in time. Pull-capable servers
-    /// are asked (`textDocument/diagnostic`); others count when a publish
-    /// for the synced version arrived after the last sync, or a publish
-    /// without a version settled.
+    /// are asked (`textDocument/diagnostic`), plus what they publish once
+    /// idle (rust-analyzer pulls its own diagnostics and publishes `cargo
+    /// check`'s after a save); others count when a publish for the synced
+    /// version arrived after the last sync, or a publish without a version
+    /// settled.
     pub(crate) async fn fresh_diagnostics(
         &self,
         path: &Path,
         deadline: tokio::time::Instant,
     ) -> Option<Vec<LspDiagnostic>> {
-        let (uri, version, synced_at, text) = {
+        let (uri, version, synced_at, synced, text) = {
             let documents = self.documents.lock().await;
             let document = documents.get(path)?;
             (
                 document.uri.clone(),
                 document.version,
                 document.synced_at,
+                document.synced,
                 document.text.clone(),
             )
         };
@@ -548,28 +557,24 @@ impl LspClient {
                 ),
             )
             .await;
-            return match pulled {
-                Ok(Ok(DocumentDiagnosticReport::Full { items })) => {
-                    Some(self.convert(path, &text, &items))
-                }
+            let mut items = match pulled {
+                Ok(Ok(DocumentDiagnosticReport::Full { items })) => items,
                 Ok(Ok(DocumentDiagnosticReport::Unchanged {})) => {
-                    let items = self
-                        .shared
-                        .diagnostics
-                        .lock()
-                        .get(&uri)
-                        .map(|published| published.diagnostics.clone())
-                        .unwrap_or_default();
-                    Some(self.convert(path, &text, &items))
+                    // The pull names no previous result, so the server has
+                    // nothing to call unchanged.
+                    tracing::debug!(server = %self.name, "diagnostic pull answered unchanged");
+                    return None;
                 }
                 Ok(Err(error)) => {
                     tracing::debug!(server = %self.name, %error, "diagnostic pull failed");
-                    None
+                    return None;
                 }
-                Err(_) => None,
+                Err(_) => return None,
             };
+            items.extend(self.idle_publish(&uri, synced_at, synced, deadline).await?);
+            return Some(self.convert(path, &text, &items));
         }
-        let mut publishes = self.shared.publishes.subscribe();
+        let mut events = self.shared.events.subscribe();
         loop {
             let settle_at = {
                 let diagnostics = self.shared.diagnostics.lock();
@@ -591,7 +596,56 @@ impl LspClient {
             };
             let wake = settle_at.map_or(deadline, |settle| settle.min(deadline));
             tokio::select! {
-                changed = publishes.changed() => {
+                changed = events.changed() => {
+                    if changed.is_err() {
+                        return None;
+                    }
+                }
+                () = tokio::time::sleep_until(wake) => {
+                    if tokio::time::Instant::now() >= deadline {
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+
+    /// What the server published for `uri` since the sync, once it is idle
+    /// (no work-done progress in flight) and either published or stayed
+    /// quiet for [`DIAGNOSTICS_SETTLE`] after the sync; `None` at
+    /// `deadline`.
+    async fn idle_publish(
+        &self,
+        uri: &Url,
+        synced_at: u64,
+        synced: Instant,
+        deadline: tokio::time::Instant,
+    ) -> Option<Vec<Diagnostic>> {
+        let settled = tokio::time::Instant::from_std(synced + DIAGNOSTICS_SETTLE);
+        let mut events = self.shared.events.subscribe();
+        loop {
+            let idle = self.shared.progress.lock().tokens.is_empty();
+            if idle {
+                let published = self
+                    .shared
+                    .diagnostics
+                    .lock()
+                    .get(uri)
+                    .filter(|published| published.sequence > synced_at)
+                    .map(|published| published.diagnostics.clone());
+                match published {
+                    Some(diagnostics) => return Some(diagnostics),
+                    None if tokio::time::Instant::now() >= settled => return Some(Vec::new()),
+                    None => {}
+                }
+            }
+            let wake = if idle {
+                settled.min(deadline)
+            } else {
+                deadline
+            };
+            tokio::select! {
+                changed = events.changed() => {
                     if changed.is_err() {
                         return None;
                     }
