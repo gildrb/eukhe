@@ -9,7 +9,11 @@
 //! (`data/provider_compat.json`, what a host changes) and the row's own
 //! `compat` (what is true of that model on that host). A row key wins over
 //! the provider default of the same key.
+//!
+//! Each provider's default chat model id lives in data too
+//! (`data/default_models.json`): TS `defaultModelPerProvider`.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use eukhe_types::pi_ai::IndexMap;
@@ -44,6 +48,23 @@ pub fn parse_model_groups(json: &str) -> ModelGroups {
 
 static PROVIDER_COMPAT: LazyLock<ModelGroups> =
     LazyLock::new(|| parse_model_groups(include_str!("providers/data/provider_compat.json")));
+
+static DEFAULT_MODELS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("providers/data/default_models.json"))
+        .expect("default model data maps provider ids to model ids")
+});
+
+/// The default chat model id of `provider`, `None` when the provider has no
+/// default.
+///
+/// # Panics
+///
+/// Panics when the embedded default model data is not an object of string
+/// model ids; the catalog tests parse it.
+#[must_use]
+pub fn default_model_id(provider: &str) -> Option<&'static str> {
+    DEFAULT_MODELS.get(provider).map(String::as_str)
+}
 
 /// `row_compat` over the compat defaults of `provider` on `api`: the
 /// model's effective compat object, `None` when neither layer has one.
@@ -146,7 +167,55 @@ pub fn flatten_classifier_model_catalog(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models_generated::MODELS;
+    use crate::providers::prime_inference::PRIME_INFERENCE_PROVIDER_ID;
+    use crate::providers::prime_inference_models::PRIME_INFERENCE_MODELS;
     use eukhe_types::pi_ai::ModelCompat;
+
+    /// Defaults that name no chat row of their provider in the compiled
+    /// catalog, with the reason. The integrity test fails on any other gap
+    /// and on a listed gap that has closed.
+    const KNOWN_DEFAULT_MODEL_GAPS: [(&str, &str); 5] = [
+        (
+            "azure-openai-responses",
+            "no compiled catalog under this provider id (the catalog's is `azure`)",
+        ),
+        (
+            "cloudflare-ai-gateway",
+            "the catalog spells the id `claude-sonnet-4-5`",
+        ),
+        ("fireworks", "the catalog carries kimi-k3, not kimi-k2p6"),
+        (
+            "opencode-go",
+            "the catalog carries kimi-k2.7-code and kimi-k3, not kimi-k2.6",
+        ),
+        ("xai", "the catalog has no grok-4.20 row"),
+    ];
+
+    #[test]
+    fn every_default_model_names_a_chat_row_of_its_provider() {
+        let mut gaps: Vec<&str> = DEFAULT_MODELS
+            .iter()
+            .filter(|(provider, id)| {
+                let catalog = if provider.as_str() == PRIME_INFERENCE_PROVIDER_ID {
+                    Some(&*PRIME_INFERENCE_MODELS)
+                } else {
+                    MODELS.get(provider.as_str()).copied()
+                };
+                !catalog.is_some_and(|catalog| catalog.contains_key(id.as_str()))
+            })
+            .map(|(provider, _)| provider.as_str())
+            .collect();
+        gaps.sort_unstable();
+        let known: Vec<&str> = KNOWN_DEFAULT_MODEL_GAPS
+            .iter()
+            .map(|(provider, _)| *provider)
+            .collect();
+        assert_eq!(
+            gaps, known,
+            "defaults without a compiled chat row; known: {KNOWN_DEFAULT_MODEL_GAPS:?}"
+        );
+    }
 
     #[test]
     fn every_provider_compat_default_is_typed_compat_of_its_api() {

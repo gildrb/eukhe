@@ -161,8 +161,9 @@ impl std::fmt::Debug for ProviderAuthCommandsHandle {
 /// `PRIME_INFERENCE_PROVIDER_ID`: the row the panel-driven login
 /// serves).
 pub const PRIME_INFERENCE_PROVIDER_ID: &str = "prime-inference";
-/// The Prime Inference default model's id (eukhe-core's
-/// `PRIME_INFERENCE_DEFAULT_MODEL_ID` = TS `PRIME_INFERENCE_DEFAULT_MODEL_ID`):
+/// The Prime Inference default model's id (the `prime-inference` entry of
+/// eukhe-ai's `providers/data/default_models.json`, mirrored here because
+/// the TUI does not link the catalog; TS `PRIME_INFERENCE_DEFAULT_MODEL_ID`):
 /// the model the onboarding flow applies after the sign-in when the home
 /// has no current model.
 pub const PRIME_INFERENCE_DEFAULT_MODEL_ID: &str = "z-ai/glm-5.3";
