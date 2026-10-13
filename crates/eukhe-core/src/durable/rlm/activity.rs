@@ -74,6 +74,22 @@ fn running_manager(
         .ok_or(KernelActivityError::NotRunning)
 }
 
+/// The background jobs still running on `conversation`'s kernel
+/// ([`ReplKernelManager::background_job_count`]); 0 without a booted
+/// kernel, never booting one.
+#[must_use]
+pub fn kernel_background_jobs(deps: &HostDeps, conversation: ConversationId) -> usize {
+    running_manager(deps, conversation).map_or(0, |manager| manager.background_job_count())
+}
+
+/// Resolves once `conversation`'s kernel runs no background job (at once
+/// without a booted kernel, never booting one).
+pub async fn kernel_background_jobs_settled(deps: &HostDeps, conversation: ConversationId) {
+    if let Ok(manager) = running_manager(deps, conversation) {
+        manager.background_jobs_settled().await;
+    }
+}
+
 /// Release `conversation`'s settled kernel (TS #2483's
 /// `canPassivateSettledSession`, worker-side): the kernel is disposed with
 /// a namespace snapshot, and the conversation's next kernel use revives it

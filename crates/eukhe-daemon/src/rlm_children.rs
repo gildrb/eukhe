@@ -20,8 +20,7 @@ use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle, PromptInput};
 use serde_json::{json, Value};
 
 use crate::rlm_child_model::{
-    assert_thinking_supported, compact_rlm_text, resolve_child_model_from_settings,
-    UnpinnedChildModel,
+    assert_thinking_supported, resolve_child_model_from_settings, UnpinnedChildModel,
 };
 use crate::supervisor_link::SupervisorLink;
 use crate::util::now_ms;

@@ -2,7 +2,7 @@
 //! `createRlmChildTerminalNoticeMessage` / `createRlmChildFailureMessage`)
 //! and the roster's one-line labels (daemon `rlm_child_model.rs`).
 
-use eukhe_types::input_origin::{ChildExit, InputOrigin, Report};
+use eukhe_types::input_origin::{ChildExit, ChildFailure, InputOrigin, Report};
 
 use crate::agent_messaging::sanitize_message_header_value;
 use serde::{Deserialize, Serialize};
@@ -32,8 +32,14 @@ pub(crate) enum ChildReport {
         session_name: String,
         last_assistant_text_preview: Option<String>,
     },
-    /// The child's run failed.
-    Failed { session_name: String, error: String },
+    /// The child's run failed. `failure` is absent on a report checkpointed
+    /// before failures were typed.
+    Failed {
+        session_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failure: Option<ChildFailure>,
+        error: String,
+    },
 }
 
 impl ChildReport {
@@ -45,8 +51,8 @@ impl ChildReport {
     }
 
     /// The follow-up text: `[child-exited: cancelled|no-reply child:<name>]`
-    /// or `[child-failed child:<name>]` with the reason, preview, or error as
-    /// the body.
+    /// or `[child-failed: <failure> child:<name>]` with the reason,
+    /// preview, or error as the body.
     pub(crate) fn text(&self) -> String {
         let body = match self {
             Self::Cancelled { reason, .. } => reason.clone().unwrap_or_default(),
@@ -73,8 +79,13 @@ impl ChildReport {
                 child: sanitize_message_header_value(session_name),
                 exit: ChildExit::NoReply,
             },
-            Self::Failed { session_name, .. } => Report::ChildFailed {
+            Self::Failed {
+                session_name,
+                failure,
+                ..
+            } => Report::ChildFailed {
                 child: sanitize_message_header_value(session_name),
+                failure: *failure,
             },
         }
     }
@@ -134,11 +145,37 @@ mod tests {
     }
 
     #[test]
-    fn failure_notice_matches_the_ts_shape() {
+    fn failure_notice_names_the_typed_failure() {
         let report = ChildReport::Failed {
             session_name: "lane".to_owned(),
-            error: "boom".to_owned(),
+            failure: Some(ChildFailure::Provider {
+                kind: eukhe_types::pi_ai::StreamFailureKind::RateLimit,
+            }),
+            error: "429 usage limit".to_owned(),
         };
+        assert_eq!(
+            report.text(),
+            "[child-failed: provider-rate_limit child:lane]\n\n429 usage limit"
+        );
+        assert_eq!(
+            report.origin(),
+            InputOrigin::Report {
+                report: Report::ChildFailed {
+                    child: "lane".to_owned(),
+                    failure: Some(ChildFailure::Provider {
+                        kind: eukhe_types::pi_ai::StreamFailureKind::RateLimit,
+                    }),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn untyped_failure_checkpoint_keeps_the_ts_shape() {
+        let report: ChildReport = serde_json::from_value(serde_json::json!({
+            "kind": "failed", "sessionName": "lane", "error": "boom",
+        }))
+        .expect("a checkpoint from before typed failures loads");
         assert_eq!(report.text(), "[child-failed child:lane]\n\nboom");
     }
 

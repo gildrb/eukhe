@@ -56,6 +56,7 @@ impl Worker {
             "get_queue" => self.handle_get_queue(),
             "clear_queue" => self.handle_clear_queue().await,
             "get_last_assistant_text" => self.handle_get_last_assistant_text(),
+            "get_run_outcome" => self.handle_get_run_outcome().await,
             "get_connection_state" => self.handle_get_connection_state(),
             "get_mcp_connections" => self.handle_get_mcp_connections().await,
             "set_mcp_static_token" => self.handle_set_mcp_static_token(payload).await,

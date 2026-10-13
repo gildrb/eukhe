@@ -8,8 +8,10 @@
 //! explicit idempotency key; a rerun after a crash repeats the call with the
 //! same key and must observe the first call's effect, never a second one.
 
+use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::Usage;
 use futures::future::BoxFuture;
+use serde::{Deserialize, Serialize};
 
 /// One pending host call. Boxed because the host crosses the
 /// eukhe-core/eukhe-daemon boundary as a dyn object.
@@ -100,20 +102,35 @@ pub struct RlmChildObservation {
     pub usage: Option<Usage>,
 }
 
-/// Run state of a child's task.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Run state of a child's task, read from the child's own durable state:
+/// its run in flight, the terminal of its last run, and the background
+/// jobs it still owns. A child worker answers this as its
+/// `get_run_outcome`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "state",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum RlmChildRunState {
     /// The child (or one of its descendants) still has work in flight.
     Running,
-    /// The child's run settled and stayed idle across the host's stability
-    /// re-check. Whether the child replied to this parent meanwhile is the
-    /// child row's own durable mark ([`super::mark_child_replied`]).
-    Settled {
+    /// The child's run ended, but background jobs it started (kernel jobs,
+    /// its own children) still run; their settlement wakes it, so the
+    /// child is not done.
+    Idle { pending_jobs: u32 },
+    /// The child's last run ended with an answer and nothing is pending.
+    /// Whether the child replied to this parent meanwhile is the child
+    /// row's own durable mark ([`super::mark_child_replied`]).
+    Answered {
         /// The child's final assistant text, compacted for the roster.
         answer_preview: Option<String>,
     },
     /// The child's run failed.
-    Failed { error: String },
+    Failed {
+        failure: ChildFailure,
+        error: String,
+    },
 }
 
 /// Abort a child's in-flight run, once per key.

@@ -363,12 +363,12 @@ async fn spawn_settled_child(
             .await
             .expect("wait for the child");
         match observation.state {
-            RlmChildRunState::Settled { .. } => return child,
-            RlmChildRunState::Failed { error } => panic!(
-                "child {name} spawn turn failed: {error}; daemon log tail: {}",
+            RlmChildRunState::Answered { .. } => return child,
+            RlmChildRunState::Failed { failure, error } => panic!(
+                "child {name} spawn turn failed ({failure}): {error}; daemon log tail: {}",
                 daemon_log_tail(receipts_dir)
             ),
-            RlmChildRunState::Running => assert!(
+            RlmChildRunState::Running | RlmChildRunState::Idle { .. } => assert!(
                 Instant::now() < deadline,
                 "child {name} spawn turn never settled; daemon log tail: {}",
                 daemon_log_tail(receipts_dir)

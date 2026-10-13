@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::goal::GoalContextKind;
 use crate::job::{CellStatus, JobId};
+use crate::pi_ai::StreamFailureKind;
 
 /// The producer of one user-role input.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +55,40 @@ impl ChildExit {
     }
 }
 
+/// Why a child run failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "cause",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ChildFailure {
+    /// The child's last model request failed at its provider.
+    Provider { kind: StreamFailureKind },
+    /// The child's run was aborted before it answered.
+    Aborted,
+    /// The child stopped mid-run while its parent session was down.
+    Interrupted,
+    /// The child's worker could not be reached.
+    Unreachable,
+    /// The task prompt never reached the child.
+    Undelivered,
+}
+
+impl std::fmt::Display for ChildFailure {
+    /// The header word: `provider-<kind>`, `aborted`, `interrupted`,
+    /// `unreachable`, or `undelivered`.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Provider { kind } => write!(formatter, "provider-{kind}"),
+            Self::Aborted => formatter.write_str("aborted"),
+            Self::Interrupted => formatter.write_str("interrupted"),
+            Self::Unreachable => formatter.write_str("unreachable"),
+            Self::Undelivered => formatter.write_str("undelivered"),
+        }
+    }
+}
+
 /// A report delivered as input. Header values are sanitized by the
 /// producer: they hold no brackets, newlines, commas, or colons.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,8 +99,13 @@ pub enum Report {
     AgentMessage { sender: String },
     /// A child run ended without an explicit reply.
     ChildExited { child: String, exit: ChildExit },
-    /// A child run failed.
-    ChildFailed { child: String },
+    /// A child run failed. `failure` is absent on reports recorded before
+    /// failures were typed.
+    ChildFailed {
+        child: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failure: Option<ChildFailure>,
+    },
     /// A heartbeat fire.
     Heartbeat { schedule: String, run: u64 },
     /// A detached kernel bash command finished.
@@ -84,7 +124,14 @@ impl Report {
             Self::ChildExited { child, exit } => {
                 format!("[child-exited: {} child:{child}]", exit.label())
             }
-            Self::ChildFailed { child } => format!("[child-failed child:{child}]"),
+            Self::ChildFailed {
+                child,
+                failure: Some(failure),
+            } => format!("[child-failed: {failure} child:{child}]"),
+            Self::ChildFailed {
+                child,
+                failure: None,
+            } => format!("[child-failed child:{child}]"),
             Self::Heartbeat { schedule, run } => format!("[heartbeat: {schedule} run#{run}]"),
             Self::BashDone { pid, exit_code } => format!("[bash-done pid:{pid} exit:{exit_code}]"),
             Self::JobSettled { job, status } => {

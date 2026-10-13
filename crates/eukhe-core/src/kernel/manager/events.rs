@@ -395,6 +395,40 @@ mod tests {
         assert_eq!(fired.load(Ordering::SeqCst), 1);
     }
 
+    /// A quiescence wait holds while a background job runs and resolves
+    /// on its settlement, without polling the count.
+    #[tokio::test]
+    async fn background_jobs_settled_waits_for_the_last_job() {
+        let manager = ReplKernelManager::new(KernelManagerOptions::default());
+        manager.background_jobs_settled().await;
+        for id in ["a", "b"] {
+            deliver_activity(
+                &manager,
+                json!({ "id": id.repeat(32), "pid": 42, "active": true }),
+            );
+        }
+        assert_eq!(manager.background_job_count(), 2);
+        let waiter = tokio::spawn({
+            let manager = manager.clone();
+            async move { manager.background_jobs_settled().await }
+        });
+        deliver_activity(
+            &manager,
+            json!({ "id": "a".repeat(32), "pid": 42, "active": false }),
+        );
+        assert_eq!(manager.background_job_count(), 1);
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished(), "one job still runs");
+        deliver_activity(
+            &manager,
+            json!({ "id": "b".repeat(32), "pid": 42, "active": false }),
+        );
+        waiter
+            .await
+            .expect("the wait resolves once the last job settles");
+        assert_eq!(manager.background_job_count(), 0);
+    }
+
     #[test]
     fn teardown_with_live_handles_settles_once() {
         let (fired, on_settled) = settlement_counter();

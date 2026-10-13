@@ -19,6 +19,7 @@ use eukhe_durable::tasks::{
     define_task, Migrated, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime,
 };
 use eukhe_durable::types::{JoinPolicy, TaskId, TaskOutcome, TaskOutcomeError};
+use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::UserContent;
 use serde::{Deserialize, Serialize};
 
@@ -320,6 +321,7 @@ async fn prompt(
                 .await?;
                 Ok(Some(report_next(ChildReport::Failed {
                     session_name: row.session_name,
+                    failure: Some(ChildFailure::Undelivered),
                     error,
                 })))
             },
@@ -377,7 +379,7 @@ async fn watch(
     let claim_child_return = {
         let settled = matches!(
             &observed,
-            Ok(observation) if matches!(observation.state, RlmChildRunState::Settled { .. })
+            Ok(observation) if matches!(observation.state, RlmChildRunState::Answered { .. })
         );
         let services = Arc::clone(&services);
         let session_id = identity.session_id.clone();
@@ -420,6 +422,7 @@ async fn watch(
                         row.error = Some(UNREACHABLE_ERROR.to_owned());
                         report_next(ChildReport::Failed {
                             session_name: row.session_name.clone(),
+                            failure: Some(ChildFailure::Unreachable),
                             error: UNREACHABLE_ERROR.to_owned(),
                         })
                     }
@@ -440,16 +443,18 @@ async fn watch(
 }
 
 /// The step after one successful poll; settles `row` when the run ended.
+/// An idle child that still owns background jobs is not done: their
+/// settlement wakes it into another run, so the watch goes on.
 fn settle_next(row: &mut ChildRow, state: RlmChildRunState, poll: u64, next_poll_at: f64) -> Next {
     match state {
-        RlmChildRunState::Running => NextTaskState::Running {
+        RlmChildRunState::Running | RlmChildRunState::Idle { .. } => NextTaskState::Running {
             checkpoint: ChildCheckpoint::Watch {
                 poll: poll + 1,
                 next_poll_at,
                 unreachable_polls: 0,
             },
         },
-        RlmChildRunState::Settled { answer_preview } => {
+        RlmChildRunState::Answered { answer_preview } => {
             row.status = ChildStatus::Done;
             row.answer_preview.clone_from(&answer_preview);
             if row.replied_since_task {
@@ -466,11 +471,12 @@ fn settle_next(row: &mut ChildRow, state: RlmChildRunState, poll: u64, next_poll
                 last_assistant_text_preview: answer_preview,
             })
         }
-        RlmChildRunState::Failed { error } => {
+        RlmChildRunState::Failed { failure, error } => {
             row.status = ChildStatus::Error;
             row.error = Some(error.clone());
             report_next(ChildReport::Failed {
                 session_name: row.session_name.clone(),
+                failure: Some(failure),
                 error,
             })
         }

@@ -3,6 +3,7 @@
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::children::unsettled_child_tasks;
+use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_background_jobs_settled};
 use serde_json::Value;
 
 use super::{response_failure, response_success, DaemonResponse, Worker};
@@ -62,13 +63,15 @@ impl Worker {
     /// tasks the idle scope does not reach, so it waits for every
     /// unsettled child task to end, then for the idle the report it
     /// submitted (the terminal notice turn) leads to, until no child is
-    /// left unsettled.
+    /// left unsettled. With `waitForBackgroundJobs` too (a parent's child
+    /// settle watch) it also holds while the kernel's background jobs run:
+    /// their settlement wakes the session into another run, so the session
+    /// is not quiescent before they end.
     async fn wait_until_idle(&self, payload: &Value) -> Result<(), String> {
         let cx = &BACKGROUND_CONTEXT;
-        let rlm_quiescence = payload
-            .get("waitForRlmQuiescence")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let flag = |name: &str| payload.get(name).and_then(Value::as_bool).unwrap_or(false);
+        let rlm_quiescence = flag("waitForRlmQuiescence");
+        let background_jobs = flag("waitForBackgroundJobs");
         let hosted = self.session.get().ok_or("Session is still initializing")?;
         let main = hosted.main().map_err(|error| error.to_string())?;
         loop {
@@ -82,7 +85,13 @@ impl Worker {
                 .await
                 .map_err(|error| error.to_string())?;
             if unsettled.is_empty() {
-                break;
+                if !background_jobs || kernel_background_jobs(hosted.deps(), main.id()) == 0 {
+                    break;
+                }
+                // The last job's completion notice is admitted before the
+                // settle fires, so the next idle wait holds for its turn.
+                kernel_background_jobs_settled(hosted.deps(), main.id()).await;
+                continue;
             }
             for task in unsettled {
                 hosted

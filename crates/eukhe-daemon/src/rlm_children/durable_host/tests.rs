@@ -13,6 +13,8 @@ use eukhe_core::durable::children::{
     RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget,
     RlmSubagentHost,
 };
+use eukhe_types::input_origin::ChildFailure;
+use eukhe_types::pi_ai::StreamFailureKind;
 use eukhe_types::platform::transport::bind_transport;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -22,14 +24,16 @@ use crate::protocol::{response_failure, response_success};
 
 const CHILD_SESSION: &str = "0192a000-0000-7000-8000-00000000c001";
 
-/// What the fake supervisor saw, the resident sessions it lists, and
-/// whether no worker hosts the child (its non-waking probes answer the
-/// unknown-session error).
+/// What the fake supervisor saw, the resident sessions it lists, whether
+/// no worker hosts the child (its non-waking probes answer the
+/// unknown-session error), and the run outcome the child answers (an
+/// answered run when unset).
 #[derive(Default)]
 struct Supervisor {
     commands: Vec<Value>,
     resident: Vec<Value>,
     child_unhosted: bool,
+    outcome: Option<RlmChildRunState>,
 }
 
 type Shared = Arc<Mutex<Supervisor>>;
@@ -89,11 +93,20 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
             command_type,
             Some(json!({ "isStreaming": false, "sessionActions": { "queuedCount": 0 } })),
         ),
-        "get_last_assistant_text" => response_success(
-            Some(id),
-            command_type,
-            Some(json!({ "text": "the child final answer" })),
-        ),
+        "get_run_outcome" => {
+            let outcome =
+                lock(shared)
+                    .outcome
+                    .clone()
+                    .unwrap_or_else(|| RlmChildRunState::Answered {
+                        answer_preview: Some("the child final answer".to_owned()),
+                    });
+            response_success(
+                Some(id),
+                command_type,
+                Some(serde_json::to_value(outcome).unwrap()),
+            )
+        }
         "get_session_stats" => response_success(
             Some(id),
             command_type,
@@ -251,7 +264,7 @@ async fn keyed_calls_run_once_and_a_settled_child_reports() {
         .unwrap();
     assert_eq!(
         observed.state,
-        RlmChildRunState::Settled {
+        RlmChildRunState::Answered {
             answer_preview: Some("the child final answer".to_owned()),
         }
     );
@@ -322,6 +335,7 @@ async fn a_resumed_watch_fails_a_child_whose_run_was_interrupted() {
     assert_eq!(
         observed.state,
         RlmChildRunState::Failed {
+            failure: ChildFailure::Interrupted,
             error: super::INTERRUPTED_ERROR.to_owned(),
         }
     );
@@ -349,6 +363,7 @@ async fn a_resumed_watch_leaves_an_unhosted_interrupted_child_passive() {
     assert_eq!(
         observed.state,
         RlmChildRunState::Failed {
+            failure: ChildFailure::Interrupted,
             error: super::INTERRUPTED_ERROR.to_owned(),
         }
     );
@@ -371,10 +386,63 @@ async fn a_resumed_watch_settles_a_completed_child() {
     let observed = sessions.wait_settled(resumed_wait()).await.unwrap();
     assert_eq!(
         observed.state,
-        RlmChildRunState::Settled {
+        RlmChildRunState::Answered {
             answer_preview: Some("the child final answer".to_owned()),
         }
     );
+}
+
+/// Regression (stuck.md cause 3): a child whose run ended while a
+/// background job it started still runs is observed idle with that job,
+/// not settled, and its display entry stays `running`. The old watch read
+/// "idle twice" as settled and completed the child.
+#[tokio::test]
+async fn an_idle_child_with_a_pending_job_is_not_settled() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    lock(&shared).outcome = Some(RlmChildRunState::Idle { pending_jobs: 1 });
+    let sessions = host(&shared, dir.path()).await;
+    sessions.spawn(spawn_request()).await.unwrap();
+    write_child_display(dir.path(), "running");
+    let observed = sessions.wait_settled(resumed_wait()).await.unwrap();
+    assert_eq!(observed.state, RlmChildRunState::Idle { pending_jobs: 1 });
+    let display = crate::rlm_ledger::read_rlm_subagent_display(
+        &dir.path()
+            .join("session-artifacts")
+            .join("parent-session")
+            .join("sub-0192a000"),
+    )
+    .unwrap();
+    assert_eq!(display.status, "running");
+}
+
+/// Regression (stuck.md causes 3 and 6): a child whose run ended on a
+/// provider error settles failed with the provider's kind, never as a
+/// completed run.
+#[tokio::test]
+async fn a_child_run_ended_by_a_provider_error_settles_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    let failed = RlmChildRunState::Failed {
+        failure: ChildFailure::Provider {
+            kind: StreamFailureKind::Auth,
+        },
+        error: "401 OAuth access token has expired".to_owned(),
+    };
+    lock(&shared).outcome = Some(failed.clone());
+    let sessions = host(&shared, dir.path()).await;
+    sessions.spawn(spawn_request()).await.unwrap();
+    write_child_display(dir.path(), "running");
+    let observed = sessions.wait_settled(resumed_wait()).await.unwrap();
+    assert_eq!(observed.state, failed);
+    let display = crate::rlm_ledger::read_rlm_subagent_display(
+        &dir.path()
+            .join("session-artifacts")
+            .join("parent-session")
+            .join("sub-0192a000"),
+    )
+    .unwrap();
+    assert_eq!(display.status, "running");
 }
 
 #[tokio::test]

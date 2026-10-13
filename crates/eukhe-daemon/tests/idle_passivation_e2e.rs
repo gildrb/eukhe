@@ -230,9 +230,11 @@ async fn spawn_settled_child(children: &SupervisorChildSessions) -> RlmChildSess
             .await
             .expect("wait for the child");
         match observation.state {
-            RlmChildRunState::Settled { .. } => return child,
-            RlmChildRunState::Failed { error } => panic!("the child failed: {error}"),
-            RlmChildRunState::Running => {
+            RlmChildRunState::Answered { .. } => return child,
+            RlmChildRunState::Failed { failure, error } => {
+                panic!("the child failed ({failure}): {error}")
+            }
+            RlmChildRunState::Running | RlmChildRunState::Idle { .. } => {
                 assert!(Instant::now() < deadline, "the child never settled done");
             }
         }

@@ -1,11 +1,13 @@
 //! The child-lifecycle concern: session creation (create/launch), the
 //! prompt/kill/close routing, the record refresh, and the
 //! spawn-admission outbox types (`CreatedSessionIds`, `CreatedChild`).
+use eukhe_core::durable::children as durable;
+
 use super::{
-    anyhow, compact_rlm_text, json, ChildCloseReason, Context, DaemonCommand,
-    DaemonSessionLifecycle, Duration, Map, ParentIdentity, Path, PathBuf, PromptInput, Result,
-    SupervisorChildSessionsInner, Value, CREATE_TIMEOUT_MS, IDLE_WAIT_GRACE_MS, KILL_TIMEOUT_MS,
-    PROMPT_TIMEOUT_MS, RUNTIME_METADATA_PROMPT_MAX, STATE_TIMEOUT_MS,
+    anyhow, json, ChildCloseReason, Context, DaemonCommand, DaemonSessionLifecycle, Duration, Map,
+    ParentIdentity, Path, PathBuf, PromptInput, Result, SupervisorChildSessionsInner, Value,
+    CREATE_TIMEOUT_MS, IDLE_WAIT_GRACE_MS, KILL_TIMEOUT_MS, PROMPT_TIMEOUT_MS,
+    RUNTIME_METADATA_PROMPT_MAX, STATE_TIMEOUT_MS,
 };
 
 /// Parsed ids of one created child session.
@@ -279,23 +281,26 @@ impl SupervisorChildSessionsInner {
                 > 0)
     }
 
-    /// The child's final answer text, compacted for the roster preview.
-    pub(super) async fn child_answer(&self, active_session_id: &str) -> Result<Option<String>> {
-        let command = DaemonCommand::GetLastAssistantText {
+    /// The child's run outcome (`get_run_outcome`), read from its own
+    /// durable state: its run in flight, its last run's terminal, and the
+    /// background jobs it still owns. `Err` means the child cannot be
+    /// reached right now.
+    pub(super) async fn child_outcome(
+        &self,
+        active_session_id: &str,
+    ) -> Result<durable::RlmChildRunState> {
+        let command = DaemonCommand::GetRunOutcome {
             id: None,
             active_session_id: active_session_id.to_string(),
             rest: Map::default(),
         };
-        let answer = self.command(&command, STATE_TIMEOUT_MS).await?;
-        Ok(answer
-            .get("text")
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())
-            .map(compact_rlm_text))
+        let outcome = self.command(&command, STATE_TIMEOUT_MS).await?;
+        serde_json::from_value(outcome)
+            .with_context(|| format!("read RLM child {active_session_id}'s run outcome"))
     }
 
-    /// Best-effort bounded wait for one child and its descendants to go
-    /// idle. The wait is a
+    /// Best-effort bounded wait for one child, its descendants, and its
+    /// background jobs to settle. The wait is a
     /// snapshot helper, not a gate: its timeout is not an error, and the
     /// caller re-reads the child's state afterwards (TS collect: "a
     /// timeout returns current snapshots, never an error").
@@ -303,13 +308,13 @@ impl SupervisorChildSessionsInner {
         if budget.is_zero() {
             return;
         }
-        // The child's own descendants keep it busy (`child_busy`), so the
-        // wait holds until they settle too.
+        // The child's own descendants and background jobs keep it unsettled
+        // (`child_outcome`), so the wait holds until they settle too.
         let command = DaemonCommand::WaitForIdle {
             id: None,
             active_session_id: active_session_id.to_string(),
             wait_for_rlm_quiescence: Some(true),
-            rest: Map::default(),
+            rest: Map::from_iter([("waitForBackgroundJobs".to_owned(), json!(true))]),
         };
         let _ = self
             .command(&command, budget.as_millis() as u64 + IDLE_WAIT_GRACE_MS)

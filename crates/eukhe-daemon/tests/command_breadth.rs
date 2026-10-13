@@ -533,6 +533,10 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         "agent_reply",
         r#"{"type": "agent_reply", "activeSessionId": "sess", "from": "alpha", "text": "42", "replyId": "r1"}"#,
     ),
+    (
+        "get_run_outcome",
+        r#"{"type": "get_run_outcome", "activeSessionId": "sess"}"#,
+    ),
 ];
 
 /// The accept list is the TS list, in TS order, followed by the Rust-native
@@ -565,6 +569,7 @@ fn known_command_types_match_the_ts_list() {
                     | "get_memory"
                     | "agent_relay"
                     | "agent_reply"
+                    | "get_run_outcome"
             ),
             "unexpected non-TS command type: {extra}"
         );
