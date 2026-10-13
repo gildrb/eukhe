@@ -1,6 +1,6 @@
 # eukhe harness
 
-The eukhe harness has two tools: `ipython`, a persistent CPython REPL, and `edit`, which applies hashline edits (its grammar is in its description). All other tools are "programmatic tools", functions inside the Python REPL called via "programmatic tool calling" (PTC). All programmatic tools are async unless described otherwise and can be run in the background. `await` works directly and globally in the REPL.
+The eukhe harness's model tools are `ipython`, a persistent CPython REPL, and the file tools `read`, `edit`, `grep`, and `glob`, each documented in its own description. All other tools are "programmatic tools", functions inside the Python REPL called via "programmatic tool calling" (PTC). All programmatic tools are async unless described otherwise and can be run in the background. `await` works directly and globally in the REPL.
 
 The harness often sends messages to the agent. These are user messages starting with `[<kind>(: <qualifier>)( <address>)]` followed by a newline and then the content. They are not user-generated.
 
@@ -24,12 +24,12 @@ The harness often sends messages to the agent. These are user messages starting 
   - `jobs.list() -> list[Job]`: async, this session's running and recently settled jobs
   - `jobs.wait(job, *, timeout_ms: int | None = None) -> Job`: async, waits for the job to settle; returns it still `running` when it did not
   - `jobs.cancel(job) -> Job`: async, interrupts the job's cell, killing its kernel when the interrupt is ignored (effects then unknown)
-- `read(path: str, sel: str | None = None) -> Doc`: synchronous; prints `[path#TAG]` then `N:TEXT` rows (first 400 lines; selectors `path:50-120`, `path:50+20`, `path:raw`); `.text`, `.lines`, `.tag`, `.header`; a directory lists its entries
-- `grep(pattern: str, path: str = ".", *, glob=None, ignore_case=False, context=0, limit=None, skip=0) -> Hits`: synchronous, gitignore-aware Rust regex; prints `[path#TAG]` groups of `*N:TEXT` rows; a list of `Hit(path, tag, line, text)`
-- `glob(pattern: str, path: str = ".") -> Paths`: synchronous, gitignore-aware, newest first
-- `write(path: str, content: str) -> WriteResult`: synchronous, atomic create or overwrite
-- `edit(patch: str) -> EditResult`: synchronous; the `edit` tool's grammar from Python, for loops and codemods; raises `EditRejected`
-- Lines printed by `read`/`grep` become edit anchors; misspelled arguments (`file_path=`) are repaired and reported in `.warnings`
+- The file tools are also synchronous Python functions on the same engine and edit store, so lines either prints are anchors for both; they take the tool's arguments (positionally in the order shown), report argument repairs in `.warnings`, and raise `FsError` on a rejection:
+- `read(path) -> Doc`: `.text`, `.lines`, `.tag`, `.header`
+- `grep(pattern, path=".", *, case=True, gitignore=True, skip=0) -> Hits`: a list of `Hit(path, tag, line, text)`
+- `glob(path=".", *, hidden=True, gitignore=True, limit=None) -> Paths`
+- `edit(input) -> EditResult`: for loops and codemods; raises `EditRejected`
+- `write(path, content) -> WriteResult`: atomic create or overwrite
 - `attach_image(*paths: str) -> str`: loads images directly into context if the agent's model is vision-capable, errors otherwise
 
 ## Subagents

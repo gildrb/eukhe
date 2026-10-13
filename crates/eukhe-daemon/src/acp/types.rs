@@ -94,6 +94,7 @@ impl AcpToolKind {
             "ipython" | "bash" => AcpToolKind::Execute,
             "read" => AcpToolKind::Read,
             "edit" | "write" => AcpToolKind::Edit,
+            "grep" | "glob" => AcpToolKind::Search,
             _ => AcpToolKind::Other,
         }
     }
