@@ -12,10 +12,11 @@ use std::time::Duration;
 
 use eukhe_chord::context::{with_cancel, CancelContext, Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, JsonValue};
+use eukhe_chord::AttachedReplicatedState;
 use eukhe_core::durable::ProviderWireEvent;
 use eukhe_durable::harness::{
-    watch_events, AgentEvent, AgentEventBatch, AgentEventStream, Harness, InboxItem, InboxState,
-    INBOX_DOC,
+    watch_events, AgentEvent, AgentEventBatch, AgentEventStream, Conversation, Harness, InboxItem,
+    InboxState, INBOX_DOC, LIVE_DOC,
 };
 use eukhe_durable::session::{SessionError, SessionResult, WatchListenerError};
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, SubmissionId};
@@ -74,10 +75,22 @@ pub(crate) struct ShownView {
     pub(crate) goal: Value,
 }
 
-impl ShownView {
-    /// A run is active (pi.live `run` present).
-    pub(crate) fn is_busy(&self) -> bool {
-        self.translator.mirror().is_streaming()
+/// The shown conversation's committed state as the Harness holds it: the
+/// lifecycle truth busy derives from (ADR 0004), never the wire mirror. A
+/// mirror only hears a run end that reaches its event stream, so a
+/// Harness that fails mid-run would leave it busy forever.
+pub(crate) struct DurableView {
+    harness: Harness,
+    state: AttachedReplicatedState,
+}
+
+impl DurableView {
+    /// A run is live: the committed `pi.live.run`, on a Harness that is
+    /// still usable (a closed or failed Harness runs nothing; a failed one
+    /// resumes its run only when reopened from Storage).
+    pub(crate) fn run_live(&self) -> bool {
+        self.harness.assert_usable().is_ok()
+            && self.state.value()["docs"][LIVE_DOC.definition().kind]["run"].is_object()
     }
 }
 
@@ -110,6 +123,8 @@ pub(crate) struct BridgeSink {
 /// tasks too.
 pub(crate) struct EventBridge {
     stream: AgentEventStream,
+    /// The [`DurableView`]'s attachment, released with the bridge.
+    durable: AttachedReplicatedState,
     cancel: CancelContext,
     tasks: Vec<JoinHandle<()>>,
 }
@@ -120,6 +135,10 @@ impl Drop for EventBridge {
         for task in &self.tasks {
             task.abort();
         }
+        // The core keeps reading the durable view's last value.
+        if let Err(error) = self.durable.dispose() {
+            eprintln!("eukhe-daemon worker: releasing the shown conversation's durable view failed: {error}");
+        }
     }
 }
 
@@ -129,66 +148,76 @@ impl EventBridge {
         self.stream.delivered()
     }
 
-    /// Attach to `conversation_id`'s events, install its view on the core,
-    /// and start the listener, the flush timer, the goal watch, and the
-    /// provider failover relay.
+    /// Attach to `conversation`'s events and durable view, install both on
+    /// the core, and start the listener, the flush timer, the goal watch,
+    /// and the provider failover relay.
     ///
     /// # Errors
     ///
-    /// The event stream or the inbox cannot be read.
+    /// The event stream, the durable view, or the inbox cannot be read.
     pub(crate) async fn start(
         harness: &Harness,
-        conversation_id: ConversationId,
+        conversation: &Conversation,
         provider_events: Option<tokio::sync::broadcast::Receiver<ProviderWireEvent>>,
         retry_policy: RetryPolicySource,
         sink: BridgeSink,
     ) -> SessionResult<Self> {
+        let conversation_id = conversation.id();
         let (cx, cancel) = with_cancel(&BACKGROUND_CONTEXT);
         let epoch = NEXT_EPOCH.fetch_add(1, Ordering::Relaxed);
         let stream = watch_events(harness, conversation_id, &cx).await?;
         let inbox = inbox_previews(harness, conversation_id, &cx).await?;
-        let busy = {
+        let durable = conversation.view_state(&cx).await?;
+        // The run-activity hook follows the event stream, so the stream's
+        // own snapshot says whether its run start already went by.
+        let run_started = stream.snapshot().run.is_some();
+        let mut bridge = Self {
+            stream,
+            durable: durable.clone(),
+            cancel,
+            tasks: Vec::new(),
+        };
+        {
             let mut core = lock(&sink.core);
-            let view = ShownView {
+            core.view = Some(ShownView {
                 epoch,
-                translator: EventTranslator::new(stream.snapshot(), CoalesceMode::Coalesced)
+                translator: EventTranslator::new(bridge.stream.snapshot(), CoalesceMode::Coalesced)
                     .with_retry_policy(retry_policy),
                 inbox,
                 active: None,
                 goal: Value::Null,
-            };
-            let busy = view.is_busy();
-            core.view = Some(view);
+            });
+            core.durable = Some(DurableView {
+                harness: harness.clone(),
+                state: durable,
+            });
             crate::worker::emit_action_update_locked(&mut core, &sink.events);
-            busy
-        };
-        if busy {
+        }
+        if run_started {
             (sink.on_run)(RunChange::Started);
         }
-        stream.start(listener(
+        bridge.stream.start(listener(
             harness.clone(),
             epoch,
             conversation_id,
             sink.clone(),
         ))?;
-        let mut tasks = vec![
-            tokio::spawn(flush_loop(epoch, sink.clone())),
-            tokio::spawn(goal_loop(
-                harness.clone(),
-                epoch,
-                conversation_id,
-                sink.clone(),
-                cx,
-            )),
-        ];
+        bridge
+            .tasks
+            .push(tokio::spawn(flush_loop(epoch, sink.clone())));
+        bridge.tasks.push(tokio::spawn(goal_loop(
+            harness.clone(),
+            epoch,
+            conversation_id,
+            sink.clone(),
+            cx,
+        )));
         if let Some(events) = provider_events {
-            tasks.push(tokio::spawn(provider_loop(epoch, events, sink)));
+            bridge
+                .tasks
+                .push(tokio::spawn(provider_loop(epoch, events, sink)));
         }
-        Ok(Self {
-            stream,
-            cancel,
-            tasks,
-        })
+        Ok(bridge)
     }
 
     /// Stop delivering events; the core keeps the last view.
@@ -252,10 +281,13 @@ fn apply_batch(
             };
             let frames = view.translator.translate_batch(batch);
             // An inbox read answers what this batch picked up: the rows
-            // that disappeared.
+            // that disappeared. Whether a run is live is the batch's own
+            // (the stream projection's), not the durable state, which
+            // may already be past the batch.
+            let run_live = view.translator.mirror().is_streaming();
             let armed = inbox
                 .as_ref()
-                .and_then(|inbox| armed_pickup(&view.inbox, inbox, view.is_busy()));
+                .and_then(|inbox| armed_pickup(&view.inbox, inbox, run_live));
             let changes = run_changes(&frames);
             (plan_batch(view.active.take(), frames, armed), changes)
         };

@@ -14,7 +14,7 @@ pub(crate) mod suspended;
 pub mod translator;
 pub mod wire_messages;
 
-pub(crate) use bridge::{EventBridge, ShownView};
+pub(crate) use bridge::{DurableView, EventBridge, ShownView};
 pub use translator::{CoalesceMode, ConversationMirror, EventTranslator};
 
 use std::path::{Path, PathBuf};
@@ -277,7 +277,7 @@ impl HostedSession {
         });
         let started = EventBridge::start(
             &self.harness,
-            conversation.id(),
+            conversation,
             provider_events,
             retry_policy,
             sink,

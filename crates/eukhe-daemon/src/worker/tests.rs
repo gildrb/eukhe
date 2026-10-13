@@ -553,6 +553,71 @@ async fn a_crashed_run_resumes_on_the_next_create() {
     assert_eq!(ended.operation, "run_ended");
 }
 
+/// A Storage failure mid-run (the session's files turn unwritable, so the
+/// next commit fails and the Harness fails its Session) does not leave the
+/// session busy: busy derives from the durable Harness, not from the event
+/// mirror (which never hears a run end).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_storage_failure_mid_run_does_not_leave_the_session_busy() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sessions = dir.path().join("sessions");
+    let cwd = dir.path().join("work");
+    let first = worker(
+        dir.path(),
+        "first.recovery.jsonl",
+        json!({ "responses": [
+            { "content": [{ "type": "toolCall", "name": "missing_tool", "arguments": {}, "id": "call-1" }] },
+            { "text": "lost", "delayMs": 60_000 },
+        ] }),
+    );
+    create(&first, json!({ "cwd": cwd, "sessionDir": sessions })).await;
+    let storage = first
+        .session
+        .get()
+        .and_then(|hosted| hosted.storage_dir().map(Path::to_path_buf))
+        .expect("a stored session");
+    let response = first.dispatch("prompt", &json!({ "message": "go" })).await;
+    assert!(response.success, "prompt: {response:?}");
+    wait_messages(&first, |messages| {
+        messages
+            .iter()
+            .any(|message| message["role"] == "toolResult")
+    })
+    .await;
+    let queued = first.dispatch("steer", &json!({ "message": "S" })).await;
+    assert!(queued.success, "steer: {queued:?}");
+    assert!(first.core.lock().unwrap().is_busy());
+
+    // The disk refuses writes: the next commit fails the Harness.
+    set_writable(&storage, false);
+    let refused = first
+        .dispatch("follow_up", &json!({ "message": "refused" }))
+        .await;
+    assert!(!refused.success, "the failing commit answers: {refused:?}");
+    wait_busy(&first, false).await;
+    set_writable(&storage, true);
+}
+
+/// Make `dir`'s tree unwritable (or writable again).
+fn set_writable(dir: &Path, writable: bool) {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir_mode, file_mode) = if writable {
+        (0o755, 0o644)
+    } else {
+        (0o555, 0o444)
+    };
+    for entry in std::fs::read_dir(dir).expect("storage dir") {
+        let path = entry.expect("storage entry").path();
+        if path.is_dir() {
+            set_writable(&path, writable);
+        } else {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(file_mode))
+                .expect("file mode");
+        }
+    }
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(dir_mode)).expect("dir mode");
+}
+
 /// The test-only crash: the hosted session goes away with its run in
 /// flight (no abort, no settle), leaving the storage to the next open.
 async fn crash(worker: &Worker) {
