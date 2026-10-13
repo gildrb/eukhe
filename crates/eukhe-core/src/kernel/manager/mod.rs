@@ -23,16 +23,15 @@ use crate::kernel::orphan_journal;
 use crate::kernel::protocol::{parse_event, Event, Request, REPL_PROTOCOL_VERSION};
 use crate::kernel::shared::FACTORY_ACTIVITY_ACTIONS;
 use crate::kernel::shared::{
-    parse_attachment_display, parse_diff_display, parse_sent_agent_message, BackgroundOutput,
-    CellJob, ExecuteOptions, ExecuteResult, ExecuteStatus, HostRequestPayload, KernelAttachment,
-    KernelBashCommands, KernelDiffDisplay, KernelError, KernelManagerOptions,
-    KernelSentAgentMessage, KernelShutdownOptions, LateSentAgentMessageCallback, OutputSink,
-    StreamName, AGENT_MESSAGE_DISPLAY_MIME, ATTACHMENT_DISPLAY_MIME, BASH_ACTIVITY_DISPLAY_MIME,
-    BASH_COMMAND_DISPLAY_MIME, DEFAULT_SNAPSHOT_DEBOUNCE_MS, DIFF_DISPLAY_MIME,
-    FACTIVITY_SETTLE_TIMEOUT_MS, FACTIVITY_WATCH_TIMEOUT_MS_CAP, HOST_REQUEST_SHUTDOWN_TIMEOUT_MS,
-    KERNEL_ABORT_GRACE_MS, KERNEL_SHUTDOWN_TIMEOUT_MS, KERNEL_STDERR_LOG_BUDGET_MARKER,
-    MAX_ATTACHMENT_DATA_CHARS, MAX_BACKGROUND_OUTPUT_CHARS, MAX_KERNEL_STDERR_CHARS,
-    MAX_KERNEL_STDERR_LOG_BYTES, MAX_LATE_SENT_AGENT_MESSAGE_HANDLERS,
+    parse_attachment_display, parse_sent_agent_message, BackgroundOutput, CellJob, ExecuteOptions,
+    ExecuteResult, ExecuteStatus, HostRequestPayload, KernelAttachment, KernelBashCommands,
+    KernelError, KernelManagerOptions, KernelSentAgentMessage, KernelShutdownOptions,
+    LateSentAgentMessageCallback, OutputSink, StreamName, AGENT_MESSAGE_DISPLAY_MIME,
+    ATTACHMENT_DISPLAY_MIME, BASH_ACTIVITY_DISPLAY_MIME, BASH_COMMAND_DISPLAY_MIME,
+    DEFAULT_SNAPSHOT_DEBOUNCE_MS, FACTIVITY_SETTLE_TIMEOUT_MS, FACTIVITY_WATCH_TIMEOUT_MS_CAP,
+    HOST_REQUEST_SHUTDOWN_TIMEOUT_MS, KERNEL_ABORT_GRACE_MS, KERNEL_SHUTDOWN_TIMEOUT_MS,
+    KERNEL_STDERR_LOG_BUDGET_MARKER, MAX_ATTACHMENT_DATA_CHARS, MAX_BACKGROUND_OUTPUT_CHARS,
+    MAX_KERNEL_STDERR_CHARS, MAX_KERNEL_STDERR_LOG_BYTES, MAX_LATE_SENT_AGENT_MESSAGE_HANDLERS,
     RESTORE_EXECUTION_TIMEOUT_MS, SNAPSHOT_EXECUTION_TIMEOUT_MS,
 };
 use crate::kernel::state_snapshot::{
@@ -90,7 +89,6 @@ struct ExecBuffers {
     stdout: String,
     stderr: String,
     result: Option<String>,
-    diffs: Vec<KernelDiffDisplay>,
     attachments: Vec<KernelAttachment>,
     attachment_oversized: bool,
     sent_agent_messages: Vec<KernelSentAgentMessage>,
@@ -132,7 +130,6 @@ impl InternalExecuteResult {
                 stdout: String::new(),
                 stderr: String::new(),
                 result: None,
-                diffs: None,
                 attachments: None,
                 sent_agent_messages: None,
                 bash_commands: None,

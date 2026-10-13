@@ -2,11 +2,11 @@
 //! and background output buffers.
 
 use super::{
-    append_capped, lock, parse_attachment_display, parse_diff_display, parse_sent_agent_message,
-    ActiveExecution, Arc, Event, ExecBuffers, ExecuteStatus, Guarded, Inner, KernelBashCommands,
-    KernelError, OutputSink, StreamName, Value, AGENT_MESSAGE_DISPLAY_MIME,
-    ATTACHMENT_DISPLAY_MIME, BASH_ACTIVITY_DISPLAY_MIME, BASH_COMMAND_DISPLAY_MIME,
-    DIFF_DISPLAY_MIME, MAX_ATTACHMENT_DATA_CHARS, MAX_BACKGROUND_OUTPUT_CHARS,
+    append_capped, lock, parse_attachment_display, parse_sent_agent_message, ActiveExecution, Arc,
+    Event, ExecBuffers, ExecuteStatus, Guarded, Inner, KernelBashCommands, KernelError, OutputSink,
+    StreamName, Value, AGENT_MESSAGE_DISPLAY_MIME, ATTACHMENT_DISPLAY_MIME,
+    BASH_ACTIVITY_DISPLAY_MIME, BASH_COMMAND_DISPLAY_MIME, MAX_ATTACHMENT_DATA_CHARS,
+    MAX_BACKGROUND_OUTPUT_CHARS,
 };
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ impl Inner {
         execution.emit(stream, text);
     }
 
-    /// display events: diffs, attachments, sent agent messages, late or live.
+    /// display events: attachments, sent agent messages, late or live.
     fn dispatch_display(&self, id: Option<&str>, data: &Value) {
         let execution = lock(&self.guarded).active_execution.clone();
         let matching = execution
@@ -188,11 +188,6 @@ impl Inner {
             return;
         }
         let mut buffers = lock(&execution.buffers);
-        if let Some(payload) = data.get(DIFF_DISPLAY_MIME) {
-            if let Some(diff) = parse_diff_display(payload) {
-                buffers.diffs.push(diff);
-            }
-        }
         match data
             .get(ATTACHMENT_DISPLAY_MIME)
             .and_then(parse_attachment_display)
@@ -376,7 +371,7 @@ mod tests {
         }
         manager.inner.handle_event(Event::Display {
             id: None,
-            data: json!({ "application/vnd.eukhe.diff+json": { "path": "p" } }),
+            data: json!({ "text/plain": "p" }),
         });
         assert!(manager.has_background_work());
         // The matching release settles the track exactly once.

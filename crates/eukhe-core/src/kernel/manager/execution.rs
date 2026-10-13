@@ -137,7 +137,6 @@ impl Inner {
                 stdout,
                 stderr,
                 result,
-                diffs: (!buffers.diffs.is_empty()).then(|| std::mem::take(&mut buffers.diffs)),
                 attachments: (!buffers.attachments.is_empty())
                     .then(|| std::mem::take(&mut buffers.attachments)),
                 sent_agent_messages: (!buffers.sent_agent_messages.is_empty())
