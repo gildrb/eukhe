@@ -18,7 +18,6 @@ use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{AssistantMessage, Message, StopReason, StreamFailureKind};
 
-use super::durable_host::wire_messages::assistant_wire_message;
 use super::summary::queued_inputs;
 use super::{response_failure, response_success, Worker};
 use crate::protocol::DaemonResponse;
@@ -92,7 +91,8 @@ fn run_outcome(busy: bool, pending_jobs: u32, last: Option<&AssistantMessage>) -
         }
         RlmChildRunState::Answered {
             answer_preview: last
-                .map(|message| crate::types::message_text(&assistant_wire_message(message)))
+                .and_then(|message| serde_json::to_value(message).ok())
+                .map(|message| crate::types::message_text(&message))
                 .filter(|text| !text.is_empty())
                 .map(|text| crate::rlm_child_model::compact_rlm_text(&text)),
         }
