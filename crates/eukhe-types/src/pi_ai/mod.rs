@@ -7,6 +7,7 @@
 //! printed like `JSON.stringify` (see [`js_number`]). The runtime-only types
 //! (stream options and callbacks) live in `eukhe_ai::types`.
 
+mod adjustment;
 mod api;
 mod classifier;
 mod compat;
@@ -27,6 +28,7 @@ mod usage;
 
 pub use indexmap::IndexMap;
 
+pub use adjustment::{AdjustedField, AdjustmentChange, AdjustmentReason, RequestAdjustment};
 pub use api::{
     Api, ClassifierApi, ImageApi, KnownApi, KnownClassifierApi, KnownImageApi, KnownProvider,
     ProviderId,

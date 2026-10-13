@@ -47,6 +47,7 @@ fn create_output(model: &Model) -> AssistantMessage {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: StopReason::Pending,
         deferred: None,
@@ -107,6 +108,7 @@ fn get_replayed_reasoning(model: &Model, assistant: &AssistantMessage) -> Option
         &context,
         &["azure"],
         &ConvertResponsesMessagesOptions::default(),
+        &mut Vec::new(),
     )
     .expect("convert");
     input.into_iter().find(|item| item["type"] == "reasoning")

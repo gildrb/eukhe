@@ -2,7 +2,8 @@
 //! shared stream options and thinking-budget arithmetic.
 
 use eukhe_types::pi_ai::{
-    Model, ModelThinkingLevel, SamplingParams, ThinkingBudgets, ThinkingLevel, TranscriptContext,
+    AdjustedField, AdjustmentReason, Model, ModelThinkingLevel, RequestAdjustment, SamplingParams,
+    ThinkingBudgets, ThinkingLevel, TranscriptContext,
 };
 
 use crate::models::clamp_thinking_level;
@@ -62,7 +63,8 @@ pub fn resolve_sampling_params(
 
 /// TS `buildBaseOptions`: the shared stream options of a `streamSimple`
 /// call, with resolved sampling params, context-clamped `max_tokens`, and
-/// `api_key` taking precedence when non-empty.
+/// `api_key` taking precedence when non-empty. A caller's `max_tokens` the
+/// context clamp lowers is recorded in [`StreamOptions::adjustments`].
 ///
 /// Every other field is copied from `options.stream`; this includes the
 /// eukhe addition `service_tier`.
@@ -80,11 +82,17 @@ pub fn build_base_options(
         .and_then(|options| options.reasoning)
         .map_or(ModelThinkingLevel::Off, ModelThinkingLevel::from);
     base.sampling_params = resolve_sampling_params(model, reasoning, base.sampling_params.as_ref());
-    base.max_tokens = Some(clamp_max_tokens_to_context(
-        model,
-        context,
-        base.max_tokens.unwrap_or(model.max_tokens),
-    ));
+    let max_tokens =
+        clamp_max_tokens_to_context(model, context, base.max_tokens.unwrap_or(model.max_tokens));
+    if let Some(requested) = base.max_tokens.filter(|requested| *requested > max_tokens) {
+        base.adjustments.push(RequestAdjustment::clamped(
+            AdjustedField::MaxTokens,
+            requested,
+            max_tokens,
+            AdjustmentReason::ContextWindow,
+        ));
+    }
+    base.max_tokens = Some(max_tokens);
     if let Some(api_key) = api_key.filter(|key| !key.is_empty()) {
         base.request.api_key = Some(api_key.to_owned());
     }
@@ -163,5 +171,109 @@ pub fn adjust_max_tokens_for_thinking(
     ThinkingTokens {
         max_tokens,
         thinking_budget,
+    }
+}
+
+/// The thinking-budget sizing of the Anthropic-style `streamSimple` paths:
+/// [`adjust_max_tokens_for_thinking`], the result clamped to the context
+/// window, and the budget capped so [`MIN_ANSWER_TOKENS`] remain. A budget
+/// below the level's is recorded in `adjustments`.
+#[must_use]
+pub fn fit_thinking_tokens(
+    model: &Model,
+    context: &TranscriptContext,
+    base_max_tokens: Option<u64>,
+    reasoning_level: ThinkingLevel,
+    custom_budgets: Option<&ThinkingBudgets>,
+    adjustments: &mut Vec<RequestAdjustment>,
+) -> ThinkingTokens {
+    let adjusted = adjust_max_tokens_for_thinking(
+        base_max_tokens,
+        model.max_tokens,
+        reasoning_level,
+        custom_budgets,
+    );
+    let max_tokens = clamp_max_tokens_to_context(model, context, adjusted.max_tokens);
+    let thinking_budget =
+        clamp_thinking_budget_to_answer_room(adjusted.thinking_budget, max_tokens);
+    let requested = thinking_budget_for_level(reasoning_level, custom_budgets);
+    if thinking_budget < requested {
+        adjustments.push(RequestAdjustment::clamped(
+            AdjustedField::ThinkingBudget,
+            requested,
+            thinking_budget,
+            AdjustmentReason::MaxTokens,
+        ));
+    }
+    ThinkingTokens {
+        max_tokens,
+        thinking_budget,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn model(context_window: u64) -> Model {
+        serde_json::from_value(json!({
+            "id": "claude-test",
+            "name": "Claude Test",
+            "api": "anthropic-messages",
+            "provider": "anthropic",
+            "baseUrl": "https://api.anthropic.com",
+            "reasoning": true,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": context_window,
+            "maxTokens": 32_000,
+        }))
+        .expect("model")
+    }
+
+    #[test]
+    fn records_a_thinking_budget_the_context_clamp_shrinks() {
+        let context = TranscriptContext::from_normalized_messages(Vec::new());
+        let mut adjustments = Vec::new();
+
+        let fitted = fit_thinking_tokens(
+            &model(16_000),
+            &context,
+            None,
+            ThinkingLevel::High,
+            None,
+            &mut adjustments,
+        );
+
+        assert!(fitted.thinking_budget < 16_384, "{fitted:?}");
+        assert_eq!(
+            adjustments,
+            [RequestAdjustment::clamped(
+                AdjustedField::ThinkingBudget,
+                16_384,
+                fitted.thinking_budget,
+                AdjustmentReason::MaxTokens,
+            )]
+        );
+    }
+
+    #[test]
+    fn records_nothing_when_the_thinking_budget_fits() {
+        let context = TranscriptContext::from_normalized_messages(Vec::new());
+        let mut adjustments = Vec::new();
+
+        let fitted = fit_thinking_tokens(
+            &model(200_000),
+            &context,
+            None,
+            ThinkingLevel::High,
+            None,
+            &mut adjustments,
+        );
+
+        assert_eq!(fitted.thinking_budget, 16_384);
+        assert!(adjustments.is_empty(), "{adjustments:?}");
     }
 }

@@ -266,6 +266,7 @@ fn create_empty_message(model: &Model, stop_reason: StopReason) -> AssistantMess
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason,
         deferred: None,

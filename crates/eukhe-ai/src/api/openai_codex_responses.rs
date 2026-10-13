@@ -272,6 +272,7 @@ pub fn stream(
             provider_thinking_level: None,
             thinking_level: None,
             diagnostics: None,
+            adjustments: options.stream.adjustments.clone(),
             usage: Usage {
                 input: 0,
                 output: 0,
@@ -377,6 +378,7 @@ async fn run(
         options,
         codex_session_id.as_deref(),
         &grammar_tool_input_properties,
+        &mut output.adjustments,
     )?;
     if let Some(on_payload) = &request_options.on_payload {
         if let Some(next_body) = on_payload(body.clone(), model).await? {

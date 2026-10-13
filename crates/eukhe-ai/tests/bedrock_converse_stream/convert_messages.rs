@@ -46,6 +46,7 @@ fn assistant(content: Vec<AssistantContentBlock>, stop_reason: StopReason) -> Me
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason,
         deferred: None,

@@ -41,6 +41,7 @@ fn assistant_message_serializes_role_first_and_js_numbers() {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage {
             cost: UsageCost {
                 input: 0.5,
@@ -174,6 +175,7 @@ fn events_serialize_with_camel_case_fields() {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: usage(),
         stop_reason: StopReason::Pending,
         deferred: None,

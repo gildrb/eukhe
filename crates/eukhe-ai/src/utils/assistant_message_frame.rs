@@ -174,6 +174,7 @@ fn clone_start_message(message: &AssistantMessage) -> AssistantMessage {
         provider_thinking_level: message.provider_thinking_level.clone(),
         thinking_level: None,
         diagnostics: message.diagnostics.clone(),
+        adjustments: Vec::new(),
         usage: message.usage,
         stop_reason: StopReason::Pending,
         deferred: None,

@@ -24,10 +24,10 @@ use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
 use crate::models::clamp_thinking_level;
 use crate::types::{
-    AssistantMessage, AssistantMessageEvent, CacheRetention, ErrorReason, JsonObject, JsonValue,
-    Model, ModelThinkingLevel, ProviderEnv, ProviderHeaders, ProviderResponse,
-    ProviderStreamOptions, ServiceTierMultipliers, SimpleStreamOptions, StopReason, ThinkingLevel,
-    TranscriptContext, Usage,
+    AdjustedField, AdjustmentReason, AssistantMessage, AssistantMessageEvent, CacheRetention,
+    ErrorReason, JsonObject, JsonValue, Model, ModelThinkingLevel, ProviderEnv, ProviderHeaders,
+    ProviderResponse, ProviderStreamOptions, RequestAdjustment, ServiceTierMultipliers,
+    SimpleStreamOptions, StopReason, ThinkingLevel, TranscriptContext, Usage,
 };
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::error_body::{format_provider_error, normalize_provider_error};
@@ -253,19 +253,27 @@ pub fn apply_service_tier_pricing(
 
 /// The effective `serviceTier`: the API option, else the eukhe addition
 /// [`StreamOptions::service_tier`](crate::types::StreamOptions) where the
-/// host accepts the field (GitHub Copilot rejects it with a 400).
+/// host accepts the field (GitHub Copilot rejects it with a 400). A
+/// requested tier the host does not take is recorded in `adjustments`.
 fn effective_service_tier(
     compat: &ResolvedCompat,
     options: &ProviderStreamOptions,
     api: &OpenAIResponsesOptions,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Option<JsonValue> {
-    api.service_tier.clone().or_else(|| {
-        options
-            .stream
-            .service_tier
-            .filter(|_| compat.supports_service_tier)
-            .map(|tier| json!(tier.as_str()))
-    })
+    if api.service_tier.is_some() {
+        return api.service_tier.clone();
+    }
+    let tier = options.stream.service_tier?;
+    if compat.supports_service_tier {
+        Some(json!(tier.as_str()))
+    } else {
+        adjustments.push(RequestAdjustment::dropped(
+            AdjustedField::ServiceTier,
+            AdjustmentReason::UnsupportedByModel,
+        ));
+        None
+    }
 }
 
 fn create_client(
@@ -324,7 +332,11 @@ fn create_client(
     })
 }
 
+/// TS `buildParams`. `service_tier` is the [`effective_service_tier`]. Every
+/// other requested field the request drops or clamps is recorded in
+/// `adjustments`.
 #[allow(clippy::too_many_lines)] // One TS function.
+#[allow(clippy::too_many_arguments)] // The TS inputs plus the adjustment sink.
 fn build_params(
     model: &Model,
     context: &TranscriptContext,
@@ -332,6 +344,8 @@ fn build_params(
     api: &OpenAIResponsesOptions,
     compat: &ResolvedCompat,
     grammar: &GrammarToolInputProperties,
+    service_tier: Option<JsonValue>,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<JsonValue, Thrown> {
     let transcript_tools = resolve_transcript_tools(
         context.messages(),
@@ -355,6 +369,7 @@ fn build_params(
             supports_tool_search: Some(compat.supports_tool_search),
             tool_options: Some(tool_options),
         },
+        adjustments,
     )?;
 
     let stream_options = &options.stream;
@@ -385,19 +400,40 @@ fn build_params(
     params.insert("store".to_owned(), json!(false));
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
-        if compat.supports_max_output_tokens && !omit_unsupported_fields {
-            params.insert(
-                "max_output_tokens".to_owned(),
-                json!(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
-            );
+        if !compat.supports_max_output_tokens {
+            adjustments.push(RequestAdjustment::dropped(
+                AdjustedField::MaxTokens,
+                AdjustmentReason::UnsupportedByModel,
+            ));
+        } else if omit_unsupported_fields {
+            adjustments.push(RequestAdjustment::dropped(
+                AdjustedField::MaxTokens,
+                AdjustmentReason::ChatGptSignIn,
+            ));
+        } else {
+            let sent = max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS);
+            if sent != max_tokens {
+                adjustments.push(RequestAdjustment::clamped(
+                    AdjustedField::MaxTokens,
+                    max_tokens,
+                    sent,
+                    AdjustmentReason::BelowMinimum,
+                ));
+            }
+            params.insert("max_output_tokens".to_owned(), json!(sent));
         }
     }
     if let Some(temperature) = stream_options.temperature {
-        if !omit_unsupported_fields {
+        if omit_unsupported_fields {
+            adjustments.push(RequestAdjustment::dropped(
+                AdjustedField::Temperature,
+                AdjustmentReason::ChatGptSignIn,
+            ));
+        } else {
             params.insert("temperature".to_owned(), json!(temperature));
         }
     }
-    if let Some(service_tier) = effective_service_tier(compat, options, api) {
+    if let Some(service_tier) = service_tier {
         params.insert("service_tier".to_owned(), service_tier);
     }
     if !transcript_tools.request_tools.is_empty() {
@@ -411,6 +447,7 @@ fn build_params(
                     supports_openai_grammar_tools: Some(compat.supports_openai_grammar_tools),
                     tool_search_result: None,
                 },
+                adjustments,
             )?),
         );
     }
@@ -501,7 +538,8 @@ pub(crate) fn insert_reasoning_off(model: &Model, params: &mut JsonObject) {
     }
 }
 
-fn new_output(model: &Model) -> AssistantMessage {
+/// The empty message, seeded with the adjustments `streamSimple` made.
+fn new_output(model: &Model, adjustments: Vec<RequestAdjustment>) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
         api: model.api.clone(),
@@ -512,6 +550,7 @@ fn new_output(model: &Model) -> AssistantMessage {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments,
         usage: Usage::default(),
         stop_reason: StopReason::Pending,
         deferred: None,
@@ -628,7 +667,17 @@ async fn run(
         compat.supports_openai_grammar_tools,
     )?;
     let client = create_client(model, context, api_key, options, cache_session_id);
-    let mut params = build_params(model, context, options, &api, &compat, &grammar)?;
+    let service_tier = effective_service_tier(&compat, options, &api, &mut output.adjustments);
+    let mut params = build_params(
+        model,
+        context,
+        options,
+        &api,
+        &compat,
+        &grammar,
+        service_tier.clone(),
+        &mut output.adjustments,
+    )?;
     if let Some(on_payload) = &request.on_payload {
         if let Some(next) = on_payload(params.clone(), model).await? {
             params = next;
@@ -670,8 +719,7 @@ async fn run(
     let own_multipliers = model.cost.service_tier_multipliers;
     let stream_options = OpenAIResponsesStreamOptions {
         on_provider_stream_event: options.stream.on_provider_stream_event.clone(),
-        service_tier: effective_service_tier(&get_compat(model), options, &api)
-            .and_then(|tier| tier.as_str().map(str::to_owned)),
+        service_tier: service_tier.and_then(|tier| tier.as_str().map(str::to_owned)),
         grammar_tool_input_properties: Some(grammar),
         resolve_service_tier: None,
         apply_service_tier_pricing: Some(Arc::new(move |usage, service_tier| {
@@ -706,7 +754,7 @@ pub fn stream(
     let model = model.clone();
     let target = stream.clone();
     tokio::spawn(async move {
-        let mut output = new_output(&model);
+        let mut output = new_output(&model, options.stream.adjustments.clone());
         let mut request_id = None;
         let result = run(
             &model,

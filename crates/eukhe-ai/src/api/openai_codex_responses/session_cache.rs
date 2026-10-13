@@ -669,6 +669,7 @@ fn response_items(
         messages: vec![Message::Assistant(output.clone())],
         tools: None,
     });
+    // A lone assistant message adds no tools, so it records no adjustments.
     let items = convert_responses_messages(
         model,
         &context,
@@ -678,6 +679,7 @@ fn response_items(
             grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
             ..ConvertResponsesMessagesOptions::default()
         },
+        &mut Vec::new(),
     )?;
     Ok(items
         .into_iter()

@@ -216,6 +216,7 @@ async fn round_trips_a_function_namespace_received_only_on_output_item_done() {
         &context_of(&output),
         &["openai"],
         &ConvertResponsesMessagesOptions::default(),
+        &mut Vec::new(),
     )
     .expect("converts");
     assert_match_object(
@@ -259,6 +260,7 @@ async fn round_trips_a_custom_tool_namespace_received_only_on_output_item_done()
             grammar_tool_input_properties: Some(query_grammar()),
             ..ConvertResponsesMessagesOptions::default()
         },
+        &mut Vec::new(),
     )
     .expect("converts");
     assert_match_object(
@@ -315,6 +317,7 @@ fn drops_namespaces_when_the_target_cannot_replay_their_load_items() {
                 grammar_tool_input_properties: Some(query_grammar()),
                 ..ConvertResponsesMessagesOptions::default()
             },
+            &mut Vec::new(),
         )
         .expect("converts");
         let function_call = find_type(&replayed, "function_call").expect("function_call");
@@ -339,6 +342,7 @@ fn does_not_add_a_namespace_to_ordinary_function_calls() {
         &context_of(&output),
         &["openai"],
         &ConvertResponsesMessagesOptions::default(),
+        &mut Vec::new(),
     )
     .expect("converts");
     let replayed = find_type(&replayed, "function_call").expect("function_call");

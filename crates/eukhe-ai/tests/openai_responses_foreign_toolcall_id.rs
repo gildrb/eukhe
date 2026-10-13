@@ -66,6 +66,7 @@ fn hashes_foreign_copilot_tool_item_ids_into_a_bounded_codex_safe_fc_hash_shape(
         &context,
         &["openai", "openai-codex", "opencode"],
         &ConvertResponsesMessagesOptions::default(),
+        &mut Vec::new(),
     )
     .expect("convert");
     let function_call = input

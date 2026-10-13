@@ -21,6 +21,7 @@ fn seed() -> AssistantMessage {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: StopReason::Pending,
         deferred: None,

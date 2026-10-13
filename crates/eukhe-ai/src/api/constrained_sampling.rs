@@ -4,8 +4,8 @@
 use std::collections::HashSet;
 
 use eukhe_types::pi_ai::{
-    ConstrainedSamplingConfig, GrammarFormat, IndexMap, JsonObject, JsonSchemaStrictness,
-    JsonValue, Tool, ToolConstrainedSampling,
+    AdjustedField, AdjustmentReason, ConstrainedSamplingConfig, GrammarFormat, IndexMap,
+    JsonObject, JsonSchemaStrictness, JsonValue, RequestAdjustment, Tool, ToolConstrainedSampling,
 };
 
 use crate::utils::js::{js_trim, json_stringify};
@@ -416,10 +416,44 @@ fn json_schema_config(tool: &Tool) -> Option<JsonSchemaStrictness> {
     }
 }
 
-/// Decide whether a JSON-schema tool is sent in strict mode (`Some(true)`)
-/// or not (`None`). `is_unsupported_keyword` lets a provider reject extra
-/// keywords its strict mode does not accept, so "prefer" tools fall back to
-/// non-strict.
+/// How a JSON-schema tool's strict mode resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrictSampling {
+    /// Send the tool in strict mode.
+    Strict,
+    /// The tool does not ask for JSON-schema constrained sampling.
+    NotRequested,
+    /// The tool prefers strict mode but is sent non-strict, because of the reason.
+    Declined(AdjustmentReason),
+}
+
+impl StrictSampling {
+    /// Whether the tool is sent in strict mode.
+    #[must_use]
+    pub const fn is_strict(self) -> bool {
+        match self {
+            Self::Strict => true,
+            Self::NotRequested | Self::Declined(_) => false,
+        }
+    }
+
+    /// The adjustment recording a declined strict preference of `tool_name`.
+    #[must_use]
+    pub fn adjustment(self, tool_name: &str) -> Option<RequestAdjustment> {
+        match self {
+            Self::Declined(reason) => Some(
+                RequestAdjustment::dropped(AdjustedField::StrictTool, reason)
+                    .for_subject(tool_name),
+            ),
+            Self::Strict | Self::NotRequested => None,
+        }
+    }
+}
+
+/// Decide whether a JSON-schema tool is sent in strict mode.
+/// `is_unsupported_keyword` lets a provider reject extra keywords its strict
+/// mode does not accept, so "prefer" tools fall back to non-strict
+/// ([`StrictSampling::Declined`]).
 ///
 /// # Errors
 ///
@@ -428,15 +462,17 @@ pub fn resolve_json_schema_strict_sampling(
     tool: &Tool,
     supports_strict_mode: bool,
     is_unsupported_keyword: Option<UnsupportedStrictSchemaKeywordCheck<'_>>,
-) -> Result<Option<bool>, ConstrainedSamplingError> {
+) -> Result<StrictSampling, ConstrainedSamplingError> {
     let Some(strict) = json_schema_config(tool) else {
-        return Ok(None);
+        return Ok(StrictSampling::NotRequested);
     };
     if supports_strict_mode {
         return match make_strict_json_schema(&tool.parameters, is_unsupported_keyword) {
-            Ok(_) => Ok(Some(true)),
+            Ok(_) => Ok(StrictSampling::Strict),
             Err(ConstrainedSamplingError::UnsupportedStrictJsonSchema(message)) => match strict {
-                JsonSchemaStrictness::Prefer => Ok(None),
+                JsonSchemaStrictness::Prefer => Ok(StrictSampling::Declined(
+                    AdjustmentReason::UnsupportedSchema,
+                )),
                 JsonSchemaStrictness::Require => Err(ConstrainedSamplingError::Invalid(format!(
                     "Tool \"{}\" requires JSON-schema constrained sampling, but {message}.",
                     tool.name
@@ -450,7 +486,9 @@ pub fn resolve_json_schema_strict_sampling(
             "Tool \"{}\" requires JSON-schema constrained sampling, but strict tools are unsupported.",
             tool.name
         ))),
-        JsonSchemaStrictness::Prefer => Ok(None),
+        JsonSchemaStrictness::Prefer => Ok(StrictSampling::Declined(
+            AdjustmentReason::UnsupportedByModel,
+        )),
     }
 }
 
@@ -644,7 +682,9 @@ mod tests {
             let prefer = tool(&parameters, JsonSchemaStrictness::Prefer);
             assert_eq!(
                 resolve_json_schema_strict_sampling(&prefer, true, None),
-                Ok(None)
+                Ok(StrictSampling::Declined(
+                    AdjustmentReason::UnsupportedSchema
+                ))
             );
 
             let require = tool(&parameters, JsonSchemaStrictness::Require);

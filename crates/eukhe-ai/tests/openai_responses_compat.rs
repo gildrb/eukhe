@@ -7,9 +7,11 @@ use eukhe_ai::compat::get_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{
-    AssistantMessage, CacheRetention, Context, JsonValue, Model, ProviderHeaders, TranscriptContext,
+    AdjustedField, AdjustmentReason, AssistantMessage, AssistantMessageEvent, CacheRetention,
+    Context, JsonValue, Model, ProviderHeaders, RequestAdjustment, ServiceTier, StopReason,
+    TranscriptContext,
 };
-use openai_responses_support::{mock_fetch, CapturedRequest, MockResponse};
+use openai_responses_support::{collect, mock_fetch, CapturedRequest, MockResponse};
 use serde_json::json;
 
 fn model(provider: &str, id: &str) -> Model {
@@ -483,18 +485,77 @@ async fn sends_max_output_tokens_by_default() {
     assert_eq!(request.body["max_output_tokens"], json!(1024));
 }
 
-#[tokio::test]
-async fn omits_max_output_tokens_when_supports_max_output_tokens_is_false() {
+/// `gpt-5.4` with `patch` merged over its compat.
+fn gpt_5_4_with_compat(patch: &JsonValue) -> Model {
     let base_model = gpt_5_4();
     let mut compat = serde_json::to_value(&base_model).expect("model json")["compat"].clone();
     if compat.is_null() {
         compat = json!({});
     }
-    compat["supportsMaxOutputTokens"] = json!(false);
-    let model = with_fields(&base_model, &json!({ "compat": compat }));
+    for (key, value) in patch.as_object().expect("patch object") {
+        compat[key] = value.clone();
+    }
+    with_fields(&base_model, &json!({ "compat": compat }))
+}
+
+#[tokio::test]
+async fn omits_max_output_tokens_when_supports_max_output_tokens_is_false() {
+    let model = gpt_5_4_with_compat(&json!({ "supportsMaxOutputTokens": false }));
     let mut options = ProviderStreamOptions::default();
     options.stream.max_tokens = Some(1024);
-    let (request, _) = run(&model, &sys_hi_context(), options, done_response()).await;
+    let (request, result) = run(&model, &sys_hi_context(), options, done_response()).await;
 
     assert_eq!(request.body.get("max_output_tokens"), None);
+    // The stream ends without a stop reason: the error message carries the drop too.
+    assert_eq!(result.stop_reason, StopReason::Error);
+    assert_eq!(
+        result.adjustments,
+        [RequestAdjustment::dropped(
+            AdjustedField::MaxTokens,
+            AdjustmentReason::UnsupportedByModel,
+        )]
+    );
+}
+
+#[tokio::test]
+async fn records_a_service_tier_the_host_does_not_take() {
+    let model = gpt_5_4_with_compat(&json!({ "supportsServiceTier": false }));
+    let completed = json!({
+        "type": "response.completed",
+        "response": {
+            "status": "completed",
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 2,
+                "input_tokens_details": { "cached_tokens": 0 },
+            },
+        },
+    });
+    let (fetch, captured) = mock_fetch(vec![MockResponse::sse(format!("data: {completed}\n\n"))]);
+    let mut options = ProviderStreamOptions::default();
+    options.stream.service_tier = Some(ServiceTier::Flex);
+    options.stream.request.api_key = Some("sk-test-key".to_owned());
+    options.stream.request.fetch = Some(fetch);
+
+    let (events, message) =
+        collect(stream_openai_responses(&model, &sys_hi_context(), options)).await;
+
+    let request = captured
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .first()
+        .cloned()
+        .expect("captured request");
+    assert_eq!(request.body.get("service_tier"), None);
+    let expected = [RequestAdjustment::dropped(
+        AdjustedField::ServiceTier,
+        AdjustmentReason::UnsupportedByModel,
+    )];
+    let Some(AssistantMessageEvent::Start { partial }) = events.first() else {
+        panic!("expected a start event, got {events:?}");
+    };
+    assert_eq!(partial.adjustments, expected);
+    assert_eq!(message.stop_reason, StopReason::Stop);
+    assert_eq!(message.adjustments, expected);
 }

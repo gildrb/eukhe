@@ -8,8 +8,8 @@ use base64::engine::DecodePaddingMode;
 use base64::Engine as _;
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::{
-    JsonObject, JsonValue, Model, ModelThinkingLevel, ProviderHeaders, ServiceTierMultipliers,
-    TranscriptContext, Usage,
+    AdjustedField, AdjustmentReason, JsonObject, JsonValue, Model, ModelThinkingLevel,
+    ProviderHeaders, RequestAdjustment, ServiceTierMultipliers, TranscriptContext, Usage,
 };
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::json;
@@ -31,7 +31,8 @@ const JWT_CLAIM_PATH: &str = "https://api.openai.com/auth";
 /// The WebSocket beta header value.
 pub(crate) const OPENAI_BETA_RESPONSES_WEBSOCKETS: &str = "responses_websockets=2026-02-06";
 
-/// TS `buildRequestBody`.
+/// TS `buildRequestBody`. Every requested field the body drops is recorded
+/// in `adjustments`.
 #[allow(clippy::too_many_lines)] // One TS function; its field order is the wire order.
 pub(crate) fn build_request_body(
     model: &Model,
@@ -39,6 +40,7 @@ pub(crate) fn build_request_body(
     options: &CodexOptions,
     cache_session_id: Option<&str>,
     grammar_tool_input_properties: &IndexMap<String, String>,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<JsonValue, Thrown> {
     let compat = responses_compat(model);
     let supports_strict_mode = compat
@@ -79,6 +81,7 @@ pub(crate) fn build_request_body(
             supports_tool_search: Some(supports_tool_search),
             tool_options: Some(tool_options),
         },
+        adjustments,
     )?;
 
     let instructions = get_initial_system_message(context.messages())
@@ -111,6 +114,14 @@ pub(crate) fn build_request_body(
     );
     body.insert("parallel_tool_calls".into(), json!(true));
 
+    // The ChatGPT backend takes no output-token cap.
+    if options.stream.max_tokens.is_some_and(|tokens| tokens != 0) {
+        adjustments.push(RequestAdjustment::dropped(
+            AdjustedField::MaxTokens,
+            AdjustmentReason::ChatGptSignIn,
+        ));
+    }
+
     if let Some(temperature) = options.temperature {
         body.insert(
             "temperature".into(),
@@ -128,6 +139,7 @@ pub(crate) fn build_request_body(
             JsonValue::Array(convert_responses_tools(
                 &transcript_tools.request_tools,
                 &tool_options,
+                adjustments,
             )?),
         );
     }

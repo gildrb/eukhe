@@ -5,8 +5,9 @@
 use std::collections::HashSet;
 
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, CacheRetention, JsonObject, JsonValue, Message, Model,
-    ModelThinkingLevel, ProviderEnv, Tool, ToolResultMessage, UserContent, UserContentBlock,
+    AdjustedField, AdjustmentReason, AssistantContentBlock, CacheRetention, JsonObject, JsonValue,
+    Message, Model, ModelThinkingLevel, ProviderEnv, RequestAdjustment, Tool, ToolResultMessage,
+    UserContent, UserContentBlock,
 };
 use serde_json::json;
 
@@ -216,10 +217,12 @@ fn is_blank(text: &str) -> bool {
 
 #[allow(clippy::too_many_lines)] // 1:1 port of the TS `convertMessages` body.
 /// TS `convertMessages`. eukhe addition: user text blocks with a
-/// `cache_breakpoint` carry the request's `cache_control` mark.
+/// `cache_breakpoint` carry the request's `cache_control` mark; declined
+/// strict-mode preferences of added tools land in `adjustments`.
 fn convert_messages(
     transformed: &[Message],
     settings: &ConvertSettings<'_>,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<ConvertedMessages, Thrown> {
     let mut params: Vec<JsonValue> = Vec::new();
     let mut assistant_levels: Vec<(usize, String)> = Vec::new();
@@ -257,6 +260,7 @@ fn convert_messages(
                         native.supports_eager_tool_input_streaming,
                         native.supports_strict_tools,
                         None,
+                        adjustments,
                     )? {
                         blocks.push(json!({
                             "type": "tool_addition",
@@ -495,13 +499,14 @@ fn is_anthropic_strict_unsupported_keyword(key: &str, value: &JsonValue) -> bool
     false
 }
 
-/// TS `convertTools`.
+/// TS `convertTools`. Declined strict-mode preferences land in `adjustments`.
 pub(crate) fn convert_tools(
     tools: &[Tool],
     is_oauth_token: bool,
     supports_eager_tool_input_streaming: bool,
     supports_strict_tools: bool,
     cache_control: Option<&JsonValue>,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<Vec<JsonValue>, Thrown> {
     let last = tools.len().saturating_sub(1);
     tools
@@ -513,9 +518,11 @@ pub(crate) fn convert_tools(
                 supports_strict_tools,
                 Some(&is_anthropic_strict_unsupported_keyword),
             )?;
+            adjustments.extend(strict.adjustment(&tool.name));
+            let strict = strict.is_strict();
             let parameters = get_json_schema_tool_parameters(
                 tool,
-                if strict == Some(true) {
+                if strict {
                     StrictToolParameters::Strict
                 } else {
                     StrictToolParameters::AsDeclared
@@ -529,7 +536,7 @@ pub(crate) fn convert_tools(
                 None | Some(JsonValue::Null) => json!([]),
                 Some(value) => value.clone(),
             };
-            let input_schema = if strict == Some(true) {
+            let input_schema = if strict {
                 let mut schema = match &parameters {
                     JsonValue::Object(object) => object.clone(),
                     _ => JsonObject::new(),
@@ -552,7 +559,7 @@ pub(crate) fn convert_tools(
             if supports_eager_tool_input_streaming {
                 converted.insert("eager_input_streaming".into(), true.into());
             }
-            if strict == Some(true) {
+            if strict {
                 converted.insert("strict".into(), true.into());
             }
             converted.insert("input_schema".into(), input_schema);
@@ -648,7 +655,8 @@ fn get_beta_features(
     dedupe(features)
 }
 
-/// TS `buildParams`.
+/// TS `buildParams`. Every requested field the request drops is recorded in
+/// `adjustments`.
 ///
 /// eukhe addition: marked user blocks spend cache-mark slots first; the
 /// optional system, last-tool, and OAuth identity marks take the slots left,
@@ -659,6 +667,7 @@ pub(crate) fn build_params(
     messages: &[Message],
     is_oauth_token: bool,
     options: &AnthropicOptions,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<JsonObject, Thrown> {
     let cache_control = get_cache_control(
         model,
@@ -699,6 +708,7 @@ pub(crate) fn build_params(
                 supports_strict_tools: compat.supports_strict_tools,
             }),
         },
+        adjustments,
     )?;
     let active_effort = options.effort.clone().unwrap_or_else(|| "high".to_owned());
     let betas = get_beta_features(
@@ -766,10 +776,17 @@ pub(crate) fn build_params(
     }
 
     if let Some(temperature) = options.stream.temperature {
-        if options.thinking_enabled != Some(true)
-            && !mid_convo_effort
-            && compat.supports_temperature
-        {
+        if options.thinking_enabled == Some(true) || mid_convo_effort {
+            adjustments.push(RequestAdjustment::dropped(
+                AdjustedField::Temperature,
+                AdjustmentReason::ThinkingEnabled,
+            ));
+        } else if !compat.supports_temperature {
+            adjustments.push(RequestAdjustment::dropped(
+                AdjustedField::Temperature,
+                AdjustmentReason::UnsupportedByModel,
+            ));
+        } else {
             params.insert(
                 "temperature".into(),
                 crate::utils::js::js_number_value(temperature),
@@ -785,6 +802,7 @@ pub(crate) fn build_params(
             compat.supports_eager_tool_input_streaming,
             compat.supports_strict_tools,
             tools_cache,
+            adjustments,
         )?;
         tools.push(deferred_tool_placeholder());
         params.insert("tools".into(), JsonValue::Array(tools));
@@ -797,6 +815,7 @@ pub(crate) fn build_params(
                 compat.supports_eager_tool_input_streaming,
                 compat.supports_strict_tools,
                 tools_cache,
+                adjustments,
             )?),
         );
     }

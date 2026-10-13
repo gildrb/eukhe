@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason,
-    JsonObject, JsonValue, Model, StopReason, TextContent, ThinkingContent, ToolCall,
-    TranscriptContext, Usage,
+    JsonObject, JsonValue, Model, RequestAdjustment, StopReason, TextContent, ThinkingContent,
+    ToolCall, TranscriptContext, Usage,
 };
 use serde_json::json;
 
@@ -84,7 +84,8 @@ impl GoogleApiKind {
 
 /// TS `buildParams(model, context, options)`: the `GenerateContentParameters`
 /// handed to `onPayload` and the SDK. The TS `config.abortSignal` is not
-/// part of the JSON; the signal travels to the client separately.
+/// part of the JSON; the signal travels to the client separately. Every
+/// requested field the request drops is recorded in `adjustments`.
 ///
 /// # Errors
 ///
@@ -94,6 +95,7 @@ pub(crate) fn build_params(
     model: &Model,
     context: &TranscriptContext,
     options: &GoogleRequestOptions,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<JsonValue, Thrown> {
     let contents = convert_messages(model, context);
     let initial_system_message = get_initial_system_message(context.messages());
@@ -131,6 +133,7 @@ pub(crate) fn build_params(
             &current_tools,
             ToolSchemaField::ParametersJsonSchema,
             supports_strict_mode,
+            adjustments,
         )?;
         config.insert(
             "tools".into(),
@@ -213,6 +216,7 @@ fn empty_output(kind: GoogleApiKind, model: &Model) -> AssistantMessage {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: StopReason::Pending,
         deferred: None,
@@ -244,6 +248,7 @@ pub(crate) fn run_google_stream(
             .and_then(|options| options.signal().cloned());
         let result = match options {
             Ok(options) => {
+                output.adjustments.clone_from(&options.stream.adjustments);
                 run(
                     kind,
                     &model,
@@ -364,7 +369,7 @@ async fn run(
             .into());
     }
     let client = create_client(model, options)?;
-    let mut params = build_params(model, context, options)?;
+    let mut params = build_params(model, context, options, &mut output.adjustments)?;
     if let Some(on_payload) = &options.stream.request.on_payload {
         if let Some(next) = on_payload(params.clone(), model).await? {
             params = next;

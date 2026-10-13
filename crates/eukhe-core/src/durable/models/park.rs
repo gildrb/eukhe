@@ -269,6 +269,7 @@ mod tests {
                 error: None,
                 details: Some(details),
             }]),
+            adjustments: Vec::new(),
             usage: Usage::default(),
             stop_reason: StopReason::Error,
             deferred: None,

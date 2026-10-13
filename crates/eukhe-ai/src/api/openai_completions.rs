@@ -207,6 +207,7 @@ fn empty_output(model: &Model) -> AssistantMessage {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: StopReason::Pending,
         deferred: None,
@@ -291,16 +292,21 @@ async fn run(
         .map(|properties| (api_key, properties))
         .map_err(Thrown::from)
     });
+    // The empty message, seeded with the adjustments `streamSimple` made.
+    let seeded_output = || AssistantMessage {
+        adjustments: options.stream.adjustments.clone(),
+        ..empty_output(model)
+    };
     let (api_key, grammar_tool_input_properties) = match setup {
         Ok(setup) => setup,
         Err(error) => {
-            let mut output = empty_output(model);
+            let mut output = seeded_output();
             fail(model, options, &mut output, &error.into(), stream);
             return;
         }
     };
     let mut state = StreamState::new(
-        empty_output(model),
+        seeded_output(),
         stream,
         model,
         &grammar_tool_input_properties,
@@ -474,6 +480,7 @@ async fn run_stream(
         compat,
         cache_retention,
         grammar_tool_input_properties,
+        &mut state.output.adjustments,
     )?);
     if let Some(on_payload) = &request.on_payload {
         if let Some(next) = on_payload(params.clone(), model).await? {

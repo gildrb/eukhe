@@ -2,9 +2,11 @@
 
 mod anthropic_support;
 
-use anthropic_support::{builtin_model, capture_simple_payload, model};
+use anthropic_support::{builtin_model, capture_simple_payload, collect, model, ok_fetch};
 use eukhe_ai::types::SimpleStreamOptions;
-use eukhe_types::pi_ai::{JsonValue, Model};
+use eukhe_types::pi_ai::{
+    AdjustedField, AdjustmentReason, Context, JsonValue, Model, RequestAdjustment, StopReason,
+};
 use serde_json::json;
 
 fn make_custom_model(compat: &JsonValue) -> Model {
@@ -96,4 +98,33 @@ async fn omits_temperature_for_custom_models_with_supports_temperature_disabled(
     .await;
 
     assert_eq!(payload.get("temperature"), None);
+}
+
+#[tokio::test]
+async fn records_the_dropped_temperature_on_the_final_message() {
+    let (fetch, _) = ok_fetch();
+    let mut options = temperature(0.5);
+    options.stream.request.api_key = Some("fake-key".into());
+    options.stream.request.fetch = Some(fetch);
+    let context: Context = serde_json::from_value(json!({
+        "messages": [{ "role": "user", "content": "Hello", "timestamp": 1 }],
+    }))
+    .expect("context");
+
+    let stream = eukhe_ai::compat::stream_simple(
+        &make_custom_model(&json!({ "supportsTemperature": false })),
+        context,
+        options,
+    )
+    .expect("stream");
+    let (_, message) = collect(stream).await;
+
+    assert_eq!(message.stop_reason, StopReason::Stop);
+    assert_eq!(
+        message.adjustments,
+        [RequestAdjustment::dropped(
+            AdjustedField::Temperature,
+            AdjustmentReason::UnsupportedByModel,
+        )]
+    );
 }

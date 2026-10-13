@@ -4,8 +4,8 @@
 //! `api/mistral-conversations.ts`.
 
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, JsonObject, JsonValue, Message, Modality, Model, Tool,
-    ToolResultMessage, UserContent, UserContentBlock,
+    AssistantContentBlock, AssistantMessage, JsonObject, JsonValue, Message, Modality, Model,
+    RequestAdjustment, Tool, ToolResultMessage, UserContent, UserContentBlock,
 };
 use serde_json::json;
 
@@ -21,11 +21,13 @@ use crate::utils::text::{get_system_message_text, render_system_message_update};
 use crate::utils::transcript::get_current_tools;
 
 /// TS `buildChatPayload`: the SDK-style payload, keys in TS insertion order.
+/// Declined strict-mode tool preferences land in `adjustments`.
 pub(super) fn build_chat_payload(
     model: &Model,
     context_messages: &[Message],
     messages: &[Message],
     options: &MistralOptions,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<JsonObject, Thrown> {
     let mut payload = JsonObject::new();
     payload.insert("model".into(), JsonValue::String(model.id.clone()));
@@ -42,7 +44,7 @@ pub(super) fn build_chat_payload(
     if !current_tools.is_empty() {
         payload.insert(
             "tools".into(),
-            JsonValue::Array(to_function_tools(&current_tools)?),
+            JsonValue::Array(to_function_tools(&current_tools, adjustments)?),
         );
     }
     if let Some(temperature) = options.stream.temperature {
@@ -80,14 +82,19 @@ pub(super) fn build_chat_payload(
 }
 
 /// TS `toFunctionTools`.
-fn to_function_tools(tools: &[Tool]) -> Result<Vec<JsonValue>, Thrown> {
+fn to_function_tools(
+    tools: &[Tool],
+    adjustments: &mut Vec<RequestAdjustment>,
+) -> Result<Vec<JsonValue>, Thrown> {
     tools
         .iter()
         .map(|tool| {
             let strict = resolve_json_schema_strict_sampling(tool, true, None).map_err(thrown)?;
+            adjustments.extend(strict.adjustment(&tool.name));
+            let strict = strict.is_strict();
             // TS `stripSymbolKeys`: TypeBox `Kind` symbols do not exist on
             // Rust JSON values, so the parameters are already plain JSON.
-            let parameters_mode = if strict == Some(true) {
+            let parameters_mode = if strict {
                 StrictToolParameters::Strict
             } else {
                 StrictToolParameters::AsDeclared
@@ -100,7 +107,7 @@ fn to_function_tools(tools: &[Tool]) -> Result<Vec<JsonValue>, Thrown> {
                     "name": tool.name,
                     "description": tool.description,
                     "parameters": parameters,
-                    "strict": strict.unwrap_or(false),
+                    "strict": strict,
                 },
             }))
         })

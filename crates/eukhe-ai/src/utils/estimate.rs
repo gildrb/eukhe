@@ -197,6 +197,7 @@ mod tests {
             provider_thinking_level: None,
             thinking_level: None,
             diagnostics: None,
+            adjustments: Vec::new(),
             usage: create_usage(total_tokens),
             stop_reason: StopReason::Stop,
             deferred: None,

@@ -6,9 +6,9 @@ use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STAN
 use base64::engine::DecodePaddingMode;
 use base64::Engine as _;
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, BedrockCompat, BedrockThinkingFormat, CacheRetention, JsonObject,
-    JsonValue, Message, Model, ModelCompat, ModelThinkingLevel, ProviderEnv, StopReason,
-    ThinkingLevel, Tool, UserContent, UserContentBlock,
+    AdjustedField, AdjustmentReason, AssistantContentBlock, BedrockCompat, BedrockThinkingFormat,
+    CacheRetention, JsonObject, JsonValue, Message, Model, ModelCompat, ModelThinkingLevel,
+    ProviderEnv, RequestAdjustment, StopReason, ThinkingLevel, Tool, UserContent, UserContentBlock,
 };
 use serde_json::json;
 
@@ -438,11 +438,13 @@ pub(crate) fn convert_messages(
     Ok(result)
 }
 
-/// TS `convertToolConfig`.
+/// TS `convertToolConfig`. Declined strict-mode preferences land in
+/// `adjustments`.
 pub(crate) fn convert_tool_config(
     tools: &[Tool],
     tool_choice: Option<&BedrockToolChoice>,
     supports_strict_mode: bool,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<Option<JsonValue>, ConstrainedSamplingError> {
     if tools.is_empty() || tool_choice == Some(&BedrockToolChoice::None) {
         return Ok(None);
@@ -450,9 +452,11 @@ pub(crate) fn convert_tool_config(
     let mut bedrock_tools = Vec::with_capacity(tools.len());
     for tool in tools {
         let strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode, None)?;
+        adjustments.extend(strict.adjustment(&tool.name));
+        let strict = strict.is_strict();
         let parameters = get_json_schema_tool_parameters(
             tool,
-            if strict == Some(true) {
+            if strict {
                 StrictToolParameters::Strict
             } else {
                 StrictToolParameters::AsDeclared
@@ -462,7 +466,7 @@ pub(crate) fn convert_tool_config(
         spec.insert("name".to_owned(), tool.name.clone().into());
         spec.insert("description".to_owned(), tool.description.clone().into());
         spec.insert("inputSchema".to_owned(), json!({ "json": parameters }));
-        if strict == Some(true) {
+        if strict {
             spec.insert("strict".to_owned(), true.into());
         }
         bedrock_tools.push(json!({ "toolSpec": spec }));
@@ -504,19 +508,24 @@ fn is_gov_cloud_bedrock_target(model: &Model, options: &BedrockOptions) -> bool 
         .is_some_and(|region| region.to_lowercase().starts_with("us-gov-"))
 }
 
-/// TS `buildAdditionalModelRequestFields`.
+/// TS `buildAdditionalModelRequestFields`. Thinking fields the target
+/// region rejects are recorded in `adjustments`.
 pub(crate) fn build_additional_model_request_fields(
     model: &Model,
     options: &BedrockOptions,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Option<JsonValue> {
     let reasoning = options.reasoning?;
     if !model.reasoning {
         return None;
     }
     match bedrock_compat(model).and_then(|compat| compat.thinking_format)? {
-        BedrockThinkingFormat::Anthropic => {
-            Some(build_claude_thinking_fields(model, options, reasoning))
-        }
+        BedrockThinkingFormat::Anthropic => Some(build_claude_thinking_fields(
+            model,
+            options,
+            reasoning,
+            adjustments,
+        )),
         BedrockThinkingFormat::OpenAIReasoningEffort => {
             // TS `OPENAI_GPT_OSS_EFFORT`.
             let effort = match reasoning {
@@ -557,11 +566,16 @@ fn build_claude_thinking_fields(
     model: &Model,
     options: &BedrockOptions,
     reasoning: ThinkingLevel,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> JsonValue {
     // GovCloud Bedrock rejects the Claude thinking.display field and block
     // binding.
     let is_gov_cloud = is_gov_cloud_bedrock_target(model, options);
     let display = if is_gov_cloud {
+        adjustments.push(RequestAdjustment::dropped(
+            AdjustedField::ThinkingDisplay,
+            AdjustmentReason::GovCloudRegion,
+        ));
         None
     } else {
         Some(
@@ -573,9 +587,16 @@ fn build_claude_thinking_fields(
     let adaptive = supports_adaptive_thinking(model);
     let mut result = JsonObject::new();
     if adaptive {
-        let use_block_binding = !is_gov_cloud
-            && bedrock_compat(model).and_then(|compat| compat.supports_thinking_block_binding)
-                == Some(true);
+        let supports_block_binding = bedrock_compat(model)
+            .and_then(|compat| compat.supports_thinking_block_binding)
+            == Some(true);
+        if supports_block_binding && is_gov_cloud {
+            adjustments.push(RequestAdjustment::dropped(
+                AdjustedField::ThinkingBlockBinding,
+                AdjustmentReason::GovCloudRegion,
+            ));
+        }
+        let use_block_binding = supports_block_binding && !is_gov_cloud;
         let mut thinking = JsonObject::new();
         thinking.insert("type".to_owned(), "adaptive".into());
         if let Some(display) = display {

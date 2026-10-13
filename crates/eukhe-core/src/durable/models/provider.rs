@@ -565,6 +565,7 @@ fn refuted_message(model: &Model, text: &str) -> AssistantMessage {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: StopReason::Error,
         deferred: None,

@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, DoneReason, ErrorReason, JsonValue,
-    Model, ModelThinkingLevel, StopReason, ToolChoice, TranscriptContext, Usage,
+    Model, ModelThinkingLevel, RequestAdjustment, StopReason, ToolChoice, TranscriptContext, Usage,
 };
 
 use super::lazy::lazy_stream;
@@ -226,8 +226,8 @@ impl ToolCallIdNormalizer {
     }
 }
 
-/// TS `createOutput`.
-fn create_output(model: &Model) -> AssistantMessage {
+/// TS `createOutput`, seeded with the adjustments `streamSimple` made.
+fn create_output(model: &Model, adjustments: Vec<RequestAdjustment>) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
         api: model.api.clone(),
@@ -238,6 +238,7 @@ fn create_output(model: &Model) -> AssistantMessage {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments,
         usage: Usage::default(),
         stop_reason: StopReason::Pending,
         deferred: None,
@@ -281,6 +282,7 @@ async fn run_stream(
         context.messages(),
         &transformed_messages,
         options,
+        &mut output.adjustments,
     )?);
     if let Some(on_payload) = &options.stream.request.on_payload {
         if let Some(next_payload) = on_payload(payload.clone(), model).await? {
@@ -347,7 +349,7 @@ pub fn stream(
     let model = model.clone();
     let target = stream.clone();
     tokio::spawn(async move {
-        let mut output = create_output(&model);
+        let mut output = create_output(&model, options.stream.adjustments.clone());
         match run_stream(&model, &normalized_context, &options, &mut output, &target).await {
             Ok(reason) => {
                 target.push(AssistantMessageEvent::Done {

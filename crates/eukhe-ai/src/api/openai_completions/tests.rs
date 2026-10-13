@@ -1,5 +1,6 @@
 //! Ports of the `openai-completions` TS tests, one module per TS test file.
 
+mod adjustments;
 mod azure_openai_completions;
 mod baseten_models;
 mod cache_breakpoint_marks;

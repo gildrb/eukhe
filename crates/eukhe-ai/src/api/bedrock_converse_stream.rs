@@ -36,7 +36,8 @@ use std::sync::Arc;
 
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason, JsonObject, JsonValue, Model,
-    StopReason, ThinkingBudgets, ThinkingLevel, ToolChoice, TranscriptContext, Usage,
+    RequestAdjustment, StopReason, ThinkingBudgets, ThinkingLevel, ToolChoice, TranscriptContext,
+    Usage,
 };
 use serde::Deserialize;
 
@@ -46,10 +47,7 @@ use self::client::{BedrockFailure, SendRequest, StreamValue};
 use self::events::{handle_metadata, StreamBlocks};
 use super::cache_breakpoints::{excess_breakpoints_error, CacheMarkBudget};
 use super::lazy::lazy_stream;
-use super::simple_options::{
-    adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context,
-    clamp_reasoning,
-};
+use super::simple_options::{build_base_options, clamp_reasoning, fit_thinking_tokens};
 use super::ProviderStreams;
 use crate::types::{ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{
@@ -359,7 +357,8 @@ fn error(message: impl Into<String>) -> BedrockFailure {
     BedrockFailure::Thrown(ErrorObject::new(message).thrown())
 }
 
-fn create_output(model: &Model) -> AssistantMessage {
+/// The empty message, seeded with the adjustments `streamSimple` made.
+fn create_output(model: &Model, adjustments: Vec<RequestAdjustment>) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
         api: "bedrock-converse-stream".into(),
@@ -370,6 +369,7 @@ fn create_output(model: &Model) -> AssistantMessage {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments,
         usage: Usage::default(),
         stop_reason: StopReason::Pending,
         deferred: None,
@@ -392,11 +392,13 @@ fn truthy(value: &JsonValue) -> bool {
     }
 }
 
-/// The request body `stream` builds (TS `commandInput`).
+/// The request body `stream` builds (TS `commandInput`). Every requested
+/// field the body drops is recorded in `adjustments`.
 fn build_command_input(
     model: &Model,
     context: &TranscriptContext,
     options: &BedrockOptions,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<JsonObject, BedrockFailure> {
     let env = options.stream.request.env.as_ref();
     let supports_strict_mode = model
@@ -434,6 +436,7 @@ fn build_command_input(
         &get_current_tools(messages),
         options.tool_choice.as_ref(),
         supports_strict_mode,
+        adjustments,
     )
     .map_err(|error| BedrockFailure::Thrown(error.into()))?;
 
@@ -450,7 +453,9 @@ fn build_command_input(
     if let Some(tool_config) = tool_config {
         input.insert("toolConfig".to_owned(), tool_config);
     }
-    if let Some(fields) = convert::build_additional_model_request_fields(model, options) {
+    if let Some(fields) =
+        convert::build_additional_model_request_fields(model, options, adjustments)
+    {
         input.insert("additionalModelRequestFields".to_owned(), fields);
     }
     if let Some(metadata) = &options.request_metadata {
@@ -489,8 +494,12 @@ impl StreamRun<'_> {
             .map_err(|proxy_error| error(proxy_error.to_string()))?;
         let custom_headers =
             provider_headers_to_record(&[self.options.stream.request.headers.as_ref()]);
-        let mut command_input =
-            JsonValue::Object(build_command_input(self.model, context, self.options)?);
+        let mut command_input = JsonValue::Object(build_command_input(
+            self.model,
+            context,
+            self.options,
+            &mut self.output.adjustments,
+        )?);
         if let Some(on_payload) = &self.options.stream.request.on_payload {
             if let Some(next) = on_payload(command_input.clone(), self.model).await? {
                 command_input = next;
@@ -633,7 +642,7 @@ pub fn stream(
         let mut run = StreamRun {
             model: &model,
             options: &options,
-            output: create_output(&model),
+            output: create_output(&model, options.stream.adjustments.clone()),
             blocks: StreamBlocks::default(),
             target: &events,
             response_request_id: None,
@@ -745,17 +754,16 @@ pub fn stream_simple(
     if convert::uses_anthropic_thinking(model) && !convert::supports_adaptive_thinking(model) {
         // `None` means the caller did not request an output cap; the helper
         // uses the model cap.
-        let adjusted = adjust_max_tokens_for_thinking(
+        let fitted = fit_thinking_tokens(
+            model,
+            context,
             base.max_tokens,
-            model.max_tokens,
             reasoning,
             options.thinking_budgets.as_ref(),
+            &mut base.adjustments,
         );
-        let max_tokens = clamp_max_tokens_to_context(model, context, adjusted.max_tokens);
-        base.max_tokens = Some(max_tokens);
-        let budget = adjusted
-            .thinking_budget
-            .min(max_tokens.saturating_sub(1024));
+        base.max_tokens = Some(fitted.max_tokens);
+        let budget = fitted.thinking_budget;
         let mut budgets = thinking_budgets.take().unwrap_or_default();
         match clamp_reasoning(Some(reasoning)) {
             Some(ThinkingLevel::Minimal) => budgets.minimal = Some(budget),

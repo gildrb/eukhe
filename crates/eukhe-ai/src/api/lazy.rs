@@ -28,6 +28,7 @@ fn create_error_message(model: &Model, error_message: String, timestamp: u64) ->
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: StopReason::Error,
         deferred: None,

@@ -30,9 +30,10 @@ use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
 use crate::models::clamp_thinking_level;
 use crate::types::{
-    AssistantMessage, AssistantMessageEvent, DoneReason, JsonObject, JsonValue, Model,
-    ModelThinkingLevel, OpenAIResponsesCompat, ProviderHeaders, ProviderResponse,
-    ProviderStreamOptions, SimpleStreamOptions, StopReason, TranscriptContext, Usage,
+    AdjustedField, AdjustmentReason, AssistantMessage, AssistantMessageEvent, DoneReason,
+    JsonObject, JsonValue, Model, ModelThinkingLevel, OpenAIResponsesCompat, ProviderHeaders,
+    ProviderResponse, ProviderStreamOptions, RequestAdjustment, SimpleStreamOptions, StopReason,
+    TranscriptContext, Usage,
 };
 use crate::utils::diagnostics::{thrown, ErrorObject, Thrown};
 use crate::utils::error_body::{format_provider_error, normalize_provider_error};
@@ -98,6 +99,8 @@ fn create_client(
     }))
 }
 
+/// TS `buildParams`. Every requested field the request drops or clamps is
+/// recorded in `adjustments`.
 fn build_params(
     model: &Model,
     context: &TranscriptContext,
@@ -105,6 +108,7 @@ fn build_params(
     api: &OpenAIResponsesOptions,
     deployment_name: &str,
     grammar: &GrammarToolInputProperties,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<JsonValue, Thrown> {
     let supports_additional_tools =
         compat_flag(model, |compat| compat.supports_additional_tools).unwrap_or(false);
@@ -139,6 +143,7 @@ fn build_params(
             supports_tool_search: Some(supports_tool_search),
             tool_options: Some(tool_options),
         },
+        adjustments,
     )?;
 
     let stream_options = &options.stream;
@@ -152,13 +157,26 @@ fn build_params(
     params.insert("store".to_owned(), json!(false));
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
-        params.insert(
-            "max_output_tokens".to_owned(),
-            json!(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
-        );
+        let sent = max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS);
+        if sent != max_tokens {
+            adjustments.push(RequestAdjustment::clamped(
+                AdjustedField::MaxTokens,
+                max_tokens,
+                sent,
+                AdjustmentReason::BelowMinimum,
+            ));
+        }
+        params.insert("max_output_tokens".to_owned(), json!(sent));
     }
     if let Some(temperature) = stream_options.temperature {
         params.insert("temperature".to_owned(), json!(temperature));
+    }
+    // The Azure API sends no service tier.
+    if stream_options.service_tier.is_some() {
+        adjustments.push(RequestAdjustment::dropped(
+            AdjustedField::ServiceTier,
+            AdjustmentReason::UnsupportedByModel,
+        ));
     }
     if !transcript_tools.request_tools.is_empty() {
         params.insert(
@@ -166,6 +184,7 @@ fn build_params(
             JsonValue::Array(convert_responses_tools(
                 &transcript_tools.request_tools,
                 &tool_options,
+                adjustments,
             )?),
         );
     }
@@ -197,7 +216,8 @@ fn build_params(
     Ok(JsonValue::Object(params))
 }
 
-fn new_output(model: &Model) -> AssistantMessage {
+/// The empty message, seeded with the adjustments `streamSimple` made.
+fn new_output(model: &Model, adjustments: Vec<RequestAdjustment>) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
         api: "azure-openai-responses".to_owned(),
@@ -208,6 +228,7 @@ fn new_output(model: &Model) -> AssistantMessage {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments,
         usage: Usage::default(),
         stop_reason: StopReason::Pending,
         deferred: None,
@@ -241,7 +262,15 @@ async fn run(
         Some(&get_declared_tools(context.messages())),
         compat_flag(model, |compat| compat.supports_openai_grammar_tools).unwrap_or(false),
     )?;
-    let mut params = build_params(model, context, options, &api, deployment_name, &grammar)?;
+    let mut params = build_params(
+        model,
+        context,
+        options,
+        &api,
+        deployment_name,
+        &grammar,
+        &mut output.adjustments,
+    )?;
     if let Some(on_payload) = &request.on_payload {
         if let Some(next) = on_payload(params.clone(), model).await? {
             params = next;
@@ -320,7 +349,7 @@ pub fn stream(
             &AzureEndpointOptions::from_extra(&options.extra),
             options.stream.request.env.as_ref(),
         );
-        let mut output = new_output(&model);
+        let mut output = new_output(&model, options.stream.adjustments.clone());
         let mut request_id = None;
         let result = run(
             &model,

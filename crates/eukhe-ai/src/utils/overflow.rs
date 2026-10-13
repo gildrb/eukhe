@@ -158,6 +158,7 @@ mod tests {
             provider_thinking_level: None,
             thinking_level: None,
             diagnostics: None,
+            adjustments: Vec::new(),
             usage,
             stop_reason,
             deferred: None,

@@ -12,9 +12,10 @@ use crate::api::simple_options::{
     clamp_thinking_budget_to_answer_room, resolve_sampling_params, thinking_budget_for_level,
 };
 use crate::types::{
-    AssistantContentBlock, CacheControlFormat, CacheRetention, ChatTemplateKwargValue,
-    ChatTemplateVar, JsonObject, JsonValue, MaxTokensField, Message, Model, ModelThinkingLevel,
-    ThinkingFormat, ThinkingLevel, ThinkingTokenBudgetField, TranscriptContext,
+    AdjustedField, AdjustmentReason, AssistantContentBlock, CacheControlFormat, CacheRetention,
+    ChatTemplateKwargValue, ChatTemplateVar, JsonObject, JsonValue, MaxTokensField, Message, Model,
+    ModelThinkingLevel, RequestAdjustment, ThinkingFormat, ThinkingLevel, ThinkingTokenBudgetField,
+    TranscriptContext,
 };
 use crate::utils::diagnostics::Thrown;
 use crate::utils::provider_env::get_provider_env_value;
@@ -70,7 +71,8 @@ fn insert(params: &mut JsonObject, key: &str, value: JsonValue) {
     params.insert(key.to_owned(), value);
 }
 
-/// TS `buildParams`.
+/// TS `buildParams`. Every requested field the request drops is recorded in
+/// `adjustments`.
 ///
 /// # Errors
 ///
@@ -85,6 +87,7 @@ pub(crate) fn build_params(
     compat: &ResolvedCompat,
     cache_retention: CacheRetention,
     grammar_tool_input_properties: &IndexMap<String, String>,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<JsonObject, Thrown> {
     let stream_options = &options.stream;
     let transcript_tools = resolve_transcript_tools(
@@ -101,6 +104,7 @@ pub(crate) fn build_params(
             grammar_tool_input_properties: Some(grammar_tool_input_properties),
             cache_control: cache_control.as_ref(),
         },
+        adjustments,
     )?;
 
     let long_retention =
@@ -153,7 +157,11 @@ pub(crate) fn build_params(
     let mut tools: Option<Vec<JsonValue>> = None;
     let mut tools_present = false;
     if !transcript_tools.request_tools.is_empty() {
-        tools = Some(convert_tools(&transcript_tools.request_tools, compat)?);
+        tools = Some(convert_tools(
+            &transcript_tools.request_tools,
+            compat,
+            adjustments,
+        )?);
         tools_present = true;
         insert(&mut params, "tools", JsonValue::Null);
         if compat.zai_tool_stream {
@@ -199,6 +207,34 @@ pub(crate) fn build_params(
 
     if model.reasoning {
         apply_thinking_format(model, options, compat, thinking_budget, &mut params);
+        // The formats that carry the effort level only in `reasoning_effort`.
+        let effort_needs_reasoning_effort = match compat.thinking_format {
+            ThinkingFormat::Zai
+            | ThinkingFormat::Qwen
+            | ThinkingFormat::Deepseek
+            | ThinkingFormat::Together
+            | ThinkingFormat::OpenAI => true,
+            ThinkingFormat::Baseten => !compat.chat_template_args.values().any(|value| {
+                matches!(
+                    value,
+                    ChatTemplateKwargValue::Var(var) if var.var == ChatTemplateVar::ThinkingEffort
+                )
+            }),
+            ThinkingFormat::QwenChatTemplate
+            | ThinkingFormat::ChatTemplate
+            | ThinkingFormat::OpenRouter
+            | ThinkingFormat::AntLing
+            | ThinkingFormat::StringThinking => false,
+        };
+        if options.reasoning_effort.is_some()
+            && !compat.supports_reasoning_effort
+            && effort_needs_reasoning_effort
+        {
+            adjustments.push(RequestAdjustment::dropped(
+                AdjustedField::ReasoningEffort,
+                AdjustmentReason::UnsupportedByModel,
+            ));
+        }
     }
 
     // Cap reasoning with a top-level budget field. Independent of
@@ -213,6 +249,11 @@ pub(crate) fn build_params(
     if let Some(service_tier) = stream_options.service_tier {
         if compat.supports_service_tier {
             insert(&mut params, "service_tier", json!(service_tier.as_str()));
+        } else {
+            adjustments.push(RequestAdjustment::dropped(
+                AdjustedField::ServiceTier,
+                AdjustmentReason::UnsupportedByModel,
+            ));
         }
     }
 

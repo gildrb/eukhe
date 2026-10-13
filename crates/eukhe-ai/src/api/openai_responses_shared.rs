@@ -17,7 +17,8 @@ use super::constrained_sampling::{
 use super::transform_messages::transform_messages;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, IndexMap, JsonObject, JsonValue, Message, Modality,
-    Model, ModelCompat, SystemMessage, Tool, TranscriptContext, UserContent, UserContentBlock,
+    Model, ModelCompat, RequestAdjustment, SystemMessage, Tool, TranscriptContext, UserContent,
+    UserContentBlock,
 };
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::hash::short_hash;
@@ -209,7 +210,8 @@ fn split_tool_call_id(id: &str) -> (&str, Option<&str>) {
     (call_id, pieces.next())
 }
 
-/// TS `convertResponsesMessages`.
+/// TS `convertResponsesMessages`. Strict-mode preferences of tools added
+/// mid-conversation that are declined land in `adjustments`.
 ///
 /// # Errors
 ///
@@ -221,6 +223,7 @@ pub fn convert_responses_messages(
     context: &TranscriptContext,
     allowed_tool_call_providers: &[&str],
     options: &ConvertResponsesMessagesOptions,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<Vec<JsonValue>, Thrown> {
     let normalized_context =
         resolve_transcript(context.clone(), options.supports_mid_convo_system_messages);
@@ -260,6 +263,7 @@ pub fn convert_responses_messages(
     );
     let tool_options = options.tool_options.unwrap_or_default();
     let append_system_tool_additions = |messages: &mut Vec<JsonValue>,
+                                        adjustments: &mut Vec<RequestAdjustment>,
                                         message: &SystemMessage,
                                         seed: &str|
      -> Result<(), Thrown> {
@@ -275,7 +279,7 @@ pub fn convert_responses_messages(
             messages.push(json!({
                 "type": "additional_tools",
                 "role": "developer",
-                "tools": convert_responses_tools(tools, &tool_options)?,
+                "tools": convert_responses_tools(tools, &tool_options, adjustments)?,
             }));
             return Ok(());
         }
@@ -305,6 +309,7 @@ pub fn convert_responses_messages(
                     tool_search_result: Some(true),
                     ..tool_options
                 },
+                adjustments,
             )?,
         }));
         Ok(())
@@ -327,6 +332,7 @@ pub fn convert_responses_messages(
                 if !is_leading_system_message {
                     append_system_tool_additions(
                         &mut messages,
+                        adjustments,
                         system,
                         &format!("system:{msg_index}"),
                     )?;
@@ -520,7 +526,8 @@ fn convert_assistant_message(
     Ok(output)
 }
 
-/// TS `convertResponsesTools`.
+/// TS `convertResponsesTools`. Declined strict-mode preferences land in
+/// `adjustments`.
 ///
 /// # Errors
 ///
@@ -528,6 +535,7 @@ fn convert_assistant_message(
 pub fn convert_responses_tools(
     tools: &[Tool],
     options: &ConvertResponsesToolsOptions,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<Vec<JsonValue>, Thrown> {
     let default_strict = options.strict.unwrap_or(Some(false));
     let supports_strict_mode = options.supports_strict_mode.unwrap_or(true);
@@ -560,7 +568,12 @@ pub fn convert_responses_tools(
 
             let constrained_strict =
                 resolve_json_schema_strict_sampling(tool, supports_strict_mode, None)?;
-            let strict = constrained_strict.map_or(default_strict, Some);
+            adjustments.extend(constrained_strict.adjustment(&tool.name));
+            let strict = if constrained_strict.is_strict() {
+                Some(true)
+            } else {
+                default_strict
+            };
             let mut item = JsonObject::new();
             item.insert("type".to_owned(), json!("function"));
             item.insert("name".to_owned(), json!(tool.name));

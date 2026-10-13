@@ -41,7 +41,7 @@ fn strips_json_schema_meta_keys_from_parameters_when_use_parameters_true() {
         "properties": { "command": { "type": "string" } },
         "required": ["command"]
     }))];
-    let result = convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    let result = convert_tools(&tools, ToolSchemaField::Parameters, true, &mut Vec::new()).unwrap();
     let declaration = first_declaration(result.as_deref());
     assert_eq!(
         declaration["parameters"],
@@ -69,7 +69,7 @@ fn recursively_strips_nested_json_schema_meta_keys() {
             }
         }
     }))];
-    let result = convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    let result = convert_tools(&tools, ToolSchemaField::Parameters, true, &mut Vec::new()).unwrap();
     assert_eq!(
         first_declaration(result.as_deref())["parameters"],
         json!({ "type": "object", "properties": { "deep": { "type": "string" } } })
@@ -83,7 +83,7 @@ fn preserves_ref_while_stripping_meta_keys() {
         "type": "object",
         "properties": { "refProp": { "$ref": "#/$defs/someDef", "type": "string" } }
     }))];
-    let result = convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    let result = convert_tools(&tools, ToolSchemaField::Parameters, true, &mut Vec::new()).unwrap();
     assert_eq!(
         first_declaration(result.as_deref())["parameters"],
         json!({
@@ -102,7 +102,7 @@ fn does_not_mutate_the_original_tool_parameters_object() {
         "required": ["command"]
     });
     let tools = [make_tool(original.clone())];
-    convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    convert_tools(&tools, ToolSchemaField::Parameters, true, &mut Vec::new()).unwrap();
     assert_eq!(tools[0].parameters.json(), &original);
 }
 
@@ -115,7 +115,13 @@ fn preserves_schema_in_parameters_json_schema_when_use_parameters_false() {
         "required": ["command"]
     });
     let tools = [make_tool(parameters.clone())];
-    let result = convert_tools(&tools, ToolSchemaField::ParametersJsonSchema, true).unwrap();
+    let result = convert_tools(
+        &tools,
+        ToolSchemaField::ParametersJsonSchema,
+        true,
+        &mut Vec::new(),
+    )
+    .unwrap();
     assert_eq!(
         first_declaration(result.as_deref())["parametersJsonSchema"],
         parameters
@@ -130,7 +136,7 @@ fn handles_tools_without_schema_gracefully() {
         "required": ["path"]
     });
     let tools = [make_tool(parameters.clone())];
-    let result = convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    let result = convert_tools(&tools, ToolSchemaField::Parameters, true, &mut Vec::new()).unwrap();
     assert_eq!(
         first_declaration(result.as_deref())["parameters"],
         parameters
@@ -157,11 +163,17 @@ fn uses_validated_function_calling_for_strict_tools_on_gemini_3() {
 #[test]
 fn returns_undefined_for_empty_tool_list() {
     assert_eq!(
-        convert_tools(&[], ToolSchemaField::ParametersJsonSchema, true).unwrap(),
+        convert_tools(
+            &[],
+            ToolSchemaField::ParametersJsonSchema,
+            true,
+            &mut Vec::new()
+        )
+        .unwrap(),
         None
     );
     assert_eq!(
-        convert_tools(&[], ToolSchemaField::Parameters, true).unwrap(),
+        convert_tools(&[], ToolSchemaField::Parameters, true, &mut Vec::new()).unwrap(),
         None
     );
 }

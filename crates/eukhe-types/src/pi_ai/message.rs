@@ -7,6 +7,7 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize};
 
+use super::adjustment::RequestAdjustment;
 use super::content::{
     null_as_default, AssistantContentBlock, SystemContent, UserContent, UserContentBlock,
 };
@@ -177,6 +178,10 @@ pub struct AssistantMessage {
     /// Redacted provider/runtime diagnostics for failures and recoveries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<AssistantMessageDiagnostic>>,
+    /// What the codec changed in the request (fields dropped or clamped
+    /// because the model, its host, or its limits do not take them as asked).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub adjustments: Vec<RequestAdjustment>,
     pub usage: Usage,
     pub stop_reason: StopReason,
     #[serde(default, skip_serializing_if = "Option::is_none")]

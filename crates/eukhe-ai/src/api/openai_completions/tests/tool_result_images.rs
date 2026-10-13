@@ -66,6 +66,7 @@ fn convert(model: &Model, context: &TranscriptContext) -> Vec<JsonValue> {
         context,
         &test_compat(model),
         &ConvertCompletionsMessagesOptions::default(),
+        &mut Vec::new(),
     )
     .unwrap_or_else(|error| panic!("convert_messages failed: {error:?}"))
 }

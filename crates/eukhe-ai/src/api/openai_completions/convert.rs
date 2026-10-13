@@ -12,8 +12,8 @@ use crate::api::constrained_sampling::{
 use crate::api::transform_messages::transform_messages;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, JsonObject, JsonValue, Message, Modality, Model,
-    ReasoningField, ThinkingContent, Tool, ToolCall, TranscriptContext, UserContent,
-    UserContentBlock,
+    ReasoningField, RequestAdjustment, ThinkingContent, Tool, ToolCall, TranscriptContext,
+    UserContent, UserContentBlock,
 };
 use crate::utils::diagnostics::Thrown;
 use crate::utils::hash::short_hash;
@@ -228,6 +228,7 @@ pub(crate) fn convert_messages(
     context: &TranscriptContext,
     compat: &ResolvedCompat,
     options: &ConvertCompletionsMessagesOptions<'_>,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<Vec<JsonValue>, Thrown> {
     let normalized_context =
         resolve_transcript(context.clone(), compat.supports_mid_convo_system_messages);
@@ -274,7 +275,7 @@ pub(crate) fn convert_messages(
                 if !added_tools.is_empty() {
                     params.push(json!({
                         "role": "system",
-                        "tools": convert_tools(added_tools, compat)?,
+                        "tools": convert_tools(added_tools, compat, adjustments)?,
                     }));
                 }
                 let text = if i == 0 {
@@ -577,7 +578,7 @@ fn convert_assistant(
     Ok(Some(JsonValue::Object(assistant_msg)))
 }
 
-/// TS `convertTools`.
+/// TS `convertTools`. Declined strict-mode preferences land in `adjustments`.
 ///
 /// # Errors
 ///
@@ -585,6 +586,7 @@ fn convert_assistant(
 pub(crate) fn convert_tools(
     tools: &[Tool],
     compat: &ResolvedCompat,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<Vec<JsonValue>, Thrown> {
     tools
         .iter()
@@ -613,12 +615,14 @@ pub(crate) fn convert_tools(
                 compat.supports_strict_mode == Some(true),
                 None,
             )?;
+            adjustments.extend(strict.adjustment(&tool.name));
+            let strict = strict.is_strict();
             let mut function = json!({
                 "name": tool.name,
                 "description": tool.description,
                 "parameters": get_json_schema_tool_parameters(
                     tool,
-                    if strict == Some(true) {
+                    if strict {
                         StrictToolParameters::Strict
                     } else {
                         StrictToolParameters::AsDeclared
@@ -628,7 +632,7 @@ pub(crate) fn convert_tools(
             // Only include strict if provider supports it. Some reject unknown fields.
             if compat.supports_strict_mode == Some(true) {
                 if let Some(function) = function.as_object_mut() {
-                    function.insert("strict".into(), json!(strict.unwrap_or(false)));
+                    function.insert("strict".into(), json!(strict));
                 }
             }
             Ok(json!({ "type": "function", "function": function }))

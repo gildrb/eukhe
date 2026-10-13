@@ -118,6 +118,7 @@ fn completed_stream(request_model: &Model) -> AssistantMessageEventStream {
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: StopReason::Stop,
         deferred: None,

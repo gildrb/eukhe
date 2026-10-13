@@ -597,6 +597,7 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
         &transcript,
         &compat,
         &ConvertCompletionsMessagesOptions::default(),
+        &mut Vec::new(),
     )
     .expect("convert messages");
 

@@ -280,6 +280,10 @@ pub struct StreamOptions {
     pub metadata: Option<JsonObject>,
     /// eukhe addition: `OpenAI` service tier requested for this call.
     pub service_tier: Option<ServiceTier>,
+    /// What `streamSimple` changed in the caller's request before the codec
+    /// ran (context-clamped max tokens, a fitted thinking budget). Each codec
+    /// seeds its output's [`AssistantMessage::adjustments`] with these.
+    pub adjustments: Vec<RequestAdjustment>,
 }
 
 impl fmt::Debug for StreamOptions {
@@ -306,6 +310,7 @@ impl fmt::Debug for StreamOptions {
             )
             .field("metadata", &self.metadata)
             .field("service_tier", &self.service_tier)
+            .field("adjustments", &self.adjustments)
             .finish()
     }
 }

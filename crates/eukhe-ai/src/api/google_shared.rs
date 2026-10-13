@@ -20,8 +20,8 @@ use std::sync::Arc;
 
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
-    GoogleCompat, JsonObject, JsonValue, Model, ModelCompat, ModelThinkingLevel, StopReason,
-    ThinkingLevel, Tool,
+    GoogleCompat, JsonObject, JsonValue, Model, ModelCompat, ModelThinkingLevel, RequestAdjustment,
+    StopReason, ThinkingLevel, Tool,
 };
 use serde_json::json;
 
@@ -312,7 +312,7 @@ pub enum ToolSchemaField {
 }
 
 /// Convert tools to Gemini function declarations format. `None` for an
-/// empty tool list.
+/// empty tool list. Declined strict-mode preferences land in `adjustments`.
 ///
 /// # Errors
 ///
@@ -321,6 +321,7 @@ pub fn convert_tools(
     tools: &[Tool],
     field: ToolSchemaField,
     supports_strict_mode: bool,
+    adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<Option<Vec<JsonValue>>, Thrown> {
     if tools.is_empty() {
         return Ok(None);
@@ -329,9 +330,10 @@ pub fn convert_tools(
     for tool in tools {
         let strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode, None)
             .map_err(thrown)?;
+        adjustments.extend(strict.adjustment(&tool.name));
         let parameters = get_json_schema_tool_parameters(
             tool,
-            if strict == Some(true) {
+            if strict.is_strict() {
                 StrictToolParameters::Strict
             } else {
                 StrictToolParameters::AsDeclared
@@ -392,7 +394,8 @@ pub fn map_tool_choice(choice: &str) -> FunctionCallingConfigMode {
     }
 }
 
-/// TS `resolveGoogleFunctionCallingMode`.
+/// TS `resolveGoogleFunctionCallingMode`. Declined strict-mode preferences
+/// are recorded by [`convert_tools`], which converts the same tools.
 ///
 /// # Errors
 ///
@@ -404,8 +407,9 @@ pub fn resolve_google_function_calling_mode(
 ) -> Result<Option<FunctionCallingConfigMode>, Thrown> {
     let mut use_strict_mode = false;
     for tool in tools {
-        if resolve_json_schema_strict_sampling(tool, supports_strict_mode, None).map_err(thrown)?
-            == Some(true)
+        if resolve_json_schema_strict_sampling(tool, supports_strict_mode, None)
+            .map_err(thrown)?
+            .is_strict()
         {
             use_strict_mode = true;
             break;

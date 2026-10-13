@@ -35,9 +35,7 @@ use self::federation::{get_anthropic_federation, has_request_auth, AnthropicFede
 use super::ProviderStreams;
 use crate::api::cache_breakpoints::excess_breakpoints_error;
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
-use crate::api::simple_options::{
-    adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context,
-};
+use crate::api::simple_options::{build_base_options, fit_thinking_tokens};
 use crate::types::{FetchFunction, ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -421,6 +419,7 @@ fn empty_output(model: &Model, provider_thinking_level: Option<String>) -> Assis
         provider_thinking_level,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: StopReason::Pending,
         deferred: None,
@@ -482,6 +481,7 @@ pub fn stream_anthropic(
         let provider_thinking_level = supports_mid_convo_effort(&model)
             .then(|| options.effort.clone().unwrap_or_else(|| "high".to_owned()));
         let mut output = empty_output(&model, provider_thinking_level);
+        output.adjustments.clone_from(&options.stream.adjustments);
         let result = run(&model, &normalized, &options, &mut output, &target).await;
         let signal = options.stream.request.signal.as_ref();
         match result {
@@ -585,8 +585,14 @@ async fn run(
             },
         )
     };
-    let mut params = params::build_params(model, context.messages(), is_oauth, options)
-        .map_err(StreamFailure::plain)?;
+    let mut params = params::build_params(
+        model,
+        context.messages(),
+        is_oauth,
+        options,
+        &mut output.adjustments,
+    )
+    .map_err(StreamFailure::plain)?;
     if let Some(on_payload) = &request.on_payload {
         let next = on_payload(JsonValue::Object(params.clone()), model)
             .await
@@ -669,7 +675,7 @@ pub fn stream_simple(
         );
     }
 
-    let base = build_base_options(model, context, Some(options), request.api_key.as_deref());
+    let mut base = build_base_options(model, context, Some(options), request.api_key.as_deref());
     let tool_choice = options.tool_choice.map(|choice| match choice {
         ToolChoice::Auto => AnthropicToolChoice::Auto,
         ToolChoice::None => AnthropicToolChoice::None,
@@ -702,26 +708,24 @@ pub fn stream_simple(
         );
     }
 
-    let adjusted = adjust_max_tokens_for_thinking(
+    let fitted = fit_thinking_tokens(
+        model,
+        context,
         base.max_tokens,
-        model.max_tokens,
         reasoning,
         options.thinking_budgets.as_ref(),
+        &mut base.adjustments,
     );
-    let max_tokens = clamp_max_tokens_to_context(model, context, adjusted.max_tokens);
-    let thinking_budget = adjusted
-        .thinking_budget
-        .min(max_tokens.saturating_sub(1024));
     stream_anthropic(
         model,
         context,
         AnthropicOptions {
             stream: StreamOptions {
-                max_tokens: Some(max_tokens),
+                max_tokens: Some(fitted.max_tokens),
                 ..base
             },
             thinking_enabled: Some(true),
-            thinking_budget_tokens: Some(thinking_budget),
+            thinking_budget_tokens: Some(fitted.thinking_budget),
             tool_choice,
             ..AnthropicOptions::default()
         },

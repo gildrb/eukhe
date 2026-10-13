@@ -67,6 +67,7 @@ fn assistant_message(text: &str, calls: &[&str], stop_reason: Option<StopReason>
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: stop_reason.unwrap_or(if calls.is_empty() {
             StopReason::Stop

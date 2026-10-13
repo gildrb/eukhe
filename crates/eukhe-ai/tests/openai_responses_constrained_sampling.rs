@@ -10,8 +10,8 @@ use eukhe_ai::api::openai_responses_shared::{
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context, JsonValue, Model,
-    StopReason, Tool,
+    AdjustedField, AdjustmentReason, AssistantContentBlock, AssistantMessage,
+    AssistantMessageEvent, Context, JsonValue, Model, RequestAdjustment, StopReason, Tool,
 };
 use futures::StreamExt;
 use serde_json::json;
@@ -128,9 +128,13 @@ fn matches_object(actual: &JsonValue, expected: &JsonValue) -> bool {
 }
 
 fn convert_error(tools: &[Tool], options: ConvertResponsesToolsOptions) -> String {
-    convert_responses_tools(tools, &options)
+    convert_responses_tools(tools, &options, &mut Vec::new())
         .expect_err("expected a throw")
         .to_string()
+}
+
+fn convert(tools: &[Tool], options: ConvertResponsesToolsOptions) -> Vec<JsonValue> {
+    convert_responses_tools(tools, &options, &mut Vec::new()).expect("tools")
 }
 
 #[test]
@@ -138,8 +142,7 @@ fn converts_supported_constraints_and_falls_back_when_unsupported() {
     let prefer =
         make_tool(&json!({ "constrainedSampling": { "type": "json_schema", "strict": "prefer" } }));
     assert_match_object(
-        &convert_responses_tools(&[prefer], &ConvertResponsesToolsOptions::default())
-            .expect("tools")[0],
+        &convert(&[prefer], ConvertResponsesToolsOptions::default())[0],
         &json!({ "type": "function", "name": "sample_tool", "strict": true }),
     );
 
@@ -153,11 +156,10 @@ fn converts_supported_constraints_and_falls_back_when_unsupported() {
         "constrainedSampling": { "type": "grammar", "variants": { "openai_lark": "start: /[a-z]+/" } },
     }));
     assert_match_object(
-        &convert_responses_tools(
+        &convert(
             std::slice::from_ref(&grammar_tool),
-            &tools_options(None, Some(true)),
-        )
-        .expect("tools")[0],
+            tools_options(None, Some(true)),
+        )[0],
         &json!({
             "type": "custom",
             "name": "sample_tool",
@@ -172,10 +174,7 @@ fn converts_supported_constraints_and_falls_back_when_unsupported() {
         )
     );
 
-    let fallback =
-        convert_responses_tools(&[grammar_tool], &tools_options(Some(false), Some(false)))
-            .expect("tools")
-            .remove(0);
+    let fallback = convert(&[grammar_tool], tools_options(Some(false), Some(false))).remove(0);
     assert_match_object(
         &fallback,
         &json!({ "type": "function", "name": "sample_tool" }),
@@ -183,16 +182,39 @@ fn converts_supported_constraints_and_falls_back_when_unsupported() {
     assert!(fallback.get("strict").is_none());
 
     assert_eq!(
-        convert_responses_tools(
+        convert(
             &[make_tool(&json!({ "constrainedSampling": false }))],
-            &ConvertResponsesToolsOptions::default(),
-        )
-        .expect("tools"),
-        convert_responses_tools(
+            ConvertResponsesToolsOptions::default(),
+        ),
+        convert(
             &[make_tool(&json!({}))],
-            &ConvertResponsesToolsOptions::default()
+            ConvertResponsesToolsOptions::default()
+        ),
+    );
+}
+
+#[test]
+fn records_a_declined_strict_preference_per_tool() {
+    let prefer =
+        make_tool(&json!({ "constrainedSampling": { "type": "json_schema", "strict": "prefer" } }));
+    let plain = make_tool(&json!({ "name": "plain_tool" }));
+    let mut adjustments = Vec::new();
+
+    let tools = convert_responses_tools(
+        &[prefer, plain],
+        &tools_options(Some(false), None),
+        &mut adjustments,
+    )
+    .expect("tools");
+
+    assert!(tools[0].get("strict").is_none());
+    assert_eq!(
+        adjustments,
+        [RequestAdjustment::dropped(
+            AdjustedField::StrictTool,
+            AdjustmentReason::UnsupportedByModel,
         )
-        .expect("tools"),
+        .for_subject("sample_tool")]
     );
 }
 
@@ -243,9 +265,19 @@ fn falls_back_or_rejects_schemas_that_cannot_be_safely_converted() {
             "parameters": parameters,
             "constrainedSampling": { "type": "json_schema", "strict": "prefer" },
         }));
+        let mut adjustments = Vec::new();
         assert_match_object(
-            &convert_responses_tools(&[tool], &tools_options(Some(true), None)).expect("tools")[0],
+            &convert_responses_tools(&[tool], &tools_options(Some(true), None), &mut adjustments)
+                .expect("tools")[0],
             &json!({ "strict": false, "parameters": parameters }),
+        );
+        assert_eq!(
+            adjustments,
+            [RequestAdjustment::dropped(
+                AdjustedField::StrictTool,
+                AdjustmentReason::UnsupportedSchema,
+            )
+            .for_subject("sample_tool")]
         );
     }
 }
@@ -303,6 +335,7 @@ fn replays_grammar_calls_as_custom_responses_items() {
             &context,
             &["openai"],
             &grammar_messages_options(),
+            &mut Vec::new(),
         )
         .expect_err("expected a throw")
         .to_string();
@@ -325,6 +358,7 @@ fn replays_grammar_calls_as_custom_responses_items() {
         &context,
         &["openai"],
         &grammar_messages_options(),
+        &mut Vec::new(),
     )
     .expect("messages");
 
@@ -357,6 +391,7 @@ fn drops_foreign_item_ids_when_replaying_grammar_calls_as_custom_responses_items
         &context,
         &["openai"],
         &grammar_messages_options(),
+        &mut Vec::new(),
     )
     .expect("messages");
 

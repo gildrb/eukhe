@@ -144,6 +144,7 @@ pub(crate) fn assistant(text: &str, options: AssistantOptions<'_>) -> AssistantM
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
+        adjustments: Vec::new(),
         usage: Usage::default(),
         stop_reason: options.stop_reason.unwrap_or(if options.calls.is_empty() {
             StopReason::Stop
