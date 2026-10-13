@@ -66,7 +66,7 @@ pub const RLM_EXTENSION: &str = "eukhe.rlm";
 /// rows), stored as an [`super::entries::CUSTOM_ENTRY`].
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CustomNotice {
-    pub(crate) custom_type: String,
+    pub(crate) custom_type: eukhe_types::custom_type::CustomType,
     pub(crate) text: String,
     pub(crate) display: bool,
     pub(crate) details: Option<Value>,
@@ -75,13 +75,13 @@ pub(crate) struct CustomNotice {
 
 impl CustomNotice {
     pub(crate) fn new(
-        custom_type: impl Into<String>,
+        custom_type: eukhe_types::custom_type::CustomType,
         text: String,
         display: bool,
         details: Option<Value>,
     ) -> Self {
         Self {
-            custom_type: custom_type.into(),
+            custom_type,
             text,
             display,
             details,

@@ -13,11 +13,6 @@ use std::collections::HashMap;
 /// Session-executed commands (their behavior lives in the session engine).
 pub const SESSION_SLASH_COMMAND_NAMES: [&str; 4] = ["compact", "refine", "goal", "autonomous"];
 
-/// Durable row custom types (TS core/messages.ts): the command echo and its
-/// result, as persisted in sessions and rendered by every surface.
-pub const SESSION_SLASH_COMMAND_CUSTOM_TYPE: &str = "session_slash_command";
-pub const SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE: &str = "session_slash_command_result";
-
 /// True when `value` names a session-executed command.
 #[must_use]
 pub fn is_session_slash_command_name(value: &str) -> bool {

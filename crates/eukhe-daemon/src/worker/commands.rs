@@ -1,11 +1,11 @@
 //! The dispatch surface: command routing, the getters, the queue and abort
 //! family, and the session close (`kill`, `rename`).
 
+use eukhe_types::custom_type::CustomType;
 use std::sync::Arc;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::agent_messaging::AgentFamilyRelationship;
-use eukhe_core::durable::messages::SESSION_RENAMED_CUSTOM_TYPE;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
 use eukhe_types::daemon::SessionEvent;
 use serde_json::{json, Value};
@@ -746,7 +746,7 @@ impl Worker {
                 == Some(AgentFamilyRelationship::Parent.as_str());
             let suffix = if renamed_by_parent { " by parent" } else { "" };
             let notice = json!({
-                "customType": SESSION_RENAMED_CUSTOM_TYPE,
+                "customType": CustomType::SessionRenamed,
                 "content": format!("Session renamed `{previous}` -> `{name}`{suffix}"),
                 "display": true,
                 "timestamp": crate::util::now_ms(),

@@ -8,7 +8,10 @@ fn generated_entry_ids_are_unique_and_link_to_previous_entry() {
     let mut manager = SessionManager::in_memory(Path::new("/tmp"));
     let mut previous = None;
     for _ in 0..1_000 {
-        let id = manager.append_custom_entry("test", None);
+        let id = manager.append_custom_entry(
+            eukhe_types::custom_type::CustomType::Other("test".to_owned()),
+            None,
+        );
         let entry = manager.get_all_entries().last().unwrap();
         assert_eq!(entry.id(), Some(id.as_str()));
         assert_eq!(entry.parent_id(), previous.as_deref());

@@ -5,6 +5,7 @@
 //! A tree move hands the main conversation's kernel to the conversation it
 //! moves to ([`KernelPool::transfer`]).
 
+use eukhe_types::custom_type::CustomType;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -64,7 +65,7 @@ impl ConversationKernel {
 /// (`state_restore_notice::notice_message`).
 fn restored_notice(result: &RestoreResult) -> CustomNotice {
     CustomNotice::new(
-        state_restore_notice::IPYTHON_STATE_RESTORED_CUSTOM_TYPE,
+        CustomType::IpythonStateRestored,
         state_restore_notice::notice_content(result),
         true,
         Some(json!({ "restored": !result.restored.is_empty() })),

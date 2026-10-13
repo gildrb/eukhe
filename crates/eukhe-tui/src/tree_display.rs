@@ -327,7 +327,7 @@ pub fn searchable_text(node: &TreeNodeData) -> String {
                 AgentMessage::Assistant(_) => "assistant".to_string(),
                 AgentMessage::ToolResult(result) => result.tool_name.clone(),
                 AgentMessage::BashExecution(_) => "bashExecution".to_string(),
-                AgentMessage::Custom(custom) => custom.custom_type.clone(),
+                AgentMessage::Custom(custom) => custom.custom_type.to_string(),
                 AgentMessage::BranchSummary(_) => "branchSummary".to_string(),
                 AgentMessage::CompactionSummary(_) => "compactionSummary".to_string(),
             };
@@ -341,7 +341,7 @@ pub fn searchable_text(node: &TreeNodeData) -> String {
             }
         }
         FileEntry::CustomMessage { payload, .. } => {
-            parts.push(payload.custom_type.clone());
+            parts.push(payload.custom_type.to_string());
             parts.push(extract_content(&payload.content));
         }
         FileEntry::Compaction { .. } => parts.push("compaction".to_string()),
@@ -373,7 +373,7 @@ pub fn searchable_text(node: &TreeNodeData) -> String {
         }
         FileEntry::Custom { payload, .. } => {
             parts.push("custom".to_string());
-            parts.push(payload.custom_type.clone());
+            parts.push(payload.custom_type.to_string());
         }
         FileEntry::ChildUsageAttributed { payload, .. } => {
             parts.push("child usage".to_string());

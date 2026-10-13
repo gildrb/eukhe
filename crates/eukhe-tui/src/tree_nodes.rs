@@ -191,7 +191,7 @@ mod tests {
         TreeNodeData {
             entry: FileEntry::Custom {
                 payload: eukhe_types::session::CustomEntry {
-                    custom_type: "x".to_string(),
+                    custom_type: eukhe_types::custom_type::CustomType::Other("x".to_string()),
                     data: None,
                     rest: Map::default(),
                 },

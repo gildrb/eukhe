@@ -3,6 +3,7 @@
 //! Port of core/agent-messages.ts (validation/prompt half) and
 //! core/agent-observe.ts.
 
+use eukhe_types::custom_type::CustomType;
 use std::future::Future;
 
 use eukhe_types::input_origin::Report;
@@ -10,7 +11,6 @@ use serde_json::{json, Value};
 
 use crate::kernel::shared::{host_handler, HostRequestHandlers};
 
-pub const AGENT_MESSAGE_CUSTOM_TYPE: &str = "agent_message";
 /// TS `AGENT_MESSAGE_RECEIVED_PREVIEW_LABEL`: the queue-strip preview label
 /// for a delivered agent message (`queuedAgentMessagePreview` renders
 /// "<label>: <details.message>").
@@ -26,15 +26,6 @@ pub const DEFAULT_AGENT_MESSAGE_RATE_LIMIT_CAPACITY: usize = 3;
 /// One rate-limit token per sender per this window (TS
 /// `DEFAULT_AGENT_MESSAGE_RATE_LIMIT_REFILL_MS`).
 pub const DEFAULT_AGENT_MESSAGE_RATE_LIMIT_REFILL_MS: u64 = 1_000;
-/// The row an agent's final answer to a user's `@name` message leaves in
-/// the session the user sent it from: shown to the user, logged to chat
-/// memory as `[name] answer`, model context for the next turn, never a
-/// turn of its own.
-pub const AGENT_REPLY_CUSTOM_TYPE: &str = "agent_reply";
-/// The answering agent's own bookkeeping row (display-only, hidden): its
-/// run owes the user's session the final answer (`details.id`,
-/// `details.replyTo`).
-pub const AGENT_REPLY_OWED_CUSTOM_TYPE: &str = "agent_reply_owed";
 
 /// Family relationships between agents. A family is every agent under one
 /// root session; `Relative` is a member outside the nuclear family (a
@@ -297,7 +288,7 @@ pub fn agent_session_message_report(payload: &AgentMessagePromptPayload) -> Repo
     Report::AgentMessage { sender }
 }
 
-/// The model text of an [`AGENT_REPLY_CUSTOM_TYPE`] row:
+/// The model text of an [`CustomType::AgentReply`] row:
 /// `[agent-reply from <name>]`, a blank line, the answer.
 #[must_use]
 pub fn create_agent_reply_prompt(from: &str, answer: &str) -> String {
@@ -349,7 +340,7 @@ pub fn create_agent_session_message_row(payload: &AgentSessionMessageRowPayload<
     }
     json!({
         "role": "custom",
-        "customType": AGENT_MESSAGE_CUSTOM_TYPE,
+        "customType": CustomType::AgentMessage,
         "content": payload.prompt,
         "display": true,
         "details": Value::Object(details),

@@ -27,14 +27,6 @@ pub const PROVIDER_RESUME_GRACE_MS: u64 = 30_000;
 /// long-horizon resets still get probed (TS `MAX_PROVIDER_PAUSE_MS`).
 pub const MAX_PROVIDER_PAUSE_MS: u64 = 7 * 86_400_000;
 
-/// Transcript row recorded when a quota-blocked session parks until the
-/// provider reset (TS `QUOTA_PARK_CUSTOM_ENTRY_TYPE`).
-pub const PROVIDER_QUOTA_PARK_ENTRY: &str = "provider_quota_park";
-
-/// Transcript row recorded when a parked session resumes (or when a wake had
-/// to be dropped) (TS `QUOTA_RESUME_CUSTOM_ENTRY_TYPE`).
-pub const PROVIDER_QUOTA_RESUME_ENTRY: &str = "provider_quota_resume";
-
 /// Label for the durable one-shot wake that resumes a parked session (TS
 /// `QUOTA_RESUME_CRON_LABEL`).
 pub const QUOTA_RESUME_CRON_LABEL: &str = "quota-resume";

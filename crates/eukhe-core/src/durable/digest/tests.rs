@@ -2,6 +2,7 @@
 //! request, freshness across a reopen, the compaction head, and the
 //! only-newest-digest-in-context invariant.
 
+use eukhe_types::custom_type::CustomType;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -22,7 +23,7 @@ use eukhe_types::pi_ai::{Message, UserContent, UserMessage};
 use tempfile::TempDir;
 
 use super::super::{HostDeps, SessionConfig, SessionStorage};
-use super::{HARNESS_DIGEST_CUSTOM_TYPE, HARNESS_DIGEST_PREFIX, HARNESS_DIGEST_SUFFIX};
+use super::{HARNESS_DIGEST_PREFIX, HARNESS_DIGEST_SUFFIX};
 use crate::durable::compaction::head::rendered_summary;
 use crate::durable::open_session;
 use crate::durable::EukheSession;
@@ -183,7 +184,7 @@ fn digest_entries(entries: &[EntryRecord]) -> Vec<&EntryRecord> {
                 )
                 .get("customType")
                 .and_then(serde_json::Value::as_str)
-                    == Some(HARNESS_DIGEST_CUSTOM_TYPE)
+                    == Some(CustomType::HarnessDigest.as_str())
         })
         .collect()
 }

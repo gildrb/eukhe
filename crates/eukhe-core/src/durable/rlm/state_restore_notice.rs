@@ -24,12 +24,10 @@
 //! `onRestore` callback of `IpythonKernelProvisioner`), delivered through
 //! `sendCustomMessage(..., { deliverAs: "nextTurn" })`.
 
+use eukhe_types::custom_type::CustomType;
 use eukhe_types::session::CustomMessage;
 
 use crate::kernel::state_snapshot::RestoreResult;
-
-/// The notice's `customType` (TS `IPYTHON_STATE_RESTORED_CUSTOM_TYPE`).
-pub const IPYTHON_STATE_RESTORED_CUSTOM_TYPE: &str = "ipython_state_restored";
 
 fn now_millis() -> u64 {
     std::time::SystemTime::now()
@@ -75,7 +73,7 @@ pub fn notice_content(result: &RestoreResult) -> String {
 #[must_use]
 pub fn notice_message(result: &RestoreResult) -> CustomMessage {
     CustomMessage {
-        custom_type: IPYTHON_STATE_RESTORED_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::IpythonStateRestored,
         content: eukhe_types::ai::UserContent::Text(notice_content(result)),
         display: true,
         details: Some(serde_json::json!({
@@ -108,7 +106,7 @@ mod tests {
     #[test]
     fn revived_notice_lists_names() {
         let message = notice_message(&restore(vec!["data", "helper"], vec![]));
-        assert_eq!(message.custom_type, "ipython_state_restored");
+        assert_eq!(message.custom_type, CustomType::IpythonStateRestored);
         assert!(message.display);
         assert_eq!(
             message.details,

@@ -266,8 +266,7 @@ pub fn transcript_to_entries(messages: &[AgentMessage]) -> Vec<ChatEntry> {
         // are appended in order), and the collapse never touches tool
         // cards (their failures ride the cards, not error-only rows).
         if matches!(message, AgentMessage::Custom(custom)
-            if eukhe_types::custom_type::CustomType::parse(&custom.custom_type)
-                == eukhe_types::custom_type::CustomType::ProviderRetryOutcome)
+            if custom.custom_type == eukhe_types::custom_type::CustomType::ProviderRetryOutcome)
         {
             while chat.last().is_some_and(is_superseded_attempt_row) {
                 chat.pop();

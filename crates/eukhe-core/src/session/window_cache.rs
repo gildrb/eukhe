@@ -71,7 +71,7 @@ pub(super) struct Snapshot {
     pub first_user: Option<serde_json::Value>,
     pub goal: Option<crate::goals::GoalState>,
     /// Whether the active branch already carries an
-    /// [`crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE`] row: the
+    /// [`CustomType::AnthropicSubscriptionWarningShown`] row: the
     /// subscription warning's once-per-session-lifecycle gate, hydrated
     /// from the walk like `goal`. Older sidecars deserialize this as
     /// `false` (the conservative default: the warning shows again rather

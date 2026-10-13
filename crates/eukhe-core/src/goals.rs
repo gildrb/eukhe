@@ -1,12 +1,9 @@
 //! Thread goals: state model, validation, host-response serialization, and
 //! the goal-context continuation prompts. Port of core/goals.ts.
 
+use eukhe_types::custom_type::CustomType;
 use serde::{Deserialize, Serialize};
 
-/// Custom message type persisting the goal state in the session JSONL.
-pub const GOAL_STATE_CUSTOM_TYPE: &str = "thread_goal_state";
-/// Custom message type for goal continuation prompts.
-pub const GOAL_CONTEXT_CUSTOM_TYPE: &str = "goal_context";
 pub const MAX_THREAD_GOAL_OBJECTIVE_CHARS: usize = 4000;
 
 // The wire/persisted `GoalState` and `GoalStatus` vocabulary lives in
@@ -154,7 +151,7 @@ pub fn stale_active_goal_failure(entries: &[eukhe_types::session::FileEntry]) ->
     for entry in entries.iter().rev() {
         match entry {
             eukhe_types::session::FileEntry::Custom { payload, .. }
-                if payload.custom_type == GOAL_STATE_CUSTOM_TYPE =>
+                if payload.custom_type == CustomType::GoalState =>
             {
                 let Some(data) = payload.data.as_ref() else {
                     continue;
@@ -296,7 +293,7 @@ pub fn create_goal_context_message(
     let prompt = goal_context_prompt(goal, kind);
     let text = format!("[goal: {}]\n\n{prompt}", kind.label());
     Ok(eukhe_types::session::CustomMessage {
-        custom_type: GOAL_CONTEXT_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::GoalContext,
         content: eukhe_types::ai::UserContent::Text(text),
         display: true,
         details: Some(serde_json::to_value(GoalContextDetails {
@@ -515,7 +512,7 @@ mod tests {
     fn goal_context_messages_match_prompts() {
         let goal = active_goal();
         let message = create_goal_context_message(&goal, GoalContextKind::Continuation).unwrap();
-        assert_eq!(message.custom_type, GOAL_CONTEXT_CUSTOM_TYPE);
+        assert_eq!(message.custom_type, CustomType::GoalContext);
         assert!(message.display);
         let UserContent::Text(text) = &message.content else {
             panic!("expected text content");
@@ -577,7 +574,7 @@ mod tests {
         let data = serde_json::to_value(state).unwrap();
         eukhe_types::session::FileEntry::Custom {
             payload: eukhe_types::session::CustomEntry {
-                custom_type: GOAL_STATE_CUSTOM_TYPE.to_string(),
+                custom_type: CustomType::GoalState,
                 data: Some(data),
                 rest: serde_json::Map::default(),
             },

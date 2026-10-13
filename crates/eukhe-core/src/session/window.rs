@@ -1,6 +1,7 @@
 //! Generation-certified active session windows. Cold reads scan metadata to root;
 //! warm reads touch only the canonical header and the retained transcript suffix.
 //! JSONL remains authoritative; historical consumers explicitly hydrate.
+use eukhe_types::custom_type::CustomType;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -433,11 +434,10 @@ impl WindowedSessionStore {
                         meta.kind.as_str(),
                         "model_change" | "thinking_level_change" | "service_tier_change"
                     ) || (goal.is_none()
-                        && meta.custom_type.as_deref()
-                            == Some(crate::goals::GOAL_STATE_CUSTOM_TYPE))
+                        && meta.custom_type.as_deref() == Some(CustomType::GoalState.as_str()))
                         || (!anthropic_warning_shown
                             && meta.custom_type.as_deref()
-                                == Some(crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE))))
+                                == Some(CustomType::AnthropicSubscriptionWarningShown.as_str()))))
             {
                 match serde_json::from_slice::<FileEntry>(&line) {
                     Ok(entry) => Some(entry),
@@ -770,7 +770,7 @@ impl WindowedSessionStore {
     }
     /// Whether the active branch already carries the Anthropic subscription
     /// warning's shown marker (the once-per-session-lifecycle gate's
-    /// hydrated read; [`crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE`]).
+    /// hydrated read; [`CustomType::AnthropicSubscriptionWarningShown`]).
     #[must_use]
     pub fn anthropic_warning_shown(&self) -> bool {
         self.snapshot.anthropic_warning_shown
@@ -939,13 +939,13 @@ impl WindowedSessionStore {
 
 /// Whether `entry` is the session's Anthropic subscription warning shown
 /// marker (the once-per-lifecycle gate's persisted row,
-/// [`crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE`] with
+/// [`CustomType::AnthropicSubscriptionWarningShown`] with
 /// `data.shown == true`).
 fn valid_warning_shown(entry: &FileEntry) -> bool {
     let FileEntry::Custom { payload, .. } = entry else {
         return false;
     };
-    payload.custom_type == crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE
+    payload.custom_type == CustomType::AnthropicSubscriptionWarningShown
         && payload
             .data
             .as_ref()
@@ -959,8 +959,7 @@ fn valid_goal(entry: &FileEntry) -> Option<crate::goals::GoalState> {
         return None;
     };
     let data = payload.data.as_ref()?;
-    if payload.custom_type != crate::goals::GOAL_STATE_CUSTOM_TYPE
-        || !crate::goals::is_persisted_goal_state(data)
+    if payload.custom_type != CustomType::GoalState || !crate::goals::is_persisted_goal_state(data)
     {
         return None;
     }

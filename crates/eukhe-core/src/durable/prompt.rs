@@ -12,6 +12,7 @@
 //! (`model-prompts.toml`) for the request's model. At open, a broken rule
 //! map is reported once as a display-only `model_prompt_error` row.
 
+use eukhe_types::custom_type::CustomType;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -26,9 +27,7 @@ use futures::FutureExt;
 use super::deps::{HostDeps, OpenedSession};
 use super::rlm::CustomNotice;
 use crate::memory::MemoryRole;
-use crate::prompts::model_prompts::{
-    load_model_prompts, model_prompt_error_text, MODEL_PROMPT_ERROR_CUSTOM_TYPE,
-};
+use crate::prompts::model_prompts::{load_model_prompts, model_prompt_error_text};
 use crate::prompts::system_prompt::{
     system_prompt_breakdown, today, BuildSystemPromptOptions, SystemPromptBreakdown,
 };
@@ -258,7 +257,7 @@ fn report_model_prompt_errors(deps: &Arc<HostDeps>) {
         return;
     }
     let notice = CustomNotice::new(
-        MODEL_PROMPT_ERROR_CUSTOM_TYPE,
+        CustomType::ModelPromptError,
         model_prompt_error_text(&errors),
         true,
         None,

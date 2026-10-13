@@ -76,13 +76,13 @@ impl SessionManager {
     /// Append a custom entry; returns the new entry id.
     pub fn append_custom_entry(
         &mut self,
-        custom_type: &str,
+        custom_type: eukhe_types::custom_type::CustomType,
         data: Option<serde_json::Value>,
     ) -> String {
         let base = self.next_base();
         self.append_entry(FileEntry::Custom {
             payload: eukhe_types::session::CustomEntry {
-                custom_type: custom_type.to_string(),
+                custom_type,
                 data,
                 rest: serde_json::Map::default(),
             },
@@ -93,7 +93,7 @@ impl SessionManager {
     /// Append a custom message entry (compaction/refine notices, prompts).
     pub fn append_custom_message(
         &mut self,
-        custom_type: &str,
+        custom_type: eukhe_types::custom_type::CustomType,
         content: eukhe_types::ai::UserContent,
         display: bool,
         details: Option<serde_json::Value>,
@@ -101,7 +101,7 @@ impl SessionManager {
         let base = self.next_base();
         self.append_entry(FileEntry::CustomMessage {
             payload: eukhe_types::session::CustomMessageEntry {
-                custom_type: custom_type.to_string(),
+                custom_type,
                 content,
                 details,
                 display,

@@ -3,6 +3,7 @@
 //! shapes, and the resumable scan.
 
 use super::*;
+use eukhe_types::custom_type::CustomType;
 use serde_json::json;
 
 fn temp_dir() -> PathBuf {
@@ -257,7 +258,7 @@ fn both_reopens_hydrate_the_warning_marker_row() {
     session.append_entry(
         "custom",
         json!({
-            "customType": eukhe_core::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE,
+            "customType": CustomType::AnthropicSubscriptionWarningShown,
             "data": { "shown": true },
         }),
     );

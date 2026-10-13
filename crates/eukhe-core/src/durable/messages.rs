@@ -4,6 +4,7 @@
 use crate::agent_messaging::sanitize_message_header_value;
 use crate::cron::AgentCronJob;
 use eukhe_types::ai::{TextContent, UserContent, UserContentBlock, UserMessage};
+use eukhe_types::custom_type::CustomType;
 use eukhe_types::input_origin::Report;
 use eukhe_types::job::JobSettled;
 use eukhe_types::output::{bound_notice, OmittedOutput};
@@ -17,37 +18,6 @@ pub const BRANCH_SUMMARY_SUFFIX: &str = "\n</summary>";
 pub const HARNESS_DIGEST_PREFIX: &str = "[harness-digest]\n\nThe persistent memories produced across this session so far:\n\n<harness_state>\n";
 pub const HARNESS_DIGEST_SUFFIX: &str = "\n</harness_state>";
 
-pub use eukhe_types::slash_commands::{
-    SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
-};
-pub const COMPACTION_OUTCOME_CUSTOM_TYPE: &str = "compaction_outcome";
-pub const REFINEMENT_OUTCOME_CUSTOM_TYPE: &str = "refinement_outcome";
-pub const REFINEMENT_NOTICE_CUSTOM_TYPE: &str = "refinement_notice";
-/// Audit entry type recording each applied refinement.
-pub const REFINEMENT_AUDIT_CUSTOM_TYPE: &str = "eukhe.refinement";
-/// The custom type of the harness-digest row (the model-facing digest of
-/// the continual-harness state).
-pub const HARNESS_DIGEST_CUSTOM_TYPE: &str = "harness_digest";
-/// The durable single-row disclosure of one provider-retry episode
-/// (SANCTIONED DIVERGENCE from TS, operator ruling 2026-09-23: the TS chat
-/// leaves one error row per failed attempt, which a 429-storm turned into
-/// chat spam): a `provider_retry_outcome` custom message carrying the one
-/// resolved/terminal row of the whole episode, with
-/// `{success, attempts, finalError}` details. Like the compaction outcome
-/// it is a user-facing disclosure, never model context — `convert_to_llm`
-/// drops it.
-pub const PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE: &str = "provider_retry_outcome";
-pub const HEARTBEAT_PROMPT_CUSTOM_TYPE: &str = "heartbeat_prompt";
-/// TS `ASYNC_BASH_COMPLETION_CUSTOM_TYPE`: the durable row a detached
-/// kernel bash completion admits as the woken turn's injected prompt.
-pub const ASYNC_BASH_COMPLETION_CUSTOM_TYPE: &str = "async_bash_completion";
-/// The durable row a settled detached `ipython` cell admits as the woken
-/// turn's injected prompt.
-pub const JOB_SETTLED_CUSTOM_TYPE: &str = "job_settled";
-/// TS `SESSION_RENAMED_CUSTOM_TYPE` (#2529): the displayed notice a
-/// rename that changed an existing name leaves in the renamed session's
-/// transcript.
-pub const SESSION_RENAMED_CUSTOM_TYPE: &str = "session_renamed";
 /// TS `ASYNC_BASH_COMPLETION_PREVIEW_LABEL`: the queue-strip label the
 /// notice's queued row carries (the TUI renders it with its own label,
 /// no lane prefix).
@@ -138,7 +108,7 @@ pub fn provider_retry_exhausted_text(attempts: u32, final_error: &str) -> String
 }
 
 /// The durable disclosure row of one provider-retry episode (see
-/// [`PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE`]): `content` carries the row text
+/// [`CustomType::ProviderRetryOutcome`]): `content` carries the row text
 /// the chat renders, `details` the structured verdict.
 #[must_use]
 pub fn create_provider_retry_outcome_message(
@@ -152,7 +122,7 @@ pub fn create_provider_retry_outcome_message(
         provider_retry_exhausted_text(attempts, error)
     };
     eukhe_types::session::CustomMessage {
-        custom_type: PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::ProviderRetryOutcome,
         content: UserContent::Text(content),
         display: true,
         details: Some(serde_json::json!({
@@ -177,7 +147,7 @@ pub fn create_compaction_outcome_message(
     outcome: CompactionOutcomeKind,
 ) -> eukhe_types::session::CustomMessage {
     eukhe_types::session::CustomMessage {
-        custom_type: COMPACTION_OUTCOME_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::CompactionOutcome,
         content: UserContent::Text(content.to_string()),
         display: true,
         details: Some(serde_json::json!({
@@ -233,7 +203,7 @@ pub fn create_heartbeat_prompt_message(
         details.insert("lastRunAt".to_string(), serde_json::json!(last_run_at));
     }
     eukhe_types::session::CustomMessage {
-        custom_type: HEARTBEAT_PROMPT_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::HeartbeatPrompt,
         content: UserContent::Text(content),
         display: true,
         details: Some(serde_json::Value::Object(details)),
@@ -268,7 +238,7 @@ pub fn create_job_settled_message(
             // TS `JSON.stringify(details.command)`: the quoted, escaped command.
             let encoded_command = serde_json::to_string(command).unwrap_or_default();
             (
-                ASYNC_BASH_COMPLETION_CUSTOM_TYPE,
+                CustomType::AsyncBashCompletion,
                 report.render(&format!("Command: {encoded_command}")),
                 serde_json::json!({
                     "pid": pid,
@@ -282,13 +252,13 @@ pub fn create_job_settled_message(
             status,
             output,
         } => (
-            JOB_SETTLED_CUSTOM_TYPE,
+            CustomType::JobSettled,
             report.render(output),
             serde_json::json!({ "job": job.as_str(), "status": status.label() }),
         ),
     };
     eukhe_types::session::CustomMessage {
-        custom_type: custom_type.to_string(),
+        custom_type,
         content: UserContent::Text(content),
         display: true,
         details: Some(details),
@@ -386,13 +356,13 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
             }
             AgentMessage::Custom(custom) => {
                 if matches!(
-                    custom.custom_type.as_str(),
-                    SESSION_SLASH_COMMAND_CUSTOM_TYPE
-                        | SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE
-                        | COMPACTION_OUTCOME_CUSTOM_TYPE
-                        | REFINEMENT_OUTCOME_CUSTOM_TYPE
-                        | PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE
-                        | crate::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE
+                    custom.custom_type,
+                    CustomType::SessionSlashCommand
+                        | CustomType::SessionSlashCommandResult
+                        | CustomType::CompactionOutcome
+                        | CustomType::RefinementOutcome
+                        | CustomType::ProviderRetryOutcome
+                        | CustomType::ModelPromptError
                 ) {
                     continue;
                 }
@@ -457,7 +427,7 @@ mod tests {
     fn provider_retry_outcome_row_is_the_one_line_and_never_context() {
         let recovered =
             create_provider_retry_outcome_message(true, 3, "429 Too many concurrent requests");
-        assert_eq!(recovered.custom_type, PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE);
+        assert_eq!(recovered.custom_type, CustomType::ProviderRetryOutcome);
         assert_eq!(
             recovered.content,
             UserContent::Text(
@@ -529,7 +499,7 @@ mod tests {
                 rest: serde_json::Map::default(),
             }),
             AgentMessage::Custom(eukhe_types::session::CustomMessage {
-                custom_type: SESSION_SLASH_COMMAND_CUSTOM_TYPE.to_string(),
+                custom_type: CustomType::SessionSlashCommand,
                 content: UserContent::Text("/model".to_string()),
                 display: true,
                 details: None,
@@ -537,7 +507,7 @@ mod tests {
                 rest: serde_json::Map::default(),
             }),
             AgentMessage::Custom(eukhe_types::session::CustomMessage {
-                custom_type: "arbitrary_note".to_string(),
+                custom_type: CustomType::Other("arbitrary_note".to_string()),
                 content: UserContent::Text("a note".to_string()),
                 display: true,
                 details: None,
@@ -612,7 +582,7 @@ mod tests {
             run_count: 0,
         };
         let message = create_heartbeat_prompt_message(&job, 1_000);
-        assert_eq!(message.custom_type, "heartbeat_prompt");
+        assert_eq!(message.custom_type, CustomType::HeartbeatPrompt);
         assert!(message.display);
         assert_eq!(message.timestamp, 1_000);
         // The header sanitizes its schedule value; the prompt rides as
@@ -668,7 +638,7 @@ mod tests {
         };
         let message =
             create_job_settled_message(&bash(4321, "sleep 12; echo RW_WAKE_DONE", 0), 1_000);
-        assert_eq!(message.custom_type, "async_bash_completion");
+        assert_eq!(message.custom_type, CustomType::AsyncBashCompletion);
         assert!(message.display);
         assert_eq!(message.timestamp, 1_000);
         assert_eq!(
@@ -699,7 +669,7 @@ mod tests {
             output: "slept\n42".to_owned(),
         };
         let message = create_job_settled_message(&settled, 3_000);
-        assert_eq!(message.custom_type, JOB_SETTLED_CUSTOM_TYPE);
+        assert_eq!(message.custom_type, CustomType::JobSettled);
         assert_eq!(
             message.content,
             UserContent::Text("[job-settled job:cell-1 status:ok]\n\nslept\n42".to_owned())

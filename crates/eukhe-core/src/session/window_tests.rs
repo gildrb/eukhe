@@ -1,4 +1,5 @@
 use super::*;
+use eukhe_types::custom_type::CustomType;
 use serde_json::json;
 
 fn fixture() -> String {
@@ -237,7 +238,7 @@ async fn historical_refinement_is_read_only_on_trigger_not_in_hot_cache() {
             .await
             .unwrap();
     let historical = manager.history_snapshot().await.unwrap();
-    assert!(historical.iter().any(|entry| matches!(entry, FileEntry::Custom { payload, .. } if payload.custom_type == "eukhe.refinement" && payload.data.as_ref().is_some_and(|data| data["summary"] == marker))));
+    assert!(historical.iter().any(|entry| matches!(entry, FileEntry::Custom { payload, .. } if payload.custom_type == CustomType::RefinementAudit && payload.data.as_ref().is_some_and(|data| data["summary"] == marker))));
     assert_eq!(cold.context().messages, warm.context().messages);
 }
 
@@ -298,7 +299,7 @@ fn anthropic_warning_marker_hydrates_from_before_the_boundary() {
     rows[2]["parentId"] = json!("marked");
     rows.insert(
         2,
-        json!({"type":"custom","id":"marked","parentId":"settings","customType":crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE,"data":{"shown":true}}),
+        json!({"type":"custom","id":"marked","parentId":"settings","customType":CustomType::AnthropicSubscriptionWarningShown,"data":{"shown":true}}),
     );
     let body: String = rows.into_iter().map(|row| row.to_string() + "\n").collect();
     std::fs::write(&path, body).unwrap();
@@ -333,7 +334,7 @@ fn an_unshown_marker_row_never_hydrates_the_gate() {
     rows[2]["parentId"] = json!("unshown");
     rows.insert(
         2,
-        json!({"type":"custom","id":"unshown","parentId":"settings","customType":crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE,"data":{"shown":false}}),
+        json!({"type":"custom","id":"unshown","parentId":"settings","customType":CustomType::AnthropicSubscriptionWarningShown,"data":{"shown":false}}),
     );
     let body: String = rows.into_iter().map(|row| row.to_string() + "\n").collect();
     std::fs::write(&path, body).unwrap();

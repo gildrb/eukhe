@@ -2,6 +2,7 @@
 //! Shipped rules run before the user's `<agent_dir>/model-prompts.toml` rules; any problem in
 //! either layer disables all additions for the session and is reported, never blocking.
 
+use eukhe_types::custom_type::CustomType;
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Component, Path};
@@ -14,10 +15,6 @@ pub const MODEL_PROMPTS_TOML: &str = include_str!("layers/model_prompts.toml");
 const MODEL_PROMPT_FILES: &[(&str, &str)] = &[];
 
 const USER_MODEL_PROMPTS_TOML: &str = "model-prompts.toml";
-
-/// `display: true` rows of this type stay out of LLM context
-/// (`entries::is_display_only_custom_type`).
-pub const MODEL_PROMPT_ERROR_CUSTOM_TYPE: &str = "model_prompt_error";
 
 const SHIPPED_SOURCE: &str = "shipped model_prompts.toml";
 
@@ -265,7 +262,7 @@ pub fn model_prompt_error_text(errors: &[String]) -> String {
 #[must_use]
 pub fn model_prompt_error_message(errors: &[String]) -> CustomMessage {
     CustomMessage {
-        custom_type: MODEL_PROMPT_ERROR_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::ModelPromptError,
         content: eukhe_types::ai::UserContent::Text(model_prompt_error_text(errors)),
         display: true,
         details: None,

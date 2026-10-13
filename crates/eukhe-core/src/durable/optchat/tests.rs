@@ -1,6 +1,7 @@
 //! `eukhe.optchat` over a real Harness, a faux model, and a real chat
 //! memory in a temp dir.
 
+use eukhe_types::custom_type::CustomType;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -945,7 +946,7 @@ fn agent_replies_are_logged_as_work_and_owed_rows_are_not() {
         by_task_id: None,
     };
     let reply = crate::durable::custom_entry_draft(
-        crate::agent_messaging::AGENT_REPLY_CUSTOM_TYPE,
+        CustomType::AgentReply,
         UserContent::Text(crate::agent_messaging::create_agent_reply_prompt(
             "alpha",
             "I reported 42.",
@@ -956,7 +957,7 @@ fn agent_replies_are_logged_as_work_and_owed_rows_are_not() {
     )
     .unwrap();
     let owed = crate::durable::custom_entry_draft(
-        crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE,
+        CustomType::AgentReplyOwed,
         UserContent::Text(String::new()),
         false,
         Some(serde_json::json!({ "id": "r1", "replyTo": "root" })),

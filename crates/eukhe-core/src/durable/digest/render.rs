@@ -23,9 +23,6 @@ use crate::refinement::{
 
 use super::super::HostDeps;
 
-/// The custom row type of a delivered digest.
-pub const HARNESS_DIGEST_CUSTOM_TYPE: &str = "harness_digest";
-
 /// Full digest frame prefix.
 pub const HARNESS_DIGEST_PREFIX: &str =
     "[harness-digest]\n\nThe persistent memories produced across this session so far:\n\n<harness_state>\n";

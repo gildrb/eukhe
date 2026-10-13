@@ -153,7 +153,7 @@ pub fn entry_to_items(entry: &FileEntry) -> Vec<TranscriptItem> {
             model_id: payload.model_id.clone(),
         }],
         FileEntry::CustomMessage { payload, .. } => crate::custom_message::custom_message_entries(
-            &eukhe_types::custom_type::CustomType::parse(&payload.custom_type),
+            &payload.custom_type,
             &payload.content,
             payload.display,
             payload.details.as_ref(),
@@ -323,7 +323,7 @@ mod tests {
         // uses; a non-display row renders nothing.
         let entry = |display: bool| FileEntry::CustomMessage {
             payload: eukhe_types::session::CustomMessageEntry {
-                custom_type: "agent_message".to_string(),
+                custom_type: eukhe_types::custom_type::CustomType::AgentMessage,
                 content: eukhe_types::ai::UserContent::Text(
                     "[agent-message from child:lane]\n\nhi".to_string(),
                 ),

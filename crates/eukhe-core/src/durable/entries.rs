@@ -15,11 +15,9 @@ use eukhe_types::pi_ai::{Message, TextContent, UserContent, UserContentBlock, Us
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::durable::messages::{
-    bash_execution_to_text, COMPACTION_OUTCOME_CUSTOM_TYPE, PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE,
-    REFINEMENT_OUTCOME_CUSTOM_TYPE, SESSION_SLASH_COMMAND_CUSTOM_TYPE,
-    SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
-};
+use eukhe_types::custom_type::CustomType;
+
+use crate::durable::messages::bash_execution_to_text;
 
 /// A custom message (the old `custom_message` row / `custom` role):
 /// `model` is `[UserMessage]` with the row's content when it reaches the
@@ -57,7 +55,7 @@ const fn define<D>(kind: &'static str) -> Entry<D> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomEntryData {
-    pub custom_type: String,
+    pub custom_type: CustomType,
     /// The row's content when no `model` carries it (display-only rows).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<UserContent>,
@@ -115,7 +113,7 @@ pub struct BranchSummaryData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomStateData {
-    pub custom_type: String,
+    pub custom_type: CustomType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
 }
@@ -123,17 +121,37 @@ pub struct CustomStateData {
 /// Whether custom messages of `custom_type` stay out of model context
 /// (display-only bookkeeping, excluded when converting to LLM messages).
 #[must_use]
-pub fn is_display_only_custom_type(custom_type: &str) -> bool {
-    matches!(
-        custom_type,
-        SESSION_SLASH_COMMAND_CUSTOM_TYPE
-            | SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE
-            | COMPACTION_OUTCOME_CUSTOM_TYPE
-            | REFINEMENT_OUTCOME_CUSTOM_TYPE
-            | PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE
-            | crate::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE
-            | crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE
-    )
+pub fn is_display_only_custom_type(custom_type: &CustomType) -> bool {
+    match custom_type {
+        CustomType::SessionSlashCommand
+        | CustomType::SessionSlashCommandResult
+        | CustomType::CompactionOutcome
+        | CustomType::RefinementOutcome
+        | CustomType::ProviderRetryOutcome
+        | CustomType::ModelPromptError
+        | CustomType::AgentReplyOwed => true,
+        CustomType::AgentMessage
+        | CustomType::AgentReply
+        | CustomType::HeartbeatPrompt
+        | CustomType::GoalContext
+        | CustomType::GoalState
+        | CustomType::AutonomousStatus
+        | CustomType::IpythonState
+        | CustomType::IpythonStateRestored
+        | CustomType::PythonSkillsUnavailable
+        | CustomType::RlmChildFailure
+        | CustomType::RlmChildTerminalNotice
+        | CustomType::AsyncBashCompletion
+        | CustomType::JobSettled
+        | CustomType::RefinementNotice
+        | CustomType::RefinementAudit
+        | CustomType::HarnessDigest
+        | CustomType::ProviderQuotaPark
+        | CustomType::ProviderQuotaResume
+        | CustomType::SessionRenamed
+        | CustomType::AnthropicSubscriptionWarningShown
+        | CustomType::Other(_) => false,
+    }
 }
 
 /// The [`CUSTOM_ENTRY`] draft of a custom message. A model-visible type gets
@@ -144,13 +162,12 @@ pub fn is_display_only_custom_type(custom_type: &str) -> bool {
 ///
 /// `details` is not strict JSON.
 pub fn custom_entry_draft(
-    custom_type: impl Into<String>,
+    custom_type: CustomType,
     content: UserContent,
     display: bool,
     details: Option<Value>,
     timestamp: u64,
 ) -> Result<EntryDraft, JsonError> {
-    let custom_type = custom_type.into();
     let (model, content) = if is_display_only_custom_type(&custom_type) {
         (None, Some(content))
     } else {
@@ -184,7 +201,7 @@ pub fn custom_entry_draft(
 ///
 /// `details` is not strict JSON.
 pub fn input_row_draft(
-    custom_type: impl Into<String>,
+    custom_type: CustomType,
     content: UserContent,
     display: bool,
     details: Option<Value>,
@@ -192,7 +209,7 @@ pub fn input_row_draft(
     CUSTOM_ENTRY.draft(&TypedEntryDraft {
         model: None,
         data: CustomEntryData {
-            custom_type: custom_type.into(),
+            custom_type,
             content: Some(content),
             display,
             details,
@@ -280,7 +297,7 @@ mod tests {
     #[test]
     fn custom_entries_reach_the_model_unless_display_only() {
         let draft = custom_entry_draft(
-            "agent_message",
+            CustomType::AgentMessage,
             UserContent::Text("[agent-message from x] hi".to_owned()),
             true,
             Some(json!({"from": "x"})),
@@ -296,7 +313,7 @@ mod tests {
         );
 
         let shown = custom_entry_draft(
-            COMPACTION_OUTCOME_CUSTOM_TYPE,
+            CustomType::CompactionOutcome,
             UserContent::Text("compacted".to_owned()),
             true,
             None,
@@ -306,7 +323,7 @@ mod tests {
         assert_eq!(shown.model, None);
         assert_eq!(
             serde_json::to_value(shown.data.expect("data")).expect("json"),
-            json!({"customType": COMPACTION_OUTCOME_CUSTOM_TYPE, "content": "compacted", "display": true})
+            json!({"customType": "compaction_outcome", "content": "compacted", "display": true})
         );
     }
 

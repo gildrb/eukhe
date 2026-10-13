@@ -214,7 +214,10 @@ fn custom_message(entry: &EntryRecord) -> Option<Value> {
         .unwrap_or_else(|| Value::from(""));
     let mut message = Map::new();
     message.insert("role".to_owned(), Value::from("custom"));
-    message.insert("customType".to_owned(), Value::from(data.custom_type));
+    message.insert(
+        "customType".to_owned(),
+        Value::from(data.custom_type.as_str()),
+    );
     message.insert("content".to_owned(), content);
     message.insert("display".to_owned(), Value::from(data.display));
     if let Some(details) = data.details {

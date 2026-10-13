@@ -13,12 +13,10 @@
 //! (the `onUnavailableSkills` callback of `IpythonKernelProvisioner`),
 //! delivered through `sendCustomMessage(..., { deliverAs: "nextTurn" })`.
 
+use eukhe_types::custom_type::CustomType;
 use eukhe_types::session::CustomMessage;
 
 use crate::kernel::bootstrap::UnavailablePythonSkills;
-
-/// The notice's `customType` (TS `PYTHON_SKILLS_UNAVAILABLE_CUSTOM_TYPE`).
-pub const PYTHON_SKILLS_UNAVAILABLE_CUSTOM_TYPE: &str = "python_skills_unavailable";
 
 fn now_millis() -> u64 {
     std::time::SystemTime::now()
@@ -52,7 +50,7 @@ pub fn notice_content(errors: &UnavailablePythonSkills) -> String {
 #[must_use]
 pub fn notice_message(errors: &UnavailablePythonSkills) -> CustomMessage {
     CustomMessage {
-        custom_type: PYTHON_SKILLS_UNAVAILABLE_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::PythonSkillsUnavailable,
         content: eukhe_types::ai::UserContent::Text(notice_content(errors)),
         display: true,
         details: Some(serde_json::json!({
@@ -77,7 +75,7 @@ mod tests {
     #[test]
     fn notice_names_each_failed_skill_and_its_error() {
         let message = notice_message(&errors());
-        assert_eq!(message.custom_type, "python_skills_unavailable");
+        assert_eq!(message.custom_type, CustomType::PythonSkillsUnavailable);
         assert!(message.display);
         assert_eq!(
             message.details,

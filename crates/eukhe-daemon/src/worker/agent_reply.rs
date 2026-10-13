@@ -9,16 +9,14 @@
 //! `name -> you`, logs to chat memory as `[name] answer`, and never starts
 //! a turn.
 
+use eukhe_types::custom_type::CustomType;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::agent_messaging::{
-    create_agent_reply_prompt, AGENT_MESSAGE_CUSTOM_TYPE, AGENT_REPLY_CUSTOM_TYPE,
-    AGENT_REPLY_OWED_CUSTOM_TYPE,
-};
+use eukhe_core::agent_messaging::create_agent_reply_prompt;
 use eukhe_core::durable::{custom_entry_draft, CustomEntryData, CUSTOM_ENTRY};
 use eukhe_durable::harness::types::WriteSubmissionDraft;
 use eukhe_durable::types::EntryRecord;
@@ -45,22 +43,28 @@ pub(crate) struct OwedReply {
 fn is_owed_row(entry: &EntryRecord) -> bool {
     entry.kind == CUSTOM_ENTRY.kind()
         && entry_data::<CustomEntryData>(entry)
-            .is_some_and(|data| data.custom_type == AGENT_REPLY_OWED_CUSTOM_TYPE)
+            .is_some_and(|data| data.custom_type == CustomType::AgentReplyOwed)
 }
 
 /// The latest owed reply among `messages` (the shown conversation's wire
 /// messages) and, once the run its input started has one, its final
 /// answer: the last assistant message that stopped with text before the
 /// next input (a user message or a delivered agent message) after its own.
+/// The custom type of a wire message, None for other roles.
+fn custom_type(message: &Value) -> Option<CustomType> {
+    message
+        .get("customType")
+        .and_then(Value::as_str)
+        .map(CustomType::parse)
+}
+
 pub(crate) fn latest_owed_reply(messages: &[Value]) -> Option<(OwedReply, Option<String>)> {
     let (index, owed) = messages
         .iter()
         .enumerate()
         .rev()
         .find_map(|(index, message)| {
-            if message.get("customType").and_then(Value::as_str)
-                != Some(AGENT_REPLY_OWED_CUSTOM_TYPE)
-            {
+            if custom_type(message) != Some(CustomType::AgentReplyOwed) {
                 return None;
             }
             let details = message.get("details")?;
@@ -75,7 +79,7 @@ pub(crate) fn latest_owed_reply(messages: &[Value]) -> Option<(OwedReply, Option
         })?;
     let is_input = |message: &Value| {
         crate::types::message_role(message) == Some("user")
-            || message.get("customType").and_then(Value::as_str) == Some(AGENT_MESSAGE_CUSTOM_TYPE)
+            || custom_type(message) == Some(CustomType::AgentMessage)
     };
     let mut inputs = 0;
     let mut answer = None;
@@ -195,7 +199,7 @@ impl Worker {
     ) -> anyhow::Result<()> {
         let id = format!("reply_{}", uuid::Uuid::new_v4());
         let entry = custom_entry_draft(
-            AGENT_REPLY_OWED_CUSTOM_TYPE,
+            CustomType::AgentReplyOwed,
             UserContent::Text(String::new()),
             false,
             Some(json!({ "id": id, "replyTo": reply_to })),
@@ -245,7 +249,7 @@ impl Worker {
         };
         let written = async {
             let entry = custom_entry_draft(
-                AGENT_REPLY_CUSTOM_TYPE,
+                CustomType::AgentReply,
                 UserContent::Text(create_agent_reply_prompt(from, text)),
                 true,
                 Some(json!({ "id": reply_id, "from": from, "message": text })),
@@ -276,7 +280,7 @@ mod tests {
     use super::*;
 
     fn owed(id: &str) -> Value {
-        json!({ "role": "custom", "customType": AGENT_REPLY_OWED_CUSTOM_TYPE, "display": false,
+        json!({ "role": "custom", "customType": CustomType::AgentReplyOwed, "display": false,
                 "content": "", "details": { "id": id, "replyTo": "root" } })
     }
 

@@ -15,11 +15,11 @@
 //! partial when it flushes ([`EventTranslator::flush`], the worker's 50 ms
 //! timer).
 
+use eukhe_types::custom_type::CustomType;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eukhe_chord::json::JsonValue;
-use eukhe_core::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use eukhe_core::durable::{
     CustomEntryData, CustomStateData, ProviderWireEvent, BASH_ENTRY, BRANCH_SUMMARY_ENTRY,
     CUSTOM_ENTRY, CUSTOM_STATE_ENTRY,
@@ -1063,7 +1063,7 @@ impl EventTranslator {
     /// `warning` severity, a failure the row text, a cancel `aborted` alone.
     fn settle_held_end(&mut self, row: &CustomMessage) -> Option<SessionEvent> {
         let details = row.details.as_ref()?;
-        if row.custom_type != "compaction_outcome" || details["reported"] == true {
+        if row.custom_type != CustomType::CompactionOutcome || details["reported"] == true {
             return None;
         }
         let text = content_text(&row.content);
@@ -1169,7 +1169,7 @@ fn wire_reason(reason: CompactionReason) -> WireCompactionReason {
 /// reported state: no result, no retry, the row's text as the error).
 fn reported_overflow_end(row: &CustomMessage) -> Option<SessionEvent> {
     let details = row.details.as_ref()?;
-    let reported = row.custom_type == "compaction_outcome"
+    let reported = row.custom_type == CustomType::CompactionOutcome
         && details["reported"] == true
         && details["reason"] == "overflow"
         && details["outcome"] == "failed";
@@ -1202,7 +1202,7 @@ fn refine_complete_frame(entry: &EntryRecord) -> Option<SessionEvent> {
         return None;
     }
     let data = entry_data::<CustomStateData>(entry)?;
-    if data.custom_type != REFINEMENT_AUDIT_CUSTOM_TYPE {
+    if data.custom_type != CustomType::RefinementAudit {
         return None;
     }
     Some(SessionEvent::RefineComplete {

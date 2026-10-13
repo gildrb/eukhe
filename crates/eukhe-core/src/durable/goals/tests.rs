@@ -311,7 +311,8 @@ fn goal_contexts(entries: &[EntryRecord]) -> Vec<(CustomEntryData, bool)> {
         .filter_map(|entry| {
             let data: CustomEntryData =
                 serde_json::from_value(serde_json::to_value(entry.data.as_ref()?).ok()?).ok()?;
-            (data.custom_type == "goal_context").then_some((data, entry.model.is_some()))
+            (data.custom_type == eukhe_types::custom_type::CustomType::GoalContext)
+                .then_some((data, entry.model.is_some()))
         })
         .collect()
 }

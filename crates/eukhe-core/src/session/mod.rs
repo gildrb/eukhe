@@ -6,6 +6,7 @@ pub mod tree;
 pub mod window;
 mod window_cache;
 
+use eukhe_types::custom_type::CustomType;
 use std::collections::HashMap;
 
 use eukhe_types::session::EntryBase;
@@ -16,16 +17,6 @@ use eukhe_types::JsonMap;
 
 /// Current on-disk session format version.
 pub const CURRENT_SESSION_VERSION: u32 = 3;
-
-/// `custom` entry `customType` marking that this session has already drawn
-/// the Anthropic subscription ban-risk warning (operator directive
-/// 2026-09-29: the warning fires once per session LIFECYCLE, not once per
-/// TUI instance — the shown-state persists in the session's own durable
-/// store, exactly like `thread_goal_state`, so a reattach or a resume of
-/// the same session reads the row and skips the warning; a genuinely new
-/// session, or a fresh auth landing, shows it once). The row's `data` is
-/// `{ "shown": true }`.
-pub const ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE: &str = "anthropic_subscription_warning_shown";
 
 /// Entry types that can represent user intent (vs. daemon bookkeeping).
 pub const CONTENT_ENTRY_TYPES: [&str; 10] = [
@@ -350,7 +341,7 @@ pub fn build_session_context(entries: &[FileEntry], leaf_id: Option<&str>) -> Se
     let mut newest_digest_entry_id: Option<String> = None;
     for (path_idx, &index) in path.iter().enumerate().rev() {
         if let FileEntry::CustomMessage { payload, .. } = &entries[index] {
-            if payload.custom_type == crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE {
+            if payload.custom_type == CustomType::HarnessDigest {
                 newest_digest_path_idx = Some(path_idx);
                 newest_digest_entry_id = entries[index].id().map(str::to_string);
                 break;
@@ -389,7 +380,7 @@ pub fn build_session_context(entries: &[FileEntry], leaf_id: Option<&str>) -> Se
             match entry {
                 FileEntry::Message { message, .. } => target.push(message.clone()),
                 FileEntry::CustomMessage { payload, .. } => {
-                    if payload.custom_type == crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE
+                    if payload.custom_type == CustomType::HarnessDigest
                         && entry.id() != keep_digest_entry_id
                     {
                         return;
@@ -597,12 +588,17 @@ mod context_tests {
             .messages
             .iter()
             .filter_map(|message| match message {
-                AgentMessage::Custom(custom) if custom.custom_type == "harness_digest" => custom
-                    .details
-                    .as_ref()
-                    .and_then(|details| details.get("digest"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string),
+                AgentMessage::Custom(custom)
+                    if custom.custom_type
+                        == eukhe_types::custom_type::CustomType::HarnessDigest =>
+                {
+                    custom
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("digest"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string)
+                }
                 _ => None,
             })
             .collect()

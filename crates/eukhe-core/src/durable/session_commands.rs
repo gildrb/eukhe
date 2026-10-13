@@ -12,6 +12,7 @@ use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::CompactionResult;
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::types::{EntryDraft, TaskId};
+use eukhe_types::custom_type::CustomType;
 use eukhe_types::pi_ai::UserContent;
 use eukhe_types::slash_commands::SlashCommandRegistry;
 use serde_json::{json, Value};
@@ -21,12 +22,9 @@ use super::goals::{
     autonomous_state, clear_goal, goal_state, pause_goal, resume_goal, set_autonomous, start_goal,
     AutonomousChange,
 };
-use super::messages::{
-    SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
-};
 use super::rlm::{refine_now, RefineRequest};
 use super::EukheSession;
-use crate::autonomous::{now_millis, AgentAutonomousStatus, AUTONOMOUS_STATUS_CUSTOM_TYPE};
+use crate::autonomous::{now_millis, AgentAutonomousStatus};
 use crate::goals::{GoalState, GoalStatus};
 use crate::slash_command_args::{
     format_autonomous_status, parse_autonomous_command, parse_goal_command, AutonomousCommand,
@@ -229,7 +227,7 @@ pub async fn commit_session_command_failure(
 
 /// A custom row before its timestamp and draft.
 struct Row {
-    custom_type: &'static str,
+    custom_type: CustomType,
     text: String,
     display: bool,
     details: Value,
@@ -249,7 +247,7 @@ fn command_details(command: &SessionCommand) -> Value {
 /// The `session_slash_command` echo row.
 fn echo_row(command: &SessionCommand) -> Row {
     Row {
-        custom_type: SESSION_SLASH_COMMAND_CUSTOM_TYPE,
+        custom_type: CustomType::SessionSlashCommand,
         text: command.text.clone(),
         display: true,
         details: command_details(command),
@@ -269,7 +267,7 @@ fn result_row(command: &SessionCommand, text: String, visibility: Visibility) ->
     details["success"] = json!(true);
     details["severity"] = json!("info");
     Row {
-        custom_type: SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
+        custom_type: CustomType::SessionSlashCommandResult,
         text,
         display: matches!(visibility, Visibility::Shown),
         details,
@@ -283,7 +281,7 @@ fn failure_row(command: &SessionCommand, error: &str) -> Row {
     details["severity"] = json!("error");
     details["error"] = json!(error);
     Row {
-        custom_type: SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
+        custom_type: CustomType::SessionSlashCommandResult,
         text: format!("Command failed: {error}"),
         display: true,
         details,
@@ -476,7 +474,7 @@ async fn execute_autonomous(
                 .status();
             let details = serde_json::to_value(&status).map_err(|error| error.to_string())?;
             let row = Row {
-                custom_type: AUTONOMOUS_STATUS_CUSTOM_TYPE,
+                custom_type: CustomType::AutonomousStatus,
                 text: format_autonomous_status(&status),
                 display: true,
                 details,

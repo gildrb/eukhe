@@ -117,7 +117,7 @@ pub struct BashExecutionMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomMessage {
-    pub custom_type: String,
+    pub custom_type: crate::custom_type::CustomType,
     pub content: UserContent,
     pub display: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -267,7 +267,7 @@ pub struct BranchSummaryEntry {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomEntry {
-    pub custom_type: String,
+    pub custom_type: crate::custom_type::CustomType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
     #[serde(flatten)]
@@ -346,7 +346,7 @@ pub struct GitStateEntry {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomMessageEntry {
-    pub custom_type: String,
+    pub custom_type: crate::custom_type::CustomType,
     pub content: UserContent,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,

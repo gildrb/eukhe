@@ -8,25 +8,24 @@
 //! [`crate::worker::is_rlm_child_status_item`]'s classification sees only
 //! daemon-authentic kinds.
 
+use eukhe_types::custom_type::CustomType;
 use serde_json::Value;
 
 /// The custom kinds ONLY the daemon's notice producer creates (eukhe-core
 /// `rlm_notices`): the terminal-notice and failure rows.
-pub(crate) const RESERVED_CUSTOM_KINDS: [&str; 2] = [
-    eukhe_core::durable::children::parent_notice::RLM_CHILD_TERMINAL_NOTICE_CUSTOM_TYPE,
-    eukhe_core::durable::children::parent_notice::RLM_CHILD_FAILURE_CUSTOM_TYPE,
+pub(crate) const RESERVED_CUSTOM_KINDS: [CustomType; 2] = [
+    CustomType::RlmChildTerminalNotice,
+    CustomType::RlmChildFailure,
 ];
 
 /// Whether one custom row claims a reserved child-status kind (exact
 /// match, case sensitive — never a prefix family).
 pub(crate) fn is_reserved_child_status_custom_type(custom_message: &Value) -> bool {
-    matches!(
-        custom_message.get("customType").and_then(Value::as_str),
-        Some(
-            eukhe_core::durable::children::parent_notice::RLM_CHILD_TERMINAL_NOTICE_CUSTOM_TYPE
-                | eukhe_core::durable::children::parent_notice::RLM_CHILD_FAILURE_CUSTOM_TYPE
-        )
-    )
+    custom_message
+        .get("customType")
+        .and_then(Value::as_str)
+        .map(CustomType::parse)
+        .is_some_and(|custom_type| RESERVED_CUSTOM_KINDS.contains(&custom_type))
 }
 
 /// The loud intake rejection for a caller-supplied row claiming a
@@ -35,7 +34,7 @@ pub(crate) fn is_reserved_child_status_custom_type(custom_message: &Value) -> bo
 pub(crate) fn reserved_intake_error() -> String {
     format!(
         "Invalid customMessage: the {} custom types are reserved for daemon-injected RLM child status notices",
-        RESERVED_CUSTOM_KINDS.join("/")
+        RESERVED_CUSTOM_KINDS.map(|kind| kind.to_string()).join("/")
     )
 }
 

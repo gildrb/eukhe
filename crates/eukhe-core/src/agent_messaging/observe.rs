@@ -111,7 +111,7 @@ pub struct AgentObserveMessagePreview {
     pub text: String,
     pub truncated: bool,
     pub tool_calls: Vec<String>,
-    pub custom_type: Option<String>,
+    pub custom_type: Option<eukhe_types::custom_type::CustomType>,
 }
 
 /// The controller the daemon supplies for `agent_observe.*` requests.

@@ -69,7 +69,8 @@ fn model_messages_pass_through() {
 
 #[test]
 fn a_reported_user_entry_carries_its_origin() {
-    let user = json!({ "role": "user", "content": "[child-exited: no-reply child:lane]", "timestamp": 2 });
+    let user =
+        json!({ "role": "user", "content": "[child-exited: no-reply child:lane]", "timestamp": 2 });
     let origin = json!({
         "kind": "report",
         "report": { "report": "childExited", "child": "lane", "exit": "noReply" },

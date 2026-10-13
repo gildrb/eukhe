@@ -244,10 +244,23 @@ pub fn custom_message_entries(
             )))]
         }
         // Everything else - engine bookkeeping (`harness_digest`,
-        // `refinement_notice`, worker recovery) and unknown types - renders
-        // the generic panel, exactly like the TS live dispatch fallthrough
-        // (those types persist with `display: false` and render nothing).
-        CustomType::Other(_) => vec![generic_panel_entry(custom_type, content)],
+        // `refinement_notice`, state rows) and client-defined or unknown
+        // types - renders the generic panel, exactly like the TS live
+        // dispatch fallthrough (the bookkeeping types persist with
+        // `display: false` and render nothing).
+        CustomType::AgentReplyOwed
+        | CustomType::GoalState
+        | CustomType::AutonomousStatus
+        | CustomType::IpythonState
+        | CustomType::JobSettled
+        | CustomType::RefinementNotice
+        | CustomType::RefinementAudit
+        | CustomType::HarnessDigest
+        | CustomType::ProviderQuotaPark
+        | CustomType::ProviderQuotaResume
+        | CustomType::SessionRenamed
+        | CustomType::AnthropicSubscriptionWarningShown
+        | CustomType::Other(_) => vec![generic_panel_entry(custom_type, content)],
     }
 }
 
@@ -468,8 +481,12 @@ pub fn input_origin_entry(origin: &InputOrigin, content: &UserContent) -> Option
         // `child:name` / `parent:name`: the arrow carries the
         // relationship, the row names the agent.
         Report::AgentMessage { sender } => {
-            let name = sender.split_once(':').map_or(sender.as_str(), |(_, name)| name);
-            let body = report.body(&text).map_or_else(|_| text.clone(), str::to_owned);
+            let name = sender
+                .split_once(':')
+                .map_or(sender.as_str(), |(_, name)| name);
+            let body = report
+                .body(&text)
+                .map_or_else(|_| text.clone(), str::to_owned);
             Some(received(name, body))
         }
         Report::BashDone { pid, exit_code } => {
@@ -504,7 +521,7 @@ mod tests {
         let message: eukhe_types::session::CustomMessage =
             serde_json::from_value(message).expect("custom fixture decodes");
         custom_message_entries(
-            &CustomType::parse(&message.custom_type),
+            &message.custom_type,
             &message.content,
             message.display,
             message.details.as_ref(),

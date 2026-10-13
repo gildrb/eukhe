@@ -132,7 +132,7 @@ fn the_custom_row_carries_the_ts_agent_message_shape() {
     // type, the prompt as the content, display on, and the identity
     // details the `agent_message` UI reads.
     assert_eq!(row["role"], "custom");
-    assert_eq!(row["customType"], AGENT_MESSAGE_CUSTOM_TYPE);
+    assert_eq!(row["customType"], "agent_message");
     assert_eq!(row["content"], prompt);
     assert_eq!(row["display"], true);
     assert_eq!(row["timestamp"], 123);

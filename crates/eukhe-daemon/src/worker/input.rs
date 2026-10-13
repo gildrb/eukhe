@@ -134,11 +134,11 @@ pub(crate) async fn write_input_row(
     cx: &Context,
 ) -> anyhow::Result<()> {
     if let Some(row) = &request.custom_row {
-        let custom_type = row
-            .get("customType")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+        let custom_type = eukhe_types::custom_type::CustomType::parse(
+            row.get("customType")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        );
         let content: UserContent = row
             .get("content")
             .cloned()

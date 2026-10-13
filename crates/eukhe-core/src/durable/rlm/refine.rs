@@ -14,6 +14,7 @@
 //! (`eukhe.refinement`), the outcome and notice rows are `eukhe.custom`
 //! entries. [`refine_now`] is the user `/refine` path over the same run.
 
+use eukhe_types::custom_type::CustomType;
 use std::sync::{Arc, Weak};
 
 use eukhe_ai::models::ModelsSimpleStreamOptions;
@@ -33,7 +34,6 @@ use super::super::HostDeps;
 use super::boundary::{boundary_state, PendingRefine, BOUNDARY_DOC};
 use super::CustomNotice;
 use super::RlmRuntime;
-use crate::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use crate::refinement::executor::{
     apply_refinement_plan, plan_refinement, RefineOptions as CoreRefineOptions, RefinementPlan,
     RefinerFn,
@@ -179,7 +179,7 @@ pub(crate) fn outcome_drafts(
     let audit = CUSTOM_STATE_ENTRY.draft(&eukhe_durable::types::TypedEntryDraft {
         model: None,
         data: CustomStateData {
-            custom_type: REFINEMENT_AUDIT_CUSTOM_TYPE.to_string(),
+            custom_type: CustomType::RefinementAudit,
             data: Some(serde_json::to_value(result).map_err(SessionError::other)?),
         },
         head: None,
@@ -357,7 +357,7 @@ pub(crate) async fn session_refinement_history(
                 continue;
             };
             let data = audit.data();
-            if data.custom_type != REFINEMENT_AUDIT_CUSTOM_TYPE {
+            if data.custom_type != CustomType::RefinementAudit {
                 continue;
             }
             if let Some(value) = &data.data {

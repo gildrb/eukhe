@@ -5,6 +5,7 @@
 //! `ShellAutonomousDriver::after_turn`, with today's limits and gates from
 //! `crate::autonomous`).
 
+use eukhe_types::custom_type::CustomType;
 use std::collections::BTreeMap;
 
 use super::ops::conversation_of;
@@ -24,7 +25,6 @@ use crate::autonomous::{
     AgentAutonomousConfig, AgentAutonomousGateFailure, AgentAutonomousStatus,
     AutonomousDecisionReason, AutonomousLimitReason, AutonomousLimits, AutonomousRuntimeState,
     AutonomousStopReason, GateCommandRunner, GitWorktreeSnapshot, NormalizedGateConfig,
-    AUTONOMOUS_STATUS_CUSTOM_TYPE,
 };
 use crate::durable::entries::custom_entry_draft;
 use crate::slash_command_args::format_autonomous_status;
@@ -367,7 +367,7 @@ async fn apply_autonomous(
                     let details = serde_json::to_value(&status)
                         .map_err(|error| SessionError::error(error.to_string()))?;
                     let entry = custom_entry_draft(
-                        AUTONOMOUS_STATUS_CUSTOM_TYPE,
+                        CustomType::AutonomousStatus,
                         UserContent::Text(format_autonomous_status(&status)),
                         /*display*/ true,
                         Some(details),

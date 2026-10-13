@@ -15,6 +15,7 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, DocumentReader, EntryDraft, TypedEntryDraft};
+use eukhe_types::custom_type::CustomType;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 
@@ -24,7 +25,7 @@ use crate::autonomous::now_millis;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::goals::{
     create_goal_context_message, is_persisted_goal_state, normalize_goal_state,
-    stale_active_goal_failure, GoalContextKind, GoalState, GoalStatus, GOAL_STATE_CUSTOM_TYPE,
+    stale_active_goal_failure, GoalContextKind, GoalState, GoalStatus,
 };
 
 /// The served goal of `conversation_id` (the empty state when none): its
@@ -468,7 +469,7 @@ pub async fn import_legacy_goal(
 ) -> SessionResult<()> {
     let latest = entries.iter().rev().find_map(|entry| match entry {
         eukhe_types::session::FileEntry::Custom { payload, .. }
-            if payload.custom_type == GOAL_STATE_CUSTOM_TYPE =>
+            if payload.custom_type == CustomType::GoalState =>
         {
             payload
                 .data

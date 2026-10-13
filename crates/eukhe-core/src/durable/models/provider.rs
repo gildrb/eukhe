@@ -50,6 +50,7 @@ use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, TypedEntryDraft};
+use eukhe_types::custom_type::CustomType;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason, Message, Model, StopReason,
@@ -69,8 +70,7 @@ use super::park::{
     is_quota_block_failure, park_entry_data, provider_park_decision,
     quota_already_parked_final_error, quota_failure_reset_ms, quota_parked_final_error,
     resume_entry_data, NoParkReason, ParkDocState, ProviderParkDecision, ProviderParkPolicy,
-    DEFAULT_PROVIDER_PARK_POLICY, PARK_DOC, PROVIDER_QUOTA_PARK_ENTRY, PROVIDER_QUOTA_RESUME_ENTRY,
-    QUOTA_RESUME_CRON_LABEL, QUOTA_RESUME_MARKER_TEXT,
+    DEFAULT_PROVIDER_PARK_POLICY, PARK_DOC, QUOTA_RESUME_CRON_LABEL, QUOTA_RESUME_MARKER_TEXT,
 };
 use super::timing::{self, RequestTiming};
 use crate::cron::rlm_heartbeat::{RlmHeartbeatMutation, SessionBinding};
@@ -659,7 +659,7 @@ async fn read_park_doc(
 async fn write_park(
     inner: &Inner,
     state: Option<&ParkDocState>,
-    row: Option<(&'static str, serde_json::Value)>,
+    row: Option<(CustomType, serde_json::Value)>,
 ) -> SessionResult<()> {
     let Some(root) = inner.deps.harness.root() else {
         return Ok(());
@@ -676,7 +676,7 @@ async fn write_park(
                     CUSTOM_STATE_ENTRY.draft(&TypedEntryDraft {
                         model: None,
                         data: CustomStateData {
-                            custom_type: custom_type.to_owned(),
+                            custom_type,
                             data: Some(data),
                         },
                         head: None,
@@ -754,7 +754,7 @@ async fn park_for_quota_reset(
                 inner,
                 Some(&state),
                 Some((
-                    PROVIDER_QUOTA_PARK_ENTRY,
+                    CustomType::ProviderQuotaPark,
                     park_entry_data(park.resume_at_ms, park.park_count, Some(&rebuilt), None),
                 )),
             )
@@ -806,7 +806,7 @@ async fn park_for_quota_reset(
         inner,
         Some(&state),
         Some((
-            PROVIDER_QUOTA_PARK_ENTRY,
+            CustomType::ProviderQuotaPark,
             park_entry_data(
                 resume_at_ms,
                 park_count,
@@ -876,7 +876,7 @@ async fn clear_park(inner: &Arc<Inner>, outcome: &str) {
     if let Err(write_error) = write_park(
         inner,
         None,
-        Some((PROVIDER_QUOTA_RESUME_ENTRY, resume_entry_data(outcome))),
+        Some((CustomType::ProviderQuotaResume, resume_entry_data(outcome))),
     )
     .await
     {

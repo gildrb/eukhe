@@ -6,14 +6,11 @@
 //! primary.
 
 use eukhe_chord::context::Context;
-use eukhe_core::durable::messages::{
-    COMPACTION_OUTCOME_CUSTOM_TYPE, HARNESS_DIGEST_CUSTOM_TYPE, REFINEMENT_NOTICE_CUSTOM_TYPE,
-    REFINEMENT_OUTCOME_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
-};
 use eukhe_core::durable::{custom_entry_content, CUSTOM_ENTRY};
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
 use eukhe_durable::types::EntryRecord;
+use eukhe_types::custom_type::CustomType;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Message, StopReason, UserContent,
 };
@@ -178,17 +175,17 @@ fn step(entry: EntryRecord) -> Step {
                 .and_then(|details| details.get(key))
                 .cloned()
         };
-        return match data.custom_type.as_str() {
-            COMPACTION_OUTCOME_CUSTOM_TYPE => Step::Outcome(CompactionOutcome {
+        return match &data.custom_type {
+            CustomType::CompactionOutcome => Step::Outcome(CompactionOutcome {
                 content,
                 outcome: detail("outcome")
                     .and_then(|outcome| outcome.as_str().map(str::to_owned))
                     .unwrap_or_default(),
             }),
-            REFINEMENT_OUTCOME_CUSTOM_TYPE
-            | REFINEMENT_NOTICE_CUSTOM_TYPE
-            | HARNESS_DIGEST_CUSTOM_TYPE => Step::Skip,
-            SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE => {
+            CustomType::RefinementOutcome
+            | CustomType::RefinementNotice
+            | CustomType::HarnessDigest => Step::Skip,
+            CustomType::SessionSlashCommandResult => {
                 Step::Stop(Some(HeadlessPrimary::SlashCommandResult {
                     content,
                     success: detail("success") == Some(serde_json::Value::Bool(true)),
@@ -196,7 +193,29 @@ fn step(entry: EntryRecord) -> Step {
                         .and_then(|severity| severity.as_str().map(str::to_owned)),
                 }))
             }
-            _ => Step::Stop(None),
+            CustomType::AgentMessage
+            | CustomType::AgentReply
+            | CustomType::AgentReplyOwed
+            | CustomType::HeartbeatPrompt
+            | CustomType::GoalContext
+            | CustomType::GoalState
+            | CustomType::AutonomousStatus
+            | CustomType::IpythonState
+            | CustomType::IpythonStateRestored
+            | CustomType::PythonSkillsUnavailable
+            | CustomType::RlmChildFailure
+            | CustomType::RlmChildTerminalNotice
+            | CustomType::AsyncBashCompletion
+            | CustomType::JobSettled
+            | CustomType::RefinementAudit
+            | CustomType::ProviderRetryOutcome
+            | CustomType::ProviderQuotaPark
+            | CustomType::ProviderQuotaResume
+            | CustomType::ModelPromptError
+            | CustomType::SessionRenamed
+            | CustomType::AnthropicSubscriptionWarningShown
+            | CustomType::SessionSlashCommand
+            | CustomType::Other(_) => Step::Stop(None),
         };
     }
     // Model messages without a terminal meaning (the user prompt, tool

@@ -12,6 +12,7 @@
 use eukhe_durable::entries::{UserData, ASSISTANT_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryData, EntryRecord};
+use eukhe_types::custom_type::CustomType;
 use eukhe_types::input_origin::{InputOrigin, Report};
 use eukhe_types::pi_ai::{AssistantContentBlock, Message, UserContent, UserContentBlock};
 
@@ -190,17 +191,18 @@ fn bash_line(entry: &EntryRecord) -> Option<(Kind, String)> {
     Some((Kind::User, cap_text(&format!("Ran `{command}`\n{output}"))))
 }
 
-fn custom_type(entry: &EntryRecord) -> String {
-    entry
+/// A custom entry's type; a row without one reads as an unknown type.
+fn custom_type(entry: &EntryRecord) -> CustomType {
+    let custom_type = entry
         .data
         .as_ref()
         .map(serde_json::Value::from)
         .and_then(|data| {
             data.get("customType")
                 .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        })
-        .unwrap_or_default()
+                .map(CustomType::parse)
+        });
+    custom_type.unwrap_or_else(|| CustomType::Other(String::new()))
 }
 
 /// What a session `custom` row is to the chat.
@@ -216,24 +218,35 @@ enum CustomRow {
     State,
 }
 
-fn classify_custom(custom_type: &str) -> CustomRow {
+fn classify_custom(custom_type: &CustomType) -> CustomRow {
     match custom_type {
-        "goal_context" | "autonomous_status" => CustomRow::Nudge,
-        "harness_digest"
-        | "ipython_state"
-        | "ipython_state_restored"
-        | "python_skills_unavailable"
-        | "thread_goal_state"
-        | "refinement_notice"
-        | "refinement_outcome"
-        | "compaction_outcome"
-        | "provider_retry_outcome"
-        | "model_prompt_error"
-        | "session_slash_command"
-        | "session_slash_command_result"
-        | "anthropic_subscription_warning_shown"
-        | crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE => CustomRow::State,
-        _ => CustomRow::Report,
+        CustomType::GoalContext | CustomType::AutonomousStatus => CustomRow::Nudge,
+        CustomType::HarnessDigest
+        | CustomType::IpythonState
+        | CustomType::IpythonStateRestored
+        | CustomType::PythonSkillsUnavailable
+        | CustomType::GoalState
+        | CustomType::RefinementNotice
+        | CustomType::RefinementOutcome
+        | CustomType::RefinementAudit
+        | CustomType::CompactionOutcome
+        | CustomType::ProviderRetryOutcome
+        | CustomType::ProviderQuotaPark
+        | CustomType::ProviderQuotaResume
+        | CustomType::ModelPromptError
+        | CustomType::SessionSlashCommand
+        | CustomType::SessionSlashCommandResult
+        | CustomType::AnthropicSubscriptionWarningShown
+        | CustomType::AgentReplyOwed => CustomRow::State,
+        CustomType::AgentMessage
+        | CustomType::AgentReply
+        | CustomType::HeartbeatPrompt
+        | CustomType::RlmChildFailure
+        | CustomType::RlmChildTerminalNotice
+        | CustomType::AsyncBashCompletion
+        | CustomType::JobSettled
+        | CustomType::SessionRenamed
+        | CustomType::Other(_) => CustomRow::Report,
     }
 }
 
@@ -280,7 +293,7 @@ fn report_line(report: &Report, body: &str) -> String {
 
 /// A custom report row's log line: an agent's answer as `[name] answer`
 /// from its details, any other report as `[custom_type] text`.
-fn custom_report_line(entry: &EntryRecord, custom_type: &str, text: &str) -> String {
+fn custom_report_line(entry: &EntryRecord, custom_type: &CustomType, text: &str) -> String {
     let details = entry
         .data
         .as_ref()
@@ -293,7 +306,7 @@ fn custom_report_line(entry: &EntryRecord, custom_type: &str, text: &str) -> Str
         ))
     });
     match reply {
-        Some((from, message)) if custom_type == crate::agent_messaging::AGENT_REPLY_CUSTOM_TYPE => {
+        Some((from, message)) if *custom_type == CustomType::AgentReply => {
             format!(
                 "[{}] {message}",
                 crate::agent_messaging::sanitize_message_header_value(from)

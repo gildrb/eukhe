@@ -2,6 +2,7 @@
 //! and tool results; the reopened Harness's model context must equal the
 //! legacy session's active context.
 
+use eukhe_types::custom_type::CustomType;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -21,8 +22,7 @@ use serde_json::{json, Value};
 use super::plan::{plan_import, PlannedHead};
 use super::{harness_options, import_legacy_session, ImportError, ImportReport};
 use crate::durable::goals::goal_state;
-use crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE;
-use crate::durable::messages::{convert_to_llm, COMPACTION_OUTCOME_CUSTOM_TYPE};
+use crate::durable::messages::convert_to_llm;
 use crate::session::tree::SessionTree;
 use crate::session::{build_session_context, migrate_to_current_version, parse_session_entries};
 use eukhe_types::goal::GoalStatus;
@@ -109,7 +109,13 @@ fn row(kind: &str, id: &str, parent: Option<&str>, second: u32, fields: Value) -
     base(value, id, parent, second)
 }
 
-fn custom_message(id: &str, parent: &str, custom_type: &str, text: &str, second: u32) -> Value {
+fn custom_message(
+    id: &str,
+    parent: &str,
+    custom_type: CustomType,
+    text: &str,
+    second: u32,
+) -> Value {
     row(
         "custom_message",
         id,
@@ -511,19 +517,19 @@ fn custom_rows_session() -> String {
     jsonl(&[
         header(),
         user("u1", None, "hi", 1),
-        custom_message("d1", "u1", HARNESS_DIGEST_CUSTOM_TYPE, "digest one", 2),
+        custom_message("d1", "u1", CustomType::HarnessDigest, "digest one", 2),
         assistant("a1", Some("d1"), "one", 3),
         custom_message(
             "n1",
             "a1",
-            "agent_message",
+            CustomType::AgentMessage,
             "[agent-message from x] hello",
             4,
         ),
         custom_message(
             "o1",
             "n1",
-            COMPACTION_OUTCOME_CUSTOM_TYPE,
+            CustomType::CompactionOutcome,
             "compaction failed",
             5,
         ),
@@ -565,7 +571,7 @@ fn custom_rows_session() -> String {
             10,
             json!({"customType": "thread_goal_state", "data": goal_row()}),
         ),
-        custom_message("d2", "g1", HARNESS_DIGEST_CUSTOM_TYPE, "digest two", 11),
+        custom_message("d2", "g1", CustomType::HarnessDigest, "digest two", 11),
         user("u2", Some("d2"), "next", 12),
         assistant("a2", Some("u2"), "two", 13),
     ])
@@ -616,12 +622,12 @@ async fn imports_custom_rows_bash_runs_and_branch_summaries() {
     // Display-only rows and dropped digests keep their content in data.
     assert_eq!(
         data[4],
-        Some(json!({"customType": COMPACTION_OUTCOME_CUSTOM_TYPE,
+        Some(json!({"customType": CustomType::CompactionOutcome,
             "content": "compaction failed", "display": true, "details": {"source": "o1"}}))
     );
     assert_eq!(
         data[1],
-        Some(json!({"customType": HARNESS_DIGEST_CUSTOM_TYPE,
+        Some(json!({"customType": CustomType::HarnessDigest,
             "content": "digest one", "display": true, "details": {"source": "d1"}}))
     );
     assert_eq!(
@@ -648,7 +654,7 @@ async fn a_compaction_snapshot_outranks_older_digests() {
     let content = jsonl(&[
         header(),
         user("u1", None, "hi", 1),
-        custom_message("d1", "u1", HARNESS_DIGEST_CUSTOM_TYPE, "digest one", 2),
+        custom_message("d1", "u1", CustomType::HarnessDigest, "digest one", 2),
         assistant("a1", Some("d1"), "one", 3),
         row(
             "compaction",
@@ -677,7 +683,7 @@ async fn a_compaction_snapshot_outranks_older_digests() {
             json!({"summary": "s", "firstKeptEntryId": "a1", "tokensBefore": 5,
                 "harnessDigest": "snapshot"}),
         ),
-        custom_message("d2", "c1", HARNESS_DIGEST_CUSTOM_TYPE, "digest two", 4),
+        custom_message("d2", "c1", CustomType::HarnessDigest, "digest two", 4),
         user("u2", Some("d2"), "next", 5),
     ]);
     let imported = import(&content).await;

@@ -438,7 +438,10 @@ pub struct UserMessage {
     /// Unix timestamp in milliseconds.
     pub timestamp: u64,
     /// Who produced the input; absent on the wire for a person's words.
-    #[serde(default, skip_serializing_if = "crate::input_origin::InputOrigin::is_user")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::input_origin::InputOrigin::is_user"
+    )]
     pub origin: crate::input_origin::InputOrigin,
     #[serde(flatten)]
     pub rest: JsonMap,

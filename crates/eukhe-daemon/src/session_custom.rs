@@ -308,11 +308,11 @@ pub(crate) async fn write_custom_row(
     conversation: &Conversation,
     row: &Value,
 ) -> anyhow::Result<()> {
-    let custom_type = row
-        .get("customType")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let custom_type = eukhe_types::custom_type::CustomType::parse(
+        row.get("customType")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    );
     let content: UserContent =
         serde_json::from_value(row.get("content").cloned().unwrap_or(Value::Null))?;
     let display = row.get("display").and_then(Value::as_bool).unwrap_or(true);

@@ -18,6 +18,7 @@
 //! (resume), and a compaction head cuts digests out of the context unless
 //! the summary itself carries the newest snapshot (compaction head).
 
+use eukhe_types::custom_type::CustomType;
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
@@ -36,7 +37,7 @@ use super::super::entries::{CustomEntryData, CUSTOM_ENTRY};
 use super::super::HostDeps;
 use super::render::{
     digest_context, digest_query_terms, harness_digest_message_text, recent_texts_newest_first,
-    render_digest_with_fingerprint, HARNESS_DIGEST_CUSTOM_TYPE,
+    render_digest_with_fingerprint,
 };
 use crate::autonomous::now_millis;
 use crate::durable::compaction::head::rendered_summary;
@@ -120,7 +121,7 @@ async fn deliver(
         "stateFingerprint": fresh.state_fingerprint,
     });
     let draft = super::super::entries::custom_entry_draft(
-        HARNESS_DIGEST_CUSTOM_TYPE,
+        CustomType::HarnessDigest,
         UserContent::Text(harness_digest_message_text(&fresh.digest)),
         false,
         Some(details),
@@ -208,7 +209,7 @@ fn delivered_digest(
     }
     let decoded = CUSTOM_ENTRY.narrow(entry.clone()).ok()??;
     let data: &CustomEntryData = decoded.data();
-    if data.custom_type != HARNESS_DIGEST_CUSTOM_TYPE {
+    if data.custom_type != CustomType::HarnessDigest {
         return None;
     }
     let details = data.details.as_ref()?;

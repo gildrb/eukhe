@@ -22,6 +22,7 @@
 //! belong to the compaction observer's rows, and aborts are user actions:
 //! neither gets a retry row.
 
+use eukhe_types::custom_type::CustomType;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -42,10 +43,7 @@ use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 
 use super::{custom_entry_draft, HostDeps, OpenedSession, ServiceStop};
-use crate::durable::messages::{
-    provider_retry_exhausted_text, provider_retry_recovered_text,
-    PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE,
-};
+use crate::durable::messages::{provider_retry_exhausted_text, provider_retry_recovered_text};
 
 /// The extension name.
 pub const RETRY_OUTCOME_EXTENSION: &str = "eukhe.retry_outcome";
@@ -356,7 +354,7 @@ async fn record_row(
         provider_retry_exhausted_text(row.attempts, &row.error)
     };
     let draft_entry = custom_entry_draft(
-        PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE,
+        CustomType::ProviderRetryOutcome,
         UserContent::Text(content),
         true,
         Some(serde_json::json!({

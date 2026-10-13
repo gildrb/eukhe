@@ -145,7 +145,7 @@ impl AgentObserveController for LinkAgentObserveController {
                 custom_type: message
                     .get("customType")
                     .and_then(Value::as_str)
-                    .map(str::to_string),
+                    .map(eukhe_types::custom_type::CustomType::parse),
             });
         }
         Ok(previews)

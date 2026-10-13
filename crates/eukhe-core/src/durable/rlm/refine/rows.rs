@@ -3,11 +3,11 @@
 //! run, and the resolved `autoRefine` settings block.
 
 use eukhe_types::ai::UserContent;
+use eukhe_types::custom_type::CustomType;
 use eukhe_types::session::CustomMessage;
 use serde_json::json;
 
 use crate::autonomous::now_millis;
-use crate::durable::messages::{REFINEMENT_NOTICE_CUSTOM_TYPE, REFINEMENT_OUTCOME_CUSTOM_TYPE};
 use crate::refinement::executor::AutoRefineReview;
 use crate::refinement::{format_refinement_notice_body, HarnessScope, RefinementResult};
 
@@ -110,7 +110,7 @@ pub fn create_refinement_outcome_message(result: &RefinementResult) -> CustomMes
         map.insert("rollbackOf".to_string(), json!(rollback));
     }
     CustomMessage {
-        custom_type: REFINEMENT_OUTCOME_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::RefinementOutcome,
         content: UserContent::Text(format!("Refinement complete: {}", result.summary)),
         display: true,
         details: Some(details),
@@ -136,7 +136,7 @@ pub fn create_refinement_notice_message(
         map.insert("rollbackOf".to_string(), json!(rollback));
     }
     CustomMessage {
-        custom_type: REFINEMENT_NOTICE_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::RefinementNotice,
         content: UserContent::Text(format!(
             "[{}-refinement]\n\n{}",
             source.as_str(),
@@ -166,14 +166,14 @@ mod tests {
             scope: Some(HarnessScope::Local),
         };
         let outcome = create_refinement_outcome_message(&result);
-        assert_eq!(outcome.custom_type, "refinement_outcome");
+        assert_eq!(outcome.custom_type, CustomType::RefinementOutcome);
         assert_eq!(
             outcome.content,
             UserContent::Text("Refinement complete: add memory".to_string())
         );
         assert!(outcome.display);
         let notice = create_refinement_notice_message(&result, RefinementSource::User);
-        assert_eq!(notice.custom_type, "refinement_notice");
+        assert_eq!(notice.custom_type, CustomType::RefinementNotice);
         assert!(!notice.display);
         assert_eq!(
             notice.content,

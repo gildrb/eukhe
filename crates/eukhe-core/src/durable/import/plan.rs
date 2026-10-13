@@ -5,6 +5,7 @@
 //! that row (`build_session_context` + `convert_to_llm`), so the imported
 //! conversation's model context equals the old session's active context.
 
+use eukhe_types::custom_type::CustomType;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
@@ -30,7 +31,6 @@ use crate::durable::entries::{
     CUSTOM_STATE_ENTRY,
 };
 use crate::durable::messages::convert_to_llm;
-use crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE;
 use crate::session::tree::SessionTree;
 use crate::session::{migrate_to_current_version, parse_session_entries, timestamp_to_millis};
 
@@ -162,7 +162,7 @@ impl DigestPolicy {
             .rposition(|entry| matches!(entry, FileEntry::Compaction { .. }));
         let newest_digest = branch.iter().rposition(|entry| {
             matches!(entry, FileEntry::CustomMessage { payload, .. }
-                if payload.custom_type == HARNESS_DIGEST_CUSTOM_TYPE)
+                if payload.custom_type == CustomType::HarnessDigest)
         });
         let snapshot_outranks_digest = compaction.is_some_and(|compaction| {
             matches!(&branch[compaction], FileEntry::Compaction { payload, .. }
@@ -277,7 +277,7 @@ impl<'a> Planner<'a> {
                 // Older harness digests stay out of context, as in the old
                 // engine; their content then rides in data, like a
                 // display-only row's.
-                let draft = if payload.custom_type == HARNESS_DIGEST_CUSTOM_TYPE
+                let draft = if payload.custom_type == CustomType::HarnessDigest
                     && self.digests.kept_digest != Some(position)
                 {
                     CUSTOM_ENTRY.draft(&typed(
@@ -292,7 +292,7 @@ impl<'a> Planner<'a> {
                     ))?
                 } else {
                     custom_entry_draft(
-                        payload.custom_type.as_str(),
+                        payload.custom_type.clone(),
                         content,
                         payload.display,
                         payload.details.clone(),
@@ -453,7 +453,7 @@ fn message_draft(message: &AgentMessage, id: &str) -> Result<EntryDraft, ImportE
             bash.timestamp,
         )?,
         AgentMessage::Custom(custom) => custom_entry_draft(
-            custom.custom_type.as_str(),
+            custom.custom_type.clone(),
             convert(&custom.content, id)?,
             custom.display,
             custom.details.clone(),

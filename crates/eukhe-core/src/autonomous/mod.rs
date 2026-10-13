@@ -37,10 +37,6 @@ pub const MAX_SUBAGENT_KEEP_ALIVE_MS: u64 = 2_147_483_647;
 /// JSON-safe sentinel meaning "no cap".
 pub const UNLIMITED_AUTONOMOUS_LIMIT: u64 = 9_007_199_254_740_991;
 
-/// The durable autonomous status row's custom type (`/autonomous` output and
-/// the driver's stop rows share it).
-pub const AUTONOMOUS_STATUS_CUSTOM_TYPE: &str = "autonomous_status";
-
 /// User-facing configuration (`/autonomous` options).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

@@ -3,6 +3,7 @@
 //! and the wire-shape message helpers.
 
 use super::{json, MessageWindowScalars, SessionEntry, SessionFile, Value};
+use eukhe_types::custom_type::CustomType;
 
 /// Entry types that represent user intent (vs daemon bookkeeping).
 const CONTENT_ENTRY_TYPES: &[&str] = &[
@@ -20,13 +21,17 @@ const CONTENT_ENTRY_TYPES: &[&str] = &[
 
 /// Whether `entry` is the session's Anthropic subscription warning shown
 /// marker: a `custom` row carrying
-/// [`eukhe_core::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE`] with
+/// [`CustomType::AnthropicSubscriptionWarningShown`] with
 /// `data.shown == true` (the once-per-session-lifecycle gate's persisted
 /// state).
 pub(crate) fn is_warning_shown_row(entry: &SessionEntry) -> bool {
     entry.type_ == "custom"
-        && entry.fields.get("customType").and_then(Value::as_str)
-            == Some(eukhe_core::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE)
+        && entry
+            .fields
+            .get("customType")
+            .and_then(Value::as_str)
+            .map(CustomType::parse)
+            == Some(CustomType::AnthropicSubscriptionWarningShown)
         && entry
             .fields
             .get("data")

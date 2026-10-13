@@ -97,13 +97,25 @@ pub(crate) fn injected_prompt_row(
         },
         CustomType::AgentMessage
         | CustomType::AgentReply
+        | CustomType::AgentReplyOwed
+        | CustomType::GoalState
+        | CustomType::AutonomousStatus
+        | CustomType::IpythonState
         | CustomType::RlmChildFailure
         | CustomType::RlmChildTerminalNotice
         | CustomType::AsyncBashCompletion
+        | CustomType::JobSettled
         | CustomType::CompactionOutcome
         | CustomType::RefinementOutcome
+        | CustomType::RefinementNotice
+        | CustomType::RefinementAudit
+        | CustomType::HarnessDigest
         | CustomType::ProviderRetryOutcome
+        | CustomType::ProviderQuotaPark
+        | CustomType::ProviderQuotaResume
         | CustomType::ModelPromptError
+        | CustomType::SessionRenamed
+        | CustomType::AnthropicSubscriptionWarningShown
         | CustomType::SessionSlashCommand
         | CustomType::SessionSlashCommandResult
         | CustomType::Other(_) => return None,

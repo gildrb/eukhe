@@ -26,7 +26,7 @@ async fn custom_rows(worker: &Worker) -> Vec<(String, Value)> {
 #[test]
 fn custom_rows_serialize_with_custom_role() {
     let row = eukhe_types::session::CustomMessage {
-        custom_type: "session_slash_command_result".to_owned(),
+        custom_type: eukhe_types::custom_type::CustomType::SessionSlashCommandResult,
         content: eukhe_types::ai::UserContent::Text("Command failed: boom".to_owned()),
         display: true,
         details: Some(json!({ "success": false })),

@@ -12,6 +12,7 @@
 //! second `/compact` back-to-back prepares again in update mode instead of
 //! skipping as already compacted.
 
+use eukhe_types::custom_type::CustomType;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -20,9 +21,6 @@ use eukhe_types::session::CustomMessage;
 use crate::autonomous::now_millis;
 use crate::durable::observe::compaction_trace::trace;
 use crate::kernel::provisioner::IpythonKernelProvisioner;
-
-/// The notice's `customType` (TS `ipython_state`).
-pub const IPYTHON_STATE_CUSTOM_TYPE: &str = "ipython_state";
 
 /// How long the namespace listing may take before it is abandoned (TS
 /// `KERNEL_STATE_LISTING_TIMEOUT_MS`): a stuck kernel degrades the notice
@@ -105,7 +103,7 @@ Your Python kernel persisted through compaction; its remaining variables, import
 #[must_use]
 pub fn notice_message(content: String) -> CustomMessage {
     CustomMessage {
-        custom_type: IPYTHON_STATE_CUSTOM_TYPE.to_string(),
+        custom_type: CustomType::IpythonState,
         content: eukhe_types::ai::UserContent::Text(content),
         display: false,
         details: None,
@@ -253,7 +251,7 @@ mod tests {
     #[test]
     fn notice_row_is_display_false_without_details() {
         let row = notice_message(notice_content(None, Some(&["v".to_string()])));
-        assert_eq!(row.custom_type, IPYTHON_STATE_CUSTOM_TYPE);
+        assert_eq!(row.custom_type, CustomType::IpythonState);
         assert!(!row.display);
         assert_eq!(row.details, None);
         let wire = serde_json::to_value(SessionAgentMessage::Custom(row)).unwrap();

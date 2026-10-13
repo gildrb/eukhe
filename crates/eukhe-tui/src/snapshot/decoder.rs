@@ -4,7 +4,6 @@
 //! with their concern).
 use super::{assistant_value_to_entries, ChatEntry};
 use eukhe_types::ai::{AssistantMessage, ServiceTier, UserContent, UserContentBlock};
-use eukhe_types::custom_type::CustomType;
 use eukhe_types::daemon::{
     AgentRelayEvent, BashRun, CompactionReason, CompactionResult, ErrorSeverity, Failover,
     MemoryUpdate, SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput,
@@ -183,7 +182,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             // carrying the same payload; only the start adds the row.
             AgentMessage::Custom(custom) => {
                 match crate::custom_message::custom_message_entries(
-                    &CustomType::parse(&custom.custom_type),
+                    &custom.custom_type,
                     &custom.content,
                     custom.display,
                     custom.details.as_ref(),
@@ -461,7 +460,7 @@ pub fn message_value_to_entries(message: &AgentMessage) -> Vec<ChatEntry> {
         }
         AgentMessage::Assistant(assistant) => assistant_value_to_entries(assistant),
         AgentMessage::Custom(custom) => crate::custom_message::custom_message_entries(
-            &CustomType::parse(&custom.custom_type),
+            &custom.custom_type,
             &custom.content,
             custom.display,
             custom.details.as_ref(),

@@ -116,7 +116,7 @@ fn get_message_from_entry(entry: &FileEntry) -> Option<AgentMessage> {
             _ => Some(message.clone()),
         },
         FileEntry::CustomMessage { payload, .. } => {
-            if payload.custom_type == "harness_digest" {
+            if payload.custom_type == eukhe_types::custom_type::CustomType::HarnessDigest {
                 return None;
             }
             Some(AgentMessage::Custom(eukhe_types::session::CustomMessage {

@@ -1,5 +1,6 @@
 //! Session commands on an open eukhe session with faux script models.
 
+use eukhe_types::custom_type::CustomType;
 use std::sync::Arc;
 
 use eukhe_ai::providers::faux::{
@@ -19,7 +20,6 @@ use serde_json::{json, Value};
 use super::*;
 use crate::autonomous::AgentAutonomousConfig;
 use crate::durable::entries::{CustomEntryData, CustomStateData, CUSTOM_ENTRY, CUSTOM_STATE_ENTRY};
-use crate::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use crate::durable::{open_session, ModelRequest, SessionConfig, SessionStorage};
 
 fn cx() -> &'static Context {
@@ -105,21 +105,21 @@ impl Fixture {
     }
 
     /// The custom rows of `types`, oldest first.
-    async fn rows(&self, types: &[&str]) -> Vec<CustomEntryData> {
+    async fn rows(&self, types: &[CustomType]) -> Vec<CustomEntryData> {
         self.entries()
             .await
             .into_iter()
             .filter_map(|entry| CUSTOM_ENTRY.narrow(entry).expect("narrow"))
             .map(|entry| entry.data().clone())
-            .filter(|data| types.contains(&data.custom_type.as_str()))
+            .filter(|data| types.contains(&data.custom_type))
             .collect()
     }
 
     /// The echo and result rows, oldest first.
     async fn command_rows(&self) -> Vec<CustomEntryData> {
         self.rows(&[
-            SESSION_SLASH_COMMAND_CUSTOM_TYPE,
-            SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
+            CustomType::SessionSlashCommand,
+            CustomType::SessionSlashCommandResult,
         ])
         .await
     }
@@ -151,7 +151,7 @@ fn command(text: &str) -> SessionCommand {
 fn echo(text: &str) -> CustomEntryData {
     let command = command(text);
     CustomEntryData {
-        custom_type: SESSION_SLASH_COMMAND_CUSTOM_TYPE.to_owned(),
+        custom_type: CustomType::SessionSlashCommand,
         content: Some(UserContent::Text(text.to_owned())),
         display: true,
         details: Some(command_details(&command)),
@@ -165,7 +165,7 @@ fn result(text: &str, content: &str, display: bool) -> CustomEntryData {
     details["success"] = json!(true);
     details["severity"] = json!("info");
     CustomEntryData {
-        custom_type: SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE.to_owned(),
+        custom_type: CustomType::SessionSlashCommandResult,
         content: Some(UserContent::Text(content.to_owned())),
         display,
         details: Some(details),
@@ -180,7 +180,7 @@ fn failure(text: &str, error: &str) -> CustomEntryData {
     details["severity"] = json!("error");
     details["error"] = json!(error);
     CustomEntryData {
-        custom_type: SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE.to_owned(),
+        custom_type: CustomType::SessionSlashCommandResult,
         content: Some(UserContent::Text(format!("Command failed: {error}"))),
         display: true,
         details: Some(details),
@@ -395,12 +395,12 @@ async fn autonomous_status_on_and_off_append_status_rows() {
 
     let rows = fixture
         .rows(&[
-            SESSION_SLASH_COMMAND_CUSTOM_TYPE,
-            AUTONOMOUS_STATUS_CUSTOM_TYPE,
+            CustomType::SessionSlashCommand,
+            CustomType::AutonomousStatus,
         ])
         .await;
     let status_row = |status: &AgentAutonomousStatus| CustomEntryData {
-        custom_type: AUTONOMOUS_STATUS_CUSTOM_TYPE.to_owned(),
+        custom_type: CustomType::AutonomousStatus,
         content: None,
         display: true,
         details: Some(serde_json::to_value(status).expect("status json")),
@@ -424,7 +424,7 @@ async fn autonomous_status_on_and_off_append_status_rows() {
         .into_iter()
         .filter_map(|entry| {
             let data = CUSTOM_ENTRY.narrow(entry.clone()).expect("narrow")?;
-            (data.data().custom_type == AUTONOMOUS_STATUS_CUSTOM_TYPE).then_some(entry)
+            (data.data().custom_type == CustomType::AutonomousStatus).then_some(entry)
         })
         .filter_map(|entry| match entry.model.as_ref()?.first()? {
             Message::User(message) => match &message.content {
@@ -548,20 +548,20 @@ async fn global_refine_records_its_rows_and_the_applied_count() {
     assert_eq!(outcome.refinement_failed, None);
     let rows = fixture
         .rows(&[
-            SESSION_SLASH_COMMAND_CUSTOM_TYPE,
-            SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
-            "refinement_outcome",
-            "refinement_notice",
+            CustomType::SessionSlashCommand,
+            CustomType::SessionSlashCommandResult,
+            CustomType::RefinementOutcome,
+            CustomType::RefinementNotice,
         ])
         .await;
-    let types: Vec<&str> = rows.iter().map(|row| row.custom_type.as_str()).collect();
+    let types: Vec<&CustomType> = rows.iter().map(|row| &row.custom_type).collect();
     assert_eq!(
         types,
         [
-            SESSION_SLASH_COMMAND_CUSTOM_TYPE,
-            "refinement_outcome",
-            "refinement_notice",
-            SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
+            &CustomType::SessionSlashCommand,
+            &CustomType::RefinementOutcome,
+            &CustomType::RefinementNotice,
+            &CustomType::SessionSlashCommandResult,
         ]
     );
     assert_eq!(
@@ -578,7 +578,7 @@ async fn global_refine_records_its_rows_and_the_applied_count() {
         .into_iter()
         .filter_map(|entry| CUSTOM_STATE_ENTRY.narrow(entry).expect("narrow"))
         .map(|entry| entry.data().clone())
-        .filter(|data| data.custom_type == REFINEMENT_AUDIT_CUSTOM_TYPE)
+        .filter(|data| data.custom_type == CustomType::RefinementAudit)
         .collect();
     assert_eq!(audits.len(), 1);
     fixture.close().await;
