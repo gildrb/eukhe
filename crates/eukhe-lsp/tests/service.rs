@@ -438,6 +438,7 @@ async fn rename_and_code_actions_return_edits() {
         panic!("rename");
     };
     assert_eq!(edit.files.len(), 1);
+    assert_eq!(edit.files[0].base, SOURCE);
     assert_eq!(
         apply_text_edits(SOURCE, &edit.files[0].edits),
         Ok(SOURCE.replace("helper", "assist"))

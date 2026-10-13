@@ -203,11 +203,13 @@ pub struct LspTextEdit {
     pub new_text: String,
 }
 
-/// The edits of one file, in server order.
+/// The edits of one file, in server order, and the text they address: the
+/// edit applies only while the file still holds `base`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LspFileEdit {
     pub path: PathBuf,
     pub edits: Vec<LspTextEdit>,
+    pub base: String,
 }
 
 /// A workspace edit: text edits grouped by file, files in server order.

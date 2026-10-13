@@ -102,31 +102,37 @@ async fn host_requests_resolve_paths_against_the_kernel_cwd() {
     );
 }
 
+fn rename_old_to_new(file: &Path, base: &str) -> LspFileEdit {
+    LspFileEdit {
+        path: file.to_owned(),
+        edits: vec![
+            LspTextEdit {
+                span: LspSpan {
+                    start: point(1, 4),
+                    end: point(1, 7),
+                },
+                new_text: "new".to_owned(),
+            },
+            LspTextEdit {
+                span: LspSpan {
+                    start: point(2, 13),
+                    end: point(2, 16),
+                },
+                new_text: "new".to_owned(),
+            },
+        ],
+        base: base.to_owned(),
+    }
+}
+
 #[tokio::test]
 async fn applied_edits_are_written_and_synced() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("lib.rs");
-    std::fs::write(&file, "fn old() {}\nfn main() { old(); }\n").unwrap();
+    let base = "fn old() {}\nfn main() { old(); }\n";
+    std::fs::write(&file, base).unwrap();
     let edit = LspWorkspaceEdit {
-        files: vec![LspFileEdit {
-            path: file.clone(),
-            edits: vec![
-                LspTextEdit {
-                    span: LspSpan {
-                        start: point(1, 4),
-                        end: point(1, 7),
-                    },
-                    new_text: "new".to_owned(),
-                },
-                LspTextEdit {
-                    span: LspSpan {
-                        start: point(2, 13),
-                        end: point(2, 16),
-                    },
-                    new_text: "new".to_owned(),
-                },
-            ],
-        }],
+        files: vec![rename_old_to_new(&file, base)],
     };
     let (host, lsp) = session(dir.path(), edit.clone());
     let written = lsp.apply(&edit, ROOT_CONVERSATION_ID).await.unwrap();
@@ -153,6 +159,59 @@ async fn applied_edits_are_written_and_synced() {
             },
         }]
     );
+}
+
+/// A file that changed after the server computed its edit fails the whole
+/// edit before anything is written: the spans address the old text.
+#[tokio::test]
+async fn edits_of_changed_files_write_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = "fn old() {}\nfn main() { old(); }\n";
+    let unchanged = dir.path().join("a.rs");
+    std::fs::write(&unchanged, base).unwrap();
+    let changed = dir.path().join("b.rs");
+    let current = "// moved\nfn old() {}\nfn main() { old(); }\n";
+    std::fs::write(&changed, current).unwrap();
+    let edit = LspWorkspaceEdit {
+        files: vec![
+            rename_old_to_new(&unchanged, base),
+            rename_old_to_new(&changed, base),
+        ],
+    };
+    let (host, lsp) = session(dir.path(), edit.clone());
+    let error = lsp.apply(&edit, ROOT_CONVERSATION_ID).await.unwrap_err();
+    assert!(
+        matches!(&error, ApplyError::Stale { path } if *path == changed),
+        "{error:?}"
+    );
+    assert_eq!(std::fs::read_to_string(&unchanged).unwrap(), base);
+    assert_eq!(std::fs::read_to_string(&changed).unwrap(), current);
+    assert!(host.requests.lock().unwrap().is_empty());
+}
+
+/// The REPL sees each file's edit count, never the server's base text.
+#[tokio::test]
+async fn rename_previews_count_edits_and_write_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("lib.rs");
+    let base = "fn old() {}\nfn main() { old(); }\n";
+    std::fs::write(&file, base).unwrap();
+    let edit = LspWorkspaceEdit {
+        files: vec![rename_old_to_new(&file, base)],
+    };
+    let (_host, lsp) = session(dir.path(), edit);
+    let answer = handle(
+        &lsp,
+        HostLspRequest::Rename,
+        host_call(json!({ "path": "lib.rs", "line": 1, "symbol": "old", "new_name": "new", "apply": false })),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        answer,
+        json!({ "files": [{ "path": file, "edits": 2, "diagnostics": null }], "applied": false })
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), base);
 }
 
 #[cfg(unix)]

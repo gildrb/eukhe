@@ -161,19 +161,17 @@ def _action(row: dict[str, Any]) -> Action:
     )
 
 
-def _changes(edit: dict[str, Any], written: list[dict[str, Any]] | None) -> list[FileChange]:
-    if written is None:
-        return [FileChange(path=f["path"], edits=len(f["edits"]), diagnostics=None, error=None) for f in edit["files"]]
+def _changes(rows: list[dict[str, Any]]) -> list[FileChange]:
     changes = []
-    for row in written:
+    for row in rows:
         outcome = row["diagnostics"]
-        report = outcome["value"] if outcome["kind"] == "report" else None
+        report = outcome["value"] if outcome is not None and outcome["kind"] == "report" else None
         changes.append(
             FileChange(
                 path=row["path"],
                 edits=row["edits"],
                 diagnostics=_diagnostics(report) if report is not None else None,
-                error=None if report is not None else str(outcome["value"]),
+                error=str(outcome["value"]) if outcome is not None and outcome["kind"] == "failed" else None,
             )
         )
     return changes
@@ -225,7 +223,7 @@ async def rename(path: str, line: int, symbol: str, new_name: str, *, apply: boo
     if not isinstance(apply, bool):
         raise TypeError("apply must be a bool")
     result = await _request("rename", path=path, line=line, symbol=symbol, new_name=new_name, apply=apply)
-    return RenameResult(files=_changes(result["edit"], result["applied"]), applied=result["applied"] is not None)
+    return RenameResult(files=_changes(result["files"]), applied=result["applied"])
 
 
 async def code_actions(path: str, line: int, symbol: str, *, apply: str | int | None = None) -> CodeActions:
@@ -236,8 +234,8 @@ async def code_actions(path: str, line: int, symbol: str, *, apply: str | int | 
     applied = result["applied"]
     return CodeActions(
         actions=[_action(row) for row in result["actions"]],
-        applied=_action(applied["action"]) if applied is not None else None,
-        files=_changes(applied["edit"], result["written"]) if applied is not None else [],
+        applied=_action(applied) if applied is not None else None,
+        files=_changes(result["files"]),
     )
 
 

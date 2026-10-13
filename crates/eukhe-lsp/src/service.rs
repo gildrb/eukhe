@@ -737,15 +737,17 @@ async fn workspace_edit(
             .filter(|(_, _, edits)| !edits.is_empty())
             .map(|(path, text, edits)| {
                 let lines = position::lines(&text);
+                let edits = edits
+                    .into_iter()
+                    .map(|edit| LspTextEdit {
+                        span: position::span_from_lsp(&lines, edit.range, client.encoding),
+                        new_text: edit.new_text,
+                    })
+                    .collect();
                 LspFileEdit {
                     path,
-                    edits: edits
-                        .into_iter()
-                        .map(|edit| LspTextEdit {
-                            span: position::span_from_lsp(&lines, edit.range, client.encoding),
-                            new_text: edit.new_text,
-                        })
-                        .collect(),
+                    edits,
+                    base: text,
                 }
             })
             .collect(),

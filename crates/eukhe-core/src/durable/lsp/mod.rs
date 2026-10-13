@@ -18,7 +18,7 @@ use eukhe_durable::types::ConversationId;
 use eukhe_lsp::{apply_text_edits, DiagnosticsLedger, LspHandle, LspService, ServerTable};
 use eukhe_types::input_origin::{InputOrigin, Report};
 use eukhe_types::lsp::{
-    CodeActionSelector, CodeActionsReport, DiagnosticsReport, LspDiagnostic, LspError, LspLocation,
+    CodeActionSelector, DiagnosticsReport, LspCodeAction, LspDiagnostic, LspError, LspLocation,
     LspNavigation, LspOp, LspRequest, LspResponse, LspScope, LspServerStatus, LspSymbol, LspTarget,
     LspWorkspaceEdit,
 };
@@ -74,6 +74,8 @@ pub enum ApplyError {
         #[source]
         source: std::io::Error,
     },
+    #[error("{path:?} changed after the language server computed the edit; nothing was written")]
+    Stale { path: PathBuf },
     #[error("cannot apply the edits to {path:?}: {source}")]
     Edit {
         path: PathBuf,
@@ -211,18 +213,21 @@ impl SessionLsp {
         Ok(())
     }
 
-    /// Write every file of `edit` atomically, then tell the servers.
+    /// Write every file of `edit` atomically, then tell the servers. Every
+    /// file must still hold the text the server edited before any is
+    /// written.
     ///
     /// # Errors
     ///
-    /// A file cannot be read, the edits do not apply, or a write fails;
-    /// files written before the failure stay written.
+    /// A file cannot be read or changed since the server saw it, the edits
+    /// do not apply, or a write fails; files written before a write failure
+    /// stay written.
     pub async fn apply(
         self: &Arc<Self>,
         edit: &LspWorkspaceEdit,
         conversation: ConversationId,
     ) -> Result<Vec<WrittenFile>, ApplyError> {
-        let mut written = Vec::new();
+        let mut staged = Vec::with_capacity(edit.files.len());
         for file in &edit.files {
             let path = &file.path;
             let text =
@@ -232,10 +237,18 @@ impl SessionLsp {
                         path: path.clone(),
                         source,
                     })?;
+            if text != file.base {
+                return Err(ApplyError::Stale { path: path.clone() });
+            }
             let next = apply_text_edits(&text, &file.edits).map_err(|source| ApplyError::Edit {
                 path: path.clone(),
                 source,
             })?;
+            staged.push((file, next));
+        }
+        let mut written = Vec::with_capacity(staged.len());
+        for (file, next) in staged {
+            let path = &file.path;
             write_atomically(path, &next).map_err(|source| ApplyError::Write {
                 path: path.clone(),
                 source,
@@ -379,19 +392,38 @@ fn call_conversation(lsp: &SessionLsp, call: &HostCall) -> anyhow::Result<Conver
     }
 }
 
+/// One file of a workspace edit as the REPL sees it: its edit count and,
+/// once written, what the servers said.
+#[derive(Serialize)]
+struct FileChange {
+    path: PathBuf,
+    edits: usize,
+    diagnostics: Option<WriteDiagnostics>,
+}
+
+impl From<WrittenFile> for FileChange {
+    fn from(written: WrittenFile) -> Self {
+        Self {
+            path: written.path,
+            edits: written.edits,
+            diagnostics: Some(written.diagnostics),
+        }
+    }
+}
+
 /// What `lsp.rename` returns.
 #[derive(Serialize)]
 struct RenameResult {
-    edit: LspWorkspaceEdit,
-    applied: Option<Vec<WrittenFile>>,
+    files: Vec<FileChange>,
+    applied: bool,
 }
 
 /// What `lsp.code_actions` returns.
 #[derive(Serialize)]
 struct CodeActionsResult {
-    #[serde(flatten)]
-    report: CodeActionsReport,
-    written: Option<Vec<WrittenFile>>,
+    actions: Vec<LspCodeAction>,
+    applied: Option<LspCodeAction>,
+    files: Vec<FileChange>,
 }
 
 async fn handle(
@@ -468,12 +500,26 @@ async fn handle(
                 LspResponse::Edit(edit) => edit,
                 other => return Err(unexpected(name, &other)),
             };
-            let applied = if apply {
-                Some(lsp.apply(&edit, call_conversation(lsp, &call)?).await?)
+            let files = if apply {
+                lsp.apply(&edit, call_conversation(lsp, &call)?)
+                    .await?
+                    .into_iter()
+                    .map(FileChange::from)
+                    .collect()
             } else {
-                None
+                edit.files
+                    .iter()
+                    .map(|file| FileChange {
+                        path: file.path.clone(),
+                        edits: file.edits.len(),
+                        diagnostics: None,
+                    })
+                    .collect()
             };
-            serde_json::to_value(RenameResult { edit, applied })?
+            serde_json::to_value(RenameResult {
+                files,
+                applied: apply,
+            })?
         }
         HostLspRequest::CodeActions => {
             let apply = match &payload.apply {
@@ -501,14 +547,23 @@ async fn handle(
                 LspResponse::CodeActions(report) => report,
                 other => return Err(unexpected(name, &other)),
             };
-            let written = match &report.applied {
-                Some(applied) => Some(
-                    lsp.apply(&applied.edit, call_conversation(lsp, &call)?)
-                        .await?,
-                ),
-                None => None,
+            let (applied, files) = match report.applied {
+                Some(applied) => {
+                    let written = lsp
+                        .apply(&applied.edit, call_conversation(lsp, &call)?)
+                        .await?;
+                    (
+                        Some(applied.action),
+                        written.into_iter().map(FileChange::from).collect(),
+                    )
+                }
+                None => (None, Vec::new()),
             };
-            serde_json::to_value(CodeActionsResult { report, written })?
+            serde_json::to_value(CodeActionsResult {
+                actions: report.actions,
+                applied,
+                files,
+            })?
         }
         HostLspRequest::Status => {
             let response = lsp.call(LspOp::Status).await?;
