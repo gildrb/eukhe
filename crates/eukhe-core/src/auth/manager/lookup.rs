@@ -200,9 +200,11 @@ impl AuthStorage {
     ///    single-threaded runtime gives its locked refresh.
     /// 3. WRITE: the same locked read-modify-write the TS product runs,
     ///    now holding the lock only for the re-read, the insert, and the
-    ///    atomic write. A peer that refreshed while this fetch ran keeps
-    ///    its fresher credential: this attempt writes nothing and serves
-    ///    the peer's.
+    ///    atomic write. The flight stays held until the write lands, so a
+    ///    caller waiting on the gate re-checks a document that already has
+    ///    the fresh credential. A peer process that refreshed while this
+    ///    fetch ran keeps its fresher credential: this attempt writes
+    ///    nothing and serves the peer's.
     fn refresh_oauth(&mut self, provider_id: &str) -> Result<AuthCredential, String> {
         // LOAD: no document lock.
         let content = self
@@ -223,28 +225,27 @@ impl AuthStorage {
             self.reload();
             return Ok(credential);
         }
-        // FETCH: outside every lock, one flight per provider.
-        let new_credential = {
-            let _flight = refresh_flight(provider_id);
-            // The gate may have just released a flight that wrote a fresh
-            // credential; re-check before spending a refresh token. An
-            // unreadable document here fetches from the loaded one.
-            let content = self.storage.read().unwrap_or_default();
-            if let Some(credential) = parse_storage_data(content.as_deref())
-                .ok()
-                .and_then(|data| data.credential(provider_id))
-                .filter(|credential| {
-                    matches!(
-                        credential,
-                        AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires
-                    )
-                })
-            {
-                self.reload();
-                return Ok(credential);
-            }
-            self.oauth.refresh(provider_id, &data)?
-        };
+        // FETCH: outside every lock, one flight per provider. The flight
+        // is held through the WRITE below.
+        let _flight = refresh_flight(provider_id);
+        // The gate may have just released a flight that wrote a fresh
+        // credential; re-check before spending a refresh token. An
+        // unreadable document here fetches from the loaded one.
+        let content = self.storage.read().unwrap_or_default();
+        if let Some(credential) = parse_storage_data(content.as_deref())
+            .ok()
+            .and_then(|data| data.credential(provider_id))
+            .filter(|credential| {
+                matches!(
+                    credential,
+                    AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires
+                )
+            })
+        {
+            self.reload();
+            return Ok(credential);
+        }
+        let new_credential = self.oauth.refresh(provider_id, &data)?;
         // WRITE: the locked read-modify-write, holding the document lock
         // only for the re-read, insert, and atomic write.
         let mut refreshed = new_credential.clone();
