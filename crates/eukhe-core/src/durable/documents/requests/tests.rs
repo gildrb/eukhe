@@ -312,3 +312,87 @@ async fn committed_writes_carry_the_servers_diagnostics() {
     );
     assert_eq!(*servers.synced.lock().unwrap(), vec![file]);
 }
+
+/// A real server, when installed: the kernel's `write()` of a temp crate's
+/// file reaches rust-analyzer; once it runs, a write introducing an error
+/// comes back with it inline, and the fixing write comes back clean.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rust_analyzer_diagnoses_committed_writes() {
+    let installed = std::process::Command::new("rust-analyzer")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !installed {
+        eprintln!("skipped: rust-analyzer is not installed on PATH");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    let registry = HostRequestRegistry::default();
+    let documents = eukhe_docs::Documents::new(root.join("target/locks"), None);
+    let host = DocumentsHost {
+        lsp: Arc::new(SessionLsp::new(
+            None,
+            root.clone(),
+            HarnessCell::default(),
+            documents.clone(),
+        )),
+        documents,
+    };
+    register(&registry, &Arc::new(host));
+    let write = |content: &'static str| {
+        call(
+            &registry,
+            "fs.write",
+            &root,
+            json!({"path": "src/main.rs", "content": content}),
+        )
+    };
+    let clean = "fn helper() -> u8 { 1 }\n\nfn main() {\n    helper();\n}\n";
+    let broken = "fn helper() -> u8 { 1 }\n\nfn main() {\n    helper(1);\n}\n";
+    let reports_the_error = |reply: &Value| {
+        reply["diagnostics_complete"] == json!(true)
+            && reply["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|diagnostic| {
+                    diagnostic["code"] == json!("E0061") && diagnostic["severity"] == json!("error")
+                })
+    };
+    // The first write starts the server in the background, and while it
+    // loads the project its diagnostics miss the inline window (they would
+    // arrive as a late message); once it runs, they come back inline.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
+    let mut writes = 0;
+    let broken_reply = loop {
+        writes += 1;
+        let reply = write(broken).await;
+        if reports_the_error(&reply) {
+            break reply;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "rust-analyzer never reported the error inline: {reply}"
+        );
+        write(clean).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    };
+    eprintln!(
+        "broken write #{writes}:\n{}",
+        broken_reply["rendered"].as_str().unwrap()
+    );
+    let fixed = write(clean).await;
+    eprintln!("fixing write:\n{}", fixed["rendered"].as_str().unwrap());
+    assert_eq!(
+        (&fixed["diagnostics"], &fixed["diagnostics_complete"]),
+        (&json!([]), &json!(true)),
+        "{fixed}"
+    );
+}
