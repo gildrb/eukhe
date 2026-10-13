@@ -136,6 +136,10 @@ pub(crate) fn client_route_admission(command: &DaemonCommand) -> RouteAdmission 
         DaemonCommand::PromptAndWait { .. }
             | DaemonCommand::WaitForIdle { .. }
             | DaemonCommand::WaitForHeadlessCompletion { .. }
+            // Turn-long model work (a summarizer, a branch summary):
+            // holding a permit for its whole run would starve the bound.
+            | DaemonCommand::Compact { .. }
+            | DaemonCommand::NavigateTree { .. }
     ) {
         RouteAdmission::Watch
     } else if matches!(
