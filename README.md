@@ -131,6 +131,7 @@ Settings in `~/.eukhe/settings.json`:
 |`rlmMaxDepth`|`2`|Maximum subagent depth (global only)|
 |`providerMaxInFlight`|none|`{"<provider>": n}`: model requests at one time per provider; `0` is no limit (global only)|
 |`providerMaxQueued`|`64`|Requests that wait per provider; the next one fails (global only)|
+|`retry.provider.streamIdleTimeoutMs`|`300000`|A model stream with no event for this long fails as stalled and retries; `0` is no limit|
 
 The daemon applies the provider limits to all sessions together. The roster
 shows a waiting request as `queued` and a running one as `generating`.

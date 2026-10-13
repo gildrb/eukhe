@@ -497,6 +497,7 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
     let options = DeferredFetchOptions {
         request: ProviderRequestOptions {
             signal: Some(runtime.signal()),
+            stream_idle_timeout_ms: runtime.settings().stream.stream_idle_timeout_ms,
             ..ProviderRequestOptions::default()
         },
         ..DeferredFetchOptions::default()

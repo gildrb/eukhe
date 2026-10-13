@@ -63,6 +63,15 @@ pub struct ConversationStreamOptions {
         serialize_with = "eukhe_types::pi_ai::js_number::option::serialize"
     )]
     pub max_retry_delay_ms: Option<f64>,
+    /// Longest silence of the provider stream before the request fails as
+    /// stalled (retryable); absent: the pi-ai default, `0`: none. Pinned
+    /// with the request like the other options.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "eukhe_types::pi_ai::js_number::option::serialize"
+    )]
+    pub stream_idle_timeout_ms: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -361,6 +370,7 @@ impl ConversationStreamOptions {
         stream.request.timeout_ms = self.timeout_ms;
         stream.request.max_retries = self.max_retries;
         stream.request.max_retry_delay_ms = self.max_retry_delay_ms;
+        stream.request.stream_idle_timeout_ms = self.stream_idle_timeout_ms;
         stream.request.headers = self.headers.as_ref().map(|headers| {
             headers
                 .iter()
