@@ -1169,16 +1169,30 @@ mod tests {
         std::fs::create_dir_all(&descriptor_dir).expect("descriptor dir");
         let mut command = std::process::Command::new("sh");
         command
-            .args(["-c", "trap '' TERM; sleep 60 & echo $!; wait"])
+            // A grandchild in the worker's group, and one leading a group of
+            // its own (the kernel's / a `bash()` job's shape).
+            .args([
+                "-c",
+                "trap '' TERM; sleep 60 & echo $!; setsid sleep 60 & echo $!; wait",
+            ])
             .stdout(std::process::Stdio::piped());
         eukhe_core::platform::process::set_new_process_group(&mut command);
         let mut worker = command.spawn().expect("spawn the wedged stand-in");
         let pid = worker.id();
-        let mut line = String::new();
-        std::io::BufReader::new(worker.stdout.take().expect("stdout"))
-            .read_line(&mut line)
-            .expect("the grandchild pid");
-        let grandchild: u32 = line.trim().parse().expect("a pid");
+        let mut stdout = std::io::BufReader::new(worker.stdout.take().expect("stdout"));
+        let mut read_pid = || {
+            let mut line = String::new();
+            stdout.read_line(&mut line).expect("a descendant pid");
+            line.trim().parse::<u32>().expect("a pid")
+        };
+        let grandchild = read_pid();
+        let own_group = read_pid();
+        // Readiness: the separate group exists before the stop runs.
+        while eukhe_core::platform::process::process_group_id(own_group)
+            != i32::try_from(own_group).ok()
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
         let descriptor: DaemonWorkerDescriptor = serde_json::from_value(json!({
             "version": 2,
             "workerId": "w-wedged",
@@ -1217,12 +1231,14 @@ mod tests {
         );
         assert!(!crate::lease::is_process_alive(pid).unwrap_or(true));
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while crate::lease::is_process_alive(grandchild).unwrap_or(true) {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the run's grandchild survived the group kill"
-            );
-            tokio::time::sleep(Duration::from_millis(10)).await;
+        for descendant in [grandchild, own_group] {
+            while crate::lease::is_process_alive(descendant).unwrap_or(true) {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "descendant {descendant} survived the stop"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
         }
         let _ = worker.wait();
     }

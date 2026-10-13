@@ -332,12 +332,33 @@ async fn stop_target_within(
         eukhe_core::platform::process::close_pidfd(pidfd);
         return ReapOutcome::AlreadyGone;
     }
+    // The session owns every process tree it started (ADR 0011): the
+    // kernel and the `bash()` jobs lead process groups of their own, so
+    // the worker's group kill misses them. Their groups are read while
+    // the worker still lives (its death reparents them and the ancestry
+    // is lost) and killed once it is gone.
+    let trees = match target.kind {
+        ReapKind::Worker => descendant_process_groups(target.pid),
+        #[cfg(target_os = "linux")]
+        ReapKind::Supervisor => Vec::new(),
+    };
+    let kill_trees = || {
+        for tree in &trees {
+            if identity_current(tree) {
+                let _ = eukhe_core::platform::process::signal_process_group(
+                    i32::try_from(tree.pid).unwrap_or(0),
+                    eukhe_core::platform::process::Signal::Kill,
+                );
+            }
+        }
+    };
     if eukhe_core::platform::process::pidfd_signal(
         pidfd,
         eukhe_core::platform::process::Signal::Term,
     ) {
         if await_gone(target, term_grace).await {
             eukhe_core::platform::process::close_pidfd(pidfd);
+            kill_trees();
             return ReapOutcome::Term;
         }
         let leads_group = matches!(target.kind, ReapKind::Worker)
@@ -356,11 +377,65 @@ async fn stop_target_within(
         ) && await_gone(target, kill_verify).await
         {
             eukhe_core::platform::process::close_pidfd(pidfd);
+            kill_trees();
             return ReapOutcome::Kill;
         }
     }
     eukhe_core::platform::process::close_pidfd(pidfd);
     ReapOutcome::Survived
+}
+
+/// The process groups led by descendants of `root` other than `root`'s
+/// own group (the kernel's, each `bash()` job's), each with its leader's
+/// start identity so a recycled group id is never signaled. Linux-only
+/// (the /proc census); other platforms answer nothing.
+#[cfg(target_os = "linux")]
+fn descendant_process_groups(root: u32) -> Vec<ReapTarget> {
+    let mut parent_and_group = std::collections::HashMap::new();
+    for pid in numeric_proc_entries() {
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            continue;
+        };
+        // `pid (comm) state ppid pgrp ...`; comm may hold spaces.
+        let Some((_, rest)) = stat.rsplit_once(')') else {
+            continue;
+        };
+        let mut fields = rest.split_whitespace().skip(1);
+        if let (Some(Ok(ppid)), Some(Ok(pgrp))) = (
+            fields.next().map(str::parse::<u32>),
+            fields.next().map(str::parse::<u32>),
+        ) {
+            parent_and_group.insert(pid, (ppid, pgrp));
+        }
+    }
+    let root_group = parent_and_group.get(&root).map(|(_, group)| *group);
+    let mut tree = HashSet::from([root]);
+    let mut grew = true;
+    while grew {
+        grew = false;
+        for (pid, (ppid, _)) in &parent_and_group {
+            if tree.contains(ppid) && tree.insert(*pid) {
+                grew = true;
+            }
+        }
+    }
+    tree.iter()
+        .filter_map(|pid| parent_and_group.get(pid).map(|(_, group)| *group))
+        .filter(|group| Some(*group) != root_group && tree.contains(group))
+        .collect::<HashSet<u32>>()
+        .into_iter()
+        .map(|leader| ReapTarget {
+            pid: leader,
+            start_id: crate::lease::get_process_start_id(leader),
+            worker_socket: None,
+            kind: ReapKind::Worker,
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn descendant_process_groups(_root: u32) -> Vec<ReapTarget> {
+    Vec::new()
 }
 
 /// Poll until the identity-gated pid is gone or the budget runs out.
