@@ -15,7 +15,7 @@ use futures::future::BoxFuture;
 use super::collection::{models_error, Models};
 use super::provider::Provider;
 use super::{merge_headers, CatalogModel};
-use crate::api::lazy::lazy_stream;
+use crate::api::lazy::watched_lazy_stream;
 use crate::auth::AuthResolutionOverrides;
 use crate::types::{
     ClassifierOptions, DeferredCancelOptions, DeferredFetchOptions, ImagesOptions,
@@ -28,6 +28,7 @@ use crate::utils::model_operations::{
     assert_image_model, classifier_error_result, image_error_result,
 };
 use crate::utils::models_error::ModelsErrorCode;
+use crate::utils::stream_idle::StreamIdle;
 use crate::utils::transcript::normalize_context;
 
 /// Transforms fully assembled model/auth/request headers before provider
@@ -218,18 +219,24 @@ impl Models {
 
     /// Streams a chat request with full (API-specific) options. Setup
     /// failures (unknown provider, missing auth) end the stream with an
-    /// error event.
+    /// error event. The stream runs under the stream-idle deadline
+    /// (`stream_idle_timeout_ms`, [`StreamIdle`]).
     #[must_use]
     pub fn stream(
         &self,
         model: &Model,
         context: Context,
-        options: ModelsApiStreamOptions,
+        mut options: ModelsApiStreamOptions,
     ) -> AssistantMessageEventStream {
         let transcript = normalize_context(context);
         let this = self.clone();
         let request = model.clone();
-        lazy_stream(model, async move {
+        let stream = &mut options.options.stream;
+        let idle = StreamIdle::arm(
+            &mut stream.request,
+            Some(&mut stream.on_provider_stream_event),
+        );
+        watched_lazy_stream(model, idle, async move {
             let provider = this.require_chat_provider(&request)?;
             let (request_model, request_options) = this.apply_auth(&request, options).await?;
             Ok((provider.stream)(
@@ -250,18 +257,24 @@ impl Models {
         self.stream(model, context, options).result().await
     }
 
-    /// Streams a chat request with provider-neutral options.
+    /// Streams a chat request with provider-neutral options, under the
+    /// stream-idle deadline like [`Models::stream`].
     #[must_use]
     pub fn stream_simple(
         &self,
         model: &Model,
         context: Context,
-        options: ModelsSimpleStreamOptions,
+        mut options: ModelsSimpleStreamOptions,
     ) -> AssistantMessageEventStream {
         let transcript = normalize_context(context);
         let this = self.clone();
         let request = model.clone();
-        lazy_stream(model, async move {
+        let stream = &mut options.options.stream;
+        let idle = StreamIdle::arm(
+            &mut stream.request,
+            Some(&mut stream.on_provider_stream_event),
+        );
+        watched_lazy_stream(model, idle, async move {
             let provider = this.require_chat_provider(&request)?;
             let (request_model, request_options) = this.apply_auth(&request, options).await?;
             Ok((provider.stream_simple)(
@@ -282,18 +295,20 @@ impl Models {
         self.stream_simple(model, context, options).result().await
     }
 
-    /// Streams the continuation of a deferred response.
+    /// Streams the continuation of a deferred response, under the
+    /// stream-idle deadline like [`Models::stream`].
     #[must_use]
     pub fn stream_deferred(
         &self,
         model: &Model,
         handle: &DeferredHandle,
-        options: ModelsDeferredFetchOptions,
+        mut options: ModelsDeferredFetchOptions,
     ) -> AssistantMessageEventStream {
         let this = self.clone();
         let request = model.clone();
         let handle = handle.clone();
-        lazy_stream(model, async move {
+        let idle = StreamIdle::arm(&mut options.options.request, None);
+        watched_lazy_stream(model, idle, async move {
             let provider = this.require_chat_provider(&request)?;
             let fetch_deferred = provider.fetch_deferred.clone().ok_or_else(|| {
                 models_error(

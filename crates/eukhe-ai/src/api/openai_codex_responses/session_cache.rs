@@ -485,7 +485,6 @@ pub(crate) struct WebSocketRequest<'a> {
     pub body: &'a JsonValue,
     pub headers: &'a HeaderMap,
     pub model: &'a Model,
-    pub idle_timeout_ms: Option<f64>,
     pub connect_timeout_ms: Option<f64>,
     pub cache_session_id: Option<&'a str>,
     pub account_id: &'a str,
@@ -622,11 +621,7 @@ async fn run_websocket_request(
             frame.insert(key.clone(), value.clone());
         }
     }
-    let events = parse_websocket(
-        Arc::clone(&acquired.socket),
-        signal,
-        request.idle_timeout_ms,
-    );
+    let events = parse_websocket(acquired.socket.as_ref(), signal);
     acquired
         .socket
         .send(json_stringify(&JsonValue::Object(frame)))?;

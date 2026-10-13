@@ -242,10 +242,8 @@ fn decode_websocket_data(data: WebSocketData) -> String {
 }
 
 struct ParseState {
-    socket: Arc<dyn WebSocketLike>,
     listener: WebSocketListener,
     signal: Option<AbortSignal>,
-    idle_timeout_ms: Option<f64>,
     queue: VecDeque<JsonValue>,
     done: bool,
     failed: Option<Thrown>,
@@ -320,7 +318,6 @@ impl ParseState {
                 }
                 return None;
             }
-            let idle_timeout_ms = self.idle_timeout_ms.unwrap_or(0.0);
             tokio::select! {
                 biased;
                 () = abort_wait(self.signal.as_ref()) => {
@@ -328,37 +325,23 @@ impl ParseState {
                     self.done = true;
                 }
                 event = self.listener.next() => self.on_event(event),
-                () = timeout_wait(idle_timeout_ms) => {
-                    let error = ErrorObject::new(format!(
-                        "WebSocket idle timeout after {}ms",
-                        number_to_js_string(idle_timeout_ms)
-                    ))
-                    .thrown();
-                    self.failed = Some(Arc::clone(&error));
-                    self.done = true;
-                    close_websocket_silently(self.socket.as_ref(), 1000, "idle_timeout");
-                    return Some(Err(error));
-                }
             }
         }
     }
 }
 
 /// TS `parseWebSocket`: one request's events until the terminal event,
-/// an error, a close, an abort, or the idle timeout. The listeners attach
-/// when this is called (before the request is sent) and detach when the
-/// stream is dropped.
+/// an error, a close, or an abort. A silent socket is the stream-idle
+/// deadline's (`Models`) to end. The listeners attach when this is called
+/// (before the request is sent) and detach when the stream is dropped.
 pub(crate) fn parse_websocket(
-    socket: Arc<dyn WebSocketLike>,
+    socket: &dyn WebSocketLike,
     signal: Option<AbortSignal>,
-    idle_timeout_ms: Option<f64>,
 ) -> EventSource {
     let listener = socket.listen();
     let state = ParseState {
-        socket,
         listener,
         signal,
-        idle_timeout_ms,
         queue: VecDeque::new(),
         done: false,
         failed: None,

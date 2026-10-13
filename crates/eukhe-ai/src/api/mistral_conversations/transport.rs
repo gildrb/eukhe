@@ -48,7 +48,8 @@ pub(super) async fn request_mistral_stream(
     let url = chat_completions_url(&model.base_url)?;
     let headers = build_mistral_headers(model, api_key, options)?;
     // The timeout covers only the wait for response headers. Long streams (e.g. extended thinking)
-    // must not be cut off by a fixed deadline; body stalls are left to the HTTP client idle timeout.
+    // must not be cut off by a fixed deadline; a silent body is ended by the stream-idle deadline
+    // `Models` puts on every provider stream (`utils::stream_idle`).
     let timeout_ms = options
         .stream
         .request

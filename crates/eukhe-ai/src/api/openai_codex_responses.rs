@@ -427,7 +427,6 @@ async fn run(
                     body: &body,
                     headers: &websocket_headers,
                     model,
-                    idle_timeout_ms: http_timeout_ms,
                     connect_timeout_ms: websocket_connect_timeout_ms,
                     cache_session_id,
                     account_id: &account_id,

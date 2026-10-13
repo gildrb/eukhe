@@ -183,6 +183,13 @@ pub struct ProviderRequestOptions<M = Model> {
     /// Maximum delay in milliseconds to wait for a server-requested retry.
     /// Default: 60000. `0` disables the cap.
     pub max_retry_delay_ms: Option<f64>,
+    /// Longest silence of a chat or deferred-fetch event stream: `Models`
+    /// fails a stream with no provider event for this long as stalled
+    /// (`StreamFailureKind::StreamStalled`, retryable). Every event the
+    /// codec parses counts, whether or not it carries content. Default
+    /// [`DEFAULT_STREAM_IDLE_TIMEOUT_MS`](crate::utils::stream_idle::DEFAULT_STREAM_IDLE_TIMEOUT_MS);
+    /// `0` disables the deadline.
+    pub stream_idle_timeout_ms: Option<f64>,
 }
 
 impl<M> Default for ProviderRequestOptions<M> {
@@ -199,6 +206,7 @@ impl<M> Default for ProviderRequestOptions<M> {
             timeout_ms: None,
             max_retries: None,
             max_retry_delay_ms: None,
+            stream_idle_timeout_ms: None,
         }
     }
 }
@@ -217,6 +225,7 @@ impl<M> Clone for ProviderRequestOptions<M> {
             timeout_ms: self.timeout_ms,
             max_retries: self.max_retries,
             max_retry_delay_ms: self.max_retry_delay_ms,
+            stream_idle_timeout_ms: self.stream_idle_timeout_ms,
         }
     }
 }
@@ -242,6 +251,7 @@ impl<M> fmt::Debug for ProviderRequestOptions<M> {
             .field("timeout_ms", &self.timeout_ms)
             .field("max_retries", &self.max_retries)
             .field("max_retry_delay_ms", &self.max_retry_delay_ms)
+            .field("stream_idle_timeout_ms", &self.stream_idle_timeout_ms)
             .finish()
     }
 }

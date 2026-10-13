@@ -14,8 +14,10 @@ use super::ProviderStreams;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::now_ms;
+use crate::utils::stream_failure::record_stream_failure;
+use crate::utils::stream_idle::StreamIdle;
 
-fn create_setup_error_message(model: &Model, error: &Thrown, timestamp: u64) -> AssistantMessage {
+fn create_error_message(model: &Model, error_message: String, timestamp: u64) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
         api: model.api.clone(),
@@ -29,7 +31,7 @@ fn create_setup_error_message(model: &Model, error: &Thrown, timestamp: u64) -> 
         usage: Usage::default(),
         stop_reason: StopReason::Error,
         deferred: None,
-        error_message: Some(error.to_string()),
+        error_message: Some(error_message),
         raw_stop_reason: None,
         end_turn: None,
         timestamp,
@@ -37,12 +39,45 @@ fn create_setup_error_message(model: &Model, error: &Thrown, timestamp: u64) -> 
     }
 }
 
-async fn forward_stream(target: &AssistantMessageEventStream, source: AssistantMessageEventStream) {
+fn end_with_error(target: &AssistantMessageEventStream, message: AssistantMessage) {
+    target.push(AssistantMessageEvent::Error {
+        reason: ErrorReason::Error,
+        error: message.clone(),
+    });
+    target.end(Some(message));
+}
+
+async fn forward_stream(
+    target: &AssistantMessageEventStream,
+    source: AssistantMessageEventStream,
+    idle: Option<&StreamIdle>,
+) {
     let mut events = source.events();
     while let Some(event) = events.next().await {
+        if let Some(idle) = idle {
+            idle.touch();
+        }
         target.push(event);
     }
     target.end(Some(source.result().await));
+}
+
+async fn run_setup<F>(
+    target: &AssistantMessageEventStream,
+    model: &Model,
+    setup: F,
+    started_at: u64,
+    idle: Option<&StreamIdle>,
+) where
+    F: Future<Output = Result<AssistantMessageEventStream, Thrown>>,
+{
+    match setup.await {
+        Ok(inner) => forward_stream(target, inner, idle).await,
+        Err(error) => end_with_error(
+            target,
+            create_error_message(model, error.to_string(), started_at),
+        ),
+    }
 }
 
 /// Returns a stream synchronously while running async setup (auth
@@ -54,21 +89,41 @@ pub fn lazy_stream<F>(model: &Model, setup: F) -> AssistantMessageEventStream
 where
     F: Future<Output = Result<AssistantMessageEventStream, Thrown>> + Send + 'static,
 {
+    watched_lazy_stream(model, None, setup)
+}
+
+/// [`lazy_stream`] under the stream-idle deadline `idle`: when neither the
+/// setup nor the stream shows life for the deadline, the request is aborted
+/// and the stream ends with a retryable `stream_stalled` error.
+pub(crate) fn watched_lazy_stream<F>(
+    model: &Model,
+    idle: Option<StreamIdle>,
+    setup: F,
+) -> AssistantMessageEventStream
+where
+    F: Future<Output = Result<AssistantMessageEventStream, Thrown>> + Send + 'static,
+{
     let started_at = now_ms();
     let outer = AssistantMessageEventStream::new();
     let target = outer.clone();
     let model = model.clone();
     tokio::spawn(async move {
-        match setup.await {
-            Ok(inner) => forward_stream(&target, inner).await,
-            Err(error) => {
-                let message = create_setup_error_message(&model, &error, started_at);
-                target.push(AssistantMessageEvent::Error {
-                    reason: ErrorReason::Error,
-                    error: message.clone(),
-                });
-                target.end(Some(message));
-            }
+        let Some(idle) = idle else {
+            run_setup(&target, &model, setup, started_at, None).await;
+            return;
+        };
+        let finished = idle
+            .within(run_setup(&target, &model, setup, started_at, Some(&idle)))
+            .await;
+        if finished.is_none() {
+            let failure = idle.stall();
+            let mut message = create_error_message(&model, failure.to_string(), started_at);
+            record_stream_failure(
+                (&model.provider, &model.id, &model.api),
+                &mut message,
+                &failure,
+            );
+            end_with_error(&target, message);
         }
     });
     outer
