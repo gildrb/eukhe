@@ -68,6 +68,25 @@ fn model_messages_pass_through() {
 }
 
 #[test]
+fn a_reported_user_entry_carries_its_origin() {
+    let user = json!({ "role": "user", "content": "[child-exited: no-reply child:lane]", "timestamp": 2 });
+    let origin = json!({
+        "kind": "report",
+        "report": { "report": "childExited", "child": "lane", "exit": "noReply" },
+    });
+    let mut expected = user.clone();
+    expected["origin"] = origin.clone();
+    assert_eq!(
+        entry_wire_message(&record(
+            "pi.user",
+            Some(user),
+            Some(json!({ "origin": origin }))
+        )),
+        Some(expected)
+    );
+}
+
+#[test]
 fn assistant_stop_reasons_the_tui_does_not_know_show_as_stop() {
     let mut message: AssistantMessage = serde_json::from_value(assistant(1, "deferred")).unwrap();
     let wire = |message: &AssistantMessage| {

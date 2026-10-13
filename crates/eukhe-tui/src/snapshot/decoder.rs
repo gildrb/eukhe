@@ -164,11 +164,16 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             message,
             assistant_message_event,
         } => match message {
-            AgentMessage::User(user) => match user_display_text(&user.content) {
-                Some(text) => TurnUpdate::UserMessage(text),
-                // Nothing to show: the transcript does not grow a blank row.
-                None => TurnUpdate::StatusUpdate,
-            },
+            AgentMessage::User(user) => {
+                match crate::custom_message::input_origin_entry(&user.origin, &user.content) {
+                    Some(entry) => TurnUpdate::CustomRow(entry),
+                    None => match user_display_text(&user.content) {
+                        Some(text) => TurnUpdate::UserMessage(text),
+                        // Nothing to show: the transcript does not grow a blank row.
+                        None => TurnUpdate::StatusUpdate,
+                    },
+                }
+            }
             AgentMessage::Assistant(message) => TurnUpdate::AssistantMessage {
                 message: Box::new(message.clone()),
                 streaming: true,
@@ -439,15 +444,21 @@ pub fn content_text(content: &UserContent) -> String {
 #[must_use]
 pub fn message_value_to_entries(message: &AgentMessage) -> Vec<ChatEntry> {
     match message {
-        // TS `addMessageToChat`'s user case: a text that IS a skill block
+        // A report's user message renders its origin's typed row. TS
+        // `addMessageToChat`'s user case: a text that IS a skill block
         // renders the skill-invocation card (+ the trailing argument text
         // as its own user block); every other text renders the user block.
-        AgentMessage::User(user) => user_display_text(&user.content)
-            .map(|text| {
-                crate::custom_message::skill_invocation_entries(&text)
-                    .unwrap_or_else(|| vec![ChatEntry::User { text }])
-            })
-            .unwrap_or_default(),
+        AgentMessage::User(user) => {
+            match crate::custom_message::input_origin_entry(&user.origin, &user.content) {
+                Some(entry) => vec![entry],
+                None => user_display_text(&user.content)
+                    .map(|text| {
+                        crate::custom_message::skill_invocation_entries(&text)
+                            .unwrap_or_else(|| vec![ChatEntry::User { text }])
+                    })
+                    .unwrap_or_default(),
+            }
+        }
         AgentMessage::Assistant(assistant) => assistant_value_to_entries(assistant),
         AgentMessage::Custom(custom) => crate::custom_message::custom_message_entries(
             &CustomType::parse(&custom.custom_type),

@@ -228,6 +228,7 @@ pub fn build_branch_summary_request(
         vec![AgentMessage::User(eukhe_types::ai::UserMessage {
             content: eukhe_types::ai::UserContent::Text(prompt_text),
             timestamp: 0,
+            origin: eukhe_types::input_origin::InputOrigin::User,
             rest: serde_json::Map::default(),
         })]
     };
@@ -339,6 +340,7 @@ mod tests {
         AgentMessage::User(eukhe_types::ai::UserMessage {
             content: eukhe_types::ai::UserContent::Text(text.to_string()),
             timestamp: 0,
+            origin: eukhe_types::input_origin::InputOrigin::User,
             rest: serde_json::Map::default(),
         })
     }

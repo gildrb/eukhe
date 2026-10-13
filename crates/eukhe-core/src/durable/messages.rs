@@ -380,6 +380,7 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
                 AgentMessage::User(UserMessage {
                     content: UserContent::Blocks(vec![text_block(bash_execution_to_text(bash))]),
                     timestamp: bash.timestamp,
+                    origin: eukhe_types::input_origin::InputOrigin::User,
                     rest: serde_json::Map::default(),
                 })
             }
@@ -405,6 +406,7 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
                 AgentMessage::User(UserMessage {
                     content,
                     timestamp: custom.timestamp,
+                    origin: eukhe_types::input_origin::InputOrigin::User,
                     rest: serde_json::Map::default(),
                 })
             }
@@ -414,6 +416,7 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
                     summary.summary
                 ))]),
                 timestamp: summary.timestamp,
+                origin: eukhe_types::input_origin::InputOrigin::User,
                 rest: serde_json::Map::default(),
             }),
             AgentMessage::CompactionSummary(summary) => {
@@ -430,6 +433,7 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
                         summary.summary
                     ))]),
                     timestamp: summary.timestamp,
+                    origin: eukhe_types::input_origin::InputOrigin::User,
                     rest: serde_json::Map::default(),
                 })
             }
@@ -521,6 +525,7 @@ mod tests {
             AgentMessage::User(UserMessage {
                 content: UserContent::Text("keep me".to_string()),
                 timestamp: 0,
+                origin: eukhe_types::input_origin::InputOrigin::User,
                 rest: serde_json::Map::default(),
             }),
             AgentMessage::Custom(eukhe_types::session::CustomMessage {

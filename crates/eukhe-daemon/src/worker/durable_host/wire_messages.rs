@@ -13,8 +13,10 @@ use eukhe_core::durable::{
     custom_entry_content, BashEntryData, BranchSummaryData, CustomEntryData, BASH_ENTRY,
     BRANCH_SUMMARY_ENTRY, COMPACTION_SUMMARY_ENTRY, CUSTOM_ENTRY,
 };
-use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
-use eukhe_durable::types::EntryRecord;
+use eukhe_durable::entries::{
+    UserData, ASSISTANT_ENTRY, COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY,
+};
+use eukhe_durable::types::{EntryData as _, EntryRecord};
 use eukhe_types::pi_ai::{AssistantMessage, Message};
 use eukhe_types::session::AgentMessage;
 use serde::de::DeserializeOwned;
@@ -119,7 +121,10 @@ pub(crate) fn transcript_messages_of<'a>(
 pub(crate) fn entry_wire_message_with(entry: &EntryRecord, tokens_before: u64) -> Option<Value> {
     let kind = entry.kind.as_str();
     let first = entry.model.as_deref().and_then(<[Message]>::first);
-    if kind == USER_ENTRY.kind() || kind == TOOL_RESULT_ENTRY.kind() {
+    if kind == USER_ENTRY.kind() {
+        return first.and_then(|message| user_wire_message(entry, message));
+    }
+    if kind == TOOL_RESULT_ENTRY.kind() {
         return first.and_then(|message| serde_json::to_value(message).ok());
     }
     if kind == ASSISTANT_ENTRY.kind() {
@@ -163,6 +168,24 @@ pub(crate) fn entry_wire_message_with(entry: &EntryRecord, tokens_before: u64) -
         return Some(Value::Object(object));
     }
     None
+}
+
+/// A `pi.user` entry's model message with the entry's input origin, so the
+/// client classifies the row by its producer, never by its text. A
+/// person's words (and rows written before origins) leave it out.
+fn user_wire_message(entry: &EntryRecord, message: &Message) -> Option<Value> {
+    let mut value = serde_json::to_value(message).ok()?;
+    // A malformed data blob maps like a person's words: the model message
+    // still shows.
+    let origin = UserData::decode(entry.data.as_ref())
+        .map(|data| data.origin)
+        .unwrap_or_default();
+    if !origin.is_user() {
+        if let Value::Object(object) = &mut value {
+            object.insert("origin".to_owned(), serde_json::to_value(origin).ok()?);
+        }
+    }
+    Some(value)
 }
 
 /// The context size an assistant entry's answer measured (its usage total,

@@ -44,6 +44,8 @@ use crate::chat::{ChatEntry, StatusKind};
 use crate::theme::ThemeColor;
 use eukhe_types::ai::{UserContent, UserContentBlock};
 use eukhe_types::custom_type::CustomType;
+use eukhe_types::input_origin::{InputOrigin, Report};
+use eukhe_types::job::CellStatus;
 use serde_json::Value;
 
 // ---------------------------------------------------------------------------
@@ -431,6 +433,61 @@ pub(crate) fn custom_content_text(content: &UserContent) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n"),
+    }
+}
+
+/// The typed row of a user message a report produced, read off its
+/// [`InputOrigin`] (never its text): a child's exit or failure and another
+/// agent's mail render the received agent-message row attributed to the
+/// counterpart, a detached bash run the shell-completion row, a settled
+/// job a status row. None for every other origin, which renders the user
+/// block.
+#[must_use]
+pub fn input_origin_entry(origin: &InputOrigin, content: &UserContent) -> Option<ChatEntry> {
+    let report = match origin {
+        InputOrigin::Report { report } => report,
+        InputOrigin::User
+        | InputOrigin::Goal { .. }
+        | InputOrigin::Autonomous { .. }
+        | InputOrigin::QuotaResume => return None,
+    };
+    let text = custom_content_text(content);
+    let received = |counterpart: &str, message: String| {
+        ChatEntry::AgentMessage(Box::new(AgentMessageRow {
+            direction: AgentMessageDirection::Received,
+            counterpart: counterpart.to_owned(),
+            message,
+        }))
+    };
+    match report {
+        // The full notice rides as the body, so the outcome wording in
+        // its header stays intact (like the old custom notice rows).
+        Report::ChildExited { child, .. } | Report::ChildFailed { child, .. } => {
+            Some(received(child, text))
+        }
+        // `child:name` / `parent:name`: the arrow carries the
+        // relationship, the row names the agent.
+        Report::AgentMessage { sender } => {
+            let name = sender.split_once(':').map_or(sender.as_str(), |(_, name)| name);
+            let body = report.body(&text).map_or_else(|_| text.clone(), str::to_owned);
+            Some(received(name, body))
+        }
+        Report::BashDone { pid, exit_code } => {
+            Some(ChatEntry::ShellCompletion(Box::new(ShellCompletionRow {
+                pid: Some(i64::from(*pid)),
+                exit_code: Some(*exit_code),
+                content: text,
+            })))
+        }
+        Report::JobSettled { status, .. } => Some(ChatEntry::Status {
+            text,
+            kind: match status {
+                CellStatus::Ok => StatusKind::Info,
+                CellStatus::Aborted => StatusKind::Warning,
+                CellStatus::Error | CellStatus::Killed => StatusKind::Error,
+            },
+        }),
+        Report::Heartbeat { .. } => None,
     }
 }
 

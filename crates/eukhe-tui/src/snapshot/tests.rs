@@ -1575,6 +1575,81 @@ fn decodes_block_content() {
     assert!(matches!(&items[1], ChatEntry::Tool(card) if card.name == "bash"));
 }
 
+/// A user message's report origin, not its text, picks its row: a child's
+/// exit is that child's agent message, a bash run its shell completion, a
+/// settled job a status row; a plain message stays the user block even
+/// when its text looks like a report.
+#[test]
+fn report_origins_decode_to_typed_rows() {
+    let report = |text: &str, report: Value| {
+        message_value_to_entries(&msg(json!({
+            "role": "user",
+            "content": text,
+            "origin": { "kind": "report", "report": report },
+        })))
+    };
+    let exited = report(
+        "[child-exited: no-reply child:lane]\n\nLast assistant text: done",
+        json!({ "report": "childExited", "child": "lane", "exit": "noReply" }),
+    );
+    assert!(
+        matches!(exited.as_slice(), [ChatEntry::AgentMessage(row)]
+            if row.counterpart == "lane"
+                && row.message == "[child-exited: no-reply child:lane]\n\nLast assistant text: done"),
+        "{exited:?}"
+    );
+    let failed = report(
+        "[child-failed child:broken]\n\nboom",
+        json!({ "report": "childFailed", "child": "broken" }),
+    );
+    assert!(
+        matches!(failed.as_slice(), [ChatEntry::AgentMessage(row)] if row.counterpart == "broken"),
+        "{failed:?}"
+    );
+    let bash = report(
+        "[bash-done pid:7 exit:0]\n\nok",
+        json!({ "report": "bashDone", "pid": 7, "exitCode": 0 }),
+    );
+    assert!(
+        matches!(bash.as_slice(), [ChatEntry::ShellCompletion(row)]
+            if row.pid == Some(7) && row.exit_code == Some(0)),
+        "{bash:?}"
+    );
+    let job = report(
+        "[job-settled job:cell-1 status:error]",
+        json!({ "report": "jobSettled", "job": "cell-1", "status": "error" }),
+    );
+    assert_eq!(
+        job,
+        vec![ChatEntry::Status {
+            text: "[job-settled job:cell-1 status:error]".to_string(),
+            kind: StatusKind::Error,
+        }]
+    );
+    let typed = message_value_to_entries(&msg(json!({
+        "role": "user",
+        "content": "[child-exited: no-reply child:lane]",
+    })));
+    assert_eq!(
+        typed,
+        vec![ChatEntry::User {
+            text: "[child-exited: no-reply child:lane]".to_string()
+        }]
+    );
+    let live = event_to_update(&event(json!({
+        "type": "message_start",
+        "message": {
+            "role": "user",
+            "content": "[child-failed child:broken]",
+            "origin": { "kind": "report", "report": { "report": "childFailed", "child": "broken" } },
+        },
+    })));
+    assert!(
+        matches!(&live, TurnUpdate::CustomRow(ChatEntry::AgentMessage(row)) if row.counterpart == "broken"),
+        "{live:?}"
+    );
+}
+
 #[test]
 fn decodes_streamed_events() {
     let user = event_to_update(&event(json!({

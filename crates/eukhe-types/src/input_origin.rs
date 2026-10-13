@@ -9,10 +9,13 @@ use crate::job::{CellStatus, JobId};
 use crate::pi_ai::StreamFailureKind;
 
 /// The producer of one user-role input.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum InputOrigin {
-    /// A person's words, or a client prompt sent on their behalf.
+    /// A person's words, or a client prompt sent on their behalf. The
+    /// default: rows written before inputs carried an origin are a
+    /// person's.
+    #[default]
     User,
     /// A goal context the goal engine submitted.
     Goal { context: GoalContextKind },
@@ -22,6 +25,15 @@ pub enum InputOrigin {
     QuotaResume,
     /// A report of work outside this conversation.
     Report { report: Report },
+}
+
+impl InputOrigin {
+    /// Whether this is [`InputOrigin::User`] (the origin a wire user
+    /// message leaves out).
+    #[must_use]
+    pub fn is_user(&self) -> bool {
+        matches!(self, Self::User)
+    }
 }
 
 /// Why autonomous mode continued a run.

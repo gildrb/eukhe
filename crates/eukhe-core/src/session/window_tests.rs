@@ -670,6 +670,7 @@ async fn adopted_manager_live_attribution_reaches_the_served_context() {
         eukhe_types::ai::UserMessage {
             content: eukhe_types::ai::UserContent::Text("live prompt".to_owned()),
             timestamp: 5,
+            origin: eukhe_types::input_origin::InputOrigin::User,
             rest: eukhe_types::JsonMap::default(),
         },
     ));

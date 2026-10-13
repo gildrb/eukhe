@@ -176,6 +176,7 @@ fn observe_previews_truncate() {
     let user = eukhe_types::session::AgentMessage::User(eukhe_types::ai::UserMessage {
         content: eukhe_types::ai::UserContent::Text("short".to_string()),
         timestamp: 42,
+        origin: eukhe_types::input_origin::InputOrigin::User,
         rest: serde_json::Map::default(),
     });
     let preview = create_agent_observe_message_preview(&user, 3, 800);
@@ -187,6 +188,7 @@ fn observe_previews_truncate() {
     let long = eukhe_types::session::AgentMessage::User(eukhe_types::ai::UserMessage {
         content: eukhe_types::ai::UserContent::Text("x".repeat(100)),
         timestamp: 0,
+        origin: eukhe_types::input_origin::InputOrigin::User,
         rest: serde_json::Map::default(),
     });
     let clipped = create_agent_observe_message_preview(&long, 0, 10);

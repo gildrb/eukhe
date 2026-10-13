@@ -51,6 +51,7 @@ fn user(text: &str) -> AgentMessage {
     AgentMessage::User(eukhe_types::ai::UserMessage {
         content: eukhe_types::ai::UserContent::Text(text.to_string()),
         timestamp: 0,
+        origin: eukhe_types::input_origin::InputOrigin::User,
         rest: serde_json::Map::default(),
     })
 }

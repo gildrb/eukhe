@@ -159,6 +159,7 @@ pub fn build_summarization_request(
             cache_breakpoint: None,
         })]),
         timestamp: 0,
+        origin: eukhe_types::input_origin::InputOrigin::User,
         rest: serde_json::Map::default(),
     })]
 }
@@ -181,6 +182,7 @@ pub fn build_turn_prefix_request(messages: &[AgentMessage]) -> Vec<AgentMessage>
             cache_breakpoint: None,
         })]),
         timestamp: 0,
+        origin: eukhe_types::input_origin::InputOrigin::User,
         rest: serde_json::Map::default(),
     })]
 }
@@ -277,6 +279,7 @@ mod tests {
         AgentMessage::User(UserMessage {
             content: UserContent::Text(text.to_string()),
             timestamp: 0,
+            origin: eukhe_types::input_origin::InputOrigin::User,
             rest: serde_json::Map::default(),
         })
     }
@@ -286,6 +289,7 @@ mod tests {
         let user = AgentMessage::User(eukhe_types::ai::UserMessage {
             content: eukhe_types::ai::UserContent::Text("12345678".to_string()), // 8 chars -> 2 tokens
             timestamp: 0,
+            origin: eukhe_types::input_origin::InputOrigin::User,
             rest: serde_json::Map::default(),
         });
         assert_eq!(estimate_tokens(&user), 2);

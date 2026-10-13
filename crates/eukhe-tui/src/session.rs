@@ -370,6 +370,7 @@ mod tests {
                         .to_string(),
                 ),
                 timestamp: 1,
+                origin: eukhe_types::input_origin::InputOrigin::User,
                 rest: serde_json::Map::new(),
             }),
             base: eukhe_types::session::EntryBase {
