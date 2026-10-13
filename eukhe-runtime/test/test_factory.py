@@ -52,6 +52,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import unittest
 from pathlib import Path
@@ -8134,8 +8135,10 @@ class InstalledRuntimeLibraryTest(unittest.TestCase):
             json.dumps({"factory": {"enabled": True}}), encoding="utf-8"
         )
         python = str(venv / "bin" / "python")
+        # The suite's own interpreter: an ambient `uv venv` default can be a
+        # Python the hash-locked wheels do not cover.
         for args in (
-            [uv, "venv", "--no-config", str(venv)],
+            [uv, "venv", "--no-config", "--python", sys.executable, str(venv)],
             [uv, "pip", "install", "--no-config", "--python", python, "--require-hashes",
              "--only-binary", ":all:", "-r", str(staged / "requirements-kernel.txt")],
             [uv, "pip", "install", "--no-config", "--python", python, "--no-deps",
