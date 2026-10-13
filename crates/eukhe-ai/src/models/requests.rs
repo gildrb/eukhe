@@ -6,21 +6,25 @@ use std::sync::Arc;
 
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
-    AnyModel, AssistantImages, AssistantMessage, ClassifierContext, ClassifierModel,
-    ClassifierResult, Context, DeferredHandle, ImageModel, ImagesContext, Model, ProviderEnv,
-    ProviderHeaders,
+    AnyModel, AssistantImages, AssistantMessage, AssistantMessageEvent, ClassifierContext,
+    ClassifierModel, ClassifierResult, Context, DeferredHandle, ImageModel, ImagesContext, Model,
+    ProviderEnv, ProviderHeaders, StreamFailureKind,
 };
 use futures::future::BoxFuture;
+use futures::StreamExt;
 
 use super::collection::{models_error, Models};
 use super::provider::Provider;
 use super::{merge_headers, CatalogModel};
 use crate::api::lazy::watched_lazy_stream;
-use crate::auth::AuthResolutionOverrides;
+use crate::auth::{
+    refresh_stored_oauth_credential, AuthOperationOptions, AuthResolutionOverrides, Credential,
+};
 use crate::types::{
     ClassifierOptions, DeferredCancelOptions, DeferredFetchOptions, ImagesOptions,
     ProviderRequestOptions, ProviderStreamOptions, SimpleStreamOptions,
 };
+use crate::utils::abort::operation_signal;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::model_operations::{
@@ -217,6 +221,110 @@ impl Models {
         Ok((request_model, provider_options))
     }
 
+    /// Issue a chat request with resolved auth. When the request rode the
+    /// stored OAuth credential and the provider rejects it as
+    /// unauthenticated before any content, that credential is refreshed
+    /// once and the request re-issued: a provider can retire a token its
+    /// local expiry still calls valid (revocation, a peer client's
+    /// rotation, clock skew), and only that expiry ever triggers a refresh
+    /// otherwise, so every later request would fail the same way.
+    async fn issue_with_reauth<O: RequestOptions<Model> + Clone>(
+        &self,
+        request: &Model,
+        options: ModelsRequestOptions<O>,
+        issue: impl Fn(&Model, O) -> AssistantMessageEventStream,
+    ) -> Result<AssistantMessageEventStream, Thrown> {
+        let explicit_key = options.options.request().api_key.is_some();
+        let signal = operation_signal(options.options.request().signal.clone());
+        let (request_model, request_options) = self.apply_auth(request, options.clone()).await?;
+        let oauth = self
+            .get_provider(&request.provider)
+            .and_then(|provider| provider.auth.oauth.clone())
+            .filter(|_| !explicit_key);
+        let used = match &oauth {
+            Some(_) => match self
+                .inner
+                .credentials
+                .read(&request.provider, AuthOperationOptions::default())
+                .await
+            {
+                Ok(Some(Credential::OAuth(used))) => Some(used),
+                Ok(Some(Credential::ApiKey(_)) | None) | Err(_) => None,
+            },
+            None => None,
+        };
+        let first = issue(&request_model, request_options);
+        let (Some(oauth), Some(used)) = (oauth, used) else {
+            return Ok(first);
+        };
+        // Hold the first events until the attempt shows content or ends:
+        // only an error before any content is retried.
+        let mut events = first.events();
+        let mut held = Vec::new();
+        let rejected = loop {
+            let Some(event) = events.next().await else {
+                break false;
+            };
+            let decided = match &event {
+                AssistantMessageEvent::Start { .. } => None,
+                // The provider classified the failure as unauthenticated
+                // (its newest `provider_stream_failure` diagnostic).
+                AssistantMessageEvent::Error { error, .. } => Some(
+                    error
+                        .diagnostics
+                        .as_deref()
+                        .unwrap_or_default()
+                        .iter()
+                        .rev()
+                        .find(|diagnostic| diagnostic.kind == "provider_stream_failure")
+                        .and_then(|diagnostic| diagnostic.details.as_ref()?.get("kind")?.as_str())
+                        == Some(StreamFailureKind::Auth.as_str()),
+                ),
+                AssistantMessageEvent::TextStart { .. }
+                | AssistantMessageEvent::TextDelta { .. }
+                | AssistantMessageEvent::TextEnd { .. }
+                | AssistantMessageEvent::ThinkingStart { .. }
+                | AssistantMessageEvent::ThinkingDelta { .. }
+                | AssistantMessageEvent::ThinkingEnd { .. }
+                | AssistantMessageEvent::ToolCallStart { .. }
+                | AssistantMessageEvent::ToolCallDelta { .. }
+                | AssistantMessageEvent::ToolCallEnd { .. }
+                | AssistantMessageEvent::Done { .. } => Some(false),
+            };
+            held.push(event);
+            if let Some(rejected) = decided {
+                break rejected;
+            }
+        };
+        if rejected {
+            let rejected_access = used.access.clone();
+            let refreshed = refresh_stored_oauth_credential(
+                self.inner.credentials.as_ref(),
+                &request.provider,
+                &oauth,
+                move |current| current.access == rejected_access,
+                &signal,
+            )
+            .await;
+            if matches!(&refreshed, Ok(Some(fresh)) if fresh.access != used.access) {
+                let (request_model, request_options) = self.apply_auth(request, options).await?;
+                return Ok(issue(&request_model, request_options));
+            }
+        }
+        let relay = AssistantMessageEventStream::new();
+        for event in held {
+            relay.push(event);
+        }
+        let tail = relay.clone();
+        tokio::spawn(async move {
+            while let Some(event) = events.next().await {
+                tail.push(event);
+            }
+            tail.end(Some(first.result().await));
+        });
+        Ok(relay)
+    }
+
     /// Streams a chat request with full (API-specific) options. Setup
     /// failures (unknown provider, missing auth) end the stream with an
     /// error event. The stream runs under the stream-idle deadline
@@ -238,12 +346,11 @@ impl Models {
         );
         watched_lazy_stream(model, idle, async move {
             let provider = this.require_chat_provider(&request)?;
-            let (request_model, request_options) = this.apply_auth(&request, options).await?;
-            Ok((provider.stream)(
-                &request_model,
-                &transcript,
-                request_options,
-            ))
+            let issue = provider.stream.clone();
+            this.issue_with_reauth(&request, options, move |model, options| {
+                issue(model, &transcript, options)
+            })
+            .await
         })
     }
 
@@ -276,12 +383,11 @@ impl Models {
         );
         watched_lazy_stream(model, idle, async move {
             let provider = this.require_chat_provider(&request)?;
-            let (request_model, request_options) = this.apply_auth(&request, options).await?;
-            Ok((provider.stream_simple)(
-                &request_model,
-                &transcript,
-                request_options,
-            ))
+            let issue = provider.stream_simple.clone();
+            this.issue_with_reauth(&request, options, move |model, options| {
+                issue(model, &transcript, options)
+            })
+            .await
         })
     }
 

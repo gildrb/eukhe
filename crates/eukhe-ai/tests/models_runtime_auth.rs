@@ -683,6 +683,77 @@ async fn refreshes_oauth_credentials_with_less_than_five_minutes_remaining() {
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
 }
 
+/// Regression (stuck.md cause 6): a stored OAuth token the provider
+/// rejects with a 401 while its local expiry still calls it valid is
+/// refreshed once and the request re-issued. Without the re-auth only the
+/// expiry triggers a refresh, so every request failed the same way.
+#[tokio::test]
+async fn a_provider_401_refreshes_the_stored_oauth_token_and_reissues_once() {
+    let credentials = Arc::new(InMemoryCredentialStore::new());
+    let refreshes = Arc::new(AtomicUsize::new(0));
+    let models = create_models(CreateModelsOptions {
+        credentials: Some(credentials.clone()),
+        ..CreateModelsOptions::default()
+    });
+    let calls = calls();
+    let mut provider = test_provider(TestProvider {
+        id: "p1".into(),
+        auth: Some(ProviderAuth {
+            api_key: None,
+            oauth: Some(counting_refresh(&refreshes).arc()),
+        }),
+        calls: Some(Arc::clone(&calls)),
+        ..TestProvider::default()
+    });
+    let answer = Arc::clone(&provider.stream_simple);
+    provider.stream_simple = Arc::new(move |model, context, options| {
+        if options.stream.request.api_key.as_deref() != Some("old-token") {
+            return answer(model, context, options);
+        }
+        let mut rejected = common::done_message(model, "");
+        rejected.stop_reason = StopReason::Error;
+        rejected.error_message = Some("401 OAuth access token has expired".to_owned());
+        rejected.diagnostics = Some(vec![eukhe_types::pi_ai::AssistantMessageDiagnostic {
+            kind: "provider_stream_failure".to_owned(),
+            timestamp: 0,
+            error: None,
+            details: serde_json::json!({ "kind": "auth", "status": 401 })
+                .as_object()
+                .cloned(),
+        }]);
+        let stream = eukhe_ai::utils::event_stream::AssistantMessageEventStream::new();
+        stream.push(eukhe_types::pi_ai::AssistantMessageEvent::Error {
+            reason: eukhe_types::pi_ai::ErrorReason::Error,
+            error: rejected.clone(),
+        });
+        stream.end(Some(rejected));
+        stream
+    });
+    models.set_provider(provider);
+    // Locally valid for an hour: only the provider's 401 says otherwise.
+    store(
+        credentials.as_ref(),
+        "p1",
+        oauth("old-token", "r", now_f64() + 60.0 * 60_000.0),
+    )
+    .await;
+
+    let message = models
+        .complete_simple(
+            &test_model("p1", "model-a"),
+            context(),
+            SimpleStreamOptions::default().into(),
+        )
+        .await;
+    assert_eq!(message.stop_reason, StopReason::Stop, "{message:?}");
+    assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+    let keys: Vec<Option<String>> = recorded(&calls)
+        .into_iter()
+        .map(|call| call.options.request.api_key)
+        .collect();
+    assert_eq!(keys, [Some("new-token".to_owned())]);
+}
+
 #[tokio::test]
 async fn honors_a_callers_longer_oauth_minimum_validity() {
     let credentials = Arc::new(InMemoryCredentialStore::new());
