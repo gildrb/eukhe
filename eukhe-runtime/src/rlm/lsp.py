@@ -86,11 +86,16 @@ class Server:
 
 @dataclass(frozen=True)
 class FileChange:
-    """One file of a workspace edit; ``diagnostics`` is set once written."""
+    """One file of a workspace edit. Once written, ``diagnostics`` holds what
+    the servers reported in the inline window (``None`` before), and
+    ``diagnostics_complete`` says whether every server answered; the rest
+    arrive as a ``[late-diagnostics]`` message. ``error``: the LSP host
+    could not be told about the write."""
 
     path: str
     edits: int
-    diagnostics: Diagnostics | None
+    diagnostics: list[Diag] | None
+    diagnostics_complete: bool
     error: str | None
 
 
@@ -162,19 +167,16 @@ def _action(row: dict[str, Any]) -> Action:
 
 
 def _changes(rows: list[dict[str, Any]]) -> list[FileChange]:
-    changes = []
-    for row in rows:
-        outcome = row["diagnostics"]
-        report = outcome["value"] if outcome is not None and outcome["kind"] == "report" else None
-        changes.append(
-            FileChange(
-                path=row["path"],
-                edits=row["edits"],
-                diagnostics=_diagnostics(report) if report is not None else None,
-                error=str(outcome["value"]) if outcome is not None and outcome["kind"] == "failed" else None,
-            )
+    return [
+        FileChange(
+            path=row["path"],
+            edits=row["edits"],
+            diagnostics=[_diag(item) for item in row["diagnostics"]] if "diagnostics" in row else None,
+            diagnostics_complete=row.get("diagnostics_complete", False),
+            error=row.get("diagnostics_error"),
         )
-    return changes
+        for row in rows
+    ]
 
 
 async def diagnostics(path: str = "*") -> Diagnostics:

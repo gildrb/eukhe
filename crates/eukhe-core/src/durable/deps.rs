@@ -9,6 +9,7 @@ use eukhe_ai::models::Models;
 use eukhe_durable::harness::types::{Clock, ModelRef, ToolExecutionApi};
 use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
+use eukhe_durable::types::ConversationId;
 use eukhe_types::pi_ai::ModelThinkingLevel;
 use futures::future::BoxFuture;
 use serde_json::Value;
@@ -346,6 +347,15 @@ pub struct HostCall {
     pub call: Option<Arc<dyn ToolExecutionApi>>,
 }
 
+impl HostCall {
+    /// The conversation of the tool call running the cell; `None` outside
+    /// a tool call.
+    #[must_use]
+    pub fn conversation_id(&self) -> Option<ConversationId> {
+        self.call.as_ref().map(|api| api.conversation_id())
+    }
+}
+
 /// Handles one kernel host request type; the value reaches the Python caller.
 pub type HostCallHandler =
     Arc<dyn Fn(HostCall) -> BoxFuture<'static, anyhow::Result<Value>> + Send + Sync>;
@@ -432,6 +442,11 @@ pub struct HostDeps {
     pub kernel_python: Option<PathBuf>,
     pub harness: HarnessCell,
     pub host_requests: HostRequestRegistry,
+    /// The session's documents (one edit store): the documents tools and
+    /// the language servers' workspace edits write through it. Path locks
+    /// live under `<agent dir>/locks`, shared by every session of the
+    /// eukhe home.
+    pub(crate) documents: eukhe_docs::Documents,
     /// The session's language servers; file writers report committed writes
     /// here ([`super::lsp::SessionLsp::committed_write`]).
     pub lsp: Arc<super::lsp::SessionLsp>,
@@ -472,6 +487,10 @@ pub(crate) struct ResolvedServices {
 impl HostDeps {
     pub(crate) fn new(config: &SessionConfig, services: ResolvedServices) -> Self {
         let harness = HarnessCell::default();
+        let documents = eukhe_docs::Documents::new(
+            config.agent_dir.join("locks"),
+            eukhe_types::platform::home_dir(),
+        );
         Self {
             agent_dir: config.agent_dir.clone(),
             cwd: config.cwd.clone(),
@@ -500,7 +519,9 @@ impl HostDeps {
                 config.lsp.clone(),
                 config.cwd.clone(),
                 harness.clone(),
+                documents.clone(),
             )),
+            documents,
             harness,
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),

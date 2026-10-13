@@ -866,7 +866,14 @@ fn flatten(
     }
 }
 
-async fn read_text(path: &Path) -> Result<String, LspError> {
+/// The text of `path` as the servers get it (the file on disk, BOM and
+/// line endings kept).
+///
+/// # Errors
+///
+/// [`LspError::FileNotFound`], or [`LspError::Read`] for any other read
+/// failure (including text that is not UTF-8).
+pub async fn read_text(path: &Path) -> Result<String, LspError> {
     tokio::fs::read_to_string(path)
         .await
         .map_err(|error| match error.kind() {

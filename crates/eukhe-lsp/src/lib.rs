@@ -30,7 +30,7 @@ use eukhe_types::lsp::{LspError, LspRequest, LspResponse};
 pub use diagnostics::DiagnosticsLedger;
 pub use edits::{apply_text_edits, EditError};
 pub use servers::ServerTable;
-pub use service::{LspService, INLINE_DIAGNOSTICS_WAIT, LATE_DIAGNOSTICS_WAIT};
+pub use service::{read_text, LspService, INLINE_DIAGNOSTICS_WAIT, LATE_DIAGNOSTICS_WAIT};
 
 /// The authority a session's LSP requests go to.
 ///

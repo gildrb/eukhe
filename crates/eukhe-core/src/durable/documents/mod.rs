@@ -29,15 +29,12 @@ pub(crate) struct DocumentsHost {
     documents: Documents,
 }
 
-/// The documents extension of one session. Path locks live under
-/// `<agent dir>/locks`, shared by every session of the eukhe home.
+/// The documents extension of one session, over the session's documents
+/// ([`HostDeps::documents`]).
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let host = Arc::new(DocumentsHost {
-        documents: Documents::new(
-            deps.agent_dir.join("locks"),
-            eukhe_types::platform::home_dir(),
-        ),
+        documents: deps.documents.clone(),
     });
     requests::register(&deps.host_requests, &host);
     define_extension(Extension {

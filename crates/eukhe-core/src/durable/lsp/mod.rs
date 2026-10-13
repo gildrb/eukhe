@@ -8,14 +8,16 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_docs::{Documents, WriteError};
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::types::ConversationId;
-use eukhe_lsp::{apply_text_edits, DiagnosticsLedger, LspHandle, LspService, ServerTable};
+use eukhe_lsp::{
+    apply_text_edits, read_text, DiagnosticsLedger, LspHandle, LspService, ServerTable,
+};
 use eukhe_types::input_origin::{InputOrigin, Report};
 use eukhe_types::lsp::{
     CodeActionSelector, DiagnosticsReport, LspCodeAction, LspDiagnostic, LspError, LspLocation,
@@ -41,28 +43,62 @@ pub struct SessionLsp {
     /// Workspace root handed to the servers: the session's cwd.
     root: PathBuf,
     harness: HarnessCell,
+    /// The session's documents; workspace edits write through them.
+    documents: Documents,
     ledger: Mutex<DiagnosticsLedger>,
     /// Committed writes per path; a late report for an older write is stale.
     writes: Mutex<HashMap<PathBuf, u64>>,
 }
 
+/// What the language servers said about one committed write.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WriteDiagnostics {
+    /// The diagnostics that arrived in the inline window.
+    pub diagnostics: Vec<LspDiagnostic>,
+    /// Every server handling the file answered in the inline window; when
+    /// not, the rest arrive later as a `[late-diagnostics]` message.
+    pub diagnostics_complete: bool,
+    /// The file is written; the LSP authority could not be told. The model
+    /// gets its message.
+    #[serde(serialize_with = "error_message")]
+    pub diagnostics_error: Option<LspError>,
+}
+
+#[allow(clippy::ref_option)] // serde's `serialize_with` signature
+fn error_message<S: serde::Serializer>(
+    error: &Option<LspError>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match error {
+        Some(error) => serializer.collect_str(error),
+        None => serializer.serialize_none(),
+    }
+}
+
+impl From<Result<DiagnosticsReport, LspError>> for WriteDiagnostics {
+    fn from(report: Result<DiagnosticsReport, LspError>) -> Self {
+        match report {
+            Ok(report) => Self {
+                diagnostics_complete: report.pending.is_empty(),
+                diagnostics: report.diagnostics,
+                diagnostics_error: None,
+            },
+            Err(error) => Self {
+                diagnostics: Vec::new(),
+                diagnostics_complete: false,
+                diagnostics_error: Some(error),
+            },
+        }
+    }
+}
+
 /// One file a workspace edit wrote, with what the servers said about it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WrittenFile {
     pub path: PathBuf,
     pub edits: usize,
+    #[serde(flatten)]
     pub diagnostics: WriteDiagnostics,
-}
-
-/// The servers' answer to a committed write.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum WriteDiagnostics {
-    Report(DiagnosticsReport),
-    /// The file is written; the LSP authority could not be told (the
-    /// [`LspError`] message).
-    Failed(String),
 }
 
 /// Why a workspace edit was not applied.
@@ -74,7 +110,7 @@ pub enum ApplyError {
         #[source]
         source: std::io::Error,
     },
-    #[error("{path:?} changed after the language server computed the edit; nothing was written")]
+    #[error("{path:?} changed after the language server computed the edit")]
     Stale { path: PathBuf },
     #[error("cannot apply the edits to {path:?}: {source}")]
     Edit {
@@ -82,18 +118,28 @@ pub enum ApplyError {
         #[source]
         source: eukhe_lsp::EditError,
     },
-    #[error("cannot write {path:?}: {source}")]
-    Write {
+    #[error("{path:?} is not a UTF-8 path")]
+    NotUtf8 { path: PathBuf },
+    #[error(transparent)]
+    Write(WriteError),
+    #[error("the write of {path:?} did not finish: {source}")]
+    Interrupted {
         path: PathBuf,
         #[source]
-        source: std::io::Error,
+        source: tokio::task::JoinError,
     },
 }
 
 impl SessionLsp {
     /// The LSP state of a session rooted at `root`: `handle` when the
-    /// embedding supplies one, else a private service.
-    pub(crate) fn new(handle: Option<LspHandle>, root: PathBuf, harness: HarnessCell) -> Self {
+    /// embedding supplies one, else a private service. Workspace edits
+    /// write through `documents`.
+    pub(crate) fn new(
+        handle: Option<LspHandle>,
+        root: PathBuf,
+        harness: HarnessCell,
+        documents: Documents,
+    ) -> Self {
         let (handle, private) = if let Some(handle) = handle {
             (handle, None)
         } else {
@@ -105,6 +151,7 @@ impl SessionLsp {
             private,
             root,
             harness,
+            documents,
             ledger: Mutex::default(),
             writes: Mutex::default(),
         }
@@ -119,44 +166,45 @@ impl SessionLsp {
             .await
     }
 
-    /// A file writer committed `text` to `path` (absolute): the servers
-    /// get the new text and the diagnostics of the inline window come
-    /// back. Servers still pending report later, as a late-diagnostics
-    /// message to `conversation`, unless `path` is written again first.
-    ///
-    /// # Errors
-    ///
-    /// The LSP authority is unreachable.
+    /// A file writer committed `path` (absolute): the servers get its text
+    /// on disk and the diagnostics of the inline window come back. Servers
+    /// still pending report later, as a late-diagnostics message to
+    /// `conversation` (the root conversation when `None`), unless `path` is
+    /// written again first.
     pub async fn committed_write(
         self: &Arc<Self>,
         path: &Path,
-        text: &str,
-        conversation: ConversationId,
-    ) -> Result<DiagnosticsReport, LspError> {
+        conversation: Option<ConversationId>,
+    ) -> WriteDiagnostics {
         let write = {
             let mut writes = self.writes.lock().unwrap_or_else(PoisonError::into_inner);
             let count = writes.entry(path.to_owned()).or_default();
             *count += 1;
             *count
         };
-        let response = self
-            .call(LspOp::Sync {
-                path: path.to_owned(),
-                text: text.to_owned(),
-            })
-            .await?;
-        let report = expect_diagnostics(response)?;
-        self.ledger().reduce(path, report.diagnostics.clone());
-        if !report.pending.is_empty() {
-            let lsp = Arc::clone(self);
-            let path = path.to_owned();
-            tokio::spawn(async move {
-                if let Err(error) = lsp.late_diagnostics(&path, write, conversation).await {
-                    tracing::warn!(path = %path.display(), %error, "late LSP diagnostics failed");
-                }
-            });
+        let report = match read_text(path).await {
+            Ok(text) => self
+                .call(LspOp::Sync {
+                    path: path.to_owned(),
+                    text,
+                })
+                .await
+                .and_then(expect_diagnostics),
+            Err(error) => Err(error),
+        };
+        if let Ok(report) = &report {
+            self.ledger().reduce(path, report.diagnostics.clone());
+            if !report.pending.is_empty() {
+                let lsp = Arc::clone(self);
+                let path = path.to_owned();
+                tokio::spawn(async move {
+                    if let Err(error) = lsp.late_diagnostics(&path, write, conversation).await {
+                        tracing::warn!(path = %path.display(), %error, "late LSP diagnostics failed");
+                    }
+                });
+            }
         }
-        Ok(report)
+        WriteDiagnostics::from(report)
     }
 
     fn ledger(&self) -> std::sync::MutexGuard<'_, DiagnosticsLedger> {
@@ -176,7 +224,7 @@ impl SessionLsp {
         &self,
         path: &Path,
         write: u64,
-        conversation: ConversationId,
+        conversation: Option<ConversationId>,
     ) -> anyhow::Result<()> {
         let response = self
             .call(LspOp::AwaitDiagnostics {
@@ -193,6 +241,14 @@ impl SessionLsp {
         }
         let cx = BACKGROUND_CONTEXT.clone();
         let harness = self.harness.require()?;
+        let conversation = match conversation {
+            Some(conversation) => conversation,
+            None => self
+                .harness
+                .root()
+                .map(|root| root.id())
+                .ok_or_else(|| anyhow::anyhow!("Harness is closed"))?,
+        };
         let Some(conversation) = harness.conversation(conversation, &cx).await? else {
             return Ok(());
         };
@@ -213,54 +269,74 @@ impl SessionLsp {
         Ok(())
     }
 
-    /// Write every file of `edit` atomically, then tell the servers. Every
-    /// file must still hold the text the server edited before any is
-    /// written.
+    /// Write every file of `edit` through the session's documents (path
+    /// lock, compare-and-swap against the text the server edited, BOM, line
+    /// endings, and mode kept), then tell the servers. Every file must
+    /// still hold that text before any is written.
     ///
     /// # Errors
     ///
     /// A file cannot be read or changed since the server saw it, the edits
-    /// do not apply, or a write fails; files written before a write failure
-    /// stay written.
+    /// do not apply, or a write fails; files written before a failing
+    /// write stay written.
     pub async fn apply(
         self: &Arc<Self>,
         edit: &LspWorkspaceEdit,
-        conversation: ConversationId,
+        conversation: Option<ConversationId>,
     ) -> Result<Vec<WrittenFile>, ApplyError> {
         let mut staged = Vec::with_capacity(edit.files.len());
         for file in &edit.files {
             let path = &file.path;
-            let text =
-                tokio::fs::read_to_string(path)
-                    .await
-                    .map_err(|source| ApplyError::Read {
-                        path: path.clone(),
-                        source,
-                    })?;
-            if text != file.base {
+            let current = tokio::fs::read(path)
+                .await
+                .map_err(|source| ApplyError::Read {
+                    path: path.clone(),
+                    source,
+                })?;
+            if current != file.base.as_bytes() {
                 return Err(ApplyError::Stale { path: path.clone() });
             }
-            let next = apply_text_edits(&text, &file.edits).map_err(|source| ApplyError::Edit {
-                path: path.clone(),
-                source,
-            })?;
-            staged.push((file, next));
+            let next =
+                apply_text_edits(&file.base, &file.edits).map_err(|source| ApplyError::Edit {
+                    path: path.clone(),
+                    source,
+                })?;
+            let target = path
+                .to_str()
+                .ok_or_else(|| ApplyError::NotUtf8 { path: path.clone() })?
+                .to_owned();
+            staged.push((file, target, next));
         }
         let mut written = Vec::with_capacity(staged.len());
-        for (file, next) in staged {
-            let path = &file.path;
-            write_atomically(path, &next).map_err(|source| ApplyError::Write {
-                path: path.clone(),
+        for (file, target, next) in staged {
+            let documents = self.documents.clone();
+            let root = self.root.clone();
+            let base = file.base.clone();
+            let replaced = tokio::task::spawn_blocking(move || {
+                // The writer keeps the file's BOM: it takes the text after it.
+                let content = next.strip_prefix('\u{feff}').unwrap_or(&next);
+                documents.replace_if(&root, &target, base.as_bytes(), content)
+            })
+            .await
+            .map_err(|source| ApplyError::Interrupted {
+                path: file.path.clone(),
                 source,
             })?;
-            let diagnostics = match self.committed_write(path, &next, conversation).await {
-                Ok(report) => WriteDiagnostics::Report(report),
-                Err(error) => WriteDiagnostics::Failed(error.to_string()),
-            };
+            match replaced {
+                Ok(_) => {}
+                Err(WriteError::Changed { .. }) => {
+                    return Err(ApplyError::Stale {
+                        path: file.path.clone(),
+                    })
+                }
+                Err(error @ (WriteError::IsDirectory { .. } | WriteError::Io { .. })) => {
+                    return Err(ApplyError::Write(error))
+                }
+            }
             written.push(WrittenFile {
-                path: path.clone(),
+                path: file.path.clone(),
                 edits: file.edits.len(),
-                diagnostics,
+                diagnostics: self.committed_write(&file.path, conversation).await,
             });
         }
         Ok(written)
@@ -380,24 +456,13 @@ impl Payload {
     }
 }
 
-/// The conversation a host call belongs to: its tool call's, else the root.
-fn call_conversation(lsp: &SessionLsp, call: &HostCall) -> anyhow::Result<ConversationId> {
-    match &call.call {
-        Some(api) => Ok(api.conversation_id()),
-        None => lsp
-            .harness
-            .root()
-            .map(|root| root.id())
-            .ok_or_else(|| anyhow::anyhow!("Harness is closed")),
-    }
-}
-
 /// One file of a workspace edit as the REPL sees it: its edit count and,
 /// once written, what the servers said.
 #[derive(Serialize)]
 struct FileChange {
     path: PathBuf,
     edits: usize,
+    #[serde(flatten)]
     diagnostics: Option<WriteDiagnostics>,
 }
 
@@ -501,7 +566,7 @@ async fn handle(
                 other => return Err(unexpected(name, &other)),
             };
             let files = if apply {
-                lsp.apply(&edit, call_conversation(lsp, &call)?)
+                lsp.apply(&edit, call.conversation_id())
                     .await?
                     .into_iter()
                     .map(FileChange::from)
@@ -549,9 +614,7 @@ async fn handle(
             };
             let (applied, files) = match report.applied {
                 Some(applied) => {
-                    let written = lsp
-                        .apply(&applied.edit, call_conversation(lsp, &call)?)
-                        .await?;
+                    let written = lsp.apply(&applied.edit, call.conversation_id()).await?;
                     (
                         Some(applied.action),
                         written.into_iter().map(FileChange::from).collect(),
@@ -652,35 +715,6 @@ fn summary(diagnostics: &[LspDiagnostic]) -> String {
     })
     .collect();
     parts.join(", ")
-}
-
-/// Replace `path` with `text` atomically (temp file in the same directory,
-/// fsync, rename, directory fsync), keeping the file's permissions.
-fn write_atomically(path: &Path, text: &str) -> std::io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let name = path
-        .file_name()
-        .ok_or_else(|| std::io::Error::other("the path names no file"))?
-        .to_string_lossy();
-    let temp = parent.join(format!(".{name}.eukhe-{}.tmp", uuid::Uuid::new_v4()));
-    let written = (|| {
-        let mut file = std::fs::File::create_new(&temp)?;
-        file.write_all(text.as_bytes())?;
-        if let Ok(metadata) = std::fs::metadata(path) {
-            file.set_permissions(metadata.permissions())?;
-        }
-        file.sync_all()?;
-        std::fs::rename(&temp, path)
-    })();
-    if written.is_err() {
-        // The temp file is ours; the write error is the one to report.
-        let _ = std::fs::remove_file(&temp);
-    }
-    written?;
-    crate::platform::fs::sync_directory(parent)
 }
 
 #[cfg(test)]

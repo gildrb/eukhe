@@ -1,6 +1,5 @@
 use std::sync::Mutex;
 
-use eukhe_durable::types::ROOT_CONVERSATION_ID;
 use eukhe_lsp::LspHost;
 use eukhe_types::lsp::{LspFileEdit, LspPoint, LspSeverity, LspSpan, LspTextEdit};
 use serde_json::json;
@@ -45,6 +44,7 @@ fn session(root: &Path, edit: LspWorkspaceEdit) -> (Arc<ScriptedHost>, Arc<Sessi
         Some(LspHandle::new(Arc::clone(&host))),
         root.to_owned(),
         HarnessCell::default(),
+        Documents::new(root.join("locks"), None),
     ));
     (host, lsp)
 }
@@ -135,7 +135,7 @@ async fn applied_edits_are_written_and_synced() {
         files: vec![rename_old_to_new(&file, base)],
     };
     let (host, lsp) = session(dir.path(), edit.clone());
-    let written = lsp.apply(&edit, ROOT_CONVERSATION_ID).await.unwrap();
+    let written = lsp.apply(&edit, None).await.unwrap();
     let text = "fn new() {}\nfn main() { new(); }\n";
     assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
     assert_eq!(
@@ -143,10 +143,11 @@ async fn applied_edits_are_written_and_synced() {
         vec![WrittenFile {
             path: file.clone(),
             edits: 2,
-            diagnostics: WriteDiagnostics::Report(DiagnosticsReport {
+            diagnostics: WriteDiagnostics {
                 diagnostics: Vec::new(),
-                pending: Vec::new(),
-            }),
+                diagnostics_complete: true,
+                diagnostics_error: None,
+            },
         }]
     );
     assert_eq!(
@@ -179,7 +180,7 @@ async fn edits_of_changed_files_write_nothing() {
         ],
     };
     let (host, lsp) = session(dir.path(), edit.clone());
-    let error = lsp.apply(&edit, ROOT_CONVERSATION_ID).await.unwrap_err();
+    let error = lsp.apply(&edit, None).await.unwrap_err();
     assert!(
         matches!(&error, ApplyError::Stale { path } if *path == changed),
         "{error:?}"
@@ -209,26 +210,46 @@ async fn rename_previews_count_edits_and_write_nothing() {
     .unwrap();
     assert_eq!(
         answer,
-        json!({ "files": [{ "path": file, "edits": 2, "diagnostics": null }], "applied": false })
+        json!({ "files": [{ "path": file, "edits": 2 }], "applied": false })
     );
     assert_eq!(std::fs::read_to_string(&file).unwrap(), base);
 }
 
-#[cfg(unix)]
-#[test]
-fn atomic_writes_keep_permissions_and_leave_no_temp_file() {
-    use std::os::unix::fs::PermissionsExt as _;
+/// The edit addresses the text the server saw, BOM and CRLF included; the
+/// written file keeps both, once, and the servers get it as written.
+#[tokio::test]
+async fn applied_edits_keep_the_bom_and_line_endings() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("run.sh");
-    std::fs::write(&file, "old").unwrap();
-    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o750)).unwrap();
-    write_atomically(&file, "new").unwrap();
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+    let file = dir.path().join("lib.rs");
+    let base = "\u{feff}// a\r\nfn old() {}\r\n";
+    std::fs::write(&file, base).unwrap();
+    let edit = LspWorkspaceEdit {
+        files: vec![LspFileEdit {
+            path: file.clone(),
+            edits: vec![LspTextEdit {
+                span: LspSpan {
+                    start: point(2, 4),
+                    end: point(2, 7),
+                },
+                new_text: "new".to_owned(),
+            }],
+            base: base.to_owned(),
+        }],
+    };
+    let (host, lsp) = session(dir.path(), edit.clone());
+    lsp.apply(&edit, None).await.unwrap();
+    let text = "\u{feff}// a\r\nfn new() {}\r\n";
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
     assert_eq!(
-        std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
-        0o750
+        *host.requests.lock().unwrap(),
+        vec![LspRequest {
+            root: dir.path().to_owned(),
+            op: LspOp::Sync {
+                path: file,
+                text: text.to_owned(),
+            },
+        }]
     );
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
 #[test]
