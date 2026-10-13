@@ -19,6 +19,7 @@ use env::KillCloseReason;
 mod agent_reply;
 mod input;
 pub(crate) use input::{parse_prompt_images, submit_input, InputRequest};
+mod harness_end;
 mod lifecycle;
 mod memory_updates;
 mod passivation;
@@ -184,6 +185,9 @@ pub struct Worker {
     pub(crate) own_summary: Arc<Mutex<Option<Value>>>,
     /// The user's `@name` replies this session owes (see `agent_reply`).
     agent_replies: Arc<agent_reply::AgentReplies>,
+    /// Set once the hosted session's durable Harness failed (see
+    /// `harness_end`): the worker retires and exits for revival.
+    harness_failure: tokio::sync::watch::Sender<Option<crate::journal::WorkerFailure>>,
 }
 
 /// Whether a delivery's sender is one of THIS session's children, by the
@@ -344,6 +348,7 @@ impl Worker {
                     .map(std::path::PathBuf::from)
                     .unwrap_or_default(),
             )),
+            harness_failure: tokio::sync::watch::Sender::new(None),
         }
     }
 
@@ -564,5 +569,21 @@ pub async fn run_worker() -> Result<()> {
             worker.exit_refused_registration().await;
         });
     }
-    worker.serve().await
+    // A failed durable Harness ends the worker: the supervisor revives the
+    // session from Storage, where its run and queued inputs survive.
+    let failed = async {
+        let failure = worker.retire_failed_harness().await;
+        worker.close_listener_then_cleanup_socket().await;
+        failure
+    };
+    tokio::select! {
+        served = Arc::clone(&worker).serve() => served,
+        failure = failed => {
+            eprintln!(
+                "eukhe-daemon worker {}: {failure}; exiting for revival",
+                std::process::id()
+            );
+            std::process::exit(harness_end::HARNESS_FAILED_EXIT_CODE)
+        }
+    }
 }

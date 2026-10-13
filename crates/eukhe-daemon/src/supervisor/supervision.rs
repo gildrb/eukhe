@@ -136,6 +136,25 @@ impl Supervisor {
             // never resumes beside an orphaned child worker (TS children
             // die with the in-process parent).
             self.close_children_of_dead_parent(&resident).await;
+            // A worker that gave its session up recorded why: the typed
+            // failure is what clients and parents read while it revives.
+            let failure = {
+                let journal_path = resident
+                    .descriptor
+                    .lock()
+                    .await
+                    .recovery_journal_path
+                    .clone();
+                crate::journal::WorkerRecoveryJournal::read_failure(std::path::Path::new(
+                    &journal_path,
+                ))
+            };
+            if let Some(failure) = &failure {
+                let mut descriptor = resident.descriptor.lock().await;
+                descriptor.last_error = Some(failure.to_string());
+                descriptor.last_failure_at = Some(util::now_iso());
+                let _ = persist_worker(&resident.descriptor_path, &descriptor);
+            }
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |elapsed| elapsed.as_millis() as u64);
@@ -205,8 +224,11 @@ impl Supervisor {
                 return;
             }
             let backoff_ms = (BASE_BACKOFF_MS << (failures - 1).min(7)).min(MAX_BACKOFF_MS);
+            let cause = failure
+                .map(|failure| format!(" ({failure})"))
+                .unwrap_or_default();
             self.log_line(&format!(
-                "session worker {} exited unexpectedly; restarting in {backoff_ms}ms (failure {failures}/{MAX_CONSECUTIVE_FAILURES})",
+                "session worker {} exited unexpectedly{cause}; restarting in {backoff_ms}ms (failure {failures}/{MAX_CONSECUTIVE_FAILURES})",
                 resident.worker_id
             ));
             tokio::time::sleep(Duration::from_millis(backoff_ms)).await;

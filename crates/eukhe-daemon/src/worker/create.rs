@@ -733,6 +733,7 @@ impl Worker {
         // The installed session's chat memory (a root session's; none for
         // a subagent or a scripted session) reports its progress live.
         self.follow_memory_updates(hosted.deps().memory.as_ref());
+        self.watch_harness_end(&hosted);
         if let Some(previous) = self.session.replace(hosted) {
             if let Err(error) = previous.close(cx).await {
                 eprintln!("eukhe-daemon worker: closing the replaced session failed: {error}");
