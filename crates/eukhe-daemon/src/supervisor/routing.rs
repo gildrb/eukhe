@@ -9,6 +9,8 @@ use super::{
 use anyhow::Context as _;
 use eukhe_types::daemon::DaemonWorkerCommand;
 
+use super::worker_lifecycle::StopOutcome;
+
 /// The route-level wake outcome: a woken resident, or the fallthrough
 /// error the caller answers (no saved session matched).
 pub(super) enum WakeRoute {
@@ -94,8 +96,16 @@ impl Drop for ReplySlot<'_> {
 /// TS daemon-supervisor.ts:204 `WORKER_REQUEST_TIMEOUT_MS`.
 pub(crate) const WORKER_REQUEST_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1000;
 
+/// The cooperative grace of every stop (ADR 0011): a routed `kill` or
+/// `shutdown` gets this long to settle before the supervisor kills the
+/// worker's process group and records the stop as effects-unknown. One
+/// policy for every stop path, so a worker wedged in a run never holds a
+/// kill or a shutdown past it.
+pub(crate) const STOP_GRACE_MS: u64 = 5_000;
+
 /// The route budget of a client command: turn-long waits ride TS's 24 h
-/// worker-request budget; everything else is a short control route.
+/// worker-request budget, a kill rides the stop grace, everything else is
+/// a short control route.
 pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
     if matches!(
         command,
@@ -109,6 +119,8 @@ pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
             | DaemonCommand::NavigateTree { .. }
     ) {
         WORKER_REQUEST_TIMEOUT_MS
+    } else if matches!(command, DaemonCommand::Kill { .. }) {
+        STOP_GRACE_MS
     } else {
         ROUTE_TIMEOUT_MS
     }
@@ -996,20 +1008,31 @@ impl Supervisor {
                     // never run. The marker-carrying child closes keep the
                     // success gate: TS forwards them without a stop, and a
                     // failed cascade is the parent's retry, not a stop.
-                    if plain_kill {
-                        self.finish_plain_kill_stop(&resident, rest).await;
+                    let stopped = if plain_kill {
+                        Some(self.finish_plain_kill_stop(&resident, rest).await)
                     } else if response.success {
                         // The cascade stop: a failure is observable (logged)
                         // instead of silently skipping the
                         // retire/registry/passivation tail — the boot's
                         // tombstoned-stop finalization owns whatever this
                         // pass could not finish.
-                        if let Err(error) = self.stop_worker(&resident).await {
+                        Some(self.stop_worker(&resident).await.inspect_err(|error| {
                             self.log_line(&format!(
                                 "session worker {} stop after kill failed: {error:#}; the tombstoned descriptor holds the stop for the next boot",
                                 resident.worker_id
                             ));
+                        }))
+                    } else {
+                        None
+                    };
+                    // The stop's outcome rides the answer: a forced stop is
+                    // recorded as effects-unknown, never as a silent success.
+                    if let Some(Ok(outcome)) = stopped {
+                        let mut data = response.data.take().unwrap_or_else(|| json!({}));
+                        if let Some(object) = data.as_object_mut() {
+                            object.insert("stopOutcome".to_string(), json!(outcome));
                         }
+                        response.data = Some(data);
                     }
                 }
                 if let DaemonCommand::Rename { name, .. }
@@ -1049,17 +1072,31 @@ impl Supervisor {
                 (vec![response_line(&response)], false)
             }
             Err(error) => {
-                // TS's root-kill `finally` runs its stop on a thrown
-                // forward as well (a hung worker never answers the routed
-                // kill): the stop escalates — the bounded `shutdown` route,
-                // then `retire_worker_after_stop`'s SIGTERM -> SIGKILL ->
-                // hard-deadline pass — so the stopped worker's session
-                // lease cannot outlive the command. The marker-carrying
-                // child closes keep TS's plain forward: a failed cascade is
-                // the parent's retry.
-                if plain_kill {
-                    if let DaemonCommand::Kill { rest, .. } = command {
-                        self.finish_plain_kill_stop(&resident, rest).await;
+                // ADR 0011's kill boundary: a kill whose cooperative route
+                // missed the stop grace (a worker wedged in a run, or one
+                // that cannot be reached) escalates to the forced stop —
+                // the plain kill and a parent's child close alike (TS's
+                // root-kill `finally`) — so the killed worker never
+                // outlives the command. A worker that is provably gone
+                // answers the kill as done, its outcome recorded.
+                if let DaemonCommand::Kill { rest, .. } = command {
+                    let stopped = if plain_kill {
+                        self.finish_plain_kill_stop(&resident, rest).await
+                    } else {
+                        self.stop_worker(&resident).await
+                    };
+                    if let Ok(
+                        outcome @ (StopOutcome::Settled | StopOutcome::ForcedEffectsUnknown),
+                    ) = stopped
+                    {
+                        return (
+                            vec![response_line(&response_success(
+                                Some(&command_id),
+                                &type_name,
+                                Some(json!({ "stopOutcome": outcome })),
+                            ))],
+                            false,
+                        );
                     }
                 }
                 (

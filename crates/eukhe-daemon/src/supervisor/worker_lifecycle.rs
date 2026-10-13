@@ -5,12 +5,12 @@ use super::launch_budget::{
     DEFAULT_WORKER_CONNECT_TIMEOUT_MS, WORKER_CONNECT_BACKOFF_MS, WORKER_CONNECT_PROBE_MS,
     WORKER_CONNECT_TIMEOUT_ENV,
 };
-use super::routing::WORKER_REQUEST_TIMEOUT_MS;
+use super::routing::{STOP_GRACE_MS, WORKER_REQUEST_TIMEOUT_MS};
 use super::{
     anyhow, create_command_payload, json, persist_worker, socket, util, Arc, Context,
     DaemonCommand, DaemonWorkerDescriptor, DaemonWorkerLifecycle, DurableDaemonCreateCommand,
     Duration, Map, Ordering, Path, ResidentWorker, Result, RouteAdmission, Supervisor, TempSync,
-    TypedCreateRejection, Value, ROUTE_TIMEOUT_MS,
+    TypedCreateRejection, Value,
 };
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 
@@ -24,6 +24,21 @@ struct EngineModelSelection {
     api_key: Option<String>,
     /// The requested thinking level (`--thinking` on the wire).
     thinking: Option<eukhe_types::ai::ModelThinkingLevel>,
+}
+
+/// How one stop ended at ADR 0011's kill boundary: the cooperative
+/// `shutdown` request first, the process-group kill after the grace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum StopOutcome {
+    /// The worker settled the cooperative shutdown inside the grace.
+    Settled,
+    /// The worker missed the grace and was killed with its process group:
+    /// the effects of whatever it was running may or may not have landed.
+    ForcedEffectsUnknown,
+    /// The process outlived the escalation or cannot be identity-verified:
+    /// its tombstoned descriptor carries the stop to the next boot.
+    Survived,
 }
 
 impl Supervisor {
@@ -619,9 +634,8 @@ impl Supervisor {
     /// (daemon-supervisor.ts: `try { response = await
     /// this.forwardToWorker(...) } finally { await this.stopWorker(...) }`),
     /// so a kill a hung worker never answers still completes the stop —
-    /// the graceful `shutdown` route bounded by the route budget, then
-    /// [`Self::retire_worker_after_stop`]'s SIGTERM -> SIGKILL ->
-    /// hard-deadline escalation — and the stopped worker's session lease
+    /// [`Self::shut_down_within_grace`]'s cooperative `shutdown`, then the
+    /// process-group escalation — and the stopped worker's session lease
     /// frees through the dead-owner reclaim instead of outliving the
     /// command behind a route that never answers.
     ///
@@ -638,14 +652,13 @@ impl Supervisor {
         self: &Arc<Self>,
         resident: &Arc<ResidentWorker>,
         rest: &Map<String, Value>,
-    ) {
-        if let Err(error) = self.stop_worker(resident).await {
+    ) -> Result<StopOutcome> {
+        let outcome = self.stop_worker(resident).await.inspect_err(|error| {
             self.log_line(&format!(
                 "session worker {} stop after kill failed: {error:#}; the stop never durably started and stays retryable",
                 resident.worker_id
             ));
-            return;
-        }
+        })?;
         // TS `stopWorkerUntracked`'s archived-stop finalize (the plain
         // kill's durable half): the killed session tree's scheduled jobs
         // cancel durably and the root file carries the `archived` state,
@@ -665,6 +678,7 @@ impl Supervisor {
             });
         self.finalize_worker_stop(resident, deleted_child.as_ref())
             .await;
+        Ok(outcome)
     }
 
     /// The worker-driven idle passivation (TS's `idleEvictionMinutes`
@@ -739,7 +753,7 @@ impl Supervisor {
             return response_success(Some(command_id), type_name, None);
         };
         match self.stop_worker_releasing(&resident, Some(fence)).await {
-            Ok(()) => {
+            Ok(_outcome) => {
                 self.log_line(&format!(
                     "session worker {} passivated idle (idleEvictionMinutes={threshold})",
                     resident.worker_id
@@ -758,7 +772,7 @@ impl Supervisor {
     pub(crate) async fn stop_worker(
         self: &Arc<Self>,
         resident: &Arc<ResidentWorker>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<StopOutcome> {
         self.stop_worker_releasing(resident, None).await
     }
 
@@ -768,7 +782,7 @@ impl Supervisor {
         self: &Arc<Self>,
         resident: &Arc<ResidentWorker>,
         fence: Option<tokio::sync::OwnedSemaphorePermit>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<StopOutcome> {
         // The stop's durable intent persists BEFORE the worker is told (TS
         // `stopWorkerUntracked(removeDescriptor)` ->
         // `persistWorkerStopTombstone`): a supervisor that dies mid-stop, or
@@ -787,39 +801,14 @@ impl Supervisor {
         resident.note_retired();
         // The fence releases past the retire (a tombstone-persist failure
         // fails the stop before it, and the worker stays fully
-        // routable) and before the shutdown route, which needs a permit
-        // of its own. A client route that acquires a freed permit next
+        // routable). A client route that acquires a freed permit next
         // sees the retire (the post-admission check in routing.rs).
         drop(fence);
-        match self
-            .route_command_typed(
-                resident,
-                "shutdown",
-                json!({}),
-                ROUTE_TIMEOUT_MS,
-                RouteAdmission::Control,
-            )
-            .await
-        {
-            Ok(response) if response.success => {}
-            Ok(response) => {
-                self.log_line(&format!(
-                    "session worker {} shutdown route refused: {:?}",
-                    resident.worker_id, response.error
-                ));
-            }
-            Err(error) => {
-                self.log_line(&format!(
-                    "session worker {} shutdown route failed: {error:#}",
-                    resident.worker_id
-                ));
-            }
-        }
         // The per-session stop shares the terminal-stop contract: the
         // descriptor dies only with a provably-gone process, so a worker
         // that missed the routed shutdown stays adoptable (or is
         // escalated away) instead of becoming an invisible lease holder.
-        self.retire_worker_after_stop(resident).await;
+        let outcome = self.shut_down_within_grace(resident).await;
         // TS `stopWorkerUntracked`: a client-owned (ephemeral) worker's
         // scheduled jobs die with the registration
         // (`cancelEphemeralWorkerScheduledJobs`) — every remove-descriptor
@@ -845,20 +834,74 @@ impl Supervisor {
         // transcript read.
         self.passivate_roster_worker(&resident.worker_id, ephemeral)
             .await;
-        Ok(())
+        Ok(outcome)
+    }
+
+    /// ADR 0011's stop boundary, shared by every stop: the cooperative
+    /// `shutdown` request gets [`STOP_GRACE_MS`] on the control plane (no
+    /// in-flight permit, so a saturated worker is still asked), then
+    /// [`Self::retire_worker_after_stop`] escalates against a process that
+    /// is still alive. A worker wedged in a run never holds the stop past
+    /// the grace; one that missed it is recorded as effects-unknown.
+    #[tracing::instrument(skip_all, fields(worker_id = %resident.worker_id))]
+    pub(super) async fn shut_down_within_grace(
+        self: &Arc<Self>,
+        resident: &Arc<ResidentWorker>,
+    ) -> StopOutcome {
+        let settled = match self
+            .route_command_typed(
+                resident,
+                "shutdown",
+                json!({}),
+                STOP_GRACE_MS,
+                RouteAdmission::Control,
+            )
+            .await
+        {
+            Ok(response) if response.success => true,
+            Ok(response) => {
+                self.log_line(&format!(
+                    "session worker {} shutdown route refused: {:?}",
+                    resident.worker_id, response.error
+                ));
+                false
+            }
+            Err(error) => {
+                self.log_line(&format!(
+                    "session worker {} shutdown route failed: {error:#}",
+                    resident.worker_id
+                ));
+                false
+            }
+        };
+        match (self.retire_worker_after_stop(resident).await, settled) {
+            (false, _) => StopOutcome::Survived,
+            (true, true) => StopOutcome::Settled,
+            (true, false) => {
+                self.log_line(&format!(
+                    "session worker {} missed the {STOP_GRACE_MS}ms stop grace and was killed with its process group; the effects of its in-flight work are unknown",
+                    resident.worker_id
+                ));
+                StopOutcome::ForcedEffectsUnknown
+            }
+        }
     }
 
     /// Delete one stopped worker's descriptor only after its process is
     /// provably gone (TS `stopWorkerUntracked`'s contract; the shutdown
     /// pass and the per-session stop share it). A worker that missed the
-    /// routed `shutdown` (a dead connection, a wedged socket, a flush
-    /// outlasting the route budget) gets the identity-gated
-    /// SIGTERM -> SIGKILL escalation; deleting the descriptor of a live
+    /// routed `shutdown` (a dead connection, a wedged socket, a run
+    /// outlasting the stop grace) gets the identity-gated SIGTERM ->
+    /// process-group SIGKILL escalation; deleting the descriptor of a live
     /// worker orphans it — nothing on any later daemon can adopt or reap
     /// it through its identity, while it keeps holding its runtime
     /// session lease, so every open of its session then refuses with
-    /// `Session is already active in <its id>`.
-    pub(super) async fn retire_worker_after_stop(self: &Arc<Self>, resident: &Arc<ResidentWorker>) {
+    /// `Session is already active in <its id>`. Returns whether the
+    /// process is provably gone.
+    pub(super) async fn retire_worker_after_stop(
+        self: &Arc<Self>,
+        resident: &Arc<ResidentWorker>,
+    ) -> bool {
         let (pid, start_id, worker_socket, recovery_journal_path) = {
             let descriptor = resident.descriptor.lock().await;
             (
@@ -885,12 +928,14 @@ impl Supervisor {
                     "session worker {} survived the shutdown escalation; descriptor tombstoned for the next boot",
                     resident.worker_id
                 ));
+                false
             }
             _ if alive_unverified => {
                 self.log_line(&format!(
                     "session worker {} cannot be identity-verified; descriptor tombstoned for the next boot",
                     resident.worker_id
                 ));
+                false
             }
             _ => {
                 // The worker is provably gone. A signaled worker never
@@ -921,6 +966,7 @@ impl Supervisor {
                 // removal beside it — the retire already provably killed
                 // the worker, so no later boot applies a shadowed record.
                 let _ = crate::descriptor::clear_identity_pending(&resident.descriptor_path);
+                true
             }
         }
     }
@@ -1105,5 +1151,79 @@ mod tests {
         assert!(!descriptor_path.exists());
         assert_eq!(std::fs::read(unowned_journal).unwrap(), retained);
         assert_eq!(std::fs::read(unknown_journal).unwrap(), retained);
+    }
+
+    /// ADR 0011's kill boundary on a wedged worker: its stop route never
+    /// answers (a run wedged in the close) and its process ignores SIGTERM.
+    /// The stop asks within the stop grace, then kills the whole process
+    /// group — the worker and the grandchild its run started — and records
+    /// the stop as effects-unknown. (The old stop waited out the 30 s route
+    /// budget and signalled the leader alone.)
+    #[tokio::test]
+    async fn a_wedged_worker_is_killed_with_its_group_after_the_grace() {
+        use std::io::BufRead as _;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let supervisor = supervisor_in(dir.path());
+        let descriptor_dir = supervisor.descriptor_dir.clone();
+        std::fs::create_dir_all(&descriptor_dir).expect("descriptor dir");
+        let mut command = std::process::Command::new("sh");
+        command
+            .args(["-c", "trap '' TERM; sleep 60 & echo $!; wait"])
+            .stdout(std::process::Stdio::piped());
+        eukhe_core::platform::process::set_new_process_group(&mut command);
+        let mut worker = command.spawn().expect("spawn the wedged stand-in");
+        let pid = worker.id();
+        let mut line = String::new();
+        std::io::BufReader::new(worker.stdout.take().expect("stdout"))
+            .read_line(&mut line)
+            .expect("the grandchild pid");
+        let grandchild: u32 = line.trim().parse().expect("a pid");
+        let descriptor: DaemonWorkerDescriptor = serde_json::from_value(json!({
+            "version": 2,
+            "workerId": "w-wedged",
+            "pid": pid,
+            "processStartId": crate::lease::get_process_start_id(pid),
+            "socketPath": dir.path().join("w-wedged.sock").to_string_lossy(),
+            "recoveryJournalPath": descriptor_dir.join("w-wedged.recovery.jsonl").to_string_lossy(),
+            "supervisorSocketPath": supervisor.options.socket_path.to_string_lossy(),
+            "authenticationToken": "token",
+            "rootActiveSessionId": "w-wedged",
+            "createdAt": "2026-10-13T00:00:00Z",
+            "updatedAt": "2026-10-13T00:00:00Z",
+            "lifecycle": "ready",
+            "createCommand": {},
+            "consecutiveFailures": 0,
+        }))
+        .expect("descriptor");
+        let resident = ResidentWorker::new(
+            "w-wedged".to_string(),
+            descriptor,
+            descriptor_dir.join("w-wedged.json"),
+        );
+        // A live command channel nobody answers: the wedged worker.
+        let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(8);
+        *resident.cmd_tx.lock().await = Some(cmd_tx);
+
+        let started = std::time::Instant::now();
+        let outcome = supervisor.shut_down_within_grace(&resident).await;
+        let elapsed = started.elapsed();
+
+        assert_eq!(outcome, StopOutcome::ForcedEffectsUnknown);
+        // The grace, the SIGTERM grace, and slack for the kill itself.
+        assert!(
+            elapsed < Duration::from_millis(STOP_GRACE_MS) + Duration::from_secs(5),
+            "the stop outlived its grace: {elapsed:?}"
+        );
+        assert!(!crate::lease::is_process_alive(pid).unwrap_or(true));
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while crate::lease::is_process_alive(grandchild).unwrap_or(true) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the run's grandchild survived the group kill"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let _ = worker.wait();
     }
 }

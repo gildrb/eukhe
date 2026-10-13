@@ -700,7 +700,10 @@ async fn a_failed_stop_persist_gates_the_kill_stop_belt() {
         ("rlmLedgerDelete".to_string(), json!("user")),
         ("rlmChildId".to_string(), json!("child-1")),
     ]);
-    supervisor.finish_plain_kill_stop(&resident, &rest).await;
+    supervisor
+        .finish_plain_kill_stop(&resident, &rest)
+        .await
+        .expect_err("the stop tombstone cannot persist");
 
     // The stop never started: the resident stays owned (retryable)
     // and the live child's artifacts survive the belt.

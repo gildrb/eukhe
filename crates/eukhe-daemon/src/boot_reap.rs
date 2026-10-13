@@ -299,7 +299,12 @@ async fn stop_target(target: &ReapTarget) -> ReapOutcome {
 /// grace, SIGKILL, verify. The signals ride the kernel-held process
 /// handle (pidfd): a numeric pid recycled in the check-then-signal window
 /// must never receive the signal meant for the process that exited - the
-/// fd pins the exact process, whatever the pid table does afterwards.
+/// fd pins the exact process, whatever the pid table does afterwards. A
+/// worker that leads its own process group (every supervisor spawn does)
+/// takes the SIGKILL on the whole group (ADR 0011: the kill reaches the
+/// unit's descendants, not only its leader); the group is signaled only
+/// while its leader is identity-verified alive, so the group id cannot
+/// name a recycled one.
 async fn stop_target_within(
     target: &ReapTarget,
     term_grace: Duration,
@@ -334,6 +339,16 @@ async fn stop_target_within(
         if await_gone(target, term_grace).await {
             eukhe_core::platform::process::close_pidfd(pidfd);
             return ReapOutcome::Term;
+        }
+        let leads_group = matches!(target.kind, ReapKind::Worker)
+            && identity_current(target)
+            && eukhe_core::platform::process::process_group_id(target.pid)
+                == i32::try_from(target.pid).ok();
+        if leads_group {
+            let _ = eukhe_core::platform::process::signal_process_group(
+                i32::try_from(target.pid).unwrap_or(0),
+                eukhe_core::platform::process::Signal::Kill,
+            );
         }
         if eukhe_core::platform::process::pidfd_signal(
             pidfd,
