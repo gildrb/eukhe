@@ -34,6 +34,7 @@
 //! The kernel Python is this checkout's runtime
 //! (`eukhe-core/tests/support/kernel_runtime.rs`).
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -41,11 +42,36 @@ use std::time::Duration;
 use eukhe_core::kernel::provisioner::{IpythonKernelProvisioner, IpythonKernelProvisionerOptions};
 use eukhe_core::kernel::shared::{ExecuteOptions, ExecuteStatus};
 use eukhe_core::kernel::state_snapshot::snapshot_path_in;
-use std::os::unix::fs::PermissionsExt;
 
 #[path = "support/kernel_runtime.rs"]
 mod kernel_runtime;
 use kernel_runtime::kernel_python;
+
+/// Install `script` as the owner-executable file `path`. A child process
+/// writes it, never this process: the tests here spawn interpreters
+/// concurrently, a sibling's fork inherits every fd this process holds
+/// until that child execs, and an exec of the script while such a write
+/// fd lives fails with `Text file busy` (ETXTBSY). A boot whose attempt
+/// and retry both hit it never spawned at all.
+fn install_script(path: &std::path::Path, script: &str) {
+    let mut writer = std::process::Command::new("/bin/sh")
+        .args(["-c", "cat > \"$0\" && chmod 700 \"$0\""])
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    writer
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(script.as_bytes())
+        .unwrap();
+    assert!(
+        writer.wait().unwrap().success(),
+        "installing {}",
+        path.display()
+    );
+}
 
 /// A kernel interpreter wrapper that counts spawns into `count` AND holds
 /// the n-th interpreter (0-based, from the count file) until the fixture
@@ -58,9 +84,9 @@ fn counting_gated_kernel(
     gates: &std::path::Path,
 ) -> PathBuf {
     let wrapper = dir.join("counting-gated-python");
-    std::fs::write(
+    install_script(
         &wrapper,
-        format!(
+        &format!(
             "#!/bin/sh\nn=$(wc -c < '{}')\nprintf x >> '{}'\nwhile [ ! -f '{}'/gate$n ] && [ -d '{}' ]; do sleep 0.05; done\nexec '{}' \"$@\"\n",
             count.display(),
             count.display(),
@@ -68,15 +94,40 @@ fn counting_gated_kernel(
             gates.display(),
             python.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    );
     wrapper
 }
 
 /// Number of interpreter spawns recorded so far.
 fn starts(count: &std::path::Path) -> u64 {
     count.metadata().map_or(0, |m| m.len())
+}
+
+/// Wait until `boot` spawned its first interpreter (the count file grew).
+/// A boot that settles first never spawns: fail with its outcome at once
+/// instead of riding out the bound.
+async fn first_spawn<T, E: std::fmt::Display>(
+    count: &std::path::Path,
+    boot: &mut tokio::task::JoinHandle<Result<T, E>>,
+) {
+    let spawned = async {
+        while starts(count) == 0 {
+            tokio::task::yield_now().await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::select! {
+            biased;
+            () = spawned => {}
+            settled = boot => match settled {
+                Ok(Ok(_)) => panic!("the boot delivered a kernel without a recorded spawn"),
+                Ok(Err(error)) => panic!("the boot failed before its first spawn: {error:#}"),
+                Err(error) => panic!("the boot task failed: {error}"),
+            },
+        }
+    })
+    .await
+    .expect("the first interpreter spawned");
 }
 
 /// A settled boot's publisher clears only the memo generation it installed
@@ -106,17 +157,11 @@ async fn stale_publisher_cannot_clear_a_newer_startup_memo() {
     // Boot one, doomed by a kill before publication. Its interpreter is
     // held at gate0 (its handshake cannot complete until the fixture opens
     // the gate), so the kill lands mid-boot by construction.
-    let doomed = tokio::spawn({
+    let mut doomed = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the fixture interpreter spawned");
+    first_spawn(&count, &mut doomed).await;
     provisioner.kill();
     // Arm the NEWER generation while the doomed boot is still settling.
     let newer = tokio::spawn({
@@ -184,17 +229,11 @@ async fn kill_during_boot_leaves_no_resident_kernel() {
     );
     // The interpreter is held at gate0: the boot cannot publish before the
     // kill lands, so the kill is mid-boot by construction.
-    let boot = tokio::spawn({
+    let mut boot = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the fixture interpreter spawned");
+    first_spawn(&count, &mut boot).await;
     provisioner.kill();
     std::fs::write(gates.join("gate0"), "").unwrap();
     let settled = tokio::time::timeout(Duration::from_secs(30), boot)
@@ -255,17 +294,11 @@ async fn dispose_during_boot_settles_it_without_parking() {
     // The interpreter is held at gate0, so the dispose below lands
     // mid-boot by construction - the boot cannot settle before the
     // fixture lets it.
-    let boot = tokio::spawn({
+    let mut boot = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the fixture interpreter spawned");
+    first_spawn(&count, &mut boot).await;
     // dispose() waits the held boot's settle, so it runs as its own task;
     // the drain below lets it arm (disposed, abort signal) before the
     // boot's handshake can complete.
@@ -350,17 +383,11 @@ async fn kill_during_the_re_armed_boot_leaves_no_resident_kernel() {
     );
     // The re-armed boot (a fresh generation) spawns interpreter #0,
     // held at gate0: the kill lands mid-boot by construction.
-    let re_armed = tokio::spawn({
+    let mut re_armed = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the re-armed interpreter spawned");
+    first_spawn(&count, &mut re_armed).await;
     provisioner.kill();
     std::fs::write(gates.join("gate0"), "").unwrap();
     let settled = tokio::time::timeout(Duration::from_secs(30), re_armed)
@@ -419,17 +446,11 @@ async fn doomed_settle_keeps_the_newer_boot_listener_state() {
     // Boot A spawns its interpreter held at gate0 (its handshake cannot
     // complete until the fixture opens the gate, so its settle timing is
     // under the test's control, never a timing race).
-    let doomed = tokio::spawn({
+    let mut doomed = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the fixture interpreter spawned");
+    first_spawn(&count, &mut doomed).await;
     // A joiner of the doomed generation attaches its progress handler
     // first (replaying A's current stage) and parks on A's memo.
     let a_stages: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -575,9 +596,9 @@ fn flaky_first_kernel(
     fail_gate: &std::path::Path,
 ) -> PathBuf {
     let wrapper = dir.join("flaky-first-python");
-    std::fs::write(
+    install_script(
         &wrapper,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf x >> '{}'\nif [ -f '{}' ]; then exec '{}' \"$@\"; fi\nwhile [ ! -f '{}' ] && [ -d '{}' ]; do sleep 0.05; done\nexit 1\n",
             count.display(),
             flip.display(),
@@ -585,9 +606,7 @@ fn flaky_first_kernel(
             fail_gate.display(),
             dir.display(),
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    );
     wrapper
 }
 
@@ -614,17 +633,11 @@ async fn kill_during_the_retry_backoff_pins_the_spawn_count() {
     // Boot A's first attempt spawns and holds BEFORE its failure: the
     // fixture owns the failure timing through the gate, never the
     // backoff window.
-    let doomed = tokio::spawn({
+    let mut doomed = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the first attempt spawned");
+    first_spawn(&count, &mut doomed).await;
     // The kill invalidates A's generation while A's first attempt is
     // still in flight; only then does the failure land.
     provisioner.kill();
@@ -698,17 +711,11 @@ async fn doomed_boot_does_not_report_unavailable_skills() {
         },
     );
     // Boot A spawns its interpreter held at gate0.
-    let doomed = tokio::spawn({
+    let mut doomed = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the fixture interpreter spawned");
+    first_spawn(&count, &mut doomed).await;
     // The kill invalidates A's generation while A is still settling.
     provisioner.kill();
     // Boot B arms fresh and spawns its own interpreter held at gate1.
@@ -785,17 +792,11 @@ async fn a_killed_then_disposed_boot_never_flushes_the_snapshot() {
         },
     );
     // Boot A spawns its interpreter held at gate0.
-    let doomed = tokio::spawn({
+    let mut doomed = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the fixture interpreter spawned");
+    first_spawn(&count, &mut doomed).await;
     // The kill dooms A; the dispose races in behind it and must wait A's
     // settle (no worker-exit orphan).
     provisioner.kill();
@@ -849,17 +850,11 @@ async fn dispose_after_a_kill_waits_the_doomed_boot() {
         },
     );
     // Boot A spawns its interpreter held at gate0.
-    let doomed = tokio::spawn({
+    let mut doomed = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the fixture interpreter spawned");
+    first_spawn(&count, &mut doomed).await;
     provisioner.kill();
     let mut dispose = std::pin::pin!(tokio::spawn({
         let provisioner = provisioner.clone();
@@ -907,17 +902,11 @@ async fn a_kill_while_the_boot_waits_the_stop_gate_spawns_no_interpreter() {
         },
     );
     // Boot A spawns its interpreter and holds mid-handshake at gate0.
-    let boot_a = tokio::spawn({
+    let mut boot_a = tokio::spawn({
         let provisioner = provisioner.clone();
         async move { provisioner.ensure(None, None).await }
     });
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while starts(&count) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the fixture interpreter spawned");
+    first_spawn(&count, &mut boot_a).await;
     // The stop arms its gate in the synchronous prefix of its first poll,
     // and every later boot waits that gate before the permit and the
     // spawn. Poll it once on the test thread so the arm is guaranteed -
