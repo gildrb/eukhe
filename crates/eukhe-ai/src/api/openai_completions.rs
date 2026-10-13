@@ -522,9 +522,9 @@ async fn run_stream(
         state.handle_chunk(&chunk)?;
     }
 
-    // eukhe addition: OpenAI prices non-default service tiers; gateways price
-    // tiers per endpoint, so only the `openai` provider applies the table.
-    if model.provider == "openai" {
+    // eukhe addition: a host that bills non-default service tiers prices
+    // them from the model's multipliers (`billsServiceTier`).
+    if compat.bills_service_tier {
         apply_service_tier_pricing(
             &mut state.output.usage,
             state.response_service_tier.as_deref(),

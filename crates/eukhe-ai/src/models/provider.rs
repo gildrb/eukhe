@@ -34,6 +34,16 @@ pub type FilterModelsFn = Arc<dyn Fn(Vec<Model>, Option<&Credential>) -> Vec<Mod
 pub type FilterAllModelsFn =
     Arc<dyn Fn(Vec<AnyModel>, Option<&Credential>) -> Vec<AnyModel> + Send + Sync>;
 
+/// The provider's own stream cannot resolve its auth: a direct
+/// `compat::stream` goes through the `Models` registry (provider auth
+/// resolution) unless the caller supplied credentials.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegistryStreamAuth {
+    /// Request header that carries caller-supplied credentials, besides
+    /// the API key.
+    pub credential_header: &'static str,
+}
+
 /// A provider is the concrete runtime unit. It owns id/name/base metadata,
 /// auth methods, model listing, and the operations its models support
 /// (streaming, image generation, classification). TS `Provider`: optional
@@ -74,6 +84,9 @@ pub struct Provider {
     pub generate_images: Option<GenerateImagesFn>,
     /// Present when the provider supports classifier models. Never fails.
     pub classify: Option<ClassifyFn>,
+    /// Present when a direct stream must resolve auth through the `Models`
+    /// registry.
+    pub registry_stream_auth: Option<RegistryStreamAuth>,
 }
 
 impl fmt::Debug for Provider {
@@ -90,6 +103,7 @@ impl fmt::Debug for Provider {
             .field("cancel_deferred", &self.cancel_deferred.is_some())
             .field("generate_images", &self.generate_images.is_some())
             .field("classify", &self.classify.is_some())
+            .field("registry_stream_auth", &self.registry_stream_auth)
             .finish_non_exhaustive()
     }
 }

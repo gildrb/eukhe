@@ -221,7 +221,6 @@ fn split_tool_call_id(id: &str) -> (&str, Option<&str>) {
 pub fn convert_responses_messages(
     model: &Model,
     context: &TranscriptContext,
-    allowed_tool_call_providers: &[&str],
     options: &ConvertResponsesMessagesOptions,
     adjustments: &mut Vec<RequestAdjustment>,
 ) -> Result<Vec<JsonValue>, Thrown> {
@@ -229,9 +228,15 @@ pub fn convert_responses_messages(
         resolve_transcript(context.clone(), options.supports_mid_convo_system_messages);
     let mut messages: Vec<JsonValue> = Vec::new();
 
-    let provider_allowed = allowed_tool_call_providers.contains(&model.provider.as_str());
+    // Whether the target host replays `call_id|item_id` ids' item ids.
+    let replays_item_ids = model
+        .compat
+        .as_ref()
+        .and_then(ModelCompat::as_openai_responses)
+        .and_then(|compat| compat.replays_item_ids)
+        .unwrap_or(false);
     let normalize_tool_call_id = |id: &str, _target: &Model, source: &AssistantMessage| -> String {
-        if !provider_allowed || !id.contains('|') {
+        if !replays_item_ids || !id.contains('|') {
             return normalize_id_part(id);
         }
         let (call_id, item_id) = split_tool_call_id(id);

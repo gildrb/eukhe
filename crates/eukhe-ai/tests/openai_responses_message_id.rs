@@ -45,7 +45,6 @@ fn generates_unique_fallback_message_ids_for_multiple_text_blocks_in_one_assista
     let input = convert_responses_messages(
         &model,
         &context,
-        &["openai", "openai-codex", "opencode"],
         &ConvertResponsesMessagesOptions::default(),
         &mut Vec::new(),
     )

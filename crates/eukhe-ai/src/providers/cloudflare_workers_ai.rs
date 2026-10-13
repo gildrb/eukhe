@@ -4,7 +4,9 @@
 use eukhe_types::pi_ai::IndexMap;
 
 use super::cloudflare_auth::cloudflare_workers_ai_auth;
-use super::cloudflare_stream::{cloudflare_classifier, cloudflare_streams};
+use super::cloudflare_stream::{
+    cloudflare_classifier, cloudflare_streams, CLOUDFLARE_REGISTRY_STREAM_AUTH,
+};
 use super::cloudflare_workers_ai_models::{
     CLOUDFLARE_WORKERS_AI_CLASSIFIER_MODELS, CLOUDFLARE_WORKERS_AI_MODELS,
 };
@@ -33,6 +35,7 @@ pub fn cloudflare_workers_ai_provider() -> Provider {
             "cloudflare-workers-ai-system-one".to_owned(),
             cloudflare_classifier(cloudflare_workers_ai_system_one_api()),
         )])),
+        registry_stream_auth: Some(CLOUDFLARE_REGISTRY_STREAM_AUTH),
         ..CreateProviderOptions::default()
     })
 }

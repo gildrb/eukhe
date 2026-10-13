@@ -5,17 +5,21 @@
 //! Anthropic, Bedrock, `OpenAI` (and `LiteLLM` / OpenAI-compatible proxies),
 //! Google, xAI, Groq, `OpenRouter`, Together AI, GitHub Copilot, llama.cpp,
 //! LM Studio, `MiniMax`, Kimi For Coding, Mistral, DS4, z.ai, Ollama, and
-//! `DashScope`/Qwen. Cerebras overflows as a bodyless 400/413. z.ai can
-//! overflow silently (usage above the window) and Xiaomi `MiMo` truncates
-//! input and stops with `length` and zero output.
+//! `DashScope`/Qwen. A host whose compat sets `bodylessOverflow` (Cerebras)
+//! overflows as a bodyless 400/413. z.ai can overflow silently (usage above
+//! the window) and Xiaomi `MiMo` truncates input and stops with `length`
+//! and zero output.
 //!
 //! JS `\d` is ASCII-only, so the Rust patterns spell it `[0-9]`.
 
 use std::sync::LazyLock;
 
 use regex::Regex;
+use serde_json::Value;
 
 use eukhe_types::pi_ai::{AssistantMessage, StopReason};
+
+use crate::model_catalog::provider_compat_defaults;
 
 fn case_insensitive(pattern: &str) -> Regex {
     Regex::new(&format!("(?i){pattern}"))
@@ -55,7 +59,7 @@ static OVERFLOW_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     .collect()
 });
 
-static CEREBRAS_BODYLESS_OVERFLOW_PATTERN: LazyLock<Regex> =
+static BODYLESS_OVERFLOW_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| case_insensitive(r"^4(?:00|13)\s*(?:status code)?\s*\(no body\)"));
 
 /// Errors that are not overflow (rate limiting, server errors) even when they
@@ -99,8 +103,13 @@ pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<u6
                 {
                     return true;
                 }
-                if message.provider == "cerebras"
-                    && CEREBRAS_BODYLESS_OVERFLOW_PATTERN.is_match(error_message)
+                // A bodyless 400/413 means overflow only on a host whose
+                // compat says so (`bodylessOverflow`).
+                if BODYLESS_OVERFLOW_PATTERN.is_match(error_message)
+                    && provider_compat_defaults(&message.provider, &message.api)
+                        .and_then(|compat| compat.get("bodylessOverflow"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
                 {
                     return true;
                 }

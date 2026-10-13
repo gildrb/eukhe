@@ -4,11 +4,18 @@
 use std::sync::Arc;
 
 use crate::api::{ProviderClassifier, ProviderStreams};
-use crate::models::CatalogModel;
+use crate::models::{CatalogModel, RegistryStreamAuth};
 use crate::types::ProviderEnv;
 
 const CLOUDFLARE_ACCOUNT_ID: &str = "CLOUDFLARE_ACCOUNT_ID";
 const CLOUDFLARE_GATEWAY_ID: &str = "CLOUDFLARE_GATEWAY_ID";
+
+/// Cloudflare endpoints need the account/gateway env and credentials the
+/// provider auth resolves; a caller credential rides in the API key or the
+/// AI Gateway's `cf-aig-authorization` header.
+pub(crate) const CLOUDFLARE_REGISTRY_STREAM_AUTH: RegistryStreamAuth = RegistryStreamAuth {
+    credential_header: "cf-aig-authorization",
+};
 
 /// Replaces `{CLOUDFLARE_ACCOUNT_ID}` / `{CLOUDFLARE_GATEWAY_ID}` in the
 /// model's base URL with values from `env`; placeholders without a value

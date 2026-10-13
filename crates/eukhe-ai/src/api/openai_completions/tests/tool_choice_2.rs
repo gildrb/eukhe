@@ -571,6 +571,7 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
         supports_long_cache_retention: true,
         send_copilot_headers: false,
         supports_service_tier: false,
+        bills_service_tier: false,
         supports_prompt_cache_key: false,
         max_tool_call_id_length: None,
         // opencode-go's provider default.

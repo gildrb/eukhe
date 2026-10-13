@@ -470,6 +470,7 @@ fn compose_provider(
             .clone()
             .or_else(|| base.as_ref().and_then(|base| base.base_url.clone())),
         headers: base.as_ref().and_then(|base| base.headers.clone()),
+        registry_stream_auth: base.as_ref().and_then(|base| base.registry_stream_auth),
         auth: ProviderAuth {
             api_key: Some(api_key),
             oauth,

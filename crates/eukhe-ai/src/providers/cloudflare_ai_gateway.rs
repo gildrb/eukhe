@@ -6,7 +6,7 @@ use eukhe_types::pi_ai::IndexMap;
 use super::chat_models;
 use super::cloudflare_ai_gateway_models::CLOUDFLARE_AI_GATEWAY_MODELS;
 use super::cloudflare_auth::cloudflare_ai_gateway_auth;
-use super::cloudflare_stream::cloudflare_streams;
+use super::cloudflare_stream::{cloudflare_streams, CLOUDFLARE_REGISTRY_STREAM_AUTH};
 use crate::api::builtin::{anthropic_messages_api, openai_completions_api, openai_responses_api};
 use crate::auth::ProviderAuth;
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -41,6 +41,7 @@ pub fn cloudflare_ai_gateway_provider() -> Provider {
                 cloudflare_streams(openai_responses_api()),
             ),
         ]))),
+        registry_stream_auth: Some(CLOUDFLARE_REGISTRY_STREAM_AUTH),
         ..CreateProviderOptions::default()
     })
 }

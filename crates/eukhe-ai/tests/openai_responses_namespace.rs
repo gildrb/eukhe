@@ -214,7 +214,6 @@ async fn round_trips_a_function_namespace_received_only_on_output_item_done() {
     let replayed = convert_responses_messages(
         &model(),
         &context_of(&output),
-        &["openai"],
         &ConvertResponsesMessagesOptions::default(),
         &mut Vec::new(),
     )
@@ -255,7 +254,6 @@ async fn round_trips_a_custom_tool_namespace_received_only_on_output_item_done()
     let replayed = convert_responses_messages(
         &model(),
         &context_of(&output),
-        &["openai"],
         &ConvertResponsesMessagesOptions {
             grammar_tool_input_properties: Some(query_grammar()),
             ..ConvertResponsesMessagesOptions::default()
@@ -312,7 +310,6 @@ fn drops_namespaces_when_the_target_cannot_replay_their_load_items() {
         let replayed = convert_responses_messages(
             target_model,
             &context_of(&output),
-            &["openai"],
             &ConvertResponsesMessagesOptions {
                 grammar_tool_input_properties: Some(query_grammar()),
                 ..ConvertResponsesMessagesOptions::default()
@@ -340,7 +337,6 @@ fn does_not_add_a_namespace_to_ordinary_function_calls() {
     let replayed = convert_responses_messages(
         &model(),
         &context_of(&output),
-        &["openai"],
         &ConvertResponsesMessagesOptions::default(),
         &mut Vec::new(),
     )

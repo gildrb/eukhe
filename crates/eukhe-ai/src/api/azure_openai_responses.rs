@@ -44,8 +44,6 @@ use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::provider_retry::{retry_provider_request, ProviderRetryOptions};
 use crate::utils::transcript::{get_declared_tools, resolve_transcript, resolve_transcript_tools};
 
-const AZURE_TOOL_CALL_PROVIDERS: &[&str] = &["openai", "openai-codex", "opencode", "azure"];
-
 fn format_azure_openai_error(error: &Thrown) -> String {
     format_provider_error(
         &normalize_provider_error(error),
@@ -131,7 +129,6 @@ fn build_params(
     let messages = convert_responses_messages(
         model,
         context,
-        AZURE_TOOL_CALL_PROVIDERS,
         &ConvertResponsesMessagesOptions {
             include_system_prompt: None,
             grammar_tool_input_properties: Some(grammar.clone()),

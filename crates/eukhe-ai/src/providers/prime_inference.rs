@@ -769,6 +769,7 @@ pub fn prime_inference_provider_with_base_url(base_url: &str) -> Provider {
         cancel_deferred: None,
         generate_images: None,
         classify: None,
+        registry_stream_auth: None,
     }
 }
 

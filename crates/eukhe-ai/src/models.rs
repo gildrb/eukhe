@@ -26,6 +26,7 @@ pub use create_provider::{
 pub use provider::{
     FilterAllModelsFn, FilterModelsFn, GetAllModelsFn, GetModelsFn, ModelsPersistence,
     ModelsPublication, Provider, PublishFn, RefreshModelsContext, RefreshModelsFn,
+    RegistryStreamAuth,
 };
 pub use refresh::{ModelsRefreshOptions, ModelsRefreshResult};
 pub use requests::{

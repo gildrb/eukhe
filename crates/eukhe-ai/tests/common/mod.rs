@@ -422,6 +422,7 @@ pub fn test_provider(input: TestProvider) -> Provider {
         cancel_deferred: None,
         generate_images: None,
         classify: None,
+        registry_stream_auth: None,
     }
 }
 

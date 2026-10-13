@@ -192,4 +192,69 @@ mod tests {
         }
         assert!(providers.contains("prime-inference"));
     }
+
+    /// The tier eligibility the compat facts give every compiled row: the
+    /// hosts that offer tiers for every model take those, a Responses host
+    /// adds the tiers the row prices, and every other host takes only
+    /// `default`.
+    #[test]
+    fn compiled_rows_keep_their_service_tier_eligibility() {
+        use eukhe_types::ai::{supports_service_tier, ServiceTier};
+        let eligible = |model: &Model| -> Vec<ServiceTier> {
+            [
+                ServiceTier::Auto,
+                ServiceTier::Flex,
+                ServiceTier::Scale,
+                ServiceTier::Priority,
+            ]
+            .into_iter()
+            .filter(|tier| supports_service_tier(model, *tier))
+            .collect()
+        };
+        let priced = |model: &Model| {
+            let offered = model.cost.service_tier_multipliers;
+            let mut tiers = vec![ServiceTier::Auto];
+            if offered.is_some_and(|offered| offered.flex.is_some()) {
+                tiers.push(ServiceTier::Flex);
+            }
+            tiers.push(ServiceTier::Scale);
+            if offered.is_some_and(|offered| offered.priority.is_some()) {
+                tiers.push(ServiceTier::Priority);
+            }
+            tiers
+        };
+        let priority_only = [ServiceTier::Auto, ServiceTier::Scale, ServiceTier::Priority];
+        let (mut openrouter, mut priced_flex, mut unpriced, mut codex_priority_only) = (0, 0, 0, 0);
+        for model in compiled_models() {
+            assert!(supports_service_tier(model, ServiceTier::Default));
+            let tiers = eligible(model);
+            match (model.provider.as_str(), model.api.as_str()) {
+                ("openrouter", "openai-completions") => {
+                    openrouter += 1;
+                    assert_eq!(
+                        tiers,
+                        [ServiceTier::Flex, ServiceTier::Priority],
+                        "{}",
+                        model.id
+                    );
+                }
+                ("openai", "openai-responses") | ("openai-codex", "openai-codex-responses") => {
+                    let expected = priced(model);
+                    priced_flex += usize::from(expected.contains(&ServiceTier::Flex));
+                    unpriced += usize::from(expected.len() == 2);
+                    codex_priority_only +=
+                        usize::from(model.provider == "openai-codex" && expected == priority_only);
+                    assert_eq!(tiers, expected, "{}/{}", model.provider, model.id);
+                }
+                (provider, api) => {
+                    assert!(tiers.is_empty(), "{provider}/{api}/{}: {tiers:?}", model.id);
+                }
+            }
+        }
+        // The catalog still exercises every case.
+        assert!(openrouter > 0);
+        assert!(priced_flex > 0);
+        assert!(unpriced > 0);
+        assert!(codex_priority_only > 0);
+    }
 }

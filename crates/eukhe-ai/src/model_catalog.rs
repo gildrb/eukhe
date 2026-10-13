@@ -66,6 +66,16 @@ pub fn default_model_id(provider: &str) -> Option<&'static str> {
     DEFAULT_MODELS.get(provider).map(String::as_str)
 }
 
+/// The compat defaults of `provider` on `api`, `None` when the provider
+/// declares none there.
+#[must_use]
+pub fn provider_compat_defaults(provider: &str, api: &str) -> Option<&'static Map<String, Value>> {
+    PROVIDER_COMPAT
+        .get(provider)
+        .and_then(|apis| apis.get(api))
+        .and_then(Value::as_object)
+}
+
 /// `row_compat` over the compat defaults of `provider` on `api`: the
 /// model's effective compat object, `None` when neither layer has one.
 #[must_use]
@@ -74,11 +84,7 @@ pub fn with_provider_compat_defaults(
     api: &str,
     row_compat: Option<&Map<String, Value>>,
 ) -> Option<Map<String, Value>> {
-    let mut compat = PROVIDER_COMPAT
-        .get(provider)
-        .and_then(|apis| apis.get(api))
-        .and_then(Value::as_object)
-        .cloned();
+    let mut compat = provider_compat_defaults(provider, api).cloned();
     if let Some(row_compat) = row_compat {
         let compat = compat.get_or_insert_with(Map::new);
         for (key, value) in row_compat {

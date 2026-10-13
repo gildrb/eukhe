@@ -7,6 +7,7 @@ use eukhe_ai::api::openai_responses_shared::{
     ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, GrammarToolInputProperties,
     OpenAIResponsesStreamOptions,
 };
+use eukhe_ai::model_catalog::with_provider_compat_defaults;
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{
@@ -28,6 +29,8 @@ fn make_model() -> Model {
         "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
         "contextWindow": 128_000,
         "maxTokens": 4096,
+        // The `openai` host's compat: it replays tool call item ids.
+        "compat": with_provider_compat_defaults("openai", "openai-responses", None),
     }))
     .expect("model")
 }
@@ -333,7 +336,6 @@ fn replays_grammar_calls_as_custom_responses_items() {
         let error = convert_responses_messages(
             &make_model(),
             &context,
-            &["openai"],
             &grammar_messages_options(),
             &mut Vec::new(),
         )
@@ -356,7 +358,6 @@ fn replays_grammar_calls_as_custom_responses_items() {
     let messages = convert_responses_messages(
         &make_model(),
         &context,
-        &["openai"],
         &grammar_messages_options(),
         &mut Vec::new(),
     )
@@ -389,7 +390,6 @@ fn drops_foreign_item_ids_when_replaying_grammar_calls_as_custom_responses_items
     let messages = convert_responses_messages(
         &make_model(),
         &context,
-        &["openai"],
         &grammar_messages_options(),
         &mut Vec::new(),
     )

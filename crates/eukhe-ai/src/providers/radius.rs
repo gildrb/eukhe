@@ -197,5 +197,6 @@ pub fn radius_provider(options: RadiusProviderOptions) -> Provider {
         cancel_deferred: None,
         generate_images: None,
         classify: None,
+        registry_stream_auth: None,
     }
 }

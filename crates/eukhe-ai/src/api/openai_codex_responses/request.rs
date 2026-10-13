@@ -24,7 +24,7 @@ use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::text::get_system_message_text;
 use crate::utils::transcript::{get_initial_system_message, resolve_transcript_tools};
 
-use super::{responses_compat, CodexOptions, CODEX_TOOL_CALL_PROVIDERS};
+use super::{responses_compat, CodexOptions};
 
 const DEFAULT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api";
 const JWT_CLAIM_PATH: &str = "https://api.openai.com/auth";
@@ -68,7 +68,6 @@ pub(crate) fn build_request_body(
     let messages = convert_responses_messages(
         model,
         context,
-        CODEX_TOOL_CALL_PROVIDERS,
         &ConvertResponsesMessagesOptions {
             include_system_prompt: Some(false),
             grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),

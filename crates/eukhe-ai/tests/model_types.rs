@@ -94,6 +94,7 @@ async fn work_through_a_handwritten_provider_without_get_all_models() {
         cancel_deferred: None,
         generate_images: None,
         classify: None,
+        registry_stream_auth: None,
     };
     let models = create_models(CreateModelsOptions::default());
     models.set_provider(handwritten);

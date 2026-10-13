@@ -40,7 +40,6 @@ use crate::utils::provider_retry::{retry_provider_request, ProviderRetryOptions}
 use crate::utils::stream_failure::record_stream_failure;
 use crate::utils::transcript::{get_declared_tools, resolve_transcript, resolve_transcript_tools};
 
-const OPENAI_TOOL_CALL_PROVIDERS: &[&str] = &["openai", "openai-codex", "opencode"];
 /// `OpenAI` Responses rejects `max_output_tokens` below 16.
 pub(crate) const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS: u64 = 16;
 const CHATGPT_USAGE_URL: &str = "https://chatgpt.com/settings/usage";
@@ -360,7 +359,6 @@ fn build_params(
     let messages = convert_responses_messages(
         model,
         context,
-        OPENAI_TOOL_CALL_PROVIDERS,
         &ConvertResponsesMessagesOptions {
             include_system_prompt: None,
             grammar_tool_input_properties: Some(grammar.clone()),

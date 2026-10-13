@@ -7,9 +7,13 @@
 //! (`template?.headers ?? transport.headers`), never from catalog data;
 //! prime-inference entries are skipped (that domain ships compiled). A
 //! catalog entry that states no service tiers takes its compiled row's.
+//! Each pinned entry's compat lies over its provider's compat defaults on
+//! its API, the same layering compiled rows get.
 
 use std::collections::{BTreeMap, HashMap};
 
+use eukhe_ai::model_catalog::with_provider_compat_defaults;
+use eukhe_types::ai::ModelCompat;
 use eukhe_types::pi_ai::ServiceTierMultipliers;
 
 use crate::schema::{parse_model_catalog, InvalidEntries};
@@ -125,6 +129,12 @@ pub fn pin_catalog_models(
             pinned.cost.service_tier_multipliers =
                 exact.and_then(|exact| exact.service_tier_multipliers);
         }
+        pinned.compat = with_provider_compat_defaults(
+            &pinned.provider,
+            &pinned.api,
+            pinned.compat.as_ref().map(|compat| &compat.raw),
+        )
+        .map(|raw| ModelCompat { raw });
         models.push(pinned);
     }
     if models.is_empty() {
@@ -328,5 +338,34 @@ mod tests {
         let ids: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
         assert_eq!(ids, vec!["grok-x", "mimo-x"]);
         assert!(models.iter().all(|model| model.headers.is_none()));
+    }
+
+    #[test]
+    fn pinned_entries_lie_over_their_provider_compat_defaults() {
+        let base_url = crate::transports::compiled_models()
+            .iter()
+            .find(|model| model.provider == "openrouter" && model.api == "openai-completions")
+            .expect("a compiled OpenRouter completions row")
+            .base_url
+            .clone();
+        let mut stated = catalog_entry("stated", "openai-completions", "openrouter", &base_url);
+        stated["compat"] = json!({"supportsStore": false});
+        let silent = catalog_entry("silent", "openai-completions", "openrouter", &base_url);
+        let payload = json!({"schemaVersion": 1, "models": [stated, silent]});
+        let models = parse_provider_model_catalog(&payload, &PinnedTemplates::from_compiled())
+            .expect("pinned");
+        let compat = |index: usize| &models[index].compat.as_ref().expect("compat").raw;
+
+        let defaults = with_provider_compat_defaults("openrouter", "openai-completions", None)
+            .expect("OpenRouter completions defaults");
+        assert_eq!(compat(1), &defaults);
+        // The row's key wins over the provider default of the same key.
+        assert_eq!(compat(0)["supportsStore"], json!(false));
+        assert_eq!(compat(0)["serviceTiers"], json!(["flex", "priority"]));
+        // The host facts reach the tier eligibility of a bundled entry.
+        assert!(eukhe_types::ai::supports_service_tier(
+            &models[1],
+            eukhe_types::ai::ServiceTier::Flex
+        ));
     }
 }

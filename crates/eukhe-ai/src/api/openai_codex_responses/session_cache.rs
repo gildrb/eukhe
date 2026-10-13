@@ -32,7 +32,7 @@ use super::websocket::{
     close_websocket_silently, connect_websocket, is_websocket_reusable, parse_websocket,
     WebSocketLike,
 };
-use super::{clock_ms, responses_stream_options, CodexOptions, CODEX_TOOL_CALL_PROVIDERS};
+use super::{clock_ms, responses_stream_options, CodexOptions};
 
 const SESSION_WEBSOCKET_CACHE_TTL_MS: f64 = 5.0 * 60.0 * 1000.0;
 const SESSION_WEBSOCKET_MAX_AGE_MS: f64 = 55.0 * 60.0 * 1000.0;
@@ -673,7 +673,6 @@ fn response_items(
     let items = convert_responses_messages(
         model,
         &context,
-        CODEX_TOOL_CALL_PROVIDERS,
         &ConvertResponsesMessagesOptions {
             include_system_prompt: Some(false),
             grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),

@@ -4,19 +4,23 @@ use super::*;
 
 /// A minimal model for the tier-eligibility predicate (TS #2144's
 /// gating tests run the same provider/api combinations), offered at the
-/// tiers its row prices.
-fn tier_model(provider: &str, api: &str, offered: &[ServiceTier]) -> Model {
+/// tiers its row prices, with `compat` as its effective compat (the
+/// provider defaults of `providers/data/provider_compat.json`).
+fn tier_model(api: &str, compat: Value, offered: &[ServiceTier]) -> Model {
     let price = |tier| offered.contains(&tier).then_some(2.0);
     let service_tier_multipliers =
         (!offered.is_empty()).then(|| crate::pi_ai::ServiceTierMultipliers {
             flex: price(ServiceTier::Flex),
             priority: price(ServiceTier::Priority),
         });
+    let Value::Object(raw) = compat else {
+        panic!("compat is an object");
+    };
     Model {
         id: "model".to_string(),
         name: "model".to_string(),
         api: api.to_string(),
-        provider: provider.to_string(),
+        provider: "provider".to_string(),
         base_url: "https://example.invalid/v1".to_string(),
         reasoning: false,
         thinking_level_map: None,
@@ -33,43 +37,78 @@ fn tier_model(provider: &str, api: &str, offered: &[ServiceTier]) -> Model {
         max_tokens_explicit: false,
         featured: None,
         headers: None,
-        compat: None,
+        compat: (!raw.is_empty()).then_some(ModelCompat { raw }),
     }
 }
 
+/// The tiers of `[Auto, Flex, Scale, Priority]` `model` is eligible for.
+fn eligible_tiers(model: &Model) -> Vec<ServiceTier> {
+    [
+        ServiceTier::Auto,
+        ServiceTier::Flex,
+        ServiceTier::Scale,
+        ServiceTier::Priority,
+    ]
+    .into_iter()
+    .filter(|tier| supports_service_tier(model, *tier))
+    .collect()
+}
+
 #[test]
-fn service_tier_eligibility_matches_ts() {
+fn service_tier_eligibility_follows_the_host_compat_facts() {
     use ServiceTier::*;
-    // `default` is always accepted (it means no tier request at all).
-    for (provider, api) in [
-        ("anthropic", "anthropic-messages"),
-        ("openrouter", "openai-completions"),
-        ("openai", "openai-responses"),
+    let openrouter_completions =
+        serde_json::json!({ "supportsServiceTier": true, "serviceTiers": ["flex", "priority"] });
+    let openai_responses = serde_json::json!({ "serviceTiers": ["auto", "scale"] });
+    let openai_completions = serde_json::json!({ "supportsServiceTier": true });
+    let copilot_responses = serde_json::json!({ "supportsServiceTier": false });
+
+    // `default` is always accepted (it means no tier request at all), even
+    // where the compat block does not fit the API.
+    for (api, compat) in [
+        ("anthropic-messages", serde_json::json!({})),
+        ("openai-completions", openrouter_completions.clone()),
+        ("openai-responses", openai_responses.clone()),
+        (
+            "openai-completions",
+            serde_json::json!({ "serviceTiers": 1 }),
+        ),
     ] {
-        let model = tier_model(provider, api, &[]);
-        assert!(supports_service_tier(&model, Default));
+        assert!(supports_service_tier(
+            &tier_model(api, compat, &[]),
+            Default
+        ));
     }
-    // OpenRouter accepts flex/priority for every completions model and
-    // nothing else.
-    let openrouter = tier_model("openrouter", "openai-completions", &[]);
-    assert!(supports_service_tier(&openrouter, Flex));
-    assert!(supports_service_tier(&openrouter, Priority));
-    assert!(!supports_service_tier(&openrouter, Auto));
-    assert!(!supports_service_tier(&openrouter, Scale));
-    // The Responses APIs take auto/scale everywhere, and flex or priority
-    // where the model's row prices the tier.
-    let codex = tier_model("openai-codex", "openai-codex-responses", &[Priority]);
-    assert!(supports_service_tier(&codex, Auto));
-    assert!(supports_service_tier(&codex, Scale));
-    assert!(supports_service_tier(&codex, Priority));
-    assert!(!supports_service_tier(&codex, Flex));
-    let openai = tier_model("openai", "openai-responses", &[Flex, Priority]);
-    assert!(supports_service_tier(&openai, Flex));
-    let codex_unpriced = tier_model("openai-codex", "openai-codex-responses", &[]);
-    assert!(!supports_service_tier(&codex_unpriced, Priority));
-    // Completions models outside OpenRouter never take a tier.
-    let direct = tier_model("openai", "openai-completions", &[Flex, Priority]);
-    assert!(!supports_service_tier(&direct, Priority));
+    // A host that offers flex/priority for every model (OpenRouter
+    // completions) takes those and nothing else.
+    let openrouter = tier_model("openai-completions", openrouter_completions, &[]);
+    assert_eq!(eligible_tiers(&openrouter), [Flex, Priority]);
+    // A Responses host offering auto/scale everywhere (OpenAI, Codex) takes
+    // flex or priority where the row prices the tier.
+    let codex = tier_model(
+        "openai-codex-responses",
+        openai_responses.clone(),
+        &[Priority],
+    );
+    assert_eq!(eligible_tiers(&codex), [Auto, Scale, Priority]);
+    let openai = tier_model(
+        "openai-responses",
+        openai_responses.clone(),
+        &[Flex, Priority],
+    );
+    assert_eq!(eligible_tiers(&openai), [Auto, Flex, Scale, Priority]);
+    let codex_unpriced = tier_model("openai-codex-responses", openai_responses, &[]);
+    assert_eq!(eligible_tiers(&codex_unpriced), [Auto, Scale]);
+    // A completions host that takes the field but offers no tier and an
+    // unpriced row (OpenAI completions) stays at `default`.
+    let direct = tier_model("openai-completions", openai_completions, &[]);
+    assert!(eligible_tiers(&direct).is_empty());
+    // A host that does not take the field (Copilot Responses) ignores the
+    // row's prices; completions hosts do not take it by default.
+    let copilot = tier_model("openai-responses", copilot_responses, &[Flex, Priority]);
+    assert!(eligible_tiers(&copilot).is_empty());
+    let completions = tier_model("openai-completions", serde_json::json!({}), &[Priority]);
+    assert!(eligible_tiers(&completions).is_empty());
     // supportsFastMode is the priority question — and #2144 makes the
     // OpenRouter completions models fast-mode-eligible too (their
     // priority tier is accepted).

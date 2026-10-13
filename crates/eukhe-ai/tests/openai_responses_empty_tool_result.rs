@@ -63,7 +63,6 @@ fn uses_no_tool_output_placeholder_for_empty_tool_results_without_images() {
     let input = convert_responses_messages(
         &model,
         &context,
-        &["openai", "openai-codex", "opencode"],
         &ConvertResponsesMessagesOptions::default(),
         &mut Vec::new(),
     )

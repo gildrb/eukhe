@@ -106,7 +106,6 @@ fn get_replayed_reasoning(model: &Model, assistant: &AssistantMessage) -> Option
     let input = convert_responses_messages(
         model,
         &context,
-        &["azure"],
         &ConvertResponsesMessagesOptions::default(),
         &mut Vec::new(),
     )

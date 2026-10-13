@@ -9,7 +9,7 @@ use super::settings::{
     ChatTemplateKwargValue, SessionAffinityFormat, ThinkingBudgets, ThinkingTokenBudgetField,
 };
 use super::string_enum::string_enum;
-use super::{JsonValue, ProviderId};
+use super::{JsonValue, ProviderId, ServiceTier};
 
 string_enum! {
     /// Which field carries max tokens on OpenAI-compatible completions APIs.
@@ -160,6 +160,18 @@ pub struct OpenAICompletionsCompat {
     /// Whether the top-level `service_tier` request field is accepted. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_service_tier: Option<bool>,
+    /// Service tiers every model on the host is offered at, besides the
+    /// tiers its row prices in `cost.serviceTierMultipliers`. Default: none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tiers: Option<Vec<ServiceTier>>,
+    /// Whether the host bills a non-default service tier the response
+    /// reports at the model's `cost.serviceTierMultipliers`. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bills_service_tier: Option<bool>,
+    /// Whether a 400 or 413 error without a body reports a context
+    /// overflow. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bodyless_overflow: Option<bool>,
     /// Whether `prompt_cache_key` is sent with any cache retention. Default:
     /// false (sent only with long retention).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -227,6 +239,15 @@ pub struct OpenAIResponsesCompat {
     /// Whether the `service_tier` request field is accepted. Default: true.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_service_tier: Option<bool>,
+    /// Service tiers every model on the host is offered at, besides the
+    /// tiers its row prices in `cost.serviceTierMultipliers`. Default: none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tiers: Option<Vec<ServiceTier>>,
+    /// Whether a replayed `call_id|item_id` tool call id sends its item id
+    /// as the Responses item `id`; otherwise only the normalized call id
+    /// survives. Default: false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replays_item_ids: Option<bool>,
     /// Whether a reasoning model with thinking off gets an explicit off
     /// effort. Default: true.
     #[serde(default, skip_serializing_if = "Option::is_none")]

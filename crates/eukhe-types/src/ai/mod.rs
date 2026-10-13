@@ -621,62 +621,95 @@ pub struct Model {
     pub compat: Option<ModelCompat>,
 }
 
-/// TS `supportsServiceTier` over the eligibility fields: whether a
-/// provider accepts (and honors) a requested service tier. The
+/// A host's service-tier facts, read from the model's effective compat
+/// (catalog row over its provider's defaults).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ServiceTierHost {
+    /// `supportsServiceTier` with the API's default (true on the Responses
+    /// APIs, false elsewhere): whether the request field is accepted.
+    pub supports_service_tier: bool,
+    /// `serviceTiers`: the tiers every model on the host is offered at.
+    pub service_tiers: Vec<crate::pi_ai::ServiceTier>,
+}
+
+impl ServiceTierHost {
+    /// The facts of a model on `api` whose effective compat object is
+    /// `compat` (`None`: the API's defaults).
+    ///
+    /// # Errors
+    ///
+    /// The serde error when `compat` does not fit the API's compat type.
+    pub fn from_compat(api: &str, compat: Option<&JsonMap>) -> Result<Self, serde_json::Error> {
+        use crate::pi_ai::ModelCompat as ApiCompat;
+        let compat = ApiCompat::from_json(api, Value::Object(compat.cloned().unwrap_or_default()))?;
+        Ok(match compat {
+            ApiCompat::OpenAICompletions(compat) => Self {
+                supports_service_tier: compat.supports_service_tier.unwrap_or(false),
+                service_tiers: compat.service_tiers.unwrap_or_default(),
+            },
+            ApiCompat::OpenAIResponses(compat) => Self {
+                supports_service_tier: compat.supports_service_tier.unwrap_or(true),
+                service_tiers: compat.service_tiers.unwrap_or_default(),
+            },
+            ApiCompat::AnthropicMessages(_)
+            | ApiCompat::Bedrock(_)
+            | ApiCompat::Google(_)
+            | ApiCompat::MistralConversations(_)
+            | ApiCompat::Other(_) => Self::default(),
+        })
+    }
+}
+
+/// TS `supportsServiceTier` over the eligibility facts: whether a host
+/// accepts (and honors) a requested service tier. `default` always is;
+/// another tier needs a host that takes the `service_tier` field and
+/// either offers the tier for every model (`serviceTiers`) or the model's
+/// row prices it (`offered`, the row's `cost.serviceTierMultipliers`). The
 /// Model-typed [`supports_service_tier`] delegates here so the surfaces
-/// that only hold the connection-state model metadata (provider, api, and
-/// the row's `cost.serviceTierMultipliers`) share one predicate.
+/// that only hold the connection-state model metadata share one predicate.
 #[must_use]
 pub fn supports_service_tier_fields(
-    provider: &str,
-    api: &str,
+    host: &ServiceTierHost,
     offered: Option<crate::pi_ai::ServiceTierMultipliers>,
     tier: ServiceTier,
 ) -> bool {
-    if tier == ServiceTier::Default {
-        return true;
-    }
-    // OpenRouter accepts top-level service_tier (flex|priority) for every
-    // model, routes to matching tier endpoints where they exist, and bills
-    // by the tier that actually served the request:
-    // https://openrouter.ai/docs/guides/features/service-tiers
-    if provider == "openrouter" && api == "openai-completions" {
-        return matches!(tier, ServiceTier::Flex | ServiceTier::Priority);
-    }
-    let openai_responses = provider == "openai" && api == "openai-responses";
-    let codex_responses = provider == "openai-codex" && api == "openai-codex-responses";
-    if !openai_responses && !codex_responses {
-        return false;
-    }
-    match tier {
-        // "auto" defers the tier choice to OpenAI and is valid for every
-        // model there; "scale" is entitlement-gated, so pass it through for
-        // callers that have it.
-        ServiceTier::Default | ServiceTier::Auto | ServiceTier::Scale => true,
-        // Flex and priority exist where the model's catalog row prices them.
-        ServiceTier::Flex => offered.is_some_and(|offered| offered.flex.is_some()),
-        ServiceTier::Priority => offered.is_some_and(|offered| offered.priority.is_some()),
-    }
+    use crate::pi_ai::ServiceTier as WireTier;
+    let (wire, priced) = match tier {
+        ServiceTier::Default => return true,
+        ServiceTier::Auto => (WireTier::Auto, false),
+        ServiceTier::Scale => (WireTier::Scale, false),
+        ServiceTier::Flex => (
+            WireTier::Flex,
+            offered.is_some_and(|offered| offered.flex.is_some()),
+        ),
+        ServiceTier::Priority => (
+            WireTier::Priority,
+            offered.is_some_and(|offered| offered.priority.is_some()),
+        ),
+    };
+    host.supports_service_tier && (priced || host.service_tiers.contains(&wire))
 }
 
-/// TS `supportsServiceTier`: whether a model's provider accepts (and
-/// honors) a requested service tier. The single eligibility predicate
-/// behind the `/tier` command, the settings row, and the `/fast` toggle
-/// (the TS product keeps the same function in the shared AI package).
+/// TS `supportsServiceTier`: whether a model's host accepts (and honors) a
+/// requested service tier. The single eligibility predicate behind the
+/// `/tier` command, the settings row, and the `/fast` toggle (the TS
+/// product keeps the same function in the shared AI package). A compat
+/// block that does not fit the API's compat type (the catalog schema
+/// rejects those) offers only `default`.
 #[must_use]
 pub fn supports_service_tier(model: &Model, tier: ServiceTier) -> bool {
-    supports_service_tier_fields(
-        &model.provider,
-        &model.api,
-        model.cost.service_tier_multipliers,
-        tier,
-    )
+    tier == ServiceTier::Default
+        || ServiceTierHost::from_compat(&model.api, model.compat.as_ref().map(|compat| &compat.raw))
+            .is_ok_and(|host| {
+                supports_service_tier_fields(&host, model.cost.service_tier_multipliers, tier)
+            })
 }
 
 /// TS `supportsFastMode` (now `supportsServiceTier(model, "priority")`):
-/// the fast-mode (priority) tier exists where the model's row prices it
-/// on the `OpenAI` Responses APIs. Shared by the surfaces that gate the
-/// `/fast` command on model eligibility.
+/// the fast-mode (priority) tier exists where the host takes the
+/// `service_tier` field and offers or the model's row prices priority.
+/// Shared by the surfaces that gate the `/fast` command on model
+/// eligibility.
 #[must_use]
 pub fn supports_fast_mode(model: &Model) -> bool {
     supports_service_tier(model, ServiceTier::Priority)

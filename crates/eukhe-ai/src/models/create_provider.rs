@@ -8,7 +8,7 @@ use futures::future::BoxFuture;
 
 use super::provider::{
     FilterAllModelsFn, FilterModelsFn, ModelsPersistence, ModelsPublication, Provider,
-    RefreshModelsContext,
+    RefreshModelsContext, RegistryStreamAuth,
 };
 use crate::api::lazy::lazy_stream;
 use crate::api::{ProviderClassifier, ProviderImages, ProviderStreams};
@@ -58,6 +58,9 @@ pub struct CreateProviderOptions {
     pub images: Option<IndexMap<String, ProviderImages>>,
     /// Classifier implementations keyed by `model.api`.
     pub classifiers: Option<IndexMap<String, ProviderClassifier>>,
+    /// Present when a direct stream must resolve auth through the `Models`
+    /// registry.
+    pub registry_stream_auth: Option<RegistryStreamAuth>,
 }
 
 /// A provider without any concrete implementation.
@@ -219,6 +222,7 @@ pub(crate) fn build_provider(input: CreateProviderOptions) -> Provider {
         api,
         images,
         classifiers,
+        registry_stream_auth,
     } = input;
     let api = api.map(Arc::new);
     let streams: Vec<ProviderStreams> = match api.as_deref() {
@@ -276,6 +280,7 @@ pub(crate) fn build_provider(input: CreateProviderOptions) -> Provider {
         cancel_deferred: None,
         generate_images: None,
         classify: None,
+        registry_stream_auth,
     };
 
     if streams.iter().any(|entry| entry.fetch_deferred.is_some()) {

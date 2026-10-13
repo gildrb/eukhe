@@ -303,13 +303,18 @@ fn with_env_api_key(model: &Model, options: &mut StreamOptions) {
     options.request.api_key = Some(api_key);
 }
 
-fn has_resolved_cloudflare_auth(options: &StreamOptions) -> bool {
-    has_explicit_api_key(options.request.api_key.as_ref())
-        || options
-            .request
-            .headers
-            .as_ref()
-            .is_some_and(|headers| matches!(headers.get("cf-aig-authorization"), Some(Some(_))))
+/// Whether `provider` needs its auth resolved by the `Models` registry for a
+/// request carrying `options`: it declares registry stream auth and the caller
+/// supplied neither an API key nor its credential header.
+fn needs_registry_auth(provider: &Provider, options: &StreamOptions) -> bool {
+    provider.registry_stream_auth.as_ref().is_some_and(|auth| {
+        !has_explicit_api_key(options.request.api_key.as_ref())
+            && !options
+                .request
+                .headers
+                .as_ref()
+                .is_some_and(|headers| matches!(headers.get(auth.credential_header), Some(Some(_))))
+    })
 }
 
 fn get_builtin_provider_for_model(model: &Model) -> Option<Arc<Provider>> {
@@ -364,9 +369,7 @@ pub fn stream(
     let transcript = normalize_context(context);
     let mut options = options;
     if let Some(provider) = get_builtin_provider_for_model(model) {
-        if model.provider.starts_with("cloudflare-")
-            && !has_resolved_cloudflare_auth(&options.stream)
-        {
+        if needs_registry_auth(&provider, &options.stream) {
             return Ok(COMPAT_MODELS.stream(
                 model,
                 transcript_as_context(&transcript),
@@ -408,9 +411,7 @@ pub fn stream_simple(
     let transcript = normalize_context(context);
     let mut options = options;
     if let Some(provider) = get_builtin_provider_for_model(model) {
-        if model.provider.starts_with("cloudflare-")
-            && !has_resolved_cloudflare_auth(&options.stream)
-        {
+        if needs_registry_auth(&provider, &options.stream) {
             return Ok(COMPAT_MODELS.stream_simple(
                 model,
                 transcript_as_context(&transcript),

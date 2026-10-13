@@ -47,9 +47,10 @@ struct MockSupervisor {
 }
 
 /// The `OpenRouter` catalog entry as the daemon's `get_model_catalog` answer
-/// carries it: completions API, so flex and priority are both eligible for
-/// the model. The same json seeds `InteractiveOptions::model_catalog` (the
-/// composition-root snapshot the picker serves before the fetch lands).
+/// carries it: completions API with `OpenRouter`'s provider compat defaults,
+/// so flex and priority are both eligible for the model. The same json
+/// seeds `InteractiveOptions::model_catalog` (the composition-root snapshot
+/// the picker serves before the fetch lands).
 fn openrouter_model_value() -> Value {
     json!({
         "id": "openai/gpt-5.5",
@@ -61,7 +62,8 @@ fn openrouter_model_value() -> Value {
         "input": ["text"],
         "cost": { "input": 5, "output": 30, "cacheRead": 0.5, "cacheWrite": 0 },
         "contextWindow": 272_000,
-        "maxTokens": 128_000
+        "maxTokens": 128_000,
+        "compat": { "supportsServiceTier": true, "serviceTiers": ["flex", "priority"] }
     })
 }
 

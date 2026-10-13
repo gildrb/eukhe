@@ -16,12 +16,20 @@
     "openai-completions": {
       "supportsStore": true,
       "supportsDeveloperRole": true
+    },
+    "azure-openai-responses": {
+      "replaysItemIds": true
     }
   },
   "baseten": {
     "openai-completions": {
       "supportsStore": true,
       "supportsDeveloperRole": true
+    }
+  },
+  "cerebras": {
+    "openai-completions": {
+      "bodylessOverflow": true
     }
   },
   "cloudflare-ai-gateway": {
@@ -100,11 +108,31 @@
       "supportsStore": true,
       "supportsDeveloperRole": true,
       "supportsServiceTier": true,
+      "billsServiceTier": true,
       "supportsPromptCacheKey": true,
       "maxToolCallIdLength": 40
     },
     "openai-responses": {
-      "acceptsChatgptSignIn": true
+      "acceptsChatgptSignIn": true,
+      "serviceTiers": [
+        "auto",
+        "scale"
+      ],
+      "replaysItemIds": true
+    }
+  },
+  "openai-codex": {
+    "openai-codex-responses": {
+      "serviceTiers": [
+        "auto",
+        "scale"
+      ],
+      "replaysItemIds": true
+    }
+  },
+  "opencode": {
+    "openai-responses": {
+      "replaysItemIds": true
     }
   },
   "opencode-go": {
@@ -118,7 +146,11 @@
       "thinkingFormat": "openrouter",
       "sendSessionAffinityHeaders": true,
       "sessionAffinityFormat": "openrouter",
-      "supportsServiceTier": true
+      "supportsServiceTier": true,
+      "serviceTiers": [
+        "flex",
+        "priority"
+      ]
     },
     "anthropic-messages": {
       "sendSessionAffinityHeaders": true,
