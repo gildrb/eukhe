@@ -40,11 +40,13 @@ pub fn parse_frontmatter(content: &str) -> (Value, String) {
     let Some(yaml_string) = yaml_string else {
         return (serde_json::Map::new().into(), body);
     };
-    let parsed: serde_yaml::Value = match serde_yaml::from_str(&yaml_string) {
+    // YAML 1.2 booleans only, as the TS `yaml` package: `off`/`yes` stay
+    // strings.
+    let options = serde_saphyr::options! { strict_booleans: true };
+    let converted: Value = match serde_saphyr::from_str_with_options(&yaml_string, options) {
         Ok(parsed) => parsed,
         Err(_) => return (serde_json::Map::new().into(), body),
     };
-    let converted = serde_json::to_value(parsed).unwrap_or_else(|_| serde_json::Map::new().into());
     let frontmatter = if converted.is_null() {
         serde_json::Map::new().into()
     } else {
@@ -110,5 +112,22 @@ mod tests {
     fn crlf_and_bom_normalized() {
         let (frontmatter, _) = parse_frontmatter("\u{feff}---\r\nname: x\r\n---\r\nbody");
         assert_eq!(frontmatter["name"], "x");
+    }
+
+    #[test]
+    fn yaml_scalars_resolve_as_the_ts_yaml_package() {
+        // TS `yaml.parse`: YAML 1.1 words stay strings, and a clipped block
+        // scalar keeps its final line break at the close.
+        let (frontmatter, _) = parse_frontmatter(
+            "---\nname: x\nsignals: [off, yes, n, true]\ndescription: |\n  a\n  b\n---\nbody",
+        );
+        assert_eq!(
+            frontmatter,
+            serde_json::json!({
+                "name": "x",
+                "signals": ["off", "yes", "n", true],
+                "description": "a\nb\n",
+            })
+        );
     }
 }
