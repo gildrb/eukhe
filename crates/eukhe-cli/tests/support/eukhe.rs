@@ -3,7 +3,7 @@
 use std::process::Command;
 
 #[path = "../../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
+pub mod kernel_runtime;
 
 /// A command for the cargo-built `eukhe` binary.
 pub fn eukhe_command() -> Command {

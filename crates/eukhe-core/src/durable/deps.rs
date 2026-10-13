@@ -20,6 +20,10 @@ use crate::kernel::{HostRequestHandlers, KernelPythonSkill};
 use crate::memory::{Memory, MemoryRole};
 use crate::resources::LoadedResources;
 
+#[cfg(test)]
+#[path = "../../tests/support/kernel_runtime.rs"]
+mod kernel_runtime;
+
 /// The session that spawned a child session.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParentLink {
@@ -233,6 +237,10 @@ pub struct SessionConfig {
     /// `rlmDepth === 0` gate), so subagents keep the lazy first-call start.
     /// A resumed conversation with a namespace snapshot prewarms regardless.
     pub prewarm_kernel: bool,
+    /// The kernel interpreter; `None` resolves the `EUKHE_KERNEL_PYTHON`
+    /// override or the auto-bootstrapped `~/.eukhe` kernel venv. Tests set
+    /// this checkout's runtime so no test touches the user's home.
+    pub kernel_python: Option<PathBuf>,
 }
 
 impl SessionConfig {
@@ -269,6 +277,10 @@ impl SessionConfig {
             progress_note: None,
             job_settled: None,
             prewarm_kernel: false,
+            #[cfg(test)]
+            kernel_python: Some(kernel_runtime::kernel_python()),
+            #[cfg(not(test))]
+            kernel_python: None,
         }
     }
 }
@@ -411,6 +423,8 @@ pub struct HostDeps {
     pub job_settled: Option<JobSettledSink>,
     /// [`SessionConfig::prewarm_kernel`].
     pub prewarm_kernel: bool,
+    /// [`SessionConfig::kernel_python`].
+    pub kernel_python: Option<PathBuf>,
     pub harness: HarnessCell,
     pub host_requests: HostRequestRegistry,
     services: Mutex<Vec<ServiceStart>>,
@@ -472,6 +486,7 @@ impl HostDeps {
             progress_note: config.progress_note.clone(),
             job_settled: config.job_settled.clone(),
             prewarm_kernel: config.prewarm_kernel,
+            kernel_python: config.kernel_python.clone(),
             harness: HarnessCell::default(),
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),

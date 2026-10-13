@@ -698,7 +698,7 @@ fn strip_ansi(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::durable_test_support::{created_worker, worker_rows};
+    use crate::durable_test_support::{created_worker, created_worker_with, worker_rows};
     use serde_json::json;
     use std::time::{Duration, Instant};
 
@@ -975,10 +975,12 @@ mod tests {
     }
 
     /// The kernel bash lane never boots a kernel: before any cell ran it
-    /// answers the definitive refusal; a malformed request fails first.
+    /// answers the definitive refusal; a malformed request fails first. A
+    /// child session (no prewarm) keeps the kernel down for the whole test.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn kernel_bash_activity_answers_not_running_before_a_kernel_boots() {
-        let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
+        let (_dir, worker) =
+            created_worker_with(SESSION, json!(["ack"]), json!({ "rlmDepth": 1 })).await;
         let listed = worker
             .dispatch("list_kernel_bash", &json!({ "activeSessionId": SESSION }))
             .await;
