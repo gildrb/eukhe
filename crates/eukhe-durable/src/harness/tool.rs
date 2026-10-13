@@ -5,6 +5,7 @@
 //! a running tool made through `execute_tool()`, by writing its result to its
 //! caller's [`NESTED_RESULT_DOC`].
 
+mod arguments;
 mod invocation;
 mod nested;
 mod result;
@@ -23,6 +24,10 @@ use serde::de::Error as _;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+pub use self::arguments::{
+    repair_arguments, ArgAlias, ArgDialect, ArgumentError, RefusedArg, Repair, Repaired,
+    ARGUMENT_REPAIRED,
+};
 use self::invocation::run;
 use self::nested::{json_equal, nested_result, summary_of, NestedCalls, NESTED_CALLS_DOC};
 pub use self::nested::{NestedResultState, NESTED_RESULT_DOC};
@@ -76,10 +81,12 @@ pub enum ToolTaskInput {
 #[serde(tag = "phase", rename_all = "camelCase")]
 pub enum ToolTaskCheckpoint {
     Call,
-    /// Durable intent: the final arguments and the replay policy recorded
-    /// before execution.
+    /// Durable intent: the final arguments, the dialect repairs that made
+    /// them, and the replay policy recorded before execution.
     Execute {
         arguments: PiJsonObject,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        repairs: Vec<Repair>,
         replay: ToolReplay,
     },
 }
@@ -199,10 +206,19 @@ async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()>
         );
         return complete(&runtime, &input, &call, error, &cx).await;
     };
-    let checked =
-        prepare(&tool, call.arguments.clone()).and_then(|args| validate(&tool, &call, args));
-    let args = match checked {
-        Ok(args) => args,
+    let checked = repair_arguments(
+        &call.name,
+        &tool.parameters,
+        &tool.dialect,
+        call.arguments.clone(),
+    )
+    .map_err(|error| error.to_string())
+    .and_then(|repaired| {
+        let args = prepare(&tool, repaired.arguments)?;
+        Ok((validate(&tool, &call, args)?, repaired.repairs))
+    });
+    let (args, repairs) = match checked {
+        Ok(checked) => checked,
         Err(error) => return complete(&runtime, &input, &call, invalid(&error), &cx).await,
     };
     let (args, block) = before_tool(&runtime, &call, args, &cx).await?;
@@ -218,6 +234,7 @@ async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()>
     let task_id = runtime.task_id().erase();
     let intent = ToolTaskCheckpoint::Execute {
         arguments: args.clone(),
+        repairs: repairs.clone(),
         replay: tool.replay.unwrap_or(ToolReplay::Unsafe),
     };
     // A nested slot shows the arguments the call runs with, which repair,
@@ -249,13 +266,18 @@ async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()>
             &cx,
         )
         .await?;
-    run(&runtime, &input, &call, &tool, args, &cx).await
+    run(&runtime, &input, &call, &tool, args, repairs, &cx).await
 }
 
 /// Recovery after intent: rerun only when the stored and the current policy
 /// both say `safe`.
 async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
-    let ToolTaskCheckpoint::Execute { arguments, replay } = task.checkpoint else {
+    let ToolTaskCheckpoint::Execute {
+        arguments,
+        repairs,
+        replay,
+    } = task.checkpoint
+    else {
         return Err(SessionError::error(
             "Tool task execute phase without intent",
         ));
@@ -282,7 +304,7 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
                 &cx,
             )
             .await?;
-        return run(&runtime, &input, &call, &tool, arguments, &cx).await;
+        return run(&runtime, &input, &call, &tool, arguments, repairs, &cx).await;
     }
     let message = format!(
         "Tool {} was interrupted and may have partially run",

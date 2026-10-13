@@ -39,8 +39,9 @@ pub use output::{bound_output, OutputLimits, OutputSlice};
 pub use scheduler::{DefinitionKept, TaskAbortResult};
 pub use submissions::{AbortSubmissionResult, SubmissionHandle};
 pub use tool::{
-    append_tool_result, harness_error, NestedResultState, ToolResultMeta, ToolTask,
-    ToolTaskCheckpoint, ToolTaskInput, ToolTaskResult, NESTED_RESULT_DOC, TOOL_TASK,
+    append_tool_result, harness_error, repair_arguments, ArgAlias, ArgDialect, ArgumentError,
+    NestedResultState, RefusedArg, Repair, Repaired, ToolResultMeta, ToolTask, ToolTaskCheckpoint,
+    ToolTaskInput, ToolTaskResult, ARGUMENT_REPAIRED, NESTED_RESULT_DOC, TOOL_TASK,
 };
 
 // HarnessObservation modules.

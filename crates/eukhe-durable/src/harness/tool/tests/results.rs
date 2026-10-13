@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
+use eukhe_ai::typebox::{Options, Type};
 use eukhe_chord::json::JsonValue;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, ImageContent, JsonValue as PiJsonValue, Message, TextContent,
@@ -18,7 +19,7 @@ use super::support::{
 use crate::entries::TOOL_RESULT_ENTRY;
 use crate::env::{ShellOutputSkip, ShellOutputWindow};
 use crate::harness::agent::AGENT_DOC;
-use crate::harness::define::{define_extension, hook};
+use crate::harness::define::{define_extension, define_tool, hook};
 use crate::harness::tests::chat_support::{all_entries, chat_setup, ChatSetup};
 use crate::harness::tests::support::{add_hooks, add_tool, context, generation_task, tool_task};
 use crate::harness::types::{
@@ -27,7 +28,7 @@ use crate::harness::types::{
     ToolControl, ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionResult, ToolHooks,
     ToolOutputChunk, ToolOutputLimits, ToolRegistration, ToolsChange,
 };
-use crate::harness::{Conversation, Harness};
+use crate::harness::{ArgDialect, Conversation, Harness};
 use crate::session::SessionError;
 use crate::tasks::{define_task, TaskDefinition};
 use crate::types::{
@@ -467,6 +468,81 @@ async fn repairs_arguments_with_prepare_arguments_before_validation_and_a_throwi
     assert_eq!(
         call.map(|call| serde_json::Value::Object(call.arguments.clone())),
         Some(serde_json::json!({ "text": 7 }))
+    );
+    ran.harness.close(context()).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repairs_the_declared_dialect_with_warnings_and_rejects_unknown_keys() {
+    let setup = setup();
+    let seen: Arc<Mutex<Vec<PiJsonValue>>> = Arc::default();
+    let recorded = Arc::clone(&seen);
+    let mut registration = ToolRegistration::new(
+        "shout",
+        "The shout tool",
+        Type::object_with(
+            [
+                ("text", Type::string()),
+                ("loud", Type::optional(Type::boolean())),
+            ],
+            Options::new().set("additionalProperties", false),
+        ),
+        move |args, _, _| {
+            recorded
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(args);
+            async { Ok(empty_content()) }
+        },
+    );
+    registration.dialect = ArgDialect::default().alias("text", &["message"]);
+    add_tool(&setup.registry, define_tool(registration), None).unwrap();
+    let ran = run(
+        &setup,
+        vec![
+            calls(&[
+                (
+                    "shout",
+                    serde_json::json!({ "message": "hi", "loud": "yes" }),
+                    "repaired",
+                ),
+                (
+                    "shout",
+                    serde_json::json!({ "text": "hi", "volume": 3 }),
+                    "unknown",
+                ),
+            ])
+            .into(),
+            done().into(),
+        ],
+    )
+    .await;
+    let by_id: BTreeMap<String, (bool, String)> = results(&ran.entries)
+        .iter()
+        .map(|result| {
+            (
+                result.tool_call_id.clone(),
+                (result.is_error, result_text(result)),
+            )
+        })
+        .collect();
+    assert_eq!(
+        by_id["repaired"],
+        (
+            false,
+            "<harness>\n[warn] Repaired argument: message read as text\n[warn] Repaired argument: loud=\"yes\" read as true\n</harness>".to_owned()
+        )
+    );
+    assert_eq!(
+        by_id["unknown"],
+        (
+            true,
+            harness_error("shout has no argument `volume`. Valid arguments: text, loud.")
+        )
+    );
+    assert_eq!(
+        locked(&seen),
+        [serde_json::json!({ "text": "hi", "loud": true })]
     );
     ran.harness.close(context()).await.unwrap();
 }
