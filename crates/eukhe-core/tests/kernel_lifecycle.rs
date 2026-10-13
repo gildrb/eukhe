@@ -620,8 +620,11 @@ async fn abort_stops_any_cell_and_the_next_cell_runs_at_once() {
         "the snapshot the next kernel revives"
     );
     // Ignores the interrupt and starts a subprocess in the kernel's group.
-    // It prints only inside the `try`, so the abort cannot land before it.
-    let stubborn = "import subprocess, time\nchild = subprocess.Popen(['sleep', '60'])\nwhile True:\n    try:\n        print(child.pid, flush=True)\n        time.sleep(60)\n    except BaseException:\n        pass";
+    // It prints only inside the `try`, so the abort cannot land before it,
+    // and each pid line is ONE write: `print` writes the newline separately,
+    // so an abort landing between the two glued the next line's pid onto
+    // the first.
+    let stubborn = "import subprocess, sys, time\nchild = subprocess.Popen(['sleep', '60'])\nwhile True:\n    try:\n        sys.stdout.write(f'{child.pid}\\n')\n        sys.stdout.flush()\n        time.sleep(60)\n    except BaseException:\n        pass";
     let (killed, stdout, took) = execute_then_abort(&manager, stubborn).await;
     assert_eq!(killed.status, ExecuteStatus::Killed);
     assert!(took < Duration::from_secs(5), "settled after {took:?}");
@@ -630,7 +633,7 @@ async fn abort_stops_any_cell_and_the_next_cell_runs_at_once() {
         .lines()
         .next()
         .and_then(|line| line.parse().ok())
-        .expect("child pid printed");
+        .unwrap_or_else(|| panic!("child pid printed: {stdout:?}"));
     tokio::time::timeout(
         Duration::from_secs(5),
         eukhe_core::platform::process::wait_for_exit(child),
