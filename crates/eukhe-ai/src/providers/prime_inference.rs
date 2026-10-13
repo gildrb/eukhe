@@ -16,9 +16,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_types::pi_ai::{
-    AnyModel, CacheControlFormat, JsonValue, MaxTokensField, Modality, Model, ModelCompat,
-    ModelCost, ModelThinkingLevel, OpenAICompletionsCompat, ProviderHeaders, ThinkingFormat,
-    ThinkingLevelMap,
+    AnyModel, JsonValue, MaxTokensField, Modality, Model, ModelCompat, ModelCost,
+    ModelThinkingLevel, OpenAICompletionsCompat, ProviderHeaders, ThinkingFormat, ThinkingLevelMap,
 };
 use futures::future::BoxFuture;
 
@@ -336,6 +335,17 @@ fn default_compat() -> OpenAICompletionsCompat {
     }
 }
 
+/// The live model list and the receipt of the entries it built without a
+/// catalog row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BuiltPrimeInferenceModels {
+    pub models: Vec<Model>,
+    /// Ids of live entries the compiled catalog has no row for. They carry
+    /// the provider's default compat and only the prices and specs the wire
+    /// declares: no compatibility fact is inferred from the id.
+    pub uncataloged: Vec<String>,
+}
+
 /// Builds the live model list from fetched entries against the compiled
 /// templates; `None` when the coverage gate rejects the result.
 #[must_use]
@@ -345,12 +355,13 @@ pub fn build_prime_inference_models(
     entries: &[PrimeInferenceEntry],
     private_models: PrivateModels,
     minimum_models: Option<usize>,
-) -> Option<Vec<Model>> {
+) -> Option<BuiltPrimeInferenceModels> {
     let templates: HashMap<String, &Model> = bundled
         .iter()
         .map(|model| (model.id.to_ascii_lowercase(), model))
         .collect();
     let mut models = Vec::with_capacity(entries.len());
+    let mut uncataloged = Vec::new();
     for entry in entries {
         if private_models == PrivateModels::Exclude
             && is_private_prime_inference_model_id(&entry.id)
@@ -374,15 +385,11 @@ pub fn build_prime_inference_models(
             .or_else(|| template.map(|template| template.max_tokens))
             .unwrap_or_default()
             .min(context_window);
-        let anthropic = entry.id.to_ascii_lowercase().starts_with("anthropic/");
         let mut compat = template
             .and_then(|template| template.compat.as_ref())
             .and_then(ModelCompat::as_openai_completions)
             .cloned()
             .unwrap_or_else(default_compat);
-        if anthropic {
-            compat.cache_control_format = Some(CacheControlFormat::Anthropic);
-        }
         let controls = prime_inference_reasoning_controls(entry);
         if let Some(controls) = &controls {
             // The live catalog is authoritative for which reasoning
@@ -394,19 +401,17 @@ pub fn build_prime_inference_models(
             Some(controls) => controls.thinking_level_map.clone(),
             None => template.and_then(|template| template.thinking_level_map.clone()),
         };
-        let fallback_rate = |template_rate: Option<f64>, anthropic_factor: f64| {
-            template_rate.unwrap_or(if anthropic {
-                entry.input * anthropic_factor
-            } else {
-                0.0
-            })
-        };
-        let cache_read = entry.cache_read.unwrap_or_else(|| {
-            fallback_rate(template.map(|template| template.cost.cache_read), 0.1)
-        });
-        let cache_write = entry.cache_write.unwrap_or_else(|| {
-            fallback_rate(template.map(|template| template.cost.cache_write), 1.25)
-        });
+        let cache_read = entry
+            .cache_read
+            .or_else(|| template.map(|template| template.cost.cache_read))
+            .unwrap_or_default();
+        let cache_write = entry
+            .cache_write
+            .or_else(|| template.map(|template| template.cost.cache_write))
+            .unwrap_or_default();
+        if template.is_none() {
+            uncataloged.push(entry.id.clone());
+        }
         let vision = entry
             .vision
             .or_else(|| template.map(|template| template.input.contains(&Modality::Image)))
@@ -459,11 +464,11 @@ pub fn build_prime_inference_models(
     // `ceil` of a small non-negative product: exact and in range.
     let minimum_models = minimum_models
         .unwrap_or_else(|| ((bundled.len() as f64) * MIN_CATALOG_COVERAGE).ceil() as usize);
-    let covered = models
-        .iter()
-        .filter(|model| templates.contains_key(&model.id.to_ascii_lowercase()))
-        .count();
-    (covered >= minimum_models).then_some(models)
+    let covered = models.len() - uncataloged.len();
+    (covered >= minimum_models).then_some(BuiltPrimeInferenceModels {
+        models,
+        uncataloged,
+    })
 }
 
 /// Api-key auth: stored key or `PRIME_API_KEY`; the team (stored
@@ -702,9 +707,17 @@ async fn refresh_prime_models(
     };
     let entries =
         parse_prime_inference_model_catalog(&payload, EmptyCatalog::Reject).map_err(error)?;
-    let refreshed =
-        build_prime_inference_models(&catalog.offline, &entries, PrivateModels::Exclude, None)
-            .ok_or_else(|| error("Prime Inference catalog coverage gate failed".to_owned()))?;
+    let BuiltPrimeInferenceModels {
+        models: refreshed,
+        uncataloged,
+    } = build_prime_inference_models(&catalog.offline, &entries, PrivateModels::Exclude, None)
+        .ok_or_else(|| error("Prime Inference catalog coverage gate failed".to_owned()))?;
+    if !uncataloged.is_empty() {
+        tracing::info!(
+            ?uncataloged,
+            "Prime Inference serves models the catalog has no row for; they use the default compat"
+        );
+    }
     let persisted: Vec<AnyModel> = refreshed.iter().cloned().map(AnyModel::Chat).collect();
     context
         .publish(ModelsPublication {

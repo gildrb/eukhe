@@ -16,7 +16,7 @@ use eukhe_ai::providers::prime_inference::{
 };
 use eukhe_ai::providers::prime_inference_models::PRIME_INFERENCE_MODELS;
 use eukhe_types::pi_ai::{
-    CacheControlFormat, Model, ModelThinkingLevel, ThinkingFormat, ThinkingLevelMap,
+    MaxTokensField, Model, ModelThinkingLevel, ThinkingFormat, ThinkingLevelMap,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -124,6 +124,8 @@ fn build_gates_on_coverage() {
         parse_prime_inference_model_catalog(&payload(&ids), EmptyCatalog::Reject).expect("entries");
     let built = build_prime_inference_models(&compiled, &entries, PrivateModels::Exclude, None)
         .expect("coverage met (60 >= 55)");
+    assert!(built.uncataloged.is_empty());
+    let built = built.models;
     assert_eq!(built.len(), 60);
     assert!(built
         .iter()
@@ -153,11 +155,14 @@ fn build_requires_full_specs_without_a_template() {
     let built =
         build_prime_inference_models(&compiled(), &entries, PrivateModels::Exclude, Some(0))
             .expect("built");
-    assert!(built.is_empty(), "entry without template and specs dropped");
+    assert!(
+        built.models.is_empty(),
+        "entry without template and specs dropped"
+    );
 }
 
 #[test]
-fn anthropic_entries_get_cache_economics() {
+fn uncataloged_entries_get_default_compat_and_a_receipt() {
     let compiled = compiled();
     let mut value = payload(
         &compiled
@@ -175,21 +180,23 @@ fn anthropic_entries_get_cache_economics() {
         parse_prime_inference_model_catalog(&value, EmptyCatalog::Reject).expect("entries");
     let built = build_prime_inference_models(&compiled, &entries, PrivateModels::Exclude, None)
         .expect("built");
-    let anthropic = built
+    assert_eq!(built.uncataloged, ["anthropic/live-only-model"]);
+    let live_only = built
+        .models
         .iter()
         .find(|model| model.id == "anthropic/live-only-model")
         .expect("live-only model");
-    assert!((anthropic.cost.cache_read - 0.2).abs() < 1e-9);
-    assert!((anthropic.cost.cache_write - 2.5).abs() < 1e-9);
-    let compat = anthropic
+    // Nothing is inferred from the id: no undeclared cache prices, no
+    // cache-control convention.
+    assert!(live_only.cost.cache_read.abs() < 1e-9);
+    assert!(live_only.cost.cache_write.abs() < 1e-9);
+    let compat = live_only
         .compat
         .as_ref()
         .and_then(|compat| compat.as_openai_completions())
         .expect("completions compat");
-    assert_eq!(
-        compat.cache_control_format,
-        Some(CacheControlFormat::Anthropic)
-    );
+    assert_eq!(compat.cache_control_format, None);
+    assert_eq!(compat.max_tokens_field, Some(MaxTokensField::MaxTokens));
 }
 
 #[test]
