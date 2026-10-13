@@ -24,7 +24,8 @@ use crate::memory::view::Part;
 use crate::memory::{labeled, AppendKey, Kind, RETRY};
 
 /// Consecutive failures of the node a turn waits on before the wait fails
-/// with the compactor's error (the compactor itself retries forever).
+/// with the compactor's error (the node is tried again at the next message
+/// or turn).
 const SETTLE_FAILURES: u32 = 3;
 /// How many recent messages a re-sent append checks for its own copy.
 const DEDUPE_WINDOW: usize = 64;
@@ -48,6 +49,8 @@ pub(super) struct Actor {
     /// Nodes that failed and wait for their retry (a subset of the chat's
     /// busy set).
     waiting: HashSet<Part>,
+    /// The running compactor calls: the owner aborts them when it stops.
+    builds: HashMap<Part, tokio::task::AbortHandle>,
     /// Where updates go (display only: never logged, never sent to a
     /// model).
     subscribers: Vec<tokio::sync::mpsc::UnboundedSender<MemoryUpdate>>,
@@ -115,6 +118,7 @@ impl Actor {
             scopes,
             failures: HashMap::new(),
             waiting: HashSet::new(),
+            builds: HashMap::new(),
             subscribers: Vec::new(),
             built_lines: Vec::new(),
             save_error: None,
@@ -145,7 +149,10 @@ impl Actor {
                         .failures
                         .get(&part)
                         .is_some_and(|failure| failure.generation == generation);
-                    if current && self.waiting.remove(&part) {
+                    // The delayed retry serves a waiting turn: with none
+                    // waiting, the node waits for the next message.
+                    self.view_waiters.retain(|waiter| !waiter.is_closed());
+                    if current && !self.view_waiters.is_empty() && self.waiting.remove(&part) {
                         self.chat.release(part);
                         self.pump();
                     }
@@ -434,15 +441,16 @@ impl Actor {
     }
 
     /// Ask the model for node `part`'s line off the actor thread.
-    fn spawn_build(&self, part: Part, request: NodeRequest) {
+    fn spawn_build(&mut self, part: Part, request: NodeRequest) {
         let summarizer = Arc::clone(&self.summarizer);
         let prompt = Arc::clone(&self.prompt);
         let commands = self.commands.clone();
-        self.runtime.spawn(async move {
+        let build = self.runtime.spawn(async move {
             let result = build_line(summarizer.as_ref(), &prompt, &request, now_millis()).await;
             // A stopped owner no longer needs the line.
             let _ = commands.send(Command::Built { part, result });
         });
+        self.builds.insert(part, build.abort_handle());
     }
 
     fn prepare(&self, part: Part) -> anyhow::Result<Prepared> {
@@ -506,6 +514,7 @@ impl Actor {
     }
 
     fn built(&mut self, part: Part, result: anyhow::Result<String>) {
+        self.builds.remove(&part);
         for (waiter, request) in self.gate.finished(part, result.is_ok()) {
             self.spawn_build(waiter, request);
         }
@@ -516,8 +525,9 @@ impl Actor {
     }
 
     /// A node failed: report its first failure, keep it busy, and try it
-    /// again at the next message, or after [`RETRY`] when none comes
-    /// first (forever; no backoff, the next turn waits).
+    /// again at the next message or turn. While a turn waits for the view,
+    /// it is also tried again after [`RETRY`] (no backoff: the wait fails
+    /// after [`SETTLE_FAILURES`]); an idle chat makes no call for it.
     fn failed(&mut self, part: Part, error: &anyhow::Error) {
         let entry = self.failures.entry(part).or_insert(Failure {
             count: 0,
@@ -530,28 +540,31 @@ impl Actor {
         if entry.count == 1 {
             tracing::warn!(
                 target: "chat_memory",
-                "cannot summarize {}+{}: {}; retrying at the next message or in {} s",
+                "cannot summarize {}+{}: {}; retrying at the next message",
                 part.start(),
                 part.count(),
-                entry.error,
-                RETRY.as_secs()
+                entry.error
             );
         }
         let generation = entry.generation;
         self.chat.mark_busy(part);
         self.waiting.insert(part);
+        self.fail_waiters_if_stuck();
+        self.view_waiters.retain(|waiter| !waiter.is_closed());
+        if self.view_waiters.is_empty() {
+            return;
+        }
         let commands = self.commands.clone();
         self.runtime.spawn(async move {
             tokio::time::sleep(RETRY).await;
             let _ = commands.send(Command::Retry { part, generation });
         });
-        self.fail_waiters_if_stuck();
     }
 
     /// A turn waits for the view: rendered at once when every line is a
     /// summary, else by [`Actor::wake_view_waiters`] in the step that builds
-    /// the last one (§6). When the node it waits on is in its retry delay,
-    /// try it again now.
+    /// the last one (§6). Like a new message, the wait tries every failed
+    /// node again now.
     fn add_view_waiter(&mut self, reply: oneshot::Sender<Outcome>) {
         if self.chat.settled() {
             // The requester may have stopped waiting.
@@ -562,16 +575,8 @@ impl Actor {
         }
         self.view_waiters.retain(|waiter| !waiter.is_closed());
         self.view_waiters.push(reply);
-        let blocking = Part {
-            l: 0,
-            i: self.chat.first(),
-        };
-        if self.waiting.remove(&blocking) {
-            if let Some(failure) = self.failures.get_mut(&blocking) {
-                // Invalidate the pending delayed retry.
-                failure.generation += 1;
-            }
-            self.chat.release(blocking);
+        if !self.waiting.is_empty() {
+            self.retry_failed();
             self.pump();
         }
     }
@@ -610,11 +615,10 @@ impl Actor {
             return;
         }
         let error = format!(
-            "the memory compactor cannot summarize message {} ({} tries): {}; it keeps retrying every {} s",
+            "the memory compactor cannot summarize message {} ({} tries): {}; it tries again at the next message",
             blocking.i,
             failure.count,
-            failure.error,
-            RETRY.as_secs()
+            failure.error
         );
         for waiter in self.view_waiters.drain(..) {
             let _ = waiter.send(Outcome::Error(error.clone()));
@@ -651,6 +655,16 @@ impl Actor {
         if self.persist_again {
             self.persist_again = false;
             self.persist();
+        }
+    }
+}
+
+impl Drop for Actor {
+    fn drop(&mut self) {
+        // A stopped owner's compactor calls stop with it: their lines would
+        // have nowhere to go, and dropping a call cancels its request.
+        for build in self.builds.values() {
+            build.abort();
         }
     }
 }

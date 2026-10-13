@@ -29,7 +29,10 @@ pub type SummarizerFuture =
 /// in the same conversation when the line is over the size limit.
 /// Transport failures return `Err`; a reply that stopped with an error is
 /// reported through its `stop_reason`. Either fails the node, which the
-/// owner tries again at the next message (or after [`super::RETRY`]).
+/// owner tries again at the next message (or after [`super::RETRY`] while a
+/// turn waits). Dropping the returned future cancels the call: the
+/// implementation stops its request then (the owner drops its calls when
+/// it stops).
 pub trait Summarizer: Send + Sync {
     /// Complete `context` and return the model's message.
     fn complete(&self, context: Context) -> SummarizerFuture;

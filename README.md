@@ -86,7 +86,8 @@ The chat lives in `~/.eukhe/chat/`. It is one append-only log. Each message
 has a kind: `user`, `talk`, `tool`, `echo`, or `work` (a subagent or
 background report). The compactor writes one-line summaries into a binary
 tree over the log. A summary has a 512-byte target; a longer one is tried
-again, up to 5 times.
+again, up to 5 times. A failed summary is tried again at the next message,
+and every 10 s while a turn waits for it; an idle chat makes no model call.
 
 The view is the context each root turn starts from. When the view passes
 128 KB, one batch merges it down to 64 KB. The view is saved to `view.json`

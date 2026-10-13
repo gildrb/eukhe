@@ -7,12 +7,15 @@
 //! fails the call (the owner reports it and retries) instead of silently
 //! picking another one. The request runs through the durable model
 //! collection ([`crate::durable::create_models`]), which serves the
-//! registered pi-ai models only.
+//! registered pi-ai models only. It asks for at most [`MAX_TOKENS`], and a
+//! dropped call cancels it.
 
 use std::path::{Path, PathBuf};
 
+use eukhe_ai::api::simple_options::{DEFAULT_THINKING_BUDGETS, MIN_ANSWER_TOKENS};
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::{SimpleStreamOptions, StreamOptions};
+use eukhe_chord::context::AbortController;
 use eukhe_types::ai::{Model, ModelThinkingLevel};
 use eukhe_types::pi_ai::{self, Context};
 
@@ -22,6 +25,22 @@ use super::compactor::{Summarizer, SummarizerFuture};
 /// routing on it, and the compactor's `<chat>` prefix is shared across
 /// calls.
 const COMPACTOR_SESSION: &str = "chat-memory-compactor";
+
+/// The output cap of one compactor call: a high-effort think (the default
+/// `high` budget) and room for a line of [`super::NODE`] bytes (the answer
+/// floor). The model's own output budget, often many times larger, would
+/// let one call run on for minutes or hours; a smaller one still applies.
+const MAX_TOKENS: u64 = DEFAULT_THINKING_BUDGETS.high.unwrap() + MIN_ANSWER_TOKENS;
+
+/// Cancels a compactor call's request when the call is dropped: the
+/// provider streams on a task of its own, which only the signal stops.
+struct AbortOnDrop(AbortController);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort(None);
+    }
+}
 
 /// The settings-backed compactor model.
 #[derive(Debug, Clone)]
@@ -46,15 +65,22 @@ impl Summarizer for SettingsSummarizer {
             let target = tokio::task::spawn_blocking(move || resolve(&agent_dir))
                 .await
                 .map_err(|error| anyhow::anyhow!("compactor model resolution failed: {error}"))??;
+            let abort = AbortOnDrop(AbortController::new());
             let mut options: ModelsSimpleStreamOptions = SimpleStreamOptions {
                 stream: StreamOptions {
                     session_id: Some(COMPACTOR_SESSION.to_string()),
+                    // A model budget of 0 names none.
+                    max_tokens: Some(match target.model.max_tokens {
+                        0 => MAX_TOKENS,
+                        budget => budget.min(MAX_TOKENS),
+                    }),
                     ..StreamOptions::default()
                 },
                 reasoning: reasoning(target.thinking),
                 ..SimpleStreamOptions::default()
             }
             .into();
+            options.options.stream.request.signal = Some(abort.0.signal());
             options.options.stream.request.api_key = target.api_key;
             options.options.stream.request.headers = target.headers.map(|headers| {
                 headers
@@ -181,4 +207,104 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
         headers: resolved.headers,
         thinking: settings.get_memory_thinking().model_level(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::future::Future;
+    use std::time::Duration;
+
+    use eukhe_types::pi_ai::{Message, UserContent, UserMessage};
+    use serde_json::{json, Value};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    use super::*;
+
+    /// Fail instead of hanging when a step never comes.
+    async fn within<F: Future>(future: F) -> F::Output {
+        tokio::time::timeout(Duration::from_secs(30), future)
+            .await
+            .expect("the step comes")
+    }
+
+    /// One HTTP request's JSON body.
+    async fn read_body(socket: &mut TcpStream) -> Value {
+        let mut request = Vec::new();
+        let mut buffer = [0u8; 8192];
+        loop {
+            let read = socket.read(&mut buffer).await.unwrap();
+            assert_ne!(read, 0, "the request ends before its body");
+            request.extend_from_slice(&buffer[..read]);
+            let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
+                continue;
+            };
+            let length = std::str::from_utf8(&request[..end])
+                .unwrap()
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>())
+                })
+                .expect("a sized body")
+                .unwrap();
+            let body = end + 4;
+            if request.len() >= body + length {
+                return serde_json::from_slice(&request[body..body + length]).unwrap();
+            }
+        }
+    }
+
+    /// A compactor call asks for at most [`MAX_TOKENS`], however large the
+    /// model's own budget, and dropping it mid-stream closes its request:
+    /// the provider streams on a task of its own.
+    #[tokio::test]
+    async fn a_compactor_call_is_capped_and_closes_its_request_when_dropped() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let dir = tempfile::tempdir().unwrap();
+        let settings = json!({"memory": {"model": "local/m"}});
+        std::fs::write(dir.path().join("settings.json"), settings.to_string()).unwrap();
+        let models = json!({"providers": {"local": {
+            "baseUrl": format!("http://127.0.0.1:{port}/v1"),
+            "apiKey": "local-key",
+            "api": "openai-completions",
+            "models": [{"id": "m", "contextWindow": 262_144, "maxTokens": 131_072}]
+        }}});
+        std::fs::write(dir.path().join("models.json"), models.to_string()).unwrap();
+        let call = tokio::spawn(SettingsSummarizer::new(dir.path().to_path_buf()).complete(
+            Context {
+                system_prompt: None,
+                messages: vec![Message::User(UserMessage {
+                    content: UserContent::Text("hi".to_string()),
+                    timestamp: 0,
+                })],
+                tools: None,
+            },
+        ));
+        let (mut socket, _) = within(listener.accept()).await.unwrap();
+        let body = within(read_body(&mut socket)).await;
+        // The reply starts, then stalls.
+        socket
+            .write_all(
+                concat!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\r\n",
+                    r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"m","#,
+                    r#""choices":[{"index":0,"delta":{"content":"li"},"finish_reason":null}]}"#,
+                    "\n\n",
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        call.abort();
+        let mut rest = [0u8; 1];
+        // A reset closes it as well as an end of stream.
+        let closed = within(socket.read(&mut rest)).await.unwrap_or(0);
+        assert_eq!(
+            (body["max_completion_tokens"].clone(), closed),
+            (json!(MAX_TOKENS), 0)
+        );
+    }
 }

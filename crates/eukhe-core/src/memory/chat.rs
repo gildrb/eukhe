@@ -313,7 +313,7 @@ impl Chat {
         out
     }
 
-    /// The node is running (or waiting out its retry delay).
+    /// The node is running (or failed, waiting to be tried again).
     pub(crate) fn mark_busy(&mut self, part: Part) {
         self.busy.insert(part);
     }

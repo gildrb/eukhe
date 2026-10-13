@@ -716,10 +716,12 @@ async fn a_keyed_append_is_written_once_across_owner_restarts() {
     );
 }
 
-/// A failed node is reported and tried again every [`RETRY`], with no
+/// A failed node is reported, then left alone while the chat is idle: no
+/// call goes out however long nothing happens. A turn's wait tries it
+/// again at once, then every [`RETRY`] while the turn waits, with no
 /// backoff, until it is built.
 #[tokio::test(start_paused = true)]
-async fn a_failed_node_is_retried_at_a_fixed_delay() {
+async fn a_failed_node_is_tried_again_only_for_a_waiting_turn() {
     let dir = tempfile::tempdir().unwrap();
     let summarizer = Scripted::with(vec![
         Err(anyhow::anyhow!("overloaded")),
@@ -728,20 +730,30 @@ async fn a_failed_node_is_retried_at_a_fixed_delay() {
     ]);
     let memory = Memory::open(dir.path(), summarizer.clone()).await.unwrap();
     memory.append(Kind::Echo, &"y".repeat(NODE)).await.unwrap();
-    summarizer.requested(2).await;
+    summarizer.requested(1).await;
+    // Once the owner answers, it has handled the failure: a retry it
+    // scheduled counts from now.
+    let failed = memory.status().await.unwrap();
+    tokio::time::sleep(RETRY * 3).await;
+    // Once the owner answers again, a retry due in the idle time has
+    // started its call; the yield runs it.
+    memory.status().await.unwrap();
+    tokio::task::yield_now().await;
     assert_eq!(
-        memory.status().await.unwrap(),
-        MemoryStatus {
-            messages: 1,
-            nodes: 0,
-            view_lines: 1,
-            view_bytes: PLACEHOLDER.len() as u64,
-            unsummarized: 1,
-            running: 1,
-            last_error: Some("overloaded".to_string()),
-        }
+        (summarizer.requests().len(), failed),
+        (
+            1,
+            MemoryStatus {
+                messages: 1,
+                nodes: 0,
+                view_lines: 1,
+                view_bytes: PLACEHOLDER.len() as u64,
+                unsummarized: 1,
+                running: 1,
+                last_error: Some("overloaded".to_string()),
+            }
+        )
     );
-    summarizer.requested(3).await;
     assert_eq!(
         memory.settled_render().await.unwrap().text,
         "<chat>\n0+1|echo: recovered\n</chat>"
@@ -752,9 +764,26 @@ async fn a_failed_node_is_retried_at_a_fixed_delay() {
             .windows(2)
             .map(|pair| pair[1] - pair[0])
             .collect::<Vec<_>>(),
-        [RETRY, RETRY]
+        [RETRY * 3, RETRY]
     );
     assert_eq!(memory.status().await.unwrap().last_error, None);
+}
+
+/// The owner's compactor calls end with it: a call still waiting for the
+/// model is dropped when the last handle goes.
+#[tokio::test]
+async fn a_stopped_owner_drops_its_running_compactor_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let (calls, mut asked) = mpsc::unbounded_channel();
+    let owner = Memory::open(dir.path(), Arc::new(Gated { calls }))
+        .await
+        .unwrap();
+    owner.append(Kind::User, &long(0)).await.unwrap();
+    let mut call = within(asked.recv())
+        .await
+        .expect("the compactor asks the model");
+    drop(owner);
+    within(call.closed()).await;
 }
 
 /// A turn waiting for the view fails with the compactor's error once the

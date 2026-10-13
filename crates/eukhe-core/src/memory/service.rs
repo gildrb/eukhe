@@ -88,7 +88,7 @@ pub struct MemoryStatus {
     /// Messages whose view line is not summarized yet.
     pub unsummarized: u64,
     /// Compactor calls running, waiting for their prefix's writer, or
-    /// waiting for their retry.
+    /// failed and waiting to be tried again.
     pub running: u64,
     /// The newest unresolved failure: saving the view, else the compactor.
     pub last_error: Option<String>,

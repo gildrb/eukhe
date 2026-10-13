@@ -68,8 +68,9 @@ pub const BLOCK: usize = 4;
 pub const JOBS: usize = 8;
 /// Attempts per node to get a line under [`NODE`].
 pub const TRIES: usize = 5;
-/// Wait before a failed node is tried again when no new message comes
-/// first (a new message retries every failed node at once).
+/// Wait before a failed node is tried again while a turn waits for the
+/// view. A new message or a turn's wait tries every failed node again at
+/// once; an idle chat makes no call for a failed node (§4).
 pub const RETRY: Duration = Duration::from_secs(10);
 /// Largest logged tool result, in characters; head and tail are kept. Any
 /// other text longer than this is logged as several messages in a row.
