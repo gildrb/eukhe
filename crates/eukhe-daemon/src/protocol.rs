@@ -151,6 +151,7 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "agent_relay",
     "agent_reply",
     "get_run_outcome",
+    "get_worker_liveness",
 ];
 
 /// Parsed client command envelope.
@@ -604,6 +605,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         DaemonCommand::GetDirectWorkerTransport {
             active_session_id, ..
         }
+        | DaemonCommand::GetWorkerLiveness {
+            active_session_id, ..
+        }
         | DaemonCommand::Attach {
             active_session_id, ..
         }
@@ -955,6 +959,7 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::ListSavedSessions { .. } => "list_saved_sessions",
         DaemonCommand::ListAgentPeers { .. } => "list_agent_peers",
         DaemonCommand::GetDirectWorkerTransport { .. } => "get_direct_worker_transport",
+        DaemonCommand::GetWorkerLiveness { .. } => "get_worker_liveness",
         DaemonCommand::GetWorkerPeerTransport { .. } => "get_worker_peer_transport",
         DaemonCommand::RosterSubscribe { .. } => "roster_subscribe",
         DaemonCommand::WorkerIdlePassivation { .. } => "worker_idle_passivation",

@@ -18,7 +18,7 @@ use eukhe_durable::errors::StorageError;
 use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::registry::create_registry;
 use eukhe_durable::harness::types::{
-    AgentChange, Extension, FieldChange, HarnessOptions, InputSubmissionDraft, ModelRef,
+    AgentChange, Clock, Extension, FieldChange, HarnessOptions, InputSubmissionDraft, ModelRef,
     ToolExecutionResult, ToolRegistration,
 };
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
@@ -81,6 +81,9 @@ struct FakeState {
     /// The spawn cap the host reports (`0` = unlimited) and the family's
     /// active subagents outside this parent.
     capacity: Option<RlmSpawnCapacity>,
+    /// Polls that fail before the next one is answered (a live child whose
+    /// routes are overloaded or slow).
+    failing_waits: usize,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -163,6 +166,13 @@ impl RlmSubagentHost for FakeHost {
 
     fn wait_settled(&self, request: RlmChildWaitRequest) -> RlmHostFuture<'_, RlmChildObservation> {
         Box::pin(async move {
+            {
+                let mut fake = lock(&self.state);
+                if fake.failing_waits > 0 {
+                    fake.failing_waits -= 1;
+                    return Err(anyhow::anyhow!("Session worker is overloaded; retry later"));
+                }
+            }
             let mut changed = self.changed.subscribe();
             let wait = async {
                 loop {
@@ -420,6 +430,8 @@ struct Setup {
     faux: FauxProviderHandle,
     models: Models,
     reports: Arc<Mutex<Vec<SessionError>>>,
+    /// The Harness clock; `None` is the wall clock.
+    now: Option<Clock>,
 }
 
 fn setup() -> Setup {
@@ -430,6 +442,7 @@ fn setup() -> Setup {
         faux,
         models,
         reports: Arc::new(Mutex::new(Vec::new())),
+        now: None,
     }
 }
 
@@ -548,6 +561,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
     let mut options = HarnessOptions::new(setup.models.clone(), Arc::new(registry));
     let reports = Arc::clone(&setup.reports);
     options.on_report = Some(Arc::new(move |error| lock(&reports).push(error)));
+    options.now.clone_from(&setup.now);
     let harness = Harness::open(storage, options, cx()).await.unwrap();
     let root = harness
         .root(
@@ -1006,6 +1020,46 @@ async fn collect_waits_for_the_child_to_settle_and_attributes_its_usage() {
     let row = row_of(&opened.harness, row.task_id).await.unwrap();
     assert_eq!(row.usage, Some(usage));
     assert!(lock(&setup.reports).is_empty());
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// A live but slow child whose polls keep failing (its routes overloaded
+/// or timing out) is never settled by a count of failed polls: it stays
+/// running past the old 150-poll cutoff and reports normally once it
+/// settles. Whether a child is gone is the host's process-level verdict.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn failed_polls_never_settle_a_live_child() {
+    let mut setup = setup();
+    // A Harness clock that leaps on every read, so each re-poll deadline
+    // has already passed and the failed polls run back to back.
+    let ticks = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    setup.now = Some({
+        let ticks = Arc::clone(&ticks);
+        Arc::new(move || (ticks.fetch_add(1, Ordering::SeqCst) * 10_000) as f64)
+    });
+    let host = FakeHost::new();
+    lock(&host.state).failing_waits = 400;
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let row = spawn_child(&opened, &setup).await;
+    eventually(|| async { lock(&host.state).failing_waits == 0 }).await;
+    let polled = row_of(&opened.harness, row.task_id).await.unwrap();
+    assert_eq!(polled.status, ChildStatus::Running, "{polled:?}");
+    assert_eq!(polled.error, None);
+
+    setup.faux.append_responses(vec![answer("thanks")]);
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("done".to_owned()),
+        },
+        None,
+    );
+    eventually(|| async {
+        row_of(&opened.harness, row.task_id)
+            .await
+            .is_some_and(|row| row.status == ChildStatus::Done)
+    })
+    .await;
     opened.harness.close(cx()).await.unwrap();
 }
 

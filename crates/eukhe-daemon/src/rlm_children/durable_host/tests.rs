@@ -13,6 +13,7 @@ use eukhe_core::durable::children::{
     RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget,
     RlmSubagentHost,
 };
+use eukhe_types::daemon::WorkerLiveness;
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::StreamFailureKind;
 use eukhe_types::platform::transport::bind_transport;
@@ -34,6 +35,7 @@ struct Supervisor {
     resident: Vec<Value>,
     child_unhosted: bool,
     outcome: Option<RlmChildRunState>,
+    overloaded_child: Option<WorkerLiveness>,
 }
 
 type Shared = Arc<Mutex<Supervisor>>;
@@ -76,6 +78,22 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
             "Unknown active session: child-passivated",
             None,
         ),
+        "get_state" | "get_run_outcome" if lock(shared).overloaded_child.is_some() => {
+            response_failure(
+                Some(id),
+                command_type,
+                "Session worker child-live is overloaded; retry later",
+                Some(eukhe_types::daemon::DaemonErrorInfo::WorkerOverloaded),
+            )
+        }
+        "get_worker_liveness" => match lock(shared).overloaded_child {
+            Some(liveness) => response_success(
+                Some(id),
+                command_type,
+                Some(json!({ "liveness": liveness })),
+            ),
+            None => response_failure(Some(id), command_type, "unexpected liveness probe", None),
+        },
         "get_state" | "get_session_stats" if lock(shared).child_unhosted => response_failure(
             Some(id),
             command_type,
@@ -443,6 +461,42 @@ async fn a_child_run_ended_by_a_provider_error_settles_failed() {
     )
     .unwrap();
     assert_eq!(display.status, "running");
+}
+
+/// A live but slow child (its probes refused as overloaded) is still
+/// running: the watch asks the supervisor's process verdict instead of
+/// failing the poll, so the parent never counts it toward "unreachable".
+#[tokio::test]
+async fn a_live_child_whose_probes_fail_is_still_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    lock(&shared).overloaded_child = Some(WorkerLiveness::Live);
+    let sessions = host(&shared, dir.path()).await;
+    let observed = sessions
+        .wait_settled(resumed_wait())
+        .await
+        .expect("a live child's failed probe is an observation, not an error");
+    assert_eq!(observed.state, RlmChildRunState::Running);
+    assert_eq!(commands_of(&shared, "get_worker_liveness").len(), 1);
+}
+
+/// A child whose probes fail and whose worker process is gone (no
+/// resident, or one the supervisor stopped) settles as failed at once,
+/// typed `WorkerExited` (its in-flight effects are unknown).
+#[tokio::test]
+async fn a_child_whose_worker_is_gone_settles_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    lock(&shared).overloaded_child = Some(WorkerLiveness::Gone);
+    let sessions = host(&shared, dir.path()).await;
+    let observed = sessions.wait_settled(resumed_wait()).await.unwrap();
+    assert_eq!(
+        observed.state,
+        RlmChildRunState::Failed {
+            failure: ChildFailure::WorkerExited,
+            error: super::WORKER_EXITED_ERROR.to_owned(),
+        }
+    );
 }
 
 #[tokio::test]

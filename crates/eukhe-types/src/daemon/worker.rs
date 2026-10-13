@@ -255,6 +255,21 @@ pub struct DaemonWorkerDescriptor {
     pub rest: JsonMap,
 }
 
+/// The supervisor's process-level verdict on the worker that hosts one
+/// session (`get_worker_liveness`). It is read from the worker process
+/// (pid and start identity), never from failed requests: a worker that is
+/// slow to answer is still `Live`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerLiveness {
+    /// The worker process is alive.
+    Live,
+    /// The process is gone and the supervisor is relaunching it.
+    Recovering,
+    /// No worker process hosts the session and none is coming.
+    Gone,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,6 +287,11 @@ mod tests {
         );
         rt::<DaemonPeerCommand>(
             r#"{"type":"peer_auth","grantId":"g","token":"t","workerInstanceId":"w","purpose":"session_client"}"#,
+        );
+        rt::<DaemonWorkerCommand>(r#"{"type":"cancel_request","requestId":"r-1"}"#);
+        assert_eq!(
+            serde_json::to_value(WorkerLiveness::Recovering).expect("serialize"),
+            serde_json::json!("recovering")
         );
     }
 }

@@ -170,6 +170,18 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// The supervisor's process-level liveness verdict on the worker that
+    /// hosts one session ([`super::WorkerLiveness`]), answered by the
+    /// supervisor from the worker's pid without routing to the worker: a
+    /// parent whose requests to a child fail asks this before it treats
+    /// the child as gone.
+    GetWorkerLiveness {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     /// Worker-to-worker peer ticket (thin-supervisor stage 3): a worker
     /// acting for its session asks the supervisor to mint a single-use
     /// `worker`-purpose grant for a target worker's direct socket so the

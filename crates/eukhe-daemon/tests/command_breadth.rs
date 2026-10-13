@@ -537,6 +537,10 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         "get_run_outcome",
         r#"{"type": "get_run_outcome", "activeSessionId": "sess"}"#,
     ),
+    (
+        "get_worker_liveness",
+        r#"{"type": "get_worker_liveness", "activeSessionId": "sess"}"#,
+    ),
 ];
 
 /// The accept list is the TS list, in TS order, followed by the Rust-native
@@ -570,6 +574,7 @@ fn known_command_types_match_the_ts_list() {
                     | "agent_relay"
                     | "agent_reply"
                     | "get_run_outcome"
+                    | "get_worker_liveness"
             ),
             "unexpected non-TS command type: {extra}"
         );

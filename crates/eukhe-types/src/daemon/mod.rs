@@ -149,7 +149,7 @@ pub use session_state::{
 pub use worker::{
     DaemonPeerCommand, DaemonWorkerCommand, DaemonWorkerDescriptor, DaemonWorkerFrameHeader,
     DaemonWorkerLifecycle, DaemonWorkerPeerGrant, DaemonWorkerRosterOutbound,
-    DurableDaemonCreateCommand, PayloadEncoding,
+    DurableDaemonCreateCommand, PayloadEncoding, WorkerLiveness,
 };
 
 /// Round-trip helper shared by the daemon wire tests: a parsed type must
