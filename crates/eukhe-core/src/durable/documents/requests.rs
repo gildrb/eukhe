@@ -418,9 +418,8 @@ fn kernel_reply(documents: &Documents, function: Function, cwd: &Path, args: Jso
     }
 }
 
-/// Serve one `fs.*` request: check the kernel cwd and remember it as the
-/// conversation's (the wire tools resolve paths where the model's last
-/// kernel call resolved them), then answer on a blocking thread.
+/// Serve one `fs.*` request on a blocking thread; relative paths resolve
+/// against the cwd the kernel sent with it (its `os.getcwd()`).
 async fn handle(
     host: Arc<DocumentsHost>,
     function: Function,
@@ -434,7 +433,6 @@ async fn handle(
         "{request_type} cwd must be absolute, got {}",
         request.cwd.display()
     );
-    host.remember_cwd(&call, request.cwd.clone());
     let reply = tokio::task::spawn_blocking(move || {
         kernel_reply(&host.documents, function, &request.cwd, request.args)
     })

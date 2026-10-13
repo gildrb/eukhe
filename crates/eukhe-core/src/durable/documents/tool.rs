@@ -65,8 +65,8 @@ fn text_result(text: String, is_error: bool, details: serde_json::Value) -> Tool
     }
 }
 
-/// Paths resolve against the kernel cwd of the conversation's last `fs.*`
-/// request (where its `read`/`grep` headers came from), else the agent cwd.
+/// Relative paths resolve against the session's working directory (the
+/// agent's cwd, else the session's).
 async fn execute(
     function: Function,
     host: Arc<DocumentsHost>,
@@ -81,15 +81,12 @@ async fn execute(
             function.name()
         )));
     };
-    let cwd = match host.kernel_cwd(api.conversation_id()) {
-        Some(cwd) => cwd,
-        None => api
-            .agent(cx)
-            .await?
-            .cwd
-            .clone()
-            .map_or_else(|| deps.cwd.clone(), PathBuf::from),
-    };
+    let cwd = api
+        .agent(cx)
+        .await?
+        .cwd
+        .clone()
+        .map_or_else(|| deps.cwd.clone(), PathBuf::from);
     let performed =
         tokio::task::spawn_blocking(move || perform(&host.documents, function, &cwd, args))
             .await
