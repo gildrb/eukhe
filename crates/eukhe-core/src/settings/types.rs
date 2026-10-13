@@ -130,6 +130,9 @@ pub struct ProviderWaitSettings {
 pub struct ProviderRetrySettings {
     pub timeout_ms: Option<u64>,
     pub max_retry_delay_ms: Option<u64>,
+    /// Longest silence of a model stream before the request fails as
+    /// stalled and retries (default 300000; `0` disables).
+    pub stream_idle_timeout_ms: Option<u64>,
     pub wait_for_usage: Option<ProviderWaitSettings>,
 }
 

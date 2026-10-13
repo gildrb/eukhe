@@ -134,8 +134,9 @@ fn load(cwd: &Path, agent_dir: &Path, paths: &[PathBuf; 2], follow_ups_at_once: 
 /// - `retry.{enabled, maxRetries, baseDelayMs}` -> the generation retry
 ///   policy; `retry.provider.maxRetryDelayMs` caps a server-requested delay
 ///   (`maxAgentDelayMs`).
-/// - `retry.provider.timeoutMs` -> the request timeout; `transport` -> the
-///   stream transport.
+/// - `retry.provider.timeoutMs` -> the request timeout;
+///   `retry.provider.streamIdleTimeoutMs` -> the stream-idle deadline;
+///   `transport` -> the stream transport.
 /// - `compaction.{enabled, reserveTokens, keepRecentTokens}` -> the
 ///   compaction policy.
 /// - `steeringMode` / `followUpMode` -> the queue modes (eukhe defaults:
@@ -153,6 +154,9 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
         transport: settings.transport.map(transport),
         timeout_ms: provider
             .and_then(|provider| provider.timeout_ms)
+            .map(u64_to_f64),
+        stream_idle_timeout_ms: provider
+            .and_then(|provider| provider.stream_idle_timeout_ms)
             .map(u64_to_f64),
         ..ConversationStreamOptions::default()
     };
@@ -266,7 +270,7 @@ mod tests {
         std::fs::create_dir_all(&cwd).expect("cwd");
         write(
             &agent.join("settings.json"),
-            r#"{"retry":{"maxRetries":7,"baseDelayMs":500,"provider":{"timeoutMs":9000,"maxRetryDelayMs":1000}},"compaction":{"enabled":false,"reserveTokens":1000,"keepRecentTokens":2000},"steeringMode":"one-at-a-time","followUpMode":"all","transport":"sse"}"#,
+            r#"{"retry":{"maxRetries":7,"baseDelayMs":500,"provider":{"timeoutMs":9000,"maxRetryDelayMs":1000,"streamIdleTimeoutMs":45000}},"compaction":{"enabled":false,"reserveTokens":1000,"keepRecentTokens":2000},"steeringMode":"one-at-a-time","followUpMode":"all","transport":"sse"}"#,
         );
         let settings = EukheSettings::new(&cwd, &agent);
         let resolved = resolve_settings(Some(&settings.current()));
@@ -295,6 +299,7 @@ mod tests {
             ConversationStreamOptions {
                 transport: Some(Transport::Sse),
                 timeout_ms: Some(9000.0),
+                stream_idle_timeout_ms: Some(45000.0),
                 ..ConversationStreamOptions::default()
             }
         );
