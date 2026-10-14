@@ -488,17 +488,28 @@ pub(crate) fn write_json(writer: &mut std::os::unix::net::UnixStream, value: &Va
 /// so the paint (and the exit flush) exercise the OSC 8 hyperlink pairs
 /// the ledger balances.
 pub(crate) fn attach_data(id: &str) -> Value {
-    let messages: Vec<Value> = (0..4)
+    let messages: Vec<Value> = (0..4_u64)
         .map(|index| {
             let text = if index == 3 {
                 "row 3 https://example.com/diff".to_string()
             } else {
                 format!("row {index}")
             };
-            json!({
-                "role": if index % 2 == 0 { "user" } else { "assistant" },
-                "content": [{ "type": "text", "text": text }],
-            })
+            let content = json!([{ "type": "text", "text": text }]);
+            if index % 2 == 0 {
+                json!({ "role": "user", "content": content, "timestamp": index })
+            } else {
+                json!({
+                    "role": "assistant",
+                    "content": content,
+                    "api": "faux",
+                    "provider": "faux",
+                    "model": "faux-1",
+                    "usage": eukhe_types::pi_ai::Usage::default(),
+                    "stopReason": "stop",
+                    "timestamp": index,
+                })
+            }
         })
         .collect();
     json!({
