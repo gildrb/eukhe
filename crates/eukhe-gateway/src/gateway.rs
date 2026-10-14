@@ -10,12 +10,15 @@ use eukhe_tui::daemon_client::DaemonClientEvent;
 use eukhe_types::ai::{
     AssistantContentBlock, AssistantMessage, StopReason, UserContent, UserContentBlock,
 };
-use eukhe_types::daemon::{DaemonCommand, PromptInput, SessionEvent, StreamingBehavior};
+use eukhe_types::daemon::{
+    DaemonCommand, MemoryReply, MemorySnapshot, PromptInput, SessionEvent, StreamingBehavior,
+};
 use eukhe_types::session::AgentMessage;
 use serde_json::{json, Map, Value};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 
+use crate::commands::{Parsed, PhoneCommand};
 use crate::link::{Binding, Link, Opened, Reconnect, RECONNECT_FIRST_DELAY, RECONNECT_MAX_DELAY};
 use crate::sessions::{Route, SavedSession, LISTED_SESSIONS};
 use crate::signal::{Inbound, Peer, SignalCli, Typing};
@@ -37,27 +40,6 @@ const SENT_PROMPTS_KEPT: usize = 16;
 
 /// How long the shutdown cleanup (typing stop, detach) may take.
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
-
-const HELP: &str = "Commands:
-/sessions - Show the newest sessions.
-/use N - Send messages to session N.
-/latest - Send messages to the newest session.
-/new - Start a new session.
-/stop - Stop the current turn.
-/status - Show the session state.
-Other text goes to the agent.";
-
-/// A phone command (exact text, case-insensitive).
-enum PhoneCommand {
-    Help,
-    Sessions,
-    /// `/use N`, with `N` as written.
-    Use(String),
-    Latest,
-    New,
-    Stop,
-    Status,
-}
 
 /// The typing indicator the gateway shows.
 struct TypingShown {
@@ -323,27 +305,20 @@ impl<L: DaemonLauncher> Gateway<L> {
         while let Ok(event) = self.link.events.try_recv() {
             self.handle_event(event).await;
         }
-        let words: Vec<&str> = inbound.text.split_whitespace().collect();
-        let first = words.first().map(|word| word.to_lowercase());
-        let command = match (first.as_deref(), &words[..]) {
-            _ if !inbound.images.is_empty() => None,
-            (Some("/help"), [_]) => Some(PhoneCommand::Help),
-            (Some("/sessions"), [_]) => Some(PhoneCommand::Sessions),
-            (Some("/use"), [_, number]) => Some(PhoneCommand::Use((*number).to_string())),
-            (Some("/latest"), [_]) => Some(PhoneCommand::Latest),
-            (Some("/new"), [_]) => Some(PhoneCommand::New),
-            (Some("/stop"), [_]) => Some(PhoneCommand::Stop),
-            (Some("/status"), [_]) => Some(PhoneCommand::Status),
-            _ => None,
+        let parsed = if inbound.images.is_empty() {
+            crate::commands::parse(&inbound.text)
+        } else {
+            Parsed::Prompt
         };
         let peer = inbound.peer.clone();
-        let outcome = match command {
-            Some(command) => self.run_command(&peer, command).await.map(Some),
-            None if inbound.text.trim().is_empty() && inbound.images.is_empty() => {
+        let outcome = match parsed {
+            Parsed::Command(command) => self.run_command(&peer, command).await.map(Some),
+            Parsed::Answer(answer) => Ok(Some(answer)),
+            Parsed::Prompt if inbound.text.trim().is_empty() && inbound.images.is_empty() => {
                 tracing::info!("ignored an empty message");
                 Ok(None)
             }
-            None => self.prompt(&inbound).await.map(|()| None),
+            Parsed::Prompt => self.prompt(&inbound).await.map(|()| None),
         };
         match outcome {
             Ok(Some(reply)) => self.reply(&peer, reply).await,
@@ -360,7 +335,7 @@ impl<L: DaemonLauncher> Gateway<L> {
     #[tracing::instrument(skip_all)]
     async fn run_command(&mut self, peer: &Peer, command: PhoneCommand) -> anyhow::Result<String> {
         match command {
-            PhoneCommand::Help => Ok(HELP.to_string()),
+            PhoneCommand::Help => Ok(crate::commands::help()),
             PhoneCommand::Sessions => {
                 let bound = self.binding.as_ref().map(|binding| binding.session.clone());
                 let now_ms = std::time::SystemTime::now()
@@ -438,6 +413,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                 Ok("Stop sent.".to_string())
             }
             PhoneCommand::Status => self.status().await,
+            PhoneCommand::Memory => self.memory().await,
         }
     }
 
@@ -511,6 +487,49 @@ impl<L: DaemonLauncher> Gateway<L> {
         Ok(format!(
             "Session: {name}\nFolder: {cwd}\nMode: {mode}\nBusy: {busy}"
         ))
+    }
+
+    /// The `/memory` reply: the chat memory's size and compactor state.
+    /// Every root session shares the one chat memory, so this opens the
+    /// routed session when none is bound.
+    ///
+    /// # Errors
+    ///
+    /// No session can open, or the daemon cannot report the memory.
+    #[tracing::instrument(skip_all)]
+    async fn memory(&mut self) -> anyhow::Result<String> {
+        let binding = self.routed_binding().await?;
+        let data = self
+            .link
+            .client
+            .request_ok(DaemonCommand::GetMemory {
+                id: None,
+                active_session_id: binding.active_session_id,
+                zoom: None,
+                rest: Map::default(),
+            })
+            .await
+            .context("read the chat memory")?;
+        let reply: MemoryReply =
+            serde_json::from_value(data).context("malformed get_memory reply")?;
+        let Some(MemorySnapshot { status, .. }) = reply.memory else {
+            return Ok("This session keeps no chat memory.".to_string());
+        };
+        let model = status.model.as_deref().unwrap_or("default model");
+        let mut lines = vec![
+            format!("Messages: {}", status.messages),
+            format!(
+                "View: {} lines, {} kB",
+                status.lines,
+                status.view_bytes.div_ceil(1000)
+            ),
+            format!("Not summarized: {}", status.unsummarized),
+            format!("Compactor: {model}, {} running", status.running),
+        ];
+        if let Some(error) = status.last_error {
+            lines.push(format!("Last error: {error}"));
+        }
+        Ok(lines.join("\n"))
     }
 
     /// Send one message to the agent; on success Signal holds the floor.

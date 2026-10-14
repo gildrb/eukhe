@@ -1,6 +1,7 @@
 //! Signal gateway: one `signal-cli` child carries chat messages between a
 //! phone and the eukhe daemon. The phone shares the CLI's session.
 
+mod commands;
 mod gateway;
 mod link;
 mod sessions;
