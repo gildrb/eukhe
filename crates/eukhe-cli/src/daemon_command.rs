@@ -9,8 +9,8 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Result};
-use eukhe_types::daemon::DaemonCommand;
+use anyhow::{anyhow, bail, Context, Result};
+use eukhe_types::daemon::{DaemonCommand, StopOutcome};
 use serde_json::{json, Value};
 
 use crate::daemon_client::DaemonClient;
@@ -290,7 +290,27 @@ fn run_kill(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()
         active_session_id,
         rest: serde_json::Map::new(),
     })?;
-    print_response_data(&response, json)
+    let outcome = response
+        .data
+        .as_ref()
+        .and_then(|data| data.get("stopOutcome"))
+        .cloned();
+    let (false, Some(outcome)) = (json, outcome) else {
+        return print_response_data(&response, json);
+    };
+    require_success(response)?;
+    let outcome: StopOutcome =
+        serde_json::from_value(outcome).context("malformed stopOutcome in the kill response")?;
+    match outcome {
+        StopOutcome::Settled => println!("ok"),
+        StopOutcome::ForcedEffectsUnknown => println!(
+            "ok (killed after the stop grace; the effects of its in-flight work are unknown)"
+        ),
+        StopOutcome::Survived => {
+            bail!("the session worker outlived the stop; the next daemon start finishes the stop")
+        }
+    }
+    Ok(())
 }
 
 /// `printResponseData`: pretty-print the response data (the whole response as

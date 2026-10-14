@@ -8,8 +8,7 @@ use super::{
 };
 use anyhow::Context as _;
 use eukhe_types::daemon::DaemonWorkerCommand;
-
-use super::worker_lifecycle::StopOutcome;
+use eukhe_types::daemon::StopOutcome;
 
 /// The route-level wake outcome: a woken resident, or the fallthrough
 /// error the caller answers (no saved session matched).

@@ -13,6 +13,7 @@ use super::{
     TypedCreateRejection, Value,
 };
 use crate::protocol::{response_failure, response_success, DaemonResponse};
+use eukhe_types::daemon::StopOutcome;
 
 /// Explicit model selection from a session's create config (the wire
 /// `provider`/`model`/`apiKey`/`thinking` fields). `None` fields keep the
@@ -24,21 +25,6 @@ struct EngineModelSelection {
     api_key: Option<String>,
     /// The requested thinking level (`--thinking` on the wire).
     thinking: Option<eukhe_types::ai::ModelThinkingLevel>,
-}
-
-/// How one stop ended at ADR 0011's kill boundary: the cooperative
-/// `shutdown` request first, the process-group kill after the grace.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum StopOutcome {
-    /// The worker settled the cooperative shutdown inside the grace.
-    Settled,
-    /// The worker missed the grace and was killed with its process group:
-    /// the effects of whatever it was running may or may not have landed.
-    ForcedEffectsUnknown,
-    /// The process outlived the escalation or cannot be identity-verified:
-    /// its tombstoned descriptor carries the stop to the next boot.
-    Survived,
 }
 
 impl Supervisor {

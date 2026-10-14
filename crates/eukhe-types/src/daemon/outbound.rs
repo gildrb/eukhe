@@ -163,6 +163,22 @@ pub enum DaemonSessionClosedReason {
     Replaced,
 }
 
+/// How one session stop ended at ADR 0011's kill boundary: the
+/// cooperative `shutdown` request first, the process-group kill after the
+/// grace. A `kill` response carries it as `data.stopOutcome`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StopOutcome {
+    /// The worker settled the cooperative shutdown inside the grace.
+    Settled,
+    /// The worker missed the grace and was killed with its process group:
+    /// the effects of whatever it was running may or may not have landed.
+    ForcedEffectsUnknown,
+    /// The process outlived the escalation or cannot be identity-verified:
+    /// its tombstoned descriptor carries the stop to the next boot.
+    Survived,
+}
+
 /// Single-use credential for one direct TUI-to-worker connection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

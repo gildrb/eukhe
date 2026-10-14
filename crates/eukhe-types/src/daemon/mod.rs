@@ -135,7 +135,7 @@ pub use memory::{
 pub use outbound::{
     DaemonClosingReason, DaemonErrorInfo, DaemonEventEnvelope, DaemonOutbound,
     DaemonPeerTransportTicket, DaemonResponse, DaemonRuntimeIdentity, DaemonSavedSessionInfo,
-    DaemonSessionClosedReason, DaemonSessionSnapshot, SnapshotPurpose, SocketIdentity,
+    DaemonSessionClosedReason, DaemonSessionSnapshot, SnapshotPurpose, SocketIdentity, StopOutcome,
     KERNEL_NOT_RUNNING_MESSAGE,
 };
 pub use plane::{command_plane, is_session_plane_daemon_command, DaemonCommandPlane};
