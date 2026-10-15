@@ -16,7 +16,7 @@ use super::types::{
     ToolsChange,
 };
 use crate::documents::{DocDefinition, RewindableConversationDoc};
-use crate::session::{SessionError, SessionResult, Tx};
+use crate::session::{document_retention, SessionError, SessionResult, Tx};
 use crate::types::{ConversationId, ConversationRecord, RewindableFork};
 
 pub const DEFAULT_RETRY_POLICY: ConversationRetryPolicy = ConversationRetryPolicy {
@@ -122,6 +122,9 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
         context_retention_ms: settings
             .and_then(|settings| settings.context_retention_ms)
             .unwrap_or(DEFAULT_CONTEXT_RETENTION_MS),
+        document_retention_ms: document_retention(
+            settings.and_then(|settings| settings.document_retention_ms),
+        ),
     }
 }
 

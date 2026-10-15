@@ -386,7 +386,19 @@ impl Harness {
                 report: Arc::clone(&report),
                 core: weak.clone(),
             };
-            let session = Session::with_hooks(storage, Arc::new(hooks), Some(Arc::clone(&now)));
+            // Read at each use, as all settings are, but only this field: it
+            // is read on every commit.
+            let retention_settings = options.settings.clone();
+            let session = Session::with_hooks(
+                storage,
+                Arc::new(hooks),
+                Arc::clone(&now),
+                Arc::new(move || {
+                    retention_settings
+                        .as_ref()
+                        .and_then(|settings| settings.current().document_retention_ms)
+                }),
+            );
             // Every component reads and writes through the Session's failure
             // guard: the raw storage serves only the Session.
             let storage = Arc::clone(session.storage());

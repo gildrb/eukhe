@@ -5,6 +5,7 @@ mod checkpoints_migrations;
 mod delivered;
 mod documents;
 mod forks;
+mod retention;
 mod states;
 pub(crate) mod support;
 mod tables;

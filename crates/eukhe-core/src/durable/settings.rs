@@ -193,6 +193,7 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
         steering_mode: Some(queue_mode(manager.get_steering_mode())),
         follow_up_mode: Some(queue_mode(manager.get_follow_up_mode())),
         context_retention_ms: None,
+        document_retention_ms: None,
     }
 }
 

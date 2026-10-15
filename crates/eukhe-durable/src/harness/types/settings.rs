@@ -228,6 +228,10 @@ pub struct HarnessSettings {
     /// so its next run reads only newer entries. Busy conversations always
     /// keep it; `0` drops it once the conversation is idle.
     pub context_retention_ms: Option<f64>,
+    /// How long a loaded document that no watch or document state observes
+    /// stays in memory after its last read or write; the next access loads
+    /// it from Storage. Default ten minutes; `0` drops it right after use.
+    pub document_retention_ms: Option<f64>,
 }
 
 /// Resolved settings: every field over its built-in default, object fields
@@ -244,6 +248,7 @@ pub struct Settings {
     pub steering_mode: QueueMode,
     pub follow_up_mode: QueueMode,
     pub context_retention_ms: f64,
+    pub document_retention_ms: f64,
 }
 
 /// Live source of [`HarnessSettings`] (TS `HarnessOptions.settings`, an

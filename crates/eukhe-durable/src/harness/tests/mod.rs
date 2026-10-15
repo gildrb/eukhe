@@ -19,6 +19,7 @@ mod view;
 mod context;
 mod context_kept;
 mod conversations;
+mod document_retention;
 mod inbox;
 mod inspect;
 mod lifecycle;

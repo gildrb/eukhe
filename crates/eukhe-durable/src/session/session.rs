@@ -1,13 +1,20 @@
 //! Session kernel: one mutation line, the loaded document tracker cache, and
 //! committed publication.
 //!
+//! The cache is bounded by use (see the `cache` module): a document with no
+//! watch or document state attached leaves it once it was not read or
+//! written for the document retention, and the next access loads it from
+//! Storage. Eviction runs on the mutation line, so no transaction ever holds
+//! a tracker that leaves.
+//!
 //! Only committed state is observable. Every commit callback, preparation,
 //! Storage settlement, adoption, and publication enqueue runs while the line is
 //! held; listeners run later.
 
-use std::collections::HashMap;
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::time::Duration;
 
 use eukhe_chord::context::{
     await_with_context, without_abort_signal, AbortSignal, Context, BACKGROUND_CONTEXT,
@@ -29,6 +36,7 @@ use crate::types::{
     DocumentId, DocumentPoint, DocumentRecord, DocumentScope, EntryId, Seq, Storage, StorageWrite,
 };
 
+use super::cache::{document_retention, DocumentCache, DocumentCacheSizes, PendingSweep};
 use super::error::{SessionError, SessionResult};
 use super::guarded::{FailureLatch, GuardedStorage};
 use super::observation::{
@@ -57,6 +65,16 @@ pub type InternalCommitListener =
 /// `() => number`).
 pub type SessionClock = Arc<dyn Fn() -> f64 + Send + Sync>;
 
+/// How long, in milliseconds, a loaded document no observer attaches to stays
+/// cached after its last read or write; read at each use (TS
+/// `() => number | undefined`). `None`, or a value that is not `0` or more,
+/// keeps the default of ten minutes.
+pub type DocumentRetentionSource = Arc<dyn Fn() -> Option<f64> + Send + Sync>;
+
+/// Longest delay `setTimeout` supports; a longer retention waits in several
+/// steps.
+const MAX_TIMER_DELAY: f64 = 2_147_483_647.0;
+
 /// Why a Session ended: `close()`, or a failed Storage call, whose error it
 /// carries.
 #[derive(Clone, Debug)]
@@ -75,6 +93,11 @@ pub enum SessionEnd {
 pub struct SessionOptions {
     /// The wall clock for task times; default `Date.now`.
     pub now: Option<SessionClock>,
+    /// How long, in milliseconds, a loaded document that no watch or
+    /// document state observes stays cached after its last read or write;
+    /// default ten minutes, `0` drops it right after use. The next access
+    /// loads it from Storage again.
+    pub document_retention_ms: Option<f64>,
 }
 
 impl std::fmt::Debug for SessionOptions {
@@ -82,6 +105,7 @@ impl std::fmt::Debug for SessionOptions {
         formatter
             .debug_struct("SessionOptions")
             .field("now", &self.now.is_some())
+            .field("document_retention_ms", &self.document_retention_ms)
             .finish()
     }
 }
@@ -168,7 +192,7 @@ type Closing = Shared<BoxFuture<'static, SessionResult<()>>>;
 
 #[derive(Default)]
 struct SessionState {
-    documents: HashMap<String, Arc<LoadedDocument>>,
+    cache: DocumentCache,
     commit_listeners: Vec<(u64, CommitListener)>,
     /// The Session's own listeners, such as its scheduler's: they keep memory
     /// in step with storage, so a failure fails it.
@@ -186,6 +210,7 @@ struct SessionInner {
     storage: Arc<dyn Storage>,
     hooks: Arc<dyn SessionHooks>,
     now: SessionClock,
+    document_retention_ms: DocumentRetentionSource,
     state: Mutex<SessionState>,
     /// Set the moment the Session fails, before work underway has ended.
     failed: watch::Sender<Option<Arc<SessionError>>>,
@@ -212,7 +237,13 @@ impl std::fmt::Debug for Session {
 /// returns fails the Session (`SessionFailed`); see [`Session`].
 #[must_use]
 pub fn create_session(storage: Arc<dyn Storage>, options: SessionOptions) -> Session {
-    Session::with_hooks(storage, Arc::new(NoSessionHooks), options.now)
+    let retention = options.document_retention_ms;
+    Session::with_hooks(
+        storage,
+        Arc::new(NoSessionHooks),
+        options.now.unwrap_or_else(|| Arc::new(system_now)),
+        Arc::new(move || retention),
+    )
 }
 
 /// `Date.now()`: wall-clock milliseconds since the Unix epoch.
@@ -234,19 +265,27 @@ fn ready<T: Send + 'static>(result: SessionResult<T>) -> BoxFuture<'static, Sess
 }
 
 impl Session {
-    /// A plain Session over `storage` with the system clock.
+    /// A plain Session over `storage` with the system clock and the default
+    /// document retention.
     #[must_use]
     pub fn new(storage: Arc<dyn Storage>) -> Self {
-        Self::with_hooks(storage, Arc::new(NoSessionHooks), None)
+        Self::with_hooks(
+            storage,
+            Arc::new(NoSessionHooks),
+            Arc::new(system_now),
+            Arc::new(|| None),
+        )
     }
 
     /// A Session whose protected hooks are `hooks`; `now` is the wall clock
-    /// for task lifecycle times, by default `Date.now`.
+    /// for task lifecycle times and document retention, read at each use
+    /// like `document_retention_ms`.
     #[must_use]
     pub fn with_hooks(
         storage: Arc<dyn Storage>,
         hooks: Arc<dyn SessionHooks>,
-        now: Option<SessionClock>,
+        now: SessionClock,
+        document_retention_ms: DocumentRetentionSource,
     ) -> Self {
         Self {
             inner: Arc::new_cyclic(|this: &Weak<SessionInner>| {
@@ -254,7 +293,8 @@ impl Session {
                 SessionInner {
                     storage: Arc::new(GuardedStorage::new(storage, latch)),
                     hooks,
-                    now: now.unwrap_or_else(|| Arc::new(system_now)),
+                    now,
+                    document_retention_ms,
                     state: Mutex::new(SessionState::default()),
                     failed: watch::channel(None).0,
                     closed: watch::channel(None).0,
@@ -501,11 +541,12 @@ impl Session {
         let cached = self
             .inner
             .lock()
-            .documents
+            .cache
             .get(&resolved.id)
             .filter(|cached| cached.value_version == definition.version())
             .cloned();
         let loaded = if let Some(cached) = cached {
+            self.inner.touch_document(&resolved.id);
             ready(Ok(Some(cached)))
         } else {
             let inner = Arc::clone(&self.inner);
@@ -721,9 +762,16 @@ impl Session {
     pub fn unload_documents(&self) -> impl Future<Output = SessionResult<()>> + Send + 'static {
         let inner = Arc::clone(&self.inner);
         self.inner.enqueue(async move {
-            inner.lock().documents.clear();
+            inner.lock().cache.unload();
             Ok(())
         })
+    }
+
+    /// Internal, for tests: how many documents the cache holds, how many are
+    /// idle, and how many incarnations are pinned.
+    #[must_use]
+    pub fn document_cache_sizes(&self) -> DocumentCacheSizes {
+        self.inner.lock().cache.sizes()
     }
 }
 
@@ -888,7 +936,7 @@ impl SessionInner {
                                 let mut state = line.lock();
                                 state.commit_listeners.clear();
                                 state.internal_listeners.clear();
-                                state.documents.clear();
+                                state.cache.close();
                             }
                             match line.storage.close(&cleanup).await {
                                 Ok(()) => Ok(()),
@@ -923,6 +971,7 @@ impl SessionInner {
                 });
                 let closing: Closing = join(handle).boxed().shared();
                 state.closing = Some(closing.clone());
+                state.cache.stop_sweep();
                 let listeners = std::mem::take(&mut state.close_listeners);
                 (closing, listeners)
             }
@@ -1022,12 +1071,21 @@ impl SessionInner {
             Ok(result) => result,
             Err(error) => {
                 tx.settle_failure().await;
+                self.sweep_documents();
                 return Err(error);
             }
         };
-        let writes = tx.settle_success().await?;
+        let writes = match tx.settle_success().await {
+            Ok(writes) => writes,
+            Err(error) => {
+                // Settlement aborted every change already.
+                self.sweep_documents();
+                return Err(error);
+            }
+        };
         if writes.is_empty() {
             tx.discard();
+            self.sweep_documents();
             return Ok(result);
         }
         // Once admitted, caller cancellation does not interrupt Storage settlement.
@@ -1053,6 +1111,7 @@ impl SessionInner {
             }
         };
         self.publish(seq, writes, documents, &cx);
+        self.sweep_documents();
         Ok(result)
     }
 
@@ -1110,7 +1169,9 @@ impl SessionInner {
 
     /// Attach an observer to one committed incarnation: check the definition,
     /// then forward this incarnation's committed changes and close. The
-    /// returned detach removes both subscriptions.
+    /// returned detach removes both subscriptions. Attached, the incarnation
+    /// stays cached; once its last observer detaches, or it retires, it is
+    /// idle again.
     fn attach_document(
         &self,
         definition: &Definition,
@@ -1119,9 +1180,11 @@ impl SessionInner {
     ) -> SessionResult<(Observer, Arc<dyn Fn() + Send + Sync>)> {
         check_record_scope(definition.as_ref(), &loaded.record)?;
         check_record_version(definition.as_ref(), &loaded.record, loaded.stored_version())?;
+        let unpin = self.pin_document(&loaded.address_id, loaded.record.id);
         let subscriptions: Arc<Mutex<Vec<Unsubscribe>>> = Arc::default();
         let detach: Arc<dyn Fn() + Send + Sync> = {
             let subscriptions = Arc::clone(&subscriptions);
+            let unpin = Arc::clone(&unpin);
             Arc::new(move || {
                 let taken = std::mem::take(
                     &mut *subscriptions.lock().unwrap_or_else(PoisonError::into_inner),
@@ -1129,6 +1192,7 @@ impl SessionInner {
                 for subscription in taken {
                     subscription.unsubscribe();
                 }
+                unpin();
             })
         };
         let release = Arc::clone(&detach);
@@ -1137,6 +1201,7 @@ impl SessionInner {
         let record_id = loaded.record.id;
         let commit = {
             let observer = observer.clone();
+            let unpin = Arc::clone(&unpin);
             self.observe_commits(Arc::new(move |publication, cx| {
                 for change in &publication.changes {
                     let CommitChange::Document(DocumentCommitChange::Document {
@@ -1158,10 +1223,22 @@ impl SessionInner {
                     if ops.is_empty() {
                         continue;
                     }
+                    // A retired incarnation never changes again: its
+                    // observers keep their last value but pin nothing.
+                    if value.is_none() {
+                        unpin();
+                    }
                     observer.advance(value.clone(), ops, cx);
                 }
                 Ok(())
-            }))?
+            }))
+        };
+        let commit = match commit {
+            Ok(commit) => commit,
+            Err(error) => {
+                unpin();
+                return Err(error);
+            }
         };
         let close = {
             let observer = observer.clone();
@@ -1177,6 +1254,7 @@ impl SessionInner {
             Ok(close) => close,
             Err(error) => {
                 commit.unsubscribe();
+                unpin();
                 return Err(error);
             }
         };
@@ -1194,16 +1272,24 @@ impl SessionInner {
         address: DocumentAddress,
         cx: Context,
     ) -> SessionResult<Option<Arc<LoadedDocument>>> {
-        {
+        let cached = {
             let mut state = self.lock();
-            if let Some(cached) = state.documents.get(&address_id) {
+            match state.cache.get(&address_id) {
                 // A tracker serves only tokens of the version its value was
                 // materialized for; others reload from Storage.
-                if cached.value_version == definition.version() {
-                    return Ok(Some(Arc::clone(cached)));
+                Some(cached) if cached.value_version == definition.version() => {
+                    Some(Arc::clone(cached))
                 }
-                state.documents.remove(&address_id);
+                Some(_) => {
+                    state.cache.drop_document(&address_id);
+                    None
+                }
+                None => None,
             }
+        };
+        if let Some(cached) = cached {
+            self.touch_document(&address_id);
+            return Ok(Some(cached));
         }
         let Some(record) = self
             .storage
@@ -1234,10 +1320,115 @@ impl SessionInner {
             deltas_since_base,
             track(JsonValue::Object(value))?,
         ));
-        self.lock()
-            .documents
-            .insert(address_id, Arc::clone(&loaded));
+        self.lock().cache.insert(Arc::clone(&loaded));
+        self.touch_document(&address_id);
         Ok(Some(loaded))
+    }
+
+    /// The document retention in effect now, in milliseconds.
+    fn document_retention_ms(&self) -> f64 {
+        document_retention((self.document_retention_ms)())
+    }
+
+    /// Note a use of a cached document: an unattached one becomes the newest
+    /// idle one, and an eviction is scheduled. Settings and the clock are
+    /// read only for a cached, unattached document.
+    fn touch_document(&self, address_id: &str) {
+        if !self.lock().cache.idle_candidate(address_id) {
+            return;
+        }
+        let retention = self.document_retention_ms();
+        let now = (self.now)();
+        if self.lock().cache.touch(address_id, now, retention) {
+            self.schedule_document_sweep(now, retention);
+        }
+    }
+
+    /// Schedule the eviction of the oldest idle document: on the line at once
+    /// when it already expired, otherwise when it expires, by a timer that
+    /// never keeps the Session alive. Outside a tokio runtime no timer can
+    /// run (TS: where timers cannot be unreferenced); the end of each commit
+    /// then evicts what expired. `now` and `retention` are the caller's
+    /// current readings.
+    fn schedule_document_sweep(&self, now: f64, retention: f64) {
+        let mut state = self.lock();
+        if state.closing.is_some() {
+            return;
+        }
+        let Some(at) = state.cache.next_sweep_at(retention) else {
+            return;
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            state.cache.stop_sweep();
+            return;
+        };
+        let id = state.cache.next_sweep_id();
+        let delay = at - now;
+        let timer = (delay > 0.0).then(|| {
+            let this = self.this.clone();
+            runtime.spawn(async move {
+                let delay = delay.min(MAX_TIMER_DELAY);
+                tokio::time::sleep(Duration::from_secs_f64(delay / 1000.0)).await;
+                if let Some(inner) = this.upgrade() {
+                    inner.run_document_sweep(id);
+                }
+            })
+        });
+        let expired = timer.is_none();
+        state.cache.replace_sweep(PendingSweep { at, id, timer });
+        if expired {
+            drop(state);
+            self.run_document_sweep(id);
+        }
+    }
+
+    /// Enqueue the sweep `id` on the line. It stays pending until the job
+    /// runs, so touches while the line is busy queue no more.
+    fn run_document_sweep(&self, id: u64) {
+        let inner = self.arc();
+        let job = self.enqueue(async move {
+            let closing = {
+                let mut state = inner.lock();
+                state.cache.finish_sweep(id);
+                state.closing.is_some()
+            };
+            if !closing {
+                inner.sweep_documents();
+            }
+            Ok(())
+        });
+        // The job is spawned; nothing awaits its result, which is always `Ok`.
+        drop(job);
+    }
+
+    /// On the line: evict the idle documents whose retention passed, oldest
+    /// first, then schedule the next eviction.
+    fn sweep_documents(&self) {
+        let retention = self.document_retention_ms();
+        let now = (self.now)();
+        self.lock().cache.expire(now - retention);
+        self.schedule_document_sweep(now, retention);
+    }
+
+    /// Pin a cached incarnation for one observer; the returned release
+    /// unpins it once, idle again after the last.
+    fn pin_document(&self, address_id: &str, record_id: DocumentId) -> Arc<dyn Fn() + Send + Sync> {
+        self.lock().cache.pin(address_id, record_id);
+        let session = self.this.clone();
+        let address_id = address_id.to_owned();
+        let pinned = AtomicBool::new(true);
+        Arc::new(move || {
+            if !pinned.swap(false, Ordering::SeqCst) {
+                return;
+            }
+            let Some(inner) = session.upgrade() else {
+                return;
+            };
+            let idle = inner.lock().cache.unpin(&address_id, record_id);
+            if idle {
+                inner.touch_document(&address_id);
+            }
+        })
     }
 }
 
@@ -1261,7 +1452,11 @@ impl TransactionHost for SessionInner {
     }
 
     fn cached(&self, address_id: &str) -> Option<Arc<LoadedDocument>> {
-        self.lock().documents.get(address_id).cloned()
+        let cached = self.lock().cache.get(address_id).cloned();
+        if cached.is_some() {
+            self.touch_document(address_id);
+        }
+        cached
     }
 
     fn load(
@@ -1281,19 +1476,23 @@ impl TransactionHost for SessionInner {
     }
 
     fn install(&self, document: LoadedDocument) {
-        self.lock()
-            .documents
-            .insert(document.address_id.clone(), Arc::new(document));
+        let document = Arc::new(document);
+        self.lock().cache.insert(Arc::clone(&document));
+        self.touch_document(&document.address_id);
+    }
+
+    fn touch(&self, address_id: &str) {
+        self.touch_document(address_id);
     }
 
     fn evict(&self, address_id: &str, record_id: DocumentId) {
         let mut state = self.lock();
         if state
-            .documents
+            .cache
             .get(address_id)
             .is_some_and(|cached| cached.record.id == record_id)
         {
-            state.documents.remove(address_id);
+            state.cache.drop_document(address_id);
         }
     }
 

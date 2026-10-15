@@ -136,7 +136,7 @@ pub(crate) trait TransactionHost: Send + Sync {
     fn storage(&self) -> &Arc<dyn Storage>;
     /// Wall clock for task lifecycle times.
     fn now(&self) -> f64;
-    /// The cached current incarnation without loading.
+    /// The cached current incarnation without loading; a hit counts as a use.
     fn cached(&self, address_id: &str) -> Option<Arc<LoadedDocument>>;
     /// The cached current incarnation, cold-loading and migrating it when necessary.
     fn load(
@@ -148,6 +148,8 @@ pub(crate) trait TransactionHost: Send + Sync {
     ) -> BoxFuture<'static, SessionResult<Option<Arc<LoadedDocument>>>>;
     /// Install a newly committed incarnation.
     fn install(&self, document: LoadedDocument);
+    /// Note a write of the cached incarnation at an address as a use.
+    fn touch(&self, address_id: &str);
     /// Remove a retired incarnation if it is still the cached occupant of its address.
     fn evict(&self, address_id: &str, record_id: DocumentId);
     /// Stage writes that belong to every newly created or forked conversation,
@@ -1299,6 +1301,9 @@ impl Tx {
                         loaded
                             .stored_version
                             .store(change.version, Ordering::Relaxed);
+                    }
+                    if adopt && !plan.retire {
+                        self.inner.host.touch(&plan.address_id);
                     }
                     if let Some(StorageWrite::DocumentChange { content, .. }) = &plan.content {
                         match content {
