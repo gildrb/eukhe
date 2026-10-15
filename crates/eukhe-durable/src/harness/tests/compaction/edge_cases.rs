@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions};
-use eukhe_types::pi_ai::{AssistantMessage, Message, StopReason};
+use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageDiagnostic, Message, StopReason};
 use futures::FutureExt;
 
 use super::automatic::{event_kinds, record_events};
@@ -33,6 +33,19 @@ use crate::types::{Storage, SubmissionStatus, TaskId, TaskOutcome};
 
 fn task_id(id: crate::types::TaskId) -> TaskId<CompactionResult> {
     TaskId::from_number(id.get())
+}
+
+/// `message` with a provider failure diagnostic asking to wait `ms`.
+fn retry_after(mut message: AssistantMessage, ms: f64) -> AssistantMessage {
+    let mut details = eukhe_types::pi_ai::JsonObject::new();
+    details.insert("retryAfterMs".to_owned(), ms.into());
+    message.diagnostics = Some(vec![AssistantMessageDiagnostic {
+        kind: "provider_stream_failure".to_owned(),
+        timestamp: 0,
+        error: None,
+        details: Some(details),
+    }]);
+    message
 }
 
 fn small() -> OpenOptions {
@@ -329,10 +342,17 @@ async fn puts_compaction_start_last_in_the_batch_of_the_preparation_commit() {
     chat.harness.close(context()).await.unwrap();
 }
 
-#[tokio::test]
+/// The retry backoff holds until the test moves the frozen Harness clock: the
+/// failure asks for a 60 s Retry-After, so the full-jitter draw cannot end
+/// the backoff early, and paused tokio time lets the last timer fire at once.
+#[tokio::test(start_paused = true)]
 async fn keeps_a_background_summary_queued_through_a_retry_backoff_while_a_blocking_compaction_wins(
 ) {
     let chat = open(medium()).await;
+    let clock = Arc::new(Mutex::new(chat.setup.now()));
+    let frozen = Arc::clone(&clock);
+    chat.setup
+        .set_now(move || *frozen.lock().unwrap_or_else(PoisonError::into_inner));
     history(&chat).await;
     chat.set_policy(BACKGROUND);
     chat.set_retry(2, 300.0);
@@ -348,7 +368,7 @@ async fn keeps_a_background_summary_queued_through_a_retry_backoff_while_a_block
     let signal = failed.clone();
     chat.faux.agent(step(move |_| {
         signal.resolve(());
-        async { failure("overloaded") }
+        async { retry_after(failure("overloaded"), 60_000.0) }
     }));
     chat.faux.agent(answer("a4"));
     let input = submit(&chat, &text("u4", 100)).await;
@@ -379,6 +399,8 @@ async fn keeps_a_background_summary_queued_through_a_retry_backoff_while_a_block
         keep_recent_tokens: 50.0,
         ..BACKGROUND
     });
+    // End the backoff: the retry prepares under the lowered thresholds.
+    *clock.lock().unwrap_or_else(PoisonError::into_inner) += 60_001.0;
     assert_eq!(
         input.wait(context()).await.unwrap().state.status(),
         SubmissionStatus::Done
