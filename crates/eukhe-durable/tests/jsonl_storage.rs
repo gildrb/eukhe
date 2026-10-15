@@ -23,6 +23,7 @@ use eukhe_durable::env::{
     RemoveOptions, Shell, ShellExecOptions, ShellExecResult, TempFileOptions, TextLineReader,
     WatchTarget,
 };
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
@@ -34,6 +35,7 @@ fn cx() -> &'static Context {
 enum Operation {
     Append,
     Flush,
+    FlushDirectory,
     Write,
     Rename,
     Remove,
@@ -53,12 +55,29 @@ struct Failure {
     mode: Mode,
 }
 
+/// Parks one call before it does its work: `reached` fires when the call
+/// arrives, and the call proceeds once `release` fires.
+struct Hold {
+    operation: Operation,
+    call: usize,
+    reached: oneshot::Sender<()>,
+    release: oneshot::Receiver<()>,
+}
+
+/// The test side of a [`Hold`].
+struct HoldHandle {
+    reached: oneshot::Receiver<()>,
+    release: oneshot::Sender<()>,
+}
+
 #[derive(Default)]
 struct Observations {
     operations: Vec<String>,
     failure: Option<Failure>,
+    hold: Option<Hold>,
     append_calls: usize,
     flush_calls: usize,
+    flush_directory_calls: usize,
     write_calls: usize,
     rename_calls: usize,
     remove_calls: usize,
@@ -107,28 +126,58 @@ impl InstrumentedEnv {
         *self.observations() = Observations::default();
     }
 
+    /// Park call `call` of `operation` until the handle releases it.
+    fn hold(&self, operation: Operation, call: usize) -> HoldHandle {
+        let (reached_sender, reached) = oneshot::channel();
+        let (release, release_receiver) = oneshot::channel();
+        let mut observations = self.observations();
+        *observations = Observations::default();
+        observations.hold = Some(Hold {
+            operation,
+            call,
+            reached: reached_sender,
+            release: release_receiver,
+        });
+        HoldHandle { reached, release }
+    }
+
     fn operations(&self) -> Vec<String> {
         self.observations().operations.clone()
     }
 
-    /// Count one call, record it, and return the failure mode when this call
-    /// fails.
-    fn observe(&self, operation: Operation, label: String) -> Option<Mode> {
-        let mut observations = self.observations();
-        let calls = match operation {
-            Operation::Append => &mut observations.append_calls,
-            Operation::Flush => &mut observations.flush_calls,
-            Operation::Write => &mut observations.write_calls,
-            Operation::Rename => &mut observations.rename_calls,
-            Operation::Remove => &mut observations.remove_calls,
+    /// Count one call, record it, wait while it is held, and return the
+    /// failure mode when this call fails.
+    async fn observe(&self, operation: Operation, label: String) -> Option<Mode> {
+        let (mode, hold) = {
+            let mut observations = self.observations();
+            let calls = match operation {
+                Operation::Append => &mut observations.append_calls,
+                Operation::Flush => &mut observations.flush_calls,
+                Operation::FlushDirectory => &mut observations.flush_directory_calls,
+                Operation::Write => &mut observations.write_calls,
+                Operation::Rename => &mut observations.rename_calls,
+                Operation::Remove => &mut observations.remove_calls,
+            };
+            *calls += 1;
+            let call = *calls;
+            observations.operations.push(label);
+            let mode = observations
+                .failure
+                .filter(|failure| failure.operation == operation && failure.call == call)
+                .map(|failure| failure.mode);
+            let held = observations
+                .hold
+                .as_ref()
+                .is_some_and(|hold| hold.operation == operation && hold.call == call);
+            (mode, if held { observations.hold.take() } else { None })
         };
-        *calls += 1;
-        let call = *calls;
-        observations.operations.push(label);
-        observations
-            .failure
-            .filter(|failure| failure.operation == operation && failure.call == call)
-            .map(|failure| failure.mode)
+        if let Some(hold) = hold {
+            hold.reached
+                .send(())
+                .expect("the test awaits the held call");
+            hold.release.await.expect("the test releases the held call");
+        }
+        mode
     }
 }
 
@@ -198,7 +247,7 @@ impl FileSystem for InstrumentedEnv {
     ) -> BoxFuture<'a, Result<(), FileError>> {
         async move {
             let label = format!("write:{}", basename(path));
-            match self.observe(Operation::Write, label) {
+            match self.observe(Operation::Write, label).await {
                 None => self.inner.write_file(path, content, cx).await,
                 Some(Mode::Before) => Err(injected("injected write failure", path)),
                 Some(Mode::Short) => {
@@ -221,7 +270,7 @@ impl FileSystem for InstrumentedEnv {
     ) -> BoxFuture<'a, Result<(), FileError>> {
         async move {
             let label = format!("append:{}", basename(path));
-            match self.observe(Operation::Append, label) {
+            match self.observe(Operation::Append, label).await {
                 None => self.inner.append_file(path, content, cx).await,
                 Some(Mode::Before) => Err(injected("injected append failure", path)),
                 Some(Mode::Short) => {
@@ -251,13 +300,33 @@ impl FileSystem for InstrumentedEnv {
     ) -> BoxFuture<'a, Result<(), FileError>> {
         async move {
             let label = format!("flush:{}", basename(path));
-            match self.observe(Operation::Flush, label) {
+            match self.observe(Operation::Flush, label).await {
                 None => self.inner.flush_file(path, cx).await,
                 Some(Mode::After) => {
                     self.inner.flush_file(path, cx).await?;
                     Err(injected("injected flush failure", path))
                 }
                 Some(Mode::Before | Mode::Short) => Err(injected("injected flush failure", path)),
+            }
+        }
+        .boxed()
+    }
+    fn flush_directory<'a>(
+        &'a self,
+        path: &'a str,
+        cx: &'a Context,
+    ) -> BoxFuture<'a, Result<(), FileError>> {
+        async move {
+            let label = format!("flush-directory:{}", basename(path));
+            match self.observe(Operation::FlushDirectory, label).await {
+                None => self.inner.flush_directory(path, cx).await,
+                Some(Mode::After) => {
+                    self.inner.flush_directory(path, cx).await?;
+                    Err(injected("injected directory flush failure", path))
+                }
+                Some(Mode::Before | Mode::Short) => {
+                    Err(injected("injected directory flush failure", path))
+                }
             }
         }
         .boxed()
@@ -274,7 +343,7 @@ impl FileSystem for InstrumentedEnv {
                 basename(source_path),
                 basename(destination_path)
             );
-            match self.observe(Operation::Rename, label) {
+            match self.observe(Operation::Rename, label).await {
                 None => {
                     self.inner
                         .rename_file(source_path, destination_path, cx)
@@ -352,7 +421,7 @@ impl FileSystem for InstrumentedEnv {
     ) -> BoxFuture<'a, Result<(), FileError>> {
         async move {
             let label = format!("remove:{}", basename(path));
-            match self.observe(Operation::Remove, label) {
+            match self.observe(Operation::Remove, label).await {
                 None => self.inner.remove(path, options, cx).await,
                 Some(Mode::After) => {
                     self.inner.remove(path, options, cx).await?;
@@ -899,13 +968,15 @@ failure_cases! {
 
 /// An fsync storage flushes `main.jsonl` right after every marker append,
 /// before it acknowledges the commit; that flush also authorizes the
-/// reclamation that follows it.
+/// reclamation that follows it. A commit that creates a sidecar flushes the
+/// directory before its marker, and a reclaim rename flushes it afterwards.
 #[tokio::test]
 async fn orders_publication_flushes_exactly_and_flushes_main_before_acknowledging() {
     for fsync in [false, true] {
         let directory = temp_directory();
         let env = InstrumentedEnv::new(&directory.path);
         let storage = open_instrumented(&directory.path, &env, fsync).await;
+        let flush_directory = format!("flush-directory:{}", basename(&directory.path));
         create_root(&storage).await;
         let first_id = mint_document(&storage).await;
         let second_id = mint_document(&storage).await;
@@ -925,6 +996,7 @@ async fn orders_publication_flushes_exactly_and_flushes_main_before_acknowledgin
         if fsync {
             expected.push(format!("flush:doc-{second_id}.jsonl"));
             expected.push(format!("flush:doc-{first_id}.jsonl"));
+            expected.push(flush_directory.clone());
         }
         expected.push("append:main.jsonl".to_owned());
         if fsync {
@@ -953,6 +1025,9 @@ async fn orders_publication_flushes_exactly_and_flushes_main_before_acknowledgin
         expected.push(format!(
             "rename:doc-{first_id}.jsonl.reclaim->doc-{first_id}.jsonl"
         ));
+        if fsync {
+            expected.push(flush_directory.clone());
+        }
         assert_eq!(env.operations(), expected);
 
         env.clear();
@@ -989,7 +1064,8 @@ async fn orders_publication_flushes_exactly_and_flushes_main_before_acknowledgin
 }
 
 /// A commit that touches no sidecar still flushes its marker before it is
-/// acknowledged on an fsync storage, and never flushes without fsync.
+/// acknowledged on an fsync storage, and never flushes without fsync. The
+/// first marker creates `main.jsonl`, so its directory entry is flushed too.
 #[tokio::test]
 async fn flushes_main_after_the_marker_only_with_fsync() {
     for fsync in [false, true] {
@@ -1012,12 +1088,213 @@ async fn flushes_main_after_the_marker_only_with_fsync() {
             vec![
                 "append:main.jsonl".to_owned(),
                 "flush:main.jsonl".to_owned(),
+                format!("flush-directory:{}", basename(&directory.path)),
             ]
         } else {
             vec!["append:main.jsonl".to_owned()]
         };
         assert_eq!(env.operations(), expected);
     }
+}
+
+/// The directory entry of a new sidecar is durable before a marker confirms
+/// it: a failed directory flush poisons the commit before its marker.
+#[tokio::test]
+async fn poisons_after_a_directory_flush_failure_and_never_writes_a_marker() {
+    let directory = temp_directory();
+    let env = InstrumentedEnv::new(&directory.path);
+    let storage = open_instrumented(&directory.path, &env, true).await;
+    create_root(&storage).await;
+    let id = mint_document(&storage).await;
+    env.fail(failure(Operation::FlushDirectory, 1, Mode::Before));
+    let result = commit(
+        &storage,
+        vec![create(
+            session_document(id, "test.document"),
+            base(json!({})),
+        )],
+    )
+    .await;
+    assert!(message(result).contains("poisoned"));
+    assert_eq!(
+        env.operations(),
+        vec![
+            format!("append:doc-{id}.jsonl"),
+            format!("flush:doc-{id}.jsonl"),
+            format!("flush-directory:{}", basename(&directory.path)),
+        ]
+    );
+    let reopened = open_storage(&directory.path).await;
+    assert_eq!(current_value(&reopened, id).await, None);
+}
+
+/// A reclaim rename flushes the directory, so the next commit appending to
+/// the replaced sidecar needs no directory flush; when that flush failed the
+/// replaced entry is not yet durable, and the next commit appending to it
+/// flushes the directory before its marker.
+#[tokio::test]
+async fn flushes_the_directory_before_confirming_a_replaced_sidecar_left_unflushed() {
+    let directory = temp_directory();
+    let env = InstrumentedEnv::new(&directory.path);
+    let storage = open_instrumented(&directory.path, &env, true).await;
+    create_root(&storage).await;
+    let id = mint_document(&storage).await;
+    commit_ok(
+        &storage,
+        vec![create(
+            session_document(id, "test.document"),
+            base(json!({ "count": 0 })),
+        )],
+    )
+    .await;
+    commit_ok(&storage, vec![change(id, base(json!({ "count": 1 })))]).await;
+    env.clear();
+    commit_ok(
+        &storage,
+        vec![change(id, delta(json!([["s", ["count"], 2]])))],
+    )
+    .await;
+    assert_eq!(
+        env.operations(),
+        vec![
+            format!("append:doc-{id}.jsonl"),
+            format!("flush:doc-{id}.jsonl"),
+            "append:main.jsonl".to_owned(),
+            "flush:main.jsonl".to_owned(),
+        ]
+    );
+
+    env.fail(failure(Operation::FlushDirectory, 1, Mode::Before));
+    commit_ok(&storage, vec![change(id, base(json!({ "count": 3 })))]).await;
+    let flush_directory = format!("flush-directory:{}", basename(&directory.path));
+    assert_eq!(
+        env.operations(),
+        vec![
+            format!("append:doc-{id}.jsonl"),
+            format!("flush:doc-{id}.jsonl"),
+            "append:main.jsonl".to_owned(),
+            "flush:main.jsonl".to_owned(),
+            format!("write:doc-{id}.jsonl.reclaim"),
+            format!("flush:doc-{id}.jsonl.reclaim"),
+            format!("rename:doc-{id}.jsonl.reclaim->doc-{id}.jsonl"),
+            flush_directory.clone(),
+        ]
+    );
+    env.clear();
+    commit_ok(
+        &storage,
+        vec![change(id, delta(json!([["s", ["count"], 4]])))],
+    )
+    .await;
+    assert_eq!(
+        env.operations(),
+        vec![
+            format!("append:doc-{id}.jsonl"),
+            format!("flush:doc-{id}.jsonl"),
+            flush_directory,
+            "append:main.jsonl".to_owned(),
+            "flush:main.jsonl".to_owned(),
+        ]
+    );
+}
+
+/// A commit future dropped after it appended a sidecar record poisons the
+/// storage: a later commit would reuse the sequence and ordinals of that
+/// record and leave the sidecar out of order.
+#[tokio::test]
+async fn poisons_when_a_commit_is_dropped_after_appending_a_sidecar() {
+    let directory = temp_directory();
+    let env = InstrumentedEnv::new(&directory.path);
+    let storage = open_instrumented(&directory.path, &env, false).await;
+    create_root(&storage).await;
+    let task_id = mint_task(&storage).await;
+    // Append 1 is the task sidecar, append 2 the marker.
+    let HoldHandle { reached, release } = env.hold(Operation::Append, 2);
+    let writes = vec![write(task_write(pending_task_json(task_id, "dropped")))];
+    match futures::future::select(storage.commit(&writes, cx()), reached).await {
+        futures::future::Either::Left((result, _)) => {
+            panic!("the held commit settled: {result:?}")
+        }
+        futures::future::Either::Right((reached, held)) => {
+            get(reached);
+            drop(held);
+        }
+    }
+    drop(release);
+    let sidecar = directory.join(&format!("task-{task_id}.jsonl"));
+    assert_eq!(read_lines(&sidecar).len(), 1);
+
+    let error = commit(
+        &storage,
+        vec![task_write(pending_task_json(task_id, "later"))],
+    )
+    .await
+    .expect_err("a dropped publication poisons the storage");
+    let chain: Vec<String> =
+        std::iter::successors(Some(&error as &dyn std::error::Error), |error| {
+            error.source()
+        })
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        chain,
+        vec![
+            "JSONL storage is poisoned and must be reopened".to_owned(),
+            "JSONL commit was cancelled during publication".to_owned(),
+        ]
+    );
+    assert_eq!(read_lines(&sidecar).len(), 1);
+    close(&storage).await;
+
+    let reopened = open_storage(&directory.path).await;
+    assert_eq!(task(&reopened, task_id).await, None);
+    commit_ok(
+        &reopened,
+        vec![task_write(pending_task_json(task_id, "later"))],
+    )
+    .await;
+    close(&reopened).await;
+    let recovered = open_storage(&directory.path).await;
+    assert_eq!(
+        task(&recovered, task_id).await,
+        Some(pending_task(task_id, "later"))
+    );
+}
+
+/// Commits issued concurrently through the `Storage` trait publish one after
+/// another, each at its own sequence.
+#[tokio::test]
+async fn serializes_concurrent_commits_into_distinct_sequences() {
+    let directory = temp_directory();
+    let env = InstrumentedEnv::new(&directory.path);
+    let storage = open_instrumented(&directory.path, &env, false).await;
+    create_root(&storage).await;
+    let entry = |id: EntryId| {
+        write(json!({
+            "type": "entry",
+            "value": { "id": id.get(), "conversationId": ROOT_CONVERSATION_ID.get(), "kind": "concurrent" },
+        }))
+    };
+    let first = vec![entry(get(mint::<EntryId, _>(&storage).await))];
+    let second = vec![entry(get(mint::<EntryId, _>(&storage).await))];
+    let HoldHandle { reached, release } = env.hold(Operation::Append, 1);
+    let follower = async {
+        get(reached.await);
+        let mut follower = storage.commit(&second, cx());
+        assert!(futures::poll!(&mut follower).is_pending());
+        get(release.send(()));
+        follower.await
+    };
+    let (first_seq, second_seq) = futures::join!(storage.commit(&first, cx()), follower);
+    assert_eq!((get(first_seq).get(), get(second_seq).get()), (2, 3));
+    close(&storage).await;
+
+    let main_seqs: Vec<Value> = read_lines(&directory.join("main.jsonl"))
+        .iter()
+        .map(|line| get(serde_json::from_str::<Value>(line))["seq"].clone())
+        .collect();
+    assert_eq!(main_seqs, vec![json!(1), json!(2), json!(3)]);
+    open_storage(&directory.path).await;
 }
 
 async fn recovers_a_committed_base_across_reclaim_failure(failure: Failure) {

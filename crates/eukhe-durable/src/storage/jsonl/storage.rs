@@ -22,6 +22,8 @@ use crate::types::{
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue, MAX_SAFE_INTEGER};
 use futures::future::{try_join_all, BoxFuture};
+use futures::lock::Mutex as AsyncMutex;
+use indexmap::{IndexMap, IndexSet};
 
 const FORMAT_VERSION: f64 = 1.0;
 const MAIN_FILE: &str = "main.jsonl";
@@ -116,6 +118,12 @@ impl JsonlFileError {
         &self.cause
     }
 }
+
+/// A commit future was dropped after it began writing files, so they hold a
+/// publication of unknown extent; the storage is poisoned with this cause.
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[error("JSONL commit was cancelled during publication")]
+pub struct JsonlCommitCancelledError;
 
 /// The TS `throw new Error("JsonlStorage is closed")`.
 #[derive(Clone, Copy, Debug, thiserror::Error)]
@@ -252,22 +260,6 @@ fn object<const N: usize>(entries: [(&str, JsonValue); N]) -> JsonValue {
 fn number(value: i64) -> JsonValue {
     // Ids, sequences, and ordinals are safe integers.
     JsonValue::try_from(value).unwrap_or(JsonValue::Null)
-}
-
-/// `Map.set` on an insertion-ordered map: replace in place or append.
-fn set_ordered<K: PartialEq, V>(entries: &mut Vec<(K, V)>, key: K, value: V) {
-    if let Some(entry) = entries.iter_mut().find(|(existing, _)| *existing == key) {
-        entry.1 = value;
-    } else {
-        entries.push((key, value));
-    }
-}
-
-/// `Set.add` on an insertion-ordered set.
-fn add_ordered<K: PartialEq>(entries: &mut Vec<K>, key: K) {
-    if !entries.contains(&key) {
-        entries.push(key);
-    }
 }
 
 /// One operation of a validated commit marker.
@@ -574,6 +566,31 @@ struct State {
     poison: Option<Arc<JsonlStoragePoisonedError>>,
     current_only_documents: HashSet<i64>,
     live_task_sidecars: HashSet<i64>,
+    /// Files whose directory entries this fsync storage made durable.
+    durable_entries: HashSet<String>,
+}
+
+/// Poisons the storage unless the commit that armed it settles: a commit
+/// future dropped once it has begun writing files leaves records that no
+/// later commit may reuse the sequence or ordinals of.
+struct Publication<'a> {
+    storage: &'a JsonlStorage,
+    settled: bool,
+}
+
+impl Publication<'_> {
+    fn settle(mut self) {
+        self.settled = true;
+    }
+}
+
+impl Drop for Publication<'_> {
+    fn drop(&mut self) {
+        if !self.settled {
+            // Keeps the cause of an I/O failure that already poisoned it.
+            self.storage.poison(JsonlCommitCancelledError);
+        }
+    }
 }
 
 /// Portable JSONL implementation of the storage contract.
@@ -584,6 +601,9 @@ pub struct JsonlStorage {
     fsync: bool,
     memory: MemoryStorage,
     state: Mutex<State>,
+    /// Held across each whole commit: one commit prepares against the state
+    /// its predecessor applied, and none appends while another reclaims.
+    commit_lock: AsyncMutex<()>,
 }
 
 impl std::fmt::Debug for JsonlStorage {
@@ -626,6 +646,7 @@ impl JsonlStorage {
             fsync: options.fsync,
             memory: MemoryStorage::new(),
             state: Mutex::new(State::default()),
+            commit_lock: AsyncMutex::new(()),
         };
         storage.recover(cx).await?;
         Ok(storage)
@@ -640,6 +661,7 @@ impl JsonlStorage {
         writes: &[StorageWrite],
         cx: &Context,
     ) -> Result<Seq, StorageError> {
+        let _serialized = self.commit_lock.lock().await;
         self.assert_usable()?;
         let prepared = self.memory.prepare_commit(writes, None)?;
         let json_writes = prepared
@@ -667,6 +689,10 @@ impl JsonlStorage {
         )
         .await?;
 
+        let publication = Publication {
+            storage: self,
+            settled: false,
+        };
         for ((file, content), path) in encoded.sidecars.iter().zip(&paths) {
             if let Err(error) = self.fs.append_file(path, content.as_bytes(), cx).await {
                 return Err(self.poison(error_from_file(format!("append to {file}"), error)));
@@ -678,6 +704,8 @@ impl JsonlStorage {
                     return Err(self.poison(error_from_file(format!("flush of {file}"), error)));
                 }
             }
+            self.flush_new_entries(encoded.sidecars.iter().map(|(file, _)| file.as_str()), cx)
+                .await?;
         }
         if let Err(error) = self
             .fs
@@ -692,11 +720,40 @@ impl JsonlStorage {
             if let Err(error) = self.fs.flush_file(&self.main_path, cx).await {
                 return Err(self.poison(error_from_file(format!("flush of {MAIN_FILE}"), error)));
             }
+            self.flush_new_entries([MAIN_FILE], cx).await?;
         }
         let seq = prepared.apply();
         self.adopt_sidecar_state(&json_writes);
         self.reclaim_sidecars(&reclamations, cx).await;
+        publication.settle();
         Ok(seq)
+    }
+
+    /// Make the directory entries of `files` durable before the commit that
+    /// depends on them is confirmed or acknowledged, flushing the directory
+    /// when one of them is new to this storage (or was replaced since).
+    async fn flush_new_entries<'f>(
+        &self,
+        files: impl IntoIterator<Item = &'f str>,
+        cx: &Context,
+    ) -> Result<(), StorageError> {
+        let new_entries: Vec<&str> = {
+            let state = self.lock();
+            files
+                .into_iter()
+                .filter(|file| !state.durable_entries.contains(*file))
+                .collect()
+        };
+        if new_entries.is_empty() {
+            return Ok(());
+        }
+        if let Err(error) = self.fs.flush_directory(&self.directory, cx).await {
+            return Err(self.poison(error_from_file("flush of the storage directory", error)));
+        }
+        self.lock()
+            .durable_entries
+            .extend(new_entries.into_iter().map(str::to_owned));
+        Ok(())
     }
 
     #[allow(clippy::too_many_lines)] // One switch over the TS write types.
@@ -812,18 +869,18 @@ impl JsonlStorage {
         &self,
         writes: &[JsonValue],
         encoded: &EncodedCommit,
-    ) -> Vec<(String, String)> {
-        let mut created_current_only = Vec::new();
-        let mut retired = Vec::new();
-        let mut bases = Vec::new();
-        let mut final_tasks: Vec<(i64, bool)> = Vec::new();
+    ) -> IndexMap<String, String> {
+        let mut created_current_only = HashSet::new();
+        let mut retired = IndexSet::new();
+        let mut bases = IndexSet::new();
+        let mut final_tasks: IndexMap<i64, bool> = IndexMap::new();
         for write in writes {
             match type_of(write) {
                 Some("document.create") => {
                     let record = get(write, "record").unwrap_or(&JsonValue::Null);
                     if is_current_only(record) {
                         if let Some(id) = safe_integer(get(record, "id")) {
-                            add_ordered(&mut created_current_only, id);
+                            created_current_only.insert(id);
                         }
                     }
                 }
@@ -832,18 +889,18 @@ impl JsonlStorage {
                         .and_then(|content| get(content, "kind"))
                         .and_then(JsonValue::as_str);
                     if let (Some("base"), Some(id)) = (kind, safe_integer(get(write, "id"))) {
-                        add_ordered(&mut bases, id);
+                        bases.insert(id);
                     }
                 }
                 Some("document.retire") => {
                     if let Some(id) = safe_integer(get(write, "id")) {
-                        add_ordered(&mut retired, id);
+                        retired.insert(id);
                     }
                 }
                 Some("task") => {
                     let task = get(write, "value").unwrap_or(&JsonValue::Null);
                     if let Some(id) = safe_integer(get(task, "id")) {
-                        set_ordered(&mut final_tasks, id, is_terminal(task));
+                        final_tasks.insert(id, is_terminal(task));
                     }
                 }
                 _ => {}
@@ -854,14 +911,10 @@ impl JsonlStorage {
         let is_current_only_document = |id: i64| {
             state.current_only_documents.contains(&id) || created_current_only.contains(&id)
         };
-        let mut replacements: Vec<(String, String)> = Vec::new();
+        let mut replacements: IndexMap<String, String> = IndexMap::new();
         for &id in &retired {
             if is_current_only_document(id) {
-                set_ordered(
-                    &mut replacements,
-                    sidecar_file_name("doc", id),
-                    String::new(),
-                );
+                replacements.insert(sidecar_file_name("doc", id), String::new());
             }
         }
         for &id in &bases {
@@ -871,15 +924,15 @@ impl JsonlStorage {
             let file = sidecar_file_name("doc", id);
             if let Some(content) = encoded.sidecar(&file) {
                 let content = content.to_owned();
-                set_ordered(&mut replacements, file, content);
+                replacements.insert(file, content);
             }
         }
-        for &(id, terminal) in &final_tasks {
+        for (&id, &terminal) in &final_tasks {
             let file = sidecar_file_name("task", id);
             if terminal
                 && (state.live_task_sidecars.contains(&id) || encoded.sidecar(&file).is_some())
             {
-                set_ordered(&mut replacements, file, String::new());
+                replacements.insert(file, String::new());
             }
         }
         replacements
@@ -918,7 +971,7 @@ impl JsonlStorage {
     /// sidecar records are gone. The marker already published this state, so
     /// reclamation is retryable best-effort maintenance: every failure stops
     /// or skips it silently.
-    async fn reclaim_sidecars(&self, replacements: &[(String, String)], cx: &Context) {
+    async fn reclaim_sidecars(&self, replacements: &IndexMap<String, String>, cx: &Context) {
         for (file, content) in replacements {
             self.replace_sidecar(file, content, cx).await;
         }
@@ -932,6 +985,9 @@ impl JsonlStorage {
         else {
             return;
         };
+        // The entry changes: until a directory flush makes the change
+        // durable, a commit appending to the file flushes the directory first.
+        self.lock().durable_entries.remove(file);
         if content.is_empty() {
             // Best-effort: a sidecar left behind is reclaimed on the next open.
             let _ = self
@@ -967,7 +1023,17 @@ impl JsonlStorage {
             return;
         }
         // Best-effort: a leftover temporary file is removed on the next open.
-        let _ = self.fs.rename_file(&temporary_path, &path, cx).await;
+        if self
+            .fs
+            .rename_file(&temporary_path, &path, cx)
+            .await
+            .is_err()
+        {
+            return;
+        }
+        if self.fsync && self.fs.flush_directory(&self.directory, cx).await.is_ok() {
+            self.lock().durable_entries.insert(file.to_owned());
+        }
     }
 
     #[allow(clippy::too_many_lines)] // One recovery pass, kept in TS order.
@@ -1012,7 +1078,6 @@ impl JsonlStorage {
         sidecar_files.sort_unstable();
 
         let mut parsed_files: Vec<(String, ParsedFile<SidecarRecord>)> = Vec::new();
-        let mut record_by_key: HashMap<SidecarKey, SidecarRecord> = HashMap::new();
         for file in sidecar_files {
             let path = fs
                 .join_path(&[directory, file], cx)
@@ -1035,42 +1100,48 @@ impl JsonlStorage {
                     }
                 }
                 previous = Some(&line.value);
-                record_by_key.insert(
-                    sidecar_key(file, line.value.seq, line.value.ordinal),
-                    line.value.clone(),
-                );
             }
             parsed_files.push((file.to_owned(), parsed));
         }
+        let record_by_key: HashMap<SidecarKey, &SidecarRecord> = parsed_files
+            .iter()
+            .flat_map(|(file, parsed)| {
+                parsed.lines.iter().map(move |line| {
+                    (
+                        sidecar_key(file, line.value.seq, line.value.ordinal),
+                        &line.value,
+                    )
+                })
+            })
+            .collect();
 
-        let mut current_only_documents: Vec<i64> = Vec::new();
-        let mut retired_documents: Vec<i64> = Vec::new();
-        let mut final_task_is_live: Vec<(i64, bool)> = Vec::new();
+        let mut current_only_documents: HashSet<i64> = HashSet::new();
+        let mut retired_documents: HashSet<i64> = HashSet::new();
+        let mut final_task_is_live: HashMap<i64, bool> = HashMap::new();
         for marker in &main.lines {
             for operation in &marker.value.writes {
                 match operation {
                     MainOperation::DocumentCreate { id, record, .. } => {
                         if is_current_only(record) {
-                            add_ordered(&mut current_only_documents, *id);
+                            current_only_documents.insert(*id);
                         }
                     }
                     MainOperation::DocumentRetire { id, .. } => {
-                        add_ordered(&mut retired_documents, *id);
+                        retired_documents.insert(*id);
                     }
                     MainOperation::Task { id, .. } => {
-                        set_ordered(&mut final_task_is_live, *id, false);
+                        final_task_is_live.insert(*id, false);
                     }
                     MainOperation::TaskSidecar { id, .. } => {
-                        set_ordered(&mut final_task_is_live, *id, true);
+                        final_task_is_live.insert(*id, true);
                     }
                     MainOperation::Record(_) | MainOperation::DocumentChange { .. } => {}
                 }
             }
         }
         let retired_current_only: HashSet<i64> = retired_documents
-            .iter()
+            .intersection(&current_only_documents)
             .copied()
-            .filter(|id| current_only_documents.contains(id))
             .collect();
 
         let mut latest_bases: HashMap<i64, (i64, i64)> = HashMap::new();
@@ -1115,8 +1186,8 @@ impl JsonlStorage {
         };
         let terminal_tasks: HashSet<i64> = final_task_is_live
             .iter()
-            .filter(|(_, live)| !live)
-            .map(|(id, _)| *id)
+            .filter(|&(_, &live)| !live)
+            .map(|(&id, _)| id)
             .collect();
         let mut confirmed: HashSet<SidecarKey> = HashSet::new();
         for line in &main.lines {
@@ -1222,7 +1293,7 @@ impl JsonlStorage {
             self.replay(marker.seq, &writes)?;
         }
 
-        let mut reclamations: Vec<(String, String)> = Vec::new();
+        let mut reclamations: IndexMap<String, String> = IndexMap::new();
         for (file, parsed) in &parsed_files {
             let mut unconfirmed_at: Option<usize> = None;
             for line in &parsed.lines {
@@ -1285,7 +1356,7 @@ impl JsonlStorage {
                         .iter()
                         .map(|line| json_line(&line.value.raw))
                         .collect();
-                    set_ordered(&mut reclamations, file.clone(), content);
+                    reclamations.insert(file.clone(), content);
                 }
             }
         }
@@ -1345,7 +1416,7 @@ impl JsonlStorage {
         Ok(&self.memory)
     }
 
-    fn poison(&self, cause: JsonlFileError) -> StorageError {
+    fn poison(&self, cause: impl Error + Send + Sync + 'static) -> StorageError {
         let mut state = self.lock();
         let poison = state
             .poison
@@ -1374,7 +1445,7 @@ fn confirm_record<'a>(
     marker: &MainMarker,
     ordinal: i64,
     file: &str,
-    record_by_key: &'a HashMap<SidecarKey, SidecarRecord>,
+    record_by_key: &HashMap<SidecarKey, &'a SidecarRecord>,
     confirmed: &mut HashSet<SidecarKey>,
     optional: bool,
 ) -> Result<Option<&'a SidecarRecord>, StorageError> {
@@ -1382,7 +1453,7 @@ fn confirm_record<'a>(
     if confirmed.contains(&key) {
         return Err(corruption("Sidecar record is confirmed more than once"));
     }
-    let Some(record) = record_by_key.get(&key) else {
+    let Some(&record) = record_by_key.get(&key) else {
         if optional {
             return Ok(None);
         }

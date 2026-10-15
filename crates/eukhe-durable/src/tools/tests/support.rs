@@ -221,6 +221,14 @@ impl FileSystem for HookedEnv {
         FileSystem::flush_file(&self.inner, path, cx)
     }
 
+    fn flush_directory<'a>(
+        &'a self,
+        path: &'a str,
+        cx: &'a Context,
+    ) -> BoxFuture<'a, Result<(), FileError>> {
+        FileSystem::flush_directory(&self.inner, path, cx)
+    }
+
     fn rename_file<'a>(
         &'a self,
         source_path: &'a str,

@@ -164,6 +164,14 @@ impl FileSystem for ReadOnlyFs {
         skipped()
     }
 
+    fn flush_directory<'a>(
+        &'a self,
+        _path: &'a str,
+        _cx: &'a Context,
+    ) -> BoxFuture<'a, Result<(), FileError>> {
+        skipped()
+    }
+
     fn rename_file<'a>(
         &'a self,
         source_path: &'a str,

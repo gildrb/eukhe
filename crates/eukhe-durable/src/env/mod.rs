@@ -498,6 +498,14 @@ pub trait FileSystem: Send + Sync {
         path: &'a str,
         cx: &'a Context,
     ) -> BoxFuture<'a, Result<(), FileError>>;
+    /// Flush a directory's entries, so files created, renamed into, or
+    /// removed from it survive a power loss (POSIX `fsync` of the directory).
+    /// A non-directory fails with `not_directory`.
+    fn flush_directory<'a>(
+        &'a self,
+        path: &'a str,
+        cx: &'a Context,
+    ) -> BoxFuture<'a, Result<(), FileError>>;
     fn rename_file<'a>(
         &'a self,
         source_path: &'a str,

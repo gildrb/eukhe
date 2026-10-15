@@ -6,6 +6,6 @@ mod storage;
 
 pub use native::open_native_jsonl_storage;
 pub use storage::{
-    JsonlCorruptionError, JsonlFileError, JsonlStorage, JsonlStorageOptions,
-    JsonlStoragePoisonedError,
+    JsonlCommitCancelledError, JsonlCorruptionError, JsonlFileError, JsonlStorage,
+    JsonlStorageOptions, JsonlStoragePoisonedError,
 };

@@ -310,6 +310,7 @@ pub fn create_env_conformance(options: EnvConformanceOptions) -> Vec<EnvConforma
     add_binary_reader_refusal_cases(&mut cases);
     add_dir_reader_cases(&mut cases);
     add_dir_reader_refusal_cases(&mut cases);
+    add_flush_cases(&mut cases);
     add_watch_cases(&mut cases);
     add_watch_replacement_cases(&mut cases);
     add_watch_close_cases(&mut cases);
@@ -599,6 +600,36 @@ fn add_dir_reader_refusal_cases(cases: &mut Cases) {
             }
             assert_eq!(entries, Vec::new());
             reader.close(context()).await;
+        },
+    );
+}
+
+fn add_flush_cases(cases: &mut Cases) {
+    cases.case(
+        "flush directory commits directory entries and refuses non-directories",
+        |env| async move {
+            get(env
+                .create_dir("dir", CreateDirOptions::default(), context())
+                .await);
+            get(env.write_file("dir/file.txt", b"x", context()).await);
+            get(env.flush_directory("dir", context()).await);
+            get(env.flush_directory(".", context()).await);
+            assert_eq!(
+                error_code(&env.flush_directory("dir/file.txt", context()).await),
+                Some("not_directory")
+            );
+            assert_eq!(
+                error_code(&env.flush_directory("missing", context()).await),
+                Some("not_found")
+            );
+            assert_eq!(
+                error_code(&env.flush_directory("dir", &aborted_context()).await),
+                Some("aborted")
+            );
+            assert_eq!(
+                error_code(&env.flush_file("dir", context()).await),
+                Some("is_directory")
+            );
         },
     );
 }

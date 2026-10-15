@@ -486,6 +486,37 @@ impl NativeExecutionEnv {
         abort_result(cx, Some(&resolved))
     }
 
+    async fn flush_directory_inner(&self, path: &str, cx: &Context) -> Result<(), FileError> {
+        let resolved = self.resolve(path);
+        abort_result(cx, Some(&resolved))?;
+        let target = resolved.clone();
+        let flushed = blocking(move || {
+            // POSIX opens a directory read-only; its fsync commits the entries.
+            let directory = std::fs::File::open(&target)
+                .map_err(|error| io::Error::new(error.kind(), SyscallError("open", error)))?;
+            let metadata = directory
+                .metadata()
+                .map_err(|error| io::Error::new(error.kind(), SyscallError("fstat", error)))?;
+            if !metadata.is_dir() {
+                return Ok(false);
+            }
+            directory
+                .sync_all()
+                .map_err(|error| io::Error::new(error.kind(), SyscallError("fsync", error)))?;
+            Ok(true)
+        })
+        .await
+        .map_err(|error| syscall_error(error, &resolved))?;
+        if !flushed {
+            return Err(FileError::new(
+                FileErrorCode::NotDirectory,
+                "Not a directory",
+                Some(resolved),
+            ));
+        }
+        abort_result(cx, Some(&resolved))
+    }
+
     async fn rename_file_inner(
         &self,
         source_path: &str,
@@ -804,6 +835,14 @@ impl FileSystem for NativeExecutionEnv {
         cx: &'a Context,
     ) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(self.flush_file_inner(path, cx))
+    }
+
+    fn flush_directory<'a>(
+        &'a self,
+        path: &'a str,
+        cx: &'a Context,
+    ) -> BoxFuture<'a, Result<(), FileError>> {
+        Box::pin(self.flush_directory_inner(path, cx))
     }
 
     fn rename_file<'a>(
