@@ -1,0 +1,36 @@
+[package]
+name = "eukhe-dashboard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Web dashboard for Eukhe: the CLI session and its memory in a browser, on loopback."
+
+[dependencies]
+eukhe-types = { path = "../eukhe-types" }
+# The public daemon-wire client (`eukhe_tui::daemon_client::DaemonClient`).
+eukhe-tui = { path = "../eukhe-tui" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
+# The loopback HTTP/1.1 server (static app + WebSocket upgrade). Already in
+# the tree through reqwest; MIT.
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+# The browser bridge's WebSocket framing on the upgraded connection (and
+# its Sec-WebSocket-Accept). Already in the tree through eukhe-ai; MIT OR
+# Apache-2.0.
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+# A fresh admission id per prompt.
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect"] }
+
+[lints]
+workspace = true

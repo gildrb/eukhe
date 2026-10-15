@@ -15,6 +15,7 @@ pub(crate) struct ActivityUpdates {
     pub factory: mpsc::UnboundedSender<FactoryUpdate>,
     pub commands: mpsc::UnboundedSender<CommandCatalogUpdate>,
     pub chat_view: mpsc::UnboundedSender<ChatViewUpdate>,
+    pub memory_tree: mpsc::UnboundedSender<super::MemoryTreeUpdate>,
     /// Settled `@name message` deliveries (see [`AgentMessageOutcome`]).
     pub agent_messages: mpsc::UnboundedSender<AgentMessageOutcome>,
 }

@@ -14,6 +14,7 @@ eukhe-models = { path = "../eukhe-models" }
 eukhe-daemon = { path = "../eukhe-daemon" }
 eukhe-tui = { path = "../eukhe-tui" }
 eukhe-gateway = { path = "../eukhe-gateway" }
+eukhe-dashboard = { path = "../eukhe-dashboard" }
 # The durable agent session the print/json/rpc modes run on (submissions,
 # event streams, faux-script models, chord contexts).
 eukhe-durable = { workspace = true }
@@ -29,8 +30,8 @@ serde_json = { workspace = true }
 # the code query the flow receives).
 url = "2"
 tracing = { workspace = true }
-# `eukhe gateway` is a long-running foreground mode: its log lines (the
-# gateway's tracing events) go to stderr.
+# `eukhe gateway` and `eukhe dashboard` are long-running foreground modes:
+# their log lines (tracing events) go to stderr.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
 [[bin]]

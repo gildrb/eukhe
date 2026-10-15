@@ -188,32 +188,6 @@ fn a_merge_shows_the_view_before_and_after() {
     assert_eq!(memory_update_view_bytes(&summarized()), 87_200);
 }
 
-/// `/memory`: the status header, the compactor's failure, then every view
-/// line as its own row.
-#[test]
-fn the_memory_view_prints_the_header_and_every_line() {
-    let row = MemoryViewRow {
-        zoom: None,
-        snapshot: MemorySnapshot {
-            status: MemoryStatusSnapshot {
-                last_error: Some("rate limited".to_string()),
-                ..status()
-            },
-            text: "0+32|user: hi | bot: hello\n32+1|plan".to_string(),
-        },
-    };
-    assert_eq!(
-        plain(&render_memory_view(&row, &theme(), 200, true)),
-        vec![
-            String::new(),
-            " memory: 43 messages, view 87.2 KB / 128.0 KB (floor 64.0 KB), 2 lines, 2 unsummarized, 1 compaction running, model anthropic/claude-haiku-4-5".to_string(),
-            " ! compactor error: rate limited".to_string(),
-            " 0+32|user: hi | bot: hello".to_string(),
-            " 32+1|plan".to_string(),
-        ]
-    );
-}
-
 #[test]
 fn a_default_model_and_plural_compactions_read_naturally() {
     assert_eq!(
@@ -228,28 +202,19 @@ fn a_default_model_and_plural_compactions_read_naturally() {
     );
 }
 
-/// A view line whose node text carries escape sequences or control
-/// characters (a lone `\r`, a tab, a backspace, a vertical tab) prints as
-/// one row that keeps its `id+n|` prefix: each reads as a space, and none
-/// reaches the terminal to move its cursor.
+/// A live row's node text carrying escape sequences or control characters
+/// (a lone `\r`, a tab, a backspace, a vertical tab) prints as one row
+/// that keeps its `id+n|` prefix: each reads as a space, and none reaches
+/// the terminal to move its cursor.
 #[test]
-fn control_characters_in_a_view_line_print_as_spaces() {
-    let row = MemoryViewRow {
-        zoom: None,
-        snapshot: MemorySnapshot {
-            status: status(),
-            text: "0+2|user: run \u{1b}[2Kit\tnow\n2+1|talk: set\rh.model)\"}\n3+1|\u{1b}[31mred\u{1b}[0m\u{8}done\u{b}x"
-                .to_string(),
-        },
-    };
+fn control_characters_in_a_live_line_print_as_spaces() {
     assert_eq!(
-        plain(&render_memory_view(&row, &theme(), 200, false)),
-        vec![
-            format!(" {}", memory_status_header(&status())),
-            " 0+2|user: run it now".to_string(),
-            " 2+1|talk: set h.model)\"}".to_string(),
-            " 3+1|red done x".to_string(),
-        ]
+        one_line("user: run \u{1b}[2Kit\tnow"),
+        "user: run it now".to_string()
+    );
+    assert_eq!(
+        one_line("\u{1b}[31mred\u{1b}[0m\u{8}done\u{b}x\u{2028}y"),
+        "red done x y".to_string()
     );
     let update = MemoryUpdate::Summarized {
         lines: vec![MemoryLine {
@@ -270,41 +235,6 @@ fn control_characters_in_a_view_line_print_as_spaces() {
         vec![
             " memory: summarized 2+1 (view 0.1 KB)",
             "   2+1|talk: set h.model)\"} next",
-        ]
-    );
-}
-
-/// A one-message zoom keeps the message's own lines under its header.
-#[test]
-fn a_single_message_zoom_keeps_its_lines() {
-    let row = MemoryViewRow {
-        zoom: Some(MemoryZoom { id: 7, count: 1 }),
-        snapshot: MemorySnapshot {
-            status: status(),
-            text: "user: first line\r\nsecond line".to_string(),
-        },
-    };
-    assert_eq!(
-        plain(&render_memory_view(&row, &theme(), 80, false)),
-        vec![" memory zoom 7+1:", " user: first line", " second line"]
-    );
-}
-
-#[test]
-fn a_zoom_prints_its_header_and_text() {
-    let row = MemoryViewRow {
-        zoom: Some(MemoryZoom { id: 40, count: 8 }),
-        snapshot: MemorySnapshot {
-            status: status(),
-            text: "40+4|first half\n44+4|second half".to_string(),
-        },
-    };
-    assert_eq!(
-        plain(&render_memory_view(&row, &theme(), 80, false)),
-        vec![
-            " memory zoom 40+8:",
-            " 40+4|first half",
-            " 44+4|second half"
         ]
     );
 }

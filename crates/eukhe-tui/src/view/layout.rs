@@ -30,7 +30,6 @@ impl AgentView {
             | ChatEntry::RefinementOutcome(_)
             | ChatEntry::CustomPanel(_)
             | ChatEntry::ChatView(_)
-            | ChatEntry::MemoryView(_)
             | ChatEntry::Swarm(_) => true,
             ChatEntry::Assistant(message) => {
                 !message.streaming

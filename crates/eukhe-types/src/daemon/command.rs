@@ -1240,6 +1240,20 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native extension, advertised by the `memory_tree` capability:
+    /// one level of the chat memory's tree -- the view's lines, or what the
+    /// line `node` opens into -- each line dated and with its message kinds,
+    /// for the `/memory` tree and the dashboard (reply:
+    /// [`super::MemoryTreeReply`]).
+    GetMemoryTree {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node: Option<super::MemoryZoom>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetToolDefinition {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -1421,6 +1435,14 @@ mod tests {
         rt::<DaemonCommand>(r#"{"type":"get_memory","activeSessionId":"s1"}"#);
         rt::<DaemonCommand>(
             r#"{"type":"get_memory","activeSessionId":"s1","zoom":{"id":40,"count":8}}"#,
+        );
+    }
+
+    #[test]
+    fn get_memory_tree_roundtrip() {
+        rt::<DaemonCommand>(r#"{"type":"get_memory_tree","activeSessionId":"s1"}"#);
+        rt::<DaemonCommand>(
+            r#"{"type":"get_memory_tree","activeSessionId":"s1","node":{"id":40,"count":8}}"#,
         );
     }
 }

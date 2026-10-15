@@ -33,6 +33,7 @@ mod saved;
 mod service;
 mod store;
 mod summarizer;
+mod tree;
 mod view;
 
 use std::time::Duration;

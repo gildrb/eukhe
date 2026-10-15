@@ -29,8 +29,9 @@ pub(crate) struct ChatViewUpdate {
     pub memory: Option<Result<Option<MemoryStatusSnapshot>, String>>,
 }
 
-/// One bounded daemon request decoded as `T`.
-async fn fetch<T: serde::de::DeserializeOwned>(
+/// One bounded daemon request decoded as `T` (the open-time fetch and the
+/// `/memory` tree's level fetches).
+pub(super) async fn fetch<T: serde::de::DeserializeOwned>(
     client: &DaemonClient,
     request: DaemonCommand,
     name: &str,

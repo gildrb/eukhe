@@ -455,9 +455,18 @@ impl Worker {
             config.kernel_python =
                 Some(crate::durable_test_support::kernel_runtime::kernel_python());
         }
-        let scripted = self.config.script.is_some();
-        if !scripted && config.role.is_root() {
-            config.memory = Some(self.chat_memory().await?);
+        // A faux script keeps its sessions without the chat memory unless
+        // it opts in (`"chatMemory": true`, a verification seam): then its
+        // root sessions share the memory, compacted on the script.
+        let scripted = self
+            .scripted_models()
+            .map_err(|error| anyhow::anyhow!("invalid create script: {error}"))?;
+        let memory_summarizer = match &scripted {
+            None => Some(None),
+            Some(scripted) => scripted.chat_memory_summarizer().map(Some),
+        };
+        if let (Some(summarizer), true) = (memory_summarizer, config.role.is_root()) {
+            config.memory = Some(self.chat_memory(summarizer).await?);
         }
         let core = Arc::clone(&self.core);
         let events = Arc::clone(&self.events);
@@ -554,19 +563,27 @@ impl Worker {
 
     /// The chat memory every root session of this worker shares (opened
     /// once). When this worker owns the chat, its compactor takes the
-    /// supervisor's background slots.
-    async fn chat_memory(&self) -> anyhow::Result<eukhe_core::memory::Memory> {
+    /// supervisor's background slots; a faux script that opts into the
+    /// memory brings its own compactor (`scripted`).
+    async fn chat_memory(
+        &self,
+        scripted: Option<durable_host::ScriptedSummarizer>,
+    ) -> anyhow::Result<eukhe_core::memory::Memory> {
         self.chat_memory
             .get_or_try_init(|| {
                 let agent_dir = self.config.agent_dir.clone();
                 let chat = eukhe_core::memory::chat_dir(&agent_dir);
-                let summarizer = match self.supervisor_admission() {
-                    Some(admission) => {
-                        eukhe_core::memory::SettingsSummarizer::new(agent_dir, admission)
-                    }
-                    None => eukhe_core::memory::SettingsSummarizer::in_process(agent_dir),
-                };
-                eukhe_core::memory::Memory::open(chat, Arc::new(summarizer))
+                let summarizer: Arc<dyn eukhe_core::memory::Summarizer> =
+                    match (scripted, self.supervisor_admission()) {
+                        (Some(scripted), _) => Arc::new(scripted),
+                        (None, Some(admission)) => Arc::new(
+                            eukhe_core::memory::SettingsSummarizer::new(agent_dir, admission),
+                        ),
+                        (None, None) => Arc::new(
+                            eukhe_core::memory::SettingsSummarizer::in_process(agent_dir),
+                        ),
+                    };
+                eukhe_core::memory::Memory::open(chat, summarizer)
             })
             .await
             .cloned()

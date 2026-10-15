@@ -119,6 +119,8 @@ impl SessionUi {
             skill_commands_cache: Vec::new(),
             chat_view_updates: activity_updates.chat_view,
             chat_view_epoch: 0,
+            memory_tree_updates: activity_updates.memory_tree,
+            memory_tree_epoch: 0,
             agent_message_notes: activity_updates.agent_messages,
             memory_view_bytes: None,
             bash_activities: serde_json::json!({"activities": []}),
@@ -625,6 +627,8 @@ impl SessionUi {
             // previous session's fetched document, and a stale panel
             // would keep consuming keys over the new session.
             view.info_panel = None;
+            // The `/memory` tree is the previous session's memory.
+            view.memory_tree = None;
             self.speed_stats = None;
             view.chrome.speed_text = None;
         }

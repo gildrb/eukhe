@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#14161a">
+<title>eukhe</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <button id="session-button" class="session-button" type="button" aria-haspopup="dialog" aria-controls="sessions">
+    <span id="session-title" class="session-title">eukhe</span>
+    <span id="session-sub" class="session-sub">connecting…</span>
+  </button>
+  <span id="link" class="link" data-state="connecting" role="status" aria-live="polite" title="connecting"></span>
+  <nav class="tabs" role="tablist">
+    <button id="tab-chat" role="tab" type="button" aria-selected="true" aria-controls="chat">Chat</button>
+    <button id="tab-memory" role="tab" type="button" aria-selected="false" aria-controls="memory">Memory</button>
+  </nav>
+</header>
+
+<main>
+  <section id="chat" class="view" role="tabpanel" aria-labelledby="tab-chat">
+    <ol id="transcript" class="transcript" aria-live="polite"></ol>
+    <div id="queue" class="queue" hidden></div>
+    <form id="composer" class="composer" autocomplete="off">
+      <textarea id="input" rows="1" placeholder="Message" enterkeyhint="send" aria-label="Message"></textarea>
+      <div class="actions">
+        <div id="mode" class="mode" role="radiogroup" aria-label="While busy" hidden>
+          <button type="button" role="radio" data-mode="followUp" aria-checked="true" title="Send after the current turn">Queue</button>
+          <button type="button" role="radio" data-mode="steer" aria-checked="false" title="Send between tool calls">Steer</button>
+        </div>
+        <button id="stop" class="stop" type="button" hidden>Stop</button>
+        <button id="send" class="send" type="submit">Send</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="memory" class="view" role="tabpanel" aria-labelledby="tab-memory" hidden>
+    <div class="memory-head">
+      <div id="memory-status" class="memory-status">Loading the memory…</div>
+      <button id="memory-refresh" class="ghost" type="button">Refresh</button>
+    </div>
+    <ul id="memory-tree" class="tree" role="tree" aria-label="Chat memory"></ul>
+  </section>
+</main>
+
+<dialog id="sessions" class="sheet" aria-labelledby="sessions-title">
+  <form method="dialog" class="sheet-head">
+    <h2 id="sessions-title">Sessions</h2>
+    <button class="ghost" value="close" aria-label="Close">Close</button>
+  </form>
+  <div class="sheet-actions">
+    <button id="session-latest" type="button">Newest session</button>
+    <button id="session-new" type="button">New session</button>
+  </div>
+  <ul id="session-list" class="session-list"></ul>
+</dialog>
+</body>
+</html>

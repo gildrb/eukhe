@@ -190,6 +190,10 @@ impl SessionUi {
         if view.info_panel.is_some() {
             return self.handle_info_panel_key(key, view);
         }
+        // The `/memory` tree owns the frame the same way.
+        if view.memory_tree.is_some() {
+            return self.handle_memory_tree_key(key, view);
+        }
         // The `/tree` and `/fork` selectors own the frame the same way.
         if view.tree_selector.is_some() {
             return self.handle_tree_selector_key(key, view).await;

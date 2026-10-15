@@ -526,6 +526,10 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "get_memory", "activeSessionId": "sess", "zoom": {"id": 40, "count": 8}}"#,
     ),
     (
+        "get_memory_tree",
+        r#"{"type": "get_memory_tree", "activeSessionId": "sess", "node": {"id": 40, "count": 8}}"#,
+    ),
+    (
         "agent_relay",
         r#"{"type": "agent_relay", "activeSessionId": "sess", "from": "scout", "to": "builder", "text": "hi"}"#,
     ),
@@ -571,6 +575,7 @@ fn known_command_types_match_the_ts_list() {
                     | "mark_anthropic_warning_shown"
                     | "get_chat_view"
                     | "get_memory"
+                    | "get_memory_tree"
                     | "agent_relay"
                     | "agent_reply"
                     | "get_run_outcome"

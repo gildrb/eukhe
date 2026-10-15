@@ -210,6 +210,8 @@ impl Actor {
                     None => format!("No message {id}."),
                 },
             }),
+            Request::Tree { node } => crate::memory::tree::level(&self.chat, &self.store, node)
+                .map(|level| Reply::Tree { level }),
             Request::Status => Ok(Reply::Status {
                 status: self.status(),
             }),

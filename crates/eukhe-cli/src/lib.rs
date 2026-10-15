@@ -35,6 +35,7 @@ pub(crate) mod daemon_command;
 pub(crate) mod daemon_discovery;
 pub(crate) mod daemon_mode;
 pub(crate) mod daemon_session_list;
+pub(crate) mod dashboard_command;
 pub(crate) mod factory_command;
 pub(crate) mod file_processor;
 pub(crate) mod gateway_command;

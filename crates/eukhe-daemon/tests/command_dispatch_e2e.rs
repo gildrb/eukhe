@@ -347,7 +347,8 @@ const MATRIX: &[(&str, &str)] = &[
     ("get_session_context", "wire: get_session_context"),
     ("get_system_prompt", "/system-prompt"),
     ("get_chat_view", "the startup chat view block"),
-    ("get_memory", "/memory and the status gauge"),
+    ("get_memory", "the status gauge"),
+    ("get_memory_tree", "/memory and the dashboard's Memory view"),
     ("get_tool_definition", "wire: get_tool_definition"),
     ("get_resource_snapshot", "wire: get_resource_snapshot"),
 ];
@@ -519,6 +520,61 @@ fn get_memory_answers_the_root_sessions_memory() {
                     last_error: None,
                 },
                 text: String::new(),
+            }),
+        }
+    );
+}
+
+/// `get_memory_tree` answers the root session's memory tree: a fresh
+/// agent dir's chat has no view lines, and a line past its end opens into
+/// nothing.
+#[test]
+fn get_memory_tree_answers_the_root_sessions_tree() {
+    let mut session = open_session();
+    let status = eukhe_types::daemon::MemoryStatusSnapshot {
+        messages: 0,
+        lines: 0,
+        view_bytes: 0,
+        unsummarized: 0,
+        running: 0,
+        model: None,
+        last_error: None,
+    };
+    let (response, _) = session
+        .client
+        .timed_request("t1", &info_command("get_memory_tree", &session.session_id));
+    assert_eq!(
+        response["success"], true,
+        "get_memory_tree failed: {response}"
+    );
+    let reply: eukhe_types::daemon::MemoryTreeReply =
+        serde_json::from_value(response["data"].clone()).expect("the reply decodes");
+    assert_eq!(
+        reply,
+        eukhe_types::daemon::MemoryTreeReply {
+            tree: Some(eukhe_types::daemon::MemoryTree {
+                status: status.clone(),
+                node: None,
+                level: eukhe_types::daemon::MemoryTreeLevel::Lines { nodes: Vec::new() },
+            }),
+        }
+    );
+    let mut opened = info_command("get_memory_tree", &session.session_id);
+    opened["node"] = json!({ "id": 0, "count": 1 });
+    let (response, _) = session.client.timed_request("t2", &opened);
+    assert_eq!(
+        response["success"], true,
+        "get_memory_tree failed: {response}"
+    );
+    let reply: eukhe_types::daemon::MemoryTreeReply =
+        serde_json::from_value(response["data"].clone()).expect("the reply decodes");
+    assert_eq!(
+        reply,
+        eukhe_types::daemon::MemoryTreeReply {
+            tree: Some(eukhe_types::daemon::MemoryTree {
+                status,
+                node: Some(eukhe_types::daemon::MemoryZoom { id: 0, count: 1 }),
+                level: eukhe_types::daemon::MemoryTreeLevel::NoLine,
             }),
         }
     );

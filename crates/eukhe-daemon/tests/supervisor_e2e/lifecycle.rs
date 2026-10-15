@@ -68,6 +68,7 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
             "direct_peer_transport",
             "chat_view",
             "memory",
+            "memory_tree",
         ])
     );
 

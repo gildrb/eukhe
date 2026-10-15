@@ -180,6 +180,8 @@ impl AgentView {
                 &self.code_block_indent,
                 info_viewport_rows,
             ))
+        } else if let Some(tree) = self.memory_tree.as_mut() {
+            Some(tree.render(&self.theme, width, kb, info_viewport_rows))
         } else {
             None
         };

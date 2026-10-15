@@ -130,8 +130,9 @@ pub use command::{
     StreamingBehavior,
 };
 pub use memory::{
-    MemoryLine, MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryUpdate, MemoryZoom,
-    MEMORY_CAPABILITY, MEMORY_VIEW_CEILING, MEMORY_VIEW_FLOOR,
+    MemoryKindCount, MemoryLine, MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryTree,
+    MemoryTreeLevel, MemoryTreeMessage, MemoryTreeNode, MemoryTreeReply, MemoryUpdate, MemoryZoom,
+    MEMORY_CAPABILITY, MEMORY_TREE_CAPABILITY, MEMORY_VIEW_CEILING, MEMORY_VIEW_FLOOR,
 };
 pub use outbound::{
     DaemonClosingReason, DaemonErrorInfo, DaemonEventEnvelope, DaemonOutbound,

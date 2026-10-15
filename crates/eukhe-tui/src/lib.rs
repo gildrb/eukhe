@@ -87,6 +87,7 @@ pub mod markdown;
 pub mod markdown_table;
 pub mod mcp_view;
 pub mod memory_block;
+pub mod memory_tree;
 mod menu_panel;
 pub mod model_picker;
 pub mod onboarding;

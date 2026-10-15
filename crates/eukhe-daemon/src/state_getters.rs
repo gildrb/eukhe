@@ -15,7 +15,9 @@ use eukhe_core::models::ModelRegistry;
 use eukhe_durable::harness::types::PromptInput;
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::types::EntryRecord;
-use eukhe_types::daemon::{MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryZoom};
+use eukhe_types::daemon::{
+    MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryTree, MemoryTreeReply, MemoryZoom,
+};
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::usage::{calculate_context_tokens, estimate_tokens, valid_assistant_usage};
 use serde_json::{json, Value};
@@ -306,6 +308,39 @@ impl Worker {
         }
     }
 
+    /// `get_memory_tree { node? }` (Rust-native, advertised by the
+    /// `memory_tree` capability): one level of the chat memory's tree --
+    /// the view's lines, or what line `node` opens into -- with the
+    /// memory's status, for the `/memory` tree and the dashboard;
+    /// `{ "tree": null }` when the session keeps no chat memory.
+    pub(crate) async fn handle_get_memory_tree(&self, payload: &Value) -> DaemonResponse {
+        const COMMAND: &str = "get_memory_tree";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        let node = match payload.get("node") {
+            None | Some(Value::Null) => None,
+            Some(node) => match serde_json::from_value::<MemoryZoom>(node.clone()) {
+                Ok(node) => Some(node),
+                Err(error) => {
+                    return response_failure(None, COMMAND, &format!("invalid node: {error}"), None)
+                }
+            },
+        };
+        let tree = match hosted.deps().memory.as_ref() {
+            Some(memory) => match memory_tree(memory, node, &self.config.agent_dir).await {
+                Ok(tree) => Some(tree),
+                Err(error) => return response_failure(None, COMMAND, &format!("{error:#}"), None),
+            },
+            None => None,
+        };
+        match serde_json::to_value(MemoryTreeReply { tree }) {
+            Ok(data) => response_success(None, COMMAND, Some(data)),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
+        }
+    }
+
     /// `get_tool_definition { name }` (TS
     /// `createAgentConnectionToolDefinition`): the definition of one tool
     /// the main conversation's next request offers; an unknown name
@@ -452,22 +487,44 @@ async fn memory_snapshot(
     zoom: Option<MemoryZoom>,
     agent_dir: &std::path::Path,
 ) -> anyhow::Result<MemorySnapshot> {
-    let status = memory.status().await?;
     let text = match zoom {
         Some(MemoryZoom { id, count }) => memory.zoom(id, count).await?,
         None => unframed_view(&memory.render().await?.text).to_string(),
     };
     Ok(MemorySnapshot {
-        status: MemoryStatusSnapshot {
-            messages: status.messages,
-            lines: status.view_lines,
-            view_bytes: status.view_bytes,
-            unsummarized: status.unsummarized,
-            running: status.running,
-            model: eukhe_core::memory::configured_memory_model(agent_dir),
-            last_error: status.last_error,
-        },
+        status: memory_status(memory, agent_dir).await?,
         text,
+    })
+}
+
+/// The memory's status as `get_memory` and `get_memory_tree` answer it
+/// (the compactor model as the agent dir's settings configure it).
+async fn memory_status(
+    memory: &eukhe_core::memory::Memory,
+    agent_dir: &std::path::Path,
+) -> anyhow::Result<MemoryStatusSnapshot> {
+    let status = memory.status().await?;
+    Ok(MemoryStatusSnapshot {
+        messages: status.messages,
+        lines: status.view_lines,
+        view_bytes: status.view_bytes,
+        unsummarized: status.unsummarized,
+        running: status.running,
+        model: eukhe_core::memory::configured_memory_model(agent_dir),
+        last_error: status.last_error,
+    })
+}
+
+/// One level of the memory tree as `get_memory_tree` answers it.
+async fn memory_tree(
+    memory: &eukhe_core::memory::Memory,
+    node: Option<MemoryZoom>,
+    agent_dir: &std::path::Path,
+) -> anyhow::Result<MemoryTree> {
+    Ok(MemoryTree {
+        status: memory_status(memory, agent_dir).await?,
+        node,
+        level: memory.tree(node).await?,
     })
 }
 

@@ -313,6 +313,45 @@ async fn memory_is_null_without_chat_memory() {
     assert_eq!(zoomed, json!({ "memory": null }));
 }
 
+/// `get_memory_tree`: a scripted session keeps no chat memory, at the view
+/// level or under a line.
+#[tokio::test]
+async fn memory_tree_is_null_without_chat_memory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created_worker(dir.path(), ack_script()).await;
+    let data = get(&worker, "get_memory_tree", &json!({})).await;
+    assert_eq!(data, json!({ "tree": null }));
+    let opened = get(
+        &worker,
+        "get_memory_tree",
+        &json!({ "node": { "id": 0, "count": 1 } }),
+    )
+    .await;
+    assert_eq!(opened, json!({ "tree": null }));
+}
+
+/// A faux script that opts into the chat memory (`"chatMemory": true`)
+/// gives its root session the memory: the tree answers the (empty) chat's
+/// view instead of null.
+#[tokio::test]
+async fn a_script_opting_into_chat_memory_keeps_one() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let script = json!({ "modelId": "faux-1", "chatMemory": true, "responses": ["ack"] });
+    let worker = created_worker(dir.path(), script).await;
+    let data = get(&worker, "get_memory_tree", &json!({})).await;
+    assert_eq!(
+        data,
+        json!({ "tree": {
+            "status": {
+                "messages": 0, "lines": 0, "viewBytes": 0, "unsummarized": 0,
+                "running": 0, "model": null, "lastError": null,
+            },
+            "node": null,
+            "level": { "kind": "lines", "nodes": [] },
+        } })
+    );
+}
+
 /// The view `get_memory` answers drops exactly the `<chat>` frame lines.
 #[test]
 fn unframed_view_drops_the_chat_frame() {

@@ -24,6 +24,7 @@ use eukhe_ai::models::Models;
 use eukhe_ai::providers::faux_script::{
     create_faux_script_models, parse_faux_script_value, FauxScriptError,
 };
+use eukhe_ai::types::{Model, SimpleStreamOptions};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::{
     compose_models_json, open_session, EukheSession, HostDeps, ModelRequest, ModelsError,
@@ -55,10 +56,18 @@ pub(crate) enum HostError {
 /// session of the worker shares: its responses are consumed in order across
 /// the worker's sessions (a replacement continues the script where the
 /// replaced session left it).
+///
+/// `"chatMemory": true` in the script (verification seam, default off)
+/// gives the worker's root sessions the chat memory like an unscripted
+/// session; the compactor's model calls (lines too long to be free) then
+/// take the script's next responses, in order with the turns'.
 #[derive(Clone)]
 pub(crate) struct ScriptedModels {
     models: Models,
     model: ModelRequest,
+    /// The scripted model the compactor asks, when the script opts into
+    /// the chat memory.
+    compactor: Option<Model>,
 }
 
 impl ScriptedModels {
@@ -66,15 +75,29 @@ impl ScriptedModels {
     ///
     /// The script is malformed.
     pub(crate) fn parse(script: &serde_json::Value) -> Result<Self, FauxScriptError> {
+        let chat_memory = script
+            .get("chatMemory")
+            .and_then(serde_json::Value::as_bool);
         let parsed = parse_faux_script_value(script)?;
         let pattern = parsed.model.id.clone();
         let (models, provider) = create_faux_script_models(parsed);
+        let model = provider.get_model();
         Ok(Self {
             models,
             model: ModelRequest {
-                provider: Some(provider.get_model().provider),
+                provider: Some(model.provider.clone()),
                 pattern,
             },
+            compactor: (chat_memory == Some(true)).then_some(model),
+        })
+    }
+
+    /// The compactor of a script that opts into the chat memory
+    /// (`"chatMemory": true`); `None` keeps scripted sessions without it.
+    pub(crate) fn chat_memory_summarizer(&self) -> Option<ScriptedSummarizer> {
+        self.compactor.clone().map(|model| ScriptedSummarizer {
+            models: self.models.clone(),
+            model,
         })
     }
 
@@ -91,6 +114,28 @@ impl ScriptedModels {
                 .provider
                 .as_deref()
                 .is_some_and(|requested| Some(requested) != self.model.provider.as_deref())
+        })
+    }
+}
+
+/// The chat memory's compactor on a faux script: each call completes on
+/// the scripted model (taking the script's next response).
+pub(crate) struct ScriptedSummarizer {
+    models: Models,
+    model: Model,
+}
+
+impl eukhe_core::memory::Summarizer for ScriptedSummarizer {
+    fn complete(
+        &self,
+        context: eukhe_types::pi_ai::Context,
+    ) -> eukhe_core::memory::SummarizerFuture {
+        let models = self.models.clone();
+        let model = self.model.clone();
+        Box::pin(async move {
+            Ok(models
+                .complete_simple(&model, context, SimpleStreamOptions::default().into())
+                .await)
         })
     }
 }

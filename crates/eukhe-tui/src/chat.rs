@@ -141,9 +141,6 @@ pub enum ChatEntry {
     /// the compactor summarized lines or merged the view. Display only:
     /// never part of the session's replayed transcript.
     MemoryUpdate(Box<eukhe_types::daemon::MemoryUpdate>),
-    /// One `/memory` answer (rendered by the `memory_block` module): the
-    /// status header and the view's lines, or one zoom.
-    MemoryView(Box<crate::memory_block::MemoryViewRow>),
     /// One agent-family row (rendered by the `swarm_block` module): an
     /// `@name` message the user sent to another agent, a relayed peer
     /// message, or the `/agents` roster. Display only.

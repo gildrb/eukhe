@@ -148,6 +148,7 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "mark_anthropic_warning_shown",
     "get_chat_view",
     "get_memory",
+    "get_memory_tree",
     "agent_relay",
     "agent_reply",
     "get_run_outcome",
@@ -339,6 +340,7 @@ pub fn default_server_capabilities() -> Vec<DaemonServerCapability> {
                 "direct_peer_transport",
                 eukhe_types::daemon::CHAT_VIEW_CAPABILITY,
                 eukhe_types::daemon::MEMORY_CAPABILITY,
+                eukhe_types::daemon::MEMORY_TREE_CAPABILITY,
             ]
             .iter()
             .map(std::string::ToString::to_string),
@@ -884,6 +886,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::GetMemory {
             active_session_id, ..
         }
+        | DaemonCommand::GetMemoryTree {
+            active_session_id, ..
+        }
         | DaemonCommand::GetToolDefinition {
             active_session_id, ..
         }
@@ -1069,6 +1074,7 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetSystemPrompt { .. } => "get_system_prompt",
         DaemonCommand::GetChatView { .. } => "get_chat_view",
         DaemonCommand::GetMemory { .. } => "get_memory",
+        DaemonCommand::GetMemoryTree { .. } => "get_memory_tree",
         DaemonCommand::GetToolDefinition { .. } => "get_tool_definition",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
         DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",

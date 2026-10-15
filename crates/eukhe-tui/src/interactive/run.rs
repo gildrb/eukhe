@@ -162,6 +162,10 @@ async fn run_interactive_surface(
     // loop folds the view into the transcript as its startup block.
     let (chat_view_tx, mut chat_view_rx) =
         mpsc::unbounded_channel::<crate::session_ui::ChatViewUpdate>();
+    // The `/memory` tree's level fetches (`get_memory_tree`) report here;
+    // the loop folds each level into the open tree.
+    let (memory_tree_tx, mut memory_tree_rx) =
+        mpsc::unbounded_channel::<crate::session_ui::MemoryTreeUpdate>();
     // A backgrounded `@name message` delivery reports here; the loop
     // folds a failure into an error row (the draft returns).
     let (agent_messages_tx, mut agent_messages_rx) =
@@ -281,6 +285,7 @@ async fn run_interactive_surface(
         let factory_tx = factory_tx.clone();
         let commands_tx = commands_tx.clone();
         let chat_view_tx = chat_view_tx.clone();
+        let memory_tree_tx = memory_tree_tx.clone();
         let agent_messages_tx = agent_messages_tx.clone();
         tokio::spawn(async move {
             let session = SessionUi::open(
@@ -298,6 +303,7 @@ async fn run_interactive_surface(
                     factory: factory_tx,
                     commands: commands_tx,
                     chat_view: chat_view_tx,
+                    memory_tree: memory_tree_tx,
                     agent_messages: agent_messages_tx,
                 },
             )
@@ -1449,6 +1455,11 @@ async fn run_interactive_surface(
             maybe_chat_view = chat_view_rx.recv() => {
                 if let Some(update) = maybe_chat_view {
                     session.apply_chat_view(update, &mut view);
+                }
+            }
+            maybe_memory_tree = memory_tree_rx.recv() => {
+                if let Some(update) = maybe_memory_tree {
+                    session.apply_memory_tree_update(update, &mut view);
                 }
             }
             maybe_agent_message = agent_messages_rx.recv() => {

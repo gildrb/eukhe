@@ -229,6 +229,7 @@ pub const APP_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
     ("app.tools.expand", def!(&["ctrl+o"], scope "editor")),
     ("app.subagents.focus", def!(&["alt+a"])),
     ("app.heartbeats.openSelected", def!(&["right"])),
+    ("app.memory.expand", def!(&["right"])),
     ("app.editor.external", def!(&["ctrl+g"])),
     ("app.prompt.stash", def!(&["ctrl+s"])),
     ("app.message.followUp", def!(&["alt+enter"])),

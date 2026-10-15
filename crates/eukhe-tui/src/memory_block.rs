@@ -1,26 +1,17 @@
 //! The chat memory in the transcript (`OptChat`): the live `memory_update`
-//! rows the compactor's progress shows as, and the `/memory` answer (the
-//! status header and the view the agent sees, or one zoom). Both are
-//! client-side display only: never logged into the chat, never replayed.
-//! View lines are raw `id+n|text`, never markdown.
+//! rows the compactor's progress shows as, plus the status header and the
+//! sanitizing helpers the `/memory` tree ([`crate::memory_tree`]) shares.
+//! Client-side display only: never logged into the chat, never replayed.
+//! Line text is raw, never markdown.
 
 use eukhe_types::daemon::{
-    MemorySnapshot, MemoryStatusSnapshot, MemoryUpdate, MemoryZoom, MEMORY_VIEW_CEILING,
-    MEMORY_VIEW_FLOOR,
+    MemoryStatusSnapshot, MemoryUpdate, MEMORY_VIEW_CEILING, MEMORY_VIEW_FLOOR,
 };
 
 use crate::chat::Detail;
 use crate::style::Style;
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
-
-/// One `/memory` answer as the transcript shows it.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MemoryViewRow {
-    /// The zoom the command asked; `None` for the whole view.
-    pub zoom: Option<MemoryZoom>,
-    pub snapshot: MemorySnapshot,
-}
 
 /// A size in kilobytes (1000 bytes) to one decimal, rounded: `87.2 KB`.
 /// The memory's sizes are decimal (its ceiling is 128,000 bytes), and the
@@ -122,7 +113,7 @@ pub(crate) fn memory_update_view_bytes(update: &MemoryUpdate) -> u64 {
     }
 }
 
-/// The `/memory` header: `memory: T messages, view 87.2 KB / 128.0 KB
+/// The `/memory` tree's header: `memory: T messages, view 87.2 KB / 128.0 KB
 /// (floor 64.0 KB), 214 lines, 2 unsummarized, 1 compaction running, model
 /// anthropic/claude-haiku-4-5`.
 #[must_use]
@@ -143,7 +134,7 @@ pub(crate) fn memory_status_header(status: &MemoryStatusSnapshot) -> String {
 /// `text` wrapped under a hanging indent: the first row after `indent`
 /// columns, the continuation rows two columns deeper, every row within
 /// `width`.
-fn wrapped(text: &str, indent: usize, style: Style, width: usize) -> Vec<Line> {
+pub(crate) fn wrapped(text: &str, indent: usize, style: Style, width: usize) -> Vec<Line> {
     let content = width.saturating_sub(indent + 2).max(1);
     crate::width::wrap_text(text, content)
         .into_iter()
@@ -166,7 +157,7 @@ fn styled_row(row: Line, indent: usize, style: Style) -> Line {
 /// (a tab, a backspace) as spaces, so a row never moves the terminal's
 /// cursor and keeps its `id+n|` prefix. Display sanitization only: the view
 /// the model sees is the core's.
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     crate::ansi::strip_ansi(&text.replace("\r\n", " "))
         .chars()
         .map(|c| match c {
@@ -207,47 +198,6 @@ pub(crate) fn render_memory_update(
             }
         }
         MemoryUpdate::Summarized { .. } | MemoryUpdate::Merged { .. } => {}
-    }
-    out
-}
-
-/// One `/memory` answer: an optional leading blank, then the status header
-/// (with the compactor's unresolved failure as an error row) or the zoom
-/// header, and one wrapped, sanitized row per line of the answer's text
-/// (one view line per node; a one-message zoom keeps its own lines).
-pub(crate) fn render_memory_view(
-    row: &MemoryViewRow,
-    theme: &Theme,
-    width: usize,
-    leading: bool,
-) -> Vec<Line> {
-    let mut out = Vec::new();
-    if leading {
-        out.push(Vec::new());
-    }
-    let muted = theme.fg_style(ThemeColor::Muted);
-    if let Some(MemoryZoom { id, count }) = row.zoom {
-        out.extend(wrapped(
-            &format!("memory zoom {id}+{count}:"),
-            1,
-            muted,
-            width,
-        ));
-    } else {
-        let status = &row.snapshot.status;
-        out.extend(wrapped(&memory_status_header(status), 1, muted, width));
-        if let Some(error) = &status.last_error {
-            out.extend(wrapped(
-                &format!("{} compactor error: {error}", crate::glyphs::WARN),
-                1,
-                theme.fg_style(ThemeColor::Error),
-                width,
-            ));
-        }
-    }
-    let text = theme.fg_style(ThemeColor::Text);
-    for line in row.snapshot.text.lines() {
-        out.extend(wrapped(&one_line(line), 1, text, width));
     }
     out
 }

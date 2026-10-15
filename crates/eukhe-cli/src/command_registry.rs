@@ -319,6 +319,22 @@ Runs until Ctrl+C. See docs/gateway.md.",
     )
     .options(&["--daemon-socket <path>  Use a specific daemon socket"]),
     CommandSpec::new(
+        &["dashboard"],
+        "dashboard [--port <port>] [--no-open] [--daemon-socket <path>]",
+        "Open the web dashboard: chat with the current session and browse its memory",
+    )
+    .description(
+        "Serves a mobile-friendly web dashboard on 127.0.0.1 and opens it in the browser. It \
+chats with the newest session (the one the CLI and the gateway use, or one you pick) and shows the \
+chat memory as a tree of dated lines you can open down to each message. It listens on loopback \
+only and has no login: anyone who can reach the port can use it. Runs until Ctrl+C.",
+    )
+    .options(&[
+        "--port <port>           Listen on this port (default: a free port)",
+        "--no-open               Print the URL without opening the browser",
+        "--daemon-socket <path>  Use a specific daemon socket",
+    ]),
+    CommandSpec::new(
         &["prompt"],
         "prompt [--model <selector>] [--cwd <dir>] [--json]",
         "Print the assembled system prompt with its layer breakdown",

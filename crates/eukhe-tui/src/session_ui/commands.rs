@@ -622,11 +622,10 @@ impl SessionUi {
                     }
                 }
             }
-            // `/memory [zoom <id> <n>]`: the chat memory's status and the
-            // view the agent sees (or one zoom), printed as inline
-            // transcript rows.
+            // `/memory`: the chat memory as a navigable tree of dated,
+            // labelled, expandable lines, docked over the editor.
             "memory" => {
-                self.handle_memory_command(&resolved.args, text, view).await;
+                self.handle_memory_command(&resolved.args, text, view);
             }
             // `/agents`: this session's agent family printed inline as
             // tree-indented rows (the agents panel stays on Left).

@@ -135,6 +135,12 @@ enum Request {
     Date {
         id: u64,
     },
+    /// One level of the tree for a reader: the view's lines (`node`
+    /// `None`), or what line `node` opens into.
+    Tree {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node: Option<eukhe_types::daemon::MemoryZoom>,
+    },
     Status,
     Persist,
     Parts,
@@ -183,6 +189,9 @@ enum Reply {
     },
     Status {
         status: MemoryStatus,
+    },
+    Tree {
+        level: eukhe_types::daemon::MemoryTreeLevel,
     },
     Persisting,
     Parts {
@@ -406,6 +415,25 @@ impl Memory {
         }
     }
 
+    /// One level of the memory tree for a reader (the `/memory` tree, the
+    /// dashboard): the view's lines when `node` is `None`, else the two
+    /// lines under `node`, or its message when it covers one; every line
+    /// dated, with its kinds and its summary when built. Reads only.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the owner cannot be reached or a message
+    /// cannot be read back.
+    pub async fn tree(
+        &self,
+        node: Option<eukhe_types::daemon::MemoryZoom>,
+    ) -> anyhow::Result<eukhe_types::daemon::MemoryTreeLevel> {
+        match self.request(Request::Tree { node }).await? {
+            Reply::Tree { level } => Ok(level),
+            other => Err(unexpected(&other)),
+        }
+    }
+
     /// A snapshot for status displays.
     ///
     /// # Errors
@@ -512,6 +540,7 @@ impl Memory {
                             | Request::Render
                             | Request::Zoom { .. }
                             | Request::Date { .. }
+                            | Request::Tree { .. }
                             | Request::Status
                             | Request::Persist
                             | Request::Parts

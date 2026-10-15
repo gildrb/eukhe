@@ -37,6 +37,7 @@ pub(crate) use heartbeats::HeartbeatsUpdate;
 /// `handle_key`'s keymap-aware ladder -- a claimed key queues behind the
 /// session open instead of echoing into the editor.
 pub(crate) use keys::opening_echo_key_claimed;
+pub(crate) use memory::MemoryTreeUpdate;
 pub(crate) use model_picker::picker_viewport_rows;
 pub(crate) use model_picker::ModelCatalogUpdate;
 use panels::pop_superseded_attempt_row;
@@ -368,6 +369,12 @@ pub(crate) struct SessionUi {
     /// Monotonic epoch of the newest chat-view fetch; an older response
     /// (a rebind raced the fetch) never lands in the new transcript.
     chat_view_epoch: u64,
+    /// Where `/memory` tree fetches deliver their levels (the run loop
+    /// folds them into the open tree).
+    memory_tree_updates: mpsc::UnboundedSender<MemoryTreeUpdate>,
+    /// Monotonic epoch of the open `/memory` tree; a level fetched for a
+    /// tree since closed (or reopened) never lands.
+    memory_tree_epoch: u64,
     /// Where a backgrounded `@name message` delivery reports its outcome
     /// (the run loop folds a failure into an error row).
     agent_message_notes: mpsc::UnboundedSender<AgentMessageOutcome>,

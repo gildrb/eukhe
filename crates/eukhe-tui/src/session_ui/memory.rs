@@ -1,97 +1,122 @@
-//! The chat memory in the interactive client: `/memory` prints the memory's
-//! status and the view the agent sees (or one zoom) as inline transcript
-//! rows, every live `memory_update` lands as one row, and both keep the
-//! status line's `mem` gauge current. All of it is display only.
+//! The chat memory in the interactive client: `/memory` opens the memory
+//! tree (dated, labelled, expandable lines fetched level by level in the
+//! background), every live `memory_update` lands as one transcript row,
+//! and both keep the status line's `mem` gauge current. All of it is
+//! display only.
 
-use eukhe_types::daemon::{MemoryReply, MemoryUpdate, MemoryZoom, MEMORY_CAPABILITY};
+use eukhe_types::daemon::{MemoryTreeReply, MemoryUpdate, MemoryZoom, MEMORY_TREE_CAPABILITY};
 
-use super::{AgentView, ChatEntry, DaemonCommand, Duration, Map, SessionUi, UI_REQUEST_TIMEOUT_MS};
-use crate::memory_block::{memory_update_view_bytes, MemoryViewRow};
+use super::chat_view::fetch;
+use super::{key_event_to_id, AgentView, DaemonCommand, KeyEvent, Map, Result, SessionUi};
+use crate::memory_block::memory_update_view_bytes;
+use crate::memory_tree::{MemoryTreeAction, MemoryTreeFetch, MemoryTreeView};
 
-const MEMORY_USAGE: &str = "Usage: /memory [zoom <id> <n>]";
-
-/// What `/memory` asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MemoryRequest {
-    /// The status and the whole view.
-    View,
-    /// `zoom(id, n)`: the messages under one view line, a level down.
-    Zoom(MemoryZoom),
-}
-
-/// `/memory`'s arguments: none, or `zoom <id> <n>` (`n` positive); `None`
-/// for anything else.
-fn parse_memory_args(args: &str) -> Option<MemoryRequest> {
-    let words: Vec<&str> = args.split_whitespace().collect();
-    match words.as_slice() {
-        [] => Some(MemoryRequest::View),
-        ["zoom", id, count] => {
-            let id = id.parse().ok()?;
-            let count = count.parse().ok().filter(|count: &u64| *count > 0)?;
-            Some(MemoryRequest::Zoom(MemoryZoom { id, count }))
-        }
-        _ => None,
-    }
+/// One landed `get_memory_tree` level for the tree opened under `epoch`.
+pub(crate) struct MemoryTreeUpdate {
+    pub epoch: u64,
+    pub fetch: MemoryTreeFetch,
 }
 
 impl SessionUi {
-    /// `/memory [zoom <id> <n>]`: ask the daemon for the chat memory and
-    /// print the answer inline. Bad arguments keep the text in the editor
-    /// with the usage; a daemon without the `memory` lane says so.
-    pub(super) async fn handle_memory_command(
-        &mut self,
-        args: &str,
-        text: &str,
-        view: &mut AgentView,
-    ) {
-        let Some(request) = parse_memory_args(args) else {
+    /// `/memory`: open the memory tree at once and fetch its top level
+    /// (the view's lines) in the background. Arguments keep the text in
+    /// the editor with the usage; a daemon without the `memory_tree` lane
+    /// says so.
+    pub(super) fn handle_memory_command(&mut self, args: &str, text: &str, view: &mut AgentView) {
+        if !args.trim().is_empty() {
             view.editor.set_text(text);
-            self.error_row(MEMORY_USAGE, view);
+            self.error_row("Usage: /memory", view);
             return;
-        };
-        if !self.client.supports_server_capability(MEMORY_CAPABILITY) {
+        }
+        if !self
+            .client
+            .supports_server_capability(MEMORY_TREE_CAPABILITY)
+        {
             self.error_row(
-                "this daemon does not serve the chat memory; restart it to update",
+                "this daemon does not serve the memory tree; restart it to update",
                 view,
             );
             return;
         }
-        let zoom = match request {
-            MemoryRequest::View => None,
-            MemoryRequest::Zoom(zoom) => Some(zoom),
+        self.memory_tree_epoch += 1;
+        view.memory_tree = Some(MemoryTreeView::new());
+        self.spawn_memory_tree_fetch(/*node*/ None);
+        self.dirty = true;
+    }
+
+    /// Fetch one level of the open tree (`None`: the view's lines) off the
+    /// key path; the run loop folds the answer in.
+    fn spawn_memory_tree_fetch(&self, node: Option<MemoryZoom>) {
+        let epoch = self.memory_tree_epoch;
+        let updates = self.memory_tree_updates.clone();
+        let client = self.client.clone();
+        let request = DaemonCommand::GetMemoryTree {
+            id: None,
+            active_session_id: self.active_session_id.clone(),
+            node,
+            rest: Map::default(),
         };
-        let reply = self
-            .bounded_request(
-                Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
-                DaemonCommand::GetMemory {
-                    id: None,
-                    active_session_id: self.active_session_id.clone(),
-                    zoom,
-                    rest: Map::default(),
-                },
-            )
-            .await
-            .and_then(|data| {
-                serde_json::from_value::<MemoryReply>(data)
-                    .map_err(|error| anyhow::anyhow!("malformed get_memory reply: {error}"))
+        tokio::spawn(async move {
+            let reply = fetch::<MemoryTreeReply>(&client, request, "get_memory_tree")
+                .await
+                .map(|reply| reply.tree);
+            // The run loop owns the receiver; a closed loop has no tree
+            // left to fold the level into.
+            let _ = updates.send(MemoryTreeUpdate {
+                epoch,
+                fetch: MemoryTreeFetch { node, reply },
             });
-        match reply {
-            Ok(MemoryReply { memory: None }) => {
-                self.note("This session keeps no chat memory.", view);
-            }
-            Ok(MemoryReply {
-                memory: Some(snapshot),
-            }) => {
-                self.set_memory_view_bytes(snapshot.status.view_bytes, view);
-                view.push_entry(ChatEntry::MemoryView(Box::new(MemoryViewRow {
-                    zoom,
-                    snapshot,
-                })));
-                self.last_status_index = None;
-                self.dirty = true;
-            }
-            Err(error) => self.error_row(&format!("{error:#}"), view),
+        });
+    }
+
+    /// Fold a landed level into the open tree (a level of a tree since
+    /// closed or reopened is dropped). The gauge stays with the open-time
+    /// status and the live updates: a level's status is a snapshot from
+    /// its request and may trail a newer `memory_update`.
+    pub(crate) fn apply_memory_tree_update(
+        &mut self,
+        update: MemoryTreeUpdate,
+        view: &mut AgentView,
+    ) {
+        if update.epoch != self.memory_tree_epoch {
+            return;
         }
+        if let Some(tree) = view.memory_tree.as_mut() {
+            tree.apply(update.fetch);
+            self.dirty = true;
+        }
+    }
+
+    /// One key press while the tree is open: navigation stays in the
+    /// tree, an opened line fetches its level, the close keys dismiss it.
+    pub(super) fn handle_memory_tree_key(
+        &mut self,
+        key: KeyEvent,
+        view: &mut AgentView,
+    ) -> Result<()> {
+        let Some(id) = key_event_to_id(&key) else {
+            return Ok(());
+        };
+        // The tree consumes Ctrl+C (close, not exit): report the handled
+        // press so the force-quit guard can disarm.
+        if id == "ctrl+c" {
+            self.exit_guard.note_ctrl_c_handled();
+        }
+        let action = view
+            .memory_tree
+            .as_mut()
+            .map(|tree| tree.handle_key(&id, view.editor.keybindings()));
+        match action {
+            Some(MemoryTreeAction::None) | None => {}
+            Some(MemoryTreeAction::Close) => {
+                view.memory_tree = None;
+                // Levels still in flight belong to the closed tree.
+                self.memory_tree_epoch += 1;
+            }
+            Some(MemoryTreeAction::Fetch(node)) => self.spawn_memory_tree_fetch(Some(node)),
+        }
+        self.dirty = true;
+        Ok(())
     }
 
     /// One live `memory_update`: its transcript row (whether or not a turn
@@ -109,40 +134,5 @@ impl SessionUi {
         self.memory_view_bytes = Some(bytes);
         view.chrome.memory_view_bytes = Some(bytes);
         self.dirty = true;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn memory_args_parse_the_view_or_one_zoom() {
-        assert_eq!(
-            ["", "  ", "zoom 40 8", " zoom  0 1 "].map(parse_memory_args),
-            [
-                Some(MemoryRequest::View),
-                Some(MemoryRequest::View),
-                Some(MemoryRequest::Zoom(MemoryZoom { id: 40, count: 8 })),
-                Some(MemoryRequest::Zoom(MemoryZoom { id: 0, count: 1 })),
-            ]
-        );
-    }
-
-    #[test]
-    fn malformed_memory_args_are_refused() {
-        assert_eq!(
-            [
-                "zoom",
-                "zoom 40",
-                "zoom 40 0",
-                "zoom x 8",
-                "zoom 40 8 9",
-                "view",
-                "zoom -1 2"
-            ]
-            .map(parse_memory_args),
-            [None; 7]
-        );
     }
 }

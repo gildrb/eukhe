@@ -112,6 +112,9 @@ pub struct AgentView {
     /// popup panel instead of flooding the transcript): while set, it
     /// owns the editor dock like the `/model` and `/effort` pickers.
     pub info_panel: Option<crate::info_panel::InfoPanel>,
+    /// The `/memory` tree (the chat memory's dated, expandable lines):
+    /// while set, it owns the editor dock like the info panel.
+    pub memory_tree: Option<crate::memory_tree::MemoryTreeView>,
     /// The `terminal.showImages` setting (TS `getShowImages`, default
     /// true): image blocks render their metadata rows when set, their
     /// `[Image: ...]` text placeholders otherwise.
@@ -244,13 +247,15 @@ impl AgentView {
         }
         // The input-less frame owners (the key dispatch's same set): the
         // heartbeats picker, the bash view, the read-only goal and info
-        // panels, the fork selector, the pending confirm, the reload box,
+        // panels, the `/memory` tree, the fork selector, the pending
+        // confirm, the reload box,
         // and the auth panel (its own channel
         // drives it). None of them leaves a paste to the editor behind.
         if self.heartbeats_picker.is_some()
             || self.bash_view.is_some()
             || self.goal_panel.is_some()
             || self.info_panel.is_some()
+            || self.memory_tree.is_some()
             || self.fork_selector.is_some()
             || self.confirm.is_some()
             || self.reload_box.is_some()
@@ -301,6 +306,7 @@ impl AgentView {
             side_pane: None,
             settings_menu: None,
             info_panel: None,
+            memory_tree: None,
             show_images: true,
             show_hardware_cursor: false,
             splash_suppressed: false,

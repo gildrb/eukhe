@@ -317,9 +317,6 @@ impl AgentView {
                 width,
                 !first && !matches!(self.chat[index - 1], ChatEntry::MemoryUpdate(_)),
             ),
-            ChatEntry::MemoryView(row) => {
-                crate::memory_block::render_memory_view(row, &self.theme, width, !first)
-            }
             // Consecutive relayed peer messages stay flush: a burst of
             // mesh traffic reads as one block.
             ChatEntry::Swarm(row) => {
