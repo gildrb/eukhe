@@ -263,7 +263,7 @@ mod tests {
             .await
             .unwrap();
         memory.append(Kind::User, "hello <you>").await.unwrap();
-        memory.append(Kind::Talk, "hi").await.unwrap();
+        memory.append(Kind::Eukhe, "hi").await.unwrap();
         let rendered = memory.settled_render().await.unwrap();
         let live = read_view(dir.path()).await.unwrap();
         assert_eq!(
@@ -273,7 +273,7 @@ mod tests {
                 messages: 2,
                 summaries: 3,
                 view_lines: 2,
-                view_bytes: ("user: hello <you>".len() + "talk: hi".len()) as u64,
+                view_bytes: ("user: hello <you>".len() + "eukhe: hi".len()) as u64,
                 unsummarized: 0,
                 live: true,
             }
@@ -305,7 +305,7 @@ mod tests {
             "<h2>Level 0 (1 messages per line)</h2>",
             "<h2>Level 1 (2 messages per line)</h2>",
             "<td class=m>0+2</td>",
-            "<pre>user: hello &lt;you&gt;\ntalk: hi</pre>",
+            "<pre>user: hello &lt;you&gt;\neukhe: hi</pre>",
         ] {
             assert!(html.contains(expected), "{expected} in {html}");
         }

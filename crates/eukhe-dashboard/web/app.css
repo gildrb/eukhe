@@ -298,7 +298,7 @@ details.tool pre {
 .node-kinds { display: flex; flex-wrap: wrap; gap: 4px; }
 .kind { font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--raised); color: var(--dim); }
 .kind[data-kind="user"] { color: #8fb8ff; }
-.kind[data-kind="talk"], .kind[data-kind="unii"] { color: var(--accent); }
+.kind[data-kind="eukhe"], .kind[data-kind="talk"] { color: var(--accent); }
 .kind[data-kind="tool"] { color: #d6a8ff; }
 .kind[data-kind="echo"] { color: #c8b98a; }
 .kind[data-kind="work"] { color: var(--warn); }

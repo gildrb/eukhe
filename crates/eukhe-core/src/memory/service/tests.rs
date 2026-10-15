@@ -410,12 +410,12 @@ async fn short_messages_are_their_own_lines() {
     let memory = Memory::open(dir.path(), summarizer.clone()).await.unwrap();
     assert!(memory.owns().await);
     assert_eq!(memory.append(Kind::User, "hello").await.unwrap(), 0);
-    assert_eq!(memory.append(Kind::Talk, "hi\nthere").await.unwrap(), 1);
+    assert_eq!(memory.append(Kind::Eukhe, "hi\nthere").await.unwrap(), 1);
     assert_eq!(
         memory.settled_render().await.unwrap(),
         RenderedView {
             messages: 2,
-            text: "<chat>\n0+1|user: hello\n1+1|talk: hi there\n</chat>".to_string(),
+            text: "<chat>\n0+1|user: hello\n1+1|eukhe: hi there\n</chat>".to_string(),
         }
     );
     assert_eq!(
@@ -425,8 +425,8 @@ async fn short_messages_are_their_own_lines() {
             memory.zoom(0, 4).await.unwrap().text,
         ],
         [
-            "1+0|talk: hi\nthere",
-            "0+1|user: hello\n1+1|talk: hi there",
+            "1+0|eukhe: hi\nthere",
+            "0+1|user: hello\n1+1|eukhe: hi there",
             "No line 0+4.",
         ]
     );
@@ -436,7 +436,7 @@ async fn short_messages_are_their_own_lines() {
             messages: 2,
             nodes: 3,
             view_lines: 2,
-            view_bytes: ("user: hello".len() + "talk: hi\nthere".len()) as u64,
+            view_bytes: ("user: hello".len() + "eukhe: hi\nthere".len()) as u64,
             unsummarized: 0,
             running: 0,
             last_error: None,
@@ -612,7 +612,7 @@ async fn subscribers_see_the_lines_each_step_builds() {
     let mut local = owner.subscribe().await.unwrap();
     let mut remote = client.subscribe().await.unwrap();
     owner.append(Kind::User, "hello").await.unwrap();
-    client.append(Kind::Talk, "hi").await.unwrap();
+    client.append(Kind::Eukhe, "hi").await.unwrap();
     let line = |id, count, text: &str| MemoryLine {
         id,
         count,
@@ -624,8 +624,11 @@ async fn subscribers_see_the_lines_each_step_builds() {
             view_bytes: 11,
         },
         MemoryUpdate::Summarized {
-            lines: vec![line(1, 1, "talk: hi"), line(0, 2, "user: hello\ntalk: hi")],
-            view_bytes: 19,
+            lines: vec![
+                line(1, 1, "eukhe: hi"),
+                line(0, 2, "user: hello\neukhe: hi"),
+            ],
+            view_bytes: 20,
         },
     ];
     let mut seen = Vec::new();
@@ -722,7 +725,7 @@ async fn a_keyed_append_is_written_once_across_owner_restarts() {
             .await
             .unwrap(),
         memory
-            .append_keyed(Kind::Talk, "b", Vec::new(), key("s", 1))
+            .append_keyed(Kind::Eukhe, "b", Vec::new(), key("s", 1))
             .await
             .unwrap(),
         memory
@@ -743,7 +746,7 @@ async fn a_keyed_append_is_written_once_across_owner_restarts() {
             .await
             .unwrap(),
         memory
-            .append_keyed(Kind::Talk, "b", Vec::new(), key("s", 1))
+            .append_keyed(Kind::Eukhe, "b", Vec::new(), key("s", 1))
             .await
             .unwrap(),
         memory

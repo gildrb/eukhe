@@ -494,7 +494,7 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
                 (Kind::User, "hello".to_string()),
                 (Kind::Tool, r#"zoom {"id":0,"n":1}"#.to_string()),
                 (Kind::Echo, zoomed),
-                (Kind::Talk, "done".to_string()),
+                (Kind::Eukhe, "done".to_string()),
             ],
             false,
         )
@@ -658,7 +658,7 @@ async fn the_pinned_view_survives_a_reopen_mid_run() {
             Kind::Tool,
             Kind::User,
             Kind::Echo,
-            Kind::Talk
+            Kind::Eukhe
         ]
     );
     session.close(&setup).await;
@@ -1169,9 +1169,9 @@ fn thoughts_are_never_logged_and_tool_output_is_clipped() {
         ],
         [
             vec![
-                logged(Kind::Talk, "on it"),
+                logged(Kind::Eukhe, "on it"),
                 logged(Kind::Tool, r#"date {"id":0}"#),
-                logged(Kind::Talk, "done"),
+                logged(Kind::Eukhe, "done"),
             ],
             vec![logged(Kind::Echo, &crate::memory::cap_text(&output))],
         ]
@@ -1354,10 +1354,10 @@ async fn zoom_by_name_gives_an_agents_whole_chat() {
         (
             vec![
                 format!(
-                    "user: find the bug\ntool: date {{\"id\":0}}\necho: {date}\ntalk: found it"
+                    "user: find the bug\ntool: date {{\"id\":0}}\necho: {date}\neukhe: found it"
                 ),
                 format!(
-                    "user: find the bug\ntool: date {{\"id\":0}}\necho: {date}\ntalk: found it"
+                    "user: find the bug\ntool: date {{\"id\":0}}\necho: {date}\neukhe: found it"
                 ),
                 "No agent child:nobody.".to_string(),
             ],
@@ -1409,7 +1409,7 @@ async fn a_message_sent_during_a_call_joins_it_between_tool_calls() {
                 (Kind::Tool, "hold {}".to_string()),
                 (Kind::Echo, "held".to_string()),
                 (Kind::User, "also this".to_string()),
-                (Kind::Talk, "done".to_string()),
+                (Kind::Eukhe, "done".to_string()),
             ],
         )
     );

@@ -116,9 +116,10 @@ pub struct AppendKey {
 pub enum Kind {
     /// The user's words.
     User,
-    /// The agent's replies (the spec's `unii`; eukhe's logs have always
-    /// named them `talk`).
-    Talk,
+    /// The agent's replies (the gist's `unii`, renamed to the agent).
+    /// Logs written before the rename call them `talk`.
+    #[serde(alias = "talk")]
+    Eukhe,
     /// The agent's tool calls, as text: name and JSON input.
     Tool,
     /// Tool results.
@@ -135,7 +136,7 @@ impl Kind {
     pub fn as_str(self) -> &'static str {
         match self {
             Kind::User => "user",
-            Kind::Talk => "talk",
+            Kind::Eukhe => "eukhe",
             Kind::Tool => "tool",
             Kind::Echo => "echo",
             Kind::Work => "work",
@@ -274,6 +275,17 @@ mod tests {
                 vec![first, "é".repeat(CAP), "é".repeat(5)],
                 vec!["short".to_string()]
             )
+        );
+    }
+
+    /// Logs written before the agent-reply kind took the agent's name say
+    /// `talk`: they keep loading, as `eukhe`, and new lines say `eukhe`.
+    #[test]
+    fn old_talk_lines_read_as_eukhe() {
+        let old: Kind = serde_json::from_str("\"talk\"").unwrap();
+        assert_eq!(
+            (old, serde_json::to_string(&old).unwrap()),
+            (Kind::Eukhe, "\"eukhe\"".to_string())
         );
     }
 }

@@ -155,7 +155,7 @@ the reason).
 | 1 | `main/YYYY-MM-DD.jsonl` `{i, kind, text, size, date}`, `tree/YYYY-MM-DD.jsonl` `{l, i, text, size}`, `view.json` `[l, i]` pairs. | `memory/store.rs` `Store`, `MessageRecord`, `NodeRecord`; `memory/saved.rs` `save_view`, `load_view` | `store::tests::appends_go_to_their_day_file_and_read_back_after_a_reload`, `saved::tests::a_saved_view_loads_back_unchanged` | matched (see D1, D2) |
 | 2 | `i` is the permanent id. Files split by day. | `store.rs` `Store::open`, `Appender::append` | `store::tests::a_gap_in_message_ids_is_an_error` | matched |
 | 3 | Kinds `user`, `tool`, `echo`, `work`. | `memory/mod.rs` `Kind`; `durable/optchat/lines.rs` | `optchat::tests::input_entries_are_logged_by_their_origin` | matched |
-| 4 | Kind `unii`: the agent's replies. | `Kind::Talk` (`talk`) | — | deliberate (D3) |
+| 4 | Kind `unii`: the agent's replies. | `Kind::Eukhe` (`eukhe`; old logs' `talk` still reads) | `memory::tests::old_talk_lines_read_as_eukhe` | renamed (D3) |
 | 5 | Kind `note`: memories from before the chat. | `Kind::Note`; `memory/import.rs` `import_sessions` | `import::tests::sessions_import_oldest_first_without_repeated_pastes` | fixed |
 | 6 | Only append. Flush each write. Never edit or delete a line. | `store.rs` `Appender::append` (one write, `fsync`) | `store::tests::a_torn_last_line_is_skipped_and_terminated` | matched |
 | 7 | One process owns a chat. It holds a lock. | `memory/service/client.rs` `claim` (`chat/lock` socket) | `service::tests::a_second_handle_is_a_client_and_takes_over`, `a_stale_socket_is_taken_over` | matched |
@@ -292,9 +292,11 @@ the reason).
 - **D2. Extra fields.** A message line can carry `key` (an idempotent
   append across crashes). `tree/` also holds the merge lines (D1). The
   gist's fields are all there, unchanged.
-- **D3. `talk`, not `unii`.** The user's decision: the agent's replies keep
-  eukhe's name `talk`, which the user's logs and tree lines already hold.
-  The prompt's kind list says `talk`.
+- **D3. `eukhe`, not `unii`.** The gist says to rename Unii to the agent's
+  name, so the agent's replies are kind `eukhe`, and the prompt's kind list
+  says `eukhe`. Lines logged before the rename say `talk`; they read as
+  `eukhe`. Old tree lines keep their `talk:` text, since nodes are never
+  rebuilt.
 - **D4. Static layers.** eukhe's own static tool notes sit between the
   memory prompt and the user's instructions. They do not change, so the
   cache prefix holds. The working directory is part of a session's set-up

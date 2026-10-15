@@ -28,7 +28,7 @@ Eukhe's memory: the whole chat between Eukhe and the user, oldest first, inside
 
 Each message has a kind:
 - user: the user's words
-- talk: Eukhe's replies
+- eukhe: Eukhe's replies
 - tool: Eukhe's tool calls
 - echo: tool results
 - work: an agent's report, starting "[Name]"
@@ -196,7 +196,7 @@ mod tests {
             .unwrap();
         let end = computers + spec[computers..].find("\n\n").unwrap() + 2;
         let expected = format!("{}{}", &spec[..computers], &spec[end..])
-            .replace("- unii: Unii's replies", "- talk: Unii's replies")
+            .replace("- unii: Unii's replies", "- eukhe: Unii's replies")
             .replace("Unii", super::AGENT_NAME);
         assert_eq!(super::memory_system_layer(), expected);
     }

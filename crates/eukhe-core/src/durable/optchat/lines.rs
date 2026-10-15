@@ -202,7 +202,7 @@ fn assistant_lines(message: &Message) -> Vec<WholeLine> {
             }
             AssistantContentBlock::ToolCall(call) => {
                 if !talk.trim().is_empty() {
-                    entries.push((Kind::Talk, std::mem::take(&mut talk), Vec::new()));
+                    entries.push((Kind::Eukhe, std::mem::take(&mut talk), Vec::new()));
                 }
                 talk.clear();
                 let arguments = serde_json::Value::Object(call.arguments.clone());
@@ -212,7 +212,7 @@ fn assistant_lines(message: &Message) -> Vec<WholeLine> {
         }
     }
     if !talk.trim().is_empty() {
-        entries.push((Kind::Talk, talk, Vec::new()));
+        entries.push((Kind::Eukhe, talk, Vec::new()));
     }
     entries
 }

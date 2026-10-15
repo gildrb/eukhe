@@ -133,7 +133,7 @@ mod tests {
         memory
             .import(vec![
                 item(Kind::User, "hi", "2026-10-01T09:00:00.000+02:00"),
-                item(Kind::Talk, "hello", "2026-10-01T09:00:05.000+02:00"),
+                item(Kind::Eukhe, "hello", "2026-10-01T09:00:05.000+02:00"),
                 item(Kind::User, "list files", "2026-10-02T10:00:00.000+02:00"),
             ])
             .await
@@ -154,7 +154,7 @@ mod tests {
             MemoryTreeLevel::Lines {
                 nodes: vec![
                     node(0, "user: hi", "user", "2026-10-01T09:00:00.000+02:00"),
-                    node(1, "talk: hello", "talk", "2026-10-01T09:00:05.000+02:00"),
+                    node(1, "eukhe: hello", "eukhe", "2026-10-01T09:00:05.000+02:00"),
                     node(
                         2,
                         "user: list files",
@@ -172,7 +172,7 @@ mod tests {
             MemoryTreeLevel::Lines {
                 nodes: vec![
                     node(0, "user: hi", "user", "2026-10-01T09:00:00.000+02:00"),
-                    node(1, "talk: hello", "talk", "2026-10-01T09:00:05.000+02:00"),
+                    node(1, "eukhe: hello", "eukhe", "2026-10-01T09:00:05.000+02:00"),
                 ]
             }
         );
@@ -219,7 +219,7 @@ mod tests {
             (Kind::Tool, "t1"),
             (Kind::Echo, "e1"),
             (Kind::Tool, "t2"),
-            (Kind::Talk, "b"),
+            (Kind::Eukhe, "b"),
             (Kind::User, "c"),
             (Kind::User, "d"),
             (Kind::Work, "[W] done"),
@@ -259,8 +259,8 @@ mod tests {
                         count: 4,
                         first_date: "2026-10-05T09:00:00.000+02:00".to_string(),
                         last_date: "2026-10-08T09:00:00.000+02:00".to_string(),
-                        kinds: kinds(&[("user", 2), ("talk", 1), ("work", 1)]),
-                        summary: Some("talk: b\nuser: c\nuser: d\nwork: [W] done".to_string()),
+                        kinds: kinds(&[("user", 2), ("eukhe", 1), ("work", 1)]),
+                        summary: Some("eukhe: b\nuser: c\nuser: d\nwork: [W] done".to_string()),
                     },
                 ]
             }

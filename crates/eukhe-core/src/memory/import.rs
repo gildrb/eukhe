@@ -2,7 +2,7 @@
 //! messages and the agent's final replies, without repeated pastes and
 //! tool noise), each logged as a `note` message, "memories imported from
 //! before the chat" (spec §1), that names its author as `user: ` or
-//! `talk: `. The compactor then builds the tree over them like any other
+//! `eukhe: `. The compactor then builds the tree over them like any other
 //! messages.
 
 use std::collections::HashSet;
@@ -196,7 +196,7 @@ fn parse_session(path: &Path) -> anyhow::Result<Option<Session>> {
             }
             Some("assistant") if !text.trim().is_empty() => {
                 reply = Some(ImportItem {
-                    kind: Kind::Talk,
+                    kind: Kind::Eukhe,
                     text,
                     date,
                 });
@@ -292,7 +292,7 @@ mod tests {
             .collect();
         assert_eq!(
             summary,
-            vec![(Kind::User, "fix the bug"), (Kind::Talk, "fixed in a.rs")]
+            vec![(Kind::User, "fix the bug"), (Kind::Eukhe, "fixed in a.rs")]
         );
     }
 
@@ -364,11 +364,11 @@ mod tests {
                 vec![
                     "0+0|user: already here".to_string(),
                     "1+0|note: user: fix the bug".to_string(),
-                    "2+0|note: talk: fixed in a.rs".to_string(),
+                    "2+0|note: eukhe: fixed in a.rs".to_string(),
                     format!("3+0|note: user: {paste}"),
-                    "4+0|note: talk: ok".to_string(),
+                    "4+0|note: eukhe: ok".to_string(),
                     "5+0|note: user: thanks".to_string(),
-                    "6+0|note: talk: welcome".to_string(),
+                    "6+0|note: eukhe: welcome".to_string(),
                 ]
             )
         );
