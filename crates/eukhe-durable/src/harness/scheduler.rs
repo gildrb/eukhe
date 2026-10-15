@@ -229,9 +229,12 @@ impl Inner {
     }
 
     /// Fail the Session, which reports it, for a failure in one of the
-    /// scheduler's own commits; ignored once closing.
+    /// scheduler's own commits; ignored once closing. The Session seals
+    /// admission before its close listeners run (and seal this scheduler),
+    /// so a commit it refused in between failed on closing too: the Session
+    /// itself decides.
     fn fail_session(&self, error: SessionError) {
-        if !self.closing() {
+        if !self.closing() && self.session.assert_usable().is_ok() {
             self.session.fail(error);
         }
     }
