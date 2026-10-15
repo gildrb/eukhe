@@ -580,6 +580,46 @@ fn a_faulted_tool_ends_with_its_batch_failure_or_the_bare_fact() {
     assert_eq!(frames[0]["isError"], true);
 }
 
+/// A nested call (a `codemode` script's `read`) is no model call: its
+/// start, update, and end go out as no frames, and its task's failure is
+/// not its parent's.
+#[test]
+fn nested_calls_are_part_of_their_parent_call() {
+    let nested = |kind: &str| {
+        event(json!({
+            "type": kind, "toolCallId": "c1/1", "toolName": "read", "taskId": 12,
+            "parentToolCallId": "c1", "parentTaskId": 9, "args": { "path": "a.txt" },
+            "output": { "set": "alpha" },
+        }))
+    };
+    let mut translator = translator(CoalesceMode::Immediate);
+    start_tool(&mut translator);
+    for kind in [
+        "tool_execution_start",
+        "tool_execution_update",
+        "tool_execution_end",
+    ] {
+        assert_eq!(
+            translator.translate_wire(&nested(kind)),
+            Vec::<Value>::new()
+        );
+    }
+    assert_eq!(translator.mirror().tools.len(), 1);
+    let frames = translator.translate_batch_wire(&[
+        event(json!({ "type": "task_failed", "taskId": 12, "kind": "pi.tool", "message": "nested" })),
+        event(json!({ "type": "tool_execution_end", "toolCallId": "c1", "toolName": "bash", "taskId": 9 })),
+        event(json!({ "type": "task_failed", "taskId": 9, "kind": "pi.tool", "message": "crashed" })),
+    ]);
+    assert_eq!(
+        frames,
+        [json!({
+            "type": "tool_execution_end", "toolCallId": "c1", "toolName": "bash",
+            "result": { "content": [{ "type": "text", "text": "crashed" }], "details": null },
+            "isError": true,
+        })]
+    );
+}
+
 #[test]
 fn custom_entries_go_out_as_a_message_pair() {
     let mut translator = translator(CoalesceMode::Immediate);

@@ -107,6 +107,80 @@ fn print_mode_json_streams_ts_shaped_events() {
     assert_eq!(*types.last().unwrap(), "agent_end");
 }
 
+/// A `codemode` script's nested calls are part of the `codemode` call: the
+/// json stream carries one tool start/end pair, the model's call, which
+/// succeeds with the script's result. Its nested `read`s never show as
+/// model calls, let alone failed ones ("Tool execution ended without a
+/// result").
+#[test]
+fn print_mode_json_streams_only_the_model_call_of_a_codemode_script() {
+    let home = isolated_home();
+    std::fs::write(home.path().join("a.txt"), "alpha\n").unwrap();
+    std::fs::write(home.path().join("b.txt"), "beta\n").unwrap();
+    let code = concat!(
+        "const a = await tools.read({ i: \"Reading a\", path: \"a.txt\" });\n",
+        "const b = await tools.read({ i: \"Reading b\", path: \"b.txt\" });\n",
+        "return (a.includes(\"alpha\") ? \"alpha\" : \"?\") + \"+\" + (b.includes(\"beta\") ? \"beta\" : \"?\");",
+    );
+    let script = serde_json::json!({ "responses": [
+        { "content": [{ "type": "toolCall", "name": "codemode", "arguments": { "code": code } }] },
+        "done",
+    ] });
+    let (stdout, stderr, status) = run_in_home(
+        home.path(),
+        &["--mode", "json", "-p", "run the script"],
+        &script,
+    );
+    assert_eq!(status, 0, "stderr: {stderr}");
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let tool_frames: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|event| {
+            event["type"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("tool_execution_"))
+        })
+        .collect();
+    let starts_and_ends: Vec<(&str, &str)> = tool_frames
+        .iter()
+        .filter(|event| event["type"] != "tool_execution_update")
+        .map(|event| {
+            (
+                event["type"].as_str().unwrap(),
+                event["toolName"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        starts_and_ends,
+        [
+            ("tool_execution_start", "codemode"),
+            ("tool_execution_end", "codemode")
+        ],
+        "{tool_frames:#?}"
+    );
+    let call_id = &tool_frames[0]["toolCallId"];
+    assert!(
+        tool_frames
+            .iter()
+            .all(|event| event["toolCallId"] == *call_id),
+        "{tool_frames:#?}"
+    );
+    let end = tool_frames.last().unwrap();
+    assert_eq!(end["isError"], false, "{end:#}");
+    let text = end["result"]["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|block| block["text"].as_str())
+        .collect::<String>();
+    assert!(text.contains("alpha+beta"), "{end:#}");
+}
+
 #[test]
 fn print_mode_reports_provider_errors_as_exit_one() {
     // No responses queued: the faux provider returns an error stop reason.

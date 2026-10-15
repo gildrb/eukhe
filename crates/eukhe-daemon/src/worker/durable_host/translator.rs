@@ -28,8 +28,8 @@ use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::types::{AgentState, CompactionReason, ConversationRetryPolicy};
 use eukhe_durable::harness::usage::UsageState;
 use eukhe_durable::harness::{
-    AgentEvent, MessageChange, PathSegment, QueuedItem, SnapshotEvent, ToolOutputUpdate,
-    ToolSlotStatus, COMPACTION_TASK, GENERATION_TASK, TOOL_TASK,
+    AgentEvent, MessageChange, PathSegment, QueuedItem, SnapshotEvent, ToolEventCall,
+    ToolOutputUpdate, ToolSlotStatus, COMPACTION_TASK, GENERATION_TASK, TOOL_TASK,
 };
 use eukhe_durable::types::{EntryId, EntryRecord, SubmissionId, TaskId};
 use eukhe_types::ai::{TextContent, UserContent, UserContentBlock};
@@ -451,6 +451,13 @@ impl EventTranslator {
                 }
                 self.mirror.entries.push(entry.clone());
             }
+            // A nested call (a `codemode` script's `read`, ...) is part of the
+            // call that made it, which reports it in its own output and
+            // result: the wire's tool frames are the model's calls only.
+            AgentEvent::ToolExecutionStart { call, .. }
+            | AgentEvent::ToolExecutionUpdate { call, .. }
+            | AgentEvent::ToolExecutionEnd { call, .. }
+                if call.parent_tool_call_id.is_some() => {}
             AgentEvent::ToolExecutionStart { call, args } => {
                 self.tool_start(&call.tool_call_id, &call.tool_name, args, &mut out);
             }
@@ -467,12 +474,7 @@ impl EventTranslator {
                 &mut out,
             ),
             AgentEvent::ToolExecutionEnd { call, entry, .. } => {
-                self.tool_end(
-                    &call.tool_call_id,
-                    &call.tool_name,
-                    entry.as_ref(),
-                    &mut out,
-                );
+                self.tool_end(call, entry.as_ref(), &mut out);
             }
             AgentEvent::InboxUpdate { items } => self.mirror.inbox.clone_from(items),
             AgentEvent::AutoRetryStart {
@@ -968,12 +970,12 @@ impl EventTranslator {
 
     fn tool_end(
         &mut self,
-        call_id: &str,
-        name: &str,
+        call: &ToolEventCall,
         entry: Option<&EntryRecord>,
         out: &mut Vec<SessionEvent>,
     ) {
         self.flush_into(out);
+        let call_id = call.tool_call_id.as_str();
         self.mirror.tools.retain(|tool| tool.call_id != call_id);
         let result = entry
             .and_then(|entry| entry.model.as_deref())
@@ -993,12 +995,18 @@ impl EventTranslator {
                 result.is_error,
             )
         } else {
-            // A faulted or orphaned tool: its failure (commit order), else the
-            // bare fact.
+            // A faulted or orphaned tool: its tool task's failure (commit
+            // order; a nested call's task failure is never its parent's),
+            // else the bare fact.
             let message = self
                 .failures
                 .iter()
-                .position(|failure| failure.kind == TOOL_TASK.definition().name())
+                .position(|failure| {
+                    failure.kind == TOOL_TASK.definition().name()
+                        && call
+                            .task_id
+                            .is_none_or(|task_id| task_id == failure.task_id)
+                })
                 .map_or_else(
                     || NO_RESULT_TEXT.to_owned(),
                     |index| self.failures.remove(index).message,
@@ -1013,7 +1021,7 @@ impl EventTranslator {
         };
         out.push(SessionEvent::ToolExecutionEnd {
             tool_call_id: call_id.to_owned(),
-            tool_name: name.to_owned(),
+            tool_name: call.tool_name.clone(),
             result,
             is_error,
         });
