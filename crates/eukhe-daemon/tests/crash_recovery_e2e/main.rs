@@ -13,8 +13,9 @@
 //!
 //! States: the model streaming (the reply held mid-stream), a slow tool
 //! call (an `ipython` cell waiting on a release file), a threshold
-//! compaction (the summarizer held), and the chat-memory compactor (a tree
-//! line's summarizer held). The provider is a scripted OpenAI-compatible
+//! compaction (the summarizer held), the chat-memory compactor (a tree
+//! line's summarizer held), and a `codemode` script between its nested
+//! calls (`codemode.rs`). The provider is a scripted OpenAI-compatible
 //! mock in the test process, so the replacement worker reaches the same
 //! script.
 // Pedantic-gate dispositions (fleet-uniform ruling).
@@ -42,6 +43,7 @@ mod mock_llm;
 mod wire_client;
 
 mod cases;
+mod codemode;
 
 use isolated_supervisor::Supervisor;
 use mock_llm::{Logged, MockLlm, Reply, Request, RequestKind, Served};
@@ -307,6 +309,12 @@ fn script(request: &Request, release: &Path) -> Reply {
                 // id names.
                 let call = request.tool_results.last().expect("a tool result");
                 Reply::text(answer_for(call.strip_prefix("call-").unwrap_or(call)))
+            } else if request.prompt.contains(codemode::TAG) {
+                Reply::tool_call(
+                    format!("call-{prompt}"),
+                    "codemode",
+                    json!({ "code": codemode::SCRIPT }),
+                )
             } else if request.prompt.contains(SLOW_TOOL) {
                 let runs = release.with_file_name("tool-runs");
                 let code = format!(
