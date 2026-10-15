@@ -168,3 +168,62 @@ fn a_sigterm_exits_the_supervisor_through_the_graceful_drain() {
         "the drained supervisor cleans its socket file up"
     );
 }
+
+/// A SIGTERM that lands as soon as the socket first accepts a connect -
+/// while the boot still awaits between the bind and the accept loop - is
+/// the graceful drain too, never the default signal death. The handlers
+/// used to be installed only after the post-bind boot steps (the identity
+/// capture, the chat-memory claim), so a stop sent right after a
+/// successful readiness connect killed the supervisor outright and
+/// stranded its socket file. The bind-capture gap seam parks the boot in
+/// that window, so the signal provably lands there; the drain begun
+/// before the accept loop makes the loop exit on entry, and the exit
+/// cleanup removes the supervisor's own socket file.
+#[test]
+fn a_sigterm_landing_before_the_accept_loop_still_drains() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("daemon.sock");
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    let child = daemon_command()
+        .arg("supervisor")
+        .arg("--socket")
+        .arg(&socket)
+        .arg("--agent-dir")
+        .arg(&agent_dir)
+        // Wide enough that the SIGTERM below provably lands inside the
+        // window (the seam's upper bound).
+        .env(eukhe_daemon::socket::BIND_CAPTURE_GAP_ENV, "2000")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn eukhe-daemon supervisor");
+    let mut daemon = Daemon {
+        child,
+        socket: socket.clone(),
+    };
+    // The listen backlog accepts the connect while the boot is parked.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while UnixStream::connect(&socket).is_err() {
+        assert!(
+            Instant::now() < deadline,
+            "the supervisor socket never accepted a connect"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = Command::new("kill")
+        .arg("-TERM")
+        .arg(daemon.child.id().to_string())
+        .status()
+        .expect("SIGTERM the supervisor");
+    let status = wait_child_exit(&mut daemon.child, Duration::from_secs(15))
+        .expect("the drained supervisor must exit");
+    assert!(
+        status.success(),
+        "the early drain must end in a clean exit 0, not a signal death: {status}"
+    );
+    assert!(
+        !socket.exists(),
+        "the drained supervisor cleans its socket file up"
+    );
+}

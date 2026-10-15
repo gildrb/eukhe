@@ -345,6 +345,22 @@ impl Supervisor {
         // inherit the raised limit.
         let open_file_limit = eukhe_core::platform::process::raise_open_file_limit();
         socket::prepare_socket_path(&self.options.socket_path).await?;
+        // The OS-signal drain (SIGTERM/SIGINT; the loop lives in
+        // `crate::signal_drain`): `install` registers the handlers
+        // synchronously here, BEFORE the bind below. The socket accepts
+        // connects from its `listen` on, and everything between the bind
+        // and the accept loop awaits (the bind-capture gap, the chat-memory
+        // claim, the boot reap): a client that reached the socket - a
+        // readiness probe, a service manager's stop right after it - must
+        // find the drain, never the default disposition, whose signal
+        // death skips the exit cleanup and strands the socket file. The
+        // stale-socket prepare above keeps the default disposition: no
+        // client can reach this process yet, and a supervisor parked there
+        // still dies to one signal. From here on, the first signal drains
+        // (new work refused, running turns settled; a drain begun before
+        // the accept loop makes it exit on entry) and a later signal
+        // force-exits.
+        tokio::spawn(crate::signal_drain::install(Arc::clone(&self)));
         let listener = bind_transport(&self.options.socket_path)
             .await
             .with_context(|| {
@@ -397,14 +413,6 @@ impl Supervisor {
                 .log
                 .append(&format!("open file limit raise failed: {error}")),
         }
-
-        // The OS-signal drain (SIGTERM/SIGINT; the loop lives in
-        // `crate::signal_drain`): `install` registers the handlers
-        // synchronously here - before the boot passes below and their
-        // first await - so no signal can land with the default disposition
-        // still active. From here on, the first signal drains (new work
-        // refused, running turns settled) and a later signal force-exits.
-        tokio::spawn(crate::signal_drain::install(Arc::clone(&self)));
 
         // The boot reap (the operator's same-socket predecessor rule): this
         // daemon now owns the socket's lineage, so leftover worker processes

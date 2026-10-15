@@ -219,7 +219,9 @@ pub fn restrict_socket_path(path: &Path) {
 /// close-listener exit cleanup exists to survive. Production leaves the
 /// gap unset, so the bind and the capture stay back-to-back; the
 /// poisoned-capture oracle sets the gap so the replacement provably lands
-/// in the window instead of racing microseconds.
+/// in the window instead of racing microseconds, and the early-signal
+/// oracle sets it so a SIGTERM provably lands after the socket accepts
+/// connects but before the accept loop runs.
 pub const BIND_CAPTURE_GAP_ENV: &str = "EUKHE_DAEMON_BIND_CAPTURE_GAP_MS";
 
 /// Sleep the bounded bind-capture fault-injection gap in debug builds only.

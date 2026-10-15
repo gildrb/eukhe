@@ -14,13 +14,14 @@
 //! app-server/src/main.rs).
 //!
 //! [`install`] registers the handlers synchronously (the run loop calls it
-//! directly after the socket binds, before its next await) and returns the
-//! loop that serves them: a signal cannot land in a spawn-to-first-poll
-//! window with the default disposition still active. A handler that fails
-//! to register is logged and dropped while the other signal keeps
-//! draining; dropping a registered listener would strand its signal
-//! (tokio keeps the replacement disposition installed after the listener
-//! is gone, so a dropped stream swallows every later delivery).
+//! directly before the socket binds) and returns the loop that serves
+//! them: a signal cannot land in a spawn-to-first-poll window, or after a
+//! client could reach the socket, with the default disposition still
+//! active. A handler that fails to register is logged and dropped while
+//! the other signal keeps draining; dropping a registered listener would
+//! strand its signal (tokio keeps the replacement disposition installed
+//! after the listener is gone, so a dropped stream swallows every later
+//! delivery).
 
 use std::sync::Arc;
 use tokio::signal::unix::{signal, Signal, SignalKind};
