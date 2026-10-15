@@ -1,10 +1,11 @@
 //! Rust port of `@earendil-works/pi-durable` 1.0.4, with parts of 1.1 and 1.2
 //! ported (1.2 compaction, scheduler, inbox, input-entry, and document-cache
-//! changes), a durable agent harness.
+//! changes, and the 1.2 `codemode` tool), a durable agent harness.
 //! Conversations, model turns, tool calls, and application state are
 //! committed to storage before anything is shown. If the process dies
 //! mid-turn, reopening the storage picks the work up where it stopped.
 
+pub mod codemode;
 pub mod documents;
 pub mod entries;
 pub mod env;
@@ -12,6 +13,7 @@ pub mod errors;
 pub mod harness;
 pub mod ids;
 pub mod images;
+pub mod search;
 pub mod session;
 pub mod storage;
 pub mod tasks;

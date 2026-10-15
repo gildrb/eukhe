@@ -283,6 +283,42 @@ fn tool_results(entries: &[EntryRecord]) -> Vec<(String, bool, String)> {
         .collect()
 }
 
+/// The coding agent offers `codemode`: a script calls the session's wire
+/// `read` tool as a nested call and gets its text output.
+#[tokio::test]
+async fn a_model_calls_the_session_tools_from_a_codemode_script() {
+    let fixture = fixture();
+    std::fs::write(fixture.cwd.join("notes.txt"), "alpha\nbeta\n").expect("file");
+    fixture.faux.set_responses(vec![
+        tool_call(
+            "codemode",
+            serde_json::json!({
+                "code": "const text = await tools.read({ i: \"Reading notes\", path: \"notes.txt\" });\nreturn [text.includes(\"2:beta\"), ALL_TOOLS.some((tool) => tool.name === \"codemode\")];"
+            }),
+            "call-codemode",
+        ),
+        answer("done"),
+    ]);
+    let mut config = fixture.config(SessionStorage::Memory);
+    config.model = Some(fixture.model().into());
+    let session = open_session(config, cx()).await.expect("open");
+    ask(&session, "read the notes in a script").await;
+    let results = tool_results(&entries(&session).await);
+    assert_eq!(
+        (results[0].0.as_str(), results[0].1),
+        ("codemode", false),
+        "{}",
+        results[0].2
+    );
+    assert_eq!(
+        results[0].2.lines().last(),
+        Some("[true,false]"),
+        "{}",
+        results[0].2
+    );
+    session.close(cx()).await.expect("close");
+}
+
 /// A model's wire `read` then `edit` round-trip through the session's edit
 /// store: the read's header and rows anchor the edit, the misspelled
 /// argument is repaired with a warning, and the file changes on disk.
@@ -433,8 +469,8 @@ async fn a_fork_made_main_in_its_creating_commit_is_main_after_reopen() {
     session.close(cx()).await.expect("close");
 }
 
-/// The system prompt the provider receives equals
-/// `build_system_prompt`'s output for the same inputs.
+/// The system prompt the provider receives is `build_system_prompt`'s
+/// output for the same inputs, followed by the `codemode` section.
 #[tokio::test]
 async fn prompt_sections_join_to_the_old_system_prompt() {
     let fixture = fixture();
@@ -520,7 +556,18 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
     assert!(expected.contains("Appended."));
     assert!(expected.contains("Model guidance."));
     assert!(expected.contains("Subagents and completion notifications are unavailable"));
-    assert_eq!(actual, expected);
+    // The `codemode` section, which the old builder lacks, follows it: the
+    // tools scripts can call.
+    let codemode = actual
+        .strip_prefix(expected.as_str())
+        .unwrap_or_else(|| panic!("the old prompt starts the system prompt:\n{actual}"));
+    assert!(
+        codemode
+            .trim_start()
+            .starts_with("<codemode>\nTools scripts can call (`await tools.<name>(args)`):")
+            && codemode.ends_with("</codemode>"),
+        "{codemode}"
+    );
     session.close(cx()).await.expect("close");
 }
 

@@ -9,7 +9,7 @@ pub mod json;
 pub mod provider;
 pub mod registry;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod usage;
 pub(crate) mod util;
 

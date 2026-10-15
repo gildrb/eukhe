@@ -9,6 +9,7 @@ mod admission_gate;
 pub mod bounded_output;
 pub mod branch_summary;
 pub mod children;
+mod codemode;
 pub mod compaction;
 mod deps;
 mod digest;

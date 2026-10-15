@@ -43,6 +43,23 @@ pub(super) static NESTED_CALLS_DOC: TaskDoc<NestedCalls> = match TaskDoc::define
     Err(_) => panic!("invalid pi.tool.nested definition"),
 };
 
+/// The task of nested call `key` of the tool task `caller`, from the
+/// caller's committed index (TS `api.snapshot(NestedCallDoc, taskId, key)`);
+/// `None` before the call was admitted.
+pub(crate) async fn nested_call_task(
+    read: &dyn crate::types::DocumentReader,
+    caller: TaskId,
+    key: &str,
+    cx: &Context,
+) -> SessionResult<Option<TaskId>> {
+    use crate::types::DocumentReaderExt;
+    let Some(index) = read.snapshot(&NESTED_CALLS_DOC, caller, cx).await? else {
+        return Ok(None);
+    };
+    let index: NestedCalls = eukhe_chord::json::from_json(&JsonValue::Object(index))?;
+    Ok(index.calls.get(key).copied())
+}
+
 /// One nested call's result, exactly as `execute_tool()` returns it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NestedResultState {

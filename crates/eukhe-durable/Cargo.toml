@@ -34,6 +34,14 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 # harness/scheduler: the live task mirror and other scheduler maps keep JS
 # `Map`/`Set` insertion order. Apache-2.0 OR MIT.
 indexmap = "2"
+# codemode/sandbox: the QuickJS VM code mode scripts run in, as upstream's
+# pi-codemode: deterministic (it runs only when the host delivers a result,
+# with no I/O or timers), so a script replays after a restart. Bundles and
+# builds QuickJS-ng with `cc`, like rusqlite's bundled SQLite. MIT.
+rquickjs = "0.14"
+# codemode/output: decode `image()` data to save it (TS `atob`). Already in the
+# graph through eukhe-ai. MIT OR Apache-2.0.
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

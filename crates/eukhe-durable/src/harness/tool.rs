@@ -10,7 +10,7 @@ mod invocation;
 mod nested;
 mod result;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
@@ -29,6 +29,7 @@ pub use self::arguments::{
     ARGUMENT_REPAIRED,
 };
 use self::invocation::run;
+pub(crate) use self::nested::nested_call_task;
 use self::nested::{json_equal, nested_result, summary_of, NestedCalls, NESTED_CALLS_DOC};
 pub use self::nested::{NestedResultState, NESTED_RESULT_DOC};
 pub use self::result::{append_tool_result, harness_error, ToolResultMeta};

@@ -1,7 +1,7 @@
 //! The extension registry of an eukhe session, installed in prompt order:
 //! `eukhe.prompt`, `eukhe.rlm`, `eukhe.digest`, `eukhe.compaction`,
 //! `eukhe.retry_outcome`, `eukhe.optchat`, `eukhe.goals`, `eukhe.children`,
-//! `eukhe.documents`.
+//! `eukhe.documents`, `codemode`.
 
 use std::sync::Arc;
 
@@ -9,7 +9,9 @@ use eukhe_durable::harness::registry::{create_registry, Registry};
 use eukhe_durable::session::SessionResult;
 
 use super::deps::HostDeps;
-use super::{children, compaction, digest, documents, goals, optchat, prompt, retry_outcome, rlm};
+use super::{
+    children, codemode, compaction, digest, documents, goals, optchat, prompt, retry_outcome, rlm,
+};
 
 /// A registry with every eukhe extension of the session installed.
 ///
@@ -29,5 +31,6 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     registry.install(goals::extension(deps))?;
     registry.install(children::extension(deps))?;
     registry.install(documents::extension(deps))?;
+    registry.install(codemode::extension())?;
     Ok(registry)
 }
