@@ -39,15 +39,70 @@ use eukhe::eukhe_command;
 /// The lane of the RPC children: plain children share it; the corpus
 /// children (10 MiB fixtures, the stalled-reader oracle's bounded poll)
 /// take it alone, so sibling children never starve them under a parallel
-/// test run.
+/// test run. Children take it through [`LaneHold`] only.
 static CHILD_LANE: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+thread_local! {
+    /// Whether this test thread holds a [`LaneHold`] right now.
+    static HOLDS_LANE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// One child's hold on [`CHILD_LANE`] (`G`: the shared or the exclusive
+/// guard). A test thread holds one at a time: std's `RwLock` parks a new
+/// reader while a writer waits, so a second shared hold requested behind
+/// a queued corpus child deadlocks the thread on itself (its first hold
+/// keeps that writer waiting forever, and every later child queues
+/// behind the writer). The acquisition refuses the second hold outright,
+/// on every run, instead of hanging only when a corpus child happens to
+/// be queued.
+struct LaneHold<G> {
+    _guard: G,
+}
+
+impl LaneHold<std::sync::RwLockReadGuard<'static, ()>> {
+    fn shared() -> Self {
+        Self::claim_the_thread();
+        LaneHold {
+            _guard: CHILD_LANE
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        }
+    }
+}
+
+impl LaneHold<std::sync::RwLockWriteGuard<'static, ()>> {
+    fn exclusive() -> Self {
+        Self::claim_the_thread();
+        LaneHold {
+            _guard: CHILD_LANE
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        }
+    }
+}
+
+impl<G> LaneHold<G> {
+    fn claim_the_thread() {
+        assert!(
+            !HOLDS_LANE.replace(true),
+            "this test already holds a CHILD_LANE hold: reap its child before \
+             spawning the next (a second hold behind a queued corpus child deadlocks)"
+        );
+    }
+}
+
+impl<G> Drop for LaneHold<G> {
+    fn drop(&mut self) {
+        HOLDS_LANE.set(false);
+    }
+}
 
 /// The child plus the tempdir it runs in: the tempdir must outlive the
 /// child process (its cwd), so it is held on the struct.
 struct RpcChild {
     child: Child,
-    /// `Some` while the pipe is open: the EOF tests take it (the drop
-    /// closes the child's stdin).
+    /// `Some` while the pipe is open: [`RpcChild::close_stdin_and_wait`]
+    /// takes it (the drop closes the child's stdin).
     stdin: Option<std::process::ChildStdin>,
     lines: Receiver<String>,
     next_id: u64,
@@ -60,8 +115,11 @@ struct RpcChild {
     /// read on a live pipe blocks until exit; the sibling ACP harness
     /// reads post-kill).
     drain_stderr_on_drop: bool,
-    /// The shared [`CHILD_LANE`], released after the Drop reaps the child.
-    _lane: std::sync::RwLockReadGuard<'static, ()>,
+    /// The shared [`CHILD_LANE`] hold: `Some` until the child is reaped
+    /// (by [`RpcChild::close_stdin_and_wait`] or the Drop) — the hold goes
+    /// with the process, so a test may spawn its next child while it keeps
+    /// this one's home (the fork test forks the reaped source's file).
+    lane: Option<LaneHold<std::sync::RwLockReadGuard<'static, ()>>>,
 }
 
 impl RpcChild {
@@ -74,9 +132,7 @@ impl RpcChild {
     /// provider entry + key to pass the registry's configured-auth gate,
     /// the same shape the daemon harness seeds).
     fn spawn_seeded(args: &[&str], script: &Value, models: Option<Value>) -> RpcChild {
-        let shared_lane = CHILD_LANE
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let shared_lane = LaneHold::shared();
         let home = tempfile::TempDir::new().unwrap();
         if let Some(models) = models {
             let agent_dir = home.path().join("agent");
@@ -119,7 +175,7 @@ impl RpcChild {
             home,
             spawn_stderr: Some(stderr),
             drain_stderr_on_drop: false,
-            _lane: shared_lane,
+            lane: Some(shared_lane),
         }
     }
 
@@ -209,6 +265,19 @@ impl RpcChild {
     /// sibling ACP harness).
     fn drain_stderr(&mut self) {
         self.drain_stderr_on_drop = true;
+    }
+
+    /// Close stdin (the EOF the mode settles on), reap the child, and
+    /// release its lane hold; the home stays until the drop.
+    fn close_stdin_and_wait(&mut self) -> std::process::ExitStatus {
+        drop(self.stdin.take());
+        let status = self
+            .child
+            .wait()
+            .expect("the rpc child exits when stdin closes");
+        self.spawn_stderr = None;
+        drop(self.lane.take());
+        status
     }
 
     /// The agent dir the child runs with (the harness seeds
@@ -780,16 +849,11 @@ fn rpc_eof_settles_and_exits_zero() {
     assert_eq!(response["success"], true);
     client.wait_event("message_start", TIMEOUT);
     // Close stdin mid-turn: the child settles the turn and exits 0.
-    drop(client.stdin.take());
-    let wait_status = client
-        .child
-        .wait()
-        .expect("the child exits when stdin closes");
+    let wait_status = client.close_stdin_and_wait();
     assert!(
         wait_status.success(),
         "stdin close settles the turn and exits 0 (status {wait_status})"
     );
-    client.spawn_stderr = None;
 }
 
 /// The stats command answers the TS `SessionStats` shape over the live
@@ -829,13 +893,11 @@ fn rpc_mode_never_prints_the_missing_subsystem_stub() {
     // exit 1 immediately with the misleading error on stderr/stdout.
     let response = client.request(&json!({ "type": "get_state" }));
     assert_eq!(response["success"], true);
-    drop(client.stdin.take());
-    let wait_status = client.child.wait().expect("exit");
+    let wait_status = client.close_stdin_and_wait();
     assert!(
         wait_status.success(),
         "the mode serves the protocol: {wait_status}"
     );
-    client.spawn_stderr = None;
 }
 
 /// A fresh persisted session leases its eagerly selected file before
@@ -858,13 +920,11 @@ fn rpc_fresh_sessions_lease_their_files() {
         is_leased(&leased, &session_file),
         "the fresh session's file is runtime-leased while the engine is live (leased: {leased:?})"
     );
-    drop(client.stdin.take());
-    let wait_status = client.child.wait().expect("exit");
+    let wait_status = client.close_stdin_and_wait();
     assert!(
         wait_status.success(),
         "eof settles the leased session: {wait_status}"
     );
-    client.spawn_stderr = None;
 }
 
 /// The `--fork` copy leases its materialized file before the engine
@@ -881,13 +941,13 @@ fn rpc_fork_leases_the_materialized_file() {
         .as_str()
         .expect("the source session reports its file")
         .to_string();
-    drop(source.stdin.take());
-    let wait_status = source.child.wait().expect("the source exits cleanly");
+    // The source is reaped (its lane hold released) before the fork
+    // spawns; its home, the fork's source file, lives until the end.
+    let wait_status = source.close_stdin_and_wait();
     assert!(
         wait_status.success(),
         "the source session settles: {wait_status}"
     );
-    source.spawn_stderr = None;
 
     let mut forked = RpcChild::spawn(
         &["--mode", "rpc", "--fork", &source_file],
@@ -907,13 +967,11 @@ fn rpc_fork_leases_the_materialized_file() {
         is_leased(&leased, &forked_file),
         "the fork's materialized file is runtime-leased (leased: {leased:?})"
     );
-    drop(forked.stdin.take());
-    let wait_status = forked.child.wait().expect("exit");
+    let wait_status = forked.close_stdin_and_wait();
     assert!(
         wait_status.success(),
         "eof settles the forked session: {wait_status}"
     );
-    forked.spawn_stderr = None;
 }
 
 /// A FAILED whole-session replacement never strands the live session's
@@ -1244,7 +1302,7 @@ struct CorpusRpcChild {
     /// the Drop reaps the child before the field drops.
     _home: tempfile::TempDir,
     /// [`CHILD_LANE`] alone, released after the Drop reaps the child.
-    _lane: std::sync::RwLockWriteGuard<'static, ()>,
+    _lane: LaneHold<std::sync::RwLockWriteGuard<'static, ()>>,
 }
 
 impl CorpusRpcChild {
@@ -1258,9 +1316,7 @@ impl CorpusRpcChild {
     /// holds the child's stdout pipe unread (a full pipe blocks the
     /// writer task mid-write) until `begin_reading` starts the drain.
     fn spawn_stalled(fixture: &std::path::Path, script: &Value) -> CorpusRpcChild {
-        let exclusive_lane = CHILD_LANE
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let exclusive_lane = LaneHold::exclusive();
         let home = tempfile::TempDir::new().unwrap();
         let mut child = eukhe_command()
             .args(["--mode", "rpc", "--resume", fixture.to_str().unwrap()])
