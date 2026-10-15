@@ -108,7 +108,12 @@ pub(super) fn summary_prompt(messages: &[Message], instructions: Option<&str>) -
 }
 
 /// Messages as plain text, so the summarizer reads a transcript instead of
-/// continuing it. System messages are omitted.
+/// continuing it. System messages are omitted. Thinking is omitted too:
+/// providers return summaries of the real reasoning, and replayed thinking is
+/// often not part of the live context (a block that does not match its
+/// request is dropped), so including it can make the request larger than the
+/// context it summarizes. Visible text, tool calls, and tool results record
+/// what happened.
 #[must_use]
 pub fn serialize_conversation(messages: &[Message]) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -121,14 +126,11 @@ pub fn serialize_conversation(messages: &[Message]) -> String {
                 }
             }
             Message::Assistant(assistant) => {
-                let mut thinking = Vec::new();
                 let mut text = Vec::new();
                 let mut calls = Vec::new();
                 for content in &assistant.content {
                     match content {
-                        AssistantContentBlock::Thinking(block) => {
-                            thinking.push(block.thinking.as_str());
-                        }
+                        AssistantContentBlock::Thinking(_) => {}
                         AssistantContentBlock::Text(block) => text.push(block.text.as_str()),
                         AssistantContentBlock::ToolCall(call) => {
                             // `Object.entries()` enumerates in JS own-key order.
@@ -145,9 +147,6 @@ pub fn serialize_conversation(messages: &[Message]) -> String {
                             calls.push(format!("{}({arguments})", call.name));
                         }
                     }
-                }
-                if !thinking.is_empty() {
-                    parts.push(format!("[Assistant thinking]: {}", thinking.join("\n")));
                 }
                 if !text.is_empty() {
                     parts.push(format!("[Assistant]: {}", text.join("\n")));

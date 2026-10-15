@@ -21,8 +21,8 @@
 //! * the operator's ctrl+c datapoint: an `abort_compaction` against the
 //!   in-flight threshold run (the loader) settles to the aborted
 //!   `compaction_end` with a consistent session (no compaction entry, the
-//!   parent chain intact), and the next prompt runs against the
-//!   un-compacted context.
+//!   parent chain intact), the interrupted turn fails without sending the
+//!   too-large context, and the next prompt runs.
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -893,9 +893,10 @@ fn mocked_slow_review_never_holds_the_settled_compaction() {
 /// The operator's ctrl+c datapoint: an `abort_compaction` against the
 /// in-flight threshold run (the loader) settles to the aborted
 /// `compaction_end` with a consistent session (no compaction entry, the
-/// parent chain intact), and the next prompt runs against the
-/// un-compacted context — the interruptible/idempotent contract the
-/// post-summary bookkeeping must keep.
+/// parent chain intact); the interrupted turn fails with `Compaction was
+/// aborted` instead of sending the context its compaction judged too large
+/// (pi-durable 1.2), and the next prompt runs — the
+/// interruptible/idempotent contract the post-summary bookkeeping must keep.
 #[test]
 #[ignore = "seeds ~12MB; asserts the interrupted-compaction contract"]
 fn interrupted_threshold_compaction_settles_consistent() {
@@ -957,12 +958,13 @@ fn interrupted_threshold_compaction_settles_consistent() {
     let abort_ack = Instant::now();
 
     // The interrupted run settles fast (the abort never waits out the
-    // held summarizer).
+    // held summarizer) and fails: the too-large context is never sent.
     let crossed = client.read_response("px");
     let settled_at = Instant::now();
     assert_eq!(
-        crossed["success"], true,
-        "crossing prompt failed: {crossed}"
+        (&crossed["success"], &crossed["error"]),
+        (&json!(false), &json!("Compaction was aborted")),
+        "the interrupted prompt fails: {crossed}"
     );
     assert!(
         settled_at - abort_ack < Duration::from_millis(SUMMARIZER_DELAY_MS),
@@ -999,9 +1001,8 @@ fn interrupted_threshold_compaction_settles_consistent() {
     let (has_compaction, _) = session_chain(&session_dir);
     assert!(!has_compaction, "an aborted compaction committed an entry");
 
-    // The next prompt runs against the un-compacted context (the seeded
-    // bulk still rides the TURN request — nothing was lost to the
-    // interrupt).
+    // The next prompt runs (the interrupt lost nothing: the seeded bulk is
+    // still in the session for its own compaction or request).
     prompt_and_wait(
         &mut client,
         "pn",
@@ -1018,11 +1019,10 @@ fn interrupted_threshold_compaction_settles_consistent() {
     let request_text = serde_json::to_string(&last_turn_request).unwrap_or_default();
     // The interrupted run left the session usable: the next prompt's turn
     // served against a consistent context — either the un-compacted bulk
-    // (no further compaction) or the summary of a LEGITIMATE post-abort
-    // compaction at the prompt's own pre-turn boundary (the crossing
-    // turn's usage is still the context estimate anchor, so the threshold
-    // arm may fire again on the newly admitted prompt). Both are the
-    // product's behavior; neither loses work to the interrupt.
+    // or the summary of a LEGITIMATE post-abort compaction at the prompt's
+    // own pre-turn boundary (the crossing turn's usage is still the
+    // context estimate anchor, so the threshold arm fires again on the
+    // newly admitted prompt). Neither loses work to the interrupt.
     let un_compacted =
         (0..FATTENING_TURNS).all(|kept| request_text.contains(&format!("fatten-{kept}-")));
     let legitimately_compacted = request_text.contains(CHECKPOINT_SUMMARY);

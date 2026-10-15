@@ -7,9 +7,9 @@ use eukhe_chord::json::{to_json, JsonValue};
 use futures::FutureExt;
 
 use super::{
-    answer, compact, compaction_tasks, failure, first_user_text, gated, history, kinds, live, open,
-    result, step, submission, submission_id, submit, summary, text, turn, Chat, OpenOptions,
-    BACKGROUND, BLOCKING, MANUAL, OVERFLOW,
+    answer, compact, compaction_tasks, fails_before_the_request, failure, first_user_text, gated,
+    history, kinds, live, open, result, step, submission, submission_id, submit, summary, text,
+    turn, Chat, OpenOptions, BACKGROUND, BLOCKING, MANUAL, OVERFLOW,
 };
 use crate::harness::events::{watch_events, AgentEvent};
 use crate::harness::live::CompactionStatus;
@@ -347,7 +347,8 @@ async fn sends_the_request_once_without_a_second_compaction_when_the_kept_part_i
     chat.harness.close(context()).await.unwrap();
 }
 
-async fn sends_the_request_anyway(prepare: impl FnOnce(&Chat)) {
+#[tokio::test]
+async fn sends_the_request_anyway_when_its_compaction_declines() {
     let chat = open(OpenOptions {
         context_window: Some(1000),
         ..OpenOptions::default()
@@ -355,7 +356,7 @@ async fn sends_the_request_anyway(prepare: impl FnOnce(&Chat)) {
     .await;
     history(&chat).await;
     chat.set_policy(BLOCKING);
-    prepare(&chat);
+    add_hooks(&chat.setup.registry, compaction_task(), declining(), None).unwrap();
     turn(&chat, &text("u4", 200), "a4").await;
     assert!(!kinds(&chat.root)
         .await
@@ -369,20 +370,27 @@ async fn sends_the_request_anyway(prepare: impl FnOnce(&Chat)) {
 }
 
 #[tokio::test]
-async fn sends_the_request_anyway_when_its_compaction_declines() {
-    sends_the_request_anyway(|chat| {
-        add_hooks(&chat.setup.registry, compaction_task(), declining(), None).unwrap();
+async fn fails_the_run_with_model_error_when_its_blocking_compaction_fails() {
+    let chat = open(OpenOptions {
+        context_window: Some(1000),
+        ..OpenOptions::default()
     })
     .await;
+    history(&chat).await;
+    chat.set_policy(BLOCKING);
+    chat.faux.summary(failure("bad request"));
+    let input = submit(&chat, &text("u4", 200)).await;
+    fails_before_the_request(
+        &chat,
+        &input,
+        "Compaction failed: Summarization failed: bad request",
+    )
+    .await;
+    chat.harness.close(context()).await.unwrap();
 }
 
 #[tokio::test]
-async fn sends_the_request_anyway_when_its_compaction_fails() {
-    sends_the_request_anyway(|chat| chat.faux.summary(failure("bad request"))).await;
-}
-
-#[tokio::test]
-async fn sends_the_request_anyway_when_its_compaction_is_aborted_directly() {
+async fn fails_the_run_with_model_error_when_its_blocking_compaction_is_aborted_directly() {
     let chat = open(OpenOptions {
         context_window: Some(1000),
         ..OpenOptions::default()
@@ -393,19 +401,11 @@ async fn sends_the_request_anyway_when_its_compaction_is_aborted_directly() {
     let reached = deferred();
     chat.faux
         .summary(gated(&deferred(), summary("SUMMARY"), Some(&reached)));
-    chat.faux.agent(answer("a4"));
     let input = submit(&chat, &text("u4", 200)).await;
     reached.wait().await;
     let child = compaction_tasks(&chat).await.remove(0);
     chat.harness.abort_task(child.id, context()).await.unwrap();
-    assert_eq!(
-        input.wait(context()).await.unwrap().state.status(),
-        SubmissionStatus::Done
-    );
-    assert!(!kinds(&chat.root)
-        .await
-        .iter()
-        .any(|kind| kind == "pi.compaction"));
+    fails_before_the_request(&chat, &input, "Compaction was aborted").await;
     chat.harness.close(context()).await.unwrap();
 }
 

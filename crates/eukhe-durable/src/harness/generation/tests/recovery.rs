@@ -716,3 +716,36 @@ async fn runs_a_print_style_turn_and_reads_the_durable_answer_after_reopen() {
     assert_eq!(read(&opened).await.unwrap(), answer);
     opened.harness.close(context()).await.unwrap();
 }
+
+/// Not in the TS suite: a blocking threshold compaction's `prepare`
+/// checkpoint has the TS shape `{ phase, attempt, compacted, threshold:
+/// true }`, and one stored before the marker existed still decodes.
+#[test]
+fn encodes_the_threshold_marker_like_ts_and_decodes_checkpoints_without_it() {
+    use eukhe_chord::json::{from_json, to_json};
+
+    use crate::harness::generation::GenerationCheckpoint;
+
+    let blocking = GenerationCheckpoint::Prepare {
+        attempt: 1,
+        compacted: Some(TaskId::from_number(5)),
+        overflow: None,
+        threshold: true,
+    };
+    assert_eq!(
+        to_json(&blocking).unwrap().to_string(),
+        r#"{"phase":"prepare","attempt":1,"compacted":5,"threshold":true}"#
+    );
+    assert_eq!(
+        from_json::<GenerationCheckpoint>(
+            &JsonValue::parse(r#"{"phase":"prepare","attempt":1,"compacted":5}"#).unwrap()
+        )
+        .unwrap(),
+        GenerationCheckpoint::Prepare {
+            attempt: 1,
+            compacted: Some(TaskId::from_number(5)),
+            overflow: None,
+            threshold: false,
+        }
+    );
+}

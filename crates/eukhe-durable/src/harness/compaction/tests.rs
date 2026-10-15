@@ -307,7 +307,7 @@ fn summarizes_an_earlier_summary_marker_first() {
 }
 
 #[test]
-fn writes_a_transcript_truncates_tool_results_and_omits_system_messages() {
+fn writes_a_transcript_truncates_tool_results_and_omits_system_messages_and_thinking() {
     let mut arguments = PiJsonObject::new();
     arguments.insert("path".to_owned(), "a.ts".into());
     let call = faux_tool_call("read", arguments, Some("c".to_owned()));
@@ -320,16 +320,13 @@ fn writes_a_transcript_truncates_tool_results_and_omits_system_messages() {
         )),
         tool_result("c", "y".repeat(2500)),
     ];
-    let serialized = serialize_conversation(&messages);
-    assert!(!serialized.contains("hidden"));
-    assert!(serialized.contains("[User]: hello"));
-    assert!(serialized.contains("[Assistant thinking]: hmm"));
-    assert!(serialized.contains("[Assistant]: sure"));
-    assert!(serialized.contains(r#"[Assistant tool calls]: read(path="a.ts")"#));
-    assert!(serialized.contains(&format!(
-        "[Tool result]: {}\n\n[... 500 more characters truncated]",
-        "y".repeat(2000)
-    )));
+    assert_eq!(
+        serialize_conversation(&messages),
+        format!(
+            "[User]: hello\n\n[Assistant]: sure\n\n[Assistant tool calls]: read(path=\"a.ts\")\n\n[Tool result]: {}\n\n[... 500 more characters truncated]",
+            "y".repeat(2000)
+        )
+    );
 }
 
 /// Not in the TS suite: the persisted checkpoint has the TS key order

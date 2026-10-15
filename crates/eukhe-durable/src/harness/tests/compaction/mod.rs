@@ -419,6 +419,35 @@ pub(super) async fn turn(chat: &Chat, user: &str, reply: &str) {
     );
 }
 
+/// Wait for `input` after the three [`history`] turns and check that its
+/// blocking compaction failed the run with `model_error` and `detail`
+/// before any request: nothing reached the model and no summary landed.
+pub(super) async fn fails_before_the_request(
+    chat: &Chat,
+    input: &crate::harness::SubmissionHandle,
+    detail: &str,
+) {
+    let settled = input.wait(context()).await.unwrap();
+    assert_eq!(
+        (
+            settled.state.status(),
+            settled.state.reason(),
+            settled.state.detail()
+        ),
+        (
+            SubmissionStatus::Unanswered,
+            Some("model_error"),
+            Some(&JsonValue::from(detail))
+        )
+    );
+    assert_eq!(chat.faux.agent_requests().len(), 3);
+    assert!(!kinds(&chat.root)
+        .await
+        .iter()
+        .any(|kind| kind == "pi.compaction"));
+    assert_eq!(live(chat).await, LiveState::default());
+}
+
 /// Three turns of about 100-token messages.
 pub(super) async fn history(chat: &Chat) {
     turn(chat, &text("u1", 100), &text("a1", 100)).await;

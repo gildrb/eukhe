@@ -11,9 +11,9 @@ use futures::FutureExt;
 use super::automatic::{event_kinds, record_events};
 use super::interactions::faulting;
 use super::{
-    answer, compact, compaction_tasks, doc, failure, first_user_text, gated, history, kinds, live,
-    open, result, step, submission, submission_id, submit, summary, text, turn, user_text,
-    with_stop, OpenOptions, BACKGROUND, BLOCKING, MANUAL, OVERFLOW,
+    answer, compact, compaction_tasks, doc, fails_before_the_request, failure, first_user_text,
+    gated, history, kinds, live, open, result, step, submission, submission_id, submit, summary,
+    text, turn, user_text, with_stop, OpenOptions, BACKGROUND, BLOCKING, MANUAL, OVERFLOW,
 };
 use crate::errors::StorageError;
 use crate::harness::events::{watch_events, AgentEvent};
@@ -159,7 +159,7 @@ async fn starts_no_background_compaction_after_a_blocking_one_in_the_same_genera
 // summarize error, here the negative `maxTokens` pinned from a policy
 // changed after preparation, which the phase rejects.
 #[tokio::test]
-async fn sends_the_request_anyway_when_its_blocking_compaction_faults() {
+async fn fails_the_run_with_model_error_when_its_blocking_compaction_faults() {
     let chat = open(small()).await;
     history(&chat).await;
     chat.set_policy(BLOCKING);
@@ -180,12 +180,13 @@ async fn sends_the_request_anyway_when_its_blocking_compaction_faults() {
         None,
     )
     .unwrap();
-    turn(&chat, &text("u4", 200), "a4").await;
-    assert!(!kinds(&chat.root)
-        .await
-        .iter()
-        .any(|kind| kind == "pi.compaction"));
-    assert_eq!(live(&chat).await.compactions, None);
+    let input = submit(&chat, &text("u4", 200)).await;
+    fails_before_the_request(
+        &chat,
+        &input,
+        "Compaction failed: maxTokens -800 is not a non-negative integer",
+    )
+    .await;
     chat.harness.close(context()).await.unwrap();
 }
 

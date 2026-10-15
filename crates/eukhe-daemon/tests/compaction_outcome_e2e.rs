@@ -508,7 +508,8 @@ fn forced_failed_auto_compaction_records_the_durable_outcome_row() {
     // pi-durable checks the threshold before each request, not at the
     // settled crossing turn: the next prompt's preparation fires the
     // blocking compaction, and the mock fails its summarizer request. The
-    // run then sends its request on the un-compacted context and answers.
+    // context it judged too large is never sent: the run fails with
+    // `model_error` (pi-durable 1.2) and the waited prompt answers its text.
     mock.fail_summarizer.store(true, Ordering::SeqCst);
     client.send_command(
         "p3",
@@ -516,17 +517,22 @@ fn forced_failed_auto_compaction_records_the_durable_outcome_row() {
     );
     let compacting = client.read_response("p3");
     assert_eq!(
-        compacting["success"], true,
-        "compacting prompt failed: {compacting}"
+        compacting["success"], false,
+        "the compacting prompt fails: {compacting}"
     );
     let summarizer_index = 2; // turn 1, turn 2, then turn 3's compaction summarizer
+    let failed_turn_requests = mock.requests.lock().expect("mock lock").clone();
     assert!(
-        mock.requests
-            .lock()
-            .expect("mock lock")
+        failed_turn_requests
             .get(summarizer_index)
             .is_some_and(is_summarizer_request),
         "the compaction summarizer request never arrived"
+    );
+    assert!(
+        failed_turn_requests[summarizer_index..]
+            .iter()
+            .all(is_summarizer_request),
+        "the failed compaction's run sent no turn request"
     );
     client.wait_for_event(
         Duration::from_mins(1),
@@ -571,6 +577,11 @@ fn forced_failed_auto_compaction_records_the_durable_outcome_row() {
         "the row carries the failure message: {failure_message}"
     );
     assert_eq!(
+        compacting["error"],
+        json!(failure_message.replacen("Auto-compaction failed:", "Compaction failed:", 1)),
+        "the prompt answers the run's model_error text"
+    );
+    assert_eq!(
         row["details"],
         json!({"reason": "threshold", "outcome": "failed"})
     );
@@ -613,10 +624,10 @@ fn forced_failed_auto_compaction_records_the_durable_outcome_row() {
         json!({"reason": "threshold", "outcome": "failed"})
     );
 
-    // The next turn runs, and no provider request after the failed
-    // compaction (the compacting turn's own request included) ever
-    // contains the disclosure — the model-context exclusion that keeps the
-    // KV-cacheable prefix unaffected.
+    // The next turn runs (its own blocking compaction now succeeds), and no
+    // provider request after the failed compaction ever contains the
+    // disclosure — the model-context exclusion that keeps the KV-cacheable
+    // prefix unaffected.
     mock.fail_summarizer.store(false, Ordering::SeqCst);
     client.send_command(
         "p4",
@@ -630,9 +641,8 @@ fn forced_failed_auto_compaction_records_the_durable_outcome_row() {
         .filter(|body| !is_summarizer_request(body))
         .collect();
     assert!(
-        turn_requests.len() >= 2,
-        "the compacting and next turns reached the provider: {}",
-        turn_requests.len()
+        !turn_requests.is_empty(),
+        "the next turn reached the provider"
     );
     for request in turn_requests {
         let serialized = serde_json::to_string(request).expect("serialize request");

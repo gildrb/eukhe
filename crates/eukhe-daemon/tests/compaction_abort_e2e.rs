@@ -566,13 +566,21 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
     assert_eq!(aborted["success"], true, "abort failed: {aborted}");
     assert_eq!(aborted["command"], "abort_compaction");
 
-    // The turn completes after the cancelled compaction (TS: the aborted
-    // arm records the outcome and returns without stalling the loop;
-    // pi-durable's run then sends its request on the un-compacted context).
+    // The cancelled compaction fails the turn (pi-durable 1.2): the context
+    // it judged too large is never sent, the run settles `model_error`, and
+    // the waited prompt answers its text (TS: the aborted arm records the
+    // outcome and returns without stalling the loop).
     let compacting = client.read_response("p3");
     assert_eq!(
-        compacting["success"], true,
-        "compacting prompt failed: {compacting}"
+        (&compacting["success"], &compacting["error"]),
+        (&json!(false), &json!("Compaction was aborted")),
+        "the compacting prompt fails: {compacting}"
+    );
+    assert!(
+        mock.requests.lock().expect("mock lock")[summarizer_index..]
+            .iter()
+            .all(is_summarizer_request),
+        "the aborted compaction's run sent no turn request"
     );
     // The run's trailing frames can land well after the response (the
     // supervisor's event forwarding lags under parallel load), so wait
@@ -676,8 +684,8 @@ fn abort_compaction_mid_threshold_run_records_the_cancelled_outcome() {
         json!({"reason": "threshold", "outcome": "cancelled"})
     );
 
-    // The next turn works on the un-compacted context (the disclosure row
-    // never reaches the provider request).
+    // The next turn runs (its own blocking compaction now completes), and
+    // the disclosure row never reaches the provider request.
     mock.hold_summarizer.store(false, Ordering::SeqCst);
     let before_next = mock.request_count();
     client.send_command(

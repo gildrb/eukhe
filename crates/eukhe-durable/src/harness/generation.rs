@@ -65,6 +65,10 @@ pub enum GenerationCheckpoint {
         /// when `prepare` resumes.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         overflow: Option<String>,
+        /// Set when `compacted` is a blocking threshold compaction; checked
+        /// once when `prepare` resumes.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        threshold: bool,
     },
     #[serde(rename_all = "camelCase")]
     Request {
@@ -155,6 +159,7 @@ pub static GENERATION_TASK: LazyLock<GenerationTask> = LazyLock::new(|| {
                     attempt: 1,
                     compacted: None,
                     overflow: None,
+                    threshold: false,
                 })
             },
             abort,
@@ -211,6 +216,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         attempt,
         compacted,
         overflow,
+        threshold: blocked,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("prepare"));
@@ -238,6 +244,25 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         );
         if !compacted_entry {
             return fail_model_error(&runtime, overflow.clone(), &cx).await;
+        }
+    }
+    // A threshold compaction that found nothing to compact or was declined
+    // leaves a request that may still fit. One that failed left a context it
+    // judged too large: sending it would at best leave no room for the answer.
+    if let (Some(compacted), true) = (compacted, blocked) {
+        let outcomes = runtime
+            .outcomes::<CompactionResult>(&[compacted], &cx)
+            .await?;
+        let failure = match outcomes.first() {
+            None | Some(TaskOutcome::Completed { .. }) => None,
+            Some(TaskOutcome::Failed { error, .. } | TaskOutcome::Faulted { error }) => {
+                Some(format!("Compaction failed: {}", error.message))
+            }
+            Some(TaskOutcome::Orphaned { reason }) => Some(format!("Compaction failed: {reason}")),
+            Some(TaskOutcome::Aborted { .. }) => Some("Compaction was aborted".to_owned()),
+        };
+        if let Some(failure) = failure {
+            return fail_model_error(&runtime, failure, &cx).await;
         }
     }
     let view = runtime
@@ -299,6 +324,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                         attempt,
                         compacted: Some(child),
                         overflow: None,
+                        threshold: true,
                     };
                     Ok(Some(Next::Waiting {
                         checkpoint,
@@ -467,6 +493,7 @@ async fn retry(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
                         attempt: attempt + 1,
                         compacted,
                         overflow: None,
+                        threshold: false,
                     },
                 }))
             },
@@ -841,6 +868,7 @@ async fn classify(
                                 attempt,
                                 compacted: Some(child),
                                 overflow: Some(text),
+                                threshold: false,
                             },
                             on: vec![child.erase()],
                             policy: JoinPolicy::AllSettled,

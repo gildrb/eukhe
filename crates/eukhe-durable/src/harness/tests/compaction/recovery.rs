@@ -9,9 +9,9 @@ use futures::FutureExt;
 
 use super::automatic::{event_kinds, record_events};
 use super::{
-    answer, compact, failure, gated, history, kinds, live, open_scripted, result, script,
-    set_policy, set_retry, submission, submission_id, submit, summary, text, usage, Chat, Script,
-    BLOCKING, MANUAL, OVERFLOW,
+    answer, compact, compaction_tasks, fails_before_the_request, failure, gated, history, kinds,
+    live, open, open_scripted, result, script, set_policy, set_retry, submission, submission_id,
+    submit, summary, text, usage, Chat, OpenOptions, Script, BLOCKING, MANUAL, OVERFLOW,
 };
 use crate::harness::live::{CompactionStatus, LIVE_DOC};
 use crate::harness::tests::chat_support::{
@@ -24,7 +24,9 @@ use crate::harness::types::{
 };
 use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
 use crate::tasks::{define_task, TaskDefinition};
-use crate::types::{Storage, SubmissionStatus, TaskOptions, TaskOutcome, TaskOwnership, TaskState};
+use crate::types::{
+    Storage, StorageWrite, SubmissionStatus, TaskOptions, TaskOutcome, TaskOwnership, TaskState,
+};
 
 async fn sqlite(path: &Path) -> Arc<dyn Storage> {
     Arc::new(
@@ -119,6 +121,53 @@ async fn fails_an_overflow_run_with_its_text_when_its_compaction_fails_after_reo
     assert_eq!(settled.state.status(), SubmissionStatus::Unanswered);
     assert_eq!(settled.state.reason(), Some("model_error"));
     assert_eq!(settled.state.detail(), Some(&JsonValue::from(OVERFLOW)));
+    chat.harness.close(context()).await.unwrap();
+}
+
+#[tokio::test]
+async fn fails_the_run_with_model_error_when_its_blocking_compaction_is_orphaned_after_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = sqlite_path(&directory);
+    let mut chat = open(OpenOptions {
+        context_window: Some(1000),
+        storage: Some(sqlite(&path).await),
+        ..OpenOptions::default()
+    })
+    .await;
+    history(&chat).await;
+    chat.set_policy(BLOCKING);
+    let reached = deferred();
+    chat.faux
+        .summary(gated(&deferred(), summary("SUMMARY"), Some(&reached)));
+    let input = submit(&chat, &text("u4", 200)).await;
+    reached.wait().await;
+    let generation = live(&chat).await.run.unwrap().task_id;
+    let record = chat
+        .harness
+        .get_task(generation, context())
+        .await
+        .unwrap()
+        .unwrap();
+    let TaskState::Waiting { checkpoint, .. } = record.state else {
+        panic!("the generation waits");
+    };
+    assert_eq!(checkpoint["threshold"], JsonValue::from(true));
+    let child = compaction_tasks(&chat).await.remove(0).id;
+    chat.harness.close(context()).await.unwrap();
+    // Store the compaction as a newer version than this process registers,
+    // for example after a downgrade.
+    let storage = sqlite(&path).await;
+    let mut stored = storage.task(child, context()).await.unwrap().unwrap();
+    stored.version = 2;
+    storage
+        .commit(&[StorageWrite::Task { value: stored }], context())
+        .await
+        .unwrap();
+    storage.close(context()).await.unwrap();
+    chat = reopen(&path, chat.setup, chat.faux).await;
+    chat.harness.abort_task(child, context()).await.unwrap();
+    let input = submission(&chat, input.id()).await;
+    fails_before_the_request(&chat, &input, "Compaction failed: task_too_old").await;
     chat.harness.close(context()).await.unwrap();
 }
 

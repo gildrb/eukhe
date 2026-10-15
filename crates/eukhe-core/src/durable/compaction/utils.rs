@@ -222,16 +222,16 @@ pub fn serialize_conversation(messages: &[AgentMessage]) -> String {
             }
             AgentMessage::Assistant(assistant) => {
                 let mut text_parts: Vec<String> = Vec::new();
-                let mut thinking_parts: Vec<String> = Vec::new();
                 let mut tool_calls: Vec<String> = Vec::new();
                 for block in &assistant.content {
                     match block {
                         eukhe_types::ai::AssistantContentBlock::Text(text) => {
                             text_parts.push(text.text.clone());
                         }
-                        eukhe_types::ai::AssistantContentBlock::Thinking(thinking) => {
-                            thinking_parts.push(thinking.thinking.clone());
-                        }
+                        // Replayed thinking is often not in the live
+                        // context, so it could make the request larger
+                        // than the context it summarizes (pi-durable 1.2).
+                        eukhe_types::ai::AssistantContentBlock::Thinking(_) => {}
                         eukhe_types::ai::AssistantContentBlock::ToolCall(call) => {
                             let args = call
                                 .arguments
@@ -249,12 +249,6 @@ pub fn serialize_conversation(messages: &[AgentMessage]) -> String {
                             tool_calls.push(format!("#{tool_call_index} {}({args})", call.name));
                         }
                     }
-                }
-                if !thinking_parts.is_empty() {
-                    parts.push(format!(
-                        "[Assistant thinking]: {}",
-                        thinking_parts.join("\n")
-                    ));
                 }
                 if !text_parts.is_empty() {
                     parts.push(format!("[Assistant]: {}", text_parts.join("\n")));
@@ -386,6 +380,25 @@ mod tests {
         assert!(text.starts_with("[User]: do the thing"));
         assert!(text.contains("[Assistant]: doing it"));
         assert!(text.contains("[Assistant tool calls]: #1 edit(input="));
+    }
+
+    /// Thinking stays out of the summarizer's transcript: replayed thinking
+    /// could make the request larger than the context it summarizes.
+    #[test]
+    fn serialization_omits_thinking() {
+        let mut message = assistant_with_tool_call();
+        let AgentMessage::Assistant(assistant) = &mut message else {
+            unreachable!("assistant_with_tool_call builds an assistant message");
+        };
+        assistant.content.insert(
+            0,
+            serde_json::from_value(serde_json::json!({"type": "thinking", "thinking": "secret"}))
+                .expect("thinking block decodes"),
+        );
+        assert_eq!(
+            serialize_conversation(&[message]),
+            serialize_conversation(&[assistant_with_tool_call()])
+        );
     }
 
     fn tool_result(
