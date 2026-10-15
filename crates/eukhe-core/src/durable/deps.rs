@@ -2,6 +2,7 @@
 //! ([`SessionConfig`]) and the services its extensions share ([`HostDeps`]).
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
@@ -329,6 +330,42 @@ impl HarnessCell {
     }
 }
 
+/// The closing gate of the parent submissions a session's background work
+/// makes on its own (a child's report). A close aborts the parent's run
+/// before it closes the Harness, and that abort withdraws the parent's
+/// queued inputs; an input admitted after it would start a run on the
+/// closing session that outlives the abort. A child's report therefore
+/// admits through [`SessionClosing::admit`], and once the close began it
+/// stays owed to the reopened session.
+#[derive(Clone, Default)]
+pub(crate) struct SessionClosing {
+    closing: Arc<tokio::sync::RwLock<bool>>,
+}
+
+impl SessionClosing {
+    /// Refuse every later admission. Resolves once the admissions already
+    /// underway resolved, so an abort that follows withdraws what they
+    /// queued. Idempotent.
+    pub(crate) async fn begin(&self) {
+        *self.closing.write().await = true;
+    }
+
+    /// Start and await `admission` unless the close began (`None`); a close
+    /// that begins meanwhile waits until it resolves. `admission` starts
+    /// here, under the gate: a Harness call starts its work when called,
+    /// not when its future is first polled.
+    pub(crate) async fn admit<F: Future>(
+        &self,
+        admission: impl FnOnce() -> F,
+    ) -> Option<F::Output> {
+        let closing = self.closing.read().await;
+        if *closing {
+            return None;
+        }
+        Some(admission().await)
+    }
+}
+
 /// One kernel host request, with the durable tool call executing the cell
 /// that sent it.
 #[derive(Clone)]
@@ -443,6 +480,8 @@ pub struct HostDeps {
     /// Resolves once the `eukhe.compaction` observer serviced every commit
     /// published before the call; set when the observer starts.
     pub(crate) compaction_barrier: OnceLock<ObserverBarrier>,
+    /// The closing gate of the session's background parent submissions.
+    pub(crate) closing: SessionClosing,
 }
 
 /// A barrier through a commit observer's queue.
@@ -493,6 +532,7 @@ impl HostDeps {
             provider_runtime: std::sync::OnceLock::new(),
             rlm_kernels: OnceLock::new(),
             compaction_barrier: OnceLock::new(),
+            closing: SessionClosing::default(),
             semantic_edges: services.semantic_edges,
         }
     }
@@ -521,6 +561,14 @@ impl HostDeps {
         if let Some(barrier) = self.compaction_barrier.get() {
             barrier().await;
         }
+    }
+
+    /// Begin closing: from here on the session's background work submits
+    /// no new parent input (a child's report stays owed to the reopened
+    /// session). The worker calls it before the abort that precedes its
+    /// close; [`super::EukheSession::close`] calls it too. Idempotent.
+    pub async fn begin_close(&self) {
+        self.closing.begin().await;
     }
 
     pub(crate) fn take_services(&self) -> Vec<ServiceStart> {

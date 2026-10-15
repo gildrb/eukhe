@@ -362,7 +362,10 @@ impl RpcSession {
         // after the settle (it raced the write guard) is aborted, its
         // terminal frames still stream, and the old session closes idle.
         // An unreadable live state aborts too (the close must not wait a
-        // turn out).
+        // turn out). Closing begins before the abort, so the inputs it
+        // withdraws (a child's report) stay owed to a reopen instead of
+        // starting a run on the closing session.
+        handle.session.deps().begin_close().await;
         let old_main = handle.session.main();
         if !matches!(
             is_busy(handle.session.harness(), old_main.id(), &cx).await,

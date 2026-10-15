@@ -636,6 +636,10 @@ impl Worker {
             return;
         };
         self.stop_memory_updates();
+        // Closing begins before the abort: the abort withdraws the queued
+        // inputs (a child's report), and their owners must leave them to
+        // the reopened session, not start a run on this closing one.
+        hosted.deps().begin_close().await;
         if let Ok(main) = hosted.main() {
             if let Err(error) = main
                 .abort(ConversationAbortOptions::default(), &BACKGROUND_CONTEXT)

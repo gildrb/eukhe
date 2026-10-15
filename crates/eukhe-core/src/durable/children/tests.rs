@@ -48,7 +48,7 @@ use super::{
     RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
     RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
-use crate::durable::deps::{HarnessCell, HostCall, HostRequestRegistry};
+use crate::durable::deps::{HarnessCell, HostCall, HostRequestRegistry, SessionClosing};
 use crate::durable::observe::rlm_usage::{
     apply_child_usage_attributions, entry_assistant_usage, ChildUsageAttributionData,
     CHILD_USAGE_ATTRIBUTED_KIND,
@@ -458,6 +458,9 @@ struct Opened {
     /// every reply it got (`error: ...` for a refusal).
     batch: Arc<Mutex<(Value, Vec<String>)>>,
     held: Arc<HeldSpawn>,
+    /// The session's closing gate (the worker begins it before its close's
+    /// abort).
+    closing: SessionClosing,
 }
 
 /// A tool whose call runs the kernel's `rlm.spawn_batch` host request with
@@ -545,6 +548,7 @@ fn default_settings() -> Arc<EukheSettings> {
 async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> Opened {
     let cell = HarnessCell::default();
     let requests = HostRequestRegistry::default();
+    let closing = SessionClosing::default();
     let children = Children::new(ChildrenConfig {
         host: Some(host),
         parent_session_id: PARENT_SESSION_ID.to_owned(),
@@ -555,6 +559,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         semantic_edges: None,
         progress_note: None,
         settings: default_settings(),
+        closing: closing.clone(),
     });
     let batch = Arc::new(Mutex::new((Value::Null, Vec::new())));
     let held = Arc::new(HeldSpawn::default());
@@ -596,6 +601,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         requests,
         batch,
         held,
+        closing,
     }
 }
 
@@ -1292,6 +1298,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         semantic_edges: None,
         progress_note: None,
         settings: default_settings(),
+        closing: SessionClosing::default(),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1318,6 +1325,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         semantic_edges: None,
         progress_note: None,
         settings: default_settings(),
+        closing: SessionClosing::default(),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();

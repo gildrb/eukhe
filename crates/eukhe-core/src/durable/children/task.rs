@@ -36,6 +36,7 @@ use super::registry::{
     child_identity, read_children, tx_attribute_usage, tx_remove_row, tx_row, tx_update_row,
     ChildRow, ChildStatus,
 };
+use crate::durable::deps::SessionClosing;
 use crate::durable::observe::semantic_edges::{
     last_committed_request_id, SemanticEdgeRecorder, SEMANTIC_EDGES_LEDGER_FILENAME,
 };
@@ -62,6 +63,8 @@ pub(crate) struct ChildrenServices {
     /// The parent's semantic-edge recorder: a settled child's return is
     /// claimed on it before its notice (TS `recordChildReturned`).
     pub(crate) semantic_edges: Option<Arc<SemanticEdgeRecorder>>,
+    /// The parent's closing gate: a closing parent admits no report.
+    pub(crate) closing: SessionClosing,
 }
 
 /// Input of one child task (the validated `rlm.spawn` request).
@@ -159,7 +162,7 @@ pub(crate) fn child_task(services: &Arc<ChildrenServices>) -> ChildTask {
         )
         .phase(
             "report",
-            phase(|_services, task, runtime, cx| Box::pin(report(task, runtime, cx))),
+            phase(|services, task, runtime, cx| Box::pin(report(services, task, runtime, cx))),
         ),
     )
 }
@@ -478,38 +481,51 @@ async fn owner(
 /// Submit `report` to the parent as a follow-up under submission
 /// `ordinal`. The request id makes a rerun (a crash between the submission
 /// and the next commit) return the first submission instead of queueing a
-/// second report.
+/// second report. A closing parent admits none: its close aborts the run
+/// and withdraws the queued inputs first, so a report admitted after that
+/// would start a run on the closing session. The report stays owed to the
+/// reopened session, and the invocation waits for the close to end it.
 async fn submit_report(
+    services: &ChildrenServices,
     runtime: &Runtime,
     task: &Running,
     report: &ChildReport,
     ordinal: u32,
     cx: &Context,
 ) -> SessionResult<Arc<dyn Submission>> {
-    owner(runtime, task, cx)
-        .await?
-        .submit(
-            InputSubmissionDraft {
-                request_id: Some(report_request_id(task.id.erase(), ordinal)),
-                content: UserContent::Text(report.text()),
-                when_busy: Some(WhenBusy::FollowUp),
-                origin: report.origin(),
-                entry: None,
-            },
-            cx,
-        )
+    let conversation = owner(runtime, task, cx).await?;
+    let draft = InputSubmissionDraft {
+        request_id: Some(report_request_id(task.id.erase(), ordinal)),
+        content: UserContent::Text(report.text()),
+        when_busy: Some(WhenBusy::FollowUp),
+        origin: report.origin(),
+        entry: None,
+    };
+    match services
+        .closing
+        .admit(|| conversation.submit(draft, cx))
         .await
+    {
+        Some(submitted) => submitted,
+        None => Err(SessionError::Aborted(runtime.signal().cancelled().await)),
+    }
 }
 
 /// `report`: deliver the owed report, then end the task. The child is
 /// settled once its report is admitted, but the report stays owed until
 /// it reaches the parent's transcript: a queued input the parent's inbox
-/// withdraws (a conversation abort — the user's, or the session closing
-/// for a daemon shutdown) settles unanswered without an entry, and the
-/// report is submitted again under the next request id once the aborted
-/// run is over (an input queued behind a run that ends by abort waits for
-/// the next run).
-async fn report(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
+/// withdraws (a conversation abort) settles unanswered without an entry,
+/// and the report is submitted again under the next request id once the
+/// aborted run is over (an input queued behind a run that ends by abort
+/// waits for the next run). When the abort is a close's (a daemon
+/// shutdown, a session switch), the closing parent admits no submission
+/// and the reopened session delivers the report.
+async fn report(
+    services: Arc<ChildrenServices>,
+    task: Running,
+    runtime: Runtime,
+    cx: Context,
+) -> SessionResult<()> {
     let ChildCheckpoint::Report { report, withdrawn } = &task.checkpoint else {
         return Err(SessionError::error(
             "RLM child report phase without its checkpoint",
@@ -527,6 +543,7 @@ async fn report(task: Running, runtime: Runtime, cx: Context) -> SessionResult<(
         }
     }
     let submission = submit_report(
+        &services,
         &runtime,
         &task,
         &report,
@@ -617,7 +634,7 @@ async fn abort(
         }
     }
     if let Some((report, ordinal)) = owed {
-        submit_report(&runtime, &task, &report, ordinal, &cx).await?;
+        submit_report(&services, &runtime, &task, &report, ordinal, &cx).await?;
     }
     let reason = if row.delete_requested() {
         DELETED_BY_PARENT

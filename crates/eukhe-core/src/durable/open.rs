@@ -133,14 +133,16 @@ impl EukheSession {
         &self.deps
     }
 
-    /// Stop the session's services (reverse start order), then close the
-    /// Harness after its running tasks settle. Idempotent: a later call
-    /// stops nothing and awaits the same Harness close.
+    /// Begin closing ([`HostDeps::begin_close`]), stop the session's
+    /// services (reverse start order), then close the Harness after its
+    /// running tasks settle. Idempotent: a later call stops nothing and
+    /// awaits the same Harness close.
     ///
     /// # Errors
     ///
     /// The Harness close failure.
     pub async fn close(&self, cx: &Context) -> SessionResult<()> {
+        self.deps.begin_close().await;
         let stops = std::mem::take(&mut *self.stops.lock().unwrap_or_else(PoisonError::into_inner));
         for stop in stops.into_iter().rev() {
             stop().await;

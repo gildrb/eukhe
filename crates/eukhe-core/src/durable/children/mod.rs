@@ -49,7 +49,7 @@ pub use wire::{
     RlmChildResult, RlmDeleteSubagentResult, RlmSpawnHandle, RlmSubagentActivity, RlmSubagentEntry,
 };
 
-use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink};
+use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink, SessionClosing};
 use crate::durable::observe::semantic_edges::SemanticEdgeRecorder;
 use crate::durable::settings::EukheSettings;
 use task::{child_task, ChildTask, ChildrenServices};
@@ -85,6 +85,8 @@ pub(crate) struct ChildrenConfig {
     pub(crate) semantic_edges: Option<Arc<SemanticEdgeRecorder>>,
     pub(crate) progress_note: Option<ProgressNoteSink>,
     pub(crate) settings: Arc<EukheSettings>,
+    /// The session's closing gate: a closing parent admits no report.
+    pub(crate) closing: SessionClosing,
 }
 
 impl Children {
@@ -96,6 +98,7 @@ impl Children {
             rlm_depth: config.rlm_depth,
             rlm_max_depth: config.rlm_max_depth,
             semantic_edges: config.semantic_edges,
+            closing: config.closing,
         });
         let task = child_task(&services);
         Arc::new(Self {
@@ -134,6 +137,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         semantic_edges: Some(Arc::clone(&deps.semantic_edges)),
         progress_note: deps.progress_note.clone(),
         settings: Arc::clone(&deps.settings),
+        closing: deps.closing.clone(),
     })
     .install(&deps.host_requests)
 }

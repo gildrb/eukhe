@@ -1,6 +1,9 @@
 //! A child's task prompt and report delivery around a busy spawning call:
-//! a call that spawns and then waits on the child sees it run, and a
-//! queued report an abort withdraws is delivered again, once.
+//! a call that spawns and then waits on the child sees it run, a queued
+//! report an abort withdraws is delivered again, once, and one a close's
+//! abort withdraws is left to the reopened session.
+
+use eukhe_chord::json::from_json;
 
 use super::super::notice::ChildReport;
 use super::super::task::ChildCheckpoint;
@@ -150,8 +153,8 @@ async fn a_call_that_spawns_then_waits_sees_the_child_settle() {
 }
 
 /// A report queued behind a busy parent turn that an abort withdraws (the
-/// worker's close for a daemon shutdown aborts the conversation) is
-/// submitted again under the next request id and reaches the parent once.
+/// user's) is submitted again under the next request id and reaches the
+/// parent once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_withdrawn_report_is_delivered_again_once() {
     let setup = setup();
@@ -212,6 +215,98 @@ async fn a_withdrawn_report_is_delivered_again_once() {
     );
     assert!(lock(&setup.reports).is_empty());
     opened.harness.close(cx()).await.unwrap();
+}
+
+/// A report the close's abort withdraws (the worker's close for a daemon
+/// shutdown or a session switch begins closing, then aborts the parent)
+/// is not submitted again on the closing session, where its run would
+/// outlive the abort, and the reopened session delivers it once. The
+/// regression: the closing session ran a turn for it, so the reopened one
+/// never answered it.
+///
+/// Paused clock: the sleep before the close ends only once every runnable
+/// task parked, so the closing session had every chance to resubmit.
+#[tokio::test(start_paused = true)]
+async fn a_report_the_close_withdraws_is_delivered_by_the_reopened_session() {
+    let setup = setup();
+    let host = FakeHost::new();
+    // Its close leaves the records to the reopened Harness.
+    let storage = Arc::new(GatedStorage {
+        inner: Arc::new(MemoryStorage::new()),
+        refuse_terminal: AtomicBool::new(false),
+        refused: AtomicUsize::new(0),
+    });
+    let opened = open(
+        Arc::clone(&storage) as Arc<dyn Storage>,
+        &setup,
+        Arc::clone(&host),
+    )
+    .await;
+    setup.faux.append_responses(vec![call_spawn_collect_hold()]);
+    submit_input(&opened, "go").await;
+    let row = spawned_and_collected(&opened, &host).await;
+    let task = TaskId::from_number(row.task_id);
+    let submission = |ordinal| {
+        let storage = Arc::clone(&storage.inner);
+        async move {
+            storage
+                .submission_by_request(
+                    ROOT_CONVERSATION_ID,
+                    &report_request_id(task, ordinal),
+                    cx(),
+                )
+                .await
+                .unwrap()
+        }
+    };
+    eventually(|| async { submission(1).await.is_some() }).await;
+
+    // The close: closing begins, then the abort withdraws the queued report.
+    setup.faux.append_responses(vec![answer("noted")]);
+    opened.closing.begin().await;
+    opened
+        .root
+        .abort(ConversationAbortOptions::default(), cx())
+        .await
+        .unwrap();
+    eventually(|| async {
+        let record = opened.harness.get_task(task, cx()).await.unwrap().unwrap();
+        let checkpoint = record.state.checkpoint().expect("a live task's checkpoint");
+        matches!(
+            from_json(checkpoint).unwrap(),
+            ChildCheckpoint::Report { withdrawn: 1, .. }
+        )
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    opened.harness.close(cx()).await.unwrap();
+    assert!(submission(2).await.is_none());
+
+    let reopened = open(
+        Arc::clone(&storage) as Arc<dyn Storage>,
+        &setup,
+        Arc::clone(&host),
+    )
+    .await;
+    reopened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(row.task_id), cx())
+        .await
+        .unwrap();
+    reopened.root.wait_for_idle(cx()).await.unwrap();
+    assert_eq!(
+        submission(2).await.unwrap().state.status(),
+        SubmissionStatus::Done
+    );
+    assert_eq!(
+        user_texts(&reopened.root, "[child-exited").await,
+        [format!(
+            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            row.session_name
+        )]
+    );
+    assert!(lock(&setup.reports).is_empty());
+    reopened.harness.close(cx()).await.unwrap();
 }
 
 /// Checkpoints stored before these changes still decode: a `prompt`
